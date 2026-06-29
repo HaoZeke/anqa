@@ -582,7 +582,7 @@ jobs = Jobs
 
 jobs-tab = Jobs
 
-keyboard-help-title = Keyboard help
+keyboard-help-title = Help
 
 launch = Launch
 

@@ -1,45 +1,36 @@
-[bold]groket — keyboard[/bold]
+[bold]Keys[/bold]
 
-[bold]Navigation (standard TUI)[/bold]
-  Tab / Shift+Tab   Focus between widgets (forms, buttons, tables)
-  ↑↓←→ Home End     Selection [italic]inside[/italic] tables / lists
-  Enter / Space       Activate focused button or open selected row
-  Esc               Back / dismiss modal (always available)
-  Mouse             Optional; every action has a key or palette entry
+Tab / Shift+Tab    move between controls
+Arrows / Home / End  move inside lists
+Enter / Space      open or activate
+Esc                back or close
+?                  this help
+Ctrl+P             command palette (everything for this screen)
+F5 / Ctrl+R        refresh
+j                  jobs and logs
+q                  quit (from the session list)
 
-[bold]Global[/bold]
-  ?                 This help (same text everywhere)
-  Ctrl+P            Command palette — all actions for this screen
-  F5 / Ctrl+R       Refresh current context
-  j                 Jobs / logs modal
-  Ctrl+P            Command palette — includes Toggle tips / callouts
-  q                 Quit (sessions home)
+[bold]Session list[/bold]
+Enter open · / search · r new run · C recipes · P personas
+s select · S select all · a analyze · x delete (twice)
+Ctrl+S save row as a recipe
 
-[bold]Sessions home[/bold]
-  Enter Open · / Search · r Runner · C Configs · P Personas
-  s / space Select (green *) · S Select all · a Analyze · d Rules · R Re-run · x Delete
-  Ctrl+S  Save session as reusable run config (highlighted / marked row)
+[bold]Session browser[/bold]
+[ ] or 1–6     panes (timeline, findings, summary, diff, report, stats)
+v              timeline view filter
+f              flag event
+n              follow-up prompt · e done (multi-turn)
+x              delete this session (twice)
+s              open share link
 
-[bold]Browser — session panes[/bold]
-  [ ]     Prev / next pane (Footer)
-  1–6     Jump Timeline · Findings · Summary · Diff · Report · Stats
-          (titles show the digit; i = Findings)
-  Report tab: ## Flags (human) then ## Findings (automated)
-  Timeline: ⚑ flag · ⚠ finding (red/orange/yellow) on Summary; tool errors = red underlined Type
+[bold]Runner[/bold]
+Ctrl+Enter launch · Ctrl+S save recipe · [ ] panes
 
-[bold]Browser — timeline view[/bold] (dropdown on Timeline)
-  v       Focus View select — change with arrows/Enter (label shows active view)
-  c       Reset View to All + clear search · / search
-  f       Flag event · Ctrl+S Save flag (in flag modal) · / search
-  s Share · x export finding (Findings tab + selection)
-[bold]Ctrl+S — Save / confirm[/bold] (priority binding; works in Input/TextArea)
-  Sessions list · Runner form · Persona editor · MCP configure · Flag · Analysis settings
-  Multi-pickers (MCP/plugins/skills): Ctrl+S = Done (commit marks), not disk save
-[bold]Runner[/bold]  Ctrl+Enter Launch · Ctrl+S Save recipe · n/p Personas
-[bold]Configs[/bold]  Enter Open · l Launch · w Launch selected · s/space Select · n New
-[bold]MCP / plugins / skills pickers[/bold]  s/space Select · Ctrl+S Done · esc Cancel
-[bold]Personas[/bold]  n New · Enter Edit · x Delete
-[bold]Persona editor[/bold]  [ ] · 1–6 · Ctrl+S Save persona
-[bold]Rules[/bold]  t Toggle · a Enable all · A Disable all
+[bold]Recipes & personas[/bold]
+Enter open · l launch · s select · n new · x delete
+Editor: [ ] panes · Ctrl+S save
 
-[dim]Discoverability: Footer (primary keys) + ? (this) + Ctrl+P (everything). Tips use a cyan callout; keys in tips use the same reverse style as the Footer.[/dim]
+[bold]Pickers[/bold]
+s select · Ctrl+S done · Esc cancel
+
+[dim]Footer shows primary keys. Ctrl+P lists the rest.[/dim]
