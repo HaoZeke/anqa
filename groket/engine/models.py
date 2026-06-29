@@ -51,6 +51,3 @@ def match_to_finding(
     )
 
 
-# Back-compat name used by older plugins/docs
-Issue = Finding
-CompositeMatch = Finding

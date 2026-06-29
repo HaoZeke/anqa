@@ -29,14 +29,26 @@ make test       # pytest
 make ci         # lint + test
 ```
 
+## Paths
+
+| Root | Default | Role |
+|------|---------|------|
+| Config home | `~/.groket` | `config.json`, personas, detectors, rules, analysis plugins, cache |
+| Work dir | `~/.groket/work` (`GROKET_WORK_DIR` or CLI path) | Traces, run configs, Docker build contexts, batch results |
+
+```bash
+uv run groket                           # work dir: ~/.groket/work
+uv run groket /path/to/work             # open that work root
+```
+
 ## Key concepts
 
 | Concept | What |
 |---------|------|
-| **Session** | One model run — traces under `runs/traces/<container>/<session-id>/` |
+| **Session** | One model run — traces under `<work>/runs/traces/<container>/<session-id>/` |
 | **Run config** | Reusable recipe: prompt, models, persona. Auto-saved on launch. |
-| **Persona** | Environment profile — Docker image, MCP servers, skills, env vars |
-| **Detector** | Rule that flags patterns in traces (tool failures, inefficiency) |
+| **Persona** | Environment profile — Docker image, MCP servers, skills, env vars (`~/.groket/personas`) |
+| **Detector** | Rule that flags patterns in traces (install under `~/.groket/detectors` + `rules`) |
 | **Finding** | Automated detector hit shown in the Report tab |
 | **Flag** | Manual annotation on a timeline event (verdict + note) |
 
@@ -59,5 +71,5 @@ make ci         # lint + test
 
 | Variable | Purpose |
 |----------|---------|
-| `GROKET_WORK_DIR` | Default work directory (fallback: `~/groket`) |
+| `GROKET_WORK_DIR` | Default work directory (fallback: `~/.groket/work`) |
 | `GROKET_GH_TOKEN` | GitHub PAT for eval containers |

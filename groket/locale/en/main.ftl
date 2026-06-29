@@ -1705,9 +1705,7 @@ ui-pat-for-this-persona = [dim]PAT for this persona[/dim]
 
 ui-path = Path
 
-ui-paths-are-set-on-the-command-line-restart-groket =
-    
-    [dim]Paths are set on the command line (restart groket to change).[/dim]
+ui-paths-are-set-on-the-command-line-restart-groket = [dim]Paths are set on the command line (restart groket to change).[/dim]
 
 ui-pending-analysis = [/yellow] pending analysis
 
@@ -2178,9 +2176,7 @@ ui-total-2 = TOTAL
 
 ui-trace-evaluation-error-hunting = Trace Evaluation & Error Hunting
 
-ui-traces =
-    
-    [bold]Traces[/bold]  
+ui-traces = [bold]Traces[/bold]  
 
 ui-traces-path-not-found-yet-runner-writes-to = Traces path not found yet — Runner writes to 
 
@@ -2322,7 +2318,7 @@ activity-sessions = Sessions { $n }
 status-running = running
 status-cancelled = cancelled
 status-complete = complete
-status-waiting-prompt = waiting for prompt
+status-waiting-prompt = awaiting
 status-unknown = —
 
 # Follow-up shortcut (sessions home + browser)

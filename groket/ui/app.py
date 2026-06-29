@@ -17,6 +17,7 @@ from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Container, Horizontal, Vertical
+from textual.message import Message
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import (
@@ -108,7 +109,9 @@ class InteractiveSessionsModal(ModalScreen[str | None]):
         self._submit_follow()
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from .bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     @on(Button.Pressed, "#interactive-send")
     def _on_send(self) -> None:
@@ -173,7 +176,9 @@ class AnalysisSettingsModal(ModalScreen[bool]):
                 yield Button(U.cancel(), id="as-cancel")
 
     def action_cancel(self) -> None:
-        self.dismiss(False)
+        from .bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, False)
 
     def action_save(self) -> None:
         self._persist()
@@ -328,6 +333,20 @@ class TraceEvalApp(App):
 
     _CONFIG_PATH = APP_HOME / CONFIG_FILENAME
 
+    class _BgStatus(Message):
+        """Worker → UI: container status with a session_dir (thread-safe via post_message)."""
+
+        def __init__(self, status: object) -> None:
+            super().__init__()
+            self.status = status
+
+    class _BgFinished(Message):
+        """Worker → UI: background run finished."""
+
+        def __init__(self, run: BackgroundRun) -> None:
+            super().__init__()
+            self.run = run
+
     def __init__(
         self,
         traces_path: Path | None = None,
@@ -371,7 +390,6 @@ class TraceEvalApp(App):
         self._plugin_results: dict[str, dict[str, AnalysisResult]] = {}
         self._selected: set[str] = set()
         self._filter_model: str = ""
-        self._filter_task: str = ""
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
         self._delete_row_keys_snapshot: list[str] | None = None
@@ -390,10 +408,7 @@ class TraceEvalApp(App):
         yield Header()
         yield ActivityBar()
         with Vertical():
-            with Horizontal(id="session-bar"):
-                yield Input(placeholder=U.traces_path_placeholder(), id="traces-path-input")
-                yield Button(U.load(), variant="primary", id="load-btn")
-                yield Button(U.load_groket_home(), id="load-grok-btn")
+            yield Static("", id="session-paths")
             yield Static("", id="session-summary")
             with Horizontal(id="session-filter-bar", classes=FILTER_BAR_CLASS):
                 yield Static(U.filter_label(), classes=FILTER_LABEL_CLASS)
@@ -401,13 +416,6 @@ class TraceEvalApp(App):
                     [(U.all_models(), _SESSION_FILTER_ALL)],
                     value=_SESSION_FILTER_ALL,
                     id="session-model-select",
-                    allow_blank=False,
-                    classes=t("ui-field-select-session-filter-select"),
-                )
-                yield Select(
-                    [(U.all_tasks(), _SESSION_FILTER_ALL)],
-                    value=_SESSION_FILTER_ALL,
-                    id="session-task-select",
                     allow_blank=False,
                     classes=t("ui-field-select-session-filter-select"),
                 )
@@ -421,16 +429,14 @@ class TraceEvalApp(App):
         return Path(self.work_dir).expanduser() / "runs" / "traces"
 
     def _update_session_paths_banner(self) -> None:
-        """Read-only work_dir + traces paths (not editable in the TUI)."""
+        """Read-only traces root (sessions live here; not the process cwd)."""
         try:
             banner = self.query_one("#session-paths", Static)
         except Exception:
             return
         traces = self._session_traces_root()
-        wd = Path(self.work_dir).expanduser()
-        banner.update(
-            f"{t('ui-work')}{wd}{t('ui-traces')}{traces}{t('ui-paths-are-set-on-the-command-line-restart-groket')}"
-        )
+        # Fluent strips trailing spaces in labels — join with explicit separators.
+        banner.update(f"[dim]Traces[/dim]  {traces}")
 
     def _load_config(self) -> dict:
         try:
@@ -492,7 +498,7 @@ class TraceEvalApp(App):
             set_analysis_service(svc)
             if svc.load_failures:
                 self.notify(
-                    f"{t('ui-failed-to-load')}{len(svc.load_failures)}{t('ui-plugin-s')}"
+                    f"{t('ui-failed-to-load')} {len(svc.load_failures)} {t('ui-plugin-s')}"
                     + ", ".join(svc.load_failures),
                     severity="error",
                     timeout=15,
@@ -527,45 +533,22 @@ class TraceEvalApp(App):
             self.sub_title = "  ·  ".join(bits)
         except Exception:
             pass
-        if self.traces_path:
-            load_p = Path(self.traces_path)
-            try:
-                (self.work_dir / "runs" / "traces").mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
-            self.query_one("#traces-path-input", Input).value = str(load_p)
-            if load_p.exists():
-                self._load_sessions(load_p)
-            else:
-                self.notify(
-                    f"{t('ui-traces-path-not-found-yet-runner-writes-to')}{self.work_dir / 'runs' / 'traces'}",
-                    severity="information",
-                    timeout=6,
-                )
-        elif self._config.get("last_directory"):
-            last = Path(self._config["last_directory"])
-            if last.is_dir():
-                self.query_one("#traces-path-input", Input).value = str(last)
-                self._load_sessions(last)
+        try:
+            (self.work_dir / "runs" / "traces").mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        self._update_session_paths_banner()
+        load_p = self._session_traces_root()
+        if load_p.exists():
+            self._load_sessions(load_p)
+        else:
+            self.notify(
+                f"{t('ui-traces-path-not-found-yet-runner-writes-to')}{self.work_dir / 'runs' / 'traces'}",
+                severity="information",
+                timeout=6,
+            )
         table.focus()
         self._schedule_live_sessions_poll()
-
-    @on(Button.Pressed, "#load-btn")
-    def _on_load(self) -> None:
-        path_str = self.query_one("#traces-path-input", Input).value.strip()
-        if path_str:
-            path = Path(path_str).expanduser()
-            self._load_sessions(path)
-            self.traces_path = path
-        else:
-            self.notify(U.enter_traces_path(), severity="warning")
-
-    @on(Button.Pressed, "#load-grok-btn")
-    def _on_load_grok(self) -> None:
-        grok_path = Path.home() / ".grok" / "sessions"
-        self.query_one("#traces-path-input", Input).value = str(grok_path)
-        self.traces_path = grok_path
-        self._load_sessions(grok_path)
 
     _CACHE_FILE = META_CACHE_FILENAME
 
@@ -646,14 +629,12 @@ class TraceEvalApp(App):
         for result in results:
             if result is not None:
                 self._meta_only.append(result)
-        self._config["last_directory"] = str(root)
-        self._save_config()
         self._save_meta_cache(root, self._meta_only)
         self.call_from_thread(self._rebuild_session_filters)
         self.call_from_thread(self._populate_session_table)
         self.call_from_thread(
             self.notify,
-            f"{t('ui-loaded')}{len(self._meta_only)}{t('ui-sessions-press-a-to-run-detectors')}",
+            f"{t('ui-loaded')} {len(self._meta_only)} {t('ui-sessions-press-a-to-run-detectors')}",
             severity="information",
         )
 
@@ -703,7 +684,7 @@ class TraceEvalApp(App):
             pass
         self.call_from_thread(
             self.notify,
-            f"{t('ui-analyzing')}{len(pending)}{t('ui-sessions-1')}{n_plugins}{t('ui-plugins')}",
+            f"{t('ui-analyzing')} {len(pending)} {t('ui-sessions-1')} {n_plugins} {t('ui-plugins')}",
             severity="information",
         )
         self._analysis_jobs_active = max(0, int(self._analysis_jobs_active)) + len(pending)
@@ -720,7 +701,7 @@ class TraceEvalApp(App):
             raise
         self.call_from_thread(
             self.notify,
-            f"{t('ui-analysis-complete')}{len(pending)}{t('ui-sessions-2')}",
+            f"{t('ui-analysis-complete')} {len(pending)} {t('ui-sessions-2')}",
             severity="information",
         )
 
@@ -746,11 +727,6 @@ class TraceEvalApp(App):
         )
         return [(U.all_models(), _SESSION_FILTER_ALL), *[(m, m) for m in models]]
 
-    def _session_task_options(self) -> list[tuple[str, str]]:
-        tasks = sorted({meta.task_id for meta, _ in self._meta_only if meta.task_id})
-        tasks = tasks[:40]
-        return [(U.all_tasks(), _SESSION_FILTER_ALL), *[(t, t) for t in tasks]]
-
     @staticmethod
     def _select_value_to_filter(value: object) -> str:
         """Map Select value to internal filter (``all`` / blank → no filter)."""
@@ -764,43 +740,25 @@ class TraceEvalApp(App):
         return filt if filt else _SESSION_FILTER_ALL
 
     def _rebuild_session_filters(self) -> None:
-        """Refresh Model / Task Select options from loaded session metadata."""
+        """Refresh Model Select options from loaded session metadata."""
         model_opts = self._session_model_options()
-        task_opts = self._session_task_options()
         model_vals = {v for _, v in model_opts}
-        task_vals = {v for _, v in task_opts}
         model_sel_val = self._filter_to_select_value(self._filter_model)
-        task_sel_val = self._filter_to_select_value(self._filter_task)
         if model_sel_val not in model_vals:
             self._filter_model = ""
             model_sel_val = _SESSION_FILTER_ALL
-        if task_sel_val not in task_vals:
-            self._filter_task = ""
-            task_sel_val = _SESSION_FILTER_ALL
         try:
             model_sel = self.query_one("#session-model-select", Select)
             model_sel.set_options(model_opts)
             model_sel.value = model_sel_val
         except Exception:
             logger.debug(t("ui-session-model-select-update-failed"), exc_info=True)
-        try:
-            task_sel = self.query_one("#session-task-select", Select)
-            task_sel.set_options(task_opts)
-            task_sel.value = task_sel_val
-        except Exception:
-            logger.debug(t("ui-session-task-select-update-failed"), exc_info=True)
 
     def _set_session_filter_selects(self) -> None:
-        """Push ``_filter_*`` state into Select widgets (keyboard cycle actions)."""
+        """Push ``_filter_model`` into the Model Select (keyboard cycle)."""
         try:
             self.query_one("#session-model-select", Select).value = self._filter_to_select_value(
                 self._filter_model
-            )
-        except Exception:
-            pass
-        try:
-            self.query_one("#session-task-select", Select).value = self._filter_to_select_value(
-                self._filter_task
             )
         except Exception:
             pass
@@ -810,13 +768,6 @@ class TraceEvalApp(App):
         if event.value is Select.BLANK:
             return
         self._filter_model = self._select_value_to_filter(event.value)
-        self._populate_session_table()
-
-    @on(Select.Changed, "#session-task-select")
-    def _on_session_task_filter(self, event: Select.Changed) -> None:
-        if event.value is Select.BLANK:
-            return
-        self._filter_task = self._select_value_to_filter(event.value)
         self._populate_session_table()
 
     @staticmethod
@@ -898,8 +849,6 @@ class TraceEvalApp(App):
         for meta, label in self._meta_only:
             if self._filter_model and meta.model_id != self._filter_model:
                 continue
-            if self._filter_task and meta.task_id != self._filter_task:
-                continue
             sd_key = str(meta.session_dir)
             results = self._plugin_results.get(sd_key)
             rows.append((meta, label, results))
@@ -932,8 +881,9 @@ class TraceEvalApp(App):
                 med_text = Text("--", style="dim")
             task_text = Text(meta.task_id[:20], style="cyan") if meta.task_id else Text("")
             status = meta.list_status_label()
-            if status == "waiting for prompt":
-                turn_text = Text(t("status-waiting-prompt"), style="bold yellow")
+            if status == "awaiting":
+                # Short + high contrast — full phrase was truncated in the Turn column.
+                turn_text = Text(t("status-waiting-prompt"), style="bold yellow on dark_blue")
             elif status == "running":
                 turn_text = Text(t("status-running"), style="bold yellow")
             elif status == "cancelled":
@@ -941,7 +891,7 @@ class TraceEvalApp(App):
             elif status == "complete":
                 turn_text = Text(t("status-complete"), style="green")
             else:
-                turn_text = Text(t("status-unknown"), style="dim")
+                turn_text = Text(status if status != "—" else t("status-unknown"), style="dim")
             try:
                 table.add_row(
                     sel,
@@ -974,15 +924,15 @@ class TraceEvalApp(App):
         self, total: int, analyzed: int, total_findings: int, total_high: int, pending: int
     ) -> None:
         sel_count = len(self._selected)
-        sel_part = f"{t('ui-msg')}{sel_count}{t('ui-selected')}" if sel_count else ""
+        sel_part = f"{t('ui-msg')} {sel_count} {t('ui-selected')}" if sel_count else ""
         scope = t("ui-report-uses-selected") if sel_count else ""
         if pending > 0 and analyzed > 0:
-            progress = f"{t('ui-msg-1')}{pending}{t('ui-pending-analysis')}"
+            progress = f"{t('ui-msg-1')} {pending} {t('ui-pending-analysis')}"
         elif pending > 0:
             progress = t("ui-a-analyze")
         else:
             progress = ""
-        summary = f"[bold]{total}{t('ui-sessions')}{total_findings}{t('ui-findings')}{total_high}{t('ui-high')}{progress}{sel_part}{scope}"
+        summary = f"[bold]{total} {t('ui-sessions')} {total_findings} {t('ui-findings')} {total_high} {t('ui-high')}{progress}{sel_part}{scope}"
         self.query_one("#session-summary", Static).update(summary)
 
     def _restore_cursor(self, table: DataTable, row_key_value: str) -> None:
@@ -1026,20 +976,6 @@ class TraceEvalApp(App):
             self._filter_model = models[0]
         self._set_session_filter_selects()
         self.notify(f"{t('ui-model-filter')}{self._filter_model or 'all'}")
-        self._populate_session_table()
-
-    def action_cycle_task_filter(self) -> None:
-        """Cycle task Select: all -> task1 -> … -> all (``g`` / command palette)."""
-        tasks = [v for _, v in self._session_task_options() if v != _SESSION_FILTER_ALL]
-        if not tasks:
-            return
-        if self._filter_task and self._filter_task in tasks:
-            idx = tasks.index(self._filter_task)
-            self._filter_task = tasks[idx + 1] if idx + 1 < len(tasks) else ""
-        else:
-            self._filter_task = tasks[0]
-        self._set_session_filter_selects()
-        self.notify(f"{t('ui-task-filter')}{self._filter_task or 'all'}")
         self._populate_session_table()
 
     def action_toggle_select(self) -> None:
@@ -1450,7 +1386,7 @@ class TraceEvalApp(App):
             self._delete_cursor_key = cursor_key
             self._delete_row_keys_snapshot = self._session_row_keys_in_order(table)
             self.notify(
-                f"{t('ui-press-again-to-delete')}{n}{t('ui-session-s-from-disk-traces-feedback-cache-run-co')}",
+                f"{t('ui-press-again-to-delete')} {n} {t('ui-session-s-from-disk-traces-feedback-cache-run-co')}",
                 severity="warning",
                 timeout=10,
             )
@@ -1496,8 +1432,8 @@ class TraceEvalApp(App):
                 sample = str(errors_list[0]) if errors_list else ""
                 err_hint = f" — {sample[:120]}"
             self.notify(
-                f"{t('ui-deleted')}{stats['deleted']}/{stats['requested']}{t('ui-session-s')}"
-                + (f"{t('ui-errors')}{err_n}{err_hint}" if err_n else ""),
+                f"{t('ui-deleted')} {stats['deleted']}/{stats['requested']} {t('ui-session-s')}"
+                + (f"{t('ui-errors')} {err_n}{err_hint}" if err_n else ""),
                 severity="warning" if err_n else "information",
                 timeout=12,
             )
@@ -1570,7 +1506,7 @@ class TraceEvalApp(App):
         def _done() -> None:
             try:
                 self.traces_path = traces_root
-                self.query_one("#traces-path-input", Input).value = str(traces_root)
+                self._update_session_paths_banner()
             except Exception:
                 pass
             try:
@@ -1584,7 +1520,7 @@ class TraceEvalApp(App):
                 return
             err_n = int(summary.get("analysis_err") or 0)
             self.notify(
-                f"{t('ui-refresh-done-sessions')}{summary.get('sessions_loaded', 0)}{t('ui-analyzed')}{summary.get('analysis_ok', 0)}{t('ui-errs')}{err_n}",
+                f"{t('ui-refresh-done-sessions')} {summary.get('sessions_loaded', 0)} {t('ui-analyzed')} {summary.get('analysis_ok', 0)} {t('ui-errs')} {err_n}",
                 severity="warning" if err_n else "information",
                 timeout=16,
             )
@@ -1690,11 +1626,11 @@ class TraceEvalApp(App):
             n = self.run_manager.active_count
             batches = self._run_manager_batch_ids()
             if batches:
-                self.title = f"{t('ui-groket-batch')}{batches[0][:12]}… · {n}{t('ui-run-s-j-jobs')}"
+                self.title = f"{t('ui-groket-batch')} {batches[0][:12]}… · {n} {t('ui-run-s-j-jobs')}"
             elif n:
                 cur = self.run_manager.latest()
                 rid = cur.run_id if cur else "?"
-                self.title = f"{t('ui-groket')}{n}{t('ui-run-s-latest')}{rid}{t('ui-j-jobs')}"
+                self.title = f"{t('ui-groket')} {n} {t('ui-run-s-latest')} {rid} {t('ui-j-jobs')}"
             else:
                 self.title = "groket"
         except Exception:
@@ -1747,9 +1683,17 @@ class TraceEvalApp(App):
                 return
             if not self.is_running:
                 return
-            self.call_from_thread(self._on_live_session_discovered, status)
+            # post_message is thread-safe; call_from_thread raises if already on the app thread
+            # (e.g. quit/cancel races).
+            self.post_message(self._BgStatus(status))
         except Exception:
             pass
+
+    def on_trace_eval_app__bg_status(self, event: _BgStatus) -> None:
+        if self._exiting or self.run_manager.ui_detached:
+            return
+        with suppress(Exception):
+            self._on_live_session_discovered(event.status)
 
     def _on_live_session_discovered(self, status) -> None:
         """UI-thread: ensure a mid-run session is in the sessions list."""
@@ -1767,10 +1711,7 @@ class TraceEvalApp(App):
         try:
             if not self.traces_path or not Path(self.traces_path).exists():
                 self.traces_path = runner_traces
-                try:
-                    self.query_one("#traces-path-input", Input).value = str(runner_traces)
-                except Exception:
-                    pass
+                self._update_session_paths_banner()
         except Exception:
             pass
         try:
@@ -1822,10 +1763,7 @@ class TraceEvalApp(App):
                 try:
                     if self.traces_path is None or not Path(self.traces_path).exists():
                         self.traces_path = runner_traces
-                        try:
-                            self.query_one("#traces-path-input", Input).value = str(runner_traces)
-                        except Exception:
-                            pass
+                        self._update_session_paths_banner()
                 except Exception:
                     pass
             try:
@@ -1935,9 +1873,15 @@ class TraceEvalApp(App):
         try:
             if not self.is_running:
                 return
-            self.call_from_thread(self._notify_run_finished, run)
+            self.post_message(self._BgFinished(run))
         except Exception:
             pass
+
+    def on_trace_eval_app__bg_finished(self, event: _BgFinished) -> None:
+        if self._exiting or self.run_manager.ui_detached:
+            return
+        with suppress(Exception):
+            self._notify_run_finished(event.run)
 
     def _prepare_clean_exit(self) -> None:
         """Detach UI from background jobs so ``q`` returns promptly.
@@ -1995,7 +1939,7 @@ class TraceEvalApp(App):
         elapsed = fmt_duration(run.elapsed_s)
         if run.error:
             self.notify(
-                f"{t('ui-run')}{run.run_id}{t('ui-failed-after')}{elapsed}: {run.error[:120]}",
+                f"{t('ui-run')} {run.run_id} {t('ui-failed-after')} {elapsed}: {run.error[:120]}",
                 severity="error",
                 timeout=12,
             )
@@ -2005,7 +1949,7 @@ class TraceEvalApp(App):
         total = len(run.results) or len(run.configs)
         if failed:
             self.notify(
-                f"{t('ui-run')}{run.run_id}{t('ui-finished-in')}{elapsed}: {completed}/{total}{t('ui-ok')}{failed}{t('ui-failed')}",
+                f"{t('ui-run')} {run.run_id} {t('ui-finished-in')} {elapsed}: {completed}/{total} {t('ui-ok')} {failed} {t('ui-failed')}",
                 severity="error",
                 timeout=12,
             )
@@ -2018,10 +1962,7 @@ class TraceEvalApp(App):
                 try:
                     self._load_sessions(candidate)
                     self.traces_path = candidate
-                    try:
-                        self.query_one("#traces-path-input", Input).value = str(candidate)
-                    except Exception:
-                        pass
+                    self._update_session_paths_banner()
                     break
                 except Exception:
                     pass
@@ -2038,7 +1979,7 @@ class TraceEvalApp(App):
                     svc = self._analysis_svc()
                     n = len([p for p in svc.list_plugins() if p.id != "noop"])
                     self.notify(
-                        f"{t('ui-analysis')}{n}{t('ui-plugin-s-1')}",
+                        f"{t('ui-analysis')} {n} {t('ui-plugin-s-1')}",
                         severity="information",
                         timeout=8,
                     )
@@ -2154,19 +2095,12 @@ class TraceEvalApp(App):
         self._refresh_sessions_list()
 
     def _refresh_sessions_list(self) -> None:
-        """Re-read traces path and reload the sessions table (light refresh)."""
-        try:
-            path_str = self.query_one("#traces-path-input", Input).value.strip()
-        except Exception:
-            path_str = ""
-        if path_str:
-            root = Path(path_str).expanduser()
-        else:
-            root = self.work_dir / "runs" / "traces"
+        """Reload the sessions table from the fixed traces root."""
+        root = self._session_traces_root()
         if not root.exists():
             self.notify(f"{t('ui-nothing-to-refresh')}{root}", severity="warning")
             return
-        self.traces_path = root
+        self._update_session_paths_banner()
         self.notify(f"{t('ui-refreshing-sessions-from')}{root}…", severity="information", timeout=4)
         self._load_sessions(root)
         try:
@@ -2174,7 +2108,7 @@ class TraceEvalApp(App):
         except Exception:
             pass
         self.notify(
-            f"{t('ui-refreshed')}{len(self._meta_only)}{t('ui-session-s')}",
+            f"{t('ui-refreshed')} {len(self._meta_only)} {t('ui-session-s')}",
             severity="information",
             timeout=5,
         )

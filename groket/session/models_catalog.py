@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from ..models import JsonObject
+from ..paths import user_models_path
 from ..utils import read_json_dict
 
 MODELS = ["v9-pizzaparty", "v9-dietcoke", "grok-build"]
@@ -19,7 +20,8 @@ MODEL_SHORTS = {
     "pizzaparty": "pizzaparty",
     "v9-pizzaparty": "pizzaparty",
 }
-_USER_MODELS_PATH = Path.home() / "groket" / "models.yaml"
+
+_USER_MODELS_PATH = user_models_path()
 _GROK_MODELS_CACHE = Path.home() / ".grok" / "models_cache.json"
 REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_REASONING_EFFORT = "xhigh"
@@ -150,8 +152,13 @@ def model_launch_options() -> list[tuple[str, str]]:
     for mid in active_model_ids():
         rec = cat.get(mid) or {}
         if rec.get("supports_reasoning_effort"):
+            # Label == token (``model:effort``). Do not use spaces in the label:
+            # Textual SelectionList only keeps the first word of the prompt as the
+            # option identity, which would collapse all efforts for one model.
+            # Effort is a colon suffix for our launch tokens / entrypoint, not a hyphen.
             options.extend(
-                (f"{mid} · {eff}", join_model_effort(mid, eff)) for eff in REASONING_EFFORTS
+                (join_model_effort(mid, eff), join_model_effort(mid, eff))
+                for eff in REASONING_EFFORTS
             )
         else:
             options.append((mid, mid))
@@ -291,4 +298,16 @@ def validate_models_for_launch(models: list[str]) -> tuple[list[str], list[str]]
 
 
 def model_suffix(model: str) -> str:
-    return MODEL_SHORTS.get(model, model[:10])
+    """Short label for display / names; safe for Docker and Textual ids."""
+    from ..utils import slug_text
+
+    mid, effort = split_model_effort(model)
+    if model in MODEL_SHORTS:
+        base = MODEL_SHORTS[model]
+    elif mid in MODEL_SHORTS:
+        base = MODEL_SHORTS[mid]
+    else:
+        base = (mid or model)[:10]
+    if effort:
+        return slug_text(f"{base}-{effort}", max_len=14, fallback="model")
+    return slug_text(base, max_len=10, fallback="model")

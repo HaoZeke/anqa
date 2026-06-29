@@ -118,24 +118,39 @@ def analyzer_from_module_attr(mod: ModuleType, class_name: str) -> Analyzer:
 
 
 def _plugin_search_dirs(config_dir: Path | None) -> list[str]:
-    search_dirs = [str(Path.cwd())]
+    """Directories on ``sys.path`` for ``module:Class`` analysis plugins.
+
+    Always includes ``~/.groket/plugins`` (user install). Also scans
+    ``plugins/`` and ``examples/analysis/plugins/`` under the process cwd and
+    ancestors of *config_dir* (repo checkout layouts).
+    """
+    from ..paths import user_analysis_plugins_dir
+
+    search_dirs: list[str] = []
+    seen: set[str] = set()
+
+    def _add(path: Path) -> None:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen or not path.is_dir():
+            return
+        seen.add(key)
+        search_dirs.append(key)
+
+    _add(user_analysis_plugins_dir())
+    _add(Path.cwd())
     if config_dir is not None:
-        search_dirs.extend(str(p) for p in [config_dir, *config_dir.parents])
+        for p in [config_dir, *config_dir.parents]:
+            _add(Path(p))
     roots: list[Path] = [Path.cwd()]
     if config_dir is not None:
         roots.extend([config_dir, *config_dir.parents])
-    seen_roots: set[str] = set()
     for root in roots:
-        key = str(root.resolve()) if root.exists() else str(root)
-        if key in seen_roots:
-            continue
-        seen_roots.add(key)
-        plug_root = root / "plugins"
-        if plug_root.is_dir():
-            search_dirs.append(str(plug_root))
-        examples_plug = root / "examples" / "plugins"
-        if examples_plug.is_dir():
-            search_dirs.append(str(examples_plug))
+        _add(root / "plugins")
+        _add(root / "examples" / "plugins")
+        _add(root / "examples" / "analysis" / "plugins")
     return search_dirs
 
 

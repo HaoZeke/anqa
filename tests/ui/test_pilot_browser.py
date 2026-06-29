@@ -484,7 +484,8 @@ async def test_browser_flag_event_action(tmp_path: Path) -> None:
             await pilot.pause()
         # check_action returns False when no event selected yet
         result = screen.check_action("flag_event", ())
-        assert result is not None
+        # Binding enabled only when timeline has a flaggable event under cursor.
+        assert result in (True, False)
 
 
 @pytest.mark.asyncio
@@ -696,10 +697,10 @@ async def test_browser_check_action_follow_up(tmp_path: Path) -> None:
         screen = await _open_browser(app, pilot, sess)
         for action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
             result = screen.check_action(action, ())
-            assert result is not None or result is True or result is False
+            assert result in (True, False)
         # Export requires findings tab active
         result = screen.check_action("export_finding", ())
-        assert result is not None
+        assert result in (True, False)
 
 
 # ── Open share (no URL) ─────────────────────────────────────────────────

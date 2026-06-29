@@ -1,10 +1,11 @@
-"""YAML rule loader — loads rules and composites from config files.
+"""YAML rule loader — rules, composites, and ``@detector`` modules.
 
-Handles:
-- Bundled defaults from ``assets/config/rules.yaml`` and ``composites.yaml``
-- User overrides from ``~/.groket/rules/*.yaml``
-- User detector modules from ``~/.groket/detectors/*.py`` (``@detector``)
-- Also scans ``~/.groket/plugins/*.py`` for detectors (same registration pattern)
+Loads:
+
+- User detector modules from ``~/.groket/detectors/*.py`` and detectors in
+  ``~/.groket/plugins/*.py``
+- Empty package stubs ``assets/config/rules.yaml`` and ``composites.yaml``
+- User rule YAML from ``~/.groket/rules/*.yaml`` (same ``id`` replaces stub entry)
 """
 
 from __future__ import annotations
@@ -91,24 +92,21 @@ def reload_config() -> LoadedConfig:
 
 
 def load_config() -> LoadedConfig:
-    """Load user detectors + rules (no built-in catalog in the package).
+    """Load detectors and rules from user dirs plus empty package stubs.
 
-    Optional empty stubs may exist under assets/config; real rules live in
-    ``~/.groket/rules`` and detectors in ``~/.groket/detectors`` (see
-    ``examples/canonical_detection/``).
+    Detectors: ``~/.groket/detectors`` and ``~/.groket/plugins``.
+    Rules: ``assets/config`` stubs, then ``~/.groket/rules`` (see
+    ``examples/detection/`` for installable packs).
     """
     config = LoadedConfig()
 
-    # 1. User detector modules first (register @detector names)
     for plugin_dir in (user_detectors_dir(), user_analysis_plugins_dir()):
         if plugin_dir.is_dir():
             _load_detector_modules(plugin_dir)
 
-    # 2. Optional bundled stubs (usually empty)
     _load_rules_file(asset_path("config", "rules.yaml"), config)
     _load_composites_file(asset_path("config", "composites.yaml"), config)
 
-    # 3. User rule YAML (add/replace by id)
     user_dir = user_rules_dir()
     if user_dir.is_dir():
         for yaml_file in sorted(user_dir.glob("*.yaml")):
@@ -116,7 +114,6 @@ def load_config() -> LoadedConfig:
         for yaml_file in sorted(user_dir.glob("*.yml")):
             _load_override_file(yaml_file, config)
 
-    # 4. Resolve detector functions
     for rule in config.rules.values():
         try:
             rule.detector_func = get_detector(rule.detector_name)

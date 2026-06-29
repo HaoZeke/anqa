@@ -80,7 +80,7 @@ async def test_runner_mounts_blank(tmp_path: Path) -> None:
         scr.query_one("#setup-input", TextArea)
         scr.query_one("#launch-btn", Button)
         scr.query_one("#save-config-btn", Button)
-        scr.query_one("#container-status-table", DataTable)
+        scr.query_one("#launch-btn")
 
 
 @pytest.mark.asyncio

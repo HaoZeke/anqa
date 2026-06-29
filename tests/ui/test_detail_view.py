@@ -29,7 +29,9 @@ async def test_detail_view_show_event() -> None:
         )
         dv.show_event(ev)
         body = dv.query_one("#detail-body", Static)
-        assert body is not None
+        from .pilot_helpers import assert_static_contains
+
+        assert_static_contains(body, "read_file")
         assert dv._current_event is ev
 
 
@@ -54,6 +56,10 @@ async def test_detail_view_show_event_with_finding_and_flag() -> None:
         )
         flag = Flag(event_index=0, verdict=FlagVerdict.BAD, description="bad")
         dv.show_event(ev, finding=finding, flag=flag, duration=3.0)
+        from .pilot_helpers import assert_static_contains
+
+        body = dv.query_one("#detail-body", Static)
+        assert_static_contains(body, "grep", "test", "bad")
         assert dv._current_finding is finding
         assert dv._current_flag is flag
         assert dv._current_duration == 3.0
@@ -79,6 +85,10 @@ async def test_detail_view_show_event_with_pairs() -> None:
             tool_call_id="c1",
         )
         dv.show_event(call, paired_call=call, paired_result=result)
+        from .pilot_helpers import assert_static_contains
+
+        body = dv.query_one("#detail-body", Static)
+        assert_static_contains(body, "read_file")
         assert dv._paired_call is call
         assert dv._paired_result is result
 
@@ -112,7 +122,10 @@ async def test_detail_view_no_event() -> None:
         dv._current_event = None
         dv._refresh_content()
         body = dv.query_one("#detail-body", Static)
-        assert body is not None
+        from .pilot_helpers import static_plain
+
+        # No event selected: body is cleared / empty placeholder.
+        assert static_plain(body).strip() == ""
 
 
 def test_flag_requested_message() -> None:

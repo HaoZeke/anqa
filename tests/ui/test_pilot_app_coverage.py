@@ -19,11 +19,18 @@ from groket.ui.app import (
     TraceEvalApp,
     _coerce_select_value,
 )
-from textual.widgets import DataTable, Input, Select
+from textual.widgets import DataTable, Input, Select, Static
 
 from .pilot_helpers import wait_until
 
 # ── Helpers ───────────────────────────────────────────────────────────────
+
+
+def _session_paths_banner_text(work_dir: Path, traces_root: Path) -> str:
+    """Exact markup string the sessions-home banner must show (same as app)."""
+    _ = work_dir
+    traces = Path(traces_root).expanduser()
+    return f"[dim]Traces[/dim]  {traces}"
 
 
 def _write_session(
@@ -239,56 +246,31 @@ class TestSessionSortTs:
 @pytest.mark.asyncio
 async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
     """App compose yields all expected core widgets (Header, Footer, DataTable, etc.)."""
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
+    app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
         assert table.row_count >= 1
         # Filter bar selects exist
         app.query_one("#session-model-select", Select)
-        app.query_one("#session-task-select", Select)
-        app.query_one("#traces-path-input", Input)
+        banner = app.query_one("#session-paths", Static)
+        expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
+        assert banner.content == expected
+        # Labels resolve (not Fluent message ids) and paths are the live roots.
+        assert "Traces" in expected
+        assert str(app._session_traces_root()) in expected
+        assert app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
 
 
 @pytest.mark.asyncio
-async def test_load_btn_reloads_sessions(tmp_path: Path) -> None:
-    """Pressing the Load button re-scans traces from the path input."""
+async def test_refresh_reloads_sessions(tmp_path: Path) -> None:
+    """Refresh re-scans the fixed traces root (no path editing in the UI)."""
     app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="initial load")
-        # Add another session on disk, press load
         _write_session(traces, "sess-extra", model_id="m-extra")
-        inp = app.query_one("#traces-path-input", Input)
-        inp.value = str(traces)
-        await pilot.click("#load-btn")
+        app._refresh_sessions_list()
         await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="reload found extra")
-
-
-@pytest.mark.asyncio
-async def test_load_grok_btn_sets_path(tmp_path: Path) -> None:
-    """The ~/.grok/sessions button updates the input and attempts to load."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        await pilot.click("#load-grok-btn")
-        await pilot.pause()
-        inp = app.query_one("#traces-path-input", Input)
-        assert ".grok" in inp.value
-
-
-@pytest.mark.asyncio
-async def test_load_empty_path_notifies(tmp_path: Path) -> None:
-    """Load with an empty path input should notify a warning, not crash."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        inp = app.query_one("#traces-path-input", Input)
-        inp.value = ""
-        await pilot.click("#load-btn")
-        await pilot.pause()
-        # Should notify warning — table stays empty
-        table = app.query_one("#session-table", DataTable)
-        assert table.row_count == 0
 
 
 @pytest.mark.asyncio
@@ -363,36 +345,6 @@ async def test_cycle_model_filter_empty(tmp_path: Path) -> None:
         assert app._filter_model == ""
 
 
-@pytest.mark.asyncio
-async def test_cycle_task_filter(tmp_path: Path) -> None:
-    """Cycling task filter narrows displayed sessions."""
-    app, _, _ = _make_app(tmp_path, n_sessions=4, task_ids=["task-a", "task-b"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
-        table = app.query_one("#session-table", DataTable)
-        await wait_until(pilot, lambda: table.row_count >= 4, description="table populated")
-
-        app.action_cycle_task_filter()
-        await pilot.pause()
-        assert app._filter_task != ""
-
-        # Cycle through all tasks back to all
-        app.action_cycle_task_filter()
-        await pilot.pause()
-        app.action_cycle_task_filter()
-        await pilot.pause()
-        assert app._filter_task == ""
-
-
-@pytest.mark.asyncio
-async def test_cycle_task_filter_no_tasks(tmp_path: Path) -> None:
-    """Cycling task filter with no task IDs does not crash."""
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        app.action_cycle_task_filter()
-        await pilot.pause()
-        assert app._filter_task == ""
 
 
 @pytest.mark.asyncio
@@ -410,21 +362,6 @@ async def test_model_filter_select_changed(tmp_path: Path) -> None:
         assert app._filter_model == "alpha"
         assert table.row_count == 2
 
-
-@pytest.mark.asyncio
-async def test_task_filter_select_changed(tmp_path: Path) -> None:
-    """Changing task Select widget directly triggers filter update."""
-    app, _, _ = _make_app(tmp_path, n_sessions=4, task_ids=["task-x", "task-y"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
-        table = app.query_one("#session-table", DataTable)
-        await wait_until(pilot, lambda: table.row_count >= 4, description="table populated")
-
-        sel = app.query_one("#session-task-select", Select)
-        sel.value = "task-x"
-        await pilot.pause()
-        assert app._filter_task == "task-x"
-        assert table.row_count == 2
 
 
 @pytest.mark.asyncio
@@ -1370,40 +1307,33 @@ async def test_session_row_selection_markers(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_last_directory_persists(tmp_path: Path) -> None:
-    """Loading sessions persists last_directory in config."""
-    app, _, traces = _make_app(tmp_path, n_sessions=1)
+async def test_session_paths_banner_is_label_only(tmp_path: Path) -> None:
+    """Work/traces appear as a read-only banner (no path Input)."""
+    app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        config = app._load_config()
-        assert config.get("last_directory") == str(traces)
+        banner = app.query_one("#session-paths", Static)
+        expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
+        assert banner.content == expected
+        assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
+        assert app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
 
 
 @pytest.mark.asyncio
-async def test_auto_load_last_directory(tmp_path: Path) -> None:
-    """App auto-loads from last_directory when no traces_path is given."""
+async def test_auto_load_default_traces_under_work_dir(tmp_path: Path) -> None:
+    """With only work_dir set, sessions load from work_dir/runs/traces."""
     work = tmp_path / "workdir"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     _write_session(traces, "sess-auto")
-
-    # Pre-seed config with last_directory
-    config_path = work / ".groket" / "config.json"
-    # The config path is APP_HOME / config.json, set by conftest
     from groket.ui.app import TraceEvalApp as _TEA
 
-    app1 = _TEA(work_dir=work, traces_path=traces)
-    # Simulate a load that saves last_directory
-    app1._config["last_directory"] = str(traces)
-    app1._save_config()
-
-    # Now create an app without explicit traces_path
-    app2 = _TEA(work_dir=work)
-    async with app2.run_test(size=(120, 40)) as pilot:
+    app = _TEA(work_dir=work)
+    async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
-            lambda: len(app2._meta_only) >= 1,
-            description="auto-loaded from last_directory",
+            lambda: len(app._meta_only) >= 1,
+            description="auto-loaded from work_dir traces",
             attempts=120,
         )
 
@@ -1419,26 +1349,22 @@ async def test_schedule_live_sessions_poll(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_sessions_tick(tmp_path: Path) -> None:
-    """_live_sessions_tick runs without crashing."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app._live_sessions_tick()
-        await pilot.pause()
-
-
-@pytest.mark.asyncio
 async def test_scan_live_sessions_into_table(tmp_path: Path) -> None:
     """_scan_live_sessions_into_table detects new sessions."""
     app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        table = app.query_one("#session-table", DataTable)
+        before_rows = table.row_count
         # Add a session to runner traces
         _write_session(traces, "sess-live-new")
         app._scan_live_sessions_into_table()
-        await pilot.pause()
-        assert len(app._meta_only) >= 2
+        await wait_until(
+            pilot,
+            lambda: len(app._meta_only) >= 2 and table.row_count > before_rows,
+            description="live session appears in table",
+        )
+        assert any("sess-live-new" in str(m.session_dir) for m, _ in app._meta_only)
 
 
 @pytest.mark.asyncio
@@ -1528,22 +1454,15 @@ async def test_request_live_share_no_share(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_maybe_notify_share_url(tmp_path: Path) -> None:
-    """_maybe_notify_share_url is a no-op (no toast spam by design)."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    app._maybe_notify_share_url(tmp_path / "sess", "https://example.com/share")
-
-
-@pytest.mark.asyncio
-async def test_session_model_and_task_options(tmp_path: Path) -> None:
-    """_session_model_options / _session_task_options return correct lists."""
+async def test_session_model_options(tmp_path: Path) -> None:
+    """_session_model_options lists All models plus loaded model ids."""
     app, _, _ = _make_app(tmp_path, n_sessions=4, model_ids=["m1", "m2"], task_ids=["t1", "t2"])
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
         models = app._session_model_options()
         assert len(models) >= 3  # "All models" + m1 + m2
-        tasks = app._session_task_options()
-        assert len(tasks) >= 3  # "All tasks" + t1 + t2
+        ids = {v for _, v in models}
+        assert "m1" in ids and "m2" in ids
 
 
 @pytest.mark.asyncio
@@ -1635,23 +1554,14 @@ async def test_on_background_run_status_no_session_dir(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
-    """_update_session_paths_banner with missing widget does not crash."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    """_update_session_paths_banner is a no-op when the banner is gone."""
+    app, work, traces = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        # Should not raise (widget doesn't exist)
+        banner = app.query_one("#session-paths", Static)
+        await banner.remove()
+        await pilot.pause()
         app._update_session_paths_banner()
-        await pilot.pause()
-
-
-@pytest.mark.asyncio
-async def test_refresh_all_tip_surfaces(tmp_path: Path) -> None:
-    """_refresh_all_tip_surfaces runs without crash."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app._refresh_all_tip_surfaces()
-        await pilot.pause()
 
 
 @pytest.mark.asyncio

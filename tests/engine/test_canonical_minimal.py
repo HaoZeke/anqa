@@ -16,8 +16,8 @@ from groket.engine.runner import run_rules
 def install_minimal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point user dirs at a temp install of the minimal example."""
     root = Path(__file__).resolve().parents[2]
-    src_det = root / "examples" / "canonical_detection" / "minimal" / "demo_detector.py"
-    src_rule = root / "examples" / "canonical_detection" / "minimal" / "demo_rule.yaml"
+    src_det = root / "examples" / "detection" / "minimal" / "detectors" / "demo_detector.py"
+    src_rule = root / "examples" / "detection" / "minimal" / "rules" / "demo_rule.yaml"
     det = tmp_path / "detectors"
     rules = tmp_path / "rules"
     det.mkdir()

@@ -63,7 +63,9 @@ class _ModelsOverrideModal(ModalScreen[object]):
                 yield Button("cancel", id="mom-cancel")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_submit(self) -> None:
         self._ok()
@@ -136,7 +138,9 @@ class _BatchLaunchModal(ModalScreen[object]):
                 yield Button("cancel", id="blm-cancel")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_submit(self) -> None:
         self._ok()
@@ -432,8 +436,6 @@ class RunConfigsScreen(ChromeActions):
         self._update_selection_bar()
         self._show_detail_for_cursor()
 
-    def action_go_back(self) -> None:
-        self.app.pop_screen()
 
     def action_new_blank(self) -> None:
         self.app.pop_screen()

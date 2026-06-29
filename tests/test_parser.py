@@ -1177,6 +1177,22 @@ def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
     assert meta.turn_in_progress is True
 
 
+def test_load_session_meta_single_turn_started_is_running(tmp_path: Path):
+    """Open first turn (no turn_ended yet) is running, not awaiting follow-up."""
+    sd = tmp_path / "first-turn"
+    sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
+    (sd / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0, "ts": 1}) + "\n",
+        encoding="utf-8",
+    )
+    # Non-trivial body so incomplete-turn inference can mark running.
+    (sd / "updates.jsonl").write_text('{"x": 1}\n' * 50, encoding="utf-8")
+    meta = load_session_meta(sd)
+    assert meta.turn_outcome != "awaiting_follow_up"
+    assert meta.list_status_label() in ("running", "—", "complete")
+
+
 def test_load_session_meta_failed_increments_error():
     """When turn_failed and error_count=0, error_count bumps to 1."""
     sd = Path("/tmp/test-meta-failed")

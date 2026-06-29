@@ -81,7 +81,6 @@ groket/
   engine/                # detectors, rules loader, runner
   capabilities/          # MCP / skills / Grok Build plugins
   docker/                # orchestration (orchestrator.py, base_profiles.py, resources.py loader)
-  diagnostics/           # host self-test
   extensions/            # scaffold for groket gen (detectors, rules, plugins, tasks)
   locale/                # Fluent .ftl (+ help.rich.txt) — UI strings
   ui/                    # Textual UI (app, screens, widgets, helpers, app.tcss)
@@ -95,8 +94,9 @@ groket/
 
 assets/                  # **non-Python assets** (not importable modules; not coverage source)
   docker/                # entrypoint.sh, Dockerfile.*, groket-share-once.py, setup-empty.sh
-  config/                # bundled rules.yaml, composites.yaml
+  config/                # empty rules.yaml / composites.yaml stubs (rules live under ~/.groket)
 
+examples/                # copy-in reference packs (detection, analysis, tasks) — not auto-loaded
 Optional wheel mirror: ``groket/_embedded_assets/`` (copy of ``assets/`` for installs).
 Do **not** put executable/product templates back under ``groket/**/*.py`` modules.
 ```
@@ -104,6 +104,19 @@ Do **not** put executable/product templates back under ``groket/**/*.py`` module
 **Data flow:** `models/parser → runs|session|analysis|engine → ui`. Screens
 delegate; no file I/O or JSON parsing in screen code. Static Docker/YAML
 templates are read via :mod:`groket.assets_loader`, not embedded in Python strings.
+
+### 3.0 Path layout (product contract)
+
+Two roots — do not write app identity into the process cwd by default.
+
+| Root | Default | Holds |
+|------|---------|--------|
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, exported reports, flag fallbacks, optional ``models.yaml`` |
+| **Work dir** | ``~/.groket/work`` (``GROKET_WORK_DIR`` or CLI path) | Session/run data only: ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
+
+- TUI **Traces** banner label reflects the active traces root; it does not invent a second work tree under the git checkout.
+- Pass a path to ``groket`` to choose what is loaded and, when that path is a work root, where new runs go (:func:`groket.paths.resolve_work_and_traces`).
+- Gitignored trees under a developer checkout (``/runs/``, ``/flags/``, ``/config.json``, ``/_meta_cache.json``) are **local runtime leftovers**, not the install layout. Prefer ``~/.groket`` + ``~/.groket/work`` for day-to-day use.
 
 **Localization (mandatory for UI copy):** Project Fluent under
 `groket/locale/<lang>/`.
@@ -174,62 +187,43 @@ literals under `groket/ui/`; new phrases exist in `en/main.ftl`; call sites use
 - `snake_case` functions/variables, `PascalCase` classes, `UPPER_SNAKE` constants.
 - `from __future__ import annotations` in every module (ruff enforces this).
 - Type-annotate all public signatures. Use `X | None`, lowercase generics.
-- **No untyped escapes:** `Any` and `object` are **equally forbidden** as
-  value types (both mean “unknown”). Use `JsonValue` / `JsonObject` at
-  JSON/YAML boundaries, `ChatMessage` / `ChatHistory`, `RuleParams`
-  (`Mapping[str, JsonValue]`), `ToolInput` (`JsonObject`), `MatchVariables`,
-  concrete classes, `Protocol`s, or `TypedDict` + `Unpack[...]` for open
-  kwargs. The only exception is a **forced third-party signature** you cannot
-  wrap (document with a one-line comment). Prefer importing Textual’s
-  `App` / `Widget` / `SelectionList[...]` over annotating `object`.
+- **Typed values only:** do not use `Any` or `object` as value types (both
+  mean “unknown”). Use `JsonValue` / `JsonObject` at JSON/YAML boundaries,
+  `ChatMessage` / `ChatHistory`, `RuleParams` (`Mapping[str, JsonValue]`),
+  `ToolInput` (`JsonObject`), `MatchVariables`, concrete classes, `Protocol`s,
+  or `TypedDict` + `Unpack[...]` for open kwargs. Exception: a **forced
+  third-party signature** you cannot wrap (one-line comment naming the
+  library). Prefer importing Textual’s `App` / `Widget` / `SelectionList[...]`
+  over a loose annotation.
 - Detectors: `(tool_calls: list[ToolCall], messages: Sequence[ChatMessage], params: RuleParams) -> list[Match]`.
 - Analyzers: `analyze(self, session_dir: Path, **kwargs: Unpack[AnalyzeContext]) -> AnalysisResult`.
 - `logger = logging.getLogger(__name__)`. No `print()` except in `cli.py`.
 - Initialise all instance attributes in `__init__`.
 - Remove dead code; prefer delete over “for later” stubs.
 
-### 4.2 Comments and prose (no process leakage)
+### 4.2 Comments and prose (present product only)
 
-**Ship only the product.** Comments, docstrings, module banners, commit
-messages that land in the tree, CLI `--help` text, UI strings, and
-`AGENTS.md`-facing examples must describe **what the code is and does now** —
-not how an agent or human got there, and not what a prior revision did.
+**Ship only the product as it exists.** Comments, docstrings, module banners,
+commit messages that land in the tree, CLI ``--help`` text, UI strings, and
+``AGENTS.md`` describe **current behaviour and contracts** — where data lives,
+who writes it, who reads it, failure modes, ordering guarantees.
 
-**Never write** (in code comments, docstrings, or in-repo descriptions):
+There is **no published version line** to migrate from: do not document
+alternate historical layouts, rename stories, or “until release” scaffolding in
+sources or agent docs. Put change rationale in the **git commit message** only.
 
-- Design-process narration: “we decided”, “I noticed”, “for now”, “temporary”,
-  “quick fix”, “hack”, “TODO(agent)”, “until we refactor”, “this should be…”.
-- History / migration chat: “was X”, “formerly Y”, “moved from”, “used to be”,
-  “instead of the old”, “replaces the previous”, “no longer”, “pre-1.0”,
-  “back-compat”, “legacy path kept for…”, “see earlier implementation”.
-- **Contrast-with-the-past:** defining behaviour only by negating something
-  else (“not X”, “no longer Y”, “legacy — prefer Z”, “unlike the old path”).
-  State the **actual contract** in positive terms (where data lives, who writes
-  it, who reads it). If two layers differ, name **each role** without “unlike
-  before” framing.
-- Agent self-talk or meta rules pasted into sources: “agents must…”, “do not
-  use `object` because…”, “typing policy: never use Any…”, “equally forbidden”,
-  “hard rules for agents”, “kitchen sink”, “escape hatch”.
-- Apologies, debates, or alternatives rejected: “rather than Z”, “we considered
-  A but…”, “avoid doing B here”.
-- References to prior PRs/sessions/tools unless they are **stable public URLs**
-  the reader needs (rare). Prefer linking a ticket only when it is permanent
-  product context, not “as discussed in chat”.
+**Write** (when a comment earns its lines):
 
-**Do write** (when a comment earns its lines):
+- Invariants: input shape, outputs, errors callers rely on.
+- Non-obvious *why* tied to behaviour — e.g. “Persona stores marketplace plugin
+  **names**; launch writes ``plugins-manifest.json`` (URL + SHA); the eval
+  entrypoint clones into ``/root/.grok/plugins``.”
+- Owning module for cross-layer calls: “Screens delegate to
+  ``runs.run_manager``; do not start Docker from widgets.”
 
-- Invariants and contracts: input shape, failure modes, ordering guarantees.
-- Non-obvious *why* tied to behaviour, stated positively — e.g. “Persona stores
-  marketplace plugin **names**; launch writes `plugins-manifest.json` (URL +
-  SHA); the eval entrypoint clones into ``/root/.grok/plugins``.”
-- Pointers to the owning module for cross-layer calls: “Screens delegate to
-  `runs.run_manager`; do not start Docker from widgets.”
-
-If you are tempted to explain a *change*, put that in the **git commit
-message** (still concise, imperative, product-focused) — not in the file.
-When deleting code, delete comments that only made sense for the removed code.
-After edits, re-read banners and `#` comments on touched lines and strip process
-residue before finishing.
+**Omit** from in-tree prose: design-process narration, agent self-talk, rejected
+alternatives, and any framing that defines behaviour only by contrasting a
+prior revision. Delete comments that only applied to removed code.
 
 
 ### 4.2a Sphinx documentation in code
@@ -260,7 +254,7 @@ lists**, in the spirit of [coredis](https://github.com/alisaifee/coredis)
 with intersphinx-friendly names (``:class:`~groket.models.ToolCall```) in
 longer docs.
 
-**Do not** put process/history prose in docstrings (see §4.2). **Do** document
+**Do not** put process narration in docstrings (see §4.2). **Do** document
 parameters, returns, and exceptions that callers rely on. Private helpers may
 use a single-line summary without full field lists.
 
@@ -312,7 +306,7 @@ layer (UI vs domain).
 2. **No “I’ll add a helper here because the method needs it.”** If a type
    method needs non-trivial logic, either (a) keep it as a method body, (b)
    import from `utils` / the correct package, or (c) introduce a focused
-   module — **do not** grow `models.py` into a kitchen sink.
+   module — keep `models.py` limited to types and type-adjacent members.
 3. **No unused `logger = logging.getLogger(__name__)`** (or other imports)
    left behind after moving helpers.
 4. **Before finishing a change that touches `models.py` / `*/models.py` /
@@ -434,6 +428,11 @@ Sphinx-style docstrings on shared helpers, ruff on ``tests/`` in the gate
   ``capsys`` / ``capfd`` or Typer’s runner; do not rely on suite capture being
   off.
 - Prefer asserting return values and filesystem/domain state over scraping logs.
+- **UI display:** assert what the user reads — ``Static.content`` / Rich plain
+  text / table cell values — not merely that a widget exists or a renderable
+  is non-``None``. Shared helpers: ``tests/ui/pilot_helpers.assert_rich_contains``
+  / ``assert_static_contains`` / ``rich_plain``. Do not ship “pause then pass”
+  or ``assert x is not None`` as the only check for a user-visible surface.
 
 **How to reach 100% without cheating (see also §11):** domain-named tests under
 ``tests/`` mirroring ``groket/``; assert real outcomes; fake only Docker /
@@ -475,7 +474,8 @@ is red. Agents **push back** only on *method* (bad tests), never on *whether*
 | PLR0915 | 50 | max statements per function |
 | PLR0904 | 20 | max public methods per class |
 
-Split code when limits are exceeded. Open PLR debt is tracked in [TODO.md](TODO.md).
+Split code when limits are exceeded. Optional follow-ups may be listed in
+[TODO.md](TODO.md).
 
 ### 4.7 Models
 
@@ -798,7 +798,8 @@ Users extend groket **without editing package source** via ``~/.groket/`` and
 | ``~/.groket/tasks/*.yaml`` | Optional task lists for **``batch --tasks``** (never auto-loaded). |
 | ``~/.groket/config.json`` | App prefs + ``analysis.plugins`` list. |
 
-Worked examples (copy into `~/.groket/`): [`examples/extensions/`](examples/extensions/README.md).
+Worked examples (copy into `~/.groket/`): [`examples/`](examples/README.md)
+(detection packs, analysis plugins, tasks).
 
 Scaffold:
 
@@ -809,19 +810,20 @@ uv run groket gen plugin my_stats --register   # writes plugin + config entry
 uv run groket gen tasks                         # ~/.groket/tasks/example_tasks.yaml
 ```
 
-**No built-in rules or detectors ship in the package.** The engine only loads
-``~/.groket/detectors/*.py`` and ``~/.groket/rules/*.yaml`` (plus optional
-analysis plugins). A full former catalog lives under
-``examples/canonical_detection/`` (copy into ``~/.groket`` to enable). The only
-analysis **output** type is :class:`~groket.analysis.base.Finding` (rules,
-composites, and plugins all produce findings).
+Rules and detectors are **user-installed**: the engine loads
+``~/.groket/detectors/*.py`` and ``~/.groket/rules/*.yaml`` (and detectors
+declared in ``~/.groket/plugins/*.py``). Package ``assets/config/rules.yaml`` and
+``composites.yaml`` are empty stubs so the loader has a stable asset path.
+Reference packs live under ``examples/detection/`` (``minimal/``, ``starters/``,
+``catalog/``) — copy into ``~/.groket`` to enable. Analysis output type is
+:class:`~groket.analysis.base.Finding` (rules, composites, and plugins).
 
 ### 10.2 Three “plugin” concepts (do not conflate)
 
 | Kind | Config / field | Notes |
 |------|----------------|--------|
-| **Analysis plugins** | `analysis.plugins` | `module:AnalyzerClass` implementing `Analyzer`. User: `~/.groket/plugins/`; examples in repo `plugins/`, `examples/plugins/`. |
-| **Detectors + rules** | `@detector` + rule YAML | Engine findings. User detectors + `~/.groket/rules/`; bundled rules in `groket/config/rules.yaml`. |
+| **Analysis plugins** | `analysis.plugins` | `module:AnalyzerClass` implementing `Analyzer`. User: `~/.groket/plugins/`; examples in `examples/analysis/plugins/`. |
+| **Detectors + rules** | `@detector` + rule YAML | Engine findings. User detectors + `~/.groket/rules/`; examples in `examples/detection/`. |
 | **Grok Build plugins** | `Persona.plugins` / `RunConfig.run_plugins` | Marketplace **names** on the persona/run; launch writes `plugins-manifest.json` (catalog URL + SHA); eval entrypoint installs under ``/root/.grok/plugins`` and enables via ``[plugins]`` (`capabilities/marketplace.py`, `apply.prepare_persona_plugins_dir`). UI: persona tab **Plugins**, runner pick plugins. |
 
 **MCP** and **standalone skills** are separate persona fields (`mcp_servers` /

@@ -40,7 +40,7 @@ class Persona:
     Attach via ``RunConfig.persona_id`` or pass directly at launch.
 
     GitHub access is persona-owned: ``github_write`` plus optional ``github_token``
-    (stored under ``runs/personas/`` — treat that dir as secret; do not commit).
+    (stored under ``~/.groket/personas/`` — treat that dir as secret).
     If the token field is empty at launch, ``github_token_env`` (host env var name)
     or host ``GROKET_GH_TOKEN`` / ``GH_TOKEN`` may still supply a token when write is on.
     """
@@ -175,27 +175,11 @@ class Persona:
         return ""
 
 
-def _migrate_personas_from_work_dir(work_dir: Path) -> None:
-    """One-time migration: copy personas from old ``work_dir/runs/personas/``."""
-    old_dir = Path(work_dir).expanduser() / "runs" / "personas"
-    if not old_dir.is_dir():
-        return
-    new_dir = personas_dir()
-    for fp in old_dir.glob("*.json"):
-        dest = new_dir / fp.name
-        if not dest.exists():
-            try:
-                dest.write_text(fp.read_text(encoding="utf-8"), encoding="utf-8")
-            except OSError:
-                pass
-
-
 class PersonaStore:
     """CRUD for personas under ``~/.groket/personas/``."""
 
     def __init__(self, work_dir: Path) -> None:
         self.work_dir = Path(work_dir).expanduser()
-        _migrate_personas_from_work_dir(self.work_dir)
         self.root = personas_dir()
         self._index_path = self.root / "index.json"
 

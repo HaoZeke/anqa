@@ -116,5 +116,3 @@ class RulesScreen(ChromeActions):
             logger.debug(t("ui-failed-to-refresh-rules-table"), exc_info=True)
         self.notify(U.rules_list_refreshed(), severity="information", timeout=3)
 
-    def action_go_back(self) -> None:
-        self.app.pop_screen()

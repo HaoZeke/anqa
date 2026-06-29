@@ -36,7 +36,6 @@ from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_T
 from ...flags import load_flags, save_flags
 from ...models import Flag, SessionMeta, TraceEvent
 from ...parser import load_session_meta, parse_timeline
-from ...paths import APP_HOME
 from ...session.workspace_diff import format_diff_meta_line, load_workspace_diff
 from ...utils import fmt_duration
 from .. import text as U
@@ -767,10 +766,10 @@ class BrowserScreen(ChromeActions):
         return self.session_dir.name
 
     def _reports_dir(self) -> Path:
-        """Export dir for finding reports."""
-        wd = getattr(self.app, "work_dir", None)
-        base = Path(wd) if wd is not None else APP_HOME
-        return base / "reports"
+        """Export dir for finding reports (``~/.groket/reports``)."""
+        from ...paths import reports_dir
+
+        return reports_dir()
 
     _PLUGIN_TITLES: dict[str, str] = {
         "engine": t("ui-detectors"),
@@ -1624,8 +1623,6 @@ class BrowserScreen(ChromeActions):
         self._apply_timeline_mode(mode)
 
 
-    def action_go_back(self) -> None:
-        self.app.pop_screen()
 
     def action_search(self) -> None:
         self._ensure_timeline_tab()

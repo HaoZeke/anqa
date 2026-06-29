@@ -58,7 +58,6 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("x", "delete_sessions", U.bind_delete(), show=False),
     _b("delete", "delete_sessions", U.bind_delete(), show=False),
     _b("m", "cycle_model_filter", U.bind_model(), show=False),
-    _b("g", "cycle_task_filter", U.bind_task(), show=False),
     _b("a", "analyze", U.bind_analyze(), show=False),
     _b("d", "open_rules", U.bind_rules(), show=False),
     _b("t", "cycle_theme", U.bind_theme(), show=False),
@@ -95,7 +94,9 @@ BROWSER: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("e", "mark_session_done", U.bind_end_session(), show=True),
 )
 RUNNER: tuple[Binding, ...] = SCREEN_CHROME + (
-    _b("ctrl+enter", "run_evaluation", U.bind_launch(), show=True),
+    # Priority so launch works while focus is in TextArea / Input / SelectionList
+    # (same idea as Ctrl+S for save — without priority, the focused widget eats the key).
+    _b("ctrl+enter", "run_evaluation", U.bind_launch(), show=True, priority=True),
     _ctrl_s("save_config_only", U.bind_save(), show=True),
     _b("n", "new_persona_from_runner", U.bind_new_persona(), show=False),
     _b("p", "open_persona_builder", U.bind_personas(), show=False),
@@ -174,11 +175,36 @@ SESSION_SEARCH_MODAL: tuple[Binding, ...] = (
 )
 
 
-class ChromeActions(Screen):
-    """Mixin-style base: shared actions for screens using SCREEN_CHROME bindings.
+def blur_focused_edit(screen: Screen) -> bool:
+    """If focus is in a common edit control, blur it and return True.
 
-    Subclass instead of Screen when the screen uses bindings from this module.
-    Modal screens can call ``notify_help`` / app jobs without inheriting.
+    Applies to Textual ``Input``, ``TextArea``, and ``Select`` (and subclasses)
+    on *any* screen — not per-field wiring. Lets Esc leave the field so Tab /
+    pane keys work; a second Esc still goes back / cancels.
+    """
+    focused = getattr(screen, "focused", None)
+    if focused is None:
+        return False
+    # Local import avoids circular imports with widgets at module load.
+    from textual.widgets import Input, Select, TextArea
+
+    if not isinstance(focused, (Input, TextArea, Select)):
+        return False
+    with suppress(Exception):
+        focused.blur()
+    # Clear focus so the next key uses screen-level bindings.
+    with suppress(Exception):
+        screen.set_focus(None)
+    return True
+
+
+class ChromeActions(Screen):
+    """Base for screens using SCREEN_CHROME (Esc / help / refresh / jobs).
+
+    **Esc** is handled here for all subclasses: first press blurs a focused
+    Input / TextArea / Select; only then does :meth:`_leave_screen` run.
+    Override :meth:`_leave_screen` for custom leave behaviour (toasts, etc.),
+    not :meth:`action_go_back`, unless you re-call :func:`blur_focused_edit`.
     """
 
     def action_show_help(self) -> None:
@@ -192,11 +218,43 @@ class ChromeActions(Screen):
         if callable(fn):
             fn()
 
+    def action_go_back(self) -> None:
+        """Esc: blur edit controls first; otherwise leave the screen."""
+        if blur_focused_edit(self):
+            return
+        self._leave_screen()
+
+    def action_cancel(self) -> None:
+        """Esc on modals that bind cancel — same blur-then-leave as go_back."""
+        if blur_focused_edit(self):
+            return
+        self._leave_screen()
+
+    def action_dismiss(self) -> None:
+        """Esc on modals that bind dismiss."""
+        if blur_focused_edit(self):
+            return
+        self._leave_screen()
+
+    def _leave_screen(self) -> None:
+        """Pop this screen (override for custom leave side effects)."""
+        with suppress(Exception):
+            if len(self.app.screen_stack) > 1:
+                self.app.pop_screen()
+
 
 def open_jobs_on_app(screen: Screen) -> None:
     fn = getattr(screen.app, "action_open_jobs", None)
     if callable(fn):
         fn()
+
+
+def dismiss_after_blur(screen: Screen, result: object = None) -> None:
+    """Esc on modals: blur Input/TextArea/Select first, else ``dismiss(result)``."""
+    if blur_focused_edit(screen):
+        return
+    with suppress(Exception):
+        screen.dismiss(result)  # type: ignore[attr-defined]
 
 
 def focus_primary_list(widget: Widget) -> None:

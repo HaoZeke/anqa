@@ -11,7 +11,7 @@ with::
         ...
         return [Match(...)]
 
-Canonical examples: ``examples/canonical_detection/``.
+Examples: ``examples/detection/``.
 """
 
 from __future__ import annotations

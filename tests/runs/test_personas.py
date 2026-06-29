@@ -35,10 +35,7 @@ def test_store_delete_missing(tmp_path: Path):
 import json
 
 import pytest
-from groket.runs.personas import (
-    _migrate_personas_from_work_dir,
-    _slug,
-)
+from groket.runs.personas import _slug
 
 
 def test_slug_and_persona_defaults():
@@ -83,7 +80,7 @@ def test_from_dict_and_apply_env(monkeypatch: pytest.MonkeyPatch):
     assert p2.resolve_github_token() == ""
 
 
-def test_store_migration_and_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_store_defaults_and_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from groket import paths
 
     home = tmp_path / "home"
@@ -93,31 +90,13 @@ def test_store_migration_and_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(paths, "APP_HOME", home)
     monkeypatch.setattr(paths, "personas_home", lambda: personas)
 
-    # old work dir personas
-    old = tmp_path / "work" / "runs" / "personas"
-    old.mkdir(parents=True)
-    (old / "oldp.json").write_text(
-        json.dumps({"persona_id": "oldp", "name": "Old"}), encoding="utf-8"
-    )
-    _migrate_personas_from_work_dir(tmp_path / "work")
-    assert (personas / "oldp.json").is_file()
-    # migrate skips existing
-    (personas / "oldp.json").write_text("{}", encoding="utf-8")
-    _migrate_personas_from_work_dir(tmp_path / "work")
-
     store = PersonaStore(tmp_path / "work")
-    # migration may have populated store; clear by ensuring defaults only when empty
-    if not store.list():
-        store.ensure_defaults()
-        assert len(store.list()) >= 2
-    else:
-        store.ensure_defaults()  # no-op path
-        assert len(store.list()) >= 1
+    store.ensure_defaults()
+    assert len(store.list()) >= 2
     before = len(store.list())
     store.ensure_defaults()
     assert len(store.list()) == before
 
-    # corrupt index and file
     store._index_path.write_text("not-json", encoding="utf-8")
     assert store._load_index()["personas"] == []
     store._index_path.write_text("[]", encoding="utf-8")
@@ -127,47 +106,12 @@ def test_store_migration_and_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyP
     bad.write_text("{bad", encoding="utf-8")
     assert store.get("bad") is None
 
-    # orphan file not in index
     orphan = personas / "orphan.json"
     orphan.write_text(json.dumps({"persona_id": "orphan", "name": "O"}), encoding="utf-8")
     ids = [p.persona_id for p in store.list()]
     assert "orphan" in ids
 
     assert personas_dir(tmp_path) == personas
-
-
-class TestMigrateOSError:
-    """Migration aborts gracefully when persona write raises OSError."""
-
-    def test_oserror_during_migration_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        from unittest.mock import patch
-
-        from groket import paths
-
-        home = tmp_path / "home2"
-        home.mkdir()
-        personas = home / "personas"
-        personas.mkdir()
-        monkeypatch.setattr(paths, "APP_HOME", home)
-        monkeypatch.setattr(paths, "personas_home", lambda: personas)
-
-        old = tmp_path / "work2" / "runs" / "personas"
-        old.mkdir(parents=True)
-        (old / "migrate-fail.json").write_text(
-            json.dumps({"persona_id": "migrate-fail", "name": "F"}), encoding="utf-8"
-        )
-
-        orig_write_text = Path.write_text
-
-        def fail_write(self, content, **kw):
-            if self.name == "migrate-fail.json" and "personas" in str(self.parent):
-                raise OSError("disk full")
-            return orig_write_text(self, content, **kw)
-
-        with patch.object(Path, "write_text", fail_write):
-            _migrate_personas_from_work_dir(tmp_path / "work2")
-        # File should not exist because write raised OSError
-        assert not (personas / "migrate-fail.json").exists()
 
 
 class TestPersonaSaveCreatedAt:

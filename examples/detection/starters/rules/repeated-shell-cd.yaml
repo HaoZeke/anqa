@@ -1,12 +1,12 @@
 # Example user rule — copy to ~/.groket/rules/ (same id replaces a bundled rule).
 #
 #   mkdir -p ~/.groket/rules
-#   cp examples/extensions/rules/repeated-shell-cd.yaml ~/.groket/rules/
+#   cp examples/detection/starters/rules/repeated-shell-cd.yaml ~/.groket/rules/
 #
-# Requires detector `repeated_shell_cd` (see examples/extensions/detectors/).
+# Requires detector `repeated_shell_cd` (see examples/detection/starters/detectors/).
 # Generate pair from scratch:
-#   uv run groket new detector repeated_shell_cd
-#   uv run groket new rule repeated-shell-cd --detector repeated_shell_cd
+#   uv run groket gen detector repeated_shell_cd
+#   uv run groket gen rule repeated-shell-cd --detector repeated_shell_cd
 
 rules:
   - id: repeated-shell-cd

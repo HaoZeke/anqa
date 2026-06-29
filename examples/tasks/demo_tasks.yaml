@@ -1,7 +1,7 @@
 # Optional editor schema: schemas/tasks.schema.json (repo root)
-# Validate: uv run groket tasks validate examples/extensions/tasks/demo_tasks.yaml
+# Validate: uv run groket tasks validate examples/tasks/demo_tasks.yaml
 #
-#   uv run groket batch --tasks examples/extensions/tasks/demo_tasks.yaml
+#   uv run groket batch --tasks examples/tasks/demo_tasks.yaml
 
 schema_version: 1
 

@@ -2,7 +2,7 @@
 
 Built-ins: ``basic``, ``engine`` (always enabled). Everything else is
 external: load via ``analysis.plugins`` in config.json (see ``plugins/``
-and ``examples/plugins/``). Only analyzers registered for *this* config
+and ``examples/analysis/plugins/``). Only analyzers registered for *this* config
 are enabled — not leftovers in the process registry or on-disk cache.
 
 All UI/CLI/screen code should use :class:`AnalysisService` as the sole

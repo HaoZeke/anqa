@@ -7,15 +7,16 @@ import logging
 from pathlib import Path
 
 from .models import Flag
+from .paths import flags_fallback_dir
 
 logger = logging.getLogger(__name__)
 
 
 def load_flags(session_dir: Path) -> list[Flag]:
-    """Load user flags from a session directory or fallback location."""
+    """Load user flags from a session directory or config-home fallback."""
     candidates = [
         session_dir / "flags.json",
-        Path.home() / "groket" / "flags" / session_dir.name / "flags.json",
+        flags_fallback_dir(session_dir.name) / "flags.json",
     ]
     for flags_file in candidates:
         if not flags_file.exists():
@@ -33,15 +34,12 @@ def load_flags(session_dir: Path) -> list[Flag]:
 
 
 def save_flags(session_dir: Path, flags: list[Flag]) -> None:
-    """Save user flags. Falls back to work_dir if session_dir is read-only."""
+    """Save user flags beside the session; fall back under ``~/.groket/flags``."""
     flags_file = session_dir / "flags.json"
     try:
         with open(flags_file, "w") as f:
             json.dump([fl.model_dump() for fl in flags], f, indent=2)
     except PermissionError:
-        # Fall back to a writable location
-        fallback_dir = Path.home() / "groket" / "flags" / session_dir.name
-        fallback_dir.mkdir(parents=True, exist_ok=True)
-        fallback_file = fallback_dir / "flags.json"
+        fallback_file = flags_fallback_dir(session_dir.name) / "flags.json"
         with open(fallback_file, "w") as f:
             json.dump([fl.model_dump() for fl in flags], f, indent=2)

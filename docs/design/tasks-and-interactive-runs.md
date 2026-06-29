@@ -22,7 +22,7 @@ container; changing analysis/detector contracts.
 ### Current state
 
 - Loader: `groket.runs.batch.load_tasks` / `EvalTask` dataclass.
-- Documented-by-example only (`examples/extensions/tasks/demo_tasks.yaml`,
+- Documented-by-example only (`examples/tasks/demo_tasks.yaml`,
   `groket gen` / `write_tasks_file` scaffold).
 - Fields today (implicit):
 

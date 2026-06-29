@@ -71,8 +71,9 @@ def _check_docker(work_dir: Path | None) -> CheckResult:
     def _run() -> None:
         try:
             from ..docker.orchestrator import DockerOrchestrator
+            from ..paths import default_work_dir
 
-            root = Path(work_dir).expanduser() if work_dir else Path.home() / "groket"
+            root = Path(work_dir).expanduser() if work_dir else default_work_dir()
             orch = DockerOrchestrator(root / "runs")
             if orch.check_docker_available():
                 result_box[0] = CheckResult(
@@ -217,7 +218,10 @@ def _check_grok_cli() -> CheckResult:
 
 
 def _check_work_dir(work_dir: Path | None) -> CheckResult:
-    root = Path(work_dir).expanduser() if work_dir else Path.home() / "groket"
+    from ..paths import default_work_dir
+
+    root = Path(work_dir).expanduser() if work_dir else default_work_dir()
+
     try:
         root.mkdir(parents=True, exist_ok=True)
         runs = root / "runs"

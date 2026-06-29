@@ -3,7 +3,7 @@
 Install::
 
     mkdir -p ~/.groket/plugins
-    cp examples/extensions/plugins/session_event_count.py ~/.groket/plugins/
+    cp examples/analysis/plugins/session_event_count.py ~/.groket/plugins/
 
 Enable in ~/.groket/config.json::
 

@@ -25,6 +25,8 @@ from ..capabilities import merge_capabilities
 from ..constants import LOG_BUFFER_MAXLEN, LOG_TAIL_MAXLEN, MAX_RUN_HISTORY
 from ..docker.orchestrator import ContainerConfig, ContainerStatus, DockerOrchestrator
 from ..models import EvalRun, JsonObject, json_as_mapping_list, json_as_str_list
+from ..session.models_catalog import split_model_effort
+from ..utils import slug_text
 from .batch import resolve_model_ids, validate_models_for_launch
 from .personas import PersonaStore
 from .run_configs import RunConfigStore
@@ -422,15 +424,23 @@ class RunManager:
         used_names: set[str] = set()
         for model in models:
             for i in range(parallelism):
-                # Prefer distinctive tail of model id (bottlerock / pizzaparty / v9)
-                parts = [p for p in model.replace("_", "-").split("-") if p]
+                mid, effort = split_model_effort(model)
+                # Short tag from model id only; append effort so model:effort pairs differ.
+                label = f"{mid or model}-{effort}" if effort else (mid or model)
+                parts = [
+                    p
+                    for p in label.replace("_", "-").replace("/", "-").replace(":", "-").split("-")
+                    if p
+                ]
                 short = (parts[-1] if parts else "model")[:12]
                 if len(parts) >= 2 and parts[-1].isdigit():
                     short = parts[-2][:12]
+                if effort and effort not in short:
+                    short = f"{short}-{effort}"[:16]
+                short = slug_text(short, max_len=16, fallback="model")
                 base = f"groket-{run_id}-{short}"
                 if parallelism > 1:
                     base = f"{base}-{i}"
-                # Disambiguate if two models share the same short tag
                 name = base
                 n = 2
                 while name in used_names:
@@ -439,7 +449,8 @@ class RunManager:
                 used_names.add(name)
                 configs.append(
                     ContainerConfig(
-                        model=model,
+                        model=mid or model,
+                        reasoning_effort=effort,
                         prompt=prompt,
                         docker_image=effective_docker,
                         repo_url=repo_url,
@@ -803,7 +814,7 @@ class RunManager:
                 _add(base / f".groket-turn-{rid}")
             _add(base / ".groket-turn")
 
-        # Fallback paths for entrypoints that read turn gate from traces root.
+        # Also poll traces root (entrypoint may place the gate beside sessions).
         if rid:
             _add(traces_root / f".groket-turn-{rid}")
         _add(traces_root / ".groket-turn")

@@ -355,6 +355,31 @@ async def test_jobs_modal_ensure_log_tabs(tmp_path: Path) -> None:
         assert "jobs-log-tab-groket-beta-2" in modal._log_tabs
 
 
+@pytest.mark.asyncio
+async def test_jobs_log_tabs_accept_model_effort_container_names(tmp_path: Path) -> None:
+    """Container names that once contained ``:`` must not raise BadIdentifier."""
+    from textual.widgets import RichLog
+
+    work, traces = _make_work(tmp_path)
+    app = _host_app(work, traces)
+    # Reproduce the user-facing failure mode: model:effort leaked into the name.
+    bad = "groket-2bffe270c1a3-zingster:hig"
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        modal = await _open_jobs(app, pilot, work)
+        modal._ensure_log_tabs([bad])
+        await pilot.pause()
+        tab_id, log_id = JobsModal._log_ids(bad)
+        assert ":" not in tab_id and ":" not in log_id
+        assert tab_id in modal._log_tabs
+        # Widget must be queryable (mount succeeded)
+        log = modal.query_one(f"#{log_id}", RichLog)
+        assert log is not None
+        modal._append_log(bad, "hello from eval")
+        modal._flush_log_buffers()
+        await pilot.pause()
+
+
 def test_jobs_modal_fmt_ts_various_inputs() -> None:
     """Test _fmt_ts with different input types."""
     assert JobsModal._fmt_ts(None) == "—"

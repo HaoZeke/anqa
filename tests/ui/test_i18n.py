@@ -185,7 +185,7 @@ class TestTAutoSetup:
         try:
             i18n_mod._l10n = None
             result = t("save")
-            assert result is not None
+            assert result == "Save"  # en/main.ftl — not the message id
             assert i18n_mod._l10n is not None
         finally:
             i18n_mod._l10n = old

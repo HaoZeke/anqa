@@ -12,6 +12,7 @@ _ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _C0_CONTROLS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]")
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_WIDGET_ID_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
 def fmt_duration(seconds: float) -> str:
@@ -65,8 +66,22 @@ def utc_now_iso() -> str:
 
 
 def slug_text(text: str, max_len: int = 40, *, fallback: str = "item") -> str:
-    """Filesystem-safe slug from *text*."""
+    """Filesystem-safe slug from *text* (letters, digits, ``._-``)."""
     s = _SLUG_RE.sub("-", (text or "").strip().lower()).strip("-")[:max_len].strip("-")
+    return s or fallback
+
+
+def widget_id(text: str, max_len: int = 64, *, fallback: str = "id") -> str:
+    """Textual / CSS identifier from *text*.
+
+    Only letters, digits, underscores, and hyphens; must not start with a digit
+    (Textual ``BadIdentifier`` rules).
+    """
+    s = _WIDGET_ID_RE.sub("-", (text or "").strip()).strip("-")[:max_len].strip("-")
+    if not s:
+        return fallback
+    if s[0].isdigit():
+        s = f"n-{s}"[:max_len]
     return s or fallback
 
 

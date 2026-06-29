@@ -194,11 +194,11 @@ def cmd_batch(
 @app.command("audit")
 def cmd_audit(
     traces_dir: Annotated[
-        Path,
+        Path | None,
         typer.Argument(
-            help="Traces directory.",
+            help="Traces directory (default: ~/.groket/work/runs/traces).",
         ),
-    ] = Path.home() / "groket" / "runs" / "traces",
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option("-o", "--output", help="Save report to this file."),
@@ -215,14 +215,15 @@ def cmd_audit(
     """Run analysis plugins over traces; print or save a report."""
     from .analysis import AnalysisService
     from .parser import find_sessions
-    from .paths import analysis_cache_dir, default_work_dir
+    from .paths import analysis_cache_dir, default_traces_root, default_work_dir
 
+    traces = traces_dir.expanduser() if traces_dir is not None else default_traces_root()
     svc = AnalysisService(
         default_work_dir(),
         config_path=config,
         cache_root=analysis_cache_dir(),
     )
-    sessions = find_sessions(traces_dir)
+    sessions = find_sessions(traces)
     from .models import JsonObject, json_as_str
 
     all_results: dict[str, list[JsonObject]] = {}
@@ -281,7 +282,7 @@ def cmd_audit(
 def cmd_self_test(
     work_dir: Annotated[
         Path | None,
-        typer.Option("-w", "--work-dir", help="Work root (default ~/groket)."),
+        typer.Option("-w", "--work-dir", help="Work root (default ~/.groket/work)."),
     ] = None,
     json_out: Annotated[
         bool,
@@ -322,7 +323,7 @@ def cmd_self_test(
 def cmd_refresh(
     work_dir: Annotated[
         Path | None,
-        typer.Option("-w", "--work-dir", help="Work root (default ~/groket)."),
+        typer.Option("-w", "--work-dir", help="Work root (default ~/.groket/work)."),
     ] = None,
     traces: Annotated[
         Path | None,

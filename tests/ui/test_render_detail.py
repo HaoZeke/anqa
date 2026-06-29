@@ -129,6 +129,7 @@ class TestTruncateMid:
 # ── Event and tool detail rendering ───────────────────────────────────────
 
 from conftest import make_trace_event
+from .pilot_helpers import assert_rich_contains, rich_plain
 from groket.analysis.base import Finding
 from groket.models import Flag, FlagVerdict, Severity
 from groket.ui.render_detail import (
@@ -213,7 +214,7 @@ class TestRenderEventDetail:
             raw_input={"pattern": "test"},
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "grep")
 
     def test_assistant_event(self):
         ev = make_trace_event(
@@ -222,7 +223,7 @@ class TestRenderEventDetail:
             content="I'll help you fix that bug.",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "I'll help you fix that bug.")
 
     def test_session_error_event(self):
         ev = make_trace_event(
@@ -232,7 +233,7 @@ class TestRenderEventDetail:
             is_error=True,
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "error")
 
     def test_with_finding(self):
         ev = make_trace_event(
@@ -250,7 +251,7 @@ class TestRenderEventDetail:
             category="Build",
         )
         result = render_event_detail(ev, finding=finding)
-        assert result is not None
+        assert_rich_contains(result, "Build failed")
 
     def test_with_flag(self):
         ev = make_trace_event(
@@ -261,7 +262,7 @@ class TestRenderEventDetail:
         )
         flag = Flag(event_index=0, verdict=FlagVerdict.BAD, description="Wrong approach")
         result = render_event_detail(ev, flag=flag)
-        assert result is not None
+        assert_rich_contains(result, "Wrong approach")
 
     def test_thought_event(self):
         ev = make_trace_event(
@@ -270,7 +271,7 @@ class TestRenderEventDetail:
             content="I need to think about this...",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "I need to think about this")
 
     def test_plan_event(self):
         ev = make_trace_event(
@@ -279,7 +280,7 @@ class TestRenderEventDetail:
             content='[{"id": "1", "content": "Step 1", "status": "pending"}]',
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "Step 1")
 
     def test_subagent_event(self):
         ev = make_trace_event(
@@ -288,7 +289,7 @@ class TestRenderEventDetail:
             content="Spawned general-purpose: Investigate the bug",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "Investigate the bug")
 
     def test_user_event(self):
         ev = make_trace_event(
@@ -297,12 +298,13 @@ class TestRenderEventDetail:
             content="Do the thing please.",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "Do the thing please.")
 
     def test_empty_content_event(self):
         ev = make_trace_event(index=0, event_type="assistant", content="")
         result = render_event_detail(ev)
-        assert result is not None
+        # Empty body still shows an assistant-typed detail frame.
+        assert "assistant" in rich_plain(result).lower()
 
     def test_session_event(self):
         ev = make_trace_event(
@@ -311,7 +313,7 @@ class TestRenderEventDetail:
             content="turn started  turn_number=0  model_id=v9",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "turn started")
 
     def test_subagent_markdown_content(self):
         ev = make_trace_event(
@@ -320,7 +322,7 @@ class TestRenderEventDetail:
             content="# Summary\n\nMarkdown subagent",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "Summary")
 
     def test_tool_result_event(self):
         ev = make_trace_event(
@@ -331,7 +333,7 @@ class TestRenderEventDetail:
             tool_call_id="call-99",
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "file contents here")
 
     def test_duration_in_detail(self):
         ev = make_trace_event(
@@ -341,7 +343,8 @@ class TestRenderEventDetail:
             raw_input={"command": "sleep 5"},
         )
         result = render_event_detail(ev, duration=5.0)
-        assert result is not None
+        plain = rich_plain(result)
+        assert "run_terminal_command" in plain or "sleep 5" in plain or "5" in plain
 
 
 # ── Tool input rendering branches ────────────────────────────────────────
@@ -519,15 +522,19 @@ class TestSetStaticRenderable:
 class TestRenderMarkdownDoc:
     def test_normal(self):
         r = render_markdown_doc("# Title\n\nBody text")
-        assert r is not None
+        assert_rich_contains(r, "Title")
 
     def test_empty(self):
         r = render_markdown_doc("")
-        assert r is not None
+        # Empty doc still yields a renderable (placeholder or blank frame).
+        assert rich_plain(r) is not None
+        assert isinstance(rich_plain(r), str)
 
     def test_long(self):
         r = render_markdown_doc("x" * 200_000)
-        assert r is not None
+        plain = rich_plain(r)
+        assert "x" in plain
+        assert len(plain) < 200_000  # truncated for display
 
     def test_markdown_exception_fallback(self):
         """Markdown parse exception falls back to plain Text."""
@@ -535,7 +542,7 @@ class TestRenderMarkdownDoc:
 
         with patch("groket.ui.render_detail.Markdown", side_effect=ValueError("parse error")):
             r = render_markdown_doc("# Title\n\nBody")
-            assert r is not None
+            assert_rich_contains(r, "Title")
 
 
 class TestSanitizeConsoleTextNonStr:
@@ -804,7 +811,9 @@ class TestRenderEventDetailMore:
             content="x" * 25000,
         )
         result = render_event_detail(ev)
-        assert result is not None
+        plain = rich_plain(result)
+        assert "x" in plain
+        assert len(plain) < 25000
 
     def test_finding_banner_with_non_tool_event(self):
         """Finding and flag banners render on non-tool events."""
@@ -823,7 +832,7 @@ class TestRenderEventDetailMore:
         )
         flag = Flag(event_index=0, verdict=FlagVerdict.BAD, description="Flagged")
         result = render_event_detail(ev, finding=finding, flag=flag)
-        assert result is not None
+        assert_rich_contains(result, "Issue found", "Flagged", "Do something")
 
     def test_session_non_error_event(self):
         """Session event without error renders normally."""
@@ -834,4 +843,4 @@ class TestRenderEventDetailMore:
             is_error=False,
         )
         result = render_event_detail(ev)
-        assert result is not None
+        assert_rich_contains(result, "turn started")

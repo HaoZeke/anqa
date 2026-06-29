@@ -14,7 +14,7 @@ from groket.ui.screens.run_configs import RunConfigsScreen, _BatchLaunchModal, _
 from textual.app import App
 from textual.widgets import DataTable, Static
 
-from .pilot_helpers import wait_until
+from .pilot_helpers import assert_static_contains, wait_until
 
 
 def _make_work(tmp_path: Path) -> Path:
@@ -86,8 +86,9 @@ async def test_run_configs_mounts_empty(tmp_path: Path) -> None:
         table = scr.query_one("#rc-table", DataTable)
         assert table.row_count == 0
         detail = scr.query_one("#rc-detail", Static)
-        # Empty state message
-        assert detail is not None
+        from .pilot_helpers import static_plain
+        text = static_plain(detail)
+        assert text.strip() == "" or "config" in text.lower() or "select" in text.lower() or "no " in text.lower()
 
 
 @pytest.mark.asyncio

@@ -3,15 +3,15 @@
 Install for local use (copy, do not edit package source)::
 
     mkdir -p ~/.groket/detectors
-    cp examples/extensions/detectors/repeated_shell_cd.py ~/.groket/detectors/
+    cp examples/detection/starters/detectors/repeated_shell_cd.py ~/.groket/detectors/
 
 Or generate a stub and adapt it::
 
     uv run groket gen detector repeated_shell_cd
 
-Pair with the example rule (see ``examples/extensions/rules/``)::
+Pair with the example rule (see ``examples/detection/starters/rules/``)::
 
-    cp examples/extensions/rules/repeated-shell-cd.yaml ~/.groket/rules/
+    cp examples/detection/starters/rules/repeated-shell-cd.yaml ~/.groket/rules/
 
 Restart the TUI (or reload rules) so the engine imports detectors and merges rules.
 """

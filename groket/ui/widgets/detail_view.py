@@ -9,8 +9,6 @@ from textual.widgets import Static
 
 from ...analysis.base import Finding
 from ...models import Flag, TraceEvent
-from .. import text as U
-from ..i18n import t
 from ..render_detail import render_event_detail, set_static_renderable
 
 
@@ -37,7 +35,7 @@ class DetailView(VerticalScroll):
         self._paired_result: TraceEvent | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static(f"[dim]{U.select_event_timeline()}[/dim]", id="detail-body")
+        yield Static("", id="detail-body")
 
     def show_event(
         self,
@@ -61,7 +59,7 @@ class DetailView(VerticalScroll):
         ev = self._current_event
         body = self.query_one("#detail-body", Static)
         if ev is None:
-            body.update(t("ui-select-an-event-from-the-timeline"))
+            body.update("")
             return
         renderable = render_event_detail(
             ev,
@@ -81,4 +79,4 @@ class DetailView(VerticalScroll):
         self._current_duration = None
         self._paired_call = None
         self._paired_result = None
-        self.query_one("#detail-body", Static).update(t("ui-select-an-event-from-the-timeline"))
+        self.query_one("#detail-body", Static).update("")

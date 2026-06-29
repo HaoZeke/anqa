@@ -396,7 +396,7 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     from groket import paths
 
     monkeypatch.setattr(paths, "APP_HOME", app_home)
-    monkeypatch.setattr(paths, "DEFAULT_APP_ROOT", work_root)
+    monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", work_root)
 
     def _app_home() -> _Path:
         app_home.mkdir(parents=True, exist_ok=True)
@@ -419,16 +419,15 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(paths, "user_tasks_dir", _subdir("tasks"))
     monkeypatch.setattr(paths, "analysis_cache_dir", _subdir("cache"))
     monkeypatch.setattr(paths, "personas_home", _subdir("personas"))
+    monkeypatch.setattr(paths, "reports_dir", _subdir("reports"))
+    monkeypatch.setattr(paths, "user_models_path", lambda: app_home / "models.yaml")
 
     import groket.ui.app as ui_app
 
-    monkeypatch.setattr(ui_app, "APP_HOME", app_home)
+    if hasattr(ui_app, "APP_HOME"):
+        monkeypatch.setattr(ui_app, "APP_HOME", app_home)
     if hasattr(ui_app.TraceEvalApp, "_CONFIG_PATH"):
         monkeypatch.setattr(ui_app.TraceEvalApp, "_CONFIG_PATH", app_home / "config.json")
-
-    import groket.ui.screens.browser as browser_mod
-
-    monkeypatch.setattr(browser_mod, "APP_HOME", app_home)
 
     import groket.ui.prefs as prefs_mod
 
@@ -438,12 +437,12 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
 
     import groket.runs.batch as batch_mod
 
-    monkeypatch.setattr(batch_mod, "WORK_DIR", work_root / "runs")
+    monkeypatch.setattr(batch_mod, "WORK_DIR", work_root)
     monkeypatch.setattr(batch_mod, "AUTH_JSON", grok_home / "auth.json")
     monkeypatch.setattr(batch_mod, "GROK_CONFIG", grok_home / "config.toml")
     if hasattr(batch_mod, "_GROK_MODELS_CACHE"):
         monkeypatch.setattr(batch_mod, "_GROK_MODELS_CACHE", grok_home / "models_cache.json")
     if hasattr(batch_mod, "_USER_MODELS_PATH"):
-        monkeypatch.setattr(batch_mod, "_USER_MODELS_PATH", work_root / "models.yaml")
+        monkeypatch.setattr(batch_mod, "_USER_MODELS_PATH", app_home / "models.yaml")
 
     monkeypatch.setenv("GROKET_TEST_ISOLATION_ROOT", str(root))

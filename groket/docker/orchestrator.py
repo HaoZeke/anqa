@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 from python_on_whales import Container, DockerClient
 
+from ..utils import slug_text
 from .base_profiles import (
     DEFAULT_DOCKER_IMAGE,
     build_run_dockerfile,
@@ -85,13 +86,17 @@ class ContainerConfig:
     # Grok reasoning effort (low|medium|high|xhigh|max); empty uses host/default.
     reasoning_effort: str = ""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.container_name:
             short_id = uuid.uuid4().hex[:8]
-            # Strip effort suffix for naming (model:effort → model)
             mid = self.model.split(":")[0] if ":" in self.model else self.model
-            safe_model = mid.replace("/", "-").replace(":", "-")[:30]
+            safe_model = slug_text(mid, max_len=30, fallback="model")
             self.container_name = f"groket-{safe_model}-{short_id}"
+        else:
+            # Docker + Textual ids reject ``:`` and other punctuation from model:effort.
+            self.container_name = slug_text(
+                self.container_name, max_len=128, fallback="groket-run"
+            )
 
     def resolved_base(self):
         """Resolve :attr:`docker_image` to base image + profile (fully-loaded, …)."""
@@ -455,7 +460,7 @@ class DockerOrchestrator:
         try:
             from ..runs.personas import PersonaStore
 
-            # orchestrator.work_dir is work_dir/runs; store lives at work_dir/runs/personas
+            # Orchestrator is usually rooted at ``<work>/runs``; personas live under APP_HOME.
             work = self.work_dir.parent if self.work_dir.name == "runs" else self.work_dir
             return PersonaStore(work).get(pid)
         except Exception:

@@ -24,10 +24,10 @@ def rules_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     rules.mkdir()
     plugins.mkdir()
     for name in ("demo_detector.py",):
-        src = root / "examples" / "canonical_detection" / "minimal" / name
+        src = root / "examples" / "detection" / "minimal" / "detectors" / name
         (det / name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
     (rules / "demo_rule.yaml").write_text(
-        (root / "examples" / "canonical_detection" / "minimal" / "demo_rule.yaml").read_text(
+        (root / "examples" / "detection" / "minimal" / "rules" / "demo_rule.yaml").read_text(
             encoding="utf-8"
         ),
         encoding="utf-8",

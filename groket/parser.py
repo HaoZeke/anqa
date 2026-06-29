@@ -622,16 +622,17 @@ def session_trace_mtime(session_dir: Path) -> float:
 
 
 def _events_awaiting_next_turn(session_dir: Path) -> bool:
-    """True when events.jsonl has a ``turn_started`` not closed by a later ``turn_ended``.
+    """True when a *later* turn has started after at least one turn completed.
 
-    Interactive / multi-turn sessions often open the next turn after the previous
-    completed; the harness outcome stays ``completed`` for the last *ended* turn
-    even though the session is waiting for more input.
+    A single in-progress turn (``turn_started`` with no ``turn_ended`` yet) is
+    **running**, not awaiting a follow-up prompt. Only multi-turn / interactive
+    wait looks like: ended turn(s), then an open ``turn_started`` for the next.
     """
     events_file = session_dir / "events.jsonl"
     if not events_file.is_file():
         return False
     open_starts = 0
+    ended = 0
     try:
         with events_file.open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -643,9 +644,10 @@ def _events_awaiting_next_turn(session_dir: Path) -> bool:
                     open_starts += 1
                 elif et == "turn_ended":
                     open_starts = max(0, open_starts - 1)
+                    ended += 1
     except OSError:
         return False
-    return open_starts > 0
+    return ended > 0 and open_starts > 0
 
 
 def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
@@ -785,6 +787,7 @@ def load_session_meta(session_dir: Path) -> SessionMeta:
             meta.turn_outcome = inferred
 
     # Interactive multi-turn gate overrides harness outcome while the eval is open.
+    # Never treat an open first turn as awaiting — that is simply running.
     try:
         from .session.turn_gate import read_turn_gate_status, session_awaits_follow_up
 
@@ -799,7 +802,7 @@ def load_session_meta(session_dir: Path) -> SessionMeta:
             elif gstate == "done":
                 pass  # keep harness outcome (usually completed)
             elif _events_awaiting_next_turn(session_dir):
-                # Extra turn_started after last turn_ended (no gate file / gate lag).
+                # Extra turn_started after a completed turn (gate lag / no gate file).
                 meta.turn_outcome = "awaiting_follow_up"
     except Exception:
         logger.debug("turn gate status for %s", session_dir, exc_info=True)

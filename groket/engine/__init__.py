@@ -3,7 +3,7 @@
 Output artifact is always :class:`~groket.analysis.base.Finding`.
 Detectors return :class:`Match`; the runner applies rule templates.
 No built-in rules or detectors ship in the package — see
-``examples/canonical_detection/`` and ``~/.groket/{rules,detectors}/``.
+``examples/detection/`` and ``~/.groket/{rules,detectors}/``.
 """
 
 from __future__ import annotations

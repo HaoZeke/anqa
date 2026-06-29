@@ -67,7 +67,9 @@ class FlagModal(ModalScreen):
                 yield Button(U.cancel(), id="cancel-flag")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_save(self) -> None:
         self._commit_save()

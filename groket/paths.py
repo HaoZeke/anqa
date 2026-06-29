@@ -1,11 +1,17 @@
-"""Resolve work_dir / traces_root / feedback_cache from CLI args and user intent.
+"""Application paths: config under ``~/.groket``, runs under a work dir.
 
-Runner always writes under ``work_dir/runs/traces``. Passing a path to ``groket`` sets both
-what is loaded and (when the path is a work root) where new runs go — see
-``resolve_work_and_traces``.
+**Config home** (``APP_HOME`` / ``~/.groket``) holds identity and extensions —
+config, personas, rules, detectors, analysis plugins, tasks scaffolds, analysis
+cache, exported reports, flag fallbacks, optional ``models.yaml``.
 
-Environment:
-  GROKET_WORK_DIR — default work root when no CLI path is given.
+**Work dir** holds only session / run data — traces, run configs, feedback
+cache, Docker build contexts for launches, batch result log. Default work dir
+is ``~/.groket/work`` (override with ``GROKET_WORK_DIR`` or a CLI path). Never
+defaults to the process cwd so an installed tool does not write into the
+caller's current directory.
+
+Passing a path to ``groket`` sets what is loaded and, when that path is a work
+root, where new runs go — see :func:`resolve_work_and_traces`.
 """
 
 from __future__ import annotations
@@ -13,11 +19,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-DEFAULT_APP_ROOT = Path.home() / "groket"
-
-# Dot-directory for app-global state (config, cache, personas).
-# Work dirs (traces, run_configs) are separate — typically DEFAULT_APP_ROOT or user-specified.
+# App-global state and user extensions (not per-workspace run data).
 APP_HOME = Path.home() / ".groket"
+
+# Default work root for traces / recipes / docker builds (under APP_HOME).
+DEFAULT_WORK_DIR = APP_HOME / "work"
 
 
 def app_home() -> Path:
@@ -45,29 +51,48 @@ def app_config_path() -> Path:
     return APP_HOME / "config.json"
 
 
+def user_models_path() -> Path:
+    """``~/.groket/models.yaml`` — optional preferred model ordering for batch."""
+    return APP_HOME / "models.yaml"
+
+
+def reports_dir() -> Path:
+    """``~/.groket/reports`` — exported finding report Markdown."""
+    d = APP_HOME / "reports"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def flags_fallback_dir(session_id: str) -> Path:
+    """``~/.groket/flags/<session_id>`` — flags when session dir is not writable."""
+    d = APP_HOME / "flags" / session_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def user_rules_dir() -> Path:
-    """``~/.groket/rules`` — user rule YAML overrides (merged on top of bundled rules)."""
+    """``~/.groket/rules`` — user rule YAML."""
     d = APP_HOME / "rules"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def user_detectors_dir() -> Path:
-    """``~/.groket/detectors`` — user detector modules (``@detector`` registration)."""
+    """``~/.groket/detectors`` — user detector modules (``@detector``)."""
     d = APP_HOME / "detectors"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def user_analysis_plugins_dir() -> Path:
-    """``~/.groket/plugins`` — analysis plugin modules (``module:ClassName`` on sys.path)."""
+    """``~/.groket/plugins`` — analysis plugin modules on ``sys.path``."""
     d = APP_HOME / "plugins"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def user_tasks_dir() -> Path:
-    """``~/.groket/tasks`` — optional user task YAML files (pass explicitly to ``batch --tasks``)."""
+    """``~/.groket/tasks`` — optional task YAML (pass explicitly to ``batch --tasks``)."""
     d = APP_HOME / "tasks"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -84,7 +109,6 @@ def ensure_user_extension_dirs() -> dict[str, Path]:
 
 
 # On-disk prefix for run/trace/container names.
-# All run dirs and container names use this prefix.
 RUN_PREFIX = "groket-"
 RUN_PREFIXES = (RUN_PREFIX,)
 # Session-side eval config filename (also embedded in images as groket-config.toml).
@@ -117,13 +141,20 @@ def _env_work_dir() -> Path | None:
 
 
 def default_work_dir() -> Path:
+    """Default work root: ``GROKET_WORK_DIR`` or ``~/.groket/work`` (never cwd)."""
     env = _env_work_dir()
-    return env if env is not None else DEFAULT_APP_ROOT
+    return env if env is not None else DEFAULT_WORK_DIR
 
 
 def default_traces_root(work_dir: Path | None = None) -> Path:
     wd = work_dir or default_work_dir()
     return Path(wd).expanduser() / "runs" / "traces"
+
+
+def eval_results_path(work_dir: Path | None = None) -> Path:
+    """Batch summary log under the work dir (``runs/eval_results.json``)."""
+    wd = work_dir or default_work_dir()
+    return Path(wd).expanduser() / "runs" / "eval_results.json"
 
 
 def resolve_work_and_traces(
@@ -133,8 +164,9 @@ def resolve_work_and_traces(
 ) -> tuple[Path, Path]:
     """Return ``(work_dir, traces_root)`` for TUI / runner / batch / feedback.
 
-    ``work_dir`` owns ``runs/`` (docker-build, traces, feedback_cache), reports, etc.
-    ``traces_root`` is where sessions are discovered by default.
+    ``work_dir`` owns session/run data: ``runs/traces``, ``runs/run_configs``,
+    ``runs/feedback_cache``, ``docker-build``. App config lives under
+    :data:`APP_HOME`, not here.
     """
     if work_dir_override is not None:
         wd = Path(work_dir_override).expanduser().resolve()
@@ -191,12 +223,11 @@ def resolve_work_and_traces(
         session_markers = ("updates.jsonl", "events.jsonl", "chat_history.jsonl", "summary.json")
         if any((p / m).exists() for m in session_markers):
             parent = p.parent
-            # runs/traces/<session> is handled above via parts; remaining cases:
             if parent.name == "traces":
                 return parent.parent, parent
             return parent, parent
 
-        # Empty or custom work root (e.g. ./b2) — use it as work_dir
+        # Explicit directory path used as work root (opt-in via CLI), never implicit cwd
         return p, p / "runs" / "traces"
 
     if not p.suffix:

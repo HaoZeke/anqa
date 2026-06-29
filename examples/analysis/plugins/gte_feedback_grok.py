@@ -1,14 +1,13 @@
-"""LLM-drafted feedback review plugin (personal / external).
+"""LLM-drafted feedback review plugin (example analyzer).
 
-Personal analysis plugin (not part of installable ``groket``).
-
-**One file:** ``plugins/gte_feedback_grok.py`` — filename stem = config entry =
-import name (``gte_feedback_grok``). Config::
+Not part of the installable ``groket`` package. Filename stem = config entry
+import name (``gte_feedback_grok``)::
 
     "analysis": { "plugins": ["gte_feedback_grok:FeedbackReportAnalyzer"] }
 
-Groket adds the ``plugins/`` directory to ``sys.path`` when loading analysis
-plugins, so no install step is required.
+Copy into ``~/.groket/plugins/``, or run with
+``--config examples/analysis/configs/…`` so ``examples/analysis/plugins/``
+is on the plugin search path.
 
 Uses ``AnalyzerInfo.defer=True`` so ``AnalysisService`` runs this in the
 second pass with ``prior_findings`` from built-in detectors.

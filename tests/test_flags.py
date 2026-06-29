@@ -90,9 +90,10 @@ class TestSaveFlags:
             return original_open(path, *args, **kwargs)
 
         monkeypatch.setattr("builtins.open", patched_open)
-        # Patch Path.home so the fallback goes to tmp_path
-        monkeypatch.setattr(Path, "home", lambda: tmp_path / "fakehome")
+        import groket.paths as paths_mod
+
+        monkeypatch.setattr(paths_mod, "APP_HOME", tmp_path / "fakehome" / ".groket")
 
         save_flags(sd, flags)
-        fallback = tmp_path / "fakehome" / "groket" / "flags" / sd.name / "flags.json"
+        fallback = tmp_path / "fakehome" / ".groket" / "flags" / sd.name / "flags.json"
         assert fallback.exists()

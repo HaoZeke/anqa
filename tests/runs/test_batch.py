@@ -211,7 +211,7 @@ def test_run_single_task_and_run_batch_mocked(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setattr(batch, "resolve_model_ids", lambda ms: list(ms))
     out = batch.run_batch([task], work_dir=tmp_path, models=["m1"], parallelism=1)
     assert out
-    assert (tmp_path / "eval_results.json").is_file()
+    assert (tmp_path / "runs" / "eval_results.json").is_file()
 
     class NoDocker(FakeOrch):
         def check_docker_available(self):
@@ -985,3 +985,17 @@ class TestRunSingleTaskErrorLog:
 
         results = batch._run_single_task(task, ["m1"], tmp_path, 1, 1)
         assert any(r["status"] == "failed" for r in results)
+
+
+def test_validate_models_preserves_effort(monkeypatch):
+    """model:effort tokens must resolve; effort must not fail active check."""
+    from groket.runs import batch as b
+
+    monkeypatch.setattr(b, "active_model_ids", lambda: ["v9-zingster", "v9-restfulnight"])
+    monkeypatch.setattr(b, "_catalog_lookup", lambda raw: raw if raw in ("v9-zingster", "v9-restfulnight") else None)
+    active, skips = b.validate_models_for_launch(["v9-zingster:xhigh", "v9-restfulnight:low"])
+    assert active == ["v9-zingster:xhigh", "v9-restfulnight:low"]
+    assert skips == []
+    active2, skips2 = b.validate_models_for_launch(["nope:xhigh"])
+    assert active2 == []
+    assert skips2

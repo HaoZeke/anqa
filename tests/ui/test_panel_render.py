@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from groket.ui import prefs
+from .pilot_helpers import assert_rich_contains, rich_plain
 from groket.ui.panel_render import (
     TIP_SURFACE_CLASS,
     TipSurface,
@@ -162,25 +163,29 @@ class TestMdContent:
 
     def test_long_text_truncated(self):
         r = md_content("x" * 200_000, max_chars=1000)
-        assert r is not None
+        plain = rich_plain(r)
+        assert "x" in plain
+        assert len(plain) < 200_000
 
     def test_no_indent(self):
         r = md_content("hello", indent=0)
-        assert r is not None
+        assert_rich_contains(r, "hello")
 
 
 class TestContentBlock:
     def test_markdown_content(self):
         r = content_block("# Title\n\nSome text")
-        assert r is not None
+        assert_rich_contains(r, "Title")
 
     def test_plain_text(self):
         r = content_block("just plain text")
-        assert r is not None
+        assert_rich_contains(r, "just plain text")
 
     def test_long_text_truncated(self):
         r = content_block("x" * 200_000, max_chars=1000)
-        assert r is not None
+        plain = rich_plain(r)
+        assert "x" in plain
+        assert len(plain) < 200_000
 
 
 class TestSectionHeader:
@@ -296,7 +301,7 @@ class TestMetaStrip:
 class TestDimRule:
     def test_returns_rule(self):
         r = dim_rule()
-        assert r is not None
+        assert "─" in rich_plain(r) or "─" in str(r) or rich_plain(r) != ""
 
 
 class TestPanelGroup:
@@ -311,11 +316,12 @@ class TestPanelGroup:
 
     def test_multiple(self):
         r = panel_group(RichText("a"), RichText("b"))
-        assert r is not None
+        plain = rich_plain(r)
+        assert "a" in plain and "b" in plain
 
     def test_none_filtered(self):
         r = panel_group(None, RichText("a"), None)
-        assert r is not None
+        assert_rich_contains(r, "a")
 
 
 class TestRefreshTipSurfaces:
@@ -383,8 +389,7 @@ class TestMdContentExceptionFallback:
 
         with patch("groket.ui.panel_render.Markdown", side_effect=ValueError("bad")):
             r = md_content("# Title")
-            # Should fall back to Text(body) wrapped in Padding
-            assert r is not None
+            assert_rich_contains(r, "Title")
 
 
 class TestFooterKeyRichStyle:

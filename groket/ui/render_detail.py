@@ -399,22 +399,19 @@ def render_tool_detail(
     meta = Text()
     meta_bits: list[str] = []
     if time_str:
-        meta_bits.append(f"{t('ui-time')}{time_str}")
-    if update_index is not None:
-        meta_bits.append(f"update_line={update_index}")
+        meta_bits.append(time_str)
     if duration is not None:
-        meta_bits.append(f"{t('ui-duration-1')}{fmt_duration(duration)}")
-    if meta_bits:
-        meta.append("  ·  ".join(meta_bits), style="dim")
-        meta.append("\n")
-    if tool_call_id:
-        meta.append(f"call_id={tool_call_id}", style="dim")
+        meta_bits.append(fmt_duration(duration))
     if exit_code is not None:
-        meta.append(f"{t('ui-exit')}{exit_code}", style="red" if is_error else "dim")
+        meta_bits.append(f"exit {exit_code}")
     if signal:
-        meta.append(f"{t('ui-signal')}{signal}", style="red")
+        meta_bits.append(f"signal {signal}")
+    if meta_bits:
+        meta.append("  ·  ".join(meta_bits), style="dim" if not is_error else "red")
+        meta.append("\n")
     if path_hint:
-        meta.append(f"\npath={path_hint}", style="cyan")
+        meta.append(path_hint, style="cyan")
+        meta.append("\n")
     parts: list = [head, meta]
     if ri:
         parts += [Text(""), Rule(t("ui-input"), style="bright_black")]
@@ -543,10 +540,13 @@ def render_event_detail(
     if ev.is_error:
         head.append(t("ui-error-1"), style="bold red")
     head.append("\n")
-    meta_parts = [f"{t('ui-time')}{ev.time_str}", f"update_line={ev.update_index}"]
+    meta_parts: list[str] = []
+    if ev.time_str:
+        meta_parts.append(ev.time_str)
     if duration is not None:
-        meta_parts.append(f"{t('ui-duration-1')}{fmt_duration(duration)}")
-    head.append("  ·  ".join(meta_parts), style="dim")
+        meta_parts.append(fmt_duration(duration))
+    if meta_parts:
+        head.append("  ·  ".join(meta_parts), style="dim")
     body = _content_str(ev.content, sanitize=True, tool_name=ev.tool_name or "")
     if len(body) > 20000:
         body = body[:10000] + t("ui-truncated") + body[-8000:]
@@ -572,19 +572,14 @@ def render_event_detail(
             Markdown(body) if "#" in body[:200] or "\n" in body else Text(body, style="yellow"),
         ]
     elif ev.event_type in ("session", "session_error"):
-        note = t("ui-from-events-jsonl-runtime-orchestrator-telemetry")
         chunks += [
             Text(""),
-            Rule(t("ui-session-turn-runtime"), style="bright_black"),
             Text(body or "(empty)", style="bold red" if ev.is_error else "yellow"),
-            Text(""),
-            Text(note, style="dim italic"),
         ]
     elif body.strip():
-        chunks += [Text(""), Rule(t("ui-content"), style="bright_black"), Text(body)]
+        chunks += [Text(""), Text(body)]
     else:
-        chunks += [Text(""), Text("(empty)", style="dim italic")]
-    chunks += [Text(""), Text(t("ui-f-flag-edit-flag-modal-delete-flag-from-modal"), style="dim")]
+        chunks += [Text(""), Text("(empty)", style="dim")]
     return Group(*chunks)
 
 

@@ -106,4 +106,6 @@ class SelfTestModal(ModalScreen[bool]):
         self._run_checks()
 
     def action_cancel(self) -> None:
-        self.dismiss(False)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, False)

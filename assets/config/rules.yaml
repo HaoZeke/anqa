@@ -1,4 +1,4 @@
 # No bundled rules. Install examples:
-#   cp -r examples/canonical_detection/detectors/* ~/.groket/detectors/
-#   cp examples/canonical_detection/rules/*.yaml ~/.groket/rules/
+#   cp examples/detection/catalog/detectors/*.py ~/.groket/detectors/
+#   cp examples/detection/catalog/rules/*.yaml ~/.groket/rules/
 rules: []

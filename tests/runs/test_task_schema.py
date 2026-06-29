@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 
 def test_load_demo_tasks():
-    demo = Path("examples/extensions/tasks/demo_tasks.yaml")
+    demo = Path("examples/tasks/demo_tasks.yaml")
     if not demo.is_file():
         pytest.skip("demo tasks missing")
     tasks = load_tasks(demo)
@@ -108,9 +108,9 @@ def test_run_manager_turn_gate(tmp_path: Path):
     assert gate.is_dir()
     assert (gate / "next-prompt.txt").read_text(encoding="utf-8") == "next please"
     assert "follow_up" in (gate / "command").read_text(encoding="utf-8")
-    # Also writes legacy parent traces paths
-    legacy = tmp_path / "traces" / ".groket-turn-abc"
-    assert legacy.is_dir()
+    # Turn gate also under work_dir/traces when that layout is used
+    also = tmp_path / "traces" / ".groket-turn-abc"
+    assert also.is_dir()
 
     (gate / "status.json").write_text(
         '{"state": "awaiting_follow_up", "session_id": "s1", "turn": 1}\n',

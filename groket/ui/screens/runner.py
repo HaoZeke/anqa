@@ -38,12 +38,10 @@ from ...runs.run_manager import BackgroundRun, RunManager
 from ...utils import fmt_duration as _format_duration
 from .. import text as U
 from ..bindings import RUNNER, ChromeActions
-from ..data_table import style_data_table
 from ..forms import (
     PERSONA_NONE,
     docker_select_options,
     docker_select_value_or_default,
-    load_active_model_ids,
     model_selection_items,
     normalize_docker_choice,
     normalize_persona_id,
@@ -245,10 +243,6 @@ class RunnerScreen(ChromeActions):
                             yield Label(U.added_to_this_run())
                             yield Static(U.em_dash_dim(), id="run-caps-summary")
                             yield Static("", id="run-caps-help")
-                with Vertical(id="runner-status-panel"):
-                    yield Static("", id="run-banner")
-                    yield Static(f"[bold]{U.containers_heading()}[/bold]", id="status-header")
-                    yield DataTable(id="container-status-table")
             with Horizontal(id="runner-toolbar"):
                 with Horizontal(id="runner-toolbar-primary"):
                     yield Button(U.launch(), variant="primary", id="launch-btn")
@@ -304,11 +298,6 @@ class RunnerScreen(ChromeActions):
         self._activate_runner_tab("runner-tab-extras")
 
     def on_mount(self) -> None:
-        table = self.query_one("#container-status-table", DataTable)
-        style_data_table(table)
-        table.add_columns(
-            t("ui-container"), t("ui-model"), t("ui-status"), t("ui-started"), t("ui-finished")
-        )
         if self.prefill:
             pf = self.prefill
             if pf.prompt:
@@ -411,20 +400,27 @@ class RunnerScreen(ChromeActions):
             sl = self.query_one("#models-select", SelectionList)
         except Exception:
             return
-        catalog = load_active_model_ids()
-        items = model_selection_items(
-            selected, catalog=catalog, default_select_all=default_select_all
-        )
+        items = model_selection_items(selected, default_select_all=default_select_all)
         with suppress(Exception):
             sl.clear_options()
-        for label, mid, is_on in items:
+        from textual.widgets.selection_list import Selection
+
+        for label, token, is_on in items:
             try:
-                sl.add_option((label, mid))
+                # Explicit Selection + id=token avoids Textual prompt.split()[0] collisions
+                # when labels contain spaces (effort variants for the same model).
+                sl.add_option(Selection(label, token, is_on, id=token))
             except Exception:
+                with suppress(Exception):
+                    sl.add_option((label, token, is_on))
+                if is_on:
+                    with suppress(Exception):
+                        sl.select(token)
                 continue
+            # initial_state on Selection is applied at mount; select() if already mounted
             if is_on:
                 with suppress(Exception):
-                    sl.select(mid)
+                    sl.select(token)
         try:
             from ...runs.batch import models_catalog_help_text
 
@@ -439,9 +435,14 @@ class RunnerScreen(ChromeActions):
             sl = self.query_one("#models-select", SelectionList)
         except Exception:
             return
-        want = [m.strip() for m in models if (m or "").strip()]
-        catalog = load_active_model_ids()
-        catalog_set = set(catalog)
+        from ...session.models_catalog import normalize_model_selection_tokens
+
+        want = normalize_model_selection_tokens(
+            [m.strip() for m in models if (m or "").strip()]
+        )
+        from ..forms import load_model_launch_options
+
+        launch_tokens = {tok for _, tok in load_model_launch_options()}
         existing_ids: set[str] = set()
         try:
             for opt in sl._options:
@@ -450,12 +451,10 @@ class RunnerScreen(ChromeActions):
                     existing_ids.add(str(vid))
         except Exception:
             existing_ids = set()
-        if existing_ids != catalog_set and (
-            not (existing_ids <= catalog_set and catalog_set <= existing_ids)
+        if existing_ids != launch_tokens and not (
+            existing_ids <= launch_tokens and launch_tokens <= existing_ids
         ):
-            stale_in_ui = existing_ids - catalog_set
-            missing_in_ui = catalog_set - existing_ids
-            if stale_in_ui or missing_in_ui:
+            if (existing_ids - launch_tokens) or (launch_tokens - existing_ids):
                 self._rebuild_models_selection(want, default_select_all=False)
                 return
         try:
@@ -466,12 +465,12 @@ class RunnerScreen(ChromeActions):
                     pass
         except Exception:
             pass
-        for mid in sorted(set(want) - existing_ids):
+        for tok in sorted(set(want) - existing_ids):
             with suppress(Exception):
-                sl.add_option((f"{mid} [not in catalog]", mid))
-        for mid in want:
+                sl.add_option((f"{tok} [not in catalog]", tok))
+        for tok in want:
             with suppress(Exception):
-                sl.select(mid)
+                sl.select(tok)
 
     def _persona_id_from_form(self) -> str:
         try:
@@ -803,68 +802,17 @@ class RunnerScreen(ChromeActions):
         self.app.push_screen(PersonasScreen(self.work_dir), _back)
 
     def _restore_run_state(self) -> None:
-        """Snapshot status rows from RunManager (no live subscriptions / log tail)."""
+        """Re-enable launch; progress lives in Jobs (``j``), not on this form."""
         if self._restoring_status:
             return
         self._restoring_status = True
         try:
-            self._restore_run_state_inner()
+            self._set_launch_enabled(True)
+            latest = self.run_manager.latest()
+            if latest is not None:
+                self._last_run_id = latest.run_id
         finally:
             self._restoring_status = False
-
-    def _restore_run_state_inner(self) -> None:
-        known = self.run_manager.list_all_known()
-        table = self.query_one("#container-status-table", DataTable)
-        with suppress(Exception):
-            table.clear()
-        self._known_rows.clear()
-        if not known:
-            self._set_launch_enabled(True)
-            return
-        active = self.run_manager.list_active()
-        show_runs = list(active)
-        if not show_runs:
-            show_runs = known[-3:]
-        else:
-            for bg in reversed(known):
-                if bg not in show_runs and bg.is_finished:
-                    show_runs.append(bg)
-                if len(show_runs) >= 8:
-                    break
-        seen_containers: set[str] = set()
-        for bg in show_runs:
-            for st in bg.statuses.values():
-                name = st.container_name
-                if name in seen_containers:
-                    continue
-                seen_containers.add(name)
-                self._upsert_status_row(table, st)
-        latest = self.run_manager.latest()
-        if latest is None:
-            self._set_launch_enabled(True)
-            return
-        self._last_run_id = latest.run_id
-        n_active = len(active)
-        batches = self.run_manager.active_batch_ids
-        self._set_launch_enabled(True)
-        if batches or n_active:
-            batch_bit = f"{t('ui-batch-2')}{batches[0][:12]}[/bold] · " if batches else ""
-            ids = ", ".join(r.run_id for r in active[-3:]) if active else "—"
-            more = f" (+{n_active - 3}{t('ui-more-2')}" if n_active > 3 else ""
-            self._set_banner(
-                "running",
-                f"{batch_bit}[bold]{n_active}{t('ui-run-s-active')}{ids}{more}{t('ui-quiet-mode-open-j-for-live-logs-status-f5-refres')}",
-            )
-        elif bg.error and (not bg.quiet):
-            elapsed_str = _format_duration(bg.elapsed_s)
-            self._set_banner(
-                "error",
-                f"{t('ui-last-run')}{bg.run_id}{t('ui-crashed-after')}{elapsed_str}: {rich_escape(bg.error)}",
-            )
-        elif not bg.quiet:
-            self._apply_finished_banner(bg)
-        else:
-            self._set_banner("idle", t("ui-background-runs-finished-batch-quiet-press-j-for"))
 
     def action_check_docker(self) -> None:
         """Bound to `d` / palette — not a toolbar button."""
@@ -873,16 +821,22 @@ class RunnerScreen(ChromeActions):
     @work(thread=True)
     def _do_docker_check(self) -> None:
         available = self.run_manager.orchestrator.check_docker_available()
-        if available:
-            self.app.call_from_thread(
-                self.notify, t("ui-docker-is-available-and-running"), severity="information"
-            )
-        else:
-            self.app.call_from_thread(
-                self.notify,
-                t("ui-docker-is-not-available-install-docker-or-start"),
-                severity="error",
-            )
+        msg = (
+            t("ui-docker-is-available-and-running")
+            if available
+            else t("ui-docker-is-not-available-install-docker-or-start")
+        )
+        sev = "information" if available else "error"
+
+        def _toast() -> None:
+            self.notify(msg, severity=sev)
+
+        try:
+            self.app.call_from_thread(_toast)
+        except RuntimeError:
+            # Already on the app thread (e.g. worker cancelled onto main during quit).
+            with suppress(Exception):
+                _toast()
 
     @on(Button.Pressed, "#launch-btn")
     def _launch_evaluation(self) -> None:
@@ -1266,76 +1220,39 @@ class RunnerScreen(ChromeActions):
             )
 
     def _set_banner(self, level: str, text: str) -> None:
-        """Update the persistent run-status banner.
-
-        level: "idle", "running", "success", "error"
-        """
-        banner = self.query_one("#run-banner", Static)
-        if level == "idle":
-            banner.update(f"[dim]{text}[/dim]")
+        """Surface launch/run feedback as a toast (no embedded status panel)."""
+        plain = (
+            str(text)
+            .replace("[/bold]", "")
+            .replace("[bold]", "")
+            .replace("[/green]", "")
+            .replace("[green]", "")
+            .replace("[/dim]", "")
+            .replace("[dim]", "")
+            .replace("[/]", "")
+        )
+        if level == "error":
+            self.notify(plain, severity="error", timeout=8)
         elif level == "running":
-            banner.update(f"{t('ui-running')}{text}")
+            self.notify(plain, severity="information", timeout=5)
         elif level == "success":
-            banner.update(f"{t('ui-done-1')}{text}")
-        elif level == "error":
-            banner.update(f"{t('ui-failed-3')}{text}")
-        else:
-            banner.update(text)
+            self.notify(plain, severity="information", timeout=5)
+        # idle: no toast spam when opening the form
 
     def _scroll_to_status(self) -> None:
-        self.query_one("#run-banner", Static).scroll_visible(animate=False)
+        return
 
     def _set_launch_enabled(self, enabled: bool) -> None:
         btn = self.query_one("#launch-btn", Button)
         btn.disabled = not enabled
 
     def _update_status_row(self, status: ContainerStatus) -> None:
-        table = self.query_one("#container-status-table", DataTable)
-        self._upsert_status_row(table, status)
+        _ = status
 
     def _upsert_status_row(self, table: DataTable, status: ContainerStatus) -> None:
-        """Insert or replace a status row without raising DuplicateKey on races."""
-        from ..styles import STATUS_LABEL
+        _ = table, status
 
-        if status.status == "failed":
-            status_display = f"{t('ui-failed-1')}{rich_escape(status.error[:80])}[/]"
-        else:
-            status_display = STATUS_LABEL.get(status.status, status.status)
-        row_key = status.container_name
-        started = status.started_at[:19] if status.started_at else ""
-        finished = status.finished_at[:19] if status.finished_at else ""
-        cells = (status.container_name, status.model, status_display, started, finished)
-        exists = row_key in self._known_rows
-        if not exists:
-            try:
-                table.get_row_index(row_key)
-                exists = True
-                self._known_rows.add(row_key)
-            except Exception:
-                exists = False
-        if exists:
-            try:
-                cols = list(table.columns.keys())
-                for i, val in enumerate(cells):
-                    if i < len(cols):
-                        table.update_cell(row_key, cols[i], val)
-                return
-            except Exception:
-                with suppress(Exception):
-                    table.remove_row(row_key)
-                self._known_rows.discard(row_key)
-        try:
-            table.add_row(*cells, key=row_key)
-            self._known_rows.add(row_key)
-        except Exception:
-            with suppress(Exception):
-                cols = list(table.columns.keys())
-                for i, val in enumerate(cells):
-                    if i < len(cols):
-                        table.update_cell(row_key, cols[i], val)
-                self._known_rows.add(row_key)
-
-    def action_go_back(self) -> None:
+    def _leave_screen(self) -> None:
         n = self.run_manager.active_count
         if n:
             self.notify(
@@ -1343,4 +1260,4 @@ class RunnerScreen(ChromeActions):
                 severity="information",
                 timeout=6,
             )
-        self.app.pop_screen()
+        super()._leave_screen()

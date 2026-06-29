@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.utils import collapse_blank_lines, fmt_duration
+from groket.utils import collapse_blank_lines, fmt_duration, widget_id
 
 
 class TestFmtDuration:
@@ -42,6 +42,19 @@ class TestCollapseBlankLines:
 
 
 from groket.utils import strip_control_chars
+
+
+class TestWidgetId:
+    def test_model_effort_colon_removed(self) -> None:
+        assert ":" not in widget_id("groket-2bffe270c1a3-zingster:hig")
+        assert widget_id("groket-2bffe270c1a3-zingster:hig").startswith("groket-")
+
+    def test_leading_digit_prefixed(self) -> None:
+        assert not widget_id("9abc").startswith("9")
+        assert widget_id("9abc") == "n-9abc"
+
+    def test_empty_fallback(self) -> None:
+        assert widget_id("", fallback="x") == "x"
 
 
 class TestStripControlChars:

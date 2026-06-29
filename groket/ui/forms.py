@@ -48,7 +48,7 @@ def docker_select_value_or_default(stored: str | None) -> str:
 
 
 def load_active_model_ids() -> list[str]:
-    """Canonical ids from ``~/.grok/models_cache.json`` (``grok models``), not models.yaml alone."""
+    """Canonical model ids (no effort suffix) from ``grok models`` cache / config."""
     with suppress(Exception):
         ids = list(active_model_ids() or [])
         if ids:
@@ -59,18 +59,40 @@ def load_active_model_ids() -> list[str]:
         return []
 
 
+def load_model_launch_options() -> list[tuple[str, str]]:
+    """Labels and launch tokens (``model`` or ``model:effort``) for the runner list."""
+    with suppress(Exception):
+        from ..session.models_catalog import model_launch_options
+
+        opts = model_launch_options()
+        if opts:
+            return list(opts)
+    # Fallback: bare ids when catalog metadata is unavailable.
+    return [(mid, mid) for mid in load_active_model_ids()]
+
+
 def default_model_selection() -> list[str]:
-    """Single default model for a blank runner (host config / catalog), not all models."""
+    """Default launch token(s) for a blank runner (with effort when supported)."""
     try:
         from ..runs.batch import default_model_id
+        from ..session.models_catalog import normalize_model_selection_tokens
 
         mid = (default_model_id() or "").strip()
         if mid:
-            return [mid]
+            return normalize_model_selection_tokens([mid])
     except Exception:
         pass
-    cat = load_active_model_ids()
-    return [cat[0]] if cat else []
+    opts = load_model_launch_options()
+    if not opts:
+        return []
+    # Prefer a default-effort token for the first catalog model when present.
+    try:
+        from ..session.models_catalog import normalize_model_selection_tokens
+
+        first_mid = opts[0][1].split(":", 1)[0]
+        return normalize_model_selection_tokens([first_mid])
+    except Exception:
+        return [opts[0][1]]
 
 
 def model_selection_items(
@@ -79,27 +101,53 @@ def model_selection_items(
     catalog: Sequence[str] | None = None,
     default_select_all: bool = False,
 ) -> list[tuple[str, str, bool]]:
-    """Build SelectionList triples: (label, id, initially_selected).
+    """Build SelectionList triples: (label, token, initially_selected).
 
-    When *selected* is empty/None and *default_select_all* is False (default),
-    only the host default model is ticked — not the full catalog. Pass an
-    explicit list (e.g. from a saved run config) to pre-select those ids.
-    Set *default_select_all* True only for rare “run everything” entry points.
+    Tokens are ``model`` or ``model:effort`` for models that support reasoning
+    effort (see :func:`~groket.session.models_catalog.model_launch_options`).
     """
-    cat = list(catalog if catalog is not None else load_active_model_ids())
-    sel = {m.strip() for m in selected or [] if (m or "").strip()}
-    if not sel and cat:
+    from ..session.models_catalog import (
+        normalize_model_selection_tokens,
+        split_model_effort,
+    )
+
+    options = load_model_launch_options()
+    if catalog is not None:
+        allowed = {m.strip() for m in catalog if (m or "").strip()}
+        if allowed:
+            filtered: list[tuple[str, str]] = []
+            for lab, tok in options:
+                mid, _eff = split_model_effort(tok)
+                if tok in allowed or mid in allowed:
+                    filtered.append((lab, tok))
+            # Include bare catalog entries missing from options.
+            have = {split_model_effort(t)[0] for _, t in filtered} | {t for _, t in filtered}
+            for mid in catalog:
+                m = (mid or "").strip()
+                if m and m not in have:
+                    filtered.append((m, m))
+                    have.add(m)
+            options = filtered
+
+    tokens = [tok for _, tok in options]
+    token_set = set(tokens)
+    sel_raw = [m.strip() for m in (selected or []) if (m or "").strip()]
+    try:
+        sel = set(normalize_model_selection_tokens(sel_raw)) if sel_raw else set()
+    except Exception:
+        sel = set(sel_raw)
+    if not sel and tokens:
         if default_select_all:
-            sel = set(cat)
+            sel = set(tokens)
         else:
             sel = set(default_model_selection())
-            if sel and (not sel & set(cat)):
-                sel = {cat[0]}
-    extra = [m for m in sorted(sel) if m not in cat]
+            if sel and not (sel & token_set):
+                # Fall back to first option when defaults don't match tokens.
+                sel = {tokens[0]}
+    extra = [m for m in sorted(sel) if m not in token_set]
     items: list[tuple[str, str, bool]] = []
-    for mid in cat:
-        label = mid
-        items.append((label, mid, mid in sel))
+    for lab, tok in options:
+        items.append((lab, tok, tok in sel))
     for mid in extra:
         items.append((f"{mid} [not in catalog]", mid, True))
     return items

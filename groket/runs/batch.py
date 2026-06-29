@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from ..models import JsonObject
+from ..paths import default_work_dir, eval_results_path, user_models_path
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +45,7 @@ MODEL_SHORTS = {
     "v9-pizzaparty": "pizzaparty",
 }
 
-# User-configurable models file (optional override)
-_USER_MODELS_PATH = Path.home() / "groket" / "models.yaml"
+_USER_MODELS_PATH = user_models_path()
 _GROK_MODELS_CACHE = Path.home() / ".grok" / "models_cache.json"
 
 REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
@@ -161,7 +161,7 @@ def models_catalog_help_text() -> str:
 
 
 def _read_user_models_yaml() -> list[str] | None:
-    """Optional preferred model tokens from ``~/groket/models.yaml`` (not a hard override)."""
+    """Optional preferred model tokens from ``~/.groket/models.yaml`` (not a hard override)."""
     if not _USER_MODELS_PATH.exists():
         return None
     try:
@@ -263,40 +263,42 @@ def default_model_id() -> str:
 
 
 def resolve_model_id(model: str, *, require_active: bool = False) -> str:
-    """Normalize a user/model-list entry to the id the Grok CLI expects for ``-m``.
+    """Normalize a launch token to a canonical id, preserving ``:effort`` when set.
 
+    Accepts bare ``model`` or ``model:effort`` (low|medium|high|xhigh|max).
     Uses ``~/.grok/models_cache.json`` (refresh on host with ``grok models``).
-    When *require_active* is True, returns "" if the model is not in the catalog
-    (retired variants like bottlerocket).
+    When *require_active* is True, returns "" if the **base model** is not in
+    the catalog — effort suffixes must not fail the active check.
     """
-    raw = (model or "").strip()
+    mid, effort = split_model_effort(model)
+    raw = mid or (model or "").strip()
     if not raw:
         return raw
 
     # Live catalog first (source of truth for what works in containers)
     hit = _catalog_lookup(raw)
     if hit:
-        return hit
+        return join_model_effort(hit, effort)
 
     low = raw.lower()
     if low in _MODEL_ALIASES:
         alias_target = _MODEL_ALIASES[low]
         hit2 = _catalog_lookup(alias_target)
         if hit2:
-            return hit2
+            return join_model_effort(hit2, effort)
         if require_active:
             return ""
-        return alias_target
+        return join_model_effort(alias_target, effort)
 
     # Bare "v9" with no catalog entry: use account default if available
     if low == "v9":
         default = default_model_id()
         if default and (not require_active or _catalog_lookup(default)):
-            return default
+            return join_model_effort(default, effort)
 
     if require_active:
         return ""
-    return raw
+    return join_model_effort(raw, effort)
 
 
 def resolve_model_ids(models: list[str]) -> list[str]:
@@ -346,7 +348,7 @@ def validate_models_for_launch(
 
 AUTH_JSON = Path.home() / ".grok" / "auth.json"
 GROK_CONFIG = Path.home() / ".grok" / "config.toml"
-WORK_DIR = Path.home() / "groket" / "runs"
+WORK_DIR = default_work_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -436,8 +438,19 @@ def load_tasks(
 
 
 def model_suffix(model: str) -> str:
-    """Return a short label for a model name."""
-    return MODEL_SHORTS.get(model, model[:10])
+    """Return a short filesystem/Docker-safe label for a model (or ``model:effort``)."""
+    from ..utils import slug_text
+
+    mid, effort = split_model_effort(model)
+    if model in MODEL_SHORTS:
+        base = MODEL_SHORTS[model]
+    elif mid in MODEL_SHORTS:
+        base = MODEL_SHORTS[mid]
+    else:
+        base = (mid or model)[:10]
+    if effort:
+        return slug_text(f"{base}-{effort}", max_len=14, fallback="model")
+    return slug_text(base, max_len=10, fallback="model")
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +468,8 @@ def _run_single_task(
     """Run a single task across all models. Thread-safe."""
 
     ContainerConfig, DockerOrchestrator = _docker_types()
-    orch = DockerOrchestrator(work_dir)
+    # Orchestrator roots at ``<work>/runs`` so traces land in ``runs/traces/``.
+    orch = DockerOrchestrator(Path(work_dir) / "runs")
     results: list[dict] = []
 
     tag = f"[{task_num}/{total_tasks} {task.task_id}]"
@@ -475,8 +489,10 @@ def _run_single_task(
     for model in models:
         suffix = model_suffix(model)
         name = f"groket-{task.task_id}-{suffix}"
+        mid, effort = split_model_effort(model)
         cfg = ContainerConfig(
-            model=model,
+            model=mid or model,
+            reasoning_effort=effort,
             prompt=task.prompt,
             container_name=name,
             docker_image=task.docker_image,
@@ -590,7 +606,7 @@ def run_batch(
         return []
 
     _, DockerOrchestrator = _docker_types()
-    orch = DockerOrchestrator(work_dir)
+    orch = DockerOrchestrator(Path(work_dir) / "runs")
     if not orch.check_docker_available():
         logger.error("ERROR: Docker is not available")
         return []
@@ -637,7 +653,7 @@ def run_batch(
                 logger.error(f"[{task.task_id}] UNHANDLED ERROR: {e}")
 
     # Save results log
-    log_file = work_dir / "eval_results.json"
+    log_file = eval_results_path(work_dir)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with open(log_file, "w") as f:
         json.dump(all_results, f, indent=2)

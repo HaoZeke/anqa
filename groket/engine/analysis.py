@@ -24,15 +24,6 @@ class SessionAnalysis:
     messages: list[ChatMessage] = field(default_factory=list)
     all_findings: list[Finding] = field(default_factory=list)
 
-    # Back-compat aliases used by older call sites
-    @property
-    def issues(self) -> list[Finding]:
-        return self.findings
-
-    @property
-    def all_issues(self) -> list[Finding]:
-        return self.all_findings
-
     @property
     def finding_count(self) -> int:
         return len(self.findings) + len(self.composites)

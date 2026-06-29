@@ -180,41 +180,11 @@ TabPane {
 /* Do not force height: 1 on toolbars that contain Input/Button — clips chrome. */
 
 #session-paths {
-    padding: 0 1 1 1;
+    padding: 0 1;
     height: auto;
     color: $text-muted;
-}
-
-#session-bar {
-    height: auto;
-    min-height: 3;
-    padding: 0 1;
-    layout: horizontal;
-    align: left middle;
     background: $surface;
     border-bottom: solid $primary-background;
-}
-
-#session-bar Input {
-    width: 1fr;
-    height: auto;
-    min-height: 3;
-    border: solid $primary-background;
-    padding: 0 1;
-    background: $surface-darken-1;
-    color: $text;
-}
-
-#session-bar Input:focus {
-    border: solid $accent;
-}
-
-#session-bar Button {
-    min-width: 8;
-    margin: 0 0 0 1;
-    padding: 0 2;
-    height: auto;
-    min-height: 3;
 }
 
 #session-summary {
@@ -263,7 +233,6 @@ TabPane {
 
 /* Sessions list — Model + Task selects (orthogonal filters). */
 #session-model-select,
-#session-task-select,
 .session-filter-select {
     width: 1fr;
     min-width: 16;
@@ -284,7 +253,6 @@ TabPane {
 
 #timeline-view-select > SelectCurrent,
 #session-model-select > SelectCurrent,
-#session-task-select > SelectCurrent,
 .session-filter-select > SelectCurrent,
 #report-view-select > SelectCurrent,
 .report-view-select > SelectCurrent {
@@ -301,7 +269,6 @@ TabPane {
 #report-view-select > SelectCurrent,
 .report-view-select > SelectCurrent,
 #session-model-select > SelectCurrent,
-#session-task-select > SelectCurrent,
 .session-filter-select > SelectCurrent {
     /* Prefer full labels; bar already allows wide select */
     width: 100%;
@@ -309,7 +276,6 @@ TabPane {
 
 #timeline-view-select:focus > SelectCurrent,
 #session-model-select:focus > SelectCurrent,
-#session-task-select:focus > SelectCurrent,
 .session-filter-select:focus > SelectCurrent,
 #report-view-select:focus > SelectCurrent,
 .report-view-select:focus > SelectCurrent {
@@ -321,7 +287,6 @@ TabPane {
 #report-view-select > SelectOverlay,
 .report-view-select > SelectOverlay,
 #session-model-select > SelectOverlay,
-#session-task-select > SelectOverlay,
 .session-filter-select > SelectOverlay {
     min-width: 100%;
     width: auto;
@@ -394,14 +359,45 @@ Select:focus > SelectCurrent {
     background: $surface-lighten-1;
 }
 
+/* Pop-up list must beat Textual's ``Select > SelectOverlay { border: tall
+ * $border-blurred }`` (higher specificity than a bare SelectOverlay rule).
+ * Dark heavy outer border + accent outline = cutout over table rows. */
+Select > SelectOverlay,
+Select.-expanded > SelectOverlay,
 SelectOverlay {
-    background: $surface;
-    border: solid $primary;
+    /* Solid panel — not translucent over zebra rows. */
+    background: $boost !important;
+    /* Outside: opaque black frame (stronger than theme “darken” tokens). */
+    border: heavy #000000 !important;
+    /* Inside rim: accent (yellow on many themes) — Textual outline sits on the widget. */
+    outline: tall $accent !important;
+    padding: 1 2;
     max-height: 12;
+    /* Kill inherited tint/blur that made the menu look like another list row. */
+    background-tint: $foreground 0%;
 }
 
+Select > SelectOverlay:focus,
 SelectOverlay:focus {
-    border: solid $accent;
+    border: heavy #000000 !important;
+    outline: wide $accent !important;
+    background: $boost !important;
+}
+
+/* Options: padding + highlight clearly unlike DataTable cursor/zebra. */
+Select > SelectOverlay > .option-list--option,
+SelectOverlay > .option-list--option {
+    padding: 0 1;
+    background: transparent;
+}
+
+Select > SelectOverlay > .option-list--option-highlighted,
+SelectOverlay > .option-list--option-highlighted,
+Select > SelectOverlay:focus > .option-list--option-highlighted,
+SelectOverlay:focus > .option-list--option-highlighted {
+    background: $accent !important;
+    color: $background !important;
+    text-style: bold;
 }
 
 #runner-main Select,
@@ -1470,7 +1466,6 @@ Select:focus {
 #run-caps-actions Button,
 #pb-actions Button,
 #analysis-settings-actions Button,
-#session-bar Button,
 #feedback-actions Button,
 #modal-container Button,
 #mcp-pick-search-row Button,
@@ -1489,7 +1484,6 @@ Select:focus {
 #run-caps-actions Button:hover,
 #pb-actions Button:hover,
 #analysis-settings-actions Button:hover,
-#session-bar Button:hover,
 #feedback-actions Button:hover,
 #modal-container Button:hover,
 #mcp-pick-search-row Button:hover,
@@ -1508,7 +1502,6 @@ Select:focus {
 #run-caps-actions Button:focus,
 #pb-actions Button:focus,
 #analysis-settings-actions Button:focus,
-#session-bar Button:focus,
 #feedback-actions Button:focus,
 #modal-container Button:focus,
 #mcp-pick-search-row Button:focus,
@@ -1570,14 +1563,28 @@ Button:disabled {
     opacity: 50%;
 }
 
-/* SelectionList looks like a list, not a wall of buttons */
+/* SelectionList: same cutout frame as Select overlays */
 SelectionList {
-    background: $surface;
+    background: $boost !important;
+    border: heavy #000000 !important;
+    outline: tall $accent !important;
+    padding: 1 2;
+    background-tint: $foreground 0%;
+}
+
+SelectionList:focus {
+    border: heavy #000000 !important;
+    outline: wide $accent !important;
+}
+
+SelectionList > .selection-list--option {
     padding: 0 1;
 }
 
 SelectionList > .selection-list--option-highlighted {
-    background: $boost;
+    background: $accent !important;
+    color: $background !important;
+    text-style: bold;
 }
 
 /* ── Loading indicator ────────────────────────────────────────────────── */

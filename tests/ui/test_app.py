@@ -89,7 +89,6 @@ def test_populate_session_table_shows_unanalyzed_rows(tmp_path: Path):
     app._plugin_results = {}
     app._selected = set()
     app._filter_model = ""
-    app._filter_task = ""
     app._populate_busy = False
 
     # Drive populate without full Textual run: install a minimal DataTable host.
@@ -124,7 +123,6 @@ def test_populate_session_table_shows_unanalyzed_rows(tmp_path: Path):
     host._plugin_results = {}
     host._selected = set()
     host._filter_model = ""
-    host._filter_task = ""
     host._populate_busy = False
     # Avoid focus side-effects on a non-mounted widget tree.
     host._populate_session_table = (  # type: ignore[method-assign]  # test stub

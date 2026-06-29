@@ -18,6 +18,7 @@ from textual.widgets import Button, DataTable, Label, RichLog, Static, TabbedCon
 from ...docker.orchestrator import ContainerStatus
 from ...runs.run_manager import BackgroundRun, RunManager
 from ...utils import fmt_duration as _format_duration
+from ...utils import widget_id
 from .. import text as U
 from ..bindings import JOBS_MODAL, focus_primary_list, notify_help
 from ..data_table import style_data_table
@@ -111,7 +112,9 @@ class JobsModal(ModalScreen[None]):
         notify_help(self)
 
     def action_dismiss_modal(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_refresh(self) -> None:
         try:
@@ -197,9 +200,9 @@ class JobsModal(ModalScreen[None]):
         for name in list(self._log_buffer.keys()):
             self._log_buffer[name] = []
         for tab_id in list(self._log_tabs):
-            name = tab_id.replace("jobs-log-tab-", "", 1)
+            log_id = "jobs-log-" + tab_id.removeprefix("jobs-log-tab-")
             with suppress(Exception):
-                self.query_one(f"#jobs-log-{name}", RichLog).clear()
+                self.query_one(f"#{log_id}", RichLog).clear()
         return
 
     @on(Button.Pressed, "#jobs-close-btn")
@@ -562,17 +565,22 @@ class JobsModal(ModalScreen[None]):
                     self._known_rows.add(name)
         self._ensure_log_tabs([name])
 
+    @staticmethod
+    def _log_ids(container_name: str) -> tuple[str, str]:
+        """Return ``(tab_pane_id, rich_log_id)`` safe for Textual identifiers."""
+        safe = widget_id(container_name, max_len=80, fallback="container")
+        return f"jobs-log-tab-{safe}", f"jobs-log-{safe}"
+
     def _ensure_log_tabs(self, container_names: list[str]) -> None:
         try:
             tabs = self.query_one("#jobs-logs-tabs", TabbedContent)
         except Exception:
             return
         for i, name in enumerate(container_names):
-            tab_id = f"jobs-log-tab-{name}"
+            tab_id, log_id = self._log_ids(name)
             if tab_id in self._log_tabs:
                 continue
             short = name.split("-", 2)[-1][:15] if "-" in name else name[:15]
-            log_id = f"jobs-log-{name}"
             color = self._CONTAINER_COLORS[
                 (len(self._container_color_map) + i) % len(self._CONTAINER_COLORS)
             ]
@@ -589,8 +597,9 @@ class JobsModal(ModalScreen[None]):
         for name, lines in list(self._log_buffer.items()):
             if not lines:
                 continue
+            _tab_id, log_id = self._log_ids(name)
             try:
-                log = self.query_one(f"#jobs-log-{name}", RichLog)
+                log = self.query_one(f"#{log_id}", RichLog)
             except Exception:
                 continue
             for line in lines:

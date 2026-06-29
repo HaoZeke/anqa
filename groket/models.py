@@ -479,11 +479,11 @@ class SessionMeta:
 
     @property
     def model_display(self) -> str:
-        """Model id with effort when present (session list / filters)."""
+        """Model id with effort when present (``model:effort``)."""
         mid = (self.model_id or "").strip() or "unknown"
         eff = (self.reasoning_effort or "").strip()
         if eff:
-            return f"{mid} · {eff}"
+            return f"{mid}:{eff}"
         return mid
 
     @property
@@ -515,10 +515,13 @@ class SessionMeta:
         return True
 
     def list_status_label(self) -> str:
-        """Main session list Turn/status: running | cancelled | complete | waiting for prompt."""
+        """Main session list Turn column (short labels — narrow column).
+
+        Values: ``running`` | ``awaiting`` | ``cancelled`` | ``complete`` | ``—``.
+        """
         oc = (self.turn_outcome or "").strip().lower().replace(" ", "_")
         if oc == "awaiting_follow_up":
-            return "waiting for prompt"
+            return "awaiting"
         if oc in ("running", "in_progress", "pending") or (
             not oc and self.turn_in_progress
         ):

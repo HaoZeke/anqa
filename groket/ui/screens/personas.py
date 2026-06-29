@@ -257,7 +257,9 @@ class McpConfigureModal(ModalScreen[dict | None]):
         self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_save(self) -> None:
         self._do_save()
@@ -622,7 +624,9 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
         self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_done(self) -> None:
         self.dismiss(
@@ -866,7 +870,9 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
         self._update_detail()
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_done(self) -> None:
         self.dismiss(sorted(self._selected))
@@ -1016,7 +1022,9 @@ class SkillsPickerModal(ModalScreen[list[str] | None]):
         self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_done(self) -> None:
         self.dismiss(sorted(self._selected))
@@ -1276,7 +1284,9 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
         self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     def action_save(self) -> None:
         self._do_save()
@@ -1489,8 +1499,6 @@ class PersonasScreen(ChromeActions):
         )
         self._reload_table()
 
-    def action_go_back(self) -> None:
-        self.app.pop_screen()
 
     def action_refresh_context(self) -> None:
         self._reload_table()

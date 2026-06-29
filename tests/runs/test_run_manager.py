@@ -55,6 +55,7 @@ class FakeContainerConfig:
     interactive: bool = False
     follow_up_prompts: list = field(default_factory=list)
     run_id: str = ""
+    reasoning_effort: str = ""
 
 
 @dataclass
@@ -233,6 +234,60 @@ def test_start_run_sync_worker(rm: RunManager, tmp_path: Path, monkeypatch: pyte
     )
     assert bg.run_id
     assert bg.eval_run.status in ("completed", "failed", "running")
+
+
+def test_start_run_model_effort_container_names_have_no_colon(
+    rm: RunManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """model:effort must not put ``:`` into container names (Docker / Textual ids)."""
+    import groket.runs.run_manager as rm_mod
+
+    monkeypatch.setattr(rm_mod, "ContainerConfig", FakeContainerConfig)
+    monkeypatch.setattr(rm_mod, "DockerOrchestrator", FakeOrchestrator)
+    monkeypatch.setattr(
+        rm_mod, "validate_models_for_launch", lambda models: (list(models), [])
+    )
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    grok_cfg = tmp_path / "config.toml"
+    grok_cfg.write_text("", encoding="utf-8")
+
+    bg = rm.start_run(
+        prompt="hello",
+        setup_instructions="",
+        docker_image="fully-loaded",
+        models=["zingster:high", "zingster:low"],
+        parallelism=1,
+        repo_url="",
+        repo_branch="",
+        auth_json=auth,
+        grok_config=grok_cfg,
+        save_config=False,
+        quiet=True,
+    )
+    names = [c.container_name for c in bg.configs]
+    assert len(names) == 2
+    assert names[0] != names[1]
+    for name in names:
+        assert ":" not in name
+        assert name.startswith("groket-")
+        assert "high" in name or "low" in name
+    assert bg.configs[0].model == "zingster"
+    assert bg.configs[0].reasoning_effort == "high"
+    assert bg.configs[1].reasoning_effort == "low"
+
+
+def test_container_config_sanitizes_colon_in_name() -> None:
+    from groket.docker.orchestrator import ContainerConfig
+
+    cfg = ContainerConfig(
+        model="zingster",
+        reasoning_effort="high",
+        prompt="p",
+        container_name="groket-abc-zingster:hig",
+    )
+    assert ":" not in cfg.container_name
+    assert "zingster" in cfg.container_name
 
 
 def test_start_run_raises_without_models(
