@@ -7,6 +7,23 @@ REPO_BRANCH="${REPO_BRANCH:-}"
 PROMPT="${PROMPT:-}"
 SKIP_SETUP="${SKIP_SETUP:-0}"
 
+# Host uid/gid (set by orchestrator) — sessions bind-mount is written as root inside
+# the container; chown so the host user can delete/read prompt_history.jsonl etc.
+_gte_fix_sessions_ownership() {
+    local uid="${HOST_UID:-}"
+    local gid="${HOST_GID:-}"
+    if [ -z "$uid" ] || [ -z "$gid" ]; then
+        return 0
+    fi
+    if [ ! -d /root/.grok/sessions ]; then
+        return 0
+    fi
+    if chown -R "${uid}:${gid}" /root/.grok/sessions 2>/dev/null; then
+        echo ">>> Sessions volume ownership → ${uid}:${gid} (host user)"
+    fi
+}
+trap '_gte_fix_sessions_ownership' EXIT
+
 # GitHub CLI in automation: accept host-injected token when job opts into github_write
 # (orchestrator sets GH_TOKEN from GH_TOKEN on the host).
 if [ -z "${GH_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then

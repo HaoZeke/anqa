@@ -730,6 +730,13 @@ class DockerOrchestrator:
             ),
             **config.env_vars,
         }
+        # So entrypoint can chown bind-mounted sessions (prompt_history.jsonl, …)
+        # back to the host user (containers write as root otherwise).
+        try:
+            envs.setdefault("HOST_UID", str(os.getuid()))
+            envs.setdefault("HOST_GID", str(os.getgid()))
+        except AttributeError:
+            pass
         if effort:
             envs["REASONING_EFFORT"] = effort
         if config.interactive:
@@ -886,6 +893,8 @@ class DockerOrchestrator:
         traces_dir = self.work_dir / "traces" / container_name
         if not traces_dir.exists():
             return None
+        # Best-effort while the run is live (entrypoint also chowns with HOST_UID).
+        self.fix_traces_ownership(traces_dir)
         from ..parser import find_sessions
 
         sessions = find_sessions(traces_dir)
