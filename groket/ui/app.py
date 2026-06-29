@@ -507,8 +507,7 @@ class TraceEvalApp(App):
     def _enable_theme_persist(self) -> None:
         """Re-apply saved theme, then persist any later theme changes to disk.
 
-        Covers ``t`` (cycle), Ctrl+P → Change theme, and any other path that
-        sets ``App.theme``.
+        Covers Ctrl+P → Change theme and any other path that sets ``App.theme``.
         """
         self.apply_saved_theme(save=False)
         if not self._theme_persist:
@@ -2072,30 +2071,6 @@ class TraceEvalApp(App):
                     self.notify(U.analysis_settings_saved(), severity="information")
 
         self.push_screen(AnalysisSettingsModal(self.work_dir), _done)
-
-    def action_cycle_theme(self) -> None:
-        """Cycle through available themes and persist to config.json."""
-        themes = self._theme_names()
-        if not themes:
-            self.notify(U.no_themes_available(), severity="warning")
-            return
-        current = str(self._config.get("theme") or self.theme or "").strip()
-        try:
-            idx = themes.index(current)
-        except ValueError:
-            try:
-                idx = themes.index(self.theme)
-            except ValueError:
-                idx = -1
-        next_theme = themes[(idx + 1) % len(themes)]
-        try:
-            self.theme = next_theme
-        except Exception as e:
-            self.notify(f"{t('ui-theme-failed')} {e}", severity="error")
-            return
-        self._config["theme"] = next_theme
-        self._save_config()
-        self.notify(f"{t('ui-theme')} {next_theme}")
 
     def action_toggle_tips(self) -> None:
         """Show/hide framed admonitions **app-wide** (``show_tips`` in config.json).

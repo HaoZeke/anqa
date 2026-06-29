@@ -77,7 +77,6 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("m", "cycle_model_filter", U.bind_model(), show=False),
     _b("a", "analyze", U.bind_analyze(), show=False),
     _b("d", "open_rules", U.bind_rules(), show=False),
-    _b("t", "cycle_theme", U.bind_theme(), show=False),
     # Multi-turn: n = next prompt, e = end session (not Ctrl+Enter).
     _b("n", "follow_up_sessions", U.bind_next_prompt(), show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), show=True),
@@ -109,7 +108,6 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "cycle_model_filter",
         "analyze",
         "open_rules",
-        "cycle_theme",
         "follow_up_sessions",
         "mark_sessions_done",
     }

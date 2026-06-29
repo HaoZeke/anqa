@@ -149,8 +149,6 @@ bind-summary = 2 Summary
 
 bind-task = Task
 
-bind-theme = Theme
-
 bind-timeline = 1 Timeline
 
 bind-toggle = Toggle
@@ -190,10 +188,6 @@ cmd-back-sessions-help = Leave browser
 cmd-clear-timeline-view = Clear timeline view
 
 cmd-clear-timeline-view-help = c — All events + clear search
-
-cmd-cycle-theme = Cycle theme
-
-cmd-cycle-theme-help = Next UI theme
 
 cmd-delete-config = Delete config
 
@@ -639,8 +633,6 @@ no-config-selected = No config selected
 no-configs-hint = no configs — n new
 
 no-session-to-save = No session to save
-
-no-themes-available = No themes available
 
 notes-label = Notes
 
@@ -2096,10 +2088,6 @@ ui-task-1 =   task:
 ui-task-catalog-lookup-failed-for-s = Task catalog lookup failed for %s
 
 ui-task-filter = Task filter: 
-
-ui-theme = Theme: 
-
-ui-theme-failed = Theme failed: 
 
 ui-thinking = Thinking
 

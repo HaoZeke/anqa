@@ -416,31 +416,6 @@ async def test_analyze_no_sessions_notifies(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cycle_theme(tmp_path: Path) -> None:
-    """Theme cycling persists the choice to config.json on disk."""
-    from groket.paths import app_config_path
-
-    app, work, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        names = app._theme_names()
-        if not names:
-            app.action_cycle_theme()
-            await pilot.pause()
-            return
-        original = app.theme
-        app.action_cycle_theme()
-        await pilot.pause()
-        assert app._config.get("theme") is not None
-        if len(names) > 1:
-            assert app.theme != original
-        cfg_path = app_config_path()
-        assert cfg_path.is_file()
-        data = json.loads(cfg_path.read_text(encoding="utf-8"))
-        assert data.get("theme") == app.theme
-
-
-@pytest.mark.asyncio
 async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
     """Setting ``App.theme`` (e.g. Ctrl+P Change theme) writes config.json."""
     from groket.paths import app_config_path
