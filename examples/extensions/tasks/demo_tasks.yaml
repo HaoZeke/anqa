@@ -1,0 +1,26 @@
+# Optional editor schema: schemas/tasks.schema.json (repo root)
+# Validate: uv run groket tasks validate examples/extensions/tasks/demo_tasks.yaml
+#
+#   uv run groket batch --tasks examples/extensions/tasks/demo_tasks.yaml
+
+schema_version: 1
+
+tasks:
+  - task_id: demo-list-workspace
+    category: custom
+    # Optional git clone into /workspace (omit for empty workspace + prompt only)
+    # repo_url: https://github.com/org/repo.git
+    # repo_branch: main
+    prompt: >
+      List the top-level files in /workspace and print the current date.
+      Do not modify any files.
+    # initial_commands: |
+    #   echo "workspace ready"
+    # turns:
+    #   - prompt: Also print the disk usage of /workspace.
+
+  - task_id: demo-readme-summary
+    category: custom
+    prompt: >
+      If a README exists in the workspace, summarize it in three bullets.
+      If not, say so and stop.

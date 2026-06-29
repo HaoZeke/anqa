@@ -1,0 +1,14 @@
+FROM {base_image}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+{profile_comment}
+{tool_block}
+# Install Grok Build CLI
+RUN curl -fsSL https://x.ai/cli/install.sh | bash
+
+ENV PATH="/root/.cargo/bin:/usr/local/go/bin:/root/.grok/bin:${{PATH}}"
+
+RUN mkdir -p /root/.grok /workspace
+
+WORKDIR /workspace

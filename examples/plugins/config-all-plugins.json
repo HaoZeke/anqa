@@ -1,0 +1,13 @@
+{
+  "analysis": {
+    "plugins": [
+      "token_tracker:TokenTrackerAnalyzer",
+      "security_scanner:SecurityScannerAnalyzer",
+      "latency_profiler:LatencyProfilerAnalyzer",
+      "diff_reviewer:DiffReviewerAnalyzer",
+      "conversation_flow:ConversationFlowAnalyzer",
+      "session_health:SessionHealthAnalyzer"
+    ],
+    "auto_analyze_on_open": true
+  }
+}

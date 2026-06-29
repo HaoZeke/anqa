@@ -1,0 +1,471 @@
+#!/bin/bash
+set -e
+
+REPO_URL="${REPO_URL:-}"
+MODEL="${MODEL:-grok-build}"
+REPO_BRANCH="${REPO_BRANCH:-}"
+PROMPT="${PROMPT:-}"
+SKIP_SETUP="${SKIP_SETUP:-0}"
+
+# GitHub CLI in automation: accept host-injected token when job opts into github_write
+# (orchestrator sets GH_TOKEN from GROKET_GH_TOKEN / GH_TOKEN on the host).
+if [ -z "${GH_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+    export GH_TOKEN="$GITHUB_TOKEN"
+fi
+export GH_PAGER="${GH_PAGER:-cat}"
+export GIT_TERMINAL_PROMPT="${GIT_TERMINAL_PROMPT:-0}"
+
+# Wire git push/fetch to use GH_TOKEN via gh (plain `git` does not read GH_TOKEN alone).
+_gte_setup_git_gh_auth() {
+    if [ -z "${GH_TOKEN:-}" ]; then
+        return 0
+    fi
+    if ! command -v gh >/dev/null 2>&1; then
+        echo ">>> WARNING: GH_TOKEN set but gh not installed — git push may fail (use fully-loaded profile)."
+        return 0
+    fi
+    if ! command -v git >/dev/null 2>&1; then
+        echo ">>> WARNING: GH_TOKEN set but git not installed."
+        return 0
+    fi
+    # Non-interactive: gh as git credential helper so `git push` works with the PAT.
+    set +e
+    gh auth setup-git >/dev/null 2>&1
+    git config --global credential.helper '!gh auth git-credential' >/dev/null 2>&1
+    # Sensible defaults for agent commits inside eval (override in setup.sh if needed).
+    git config --global user.email "${GIT_AUTHOR_EMAIL:-groket-eval@localhost}" >/dev/null 2>&1
+    git config --global user.name "${GIT_AUTHOR_NAME:-groket-eval}" >/dev/null 2>&1
+    set -e
+    echo ">>> git credential helper → gh (GH_TOKEN) — git push/fetch over HTTPS should work."
+}
+
+if [ -n "${GH_TOKEN:-}" ]; then
+    echo ">>> GH_TOKEN present — gh/API auth available (non-interactive)."
+    if [ "${GROKET_GITHUB_WRITE:-0}" = "1" ]; then
+        echo ">>> GROKET_GITHUB_WRITE=1 — write/push enabled for this job (repo-scoped token recommended)."
+    fi
+    _gte_setup_git_gh_auth
+else
+    echo ">>> No GH_TOKEN — gh/git push unauthenticated; agents should pivot / local-only."
+fi
+
+# Repo is optional — jobs may be "prompt + initial commands" only (empty workspace).
+if [ -n "$REPO_URL" ] && [ ! -d /workspace/.git ]; then
+    echo ">>> Cloning $REPO_URL ..."
+    if [ -n "$REPO_BRANCH" ]; then
+        git clone --branch "$REPO_BRANCH" "$REPO_URL" /workspace
+    else
+        git clone "$REPO_URL" /workspace
+    fi
+    echo ">>> Clone complete."
+elif [ -z "$REPO_URL" ]; then
+    echo ">>> No REPO_URL — starting in empty /workspace (no-repo job)."
+    mkdir -p /workspace
+fi
+
+cd /workspace
+
+# Re-apply git↔gh wiring inside /workspace (local config can override globals in some images).
+if [ -n "${GH_TOKEN:-}" ] && [ -d /workspace/.git ] && command -v git >/dev/null 2>&1; then
+    set +e
+    git config credential.helper '!gh auth git-credential' >/dev/null 2>&1
+    set -e
+fi
+
+# Install persona/runner marketplace plugins from /groket-plugins-manifest.json.
+# Prefer ``grok plugin install`` so Grok registers plugins under
+# ~/.grok/installed-plugins and wires bundled .mcp.json — not a raw git tree
+# under ~/.grok/plugins alone (that skips CLI registration and confuses skills).
+_gte_install_plugins_from_manifest() {
+    local manifest="${1:-/groket-plugins-manifest.json}"
+    if [ ! -f "$manifest" ]; then
+        return 0
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo ">>> WARNING: plugins manifest present but python3 missing — skipping plugin install."
+        return 0
+    fi
+    echo ">>> Installing Grok plugins from manifest (grok plugin install) ..."
+    # shellcheck disable=SC2016
+    python3 - "$manifest" <<'PY'
+import json, shutil, subprocess, sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+try:
+    items = json.loads(manifest_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f">>> WARNING: cannot read plugins manifest: {exc}", file=sys.stderr)
+    sys.exit(0)
+if not isinstance(items, list):
+    sys.exit(0)
+
+has_grok = shutil.which("grok") is not None
+has_git = shutil.which("git") is not None
+
+for item in items:
+    if not isinstance(item, dict):
+        continue
+    name = str(item.get("name") or "").strip()
+    url = str(item.get("source_url") or "").strip()
+    sha = str(item.get("sha") or "").strip()
+    if not name or not url:
+        continue
+    source = url
+    if sha:
+        # Grok accepts user/repo@ref and git URL@ref for pins when supported.
+        if "@" not in url.rstrip("/").split("/")[-1]:
+            source = f"{url}@{sha}" if not url.endswith(sha) else url
+    try:
+        if has_grok:
+            # Registers into ~/.grok/installed-plugins + enable metadata (official path).
+            subprocess.run(
+                ["grok", "plugin", "install", "--trust", source],
+                check=True,
+                capture_output=True,
+                timeout=300,
+                text=True,
+            )
+            print(f">>> plugin {name} installed via grok plugin install ({source})")
+            continue
+        if not has_git:
+            print(f">>> WARNING: no grok/git — cannot install plugin {name}", file=sys.stderr)
+            continue
+        # Fallback: checkout into installed-plugins-style path Grok also scans.
+        dest_root = Path.home() / ".grok" / "installed-plugins" / name
+        if dest_root.exists():
+            shutil.rmtree(dest_root, ignore_errors=True)
+        dest_root.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "clone", "--quiet", url, str(dest_root)],
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+        if sha:
+            subprocess.run(
+                ["git", "-C", str(dest_root), "checkout", "--quiet", sha],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+        print(f">>> plugin {name} cloned to {dest_root} (no grok CLI; enable via config [plugins])")
+    except Exception as exc:
+        err = getattr(exc, "stderr", None) or exc
+        print(f">>> WARNING: plugin {name} install failed: {err}", file=sys.stderr)
+PY
+}
+
+_gte_install_plugins_from_manifest
+
+# Multiline initial commands (setup.sh baked into the image). Runs after clone
+# so commands can populate /workspace, install packages, write seed files, etc.
+if [ "$SKIP_SETUP" != "1" ] && [ -x /groket-setup.sh ]; then
+    if grep -qvE '^[[:space:]]*(#|$)' /groket-setup.sh 2>/dev/null; then
+        echo ">>> Running initial commands (/groket-setup.sh) ..."
+        # Don't abort the whole job if setup fails unless set -e inside the script.
+        set +e
+        /bin/bash /groket-setup.sh
+        setup_rc=$?
+        set -e
+        if [ "$setup_rc" -ne 0 ]; then
+            echo ">>> WARNING: initial commands exited with code $setup_rc (continuing to grok)"
+        else
+            echo ">>> Initial commands done."
+        fi
+    fi
+fi
+
+echo "============================================"
+echo "  Model:  $MODEL"
+if [ -n "$REPO_URL" ]; then
+    echo "  Repo:   $REPO_URL${REPO_BRANCH:+ @ $REPO_BRANCH}"
+else
+    echo "  Repo:   (none — no-repo job)"
+fi
+if [ -n "${GH_TOKEN:-}" ]; then
+    if [ "${GROKET_GITHUB_WRITE:-0}" = "1" ]; then
+        echo "  GH:     write token injected (git+gh; prefer GROKET_GH_TOKEN on host)"
+    else
+        echo "  GH:     token injected (GH_TOKEN set)"
+    fi
+else
+    echo "  GH:     no token (pivot / unauthenticated)"
+fi
+echo "  CWD:    $(pwd)"
+echo "============================================"
+echo ""
+
+# Resolve prompt into a file. Passing `-p "$PROMPT"` breaks when:
+#   - PROMPT is empty / whitespace-only  → "prompt is empty"
+#   - PROMPT starts with `-` (e.g. `--help`) → argparse eats it ("value required for --single")
+#   - PROMPT has newlines/special chars  → env truncation / shell issues
+# Prefer a host-mounted /groket-prompt.txt (orchestrator writes this); fall back to PROMPT env.
+PROMPT_FILE="/tmp/groket-prompt.txt"
+if [ -f /groket-prompt.txt ] && [ -s /groket-prompt.txt ]; then
+    cp /groket-prompt.txt "$PROMPT_FILE"
+elif [ -n "$PROMPT" ]; then
+    # Preserve exact bytes from env (may still lose newlines if docker stripped them)
+    printf '%s' "$PROMPT" > "$PROMPT_FILE"
+    # If env had no trailing newline but content exists, fine; trim only all-whitespace
+fi
+
+# Trim: treat all-whitespace as missing
+if [ ! -s "$PROMPT_FILE" ] || ! grep -q '[^[:space:]]' "$PROMPT_FILE" 2>/dev/null; then
+    echo ">>> ERROR: No prompt provided (empty /groket-prompt.txt and PROMPT env)."
+    echo ">>> Set a prompt in the Runner / task YAML before launching."
+    exit 2
+fi
+
+echo ">>> Prompt file: $PROMPT_FILE ($(wc -c < "$PROMPT_FILE") bytes)"
+# Prompt is exactly what the operator set (Runner / task YAML) — no extra preamble.
+
+# Newest session dir under bind-mounted traces (host sees the same path).
+_gte_find_session() {
+    find /root/.grok/sessions -mindepth 2 -maxdepth 2 -type d \
+        ! -name 'compaction' 2>/dev/null | while read -r d; do
+            if [ -f "$d/chat_history.jsonl" ] || [ -f "$d/updates.jsonl" ] || [ -f "$d/summary.json" ]; then
+                echo "$d"
+            fi
+        done | sort | tail -1
+}
+
+# One share snapshot (force=1 refreshes even if a prior URL exists).
+_gte_share_once() {
+    local force_flag="${1:-}"
+    local sess
+    sess=$(_gte_find_session)
+    if [ -z "$sess" ] || [ ! -d "$sess" ]; then
+        echo ">>> [share] no session dir yet"
+        return 1
+    fi
+    local sid
+    sid=$(basename "$sess")
+    echo ">>> [share] snapshot for $sid force=${force_flag:-0}"
+    if [ -f /groket-share-once.py ]; then
+        python3 /groket-share-once.py "$sid" "$sess" $force_flag || return 1
+    else
+        echo ">>> [share] /groket-share-once.py missing in image"
+        return 1
+    fi
+}
+
+# Background: periodic mid-run shares (default on ALL images; entrypoint always starts this).
+# Final share runs after agent exits (below). Opt-out only via GROKET_SHARE_DISABLE=1.
+# Cadence tuned for less jitter / fewer overlapping ``grok share`` calls:
+#   GROKET_SHARE_INITIAL_DELAY_SECS (default 30) — wait for session + first turns
+#   GROKET_SHARE_INTERVAL_SECS (default 60) — min age before re-snapshot once URL exists
+#   GROKET_SHARE_LOOP_SLEEP_SECS (default 20) — idle poll between attempts
+# First successful share uses non-force; subsequent snapshots force so the share page advances.
+_gte_share_loop() {
+    local interval="${GROKET_SHARE_INTERVAL_SECS:-60}"
+    local loop_sleep="${GROKET_SHARE_LOOP_SLEEP_SECS:-20}"
+    sleep "${GROKET_SHARE_INITIAL_DELAY_SECS:-30}"
+    local had_url=0
+    while true; do
+        local sess
+        sess=$(_gte_find_session)
+        if [ -z "$sess" ] || [ ! -d "$sess" ]; then
+            sleep "$loop_sleep"
+            continue
+        fi
+        if [ -f "$sess/groket-share.json" ] && grep -q '"share_url": "https' "$sess/groket-share.json" 2>/dev/null; then
+            had_url=1
+            local age=9999
+            if command -v stat >/dev/null 2>&1; then
+                age=$(( $(date +%s) - $(stat -c %Y "$sess/groket-share.json" 2>/dev/null || echo 0) ))
+            fi
+            if [ "$age" -lt "$interval" ]; then
+                sleep "$loop_sleep"
+                continue
+            fi
+        fi
+        # Force only when refreshing an existing share (reduces first-snapshot races).
+        local force_flag=""
+        if [ "$had_url" -eq 1 ]; then
+            force_flag="1"
+        fi
+        _gte_share_once "$force_flag" || true
+        sleep "$loop_sleep"
+    done
+}
+
+SHARE_LOOP_PID=""
+# Start share loop in background (best-effort; never blocks the main agent).
+# Default ON for every profile; set GROKET_SHARE_DISABLE=1 in container env to skip.
+if [ "${GROKET_SHARE_DISABLE:-}" = "1" ] || [ "${GROKET_SHARE_DISABLE:-}" = "true" ]; then
+    echo ">>> [share] disabled via GROKET_SHARE_DISABLE (agent only; no groket-share.json loop)"
+elif command -v python3 >/dev/null 2>&1 && command -v grok >/dev/null 2>&1; then
+    _gte_share_loop &
+    SHARE_LOOP_PID=$!
+    echo ">>> [share] in-container share loop started (pid $SHARE_LOOP_PID) — default for all images"
+else
+    echo ">>> [share] python3/grok missing — no in-container share (TUI will show pending; rebuild image)"
+fi
+
+# Use stdbuf to force line-buffered stdout when available (GNU coreutils).
+if command -v stdbuf >/dev/null 2>&1; then
+    WRAP=(stdbuf -oL)
+else
+    WRAP=()
+fi
+
+# Multi-turn control files on the bind-mounted sessions volume (host can write).
+TURN_DIR="${GROKET_TURN_DIR:-/root/.grok/sessions/.groket-turn}"
+mkdir -p "$TURN_DIR"
+TURN_STATUS="$TURN_DIR/status.json"
+TURN_NEXT="$TURN_DIR/next-prompt.txt"
+TURN_CMD="$TURN_DIR/command" # "follow_up" | "done" (host writes)
+TURN_SCRIPT="$TURN_DIR/scripted-turns.json" # optional JSON list of prompt strings
+
+_gte_write_turn_status() {
+    local state="$1"
+    local session_id="${2:-}"
+    local turn="${3:-0}"
+    python3 - "$TURN_STATUS" "$state" "$session_id" "$turn" <<'PY' 2>/dev/null || true
+import json, sys
+from pathlib import Path
+path, state, sid, turn = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+Path(path).write_text(
+    json.dumps({"state": state, "session_id": sid, "turn": int(turn)}, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+_gte_latest_session_id() {
+    # Prefer deepest session dir name (session id segment).
+    find /root/.grok/sessions -mindepth 2 -maxdepth 2 -type d ! -name 'compaction' \
+        ! -path '*/.groket-turn/*' 2>/dev/null | sort | tail -1 | xargs -r basename
+}
+
+_gte_run_grok_turn() {
+    local prompt_file="$1"
+    local resume_id="${2:-}"
+    # Strip optional model:effort if MODEL was passed as a compound token.
+    local model_id="${MODEL%%:*}"
+    local -a cmd=(grok -m "$model_id" --always-approve --output-format streaming-json --prompt-file "$prompt_file")
+    # Headless effort (low|medium|high|xhigh|max). Prefer REASONING_EFFORT env;
+    # fall back to suffix on MODEL (model:xhigh) or config.toml default.
+    local effort="${REASONING_EFFORT:-}"
+    if [ -z "$effort" ] && [ "$MODEL" != "$model_id" ]; then
+        effort="${MODEL#*:}"
+    fi
+    if [ -n "$effort" ]; then
+        if grok --help 2>&1 | grep -qE -- '--effort'; then
+            cmd+=(--effort "$effort")
+        elif grok --help 2>&1 | grep -qE -- '--reasoning-effort'; then
+            cmd+=(--reasoning-effort "$effort")
+        fi
+    fi
+    if [ -n "$resume_id" ]; then
+        # Prefer explicit resume so follow-ups stay on the same Grok session.
+        if grok --help 2>&1 | grep -qE -- '--resume'; then
+            cmd+=(--resume "$resume_id")
+        elif grok --help 2>&1 | grep -qE -- '--continue|-c'; then
+            cmd+=(--continue)
+        fi
+    fi
+    echo ">>> Launching: ${cmd[*]}"
+    set +e
+    "${WRAP[@]}" "${cmd[@]}"
+    local rc=$?
+    set -e
+    return "$rc"
+}
+
+# Scripted batch turns (non-interactive multi-prompt) from host-written JSON list.
+_gte_pop_scripted_turn() {
+    python3 - "$TURN_SCRIPT" <<'PY' 2>/dev/null || true
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+if not p.is_file():
+    sys.exit(0)
+try:
+    data = json.loads(p.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, list) or not data:
+    sys.exit(0)
+prompt = data.pop(0)
+p.write_text(json.dumps(data) + "\n", encoding="utf-8")
+print(prompt, end="")
+PY
+}
+
+AGENT_EXIT=0
+SESSION_ID=""
+TURN_INDEX=0
+INTERACTIVE="${GROKET_INTERACTIVE:-0}"
+
+# Do NOT exec: we need a final share after the agent exits (exec would kill this shell
+# and the share loop, leaving the share page mid-turn without the last assistant msg).
+while true; do
+    TURN_INDEX=$((TURN_INDEX + 1))
+    if [ "$TURN_INDEX" -eq 1 ]; then
+        _gte_run_grok_turn "$PROMPT_FILE" ""
+        AGENT_EXIT=$?
+    else
+        _gte_run_grok_turn "$PROMPT_FILE" "$SESSION_ID"
+        AGENT_EXIT=$?
+    fi
+    SESSION_ID="$(_gte_latest_session_id || true)"
+    echo ">>> Agent turn $TURN_INDEX exited with code $AGENT_EXIT (session=${SESSION_ID:-unknown})"
+
+    # Non-interactive scripted follow-ups (batch tasks.turns)
+    scripted="$(_gte_pop_scripted_turn || true)"
+    if [ -n "$scripted" ]; then
+        printf '%s' "$scripted" > "$PROMPT_FILE"
+        echo ">>> Scripted follow-up turn queued ($(wc -c < "$PROMPT_FILE") bytes)"
+        continue
+    fi
+
+    # Interactive: wait for host follow-up or done
+    if [ "$INTERACTIVE" = "1" ] || [ "$INTERACTIVE" = "true" ]; then
+        rm -f "$TURN_CMD" "$TURN_NEXT"
+        _gte_write_turn_status "awaiting_follow_up" "$SESSION_ID" "$TURN_INDEX"
+        echo ">>> Waiting for follow-up (write $TURN_NEXT + $TURN_CMD=follow_up|done)"
+        idle_max="${GROKET_INTERACTIVE_IDLE_SECS:-86400}"
+        waited=0
+        while [ "$waited" -lt "$idle_max" ]; do
+            if [ -f "$TURN_CMD" ]; then
+                cmd=$(tr -d '[:space:]' < "$TURN_CMD" | tr '[:upper:]' '[:lower:]')
+                if [ "$cmd" = "done" ]; then
+                    echo ">>> Host marked interactive session done"
+                    _gte_write_turn_status "done" "$SESSION_ID" "$TURN_INDEX"
+                    break 2
+                fi
+                if [ "$cmd" = "follow_up" ] && [ -s "$TURN_NEXT" ]; then
+                    cp "$TURN_NEXT" "$PROMPT_FILE"
+                    rm -f "$TURN_CMD" "$TURN_NEXT"
+                    _gte_write_turn_status "running" "$SESSION_ID" "$TURN_INDEX"
+                    continue 2
+                fi
+            fi
+            sleep 2
+            waited=$((waited + 2))
+        done
+        echo ">>> Interactive idle timeout — finishing"
+        _gte_write_turn_status "timeout" "$SESSION_ID" "$TURN_INDEX"
+    fi
+    break
+done
+
+echo ">>> Agent finished (last exit $AGENT_EXIT) — stopping share loop, then final snapshot"
+if [ -n "$SHARE_LOOP_PID" ]; then
+    kill "$SHARE_LOOP_PID" 2>/dev/null || true
+    wait "$SHARE_LOOP_PID" 2>/dev/null || true
+fi
+if [ "${GROKET_SHARE_DISABLE:-}" = "1" ] || [ "${GROKET_SHARE_DISABLE:-}" = "true" ]; then
+    echo ">>> [share] final snapshot skipped (GROKET_SHARE_DISABLE)"
+else
+    # Settle so last chat/events/summary flush to the bind mount before share reads them.
+    sleep "${GROKET_SHARE_FINAL_DELAY_SECS:-5}"
+    _gte_share_once 1 || true
+    # Second pass: share CLI sometimes needs a beat after the first force snapshot.
+    sleep 2
+    _gte_share_once 1 || true
+fi
+
+exit "$AGENT_EXIT"
