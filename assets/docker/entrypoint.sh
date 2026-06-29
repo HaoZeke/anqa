@@ -139,6 +139,7 @@ if not isinstance(items, list):
 
 has_grok = shutil.which("grok") is not None
 has_git = shutil.which("git") is not None
+import tempfile
 
 for item in items:
     if not isinstance(item, dict):
@@ -148,45 +149,59 @@ for item in items:
     sha = str(item.get("sha") or "").strip()
     if not name or not url:
         continue
-    source = url
-    if sha:
-        # Grok accepts user/repo@ref and git URL@ref for pins when supported.
-        if "@" not in url.rstrip("/").split("/")[-1]:
-            source = f"{url}@{sha}" if not url.endswith(sha) else url
     try:
-        if has_grok:
-            # Registers into ~/.grok/installed-plugins + enable metadata (official path).
+        if not has_git:
+            print(f">>> WARNING: no git — cannot install plugin {name}", file=sys.stderr)
+            continue
+        # Grok treats url@ref as a *branch* name; commit SHAs fail with
+        # "Remote branch <sha> not found". Clone, checkout pin, then
+        # ``grok plugin install --trust <local-path>`` so Grok registers plugins.
+        tmp = Path(tempfile.mkdtemp(prefix=f"groket-pl-{name}-"))
+        src = tmp / "src"
+        try:
             subprocess.run(
-                ["grok", "plugin", "install", "--trust", source],
+                ["git", "clone", "--quiet", url, str(src)],
                 check=True,
                 capture_output=True,
                 timeout=300,
                 text=True,
             )
-            print(f">>> plugin {name} installed via grok plugin install ({source})")
-            continue
-        if not has_git:
-            print(f">>> WARNING: no grok/git — cannot install plugin {name}", file=sys.stderr)
-            continue
-        # Fallback: checkout into installed-plugins-style path Grok also scans.
-        dest_root = Path.home() / ".grok" / "installed-plugins" / name
-        if dest_root.exists():
-            shutil.rmtree(dest_root, ignore_errors=True)
-        dest_root.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", "--quiet", url, str(dest_root)],
-            check=True,
-            capture_output=True,
-            timeout=300,
-        )
-        if sha:
-            subprocess.run(
-                ["git", "-C", str(dest_root), "checkout", "--quiet", sha],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        print(f">>> plugin {name} cloned to {dest_root} (no grok CLI; enable via config [plugins])")
+            if sha:
+                subprocess.run(
+                    ["git", "-C", str(src), "checkout", "--quiet", sha],
+                    check=True,
+                    capture_output=True,
+                    timeout=60,
+                    text=True,
+                )
+            if has_grok:
+                r = subprocess.run(
+                    ["grok", "plugin", "install", "--trust", str(src)],
+                    capture_output=True,
+                    timeout=300,
+                    text=True,
+                )
+                out = ((r.stdout or "") + (r.stderr or "")).strip()
+                failed = (
+                    r.returncode != 0
+                    or out.lower().startswith("error")
+                    or "install failed" in out.lower()
+                )
+                if failed:
+                    print(
+                        f">>> WARNING: plugin {name} install failed: {out[:800] or r.returncode}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f">>> plugin {name} installed via grok plugin install ({url})")
+            else:
+                dest_root = Path.home() / ".grok" / "installed-plugins" / name
+                if dest_root.exists():
+                    shutil.rmtree(dest_root, ignore_errors=True)
+                shutil.copytree(src, dest_root)
+                print(f">>> plugin {name} copied to {dest_root} (no grok CLI)")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
     except Exception as exc:
         err = getattr(exc, "stderr", None) or exc
         print(f">>> WARNING: plugin {name} install failed: {err}", file=sys.stderr)
