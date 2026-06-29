@@ -108,7 +108,6 @@ class TestAppHome:
     def test_mcp_registry_cache_dir(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
         monkeypatch.setattr("groket.paths.APP_HOME", fake)
-        # Module-level import binds the real function (autouse only stubs the module attr).
         result = mcp_registry_cache_dir()
         assert result == fake / "cache" / "mcp-registry"
         assert result.is_dir()

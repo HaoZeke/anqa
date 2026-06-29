@@ -12,10 +12,32 @@ evals.
 
 ## Install
 
+### From a clone (development)
+
 ```bash
-make install    # project venv + `groket` on PATH (uv tool)
+make install    # uv sync + install this package as a uv tool (entry point on PATH)
 groket          # open the TUI
 ```
+
+### As a uv tool (users)
+
+Install from GitHub (public repo):
+
+```bash
+uv tool install git+https://github.com/indynull/groket
+groket
+```
+
+Upgrade later (same install source; uv re-resolves the package):
+
+```bash
+uv tool upgrade groket
+# or: uv tool upgrade --all
+uv tool list
+```
+
+
+### Paths
 
 Default work root is `~/.groket/work` (traces, recipes, Docker builds).
 Config and extensions live under `~/.groket/` (personas, detectors, rules, plugins).
@@ -24,6 +46,7 @@ Config and extensions live under `~/.groket/` (personas, detectors, rules, plugi
 groket                    # ~/.groket/work
 groket /path/to/work      # that work root (or a traces / session path)
 ```
+
 
 ## Using the TUI
 
@@ -40,14 +63,15 @@ Browse past and live runs. Primary keys:
 | `C` | Run configs (recipes) |
 | `P` | Personas |
 | `a` | Analyze selection |
-| `n` / `e` | Follow-up / end session (when awaiting) |
+| `n` / `e` | Follow-up / end session (when awaiting); **n** can mark last turn |
 | `j` | Jobs / logs |
 | `F5` / `Ctrl+R` | Refresh list |
 | `?` | Help |
-| `Ctrl+P` | Command palette (everything for this screen) |
+| `Ctrl+P` | Command palette (everything for this screen; includes **Change theme**) |
 | `q` | Quit |
 
 Footer shows the main shortcuts for the current screen; `?` and `Ctrl+P` cover the rest.
+Preferences (theme, tips, analysis) persist under `~/.groket/config.json`.
 
 ### Session browser
 
@@ -59,7 +83,7 @@ Panes (``[`` / ``]`` or digits **1–5**):
 4. **Findings** — detector hits (`i` also jumps here)
 5. **Report** — analysis panels and flags
 
-While a multi-turn session is live: follow-up bar, `n` focus prompt, `e` mark done.
+While a multi-turn session is live: follow-up bar (optional **Last turn**), `n` focus prompt, `e` mark done.
 `x` deletes the session (confirm twice). `Esc` returns to the session list.
 
 ### Runner
@@ -67,6 +91,10 @@ While a multi-turn session is live: follow-up bar, `n` focus prompt, `e` mark do
 Launch Docker evals from a recipe (prompt, models, persona, repo, extras).
 **Ctrl+Enter** or **Ctrl+J** launch, **Ctrl+S** save recipe, ``[`` / ``]`` panes.
 `Esc` back (asks to discard if the form changed).
+
+Reasoning effort (including **xhigh** and **max**) is selected with the model
+token (`model:effort`) and passed to the agent via the CLI; it is not written
+into the eval `config.toml`.
 
 ### Personas & configs
 

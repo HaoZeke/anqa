@@ -39,7 +39,7 @@ def analysis_cache_dir() -> Path:
 
 def mcp_registry_cache_dir() -> Path:
     """``~/.groket/cache/mcp-registry`` — official MCP registry search responses."""
-    d = analysis_cache_dir() / "mcp-registry"
+    d = APP_HOME / "cache" / "mcp-registry"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
