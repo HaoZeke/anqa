@@ -85,7 +85,6 @@ class TaskDefinition(BaseModel):
                 out.append(text)
         return out
 
-
     def setup_shell(self) -> str:
         for val in (self.initial_commands, self.setup_instructions, self.setup):
             if val is None:
