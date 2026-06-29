@@ -832,16 +832,17 @@ class DockerOrchestrator:
             return False
 
     def peek_session_dir(self, container_name: str) -> Path | None:
-        """Locate a live session under the bind-mounted traces dir.
+        """Locate a live session under the bind-mounted traces dir (no chown).
 
         Eval containers write incrementally to ``runs/traces/<container>/``.
-        Best-effort chown while live (entrypoint also uses ``HOST_UID``).
         Call while the container is running so the TUI/Jobs can open mid-run.
+        Ownership is fixed by the entrypoint (``HOST_UID``) and
+        :meth:`extract_traces` — never on the peek hot path (that runs often
+        while waiting and would spawn alpine containers each time).
         """
         traces_dir = self.work_dir / "traces" / container_name
         if not traces_dir.exists():
             return None
-        self.fix_traces_ownership(traces_dir)
         from ..parser import find_sessions
 
         sessions = find_sessions(traces_dir)
