@@ -1,13 +1,13 @@
 # groket
 
 Evaluate [Grok Build](https://docs.x.ai/grok-build) sessions — interactive TUI,
-Docker-based batch runs, and pluggable analysis.
+Docker-backed eval runs from the TUI, and pluggable analysis.
 
 ## Install
 
 ```bash
-make install          # uv sync --group test --group dev
-uv run groket         # launch the TUI
+make install          # project venv + install `groket` on PATH (uv tool)
+groket                # launch the TUI (or: uv run groket)
 ```
 
 ## Usage
@@ -15,10 +15,11 @@ uv run groket         # launch the TUI
 ```bash
 uv run groket                           # interactive TUI
 uv run groket ./my-project              # open a specific work directory
-uv run groket batch --tasks tasks.yaml  # Docker batch run
-uv run groket audit runs/traces         # detector sweep (CLI)
-uv run groket self-test                 # check Docker, auth, paths
-uv run groket --help                    # all subcommands
+groket                            # interactive TUI
+groket PATH                       # open work root / traces / session
+groket self-test                  # Docker / auth / work dir (no TUI)
+groket gen detector|rule|plugin|tasks   # scaffold under ~/.groket/
+groket --help
 ```
 
 ## Development
@@ -34,7 +35,7 @@ make ci         # lint + test
 | Root | Default | Role |
 |------|---------|------|
 | Config home | `~/.groket` | `config.json`, personas, detectors, rules, analysis plugins, cache |
-| Work dir | `~/.groket/work` (`GROKET_WORK_DIR` or CLI path) | Traces, run configs, Docker build contexts, batch results |
+| Work dir | `~/.groket/work` (CLI path overrides) | Traces, run configs, Docker build contexts, batch results |
 
 ```bash
 uv run groket                           # work dir: ~/.groket/work
@@ -67,9 +68,3 @@ uv run groket /path/to/work             # open that work root
 | `/` | Search sessions |
 | `f` | Flag event (browser) |
 
-## Environment variables
-
-| Variable | Purpose |
-|----------|---------|
-| `GROKET_WORK_DIR` | Default work directory (fallback: `~/.groket/work`) |
-| `GROKET_GH_TOKEN` | GitHub PAT for eval containers |

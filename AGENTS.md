@@ -13,14 +13,15 @@ This file is the contract for humans and coding agents working in the repo.
 ## 1. Quick start
 
 ```bash
-uv sync             # or: uv pip install -e .
-uv run groket       # interactive TUI (default entrypoint)
-uv run pytest tests/ -q
-uv run ruff check groket/
+make install        # .venv (test+dev) + ``groket`` on PATH via ``uv tool install -e .``
+groket              # interactive TUI (or: uv run groket)
+make test           # pytest
+make lint           # ruff + mypy
 ```
 
-CLI tools (non-TUI): `uv run groket batch|audit|refresh|doctor-traces|self-test`.
-See `uv run groket --help`.
+Non-TUI CLI: ``groket gen …`` scaffolds extensions; ``groket self-test`` runs
+host checks (Docker, auth, work dir) without starting the TUI. Default
+``groket`` / ``groket PATH`` is the interactive TUI.
 
 Prefer **`uv run …`** for project tools (`pytest`, `ruff`, `groket`) so the
 environment matches the lockfile.
@@ -112,7 +113,7 @@ Two roots — do not write app identity into the process cwd by default.
 | Root | Default | Holds |
 |------|---------|--------|
 | **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, exported reports, flag fallbacks, optional ``models.yaml`` |
-| **Work dir** | ``~/.groket/work`` (``GROKET_WORK_DIR`` or CLI path) | Session/run data only: ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
+| **Work dir** | ``~/.groket/work`` (CLI path overrides) | Session/run data only: ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Traces** banner label reflects the active traces root; it does not invent a second work tree under the git checkout.
 - Pass a path to ``groket`` to choose what is loaded and, when that path is a work root, where new runs go (:func:`groket.paths.resolve_work_and_traces`).
@@ -128,7 +129,7 @@ Two roots — do not write app identity into the process cwd by default.
 | `ui/text.py` | Dynamic accessors: `text.foo_bar()` → Fluent id `foo-bar`; `text.cmd_x()` → `(cmd-x, cmd-x-help)`. Prefer this or `i18n.t("message-id")` |
 | `ui/i18n.py` | `setup_i18n` / `t` / `ngettext` |
 
-Language: `GROKET_LANG` or `LANG` (system locale env), fallback `en`.
+Language: default `en` (pass a language to ``setup_i18n`` when adding a locale).
 
 ### 3.1 Zero hardcoded user-facing UI strings (hard rule)
 
@@ -269,7 +270,7 @@ Mirror of coredis-style targets — always via ``uv run`` / ``make``:
 
 | Target | Action |
 |--------|--------|
-| ``make install`` | ``uv sync --group test --group dev`` |
+| ``make install`` | ``uv sync --group test --group dev`` then ``uv tool install --force --editable .`` (``groket`` on PATH) |
 | ``make lint`` | ruff check + format --check + **mypy on all of ``groket/``** |
 | ``make lint-fix`` | ruff autofix + format + mypy |
 | ``make test`` | pytest |
@@ -375,7 +376,7 @@ Before claiming work complete (and before every agent commit):
 - **Docker:** default unit suite **must not** require a live daemon. Fake
   ``python_on_whales`` at the orchestrator boundary (as in
   ``tests/docker/test_orchestrator.py``). Optional integration job (CI label /
-  ``GROKET_DOCKER_IT=1``) may use real Docker — keep it out of ``make test``.
+  ``DOCKER_IT=1``) may use real Docker — keep it out of ``make test``.
 - **CLI progress:** domain code uses ``logging``; only ``cli.py`` may ``print`` /
   ``typer.echo``. Pytest default capture keeps the suite quiet; use ``capsys`` /
   ``capfd`` when asserting CLI output. Never set ``--capture=no`` in default
@@ -795,7 +796,7 @@ Users extend groket **without editing package source** via ``~/.groket/`` and
 | ``~/.groket/detectors/*.py`` | Detector modules (``@detector("name")``). Loaded by the engine rule loader. |
 | ``~/.groket/rules/*.yaml`` | Rule YAML overrides (same schema as package ``config/rules.yaml``; same ``id`` replaces bundled). |
 | ``~/.groket/plugins/*.py`` | Analysis ``Analyzer`` classes; also scanned for ``@detector`` if present. On ``sys.path`` for ``module:ClassName`` config entries. |
-| ``~/.groket/tasks/*.yaml`` | Optional task lists for **``batch --tasks``** (never auto-loaded). |
+| ``~/.groket/tasks/*.yaml`` | Optional task lists (scaffold via ``groket gen tasks``; never auto-loaded). |
 | ``~/.groket/config.json`` | App prefs + ``analysis.plugins`` list. |
 
 Worked examples (copy into `~/.groket/`): [`examples/`](examples/README.md)
