@@ -119,15 +119,17 @@ def test_load_session_meta_shows_awaiting_not_completed(tmp_path: Path) -> None:
 
 
 def test_command_done_overrides_stale_awaiting_status(tmp_path: Path) -> None:
-    """Entrypoint may exit without rewriting status.json after host Done."""
+    """Host Done rejects further awaits; status stays live until entrypoint finishes."""
+    from groket.session.turn_gate import host_requested_done
+
     _vol, sess = _layout(tmp_path)
     gate = _vol / ".groket-turn-run1"
     (gate / "command").write_text("done\n", encoding="utf-8")
-    # status.json still says awaiting (stale)
     assert json.loads((gate / "status.json").read_text())["state"] == "awaiting_follow_up"
     assert session_awaits_follow_up(sess) is False
-    assert session_pending_label(sess) == ""
-    assert read_turn_gate_status(sess).get("state") == "done"
+    assert host_requested_done(sess) is True
+    assert "finishing" in session_pending_label(sess)
+    assert read_turn_gate_status(sess).get("state") == "awaiting_follow_up"
 
 
 # ── volume discovery and gate directory listing ──────────────────────────
@@ -228,7 +230,7 @@ def test_read_turn_gate_best_fallback(tmp_path: Path) -> None:
 
 
 def test_read_turn_gate_done_without_match(tmp_path: Path) -> None:
-    """Command=done with no matching session produces state=done."""
+    """Command=done does not invent status=done; status.json is returned as-is."""
     vol = tmp_path / "traces" / "groket-r-m"
     sess = vol / "%2F" / "no-match"
     sess.mkdir(parents=True)
@@ -240,7 +242,7 @@ def test_read_turn_gate_done_without_match(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     st = read_turn_gate_status(sess)
-    assert st["state"] == "done"
+    assert st["state"] == "awaiting_follow_up"
 
 
 def test_session_awaits_done_cmd_overrides(tmp_path: Path) -> None:
@@ -412,16 +414,16 @@ def test_turn_gate_dirs_sorted(tmp_path: Path) -> None:
 
 
 def test_read_turn_gate_matched_sid_done_cmd(tmp_path: Path) -> None:
-    """Matching session_id + done command → state=done override."""
+    """Matching session_id + done command leaves status.json state unchanged."""
     vol, sess = _layout(tmp_path)
     gate = vol / ".groket-turn-run1"
     (gate / "command").write_text("done\n", encoding="utf-8")
     st = read_turn_gate_status(sess)
-    assert st["state"] == "done"
+    assert st["state"] == "awaiting_follow_up"
 
 
 def test_read_turn_gate_saw_done_with_best(tmp_path: Path) -> None:
-    """Done command seen, but no matching session_id — best gets state override."""
+    """Done command does not override status when session_id does not match."""
     vol = tmp_path / "traces" / "groket-r-m"
     sess = vol / "%2F" / "unmatched-sess"
     sess.mkdir(parents=True)
@@ -433,11 +435,11 @@ def test_read_turn_gate_saw_done_with_best(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     st = read_turn_gate_status(sess)
-    assert st["state"] == "done"
+    assert st["state"] == "running"
 
 
 def test_read_turn_gate_saw_done_no_best(tmp_path: Path) -> None:
-    """Done command seen, no status data at all — fabricated done."""
+    """Done command with no status.json → empty status (not fabricated done)."""
     vol = tmp_path / "traces" / "groket-r-m"
     sess = vol / "%2F" / "no-status-sess"
     sess.mkdir(parents=True)
@@ -445,7 +447,7 @@ def test_read_turn_gate_saw_done_no_best(tmp_path: Path) -> None:
     gate.mkdir()
     (gate / "command").write_text("done\n", encoding="utf-8")
     st = read_turn_gate_status(sess)
-    assert st["state"] == "done"
+    assert not st.get("state")
 
 
 def test_ensure_gate_dirs_fallback_to_volume(tmp_path: Path) -> None:
@@ -533,7 +535,7 @@ def test_session_pending_label_custom_state(tmp_path: Path) -> None:
 
 
 def test_session_pending_label_done_via_command(tmp_path: Path) -> None:
-    """pending_label returns empty when command file says done."""
+    """pending_label shows finishing while command=done and status not yet done."""
     vol, sess = _layout(tmp_path)
     gate = vol / ".groket-turn-run1"
     (gate / "command").write_text("done\n", encoding="utf-8")
@@ -542,7 +544,7 @@ def test_session_pending_label_done_via_command(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     label = session_pending_label(sess)
-    assert label == ""
+    assert "finishing" in label
 
 
 def test_session_pending_label_queued_with_running(tmp_path: Path) -> None:
@@ -971,12 +973,12 @@ def test_write_done_clears_pending(tmp_path: Path) -> None:
 
 
 def test_session_pending_label_done_gate(tmp_path: Path) -> None:
-    """session_pending_label returns empty when gate command is done."""
+    """session_pending_label shows finishing when host requested done."""
     vol, sess = _layout(tmp_path)
     gate = vol / ".groket-turn-run1"
     (gate / "command").write_text("done\n", encoding="utf-8")
     label = session_pending_label(sess)
-    assert label == ""
+    assert "finishing" in label
 
 
 def test_session_pending_label_queued_count(tmp_path: Path) -> None:
