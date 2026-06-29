@@ -443,7 +443,8 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
 
     def _refresh_current_view(self) -> None:
         if self._mode == "registry":
-            self._refresh_registry()
+            # Capture query on the UI thread; the worker must not touch widgets.
+            self._refresh_registry(self._search_query())
         else:
             self._refresh_local()
 
@@ -472,15 +473,12 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
         self.call_after_refresh(self._update_detail_from_cursor)
 
     @work(thread=True, exclusive=True, group="mcp-registry")
-    def _refresh_registry(self) -> None:
+    def _refresh_registry(self, query: str = "") -> None:
+        """Live registry search; *query* is captured on the UI thread before schedule."""
         from ...capabilities import search_registry
         from ..threads import call_ui
 
-        call_ui(self.app, lambda: setattr(self, "_mode", "registry"))
-        try:
-            q = call_ui(self.app, self._search_query)
-        except Exception:
-            q = ""
+        q = (query or "").strip()
         if not q:
 
             def _empty() -> None:
@@ -493,7 +491,12 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
 
             call_ui(self.app, _empty)
             return
-        call_ui(self.app, self._set_status, f"{t('ui-registry-searching')} {q!r}…")
+
+        def _searching() -> None:
+            self._mode = "registry"
+            self._set_status(f"{t('ui-registry-searching')} {q!r}…")
+
+        call_ui(self.app, _searching)
         hits, err = search_registry(q, limit=40)
 
         def _apply_results() -> None:
@@ -548,12 +551,12 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
     @on(Input.Submitted, "#mcp-pick-search")
     def _search_submitted(self, _event: Input.Submitted) -> None:
         self._mode = "registry"
-        self._refresh_registry()
+        self._refresh_registry(self._search_query())
 
     @on(Button.Pressed, "#mcp-pick-reg")
     def _reg_btn(self) -> None:
         self._mode = "registry"
-        self._refresh_registry()
+        self._refresh_registry(self._search_query())
 
     @on(Button.Pressed, "#mcp-pick-local")
     def _local_btn(self) -> None:
@@ -562,7 +565,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
 
     def action_registry_mode(self) -> None:
         self._mode = "registry"
-        self._refresh_registry()
+        self._refresh_registry(self._search_query())
 
     def action_local_mode(self) -> None:
         self._mode = "local"

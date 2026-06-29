@@ -8,6 +8,7 @@ from groket.paths import (
     app_home,
     default_traces_root,
     is_run_dir_name,
+    mcp_registry_cache_dir,
     personas_home,
     resolve_work_and_traces,
     run_name,
@@ -102,6 +103,14 @@ class TestAppHome:
         monkeypatch.setattr("groket.paths.APP_HOME", fake)
         result = analysis_cache_dir()
         assert result == fake / "cache"
+        assert result.is_dir()
+
+    def test_mcp_registry_cache_dir(self, tmp_path, monkeypatch):
+        fake = tmp_path / "app-home"
+        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        # Module-level import binds the real function (autouse only stubs the module attr).
+        result = mcp_registry_cache_dir()
+        assert result == fake / "cache" / "mcp-registry"
         assert result.is_dir()
 
     def test_personas_home(self, tmp_path, monkeypatch):

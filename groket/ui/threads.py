@@ -14,11 +14,11 @@ from textual.app import App
 
 
 def call_ui[R](app: App, callback: Callable[..., R], *args: object, **kwargs: object) -> R | None:
-    """Run *callback* on the app thread.
+    """Run *callback* on the app thread and return its result.
 
-    From a worker: ``call_from_thread``. Already on the app thread: call
-    directly. Returns the callback result when invoked inline; ``None`` when
-    scheduled via ``call_from_thread`` (async relative to the worker).
+    From a worker: blocking ``App.call_from_thread`` (waits for the result).
+    Already on the app thread: call *callback* directly (``call_from_thread``
+    raises ``RuntimeError`` on the UI thread).
     """
     try:
         return app.call_from_thread(callback, *args, **kwargs)

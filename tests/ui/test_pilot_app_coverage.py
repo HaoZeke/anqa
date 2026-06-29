@@ -432,9 +432,10 @@ async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
         await pilot.pause()
         await wait_until(
             pilot,
-            lambda: app_config_path().is_file()
-            and json.loads(app_config_path().read_text(encoding="utf-8")).get("theme")
-            == target,
+            lambda: (
+                app_config_path().is_file()
+                and json.loads(app_config_path().read_text(encoding="utf-8")).get("theme") == target
+            ),
         )
 
 

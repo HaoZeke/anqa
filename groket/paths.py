@@ -37,6 +37,13 @@ def analysis_cache_dir() -> Path:
     return d
 
 
+def mcp_registry_cache_dir() -> Path:
+    """``~/.groket/cache/mcp-registry`` — official MCP registry search responses."""
+    d = analysis_cache_dir() / "mcp-registry"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def personas_home() -> Path:
     """``~/.groket/personas`` — app-global persona store."""
     d = APP_HOME / "personas"

@@ -36,6 +36,7 @@ from .marketplace import (
 from .merge import merge_capabilities
 from .registry import (
     RegistryServerHit,
+    clear_registry_cache,
     registry_hit_to_definition,
     search_registry,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "marketplace_news_url",
     "official_marketplace_repo",
     "search_registry",
+    "clear_registry_cache",
     "registry_hit_to_definition",
     "apply_persona_mcp_to_config_toml",
     "apply_persona_plugins_to_config_toml",

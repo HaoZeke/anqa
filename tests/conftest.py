@@ -417,6 +417,13 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(paths, "user_analysis_plugins_dir", _subdir("plugins"))
     monkeypatch.setattr(paths, "user_tasks_dir", _subdir("tasks"))
     monkeypatch.setattr(paths, "analysis_cache_dir", _subdir("cache"))
+
+    def _mcp_registry_cache() -> _Path:
+        d = app_home / "cache" / "mcp-registry"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(paths, "mcp_registry_cache_dir", _mcp_registry_cache)
     monkeypatch.setattr(paths, "personas_home", _subdir("personas"))
     monkeypatch.setattr(paths, "reports_dir", _subdir("reports"))
     monkeypatch.setattr(paths, "user_models_path", lambda: app_home / "models.yaml")

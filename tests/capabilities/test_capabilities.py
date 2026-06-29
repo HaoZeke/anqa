@@ -1328,14 +1328,17 @@ def test_parse_hit_edge_cases():
 
 
 def test_search_registry_empty_query():
-    """Empty query returns empty list (line 319)."""
+    """Empty query returns empty list."""
     hits, err = search_registry("")
     assert hits == []
     assert err == ""
 
 
 def test_search_registry_success():
-    """Successful registry search (lines 317-370)."""
+    """Successful registry search."""
+    from groket.capabilities.registry import clear_registry_cache
+
+    clear_registry_cache()
     response_data = {
         "servers": [
             {
@@ -1358,14 +1361,14 @@ def test_search_registry_success():
         "_http_get_json",
         return_value=response_data,
     ):
-        hits, err = search_registry("slack")
+        hits, err = search_registry("slack", use_cache=False)
     assert len(hits) == 1
     assert hits[0].name == "test/slack"
     assert err == ""
 
 
 def test_search_registry_large_result_filtered():
-    """Client-side filtering when API returns too many results (lines 350-362)."""
+    """Client-side filtering when API returns too many results."""
     servers = [
         {"server": {"name": f"x/srv{i}", "title": f"Srv {i}", "description": "match"}}
         for i in range(40)
@@ -1374,60 +1377,60 @@ def test_search_registry_large_result_filtered():
         "groket.capabilities.registry._http_get_json",
         return_value={"servers": servers},
     ):
-        hits, err = search_registry("match", limit=5)
+        hits, err = search_registry("match", limit=5, use_cache=False)
     assert len(hits) <= 5
 
 
 def test_search_registry_large_result_no_match():
-    """Client-side filter with no matches keeps original order (line 362)."""
+    """Client-side filter with no matches keeps original order."""
     servers = [{"server": {"name": f"x/srv{i}", "title": f"T{i}"}} for i in range(40)]
     with patch(
         "groket.capabilities.registry._http_get_json",
         return_value={"servers": servers},
     ):
-        hits, err = search_registry("nomatch", limit=5)
+        hits, err = search_registry("nomatch", limit=5, use_cache=False)
     assert len(hits) <= 5
 
 
 def test_search_registry_http_error():
-    """HTTP errors are captured (line 364-369)."""
+    """HTTP errors are captured."""
     import urllib.error
 
     with patch(
         "groket.capabilities.registry._http_get_json",
         side_effect=urllib.error.HTTPError("url", 500, "err", {}, None),
     ):
-        hits, err = search_registry("test")
+        hits, err = search_registry("test", use_cache=False)
     assert hits == []
     assert "500" in err
 
 
 def test_search_registry_url_error():
-    """URL/network errors are captured (line 366-367)."""
+    """URL/network errors are captured."""
     import urllib.error
 
     with patch(
         "groket.capabilities.registry._http_get_json",
         side_effect=urllib.error.URLError("no dns"),
     ):
-        hits, err = search_registry("test")
+        hits, err = search_registry("test", use_cache=False)
     assert hits == []
     assert "network" in err
 
 
 def test_search_registry_generic_error():
-    """Generic exceptions are captured (lines 368-369)."""
+    """Generic exceptions are captured."""
     with patch(
         "groket.capabilities.registry._http_get_json",
         side_effect=ValueError("bad"),
     ):
-        hits, err = search_registry("test")
+        hits, err = search_registry("test", use_cache=False)
     assert hits == []
     assert "bad" in err
 
 
 def test_search_registry_no_servers_key():
-    """Response without servers key retries next URL (line 331-332)."""
+    """Response without servers key retries next URL."""
     call_count = [0]
 
     def fake_get(url, *, timeout=12.0):
@@ -1435,9 +1438,89 @@ def test_search_registry_no_servers_key():
         return {"other": "data"}  # no "servers" key
 
     with patch("groket.capabilities.registry._http_get_json", side_effect=fake_get):
-        hits, err = search_registry("test")
+        hits, err = search_registry("test", use_cache=False)
     assert hits == []
-    assert call_count[0] == 2  # tried both v0.1 and v0
+    # v0.1 (+version=latest), v0.1 (no version), then v0
+    assert call_count[0] == 3
+
+
+def test_search_registry_uses_disk_cache(tmp_path, monkeypatch):
+    """Second identical search hits disk/memory cache and skips HTTP."""
+    from groket.capabilities import registry as reg
+
+    cache_root = tmp_path / "mcp-reg"
+    cache_root.mkdir()
+    monkeypatch.setattr(reg, "mcp_registry_cache_dir", lambda: cache_root)
+    reg.clear_registry_cache(disk=False)
+    # Clear only memory; use empty dir for disk
+    reg._MEM_CACHE.clear()
+
+    calls: list[str] = []
+    payload = {
+        "servers": [{"server": {"name": "io.example/cached", "title": "Cached"}}],
+    }
+
+    def fake_get(url: str, *, timeout: float = 12.0):
+        calls.append(url)
+        return payload
+
+    with patch.object(reg, "_http_get_json", side_effect=fake_get):
+        hits1, err1 = search_registry("cached-q", limit=10, cache_ttl=3600)
+        hits2, err2 = search_registry("cached-q", limit=10, cache_ttl=3600)
+    assert err1 == err2 == ""
+    assert len(hits1) == 1 and hits1[0].name == "io.example/cached"
+    assert hits2[0].name == hits1[0].name
+    assert len(calls) == 1
+    assert list(cache_root.glob("*.json"))
+
+
+def test_search_registry_cache_ttl_zero_skips_cache():
+    """cache_ttl=0 forces network on every call."""
+    from groket.capabilities import registry as reg
+
+    reg.clear_registry_cache()
+    calls = [0]
+
+    def fake_get(url: str, *, timeout: float = 12.0):
+        calls[0] += 1
+        return {"servers": [{"server": {"name": "io.example/x", "title": "X"}}]}
+
+    with patch.object(reg, "_http_get_json", side_effect=fake_get):
+        search_registry("ttl0", cache_ttl=0)
+        search_registry("ttl0", cache_ttl=0)
+    assert calls[0] == 2
+
+
+def test_clear_registry_cache_removes_files(tmp_path, monkeypatch):
+    from groket.capabilities import registry as reg
+
+    root = tmp_path / "c"
+    root.mkdir()
+    (root / "a.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(reg, "mcp_registry_cache_dir", lambda: root)
+    reg._MEM_CACHE["u"] = (9999999999.0, {"servers": []})
+    reg.clear_registry_cache(disk=True)
+    assert reg._MEM_CACHE == {}
+    assert not (root / "a.json").exists()
+
+
+def test_load_cached_response_rejects_stale_and_bad(tmp_path, monkeypatch):
+    from groket.capabilities import registry as reg
+
+    root = tmp_path / "c"
+    root.mkdir()
+    monkeypatch.setattr(reg, "mcp_registry_cache_dir", lambda: root)
+    reg._MEM_CACHE.clear()
+    url = "https://example.test/v0.1/servers?search=x"
+    fp = reg._cache_file_for_url(url)
+    fp.write_text(
+        json.dumps({"url": url, "fetched_at": 1.0, "data": {"servers": []}}),
+        encoding="utf-8",
+    )
+    assert reg._load_cached_response(url, ttl_sec=10) is None  # stale
+    fp.write_text("not-json", encoding="utf-8")
+    assert reg._load_cached_response(url, ttl_sec=10_000) is None
+    assert reg._load_cached_response(url, ttl_sec=0) is None
 
 
 def test_registry_hit_to_definition_with_headers():

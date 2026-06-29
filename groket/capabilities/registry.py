@@ -1,25 +1,40 @@
-"""Live search against the official MCP registry (registry.modelcontextprotocol.io)."""
+"""Live search against the official MCP registry (registry.modelcontextprotocol.io).
+
+Successful list responses are cached under ``~/.groket/cache/mcp-registry/``
+(and in-process) so repeated picker searches do not wait on the network.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..models import (
     JsonObject,
+    JsonValue,
     as_json_object,
     json_as_mapping_list,
     json_as_object,
     json_as_str,
 )
+from ..paths import mcp_registry_cache_dir
 from .catalog import McpCatalogEntry
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_REGISTRY_BASE = "https://registry.modelcontextprotocol.io"
+DEFAULT_CACHE_TTL_SEC = 6 * 60 * 60
 _USER_AGENT = "groket/1.0 (mcp-registry-search)"
+# url -> (expires_at unix, payload)
+_MEM_CACHE: dict[str, tuple[float, JsonObject]] = {}
 
 
 @dataclass
@@ -245,12 +260,86 @@ class RegistryServerHit:
 
 def _http_get_json(url: str, *, timeout: float = 12.0) -> JsonObject:
     req = urllib.request.Request(
-        url, headers={"User-Agent": _USER_AGENT, "Accept": "application/json"}
+        url,
+        headers={
+            "User-Agent": _USER_AGENT,
+            "Accept": "application/json, application/problem+json",
+        },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
     data = json.loads(raw)
     return data if isinstance(data, dict) else {}
+
+
+def clear_registry_cache(*, disk: bool = True) -> None:
+    """Drop in-process registry responses; optionally delete on-disk entries."""
+    _MEM_CACHE.clear()
+    if not disk:
+        return
+    root = mcp_registry_cache_dir()
+    if not root.is_dir():
+        return
+    for fp in root.glob("*.json"):
+        try:
+            fp.unlink()
+        except OSError:
+            logger.debug("failed to remove registry cache file %s", fp, exc_info=True)
+
+
+def _cache_file_for_url(url: str) -> Path:
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return mcp_registry_cache_dir() / f"{digest}.json"
+
+
+def _load_cached_response(url: str, ttl_sec: float) -> JsonObject | None:
+    """Return a fresh cached registry JSON body for *url*, or ``None``."""
+    if ttl_sec <= 0:
+        return None
+    now = time.time()
+    mem = _MEM_CACHE.get(url)
+    if mem is not None:
+        expires_at, mem_body = mem
+        if now < expires_at:
+            return mem_body
+        _MEM_CACHE.pop(url, None)
+    fp = _cache_file_for_url(url)
+    if not fp.is_file():
+        return None
+    try:
+        envelope = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.debug("failed to read registry cache %s", fp, exc_info=True)
+        return None
+    if not isinstance(envelope, dict):
+        return None
+    try:
+        fetched_at = float(envelope.get("fetched_at") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if now - fetched_at > ttl_sec:
+        return None
+    raw_data = envelope.get("data")
+    if not isinstance(raw_data, dict):
+        return None
+    body: JsonObject = raw_data
+    _MEM_CACHE[url] = (fetched_at + ttl_sec, body)
+    return body
+
+
+def _store_cached_response(url: str, data: JsonObject, ttl_sec: float) -> None:
+    """Remember a successful registry JSON body for *url* (memory + disk)."""
+    if ttl_sec <= 0:
+        return
+    now = time.time()
+    _MEM_CACHE[url] = (now + ttl_sec, data)
+    fp = _cache_file_for_url(url)
+    envelope: JsonObject = {"url": url, "fetched_at": now, "data": data}
+    try:
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_text(json.dumps(envelope), encoding="utf-8")
+    except OSError:
+        logger.debug("failed to write registry cache %s", fp, exc_info=True)
 
 
 def _parse_hit(item: JsonObject) -> RegistryServerHit | None:
@@ -306,65 +395,91 @@ def _parse_hit(item: JsonObject) -> RegistryServerHit | None:
     )
 
 
+def _registry_list_urls(base: str, query: str, limit: int) -> list[str]:
+    """Candidate list-servers URLs (v0.1 preferred; v0 fallback)."""
+    q = query.strip()
+    lim = str(max(1, limit))
+    # Official API freeze is v0.1; ``version=latest`` collapses multi-version spam.
+    v01 = urllib.parse.urlencode({"search": q, "limit": lim, "version": "latest"})
+    v0 = urllib.parse.urlencode({"search": q, "limit": lim})
+    return [
+        f"{base}/v0.1/servers?{v01}",
+        f"{base}/v0.1/servers?{v0}",
+        f"{base}/v0/servers?{v0}",
+    ]
+
+
+def _hits_from_servers(servers: list[JsonValue], query: str, limit: int) -> list[RegistryServerHit]:
+    """Parse and de-dupe registry list items; client-filter only when oversized."""
+    hits: list[RegistryServerHit] = []
+    seen: set[str] = set()
+    for item in servers:
+        if not isinstance(item, dict):
+            continue
+        hit = _parse_hit(item)
+        if not hit or hit.name in seen:
+            continue
+        seen.add(hit.name)
+        hits.append(hit)
+    if len(hits) <= limit:
+        return hits
+    ql = query.lower()
+    filtered = [
+        h
+        for h in hits
+        if ql in h.name.lower()
+        or ql in (h.title or "").lower()
+        or ql in (h.description or "").lower()
+    ]
+    return (filtered or hits)[:limit]
+
+
 def search_registry(
     query: str,
     *,
     base_url: str = DEFAULT_REGISTRY_BASE,
     limit: int = 30,
     timeout: float = 12.0,
+    use_cache: bool = True,
+    cache_ttl: float = DEFAULT_CACHE_TTL_SEC,
 ) -> tuple[list[RegistryServerHit], str]:
-    """Search the official MCP registry. Returns (hits, error_message)."""
+    """Search the official MCP registry. Returns (hits, error_message).
+
+    When *use_cache* is true, successful responses are reused from
+    :func:`~groket.paths.mcp_registry_cache_dir` (and memory) for *cache_ttl*
+    seconds (default 6 hours). Pass ``use_cache=False`` or ``cache_ttl=0`` to
+    force a network fetch.
+    """
     q = (query or "").strip()
     if not q:
         return [], ""
     base = (base_url or DEFAULT_REGISTRY_BASE).rstrip("/")
-    # Try v0.1 with search= first, fall back to v0
-    paths = [
-        f"{base}/v0.1/servers?{urllib.parse.urlencode({'search': q, 'limit': str(limit)})}",
-        f"{base}/v0/servers?{urllib.parse.urlencode({'search': q, 'limit': str(limit)})}",
-    ]
+    ttl = float(cache_ttl) if use_cache else 0.0
     last_err = ""
-    for url in paths:
+    for url in _registry_list_urls(base, q, limit):
+        if ttl > 0:
+            cached = _load_cached_response(url, ttl)
+            if cached is not None:
+                servers = cached.get("servers")
+                if isinstance(servers, list):
+                    return _hits_from_servers(servers, q, limit), ""
         try:
             data = _http_get_json(url, timeout=timeout)
             servers = data.get("servers")
             if not isinstance(servers, list):
+                last_err = "unexpected response (no servers list)"
                 continue
-            hits: list[RegistryServerHit] = []
-            seen: set[str] = set()
-            for item in servers:
-                hit = _parse_hit(item if isinstance(item, dict) else {})
-                if not hit or hit.name in seen:
-                    continue
-                # Client-side filter if API ignored search (v0 without search support)
-                if (
-                    q.lower() not in hit.name.lower()
-                    and q.lower() not in (hit.description or "").lower()
-                    and q.lower() not in (hit.title or "").lower()
-                ):
-                    # still include if API returned filtered set with few results
-                    pass
-                seen.add(hit.name)
-                hits.append(hit)
-            # If v0 returned unfiltered bulk, filter client-side
-            if hits and len(hits) > limit:
-                ql = q.lower()
-                filtered = [
-                    h
-                    for h in hits
-                    if ql in h.name.lower()
-                    or ql in (h.title or "").lower()
-                    or ql in (h.description or "").lower()
-                ]
-                if filtered:
-                    hits = filtered[:limit]
-                else:
-                    hits = hits[:limit]
-            return hits[:limit], ""
+            _store_cached_response(url, data, ttl)
+            return _hits_from_servers(servers, q, limit), ""
+        except TimeoutError as exc:
+            last_err = f"timeout: {exc}"
         except urllib.error.HTTPError as exc:
             last_err = f"HTTP {exc.code}"
         except urllib.error.URLError as exc:
-            last_err = f"network: {exc.reason}"
+            reason = exc.reason
+            last_err = f"network: {reason}"
+            if isinstance(reason, TimeoutError) or "timed out" in str(reason).lower():
+                last_err = f"timeout: {reason}"
         except Exception as exc:
             last_err = str(exc)[:120]
     return [], last_err or "registry search failed"
