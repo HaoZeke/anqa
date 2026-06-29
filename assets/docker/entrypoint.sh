@@ -8,7 +8,7 @@ PROMPT="${PROMPT:-}"
 SKIP_SETUP="${SKIP_SETUP:-0}"
 
 # GitHub CLI in automation: accept host-injected token when job opts into github_write
-# (orchestrator sets GH_TOKEN from GROKET_GH_TOKEN / GH_TOKEN on the host).
+# (orchestrator sets GH_TOKEN from GH_TOKEN on the host).
 if [ -z "${GH_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
     export GH_TOKEN="$GITHUB_TOKEN"
 fi
@@ -41,8 +41,8 @@ _gte_setup_git_gh_auth() {
 
 if [ -n "${GH_TOKEN:-}" ]; then
     echo ">>> GH_TOKEN present — gh/API auth available (non-interactive)."
-    if [ "${GROKET_GITHUB_WRITE:-0}" = "1" ]; then
-        echo ">>> GROKET_GITHUB_WRITE=1 — write/push enabled for this job (repo-scoped token recommended)."
+    if [ "${GITHUB_WRITE:-0}" = "1" ]; then
+        echo ">>> GITHUB_WRITE=1 — write/push enabled for this job (repo-scoped token recommended)."
     fi
     _gte_setup_git_gh_auth
 else
@@ -184,8 +184,8 @@ else
     echo "  Repo:   (none — no-repo job)"
 fi
 if [ -n "${GH_TOKEN:-}" ]; then
-    if [ "${GROKET_GITHUB_WRITE:-0}" = "1" ]; then
-        echo "  GH:     write token injected (git+gh; prefer GROKET_GH_TOKEN on host)"
+    if [ "${GITHUB_WRITE:-0}" = "1" ]; then
+        echo "  GH:     write token injected (git+gh; prefer GH_TOKEN on host)"
     else
         echo "  GH:     token injected (GH_TOKEN set)"
     fi
@@ -251,16 +251,16 @@ _gte_share_once() {
 }
 
 # Background: periodic mid-run shares (default on ALL images; entrypoint always starts this).
-# Final share runs after agent exits (below). Opt-out only via GROKET_SHARE_DISABLE=1.
+# Final share runs after agent exits (below). Opt-out only via SHARE_DISABLE=1.
 # Cadence tuned for less jitter / fewer overlapping ``grok share`` calls:
-#   GROKET_SHARE_INITIAL_DELAY_SECS (default 30) — wait for session + first turns
-#   GROKET_SHARE_INTERVAL_SECS (default 60) — min age before re-snapshot once URL exists
-#   GROKET_SHARE_LOOP_SLEEP_SECS (default 20) — idle poll between attempts
+#   SHARE_INITIAL_DELAY_SECS (default 30) — wait for session + first turns
+#   SHARE_INTERVAL_SECS (default 60) — min age before re-snapshot once URL exists
+#   SHARE_LOOP_SLEEP_SECS (default 20) — idle poll between attempts
 # First successful share uses non-force; subsequent snapshots force so the share page advances.
 _gte_share_loop() {
-    local interval="${GROKET_SHARE_INTERVAL_SECS:-60}"
-    local loop_sleep="${GROKET_SHARE_LOOP_SLEEP_SECS:-20}"
-    sleep "${GROKET_SHARE_INITIAL_DELAY_SECS:-30}"
+    local interval="${SHARE_INTERVAL_SECS:-60}"
+    local loop_sleep="${SHARE_LOOP_SLEEP_SECS:-20}"
+    sleep "${SHARE_INITIAL_DELAY_SECS:-30}"
     local had_url=0
     while true; do
         local sess
@@ -292,9 +292,9 @@ _gte_share_loop() {
 
 SHARE_LOOP_PID=""
 # Start share loop in background (best-effort; never blocks the main agent).
-# Default ON for every profile; set GROKET_SHARE_DISABLE=1 in container env to skip.
-if [ "${GROKET_SHARE_DISABLE:-}" = "1" ] || [ "${GROKET_SHARE_DISABLE:-}" = "true" ]; then
-    echo ">>> [share] disabled via GROKET_SHARE_DISABLE (agent only; no groket-share.json loop)"
+# Default ON for every profile; set SHARE_DISABLE=1 in container env to skip.
+if [ "${SHARE_DISABLE:-}" = "1" ] || [ "${SHARE_DISABLE:-}" = "true" ]; then
+    echo ">>> [share] disabled via SHARE_DISABLE (agent only; no groket-share.json loop)"
 elif command -v python3 >/dev/null 2>&1 && command -v grok >/dev/null 2>&1; then
     _gte_share_loop &
     SHARE_LOOP_PID=$!
@@ -311,7 +311,7 @@ else
 fi
 
 # Multi-turn control files on the bind-mounted sessions volume (host can write).
-TURN_DIR="${GROKET_TURN_DIR:-/root/.grok/sessions/.groket-turn}"
+TURN_DIR="${TURN_DIR:-/root/.grok/sessions/.groket-turn}"
 mkdir -p "$TURN_DIR"
 TURN_STATUS="$TURN_DIR/status.json"
 TURN_NEXT="$TURN_DIR/next-prompt.txt"
@@ -397,7 +397,7 @@ PY
 AGENT_EXIT=0
 SESSION_ID=""
 TURN_INDEX=0
-INTERACTIVE="${GROKET_INTERACTIVE:-0}"
+INTERACTIVE="${INTERACTIVE:-0}"
 
 # Do NOT exec: we need a final share after the agent exits (exec would kill this shell
 # and the share loop, leaving the share page mid-turn without the last assistant msg).
@@ -434,7 +434,7 @@ while true; do
         rm -f "$TURN_CMD" "$TURN_NEXT"
         _gte_write_turn_status "awaiting_follow_up" "$SESSION_ID" "$TURN_INDEX"
         echo ">>> Waiting for follow-up (write $TURN_NEXT + $TURN_CMD=follow_up|done)"
-        idle_max="${GROKET_INTERACTIVE_IDLE_SECS:-86400}"
+        idle_max="${INTERACTIVE_IDLE_SECS:-86400}"
         waited=0
         while [ "$waited" -lt "$idle_max" ]; do
             if [ -f "$TURN_CMD" ]; then
@@ -469,11 +469,11 @@ if [ -n "$SHARE_LOOP_PID" ]; then
     kill "$SHARE_LOOP_PID" 2>/dev/null || true
     wait "$SHARE_LOOP_PID" 2>/dev/null || true
 fi
-if [ "${GROKET_SHARE_DISABLE:-}" = "1" ] || [ "${GROKET_SHARE_DISABLE:-}" = "true" ]; then
-    echo ">>> [share] final snapshot skipped (GROKET_SHARE_DISABLE)"
+if [ "${SHARE_DISABLE:-}" = "1" ] || [ "${SHARE_DISABLE:-}" = "true" ]; then
+    echo ">>> [share] final snapshot skipped (SHARE_DISABLE)"
 else
     # Settle so last chat/events/summary flush to the bind mount before share reads them.
-    sleep "${GROKET_SHARE_FINAL_DELAY_SECS:-5}"
+    sleep "${SHARE_FINAL_DELAY_SECS:-5}"
     _gte_share_once 1 || true
     # Second pass: share CLI sometimes needs a beat after the first force snapshot.
     sleep 2

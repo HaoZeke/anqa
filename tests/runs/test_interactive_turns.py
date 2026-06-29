@@ -58,7 +58,7 @@ def test_turn_gate_dirs_prefer_container_traces_volume(tmp_path: Path) -> None:
 
     dirs = rm.turn_gate_dirs("run1")
     paths = [str(p) for p in dirs]
-    # Primary path entrypoint uses with GROKET_TURN_DIR=.../ .groket-turn-<run_id>
+    # Primary path entrypoint uses with TURN_DIR=.../ .groket-turn-<run_id>
     assert any(
         p.endswith(f"{cname}/.groket-turn-run1") or f"/{cname}/.groket-turn-run1" in p
         for p in paths

@@ -104,10 +104,10 @@ prev_url = str(prev.get("share_url") or "").strip()
 snapshot_n = int(prev.get("snapshot_n") or 0) + 1
 grok = shutil.which("grok") or "grok"
 cmd = [grok, "share", sid]
-leader = (os.environ.get("GROKET_SHARE_LEADER_SOCKET") or "").strip()
+leader = (os.environ.get("SHARE_LEADER_SOCKET") or "").strip()
 if leader:
     cmd.extend(["--leader-socket", leader])
-timeout = float(os.environ.get("GROKET_SHARE_CLI_TIMEOUT", "300"))
+timeout = float(os.environ.get("SHARE_CLI_TIMEOUT", "300"))
 
 print(">>> [share] %s" % (" ".join(cmd),), flush=True)
 url = ""

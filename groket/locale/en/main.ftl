@@ -656,9 +656,9 @@ optional-blurb-placeholder = Optional short blurb
 
 optional-env-var-name = Optional env var name
 
-optional-git-user-email = Optional → GROKET_GIT_USER_EMAIL
+optional-git-user-email = Optional → GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL
 
-optional-git-user-name = Optional → GROKET_GIT_USER_NAME
+optional-git-user-name = Optional → GIT_AUTHOR_NAME / GIT_COMMITTER_NAME
 
 pe-tab-env = 3 Environment
 
@@ -1647,7 +1647,7 @@ ui-none =
       (none)
     
 
-ui-none-host-groket-gh-token-gh-token-only-if-orche = none (host GROKET_GH_TOKEN/GH_TOKEN only if orchestrator allows)
+ui-none-host-groket-gh-token-gh-token-only-if-orche = none (host GH_TOKEN only if orchestrator allows)
 
 ui-none-run-defaults-only = none (run defaults only)
 

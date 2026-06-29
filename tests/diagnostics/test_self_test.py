@@ -18,14 +18,12 @@ def test_work_dir_writable(tmp_path: Path):
         patch("groket.diagnostics.self_test._check_grok_config") as c,
         patch("groket.diagnostics.self_test._check_grok_cli") as g,
         patch("groket.diagnostics.self_test._check_models_cache") as m,
-        patch("groket.diagnostics.self_test._check_env_tokens") as e,
     ):
         d.return_value = CheckResult("docker", "Docker", True)
         a.return_value = CheckResult("grok_auth", "Auth", True)
         c.return_value = CheckResult("grok_config", "Cfg", True, required=False)
         g.return_value = CheckResult("grok_cli", "CLI", True, required=False)
         m.return_value = CheckResult("models_cache", "Models", True, required=False)
-        e.return_value = CheckResult("gh_token", "GH", False, required=False)
         report = run_self_test(work_dir=wd)
     assert report.ok is True
     assert (wd / "runs").is_dir()
@@ -152,17 +150,6 @@ def test_grok_config_cli_models(tmp_path: Path, monkeypatch):
     assert st._check_models_cache().ok is False
     (tmp_path / ".grok" / "models_cache.json").write_text("[]", encoding="utf-8")
     assert st._check_models_cache().ok is True
-
-
-def test_env_tokens(monkeypatch):
-    from groket.diagnostics import self_test as st
-
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    assert st._check_env_tokens().ok is False
-    monkeypatch.setenv("GH_TOKEN", "x")
-    assert st._check_env_tokens().ok is True
 
 
 def test_work_dir_not_writable(tmp_path: Path, monkeypatch):

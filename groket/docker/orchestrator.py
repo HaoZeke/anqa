@@ -61,7 +61,7 @@ class ContainerConfig:
     repo_url: str = ""
     repo_branch: str = ""
     setup_instructions: str = ""
-    # Opt-in: inject host GROKET_GH_TOKEN / GH_TOKEN and wire git→gh credentials for push.
+    # Opt-in: inject host GH_TOKEN and wire git→gh credentials for push.
     github_write: bool = False
     # One-shot token from Runner UI (never persisted to run_configs). Overrides host env.
     github_token: str = ""
@@ -333,61 +333,29 @@ def _host_gh_env_for_container(
     (via entrypoint ``gh auth setup-git``) can push to the runner's ``repo_url``.
     Resolution order (first non-empty wins for ``GH_TOKEN``):
       0. ``github_token`` arg — persona PAT / persona ``github_token_env`` resolved at launch
-      1. ``GROKET_GH_TOKEN`` — preferred host fallback: repo-scoped fine-grained PAT for eval only
-      2. ``GH_TOKEN`` / ``GITHUB_TOKEN`` on the host (explicit / CI)
-      3. ``gh auth token`` on the host (broad; only as last resort)
+      1. ``GH_TOKEN`` / ``GITHUB_TOKEN`` on the host (explicit / CI)
+      2. ``gh auth token`` on the host (broader; last resort)
 
-    Global kill-switch: ``GROKET_PASS_GH_TOKEN=0`` skips injection even in write mode.
-    ``GROKET_PASS_GH_TOKEN=always`` (or 1/true/yes/on/all) injects host token even without
-    github_write — for operators who want every job authenticated.
+    No token is injected unless write is on or a persona token was resolved.
     """
-    pass_flag = (os.environ.get("GROKET_PASS_GH_TOKEN") or "").strip().lower()
-    if pass_flag in ("0", "false", "no", "off"):
-        return {}
-
     ui_tok = (github_token or "").strip()
-    want_token = (
-        bool(github_write)
-        or bool(ui_tok)
-        or pass_flag in ("always", "1", "true", "yes", "on", "all")
-    )
-    # Default: no token unless write opted in (or always/1 pass flag).
-    if not want_token and pass_flag == "":
-        return {}
-    if not want_token:
+    if not github_write and not ui_tok:
         return {}
 
     out: dict[str, str] = {
         "GH_PAGER": "cat",
         "GIT_TERMINAL_PROMPT": "0",
+        "GITHUB_WRITE": "1",
     }
-    if github_write or ui_tok:
-        out["GROKET_GITHUB_WRITE"] = "1"
 
-    gte_tok = (os.environ.get("GROKET_GH_TOKEN") or "").strip()
     gh_token = (os.environ.get("GH_TOKEN") or "").strip()
     ghub_token = (os.environ.get("GITHUB_TOKEN") or "").strip()
-
-    if github_write or ui_tok:
-        # Persona token first, then dedicated eval token, then host env / gh cli.
-        chosen = ui_tok or gte_tok or gh_token or ghub_token
-        if not chosen:
-            chosen = _token_from_host_gh_cli()
-        if chosen:
-            out["GH_TOKEN"] = chosen
-            out["GITHUB_TOKEN"] = chosen
-    else:
-        # always-pass path: host env then gh cli.
-        if not gh_token and not ghub_token:
-            gh_token = _token_from_host_gh_cli()
-        if gh_token:
-            out["GH_TOKEN"] = gh_token
-        if ghub_token:
-            out["GITHUB_TOKEN"] = ghub_token
-            if "GH_TOKEN" not in out:
-                out["GH_TOKEN"] = ghub_token
-        elif gh_token:
-            out["GITHUB_TOKEN"] = gh_token
+    chosen = ui_tok or gh_token or ghub_token
+    if not chosen:
+        chosen = _token_from_host_gh_cli()
+    if chosen:
+        out["GH_TOKEN"] = chosen
+        out["GITHUB_TOKEN"] = chosen
 
     host = (os.environ.get("GH_HOST") or "").strip()
     if host:
@@ -405,13 +373,11 @@ def describe_github_write_token_status(*, ui_token: str = "") -> str:
     """
     if (ui_token or "").strip():
         return "persona token resolved for this launch"
-    if (os.environ.get("GROKET_GH_TOKEN") or "").strip():
-        return "GROKET_GH_TOKEN set on host (fallback)"
     if (os.environ.get("GH_TOKEN") or "").strip() or (os.environ.get("GITHUB_TOKEN") or "").strip():
         return "GH_TOKEN/GITHUB_TOKEN set on host (fallback)"
     if _token_from_host_gh_cli():
         return "host `gh auth` token available (broader than ideal)"
-    return "no token — set PAT on persona, or export GROKET_GH_TOKEN/GH_TOKEN on host"
+    return "no token — set PAT on the persona, or GH_TOKEN/GITHUB_TOKEN on the host"
 
 
 class DockerOrchestrator:
@@ -757,7 +723,7 @@ class DockerOrchestrator:
             "REPO_BRANCH": config.repo_branch or "",
             # Keep PROMPT as fallback only; entrypoint prefers /groket-prompt.txt
             "PROMPT": config.prompt or "",
-            # Opt-in write: Runner paste / GROKET_GH_TOKEN / GH_TOKEN + entrypoint wires git→gh.
+            # Opt-in write: persona token / GH_TOKEN + entrypoint wires git→gh.
             **_host_gh_env_for_container(
                 github_write=bool(config.github_write),
                 github_token=str(config.github_token or ""),
@@ -767,10 +733,10 @@ class DockerOrchestrator:
         if effort:
             envs["REASONING_EFFORT"] = effort
         if config.interactive:
-            envs["GROKET_INTERACTIVE"] = "1"
+            envs["INTERACTIVE"] = "1"
         rid = (config.run_id or "").strip()
         if rid:
-            envs["GROKET_TURN_DIR"] = f"/root/.grok/sessions/.groket-turn-{rid}"
+            envs["TURN_DIR"] = f"/root/.grok/sessions/.groket-turn-{rid}"
         # Scripted follow-ups for batch (entrypoint reads JSON list under sessions).
         turn_names = [".groket-turn"]
         if rid:

@@ -206,28 +206,19 @@ def test_build_setup_script():
 
 
 def test_token_and_host_gh_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    monkeypatch.delenv("GROKET_PASS_GH_TOKEN", raising=False)
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_HOST", raising=False)
 
     assert _host_gh_env_for_container() == {}
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "0")
-    assert _host_gh_env_for_container(github_write=True, github_token="x") == {}
-    monkeypatch.delenv("GROKET_PASS_GH_TOKEN")
+    assert _host_gh_env_for_container(github_write=False) == {}
 
-    # ui token
+    # persona token without write flag still injects (token implies write job)
     env = _host_gh_env_for_container(github_write=False, github_token="tokentok")
     assert env.get("GH_TOKEN") == "tokentok"
-    assert env.get("GROKET_GITHUB_WRITE") == "1"
+    assert env.get("GITHUB_WRITE") == "1"
 
     # write mode with host token
-    monkeypatch.setenv("GROKET_GH_TOKEN", "gte")
-    env2 = _host_gh_env_for_container(github_write=True)
-    assert env2["GH_TOKEN"] == "gte"
-
-    monkeypatch.delenv("GROKET_GH_TOKEN")
     monkeypatch.setenv("GH_TOKEN", "gh")
     env3 = _host_gh_env_for_container(github_write=True)
     assert env3["GH_TOKEN"] == "gh"
@@ -237,21 +228,12 @@ def test_token_and_host_gh_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     env4 = _host_gh_env_for_container(github_write=True)
     assert "GITHUB_TOKEN" in env4
 
-    # always pass
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "always")
-    monkeypatch.setenv("GH_TOKEN", "always-tok")
-    env5 = _host_gh_env_for_container(github_write=False)
-    assert env5.get("GH_TOKEN") == "always-tok"
     monkeypatch.setenv("GH_HOST", "github.example")
-    env6 = _host_gh_env_for_container(github_write=False)
+    env6 = _host_gh_env_for_container(github_write=True)
     assert env6.get("GH_HOST") == "github.example"
 
     # describe status
-    monkeypatch.delenv("GROKET_PASS_GH_TOKEN", raising=False)
     assert "persona" in describe_github_write_token_status(ui_token="abc")
-    monkeypatch.setenv("GROKET_GH_TOKEN", "x")
-    assert "GROKET_GH_TOKEN" in describe_github_write_token_status()
-    monkeypatch.delenv("GROKET_GH_TOKEN")
     monkeypatch.setenv("GH_TOKEN", "y")
     assert "GH_TOKEN" in describe_github_write_token_status()
     monkeypatch.delenv("GH_TOKEN", raising=False)
@@ -630,7 +612,7 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_start_container_interactive_and_run_id(tmp_path: Path):
-    """Interactive mode + run_id sets GROKET_INTERACTIVE and GROKET_TURN_DIR (lines 709-727)."""
+    """Interactive mode + run_id sets INTERACTIVE and TURN_DIR (lines 709-727)."""
     client = FakeDocker(image_exists=True)
     o = _orch(tmp_path, client)
     auth = tmp_path / "auth.json"
@@ -970,26 +952,22 @@ def test_run_parallel_thread_error(tmp_path: Path):
     assert "thread error" in results[0].error
 
 
-def test_host_gh_env_always_without_any_token(monkeypatch: pytest.MonkeyPatch):
-    """always pass mode with no tokens available falls back to gh cli (line 326-341)."""
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "always")
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+def test_host_gh_env_write_falls_back_to_gh_cli(monkeypatch: pytest.MonkeyPatch):
+    """Write mode with no env tokens uses host gh CLI."""
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_HOST", raising=False)
     with patch.object(orch_mod, "_token_from_host_gh_cli", return_value="cli-tok"):
-        env = _host_gh_env_for_container(github_write=False)
+        env = _host_gh_env_for_container(github_write=True)
     assert env.get("GH_TOKEN") == "cli-tok" or env.get("GITHUB_TOKEN") == "cli-tok"
 
 
 def test_host_gh_env_github_token_only(monkeypatch: pytest.MonkeyPatch):
-    """GITHUB_TOKEN without GH_TOKEN is cross-set (line 339-341)."""
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "always")
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+    """GITHUB_TOKEN without GH_TOKEN is used when write is on."""
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.setenv("GITHUB_TOKEN", "ghub-only")
     monkeypatch.delenv("GH_HOST", raising=False)
-    env = _host_gh_env_for_container(github_write=False)
+    env = _host_gh_env_for_container(github_write=True)
     assert env.get("GH_TOKEN") == "ghub-only"
 
 
@@ -1118,10 +1096,8 @@ def test_abort_short_circuits_wait_and_parallel(tmp_path: Path):
         assert results_box and results_box[0][0].status == "aborted"
 
 
-def test_host_gh_env_not_want_token_non_empty_flag(monkeypatch: pytest.MonkeyPatch):
-    """Pass flag other than 'always' but no write/ui_tok → return empty (line 309)."""
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "never")
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+def test_host_gh_env_no_write_no_token(monkeypatch: pytest.MonkeyPatch):
+    """Without write or persona token, no host GH env is injected."""
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     env = _host_gh_env_for_container(github_write=False)
@@ -1129,9 +1105,7 @@ def test_host_gh_env_not_want_token_non_empty_flag(monkeypatch: pytest.MonkeyPat
 
 
 def test_host_gh_env_github_write_no_env_tokens(monkeypatch: pytest.MonkeyPatch):
-    """github_write with no env tokens falls back to gh CLI (line 326)."""
-    monkeypatch.delenv("GROKET_PASS_GH_TOKEN", raising=False)
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+    """github_write with no env tokens falls back to gh CLI."""
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     with patch.object(orch_mod, "_token_from_host_gh_cli", return_value="cli-tok"):
@@ -1141,9 +1115,7 @@ def test_host_gh_env_github_write_no_env_tokens(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_host_gh_env_github_write_no_token_anywhere(monkeypatch: pytest.MonkeyPatch):
-    """github_write with no token anywhere returns empty (line 348)."""
-    monkeypatch.delenv("GROKET_PASS_GH_TOKEN", raising=False)
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+    """github_write with no token anywhere returns empty."""
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     with patch.object(orch_mod, "_token_from_host_gh_cli", return_value=""):
@@ -1151,26 +1123,22 @@ def test_host_gh_env_github_write_no_token_anywhere(monkeypatch: pytest.MonkeyPa
     assert env == {}
 
 
-def test_host_gh_env_always_gh_token_only(monkeypatch: pytest.MonkeyPatch):
-    """always pass with only GH_TOKEN sets cross-link (lines 334, 340)."""
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "always")
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+def test_host_gh_env_gh_token_sets_both(monkeypatch: pytest.MonkeyPatch):
+    """Write mode with only GH_TOKEN sets GH_TOKEN and GITHUB_TOKEN."""
     monkeypatch.setenv("GH_TOKEN", "gh-tok")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_HOST", raising=False)
-    env = _host_gh_env_for_container(github_write=False)
+    env = _host_gh_env_for_container(github_write=True)
     assert env.get("GH_TOKEN") == "gh-tok"
     assert env.get("GITHUB_TOKEN") == "gh-tok"
 
 
 def test_host_gh_env_gh_host_forwarded(monkeypatch: pytest.MonkeyPatch):
-    """GH_HOST env var is forwarded (line 344)."""
-    monkeypatch.setenv("GROKET_PASS_GH_TOKEN", "always")
-    monkeypatch.delenv("GROKET_GH_TOKEN", raising=False)
+    """GH_HOST is forwarded when injecting write credentials."""
     monkeypatch.setenv("GH_TOKEN", "tok")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setenv("GH_HOST", "github.example.com")
-    env = _host_gh_env_for_container(github_write=False)
+    env = _host_gh_env_for_container(github_write=True)
     assert env.get("GH_HOST") == "github.example.com"
 
 

@@ -1,14 +1,13 @@
 """Host dependency checks for evals and the TUI.
 
 Probes work-directory writability, Docker reachability, Grok host auth/config,
-optional CLI and models cache, and optional GitHub tokens for push personas.
-Used by ``groket self-test`` and the in-app self-test modal.
+optional CLI and models cache. Used by ``groket self-test`` and the in-app
+self-test modal.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -276,27 +275,6 @@ def _check_models_cache() -> CheckResult:
         )
 
 
-def _check_env_tokens() -> CheckResult:
-    """Optional GitHub write tokens for personas that push."""
-    names = ("GROKET_GH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
-    present = [n for n in names if (os.environ.get(n) or "").strip()]
-    if present:
-        return CheckResult(
-            id="gh_token",
-            name="GitHub token in environment",
-            ok=True,
-            detail="set: " + ", ".join(present) + " (for persona github_write)",
-            required=False,
-        )
-    return CheckResult(
-        id="gh_token",
-        name="GitHub token in environment",
-        ok=False,
-        detail="none of GROKET_GH_TOKEN / GH_TOKEN / GITHUB_TOKEN — only needed for push/PR personas",
-        required=False,
-    )
-
-
 def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
@@ -306,6 +284,5 @@ def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
         _check_grok_config(),
         _check_grok_cli(),
         _check_models_cache(),
-        _check_env_tokens(),
     ]
     return SelfTestReport(checks=checks)

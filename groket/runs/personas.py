@@ -42,13 +42,13 @@ class Persona:
     GitHub access is persona-owned: ``github_write`` plus optional ``github_token``
     (stored under ``~/.groket/personas/`` — treat that dir as secret).
     If the token field is empty at launch, ``github_token_env`` (host env var name)
-    or host ``GROKET_GH_TOKEN`` / ``GH_TOKEN`` may still supply a token when write is on.
+    or host ``GH_TOKEN`` / ``GITHUB_TOKEN`` may still supply a token when write is on.
     """
 
     persona_id: str
     name: str = ""
     description: str = ""
-    # Inject GROKET_GH_TOKEN/GH_TOKEN and git credential helper for push/PR ops.
+    # Inject GH_TOKEN and git credential helper for push/PR ops.
     github_write: bool = False
     # Fine-grained PAT or classic token for this persona (optional; sensitive).
     github_token: str = ""
@@ -149,11 +149,9 @@ class Persona:
         out = dict(base or {})
         out.update(self.env_vars)
         if self.git_user_name:
-            out.setdefault("GROKET_GIT_USER_NAME", self.git_user_name)
             out.setdefault("GIT_AUTHOR_NAME", self.git_user_name)
             out.setdefault("GIT_COMMITTER_NAME", self.git_user_name)
         if self.git_user_email:
-            out.setdefault("GROKET_GIT_USER_EMAIL", self.git_user_email)
             out.setdefault("GIT_AUTHOR_EMAIL", self.git_user_email)
             out.setdefault("GIT_COMMITTER_EMAIL", self.git_user_email)
         return out
@@ -275,7 +273,7 @@ class PersonaStore:
                 name="github-writer",
                 description=(
                     "Enable gh/git push. Set PAT (or github_token_env) on this persona; "
-                    "host GROKET_GH_TOKEN/GH_TOKEN used only as launch fallback."
+                    "host GH_TOKEN/GITHUB_TOKEN used only as launch fallback."
                 ),
                 github_write=True,
             )
