@@ -792,81 +792,99 @@ SelectOverlay:focus > .option-list--option-highlighted {
 }
 
 
-/* MCP / skills pickers (Personas + Runner) — full height so registry search is usable */
+/* MCP / skills / plugins pickers — compact shell (height auto + modest max) */
 #plugins-picker-modal {
-    width: 96;
-    max-width: 100%;
-    height: 85%;
-    max-height: 92%;
-    padding: 1 2;
+    width: 88;
+    max-width: 96%;
+    height: auto;
+    max-height: 78%;
+    padding: 0 2 1 2;
     background: $surface;
     border: heavy $primary;
 }
 
 #plugins-picker-modal #plugins-pick-search {
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 0;
 }
 
 #plugins-picker-modal #plugins-pick-table {
-    height: 1fr;
-    min-height: 8;
-    margin-bottom: 1;
+    height: auto;
+    min-height: 5;
+    max-height: 12;
+    margin-bottom: 0;
 }
 
 #plugins-picker-modal #plugins-pick-detail {
     height: auto;
-    min-height: 4;
-    max-height: 10;
-    margin-bottom: 1;
-    padding: 1;
+    min-height: 2;
+    max-height: 6;
+    margin-bottom: 0;
+    padding: 0 1;
     border: solid $primary-lighten-2;
     background: $surface-darken-1;
 }
 
 #plugins-picker-modal #plugins-pick-sel {
-    margin-bottom: 1;
+    margin-bottom: 0;
 }
 
 #mcp-picker-modal,
 #skills-picker-modal {
-    width: 92;
-    max-width: 100%;
+    width: 88;
+    max-width: 96%;
     height: auto;
-    max-height: 92%;
-    padding: 1 2;
+    max-height: 78%;
+    padding: 0 2 1 2;
     background: $surface;
     border: heavy $primary;
+}
+
+#mcp-picker-modal #mcp-pick-title,
+#skills-picker-modal #skills-pick-title,
+#plugins-picker-modal #plugins-pick-title {
+    height: auto;
+    margin: 0;
+}
+
+#mcp-picker-modal #mcp-pick-keys,
+#skills-picker-modal #skills-pick-keys,
+#plugins-picker-modal #plugins-pick-keys,
+#persona-editor-shell #pe-hint.tip-surface {
+    margin: 0 0 0 0;
+    max-height: 3;
 }
 
 #mcp-picker-modal #mcp-pick-search,
 #skills-picker-modal #skills-pick-search {
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 0;
+    height: 3;
 }
 
 #mcp-picker-modal #mcp-pick-search-row,
-#mcp-picker-modal #mcp-pick-footer {
-    height: 3;
+#mcp-picker-modal #mcp-pick-footer,
+#skills-picker-modal #skills-pick-footer {
+    height: auto;
     align: left middle;
-    margin-bottom: 1;
+    margin: 0;
 }
 
 #mcp-picker-modal #mcp-pick-table,
 #skills-picker-modal #skills-pick-table {
     height: auto;
-    min-height: 8;
-    max-height: 14;
-    margin-bottom: 1;
+    min-height: 5;
+    max-height: 10;
+    margin-bottom: 0;
 }
 
 #mcp-picker-modal #mcp-pick-detail {
     height: auto;
-    min-height: 6;
-    max-height: 14;
+    min-height: 2;
+    max-height: 7;
     overflow-y: auto;
-    margin-bottom: 1;
-    padding: 1;
+    margin-bottom: 0;
+    padding: 0 1;
     background: $surface-darken-1;
     border: solid $primary-lighten-2;
     color: $text;
@@ -875,23 +893,26 @@ SelectOverlay:focus > .option-list--option-highlighted {
 #mcp-picker-modal #mcp-pick-status,
 #mcp-picker-modal #mcp-pick-sel,
 #skills-picker-modal #skills-pick-sel {
-    margin-bottom: 1;
+    margin: 0;
+    height: auto;
 }
 
 #mcp-cfg-modal {
-    width: 88;
-    max-width: 100%;
-    max-height: 92%;
-    padding: 1 2;
+    width: 80;
+    max-width: 96%;
+    height: auto;
+    max-height: 78%;
+    padding: 0 2 1 2;
     background: $surface;
     border: heavy $primary;
 }
 
 #mcp-cfg-modal TextArea {
-    height: 4;
-    min-height: 4;
+    height: 3;
+    min-height: 3;
+    max-height: 6;
     width: 100%;
-    margin: 0 0 1 0;
+    margin: 0;
 }
 
 #runner-status-panel #container-status-table {
@@ -986,23 +1007,24 @@ PersonaEditorModal {
 #persona-editor-shell {
     width: 88;
     max-width: 96%;
-    height: 85%;
-    max-height: 90%;
+    height: 72%;
+    max-height: 82%;
     layout: vertical;
     background: $surface;
     border: heavy $primary;
-    padding: 1 2;
+    padding: 0 2 1 2;
 }
 
 #pe-title {
     height: auto;
-    margin: 0 0 0 0;
+    margin: 0;
 }
 
 #pe-hint {
     height: auto;
     margin: 0;
     color: $text-muted;
+    max-height: 3;
 }
 
 #pe-tabs {
@@ -1036,19 +1058,20 @@ PersonaEditorModal {
 
 #persona-editor-shell TextArea {
     margin: 0;
-    height: 4;
-    min-height: 4;
+    height: 3;
+    min-height: 3;
     width: 100%;
 }
 
 #persona-editor-shell TextArea.pe-medium {
-    height: 5;
-    min-height: 4;
+    height: 4;
+    min-height: 3;
 }
 
 #persona-editor-shell TextArea.pe-tall {
-    height: 1fr;
-    min-height: 5;
+    height: auto;
+    min-height: 4;
+    max-height: 8;
 }
 
 #persona-editor-shell .pe-inline-row {

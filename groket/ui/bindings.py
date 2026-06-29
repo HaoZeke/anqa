@@ -305,9 +305,12 @@ def open_jobs_on_app(screen: Screen) -> None:
 
 
 def dismiss_after_blur(screen: Screen, result: object = None) -> None:
-    """Esc on modals: blur Input/TextArea/Select first, else ``dismiss(result)``."""
-    if blur_focused_edit(screen):
-        return
+    """Esc / Cancel on modals: leave the modal (no field-blur gate).
+
+    Pushed full screens use :meth:`ChromeActions.action_go_back` (blur edit
+    controls first). Modals always exit on Esc; dirty forms still confirm via
+    :class:`~groket.ui.confirm_modal.DiscardConfirmModal`.
+    """
     dirty_fn = getattr(screen, "form_is_dirty", None)
     if callable(dirty_fn) and dirty_fn():
         from .confirm_modal import DiscardConfirmModal

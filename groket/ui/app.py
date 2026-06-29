@@ -240,6 +240,11 @@ class SessionSearchModal(ModalScreen):
         self._sessions = sessions
         self._results: list[int] = []
 
+    def action_dismiss(self) -> None:
+        from .bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
+
     def compose(self) -> ComposeResult:
         with Container(id="session-search-modal"):
             yield Label(U.fuzzy_search_sessions(), id="session-search-label")
