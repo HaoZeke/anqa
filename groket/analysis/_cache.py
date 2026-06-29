@@ -1,0 +1,97 @@
+"""On-disk analysis result cache.
+
+Cache layout::
+
+    <cache_root>/analysis/<session_id>/<analyzer_id>.json
+
+Each file stores the serialised :class:`AnalysisResult` plus metadata used
+for invalidation (trace mtime, plugin version).
+
+Invalidation rules:
+- Only completed sessions are cached (caller decides).
+- Cache is valid when *trace_mtime* and *plugin_version* both match.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+from ..models import JsonObject
+from .base import AnalysisResult
+
+logger = logging.getLogger(__name__)
+
+_CACHE_SCHEMA_VERSION = 1
+
+
+def _cache_path(cache_root: Path, session_id: str, analyzer_id: str) -> Path:
+    return cache_root / "analysis" / session_id / f"{analyzer_id}.json"
+
+
+def _trace_mtime(session_dir: Path) -> float:
+    """Newest mtime across the main trace artifacts."""
+    newest = 0.0
+    for name in ("events.jsonl", "chat_history.jsonl", "updates.jsonl", "summary.json"):
+        fp = session_dir / name
+        try:
+            if fp.is_file():
+                newest = max(newest, fp.stat().st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
+def load_cached_result(
+    cache_root: Path,
+    session_dir: Path,
+    analyzer_id: str,
+    plugin_version: str,
+) -> AnalysisResult | None:
+    """Return cached result if valid, else ``None``."""
+    fp = _cache_path(cache_root, session_dir.name, analyzer_id)
+    if not fp.is_file():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.debug("Corrupt cache file %s — ignoring", fp)
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("_schema") != _CACHE_SCHEMA_VERSION:
+        return None
+    if data.get("_plugin_version") != plugin_version:
+        logger.debug("Cache version mismatch for %s/%s", session_dir.name, analyzer_id)
+        return None
+    cached_mtime = data.get("_trace_mtime", 0.0)
+    if abs(_trace_mtime(session_dir) - cached_mtime) > 0.5:
+        logger.debug("Trace mtime changed for %s/%s", session_dir.name, analyzer_id)
+        return None
+    result_data = data.get("result")
+    if not isinstance(result_data, dict):
+        return None
+    return AnalysisResult.from_dict(result_data)
+
+
+def save_cached_result(
+    cache_root: Path,
+    session_dir: Path,
+    analyzer_id: str,
+    plugin_version: str,
+    result: AnalysisResult,
+) -> None:
+    """Persist an analysis result to the cache."""
+    fp = _cache_path(cache_root, session_dir.name, analyzer_id)
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    payload: JsonObject = {
+        "_schema": _CACHE_SCHEMA_VERSION,
+        "_plugin_version": plugin_version,
+        "_trace_mtime": _trace_mtime(session_dir),
+        "result": result.to_dict(),
+    }
+    try:
+        fp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        logger.debug("Failed to write cache file %s", fp, exc_info=True)

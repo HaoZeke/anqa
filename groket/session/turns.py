@@ -1,0 +1,259 @@
+"""Segment a session timeline into harness / interactive turns."""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+
+from ..models import TraceEvent
+
+_TURN_NUM_RE = re.compile(r"turn_number\s*=\s*(\d+)", re.I)
+_OUTCOME_RE = re.compile(r"outcome\s*=\s*(\S+)", re.I)
+
+
+@dataclass
+class TurnSegment:
+    """One agent turn (between turn_started and turn_ended, or open-ended)."""
+
+    turn_index: int  # 0-based index in this session
+    turn_number: int | None  # from harness marker when present
+    outcome: str = ""  # last turn_ended outcome for this segment ("" if open)
+    open: bool = False  # no turn_ended yet
+    events: list[TraceEvent] = field(default_factory=list)
+
+    @property
+    def event_count(self) -> int:
+        return len(self.events)
+
+    @property
+    def tool_calls(self) -> list[TraceEvent]:
+        return [e for e in self.events if e.event_type == "tool_call"]
+
+    @property
+    def tool_call_count(self) -> int:
+        return len(self.tool_calls)
+
+    @property
+    def tool_error_count(self) -> int:
+        return sum(1 for e in self.tool_calls if e.is_error)
+
+    @property
+    def user_count(self) -> int:
+        return sum(1 for e in self.events if e.event_type == "user")
+
+    @property
+    def assistant_count(self) -> int:
+        return sum(1 for e in self.events if e.event_type == "assistant")
+
+    @property
+    def error_event_count(self) -> int:
+        return sum(1 for e in self.events if e.is_error or e.event_type == "session_error")
+
+    @property
+    def first_index(self) -> int | None:
+        return self.events[0].index if self.events else None
+
+    @property
+    def last_index(self) -> int | None:
+        return self.events[-1].index if self.events else None
+
+    @property
+    def label(self) -> str:
+        tn = self.turn_number if self.turn_number is not None else self.turn_index
+        if self.open:
+            return f"turn {tn} (open)"
+        if self.outcome:
+            return f"turn {tn} ({self.outcome})"
+        return f"turn {tn}"
+
+    def duration_seconds(self, durations: dict[int, float] | None = None) -> float | None:
+        """Span from first to last event timestamp (seconds), else sum of durations map."""
+        ts = [int(e.timestamp) for e in self.events if e.timestamp is not None]
+        if len(ts) >= 2:
+            delta = max(ts) - min(ts)
+            # Trace timestamps are typically unix seconds; large deltas in ms are rare for a turn.
+            if delta > 86_400 * 365:  # absurd as seconds → treat as ms
+                return delta / 1000.0
+            return float(delta)
+        if durations:
+            total = 0.0
+            any_d = False
+            for e in self.events:
+                d = durations.get(e.index)
+                if d is not None:
+                    total += float(d)
+                    any_d = True
+            return total if any_d else None
+        return None
+
+
+def _is_turn_started(ev: TraceEvent) -> bool:
+    if ev.event_type != "session":
+        return False
+    c = (ev.content or "").lower()
+    return "turn started" in c
+
+
+def _is_turn_ended(ev: TraceEvent) -> bool:
+    if ev.event_type not in ("session", "session_error"):
+        return False
+    c = (ev.content or "").lower()
+    return "turn ended" in c
+
+
+def _turn_number_from_event(ev: TraceEvent) -> int | None:
+    m = _TURN_NUM_RE.search(ev.content or "")
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _outcome_from_event(ev: TraceEvent) -> str:
+    m = _OUTCOME_RE.search(ev.content or "")
+    return m.group(1) if m else ("error" if ev.is_error else "unknown")
+
+
+def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
+    """Split *timeline* into turns using session turn_started / turn_ended markers.
+
+    Events before the first turn_started form turn 0 if any exist (single-turn
+    sessions often lack markers until harness writes them). Multiple markers
+    produce multiple segments for interactive multi-turn.
+    """
+    if not timeline:
+        return []
+
+    has_markers = any(_is_turn_started(e) or _is_turn_ended(e) for e in timeline)
+    if not has_markers:
+        return [
+            TurnSegment(
+                turn_index=0,
+                turn_number=None,
+                outcome="",
+                open=True,
+                events=list(timeline),
+            )
+        ]
+
+    segments: list[TurnSegment] = []
+    current: TurnSegment | None = None
+    display_i = -1
+
+    def _close(seg: TurnSegment, outcome: str = "") -> None:
+        if outcome:
+            seg.outcome = outcome
+        seg.open = False
+
+    for ev in timeline:
+        if _is_turn_started(ev):
+            if current is not None and current.events:
+                # Previous turn had no explicit end — close as open=False unknown
+                if current.open and not current.outcome:
+                    current.outcome = "unknown"
+                current.open = False
+                segments.append(current)
+            display_i += 1
+            tn = _turn_number_from_event(ev)
+            current = TurnSegment(
+                turn_index=display_i,
+                turn_number=tn,
+                open=True,
+                events=[ev],
+            )
+            continue
+
+        if _is_turn_ended(ev):
+            outcome = _outcome_from_event(ev)
+            if current is None:
+                display_i += 1
+                current = TurnSegment(
+                    turn_index=display_i,
+                    turn_number=display_i,
+                    open=False,
+                    outcome=outcome,
+                    events=[ev],
+                )
+                segments.append(current)
+                current = None
+            else:
+                current.events.append(ev)
+                _close(current, outcome)
+                segments.append(current)
+                current = None
+            continue
+
+        if current is None:
+            # Preamble before first turn_started
+            display_i = 0
+            current = TurnSegment(
+                turn_index=0,
+                turn_number=None,
+                open=True,
+                events=[ev],
+            )
+        else:
+            current.events.append(ev)
+
+    if current is not None and current.events:
+        segments.append(current)
+
+    # Re-number turn_index sequentially for display stability (0-based)
+    for i, seg in enumerate(segments):
+        seg.turn_index = i
+        if seg.turn_number is None:
+            seg.turn_number = i
+
+    return segments
+
+
+def turn_summary_rows(
+    segments: list[TurnSegment],
+    *,
+    durations: dict[int, float] | None = None,
+) -> list[dict[str, object]]:
+    """Tabular rows for stats UI / tests."""
+    rows: list[dict[str, object]] = []
+    for seg in segments:
+        dur = seg.duration_seconds(durations)
+        tools = Counter(e.tool_name for e in seg.tool_calls if e.tool_name)
+        top_tools = ", ".join(f"{n}×{c}" for n, c in tools.most_common(3)) or "—"
+        rows.append(
+            {
+                "turn": seg.turn_index,
+                "label": seg.label,
+                "outcome": seg.outcome or ("open" if seg.open else "—"),
+                "open": seg.open,
+                "events": seg.event_count,
+                "tools": seg.tool_call_count,
+                "tool_errors": seg.tool_error_count,
+                "users": seg.user_count,
+                "assistants": seg.assistant_count,
+                "errors": seg.error_event_count,
+                "duration_s": dur,
+                "top_tools": top_tools,
+                "first_index": seg.first_index,
+                "last_index": seg.last_index,
+            }
+        )
+    return rows
+
+
+def format_turns_plain(
+    segments: list[TurnSegment], *, durations: dict[int, float] | None = None
+) -> str:
+    """Plain multi-line turn breakdown (CLI / debug)."""
+    if not segments:
+        return "(no turns)"
+    lines = [f"Turns: {len(segments)}"]
+    for row in turn_summary_rows(segments, durations=durations):
+        dur = row["duration_s"]
+        dur_s = f"{dur:.1f}s" if isinstance(dur, (int, float)) else "—"
+        lines.append(
+            f"  {row['label']}: events={row['events']} tools={row['tools']} "
+            f"errs={row['tool_errors']} dur={dur_s}  [{row['top_tools']}]"
+        )
+    return "\n".join(lines)

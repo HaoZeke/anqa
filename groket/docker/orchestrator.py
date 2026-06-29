@@ -1,0 +1,1365 @@
+"""Docker orchestrator for spinning up parallel grok evaluation sessions.
+
+Manages the lifecycle of Docker containers running grok with different models
+and prompts, extracts traces when done.
+
+Uses python-on-whales for typed Docker interaction
+calls.  All methods are synchronous — the caller (screens/runner.py) already
+runs Docker work in a dedicated worker thread.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import threading
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal
+
+logger = logging.getLogger(__name__)
+
+from python_on_whales import Container, DockerClient
+
+from .base_profiles import (
+    DEFAULT_DOCKER_IMAGE,
+    build_run_dockerfile,
+    build_shared_base_dockerfile,
+    resolve_docker_base,
+    shared_base_build_dirname,
+    shared_base_image_tag,
+)
+from .resources import empty_setup_sh, entrypoint_sh, share_once_py
+
+# Serialize builds of the same shared base tag (parallel batch members share one base).
+_SHARED_BASE_LOCKS: dict[str, threading.Lock] = {}
+_SHARED_BASE_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for_shared_tag(tag: str) -> threading.Lock:
+    with _SHARED_BASE_LOCKS_GUARD:
+        if tag not in _SHARED_BASE_LOCKS:
+            _SHARED_BASE_LOCKS[tag] = threading.Lock()
+        return _SHARED_BASE_LOCKS[tag]
+
+
+@dataclass
+class ContainerConfig:
+    """Configuration for a single evaluation container."""
+
+    model: str
+    prompt: str
+    container_name: str = ""
+    # Base image or profile alias (``fully-loaded`` default, ``minimal``, ``debian@fully-loaded``).
+    docker_image: str = DEFAULT_DOCKER_IMAGE
+    repo_url: str = ""
+    repo_branch: str = ""
+    setup_instructions: str = ""
+    # Opt-in: inject host GROKET_GH_TOKEN / GH_TOKEN and wire git→gh credentials for push.
+    github_write: bool = False
+    # One-shot token from Runner UI (never persisted to run_configs). Overrides host env.
+    github_token: str = ""
+    # Persona id (operator reference); env/github flags should already be applied by caller.
+    persona_id: str = ""
+    # Persona MCP / skills / Grok plugins applied at start_container.
+    mcp_servers: list[str] = field(default_factory=list)
+    mcp_definitions: list = field(default_factory=list)
+    mcp_replace_host: bool = True
+    mcp_extra_toml: str = ""
+    skills: list[str] = field(default_factory=list)
+    skills_disabled: list[str] = field(default_factory=list)
+    plugins: list[str] = field(default_factory=list)
+    env_vars: dict[str, str] = field(default_factory=dict)
+    volumes: dict[str, str] = field(default_factory=dict)
+    # Multi-turn: entrypoint waits for host follow-ups on the sessions volume.
+    interactive: bool = False
+    # Extra prompts after the primary ``prompt`` (batch scripted turns).
+    follow_up_prompts: list[str] = field(default_factory=list)
+    # Optional run id for per-run turn gate directory name on the host traces volume.
+    run_id: str = ""
+    # Grok reasoning effort (low|medium|high|xhigh|max); empty uses host/default.
+    reasoning_effort: str = ""
+
+    def __post_init__(self):
+        if not self.container_name:
+            short_id = uuid.uuid4().hex[:8]
+            # Strip effort suffix for naming (model:effort → model)
+            mid = self.model.split(":")[0] if ":" in self.model else self.model
+            safe_model = mid.replace("/", "-").replace(":", "-")[:30]
+            self.container_name = f"groket-{safe_model}-{short_id}"
+
+    def resolved_base(self):
+        """Resolve :attr:`docker_image` to base image + profile (fully-loaded, …)."""
+        return resolve_docker_base(self.docker_image)
+
+
+@dataclass
+class ContainerStatus:
+    """Runtime status of a container."""
+
+    container_name: str
+    model: str
+    status: str = "pending"  # pending, building, running, extracting, completed, failed
+    container_id: str = ""
+    error: str = ""
+    session_dir: Path | None = None
+    # Grok share URL from groket-share.json (in-container ``grok share`` only).
+    share_url: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+
+
+def _eval_config_toml(
+    host_config: Path,
+    *,
+    primary_model: str,
+    reasoning_effort: str = "",
+) -> str:
+    """Build config.toml for an eval container.
+
+    Keeps installer/ui prefs from the host when possible, but overrides models so
+    ``fork_secondary_model`` / defaults do not silently call ``grok-build`` (which
+    needs a subscription many eval accounts do not have). Sets
+    ``default_reasoning_effort`` when *reasoning_effort* is a known level.
+    """
+    from ..runs.batch import REASONING_EFFORTS, split_model_effort
+
+    mid, effort_from_token = split_model_effort(primary_model)
+    model = (mid or primary_model or "v9").strip() or "v9"
+    # Only set effort when the launch token (or explicit arg) carries one.
+    # Models that do not support effort must not get a forced host/global default.
+    effort = (reasoning_effort or effort_from_token or "").strip().lower()
+    if effort not in REASONING_EFFORTS:
+        effort = ""
+    # Secondary fork: prefer the same experimental model; never force grok-build.
+    secondary = model
+    if model == "grok-build":
+        secondary = "v9"
+
+    base = ""
+    if host_config and Path(host_config).exists():
+        try:
+            base = Path(host_config).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            base = ""
+
+    effort_line = f'default_reasoning_effort = "{effort}"\n' if effort else ""
+
+    # Minimal safe config if host is missing/unreadable
+    if not base.strip():
+        return (
+            "[cli]\n"
+            'installer = "internal"\n'
+            "auto_update = false\n"
+            "\n"
+            "[ui]\n"
+            f'fork_secondary_model = "{secondary}"\n'
+            "yolo = false\n"
+            'permission_mode = "always-approve"\n'
+            "\n"
+            "[models]\n"
+            f'default = "{model}"\n'
+            f"{effort_line}"
+            "\n"
+            # Agent dashboard + session sharing: monitor live evals from the browser.
+            "[dashboard]\n"
+            "enabled = true\n"
+        )
+
+    lines = base.splitlines()
+    out: list[str] = []
+    section = ""
+    saw_fork = False
+    saw_default = False
+    saw_effort = False
+    saw_auto_update = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1].strip().lower()
+            out.append(line)
+            continue
+        # Parallel eval containers must not race the internal installer update.
+        if section == "cli" and stripped.startswith("auto_update"):
+            out.append("auto_update = false")
+            saw_auto_update = True
+            continue
+        if section == "ui" and stripped.startswith("fork_secondary_model"):
+            out.append(f'fork_secondary_model = "{secondary}"')
+            saw_fork = True
+            continue
+        if section == "models" and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key == "default":
+                out.append(f'default = "{model}"')
+                saw_default = True
+                continue
+            if key == "default_reasoning_effort":
+                if effort:
+                    out.append(f'default_reasoning_effort = "{effort}"')
+                    saw_effort = True
+                else:
+                    # Drop host effort override for models that do not use effort.
+                    saw_effort = True
+                continue
+        out.append(line)
+
+    text = "\n".join(out)
+    # Force off even when host had auto_update = true (common; breaks multi-model launches).
+    if saw_auto_update or re.search(r"(?im)^\s*auto_update\s*=", text):
+        text = re.sub(
+            r"(?im)^(\s*auto_update\s*=\s*)\S+",
+            r"\1false",
+            text,
+            count=1,
+        )
+    elif "[cli]" in text:
+        text = text.replace("[cli]", "[cli]\nauto_update = false", 1)
+    else:
+        text = "[cli]\nauto_update = false\n\n" + text
+    if not saw_fork:
+        if "[ui]" in text:
+            text = text.replace(
+                "[ui]",
+                f'[ui]\nfork_secondary_model = "{secondary}"',
+                1,
+            )
+        else:
+            text += f'\n\n[ui]\nfork_secondary_model = "{secondary}"\n'
+    if not saw_default:
+        if "[models]" in text:
+            text = text.replace(
+                "[models]",
+                f'[models]\ndefault = "{model}"',
+                1,
+            )
+        else:
+            text += f'\n\n[models]\ndefault = "{model}"\n'
+    if effort and not saw_effort:
+        if "[models]" in text:
+            # Append effort under existing [models] block (after default when present).
+            text = re.sub(
+                r"(?im)^(\s*default\s*=\s*\"[^\"]*\"\s*)$",
+                rf'\1\ndefault_reasoning_effort = "{effort}"',
+                text,
+                count=1,
+            )
+            if "default_reasoning_effort" not in text:
+                text = text.replace(
+                    "[models]",
+                    f'[models]\ndefault_reasoning_effort = "{effort}"',
+                    1,
+                )
+        else:
+            text += f'\n\n[models]\ndefault_reasoning_effort = "{effort}"\n'
+    if not text.endswith("\n"):
+        text += "\n"
+    # Always enable agent dashboard in eval containers so live sessions can be
+    # monitored (host dashboard / share flow + traces on the bind mount).
+    if "[dashboard]" not in text:
+        text += "\n[dashboard]\nenabled = true\n"
+    elif re.search(r"(?im)^\s*enabled\s*=\s*false\s*$", text):
+        # Host may have disabled it; force on for eval monitoring.
+        text = re.sub(
+            r"(?im)^(\s*enabled\s*=\s*)false(\s*)$",
+            r"\1true\2",
+            text,
+            count=1,
+        )
+    return text
+
+
+def _build_setup_script(setup_instructions: str) -> str:
+    """Turn multiline (or single-line) initial commands into an executable bash script."""
+    body = (setup_instructions or "").strip()
+    if not body:
+        return empty_setup_sh()
+    # Preserve user newlines; ensure shebang + errexit for real setups.
+    # If the user already provided a shebang, keep their script as-is.
+    if body.startswith("#!"):
+        return body if body.endswith("\n") else body + "\n"
+    return f"#!/bin/bash\nset -euo pipefail\n\n{body}\n"
+
+
+def _token_from_host_gh_cli() -> str:
+    """If the operator already ran ``gh auth login`` on the host, reuse that token.
+
+    Avoids requiring a separate ``export GH_TOKEN=...`` when ``gh`` is installed and
+    logged in locally. Non-interactive; fails closed (empty string) on any error.
+    """
+    try:
+        import shutil
+        import subprocess
+
+        if not shutil.which("gh"):
+            return ""
+        r = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**os.environ, "GH_PAGER": "cat"},
+        )
+        if r.returncode != 0:
+            return ""
+        tok = (r.stdout or "").strip()
+        # Basic sanity: tokens are non-trivial; avoid injecting pager noise
+        if len(tok) < 8 or "\n" in tok:
+            return ""
+        return tok
+    except Exception:
+        return ""
+
+
+def _host_gh_env_for_container(
+    *,
+    github_write: bool = False,
+    github_token: str = "",
+) -> dict[str, str]:
+    """Build GitHub-related env for an eval container.
+
+    **Default (``github_write=False``):** do **not** inject any token. Most evals
+    should not have push access; agents pivot to local git / fixtures.
+
+    **Write mode (``github_write=True``):** inject a token so ``gh`` and ``git``
+    (via entrypoint ``gh auth setup-git``) can push to the runner's ``repo_url``.
+    Resolution order (first non-empty wins for ``GH_TOKEN``):
+      0. ``github_token`` arg — persona PAT / persona ``github_token_env`` resolved at launch
+      1. ``GROKET_GH_TOKEN`` — preferred host fallback: repo-scoped fine-grained PAT for eval only
+      2. ``GH_TOKEN`` / ``GITHUB_TOKEN`` on the host (explicit / CI)
+      3. ``gh auth token`` on the host (broad; only as last resort)
+
+    Global kill-switch: ``GROKET_PASS_GH_TOKEN=0`` skips injection even in write mode.
+    ``GROKET_PASS_GH_TOKEN=always`` (or 1/true/yes/on/all) injects host token even without
+    github_write — for operators who want every job authenticated.
+    """
+    pass_flag = (os.environ.get("GROKET_PASS_GH_TOKEN") or "").strip().lower()
+    if pass_flag in ("0", "false", "no", "off"):
+        return {}
+
+    ui_tok = (github_token or "").strip()
+    want_token = (
+        bool(github_write)
+        or bool(ui_tok)
+        or pass_flag in ("always", "1", "true", "yes", "on", "all")
+    )
+    # Default: no token unless write opted in (or always/1 pass flag).
+    if not want_token and pass_flag == "":
+        return {}
+    if not want_token:
+        return {}
+
+    out: dict[str, str] = {
+        "GH_PAGER": "cat",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    if github_write or ui_tok:
+        out["GROKET_GITHUB_WRITE"] = "1"
+
+    gte_tok = (os.environ.get("GROKET_GH_TOKEN") or "").strip()
+    gh_token = (os.environ.get("GH_TOKEN") or "").strip()
+    ghub_token = (os.environ.get("GITHUB_TOKEN") or "").strip()
+
+    if github_write or ui_tok:
+        # Persona token first, then dedicated eval token, then host env / gh cli.
+        chosen = ui_tok or gte_tok or gh_token or ghub_token
+        if not chosen:
+            chosen = _token_from_host_gh_cli()
+        if chosen:
+            out["GH_TOKEN"] = chosen
+            out["GITHUB_TOKEN"] = chosen
+    else:
+        # always-pass path: host env then gh cli.
+        if not gh_token and not ghub_token:
+            gh_token = _token_from_host_gh_cli()
+        if gh_token:
+            out["GH_TOKEN"] = gh_token
+        if ghub_token:
+            out["GITHUB_TOKEN"] = ghub_token
+            if "GH_TOKEN" not in out:
+                out["GH_TOKEN"] = ghub_token
+        elif gh_token:
+            out["GITHUB_TOKEN"] = gh_token
+
+    host = (os.environ.get("GH_HOST") or "").strip()
+    if host:
+        out["GH_HOST"] = host
+
+    if "GH_TOKEN" not in out and "GITHUB_TOKEN" not in out:
+        return {}
+    return out
+
+
+def describe_github_write_token_status(*, ui_token: str = "") -> str:
+    """Short human status for Runner UI (never includes the token itself).
+
+    *ui_token* is the persona-resolved token for this launch (not a Runner field).
+    """
+    if (ui_token or "").strip():
+        return "persona token resolved for this launch"
+    if (os.environ.get("GROKET_GH_TOKEN") or "").strip():
+        return "GROKET_GH_TOKEN set on host (fallback)"
+    if (os.environ.get("GH_TOKEN") or "").strip() or (os.environ.get("GITHUB_TOKEN") or "").strip():
+        return "GH_TOKEN/GITHUB_TOKEN set on host (fallback)"
+    if _token_from_host_gh_cli():
+        return "host `gh auth` token available (broader than ideal)"
+    return "no token — set PAT on persona, or export GROKET_GH_TOKEN/GH_TOKEN on host"
+
+
+class DockerOrchestrator:
+    """Manages Docker containers for parallel trace evaluation.
+
+    All public methods are synchronous.  The caller (screens/runner.py)
+    runs them in a worker thread with ``@work(thread=True)``.
+    """
+
+    def __init__(self, work_dir: Path):
+        self.work_dir = work_dir
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.containers: dict[str, ContainerStatus] = {}
+        self._build_dir = work_dir / "docker-build"
+        self._docker = DockerClient()
+        # Set on TUI quit so wait loops and parallel workers return promptly.
+        self._abort = threading.Event()
+
+    def request_abort(self) -> None:
+        """Signal in-flight evaluations to stop waiting (containers keep running)."""
+        self._abort.set()
+
+    def clear_abort(self) -> None:
+        """Allow a new launch after a previous abort (same process)."""
+        self._abort.clear()
+
+    @property
+    def abort_requested(self) -> bool:
+        return self._abort.is_set()
+
+    def check_docker_available(self) -> bool:
+        """Check if Docker is available and the daemon is running."""
+        try:
+            self._docker.info()
+            return True
+        except Exception:
+            return False
+
+    def _persona_for_config(self, config: ContainerConfig):
+        """Load persona by config.persona_id from work_dir parent (runs/ → work_dir)."""
+        pid = (config.persona_id or "").strip()
+        if not pid:
+            return None
+        try:
+            from ..runs.personas import PersonaStore
+
+            # orchestrator.work_dir is work_dir/runs; store lives at work_dir/runs/personas
+            work = self.work_dir.parent if self.work_dir.name == "runs" else self.work_dir
+            return PersonaStore(work).get(pid)
+        except Exception:
+            logger.warning("Failed to load persona %r for container config", pid, exc_info=True)
+            return None
+
+    def _apply_persona_capabilities_config(
+        self,
+        cfg_text: str,
+        config: ContainerConfig,
+        *,
+        grok_config: Path,
+        traces_vol: Path,
+    ) -> str:
+        """Apply persona MCP, standalone skills, and Grok plugins separately."""
+        persona = self._persona_for_config(config)
+        # Prefer fields copied onto ContainerConfig at launch (works even if persona file changes).
+        if persona is None and (
+            config.mcp_servers or config.skills or config.mcp_extra_toml or config.plugins
+        ):
+            from ..runs.personas import Persona
+
+            persona = Persona(
+                persona_id=config.persona_id or "inline",
+                mcp_servers=list(config.mcp_servers or []),
+                mcp_definitions=list(config.mcp_definitions or []),
+                mcp_replace_host=bool(config.mcp_replace_host),
+                mcp_extra_toml=str(config.mcp_extra_toml or ""),
+                skills=list(config.skills or []),
+                skills_disabled=list(config.skills_disabled or []),
+                plugins=list(config.plugins or []),
+            )
+        elif persona is not None:
+            # Overlay launch-time lists from config when set (run_manager copies persona onto config).
+            if config.mcp_servers:
+                persona.mcp_servers = list(config.mcp_servers)
+            if config.mcp_definitions:
+                persona.mcp_definitions = list(config.mcp_definitions)
+            if config.skills:
+                persona.skills = list(config.skills)
+            if config.skills_disabled:
+                persona.skills_disabled = list(config.skills_disabled)
+            if config.plugins:
+                persona.plugins = list(config.plugins)
+            if config.mcp_extra_toml:
+                persona.mcp_extra_toml = str(config.mcp_extra_toml)
+            persona.mcp_replace_host = bool(config.mcp_replace_host)
+
+        work = self.work_dir.parent if self.work_dir.name == "runs" else self.work_dir
+        host_text = ""
+        try:
+            if grok_config and Path(grok_config).is_file():
+                host_text = Path(grok_config).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            host_text = ""
+
+        try:
+            from ..capabilities import (
+                apply_persona_mcp_to_config_toml,
+                apply_persona_plugins_to_config_toml,
+                apply_persona_skills_to_config_toml,
+                prepare_persona_plugins_dir,
+                prepare_persona_skills_dir,
+            )
+
+            cfg_text = apply_persona_mcp_to_config_toml(
+                cfg_text,
+                persona,
+                work_dir=work,
+                host_config_text=host_text,
+            )
+            # Stage beside the sessions volume (not inside it) so:
+            # - session discovery does not walk huge plugin trees (superpowers, …)
+            # - bind-mount of sessions stays session-only on the host path
+            stage_root = traces_vol.parent / f"{traces_vol.name}.stage"
+            prepare_persona_skills_dir(
+                stage_root / "skills",
+                persona,
+                work_dir=work,
+            )
+            cfg_text = apply_persona_skills_to_config_toml(cfg_text, persona)
+            prepare_persona_plugins_dir(
+                stage_root / "plugins",
+                persona,
+                work_dir=work,
+            )
+            cfg_text = apply_persona_plugins_to_config_toml(cfg_text, persona)
+        except Exception:
+            logger.warning(
+                "Failed to apply persona capabilities for %s",
+                config.persona_id,
+                exc_info=True,
+            )
+        return cfg_text
+
+    def _docker_build_quiet(self, context: Path, *, tags: list[str]) -> None:
+        """Build an image without streaming BuildKit progress to the TTY.
+
+        Default ``progress='auto'`` prints hundreds of layer lines onto the same
+        terminal as Textual and floods the screen. ``progress=False`` captures
+        stderr internally (python-on-whales); we only surface a short tail on failure.
+        """
+        self._docker.build(
+            context,
+            tags=tags,
+            progress=False,
+        )
+
+    def _image_exists(self, tag: str) -> bool:
+        try:
+            return bool(self._docker.image.exists(tag))
+        except Exception:
+            try:
+                # Older python-on-whales / docker edge cases
+                self._docker.image.inspect(tag)
+                return True
+            except Exception:
+                return False
+
+    def ensure_shared_base(
+        self,
+        *,
+        base_image: str,
+        fully_loaded: bool,
+        profile_id: str = "",
+        on_log: Callable | None = None,
+    ) -> str:
+        """Build or reuse the heavy ``groket-base:…`` image (packages + grok CLI).
+
+        Fixed build context under ``docker-build/_shared/<tag-slug>/`` so Docker
+        layer cache and the named tag survive across eval runs. Per-run images
+        only ``FROM`` this tag and add setup/entrypoint.
+        """
+        tag = shared_base_image_tag(
+            base_image=base_image,
+            fully_loaded=fully_loaded,
+            profile_id=profile_id,
+        )
+        lock = _lock_for_shared_tag(tag)
+        with lock:
+            if self._image_exists(tag):
+                if on_log:
+                    on_log("_shared", f">>> Reusing cached base image {tag}")
+                return tag
+
+            slug = shared_base_build_dirname(
+                base_image=base_image,
+                fully_loaded=fully_loaded,
+                profile_id=profile_id,
+            )
+            build_dir = self._build_dir / "_shared" / slug
+            build_dir.mkdir(parents=True, exist_ok=True)
+            df = build_shared_base_dockerfile(base_image=base_image, fully_loaded=fully_loaded)
+            (build_dir / "Dockerfile").write_text(df, encoding="utf-8")
+            (build_dir / "groket-base-profile.txt").write_text(
+                f"tag={tag}\nbase_image={base_image}\nfully_loaded={fully_loaded}\n"
+                f"profile_id={profile_id}\n",
+                encoding="utf-8",
+            )
+
+            if on_log:
+                kind = "fully-loaded" if fully_loaded else "minimal"
+                on_log(
+                    "_shared",
+                    f">>> Building shared {kind} base once: {tag} "
+                    f"(subsequent runs reuse this; edit base_profiles.py → new hash → rebuild once)",
+                )
+
+            try:
+                # Quiet: do not stream BuildKit progress over the TUI terminal.
+                self._docker_build_quiet(build_dir, tags=[tag])
+            except Exception as exc:
+                err = str(exc)
+                err_lines = [ln for ln in err.splitlines() if ln.strip()]
+                tail = "\n".join(err_lines[-20:]) if err_lines else err
+                if on_log:
+                    on_log("_shared", f">>> Shared base build FAILED ({tag})")
+                    for ln in err_lines[-8:]:
+                        on_log("_shared", f"    {ln[:200]}")
+                raise RuntimeError(f"Shared base image build failed ({tag}):\n{tail}") from exc
+
+            if on_log:
+                on_log("_shared", f">>> Shared base ready: {tag}")
+            return tag
+
+    def _prepare_run_build_context(self, config: ContainerConfig, *, shared_tag: str) -> Path:
+        """Thin context: only Dockerfile (FROM shared) + setup.sh + entrypoint."""
+        build_dir = self._build_dir / config.container_name
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        resolved = config.resolved_base()
+        dockerfile = build_run_dockerfile(shared_base_tag=shared_tag)
+        (build_dir / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+        (build_dir / "groket-base-profile.txt").write_text(
+            f"stored={resolved.stored}\n"
+            f"base_image={resolved.base_image}\n"
+            f"profile_id={resolved.profile_id}\n"
+            f"fully_loaded={resolved.fully_loaded}\n"
+            f"shared_base={shared_tag}\n",
+            encoding="utf-8",
+        )
+        (build_dir / "entrypoint.sh").write_text(entrypoint_sh(), encoding="utf-8")
+        (build_dir / "groket-share-once.py").write_text(share_once_py(), encoding="utf-8")
+        (build_dir / "setup.sh").write_text(
+            _build_setup_script(config.setup_instructions), encoding="utf-8"
+        )
+        return build_dir
+
+    def build_image(
+        self,
+        config: ContainerConfig,
+        *,
+        on_log: Callable | None = None,
+    ) -> str:
+        """Build eval image: ensure shared base (cached), then thin per-run layer."""
+        image_tag = f"groket-eval:{config.container_name}"
+        resolved = config.resolved_base()
+
+        shared_tag = self.ensure_shared_base(
+            base_image=resolved.base_image,
+            fully_loaded=resolved.fully_loaded,
+            profile_id=resolved.profile_id,
+            on_log=on_log,
+        )
+
+        build_dir = self._prepare_run_build_context(config, shared_tag=shared_tag)
+
+        if on_log:
+            on_log(
+                config.container_name,
+                f">>> Building thin eval image {image_tag} (FROM {shared_tag})",
+            )
+
+        try:
+            self._docker_build_quiet(build_dir, tags=[image_tag])
+        except Exception as exc:
+            err = str(exc)
+            err_lines = [ln for ln in err.splitlines() if ln.strip()]
+            tail = "\n".join(err_lines[-15:]) if err_lines else err
+            if on_log:
+                on_log(config.container_name, f">>> Eval image build FAILED ({image_tag})")
+                for ln in err_lines[-8:]:
+                    on_log(config.container_name, f"    {ln[:200]}")
+            raise RuntimeError(
+                f"Docker build failed (shared={shared_tag}, profile={resolved.profile_id}):\n{tail}"
+            ) from exc
+
+        if on_log:
+            on_log(config.container_name, f">>> Eval image ready: {image_tag}")
+        return image_tag
+
+    def start_container(
+        self,
+        config: ContainerConfig,
+        image_tag: str,
+        auth_json: Path,
+        grok_config: Path,
+    ) -> str:
+        """Start a container and return its short ID."""
+        traces_vol = self.work_dir / "traces" / config.container_name
+        traces_vol.mkdir(parents=True, exist_ok=True)
+
+        # Write prompt to a host file and mount it — avoids Docker env newline/quoting
+        # issues and `-p` argparse eating values that start with `-`.
+        prompt_host = traces_vol / "groket-prompt.txt"
+        prompt_host.write_text(config.prompt or "", encoding="utf-8")
+
+        # Per-run config.toml: host config often has fork_secondary_model = "grok-build",
+        # which triggers a second API call that fails without a Grok subscription even
+        # when the primary -m is v9-pizzaparty / v9-bottlerocket. Pin secondary to the
+        # eval model (or v9) so the container stays on experimental variants.
+        # Persona MCP/skills applied separately (tools vs prompt packages).
+        eval_config = traces_vol / "groket-config.toml"
+        cfg_text = _eval_config_toml(
+            grok_config,
+            primary_model=config.model,
+            reasoning_effort=config.reasoning_effort,
+        )
+        cfg_text = self._apply_persona_capabilities_config(
+            cfg_text,
+            config,
+            grok_config=grok_config,
+            traces_vol=traces_vol,
+        )
+        eval_config.write_text(cfg_text, encoding="utf-8")
+
+        from ..runs.batch import REASONING_EFFORTS, split_model_effort
+
+        model_id, effort_tok = split_model_effort(config.model)
+        effort = (config.reasoning_effort or effort_tok or "").strip().lower()
+        if effort not in REASONING_EFFORTS:
+            effort = ""
+        envs = {
+            "MODEL": model_id or config.model,
+            "REPO_URL": config.repo_url or "",
+            "REPO_BRANCH": config.repo_branch or "",
+            # Keep PROMPT as fallback only; entrypoint prefers /groket-prompt.txt
+            "PROMPT": config.prompt or "",
+            # Opt-in write: Runner paste / GROKET_GH_TOKEN / GH_TOKEN + entrypoint wires git→gh.
+            **_host_gh_env_for_container(
+                github_write=bool(config.github_write),
+                github_token=str(config.github_token or ""),
+            ),
+            **config.env_vars,
+        }
+        if effort:
+            envs["REASONING_EFFORT"] = effort
+        if config.interactive:
+            envs["GROKET_INTERACTIVE"] = "1"
+        rid = (config.run_id or "").strip()
+        if rid:
+            envs["GROKET_TURN_DIR"] = f"/root/.grok/sessions/.groket-turn-{rid}"
+        # Scripted follow-ups for batch (entrypoint reads JSON list under sessions).
+        turn_names = [".groket-turn"]
+        if rid:
+            turn_names.insert(0, f".groket-turn-{rid}")
+        scripted = [str(p) for p in (config.follow_up_prompts or []) if str(p).strip()]
+        for tname in turn_names:
+            turn_dir = traces_vol / tname
+            try:
+                turn_dir.mkdir(parents=True, exist_ok=True)
+                (turn_dir / "scripted-turns.json").write_text(
+                    json.dumps(scripted) + "\n",
+                    encoding="utf-8",
+                )
+            except OSError:
+                logger.debug("Could not write scripted turns under %s", turn_dir, exc_info=True)
+
+        volumes: list[tuple[str, str] | tuple[str, str, str]] = [
+            (str(auth_json), "/root/.grok/auth.json", "ro"),
+            (str(eval_config), "/root/.grok/config.toml", "ro"),
+            (str(traces_vol), "/root/.grok/sessions"),
+            (str(prompt_host), "/groket-prompt.txt", "ro"),
+        ]
+
+        # Skills / plugins staged next to the session dir (not under sessions mount).
+        stage_root = traces_vol.parent / f"{traces_vol.name}.stage"
+        skills_host = stage_root / "skills"
+        if not skills_host.is_dir():
+            # Alternate staging path used by some run layouts.
+            skills_host = traces_vol / "groket-skills"
+        if skills_host.is_dir() and any(skills_host.iterdir()):
+            volumes.append((str(skills_host), "/root/.grok/skills", "ro"))
+        plugins_stage = stage_root / "plugins"
+        manifest = plugins_stage / "plugins-manifest.json"
+        if not manifest.is_file():
+            alt = traces_vol / "groket-plugins" / "plugins-manifest.json"
+            if alt.is_file():
+                manifest = alt
+        if manifest.is_file():
+            volumes.append((str(manifest), "/groket-plugins-manifest.json", "ro"))
+
+        # Share additional config files the CLI needs for model resolution
+        grok_home = auth_json.parent
+        for extra in ("models_cache.json", "managed_config_cache.json"):
+            extra_path = grok_home / extra
+            if extra_path.exists():
+                volumes.append((str(extra_path), f"/root/.grok/{extra}", "ro"))
+        for host_path, container_path in config.volumes.items():
+            volumes.append((str(host_path), str(container_path)))
+
+        detach: Literal[True] = True
+        container: Container = self._docker.run(
+            image_tag,
+            name=config.container_name,
+            envs=envs,
+            volumes=volumes,
+            detach=detach,
+        )
+        return str(container.id)[:12]
+
+    def wait_for_container(self, container_name: str) -> int:
+        """Wait for a container to finish and return its exit code."""
+        try:
+            return self._docker.wait(container_name)
+        except Exception:
+            return -1
+
+    def get_container_logs(self, container_name: str, tail: int = 50) -> str:
+        """Get the last ``tail`` lines of container logs."""
+        try:
+            logs = self._docker.logs(container_name, tail=tail, stream=False)
+            if isinstance(logs, str):
+                return logs
+            return ""
+        except Exception:
+            return ""
+
+    def stream_container_logs(
+        self,
+        container_name: str,
+        on_log: Callable,
+        stop_event: threading.Event | None = None,
+    ) -> None:
+        """Stream live logs from a running container.
+
+        Calls ``on_log(container_name, line)`` for every line.  Returns
+        when the container stops or *stop_event* is set.
+        """
+        try:
+            stream = self._docker.logs(container_name, follow=True, tail=100, stream=True)
+            for line in stream:
+                if stop_event and stop_event.is_set():
+                    break
+                if isinstance(line, str):
+                    text = line
+                elif isinstance(line, bytes):
+                    text = line.decode(errors="replace")
+                elif isinstance(line, tuple) and len(line) >= 2:
+                    chunk = line[1]
+                    text = (
+                        chunk.decode(errors="replace") if isinstance(chunk, bytes) else str(chunk)
+                    )
+                else:
+                    text = str(line)
+                for sub in text.rstrip("\n").split("\n"):
+                    on_log(container_name, sub)
+        except Exception:
+            pass  # container gone or stream error — both fine
+
+    def fix_traces_ownership(self, traces_dir: Path | str) -> bool:
+        """chown traces_dir (and children) to host uid:gid.
+
+        Eval containers run as root and bind-mount ``runs/traces/<name>`` at
+        ``/root/.grok/sessions``, so session files are often root-owned on the
+        host. Without this, TUI delete / normal file ops fail with PermissionError.
+
+        Uses ``docker run alpine chown`` (works even if python_on_whales run fails).
+        """
+        traces_dir = Path(traces_dir)
+        if not traces_dir.exists():
+            return True
+        try:
+            from ..runs.run_configs import chown_path_to_host_user
+
+            return chown_path_to_host_user(traces_dir)
+        except Exception:
+            pass
+        uid = os.getuid()
+        gid = os.getgid()
+        try:
+            self._docker.run(
+                "alpine",
+                ["chown", "-R", f"{uid}:{gid}", "/data"],
+                volumes=[(str(traces_dir), "/data")],
+                remove=True,
+            )
+            return True
+        except Exception:
+            return False
+
+    def peek_session_dir(self, container_name: str) -> Path | None:
+        """Locate a live session under the bind-mounted traces dir (no chown).
+
+        Eval containers write incrementally to ``runs/traces/<container>/``.
+        Call this while the container is still running so the TUI/Jobs can
+        surface the session and open it in the browser mid-run.
+        """
+        traces_dir = self.work_dir / "traces" / container_name
+        if not traces_dir.exists():
+            return None
+        from ..parser import find_sessions
+
+        sessions = find_sessions(traces_dir)
+        if not sessions:
+            return None
+        # Prefer the session with the newest trace mtime (most recently active).
+        from ..parser import session_trace_mtime
+
+        return max(sessions, key=lambda p: session_trace_mtime(p))
+
+    def extract_traces(self, container_name: str) -> Path | None:
+        """Finalize traces after a container run: fix ownership, locate session dir."""
+        traces_dir = self.work_dir / "traces" / container_name
+        if not traces_dir.exists():
+            return None
+
+        # Always attempt chown — interrupted/killed runs skip normal success paths
+        # but files are already on the bind mount.
+        self.fix_traces_ownership(traces_dir)
+
+        from ..parser import find_sessions
+
+        sessions = find_sessions(traces_dir)
+        return sessions[0] if sessions else None
+
+    def wait_for_container_with_session_peek(
+        self,
+        container_name: str,
+        status: ContainerStatus,
+        on_status: Callable | None = None,
+        *,
+        peek_interval_s: float = 2.5,
+    ) -> int:
+        """Wait for container exit while periodically discovering live session_dir.
+
+        Updates ``status.session_dir`` as soon as summary/updates appear on the
+        bind mount so listeners (app sessions list, Jobs modal) can open the
+        browser without waiting for the run to finish.
+
+        Returns early with ``-1`` if :meth:`request_abort` was called (TUI quit)
+        so non-daemon work cannot pin the process; the container keeps running.
+        """
+        if self._abort.is_set():
+            return -1
+
+        stop = threading.Event()
+        exit_holder: list[int] = [-1]
+
+        def _wait() -> None:
+            try:
+                exit_holder[0] = self.wait_for_container(container_name)
+            except Exception:
+                exit_holder[0] = -1
+            finally:
+                stop.set()
+
+        waiter = threading.Thread(
+            target=_wait,
+            name=f"groket-wait-{container_name[:24]}",
+            daemon=True,
+        )
+        waiter.start()
+
+        interval = max(0.5, float(peek_interval_s))
+        while not stop.wait(timeout=interval):
+            if self._abort.is_set():
+                # Leave docker.wait on the daemon waiter; do not block shutdown.
+                return -1
+            if status.session_dir is not None:
+                continue
+            try:
+                sd = self.peek_session_dir(container_name)
+            except Exception:
+                sd = None
+            if sd is None:
+                continue
+            status.session_dir = sd
+            if on_status:
+                try:
+                    on_status(status)
+                except Exception:
+                    pass
+
+        if self._abort.is_set():
+            return -1
+
+        waiter.join(timeout=0.2)
+        # Final peek in case session appeared in the last interval window.
+        if status.session_dir is None:
+            try:
+                sd = self.peek_session_dir(container_name)
+                if sd is not None:
+                    status.session_dir = sd
+                    if on_status:
+                        try:
+                            on_status(status)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        return exit_holder[0]
+
+    def cleanup_container(self, container_name: str) -> None:
+        """Stop and remove a container (ignoring errors)."""
+        try:
+            self._docker.stop(container_name, time=3)
+        except Exception:
+            pass
+        try:
+            self._docker.remove(container_name, force=True)
+        except Exception:
+            pass
+
+    def prune_eval_containers(
+        self,
+        *,
+        remove_exited: bool = True,
+        remove_running: bool = False,
+        protect_names: set[str] | None = None,
+        name_prefixes: tuple[str, ...] | None = None,
+        name_prefix: str | None = None,
+    ) -> dict[str, int]:
+        """Best-effort cleanup of evaluation containers from prior launches.
+
+        Intended for relaunch / app restart: remove finished eval containers
+        that docker still has around, without touching live tracked runs.
+
+        Args:
+            remove_exited: remove stopped/exited containers matching prefix
+            remove_running: also stop+remove still-running containers (dangerous;
+                only use for explicit user cleanup, not normal relaunch)
+            protect_names: container names to never remove (active runs)
+            name_prefixes: only touch containers whose name starts with one of these
+                (default: groket-). ``name_prefix`` is accepted as a single-prefix alias.
+
+        Returns counts: ``{"exited_removed": n, "running_removed": n}``
+        """
+        protect = protect_names or set()
+        stats = {"exited_removed": 0, "running_removed": 0}
+        prefixes: tuple[str, ...]
+        if name_prefixes is None:
+            if name_prefix is not None:
+                prefixes = (name_prefix,)
+            else:
+                from ..paths import RUN_PREFIX
+
+                prefixes = (RUN_PREFIX,)
+        else:
+            prefixes = tuple(name_prefixes)
+        try:
+            containers = self._docker.container.list(all=True)
+        except Exception:
+            return stats
+
+        for c in containers:
+            try:
+                names = getattr(c, "name", None) or ""
+                # python_on_whales may expose .name or names list
+                if isinstance(names, (list, tuple)):
+                    cname = (names[0] if names else "") or ""
+                else:
+                    cname = str(names)
+                cname = cname.lstrip("/")
+                if not any(cname.startswith(pfx) for pfx in prefixes):
+                    continue
+                if cname in protect:
+                    continue
+                state = ""
+                try:
+                    state = (c.state.status or "").lower()
+                except Exception:
+                    try:
+                        state = str(getattr(c, "status", "") or "").lower()
+                    except Exception:
+                        state = ""
+
+                is_running = state in ("running", "restarting", "paused")
+                if is_running:
+                    if not remove_running:
+                        continue
+                    try:
+                        self._docker.stop(cname, time=2)
+                    except Exception:
+                        pass
+                    try:
+                        self._docker.remove(cname, force=True)
+                        stats["running_removed"] += 1
+                    except Exception:
+                        pass
+                else:
+                    if not remove_exited:
+                        continue
+                    try:
+                        self._docker.remove(cname, force=True)
+                        stats["exited_removed"] += 1
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+        return stats
+
+    def _cleanup_image(self, image_tag: str) -> None:
+        """Remove a *per-run* eval image only. Never delete ``groket-base:*`` shared bases."""
+        if not image_tag:
+            return
+        # Protect shared agent bases — they are intentionally long-lived caches.
+        if image_tag.startswith("groket-base:") or image_tag.startswith("groket-base/"):
+            return
+        try:
+            self._docker.image.remove(image_tag, force=True)
+        except Exception:
+            pass
+
+    def run_evaluation(
+        self,
+        config: ContainerConfig,
+        auth_json: Path,
+        grok_config: Path,
+        on_status: Callable | None = None,
+        on_log: Callable | None = None,
+        *,
+        start_delay_s: float = 0.0,
+    ) -> ContainerStatus:
+        """Run a complete evaluation: build, start, wait, extract."""
+        status = ContainerStatus(
+            container_name=config.container_name,
+            model=config.model,
+        )
+        self.containers[config.container_name] = status
+
+        def _update(new_status: str, error: str = ""):
+            status.status = new_status
+            status.error = error
+            if on_status:
+                on_status(status)
+
+        log_stop = threading.Event()
+        log_thread: threading.Thread | None = None
+
+        try:
+            if self._abort.is_set():
+                _update("aborted", "TUI detached; container may still be running")
+                status.finished_at = datetime.now(UTC).isoformat()
+                return status
+
+            # Clean up any leftover container with the same name
+            self.cleanup_container(config.container_name)
+
+            _update("building")
+            status.started_at = datetime.now(UTC).isoformat()
+            image_tag = self.build_image(config, on_log=on_log)
+
+            # Stagger multi-model starts so we don't thundering-herd the API / updater.
+            if start_delay_s and start_delay_s > 0:
+                if on_log:
+                    on_log(
+                        config.container_name,
+                        f">>> Stagger start delay {start_delay_s:.1f}s (multi-model)",
+                    )
+                # Interruptible sleep so quit during stagger does not hang.
+                if self._abort.wait(timeout=float(start_delay_s)):
+                    _update("aborted", "TUI detached during start stagger")
+                    status.finished_at = datetime.now(UTC).isoformat()
+                    return status
+
+            if self._abort.is_set():
+                _update("aborted", "TUI detached; container may still be running")
+                status.finished_at = datetime.now(UTC).isoformat()
+                return status
+
+            _update("running")
+            if on_log:
+                on_log(
+                    config.container_name,
+                    f">>> Starting container model={config.model!r} image={image_tag}",
+                )
+            container_id = self.start_container(config, image_tag, auth_json, grok_config)
+            status.container_id = container_id
+
+            # Stream logs in a background thread while the container runs
+            if on_log:
+                log_thread = threading.Thread(
+                    target=self.stream_container_logs,
+                    args=(config.container_name, on_log, log_stop),
+                    daemon=True,
+                )
+                log_thread.start()
+
+            # Poll traces mount so session_dir is known mid-run (TUI/browser monitor).
+            exit_code = self.wait_for_container_with_session_peek(
+                config.container_name,
+                status,
+                on_status=on_status,
+            )
+
+            # Detach path: leave container running; do not extract/cleanup images.
+            if self._abort.is_set():
+                log_stop.set()
+                if log_thread is not None:
+                    log_thread.join(timeout=0.2)
+                _update("aborted", "TUI detached; container still running for resume")
+                status.finished_at = datetime.now(UTC).isoformat()
+                return status
+
+            # Let log streaming drain remaining output
+            if log_thread is not None:
+                log_thread.join(timeout=5.0)
+                if log_thread.is_alive():
+                    log_stop.set()
+                    log_thread.join(timeout=2.0)
+
+            _update("extracting")
+            session_dir = self.extract_traces(config.container_name)
+            if session_dir is not None:
+                status.session_dir = session_dir
+
+            if exit_code != 0 and status.session_dir is None:
+                logs = self.get_container_logs(config.container_name)
+                _update("failed", f"Exit code {exit_code}. Logs: {logs[-500:]}")
+            else:
+                _update("completed")
+
+            status.finished_at = datetime.now(UTC).isoformat()
+
+        except Exception as e:
+            if log_thread is not None and log_thread.is_alive():
+                log_stop.set()
+                log_thread.join(timeout=2.0)
+            # Still fix ownership if the container wrote anything before failing/kill
+            try:
+                traces_dir = self.work_dir / "traces" / config.container_name
+                self.fix_traces_ownership(traces_dir)
+                if status.session_dir is None:
+                    sd = self.peek_session_dir(config.container_name)
+                    if sd is not None:
+                        status.session_dir = sd
+            except Exception:
+                pass
+            _update("failed", str(e))
+            status.finished_at = datetime.now(UTC).isoformat()
+
+        # Clean up container and image
+        if on_log:
+            on_log(config.container_name, ">>> Cleaning up container...")
+        self.cleanup_container(config.container_name)
+        if on_log:
+            on_log(config.container_name, ">>> Cleaning up image...")
+        self._cleanup_image(f"groket-eval:{config.container_name}")
+        if on_log:
+            on_log(config.container_name, ">>> Cleanup done.")
+
+        return status
+
+    def run_parallel_evaluations(
+        self,
+        configs: list[ContainerConfig],
+        auth_json: Path,
+        grok_config: Path,
+        on_status: Callable | None = None,
+        on_log: Callable | None = None,
+    ) -> list[ContainerStatus]:
+        """Run multiple evaluations in parallel (one thread per container config).
+
+        Each *config* is typically one model; the runner passes one config per model.
+        Exceptions in a single worker are captured inside ``run_evaluation`` (failed
+        status) so sibling models still run to completion.
+
+        Starts are staggered (~4s apart) so parallel models do not all hit the API
+        and internal auto-update at the exact same instant.
+        """
+        if not configs:
+            return []
+        n = max(1, len(configs))
+        stagger = 4.0 if n > 1 else 0.0
+        # Daemon threads only — ThreadPoolExecutor workers are non-daemon and
+        # block process exit while stuck in docker.wait (TUI quit hang).
+        slots: list[ContainerStatus | None] = [None] * n
+        errors: list[BaseException | None] = [None] * n
+
+        def _run_one(index: int, cfg: ContainerConfig) -> None:
+            try:
+                slots[index] = self.run_evaluation(
+                    cfg,
+                    auth_json,
+                    grok_config,
+                    on_status,
+                    on_log,
+                    start_delay_s=stagger * index,
+                )
+            except BaseException as exc:  # noqa: BLE001 — capture for slot; rare
+                errors[index] = exc
+
+        threads = [
+            threading.Thread(
+                target=_run_one,
+                args=(i, cfg),
+                name=f"groket-eval-{cfg.container_name[:20]}",
+                daemon=True,
+            )
+            for i, cfg in enumerate(configs)
+        ]
+        for th in threads:
+            th.start()
+
+        # Poll joins so abort can return without waiting on docker.
+        while any(th.is_alive() for th in threads):
+            if self._abort.is_set():
+                break
+            for th in threads:
+                th.join(timeout=0.25)
+
+        out: list[ContainerStatus] = []
+        for i, cfg in enumerate(configs):
+            slot = slots[i]
+            if slot is not None:
+                out.append(slot)
+                continue
+            err = errors[i]
+            if err is not None:
+                out.append(
+                    ContainerStatus(
+                        container_name=cfg.container_name,
+                        model=cfg.model,
+                        status="failed",
+                        error=str(err),
+                    )
+                )
+            elif self._abort.is_set():
+                out.append(
+                    ContainerStatus(
+                        container_name=cfg.container_name,
+                        model=cfg.model,
+                        status="aborted",
+                        error="TUI detached; container may still be running",
+                    )
+                )
+            else:
+                out.append(
+                    ContainerStatus(
+                        container_name=cfg.container_name,
+                        model=cfg.model,
+                        status="failed",
+                        error="evaluation thread ended without status",
+                    )
+                )
+        return out
