@@ -29,9 +29,16 @@ def _ctrl_s(action: str, description: str = t("ui-save"), *, show: bool = True) 
 
 
 APP_GLOBAL_PRIORITY: tuple[Binding, ...] = ()
+
+# Footer layout (left → right; command palette is always on the far right):
+#   Help · Back (pushed screens) · context actions · Jobs · Quit (sessions home only)
+# F5 / Ctrl+R still refresh; they stay out of the footer to keep it lean.
+# App session-home bindings are gated in TraceEvalApp.check_action so they do
+# not leak into Runner / Browser / etc. footers via binding inheritance.
+
 GLOBAL_ALWAYS: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
-    _b("f5", "refresh_context", U.bind_refresh(), show=True),
+    _b("f5", "refresh_context", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
     _b("j", "open_jobs", U.bind_jobs(), show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
@@ -43,13 +50,13 @@ LIST_SELECT: tuple[Binding, ...] = (
 LIST_SELECT_ALL: tuple[Binding, ...] = (
     _b("S", "select_all_toggle", U.bind_select_all(), show=False),
 )
+# Sessions home only — order: Help/Jobs chrome, primary list actions, Quit last.
 APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
-    _b("q", "quit", U.bind_quit(), show=True),
+    _b("enter", "open_session", U.bind_open(), show=True),
+    _b("slash", "search_sessions", U.bind_search(), show=True),
     _b("r", "open_runner", U.bind_runner(), show=True),
     _b("C", "open_run_configs", U.bind_configs(), show=True),
     _b("P", "open_personas", U.bind_personas(), show=True),
-    _b("slash", "search_sessions", U.bind_search(), show=True),
-    _b("enter", "open_session", U.bind_open(), show=True),
     _b("s", "toggle_select", U.bind_select(), show=True),
     _b("space", "toggle_select", U.bind_select(), show=False),
     _b("S", "select_all", U.bind_select_all(), show=False),
@@ -64,14 +71,38 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     # Multi-turn: n = next prompt, e = end session (not Ctrl+Enter).
     _b("n", "follow_up_sessions", U.bind_next_prompt(), show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), show=True),
+    _b("q", "quit", U.bind_quit(), show=True),
 )
+# Pushed screens: Help then Back in stable slots; Jobs; no Quit (home only).
 SCREEN_CHROME: tuple[Binding, ...] = (
-    _b("escape", "go_back", U.bind_back(), show=True),
     _b("?", "show_help", U.bind_help(), show=True),
-    _b("f5", "refresh_context", U.bind_refresh(), show=True),
+    _b("escape", "go_back", U.bind_back(), show=True),
+    _b("f5", "refresh_context", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
     _b("j", "open_jobs", U.bind_jobs(), show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
+)
+# App-level actions that only apply on the sessions home screen (not inherited UI).
+SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
+    {
+        "quit",
+        "open_runner",
+        "open_run_configs",
+        "open_personas",
+        "search_sessions",
+        "open_session",
+        "toggle_select",
+        "select_all",
+        "rerun_session",
+        "save_session_config",
+        "delete_sessions",
+        "cycle_model_filter",
+        "analyze",
+        "open_rules",
+        "cycle_theme",
+        "follow_up_sessions",
+        "mark_sessions_done",
+    }
 )
 BROWSER: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("left_square_bracket", "tab_prev", U.bind_prev_tab(), show=True),
@@ -157,15 +188,15 @@ RULES: tuple[Binding, ...] = SCREEN_CHROME + (
 )
 MODAL_DISMISS: tuple[Binding, ...] = (_b("escape", "dismiss", U.bind_cancel(), show=True),)
 JOBS_MODAL: tuple[Binding, ...] = (
+    _b("?", "show_help", U.bind_help(), show=True),
     _b("escape", "dismiss_modal", U.bind_close(), show=True),
     _b("j", "dismiss_modal", U.bind_close(), show=False),
-    _b("f5", "refresh", U.bind_refresh(), show=True),
+    _b("f5", "refresh", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh", U.bind_refresh(), show=False),
     _b("enter", "open_session", U.bind_open(), show=True),
     _b("o", "open_session", U.bind_open(), show=False),
     _b("s", "open_share", U.bind_share(), show=True),
     _b("c", "clear_logs", U.bind_clear_logs(), show=False),
-    _b("?", "show_help", U.bind_help(), show=False),
 )
 SESSION_SEARCH_MODAL: tuple[Binding, ...] = (
     _b("escape", "dismiss", U.bind_cancel(), show=True),

@@ -45,6 +45,7 @@ from .bindings import (
     APP_GLOBAL_PRIORITY,
     APP_SESSIONS,
     FORM_SAVE,
+    SESSION_HOME_ACTIONS,
     SESSION_SEARCH_MODAL,
     focus_primary_list,
 )
@@ -1340,8 +1341,20 @@ class TraceEvalApp(App):
             self._toast(U.no_awaiting_sessions(), severity="warning", timeout=2.5)
         return []
 
+    def _sessions_home_active(self) -> bool:
+        """True when the sessions list screen is on top (not a pushed screen/modal)."""
+        try:
+            return self.screen is self.screen_stack[0]
+        except Exception:
+            return True
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Show ``n`` / ``e`` in the footer only when selection/cursor can multi-turn."""
+        """Gate session-home bindings so they do not leak into pushed-screen footers.
+
+        ``n`` / ``e`` also require an awaiting multi-turn target on the home list.
+        """
+        if action in SESSION_HOME_ACTIONS and not self._sessions_home_active():
+            return False
         if action in ("follow_up_sessions", "mark_sessions_done"):
             return bool(self._awaiting_session_targets())
         return True
