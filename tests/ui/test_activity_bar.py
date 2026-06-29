@@ -28,10 +28,9 @@ def test_build_activity_line_busy():
     assert "batches" not in plain.lower()
     # Active runs use the same style as container ``running`` (yellow, not green).
     assert status_rich_style("running") == "bold yellow"
-    spans = {span.style for span, _start, _end in text.spans if span.style}
-    assert status_rich_style("running") in spans or any(
-        "yellow" in str(s) for s in spans
-    )
+    styles = {str(span.style) for span in text.spans}
+    assert any("yellow" in s for s in styles)
+    assert not any(s == "bold green" or s.endswith(" green") for s in styles)
 
 
 def test_activity_counters_from_app():
