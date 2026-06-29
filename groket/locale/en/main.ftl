@@ -1,0 +1,2339 @@
+# Groket UI — Fluent (Project Fluent)
+# https://projectfluent.org/
+# Language: en (source)
+
+added-to-this-run = Added to this run
+
+all-events = All events
+
+all-models = All models
+
+all-rules-disabled = All rules disabled
+
+all-rules-enabled = All rules enabled
+
+all-sections = All sections
+
+all-tab = All
+
+all-tasks = All tasks
+
+all-turns = All turns
+
+
+analysis-complete = Analysis complete -- { $n } sessions
+
+analysis-pipeline-title = Analysis pipeline
+
+analysis-settings-saved = Analysis settings saved
+
+analyze = Analyze
+
+assistant-messages = Assistant messages
+
+auto-analyze-on-open = Auto-analyze when opening a session in the browser
+
+back = Back
+
+bind-analyze = Analyze
+
+bind-back = Back
+
+bind-cancel = Cancel
+
+bind-clear-logs = Clear logs
+
+bind-clear-view = Clear view
+
+bind-close = Close
+
+bind-configs = Configs
+
+bind-delete = Delete
+
+bind-diff = 4 Diff
+
+bind-disable-all = Disable all
+
+bind-docker = Docker
+
+bind-done = Done
+
+bind-edit = Edit
+
+bind-enable-all = Enable all
+
+bind-environment = 3 Environment
+
+bind-export-finding = Export finding
+
+bind-extras = Extras
+
+bind-findings = 2 Findings
+
+bind-flag = Flag
+
+bind-github = 2 GitHub
+
+bind-help = Help
+
+bind-identity = 1 Identity
+
+bind-jobs = Jobs
+
+bind-launch = Launch
+
+bind-launch-selected = Launch selected
+
+bind-mcp = 4 MCP
+
+bind-model = Model
+
+bind-models = Models
+
+bind-new = New
+
+bind-new-persona = New persona
+
+bind-next-pane = Next pane
+
+bind-next-tab = Next tab
+
+bind-open = Open
+
+bind-personas = Personas
+
+bind-plugins = 6 Plugins
+
+bind-prev-pane = Prev pane
+
+bind-prev-tab = Previous tab
+
+bind-quit = Quit
+
+bind-recipe = Recipe
+
+bind-refresh = Refresh
+
+bind-report = 5 Report
+
+bind-rerun = Re-run
+
+bind-rules = Rules
+
+bind-runner = Runner
+
+bind-runtime = Runtime
+
+bind-save = Save
+
+bind-save-cfg = Save cfg
+
+bind-search = Search
+
+bind-select = Select
+
+bind-select-all = Select all
+
+bind-send-follow-up = Send follow-up
+
+bind-mark-session-done = Mark done
+
+bind-focus-follow-up = Follow-up input
+
+bind-share = Share
+
+bind-skills = 5 Skills
+
+bind-stats = 6 Stats
+
+bind-summary = 3 Summary
+
+bind-task = Task
+
+bind-theme = Theme
+
+bind-timeline = 1 Timeline
+
+bind-toggle = Toggle
+
+bind-view = View
+
+branch-placeholder = branch (default: main)
+
+cancel = Cancel
+
+clear-btn = Clear
+
+clear-logs-btn = clear logs
+
+clear-view = Clear view
+
+close = Close
+
+close-btn = close
+
+cmd-analysis-settings = Analysis settings
+
+cmd-analysis-settings-help = Configure analysis plugins (config.json)
+
+cmd-analyze = Analyze
+
+cmd-analyze-help = Run analysis plugins on selected/all sessions
+
+cmd-back = Back
+
+cmd-back-help = Return
+
+cmd-back-sessions = Back to sessions
+
+cmd-back-sessions-help = Leave browser
+
+cmd-clear-timeline-view = Clear timeline view
+
+cmd-clear-timeline-view-help = c — All events + clear search
+
+cmd-cycle-theme = Cycle theme
+
+cmd-cycle-theme-help = Next UI theme
+
+cmd-delete-config = Delete config
+
+cmd-delete-config-help = Remove recipe (not sessions)
+
+cmd-delete-persona = Delete persona
+
+cmd-delete-persona-help = Remove selected
+
+cmd-delete-sessions = Delete sessions
+
+cmd-delete-sessions-help = Delete selected traces (confirm twice)
+
+cmd-follow-up-sessions = Send follow-up
+
+cmd-follow-up-sessions-help = Prompt and send follow-up to selected awaiting sessions
+
+cmd-mark-sessions-done = Mark done
+
+cmd-mark-sessions-done-help = Mark selected awaiting sessions done
+
+follow-up-empty = Enter a follow-up prompt
+
+follow-up-placeholder = Follow-up prompt…
+
+follow-up-placeholder-send = Follow-up prompt — Enter / Ctrl+Enter to send…
+
+follow-up-placeholder-awaiting = Follow-up — Enter sends now…
+
+follow-up-placeholder-queue = Follow-up — Enter queues until gate is ready (Ctrl+D = done)…
+
+follow-up-btn-send = Send follow-up (Enter)
+
+follow-up-btn-done = Mark session done (Ctrl+D)
+
+follow-up-queued = Follow-up queued (agent busy — will send when gate awaits)
+
+follow-up-sent = Follow-up sent to eval container
+
+follow-up-failed = Follow-up failed: { $exc }
+
+mark-session-done-ok = Session marked done — stopping eval container
+
+mark-session-done-failed = Mark done failed: { $exc }
+
+interactive-modal-title = Follow-up ({ $n } awaiting)
+
+mark-done = Done
+
+no-awaiting-sessions = No awaiting sessions in selection
+
+send = Send
+
+self-test-rerun = Re-run
+
+self-test-close = Close
+
+filter-label = Filter
+
+cmd-edit-persona = Edit persona
+
+cmd-edit-persona-help = Edit selected
+
+cmd-enable-all-rules = Enable all rules
+
+cmd-enable-all-rules-help = Turn all rules on
+
+cmd-export-finding = Export finding
+
+cmd-export-finding-help = Export selected finding
+
+cmd-filter-model = Filter by model
+
+cmd-filter-model-help = Cycle sessions Model Select (same as Filter bar)
+
+cmd-filter-task = Filter by task
+
+cmd-filter-task-help = Cycle sessions Task Select (same as Filter bar)
+
+cmd-focus-search = Focus search
+
+cmd-focus-search-help = Focus timeline search (/)
+
+cmd-focus-timeline-view = Focus timeline view
+
+cmd-focus-timeline-view-help = v — View dropdown (visible selection)
+
+cmd-full-refresh = Full refresh (sessions + detectors + feedback)
+
+cmd-full-refresh-help = Rescan traces, re-run detectors, force feedback analyze+draft
+
+cmd-help = Help
+
+cmd-help-help = Show key / workflow help
+
+cmd-jobs-logs = Jobs / logs
+
+cmd-jobs-logs-help = Background runs, analysis/feedback status, and container logs (j)
+
+cmd-launch-config = Launch config
+
+cmd-launch-config-help = Launch with model override modal
+
+cmd-launch-evaluation = Launch evaluation
+
+cmd-launch-evaluation-help = Start Docker run
+
+cmd-launch-selected = Launch selected
+
+cmd-launch-selected-help = Launch marked configs (or highlighted row) with parallelism
+
+cmd-new-blank-runner = New blank runner
+
+cmd-new-blank-runner-help = Open empty runner
+
+cmd-new-persona = New persona
+
+cmd-new-persona-help = Create persona
+
+cmd-new-persona-runner = New persona
+
+cmd-new-persona-runner-help = Create persona from runner (modal)
+
+cmd-next-tab = Next tab
+
+cmd-next-tab-help = ] — cycle session tabs
+
+cmd-open-config-runner = Open config in runner
+
+cmd-open-config-runner-help = Edit / launch from runner
+
+cmd-open-configs = Open configs
+
+cmd-open-configs-help = Browse saved run configs (recipes)
+
+cmd-open-personas = Open personas
+
+cmd-open-personas-help = Persona builder (env / gh-write / git identity)
+
+cmd-open-rules = Open rules
+
+cmd-open-rules-help = Detector / rule toggles
+
+cmd-open-runner = Open runner
+
+cmd-open-runner-help = Launch eval runner
+
+cmd-persona-manager = Persona manager
+
+cmd-persona-manager-help = Full persona list/editor
+
+cmd-prev-tab = Previous tab
+
+cmd-prev-tab-help = [ — cycle session tabs
+
+cmd-quit = Quit
+
+cmd-quit-help = Quit the application
+
+cmd-refresh = Refresh
+
+cmd-refresh-help = Refresh the current screen / context (F5)
+
+cmd-reload-traces = Reload traces path
+
+cmd-reload-traces-help = Re-load from traces input path
+
+cmd-rerun-session = Re-run session
+
+cmd-rerun-session-help = Open runner prefilled from session
+
+cmd-save-config-only = Save config only
+
+cmd-save-config-only-help = Save recipe without launching
+
+cmd-save-session-config = Save session as config
+
+cmd-save-session-config-help = Persist recipe without deleting session
+
+cmd-search-sessions = Search sessions
+
+cmd-search-sessions-help = Fuzzy search loaded sessions
+
+cmd-select-all-configs = Select all / none
+
+cmd-select-all-configs-help = Toggle all configs in selection (S)
+
+cmd-select-all-none = Select all / none
+
+cmd-select-all-none-help = Toggle select all sessions
+
+cmd-tab-diff = Tab: Diff
+
+cmd-tab-diff-help = 4 — workspace diff
+
+cmd-tab-findings = Tab: Findings
+
+cmd-tab-findings-help = 2 / i — detector findings
+
+cmd-tab-report = Tab: Report
+
+cmd-tab-report-help = 5 — analysis report
+
+cmd-tab-stats = Tab: Stats
+
+cmd-tab-stats-help = 6 — usage stats
+
+cmd-tab-summary = Tab: Summary
+
+cmd-tab-summary-help = 3 — session summary
+
+cmd-tab-timeline = Tab: Timeline
+
+cmd-tab-timeline-help = 1 — timeline + detail
+
+cmd-toggle-rule = Toggle rule
+
+cmd-toggle-rule-help = Enable/disable highlighted rule
+
+cmd-toggle-select = Toggle select
+
+cmd-toggle-select-help = Select/deselect current session row
+
+cmd-toggle-select-config = Toggle select
+
+cmd-toggle-select-config-help = Mark/unmark row for multi-config launch (s/space)
+
+cmd-toggle-tips = Toggle tips / callouts
+
+cmd-toggle-tips-help = Show or hide tip/info/warning frames app-wide
+
+col-activity = Activity
+
+col-category = Category
+
+col-count = Count
+
+col-description = Description
+
+col-event-type = Event type
+
+col-events = Events
+
+col-percent = Percent
+
+col-plugin = Plugin
+
+col-rule-id = Rule ID
+
+col-severity = Severity
+
+col-status = Status
+
+col-time = Time
+
+col-title = Title
+
+config-name-label = Config name
+
+config-name-placeholder = e.g. redis-memory-leak / scratch-python-cli
+
+configs = Configs
+
+configs-reloaded = Configs reloaded ({ $n } recipes).
+
+configs-title = Configs
+
+container-image-label = Container image
+
+containers-heading = Containers
+
+could-not-open-share = Could not open share: { $exc }
+
+default-docker-image-label = Default Docker image
+
+delete = Delete
+
+delete-config-btn = delete config
+
+delete-failed = Delete failed
+
+deleted-persona = Deleted persona { $pid }
+
+description-field-label = Description
+
+description-label = Description:
+
+disable-all = Disable all
+
+disable-all-btn = disable all
+
+disabled-skills = Disabled skills
+
+display-name-label = Display name
+
+docker = Docker
+
+docker-unavailable = Docker is not available. Install Docker or start the daemon.
+
+done = Done
+
+edit = Edit
+
+edit-flag-title = Edit Flag
+
+edit-persona-title = Edit persona · { $pid }
+
+em-dash-dim = [dim]—[/dim]
+
+enable-all = Enable all
+
+enable-all-btn = Enable all
+
+enabled-no = No
+
+enabled-skill-names = Enabled skill names
+
+enabled-yes = Yes
+
+enter-traces-path = Enter a path to traces directory
+
+env-vars-on-persona = Env vars to set on persona  [dim]KEY=value; empty value = you fill later in persona env[/dim]
+
+errors-only = Errors only
+
+event-types = Event types
+
+extra-env-vars-label = Extra environment variables
+
+extra-mcp-toml = Extra MCP TOML
+
+extras = Extras
+
+filter-label = Filter
+
+turn-filter-label = Turn
+
+findings-heading = Findings
+
+flag-event-title = Flag Event
+
+flag-label = Flag
+
+flag-removed = Flag removed from event #{ $index }
+
+flag-saved = Flag saved on event #{ $index }
+
+flags-blurb = Your annotations on timeline events (verdict + note). Not detector findings.
+
+flags-heading = Flags
+
+flags-only = Flags only
+
+friendly-name-placeholder = Friendly name
+
+fuzzy-search-sessions = fuzzy search sessions
+
+git-user-email = Git user.email
+
+git-user-name = Git user.name
+
+github-token-label = GitHub token (PAT)
+
+headers-hint = Headers  [dim]NAME=value per line; use ${ $ENV_VAR } for secrets[/dim]
+
+help-label = Help
+
+
+highlight-config-first = Highlight a config row first
+
+highlight-then-x-delete = Highlight a config (or select with s), then x to delete
+
+history-label = History
+
+jobs = Jobs
+
+jobs-tab = Jobs
+
+keyboard-help-title = Keyboard help
+
+launch = Launch
+
+launch-btn = launch
+
+launch-pick-models = launch (pick models)
+
+launch-selected = Launch selected
+
+launch-selected-btn = launch selected
+
+launch-selected-title = Launch selected
+
+load = load
+
+load-groket-home = ~/.groket
+
+load-sessions-first = Load sessions first
+
+local-btn = Local
+
+logs-tab = Logs
+
+mark-or-highlight-then-w = Mark rows with s/space, or highlight one row, then w
+
+marked-count = Marked: { $n }
+
+max-configs-in-flight = Max configs in flight at once (each config still runs all its models together):
+
+mcp-btn = MCP
+
+mcp-search-placeholder = search registry or local…
+
+mcp-server-ids-label = MCP server ids
+
+model-filter = Model
+
+model-filter-notify = Model filter: { $label }
+
+models-heading = Models
+
+models-optional-override = Models (optional override for this launch)
+
+models-select-one-or-more = Models (select one or more — one container each):
+
+new-in-runner = new in runner
+
+new-label = New
+
+new-persona = New persona
+
+new-persona-title = New persona
+
+next-pane = Next pane
+
+next-tab = Next tab
+
+no-config-selected = No config selected
+
+no-configs-hint = no configs — n new
+
+no-session-to-save = No session to save
+
+no-themes-available = No themes available
+
+notes-label = Notes
+
+nothing-to-launch-no-models = Nothing to launch (no models)
+
+open-folder-path = open folder path
+
+open-in-runner = open in runner
+
+open-label = Open
+
+optional-blurb-placeholder = Optional short blurb
+
+optional-env-var-name = Optional env var name
+
+optional-git-user-email = Optional → GROKET_GIT_USER_EMAIL
+
+optional-git-user-name = Optional → GROKET_GIT_USER_NAME
+
+pe-tab-env = 3 Environment
+
+pe-tab-env-title = 3 Environment
+
+pe-tab-github = 2 GitHub
+
+pe-tab-github-title = 2 GitHub & Git
+
+pe-tab-identity = 1 Identity
+
+pe-tab-mcp = 4 MCP
+
+pe-tab-mcp-title = 4 MCP tools
+
+pe-tab-plugins = 6 Plugins
+
+pe-tab-plugins-title = 6 Plugins
+
+pe-tab-skills = 5 Skills
+
+pe-tab-skills-title = 5 Skills
+
+persona-builder-banner =
+    [bold]Persona builder[/bold]  [dim]{ $root } · GitHub / MCP / skills · Footer + ? for keys[/dim]
+    
+
+persona-exists = Persona '{ $pid }' already exists — pick another ID
+
+persona-id-invalid = Persona ID is invalid
+
+persona-id-label = Persona ID
+
+persona-id-placeholder = e.g. marvin-reviewer
+
+persona-id-required = Persona ID is required
+
+persona-id-reserved = That ID is reserved
+
+persona-label = Persona
+
+persona-saved = Persona saved
+
+personas = Personas
+
+personas-refreshed = Personas refreshed
+
+pick-mcp = Pick MCP…
+
+pick-plugins = Pick plugins…
+
+pick-skills = Pick skills…
+
+plugins-btn = Plugins
+
+plugins-search-placeholder = search chrome, vercel, sentry, superpowers…
+
+plugins-title = Plugins
+
+prev-pane = Prev pane
+
+prev-tab = Previous tab
+
+prompt-label = Prompt
+
+prompt-required = Prompt is required
+
+prompt-required-save = Prompt is required to save a config
+
+quit-label = Quit
+
+refresh = Refresh
+
+refresh-btn = refresh
+
+refreshing-session-view = Refreshing session view…
+
+registry-btn = Registry
+
+repo-url-placeholder = https://github.com/org/repo
+
+report-failed = Report failed: { $exc }
+
+report-saved = Report saved: { $path }
+
+repository-label = Repository
+
+rule-detail =
+    Category: { $category }
+    Enabled: { $enabled }
+    Detector: { $detector }
+    
+    Description:
+    { $description }
+    
+
+rule-toggled = Rule '{ $rule_id }' { $state }
+
+rules = Rules
+
+rules-list-refreshed = Rules list refreshed
+
+rules-title = Rules
+
+runner = Runner
+
+runner-tab-extras = 4 Run extras
+
+runner-tab-models = 3 Models
+
+runner-tab-recipe = 1 Recipe
+
+runner-tab-runtime = 2 Runtime
+
+runner-title = Runner
+
+runs-label = Runs
+
+save = Save
+
+save-cfg = Save cfg
+
+save-config = Save config
+
+save-failed = Save failed: { $exc }
+
+saved-persona = Saved persona { $pid }
+
+search = Search
+
+search-events-placeholder = Search events…  (/)
+
+search-mcp-placeholder = search MCP…
+
+select-all = Select all
+
+select-at-least-one-model = Select at least one model
+
+select-configs-then-w = Select configs with s/space (or highlight one) then w
+
+select-container-row = Select a container row first
+
+select-event-timeline = Select an event from the timeline
+
+select-finding-first = Select a finding on the Findings tab first
+
+select-label = Select
+
+select-persona-first = Select a persona first
+
+select-session-first = Select a session first
+
+server-id-hint = Server id  [dim][mcp_servers.THIS] key on persona[/dim]
+
+server-id-required = Server id required
+
+session-markers = Session markers
+
+session-not-found = Session not found
+
+setup-commands-label = Setup commands
+
+share = Share
+
+share-failed = Share failed: { $exc }
+
+show-tips-checkbox = Show tips & callouts (tip / info / note / warning …)
+
+skills-btn = Skills
+
+skills-search-placeholder = search review, implement, docx…
+
+skills-title = Skills
+
+tab-diff = 4 Diff
+
+tab-findings = 2 Findings
+
+tab-report = 5 Report
+
+tab-stats = 6 Stats
+
+tab-summary = 3 Summary
+
+tab-timeline = 1 Timeline
+
+task-filter = Task
+
+task-filter-notify = Task filter: { $label }
+
+theme = Theme
+
+this-launch-only = this launch only
+
+this-launch-only-dim = [dim]this launch only[/dim]
+
+time-breakdown = Time breakdown
+
+tip-blm-models = `space` mark models · none marked = each recipe's saved models
+
+tip-findings-row = Select a row to focus the matching timeline events
+
+tip-mcp-pick = Search; `s` / `space` select · `r` registry · `l` local · `ctrl+s` done
+
+tip-no-analysis = No analysis yet — run analysis with `a` on the sessions list
+
+tip-no-flags = No flags yet — select a Timeline event, then press `f`
+
+tip-no-personas = No personas — press `n` to create one.
+
+tip-persona-editor = `[` `]` panes · `1`–`6` jump · `ctrl+s` save · `esc` cancel
+
+tip-plugins-pick = `s` / `space` select · ↑↓ detail · `ctrl+s` done · `esc` cancel
+
+tip-rc-has-marked = `w` launches the marked recipes
+
+tip-rc-none-marked = `s` / `space` mark rows · `S` all/none · `w` runs marked recipes (or the highlighted row if none marked)
+
+tip-report-filter = Use Filter above (same as Timeline) — All, Flags, or one plugin
+
+tip-runner-models = `space` toggle models · `f5` refresh catalog
+
+tip-runner-toolbar = `ctrl+enter` launch · `ctrl+s` save · `[` `]` panes · `j` jobs · `p` personas · `esc` back
+
+tip-share-url = Press `s` to open the share URL
+
+tip-skills-pick = `s` / `space` select · `ctrl+s` done · `esc` cancel
+
+tips-off = Tips & callouts: off (hidden)
+
+tips-on = Tips & callouts: on
+
+toggle = Toggle
+
+token-from-host-env = Token from host environment
+
+tool-timing = Tool timing
+
+tools-only = Tools only
+
+traces-path-placeholder = Path to traces directory...
+
+transport-endpoint = Transport / endpoint
+
+type-to-filter = type to filter...
+
+user-messages = User messages
+
+verdict-label = Verdict:
+
+col-dur = Dur
+
+col-type = Type
+
+col-tool = Tool
+
+col-summary = Summary
+
+parameters-label = Parameters:
+
+recommendation-label = Recommendation:
+
+state-enabled = enabled
+
+state-disabled = disabled
+
+
+# --- UI strings (no hardcoded English in groket/ui) ---
+
+ui-a-analyze =  | [dim]a=analyze[/dim]
+
+ui-active =  active
+
+ui-activity-bar-refresh-failed = activity bar refresh failed
+
+    
+        ActivityBar {'{'{'}'}
+            dock: top;
+            height: 1;
+            width: 100%;
+            background: $boost;
+            color: $text;
+            padding: 0 1;
+            text-style: none;
+        {'}'}
+        
+
+ui-added-mcp = Added MCP `
+
+ui-already-analyzed = Already analyzed
+
+ui-already-running =  already running)
+
+ui-analysis = Analysis: 
+
+ui-analysis-complete = Analysis complete -- 
+
+ui-analysis-failed-for-s-s = Analysis failed for %s: %s
+
+ui-analysis-service-initialization-failed = Analysis service initialization failed
+
+ui-analyze = analyze 
+
+ui-analyze-0 = analyze 0
+
+ui-analyzed =  analyzed=
+
+ui-analyzed-1 = analyzed 
+
+ui-analyzing = Analyzing 
+
+ui-appended-into-the-container-mcp-config = [dim]Appended into the container MCP config[/dim]
+
+ui-args =  args=
+
+ui-assistant = Assistant
+
+ui-asst = Asst
+
+ui-asst-1 =   asst=
+
+ui-auth-file-not-found = Auth file not found: 
+
+ui-auth-missing = Auth missing: 
+
+ui-avg = Avg
+
+ui-await-follow = await follow
+
+ui-awaiting-check-failed-for-s = awaiting check failed for %s
+
+ui-background =  (background)…
+
+ui-background-runs-finished-batch-quiet-press-j-for = Background runs finished (batch/quiet). Press [bold]j[/bold] for jobs/logs; F5 refresh; launch another anytime.
+
+ui-basic = Basic
+
+ui-batch =   batch=
+
+ui-batch-1 = Batch 
+
+ui-batch-2 = batch [bold]
+
+ui-binary-control-only-output = (binary / control-only output)
+
+ui-bold-black-on-cyan = bold black on cyan
+
+ui-bold-black-on-green = bold black on green
+
+ui-bold-black-on-white = bold black on white
+
+ui-bold-black-on-yellow = bold black on yellow
+
+ui-bold-white-on-blue = bold white on blue
+
+ui-bold-white-on-red = bold white on red
+
+ui-branch =   branch: 
+
+ui-branch-1 = Branch
+
+ui-browser = Browser — 
+
+ui-building = [cyan]Building…[/]
+
+ui-cache-self-test-summary-failed = cache self-test summary failed
+
+ui-calls = Calls
+
+ui-cancel = Cancel
+
+ui-category = *Category:* 
+
+ui-category-1 = Category
+
+ui-category-2 =   category: 
+
+ui-changes = Changes
+
+ui-chars =  chars
+
+ui-chars-1 =  chars)
+
+ui-chars-blank-keeps-current-enter-a-value-to-repla =  chars). Blank keeps current; enter a value to replace.[/dim]
+
+ui-cleaned-from = , cleaned from 
+
+ui-cleared-run-only-mcp-skills-plugins-extras = Cleared run-only MCP/skills/plugins extras
+
+ui-close = Close
+
+ui-completed-in = [/bold] completed in 
+
+ui-config-s =
+     config(s)[/dim]
+    [dim]
+
+ui-config-s-in-flight =  config(s) in flight
+
+ui-config-s-max =  config(s), max 
+
+ui-configs-reloaded = Configs reloaded (
+
+ui-configure = Configure 
+
+ui-configured =  configured[/dim] 
+
+ui-container = Container
+
+ui-containers = Containers
+
+ui-content = Content
+
+ui-could-not-open-share-for = Could not open share for 
+
+ui-could-not-reach-docker-is-the-daemon-installed-a = Could not reach Docker. Is the daemon installed and running?
+
+ui-could-not-render-details = [red]Could not render details: 
+
+ui-crashed-after = [/bold] crashed after 
+
+ui-create-companion-skill = Create companion skill
+
+ui-created = Created
+
+ui-ctrl-t-self-test = ctrl+t self-test
+
+ui-danger =  danger 
+
+ui-debian-bookworm-fully-loaded = debian:bookworm @ fully-loaded
+
+ui-default-image = [dim]default image[/dim]
+
+ui-delete-config = delete config
+
+ui-delete-failed = Delete failed
+
+ui-deleted = Deleted 
+
+ui-detach-ui-on-quit-failed = detach_ui on quit failed
+
+ui-detector-analysis = [bold]Detector analysis:[/bold] [yellow]
+
+ui-detector-analysis-1 = [bold]Detector analysis:[/bold] [green]
+
+ui-detector-analysis-no-sessions-loaded = [bold]Detector analysis:[/bold] [dim]no sessions loaded[/dim]
+
+ui-detectors = Detectors
+
+ui-diff = diff 
+
+ui-diff-1 =
+    Diff
+    
+
+ui-diff-2 = Diff
+
+ui-docker = [/b]  docker=[b]
+
+ui-docker-1 = Docker
+
+ui-docker-eval-runs = [bold]Docker eval runs:[/bold] 
+
+ui-docker-is-available-and-running = Docker is available and running
+
+ui-docker-is-not-available-install-docker-or-start = Docker is not available. Install Docker or start the daemon.
+
+ui-docker-is-not-running-start-the-docker-daemon-an = Docker is not running. Start the Docker daemon and try again.
+
+ui-docs-source-copy-url-open-on-host-browser =
+    [bold]Docs / source[/bold]  [dim]copy URL · open on host browser[/dim]
+    
+
+ui-doctype = <!DOCTYPE
+
+ui-done = [/green] done
+
+ui-done-1 = [black on green bold]  DONE [/]  
+
+ui-down = Down
+
+ui-dur = Dur
+
+ui-duration = Duration
+
+ui-duration-1 = Duration: 
+
+ui-edit = Edit…
+
+ui-elapsed = Elapsed
+
+ui-enabled-analyzers = Enabled analyzers: 
+
+ui-enabled-no-tool-hits =
+        enabled; no tool hits
+    
+
+ui-env = Env
+
+ui-env-keys = env keys: 
+
+ui-err =  err)
+
+ui-error =   ✗ ERROR
+
+ui-error-1 =   ERROR
+
+ui-error-2 =   Error: 
+
+ui-error-3 = Error
+
+ui-errors = , errors=
+
+ui-errors-1 =  errors
+
+ui-errors-2 = Errors
+
+ui-errors-3 =  errors)
+
+ui-errs =  errs=
+
+ui-event = [dim]Event #
+
+ui-event-mix-session = Event mix (session)
+
+ui-events = Events
+
+ui-events-1 =  events
+
+ui-events-2 =  events, 
+
+ui-events-3 =   events=
+
+ui-exit =   exit=
+
+ui-extracting = [cyan]Extracting…[/]
+
+ui-f-flag-edit-flag-modal-delete-flag-from-modal = f = flag / edit flag (modal)  ·  delete flag from modal
+
+ui-fail = FAIL
+
+ui-failed =  failed
+
+ui-failed-1 = [red]Failed: 
+
+ui-failed-2 =
+     failed[/red]
+    [dim]
+
+ui-failed-3 = [white on red bold]  FAILED [/]  
+
+ui-failed-after =  failed after 
+
+ui-failed-for = Failed for 
+
+ui-failed-to-add-row-for-s = Failed to add row for %s
+
+ui-failed-to-apply-saved-theme-r = Failed to apply saved theme %r
+
+ui-failed-to-ensure-persona-defaults = Failed to ensure persona defaults
+
+ui-failed-to-load = Failed to load 
+
+ui-failed-to-load-persona-capabilities-for-s = Failed to load persona capabilities for %s
+
+ui-failed-to-load-persona-s = Failed to load persona %s
+
+ui-failed-to-load-session-meta-for-s = Failed to load session meta for %s
+
+ui-failed-to-mount-report-section-s = failed to mount report section %s
+
+ui-failed-to-read-prefs-from-s = failed to read prefs from %s
+
+ui-failed-to-refresh-rules-table = Failed to refresh rules table
+
+ui-failed-to-resolve-docker-base-for-s = Failed to resolve docker base for %s
+
+ui-failed-to-set-docker-image-prefill = Failed to set docker image prefill
+
+ui-failed-to-set-persona-prefill = Failed to set persona prefill
+
+ui-failed-to-update-title-bar = Failed to update title bar
+
+ui-failed-to-update-widget-with-renderable = Failed to update widget with renderable
+
+ui-failed-to-validate-resolve-models-for-launch = Failed to validate/resolve models for launch
+
+ui-failed-to-write-prefs-to-s = failed to write prefs to %s
+
+ui-feedback = Feedback
+
+ui-feedback-batch = [bold]Feedback batch:[/bold] 
+
+ui-field-select-report-view-select = field-select report-view-select
+
+ui-field-select-session-filter-select = field-select session-filter-select
+
+ui-file = file: 
+
+ui-filter = Filter
+
+ui-finding =
+    FINDING
+    
+
+ui-finding-1 = *Finding:* `
+
+ui-findings = [/bold] findings | [red bold]
+
+ui-findings-1 = Findings
+
+ui-findings-2 =  findings
+
+ui-findings-3 =  findings (
+
+ui-findings-below-are-session-wide-use-event-indice =
+      Findings below are session-wide; use event indices / tool ids to map them onto a turn.
+    
+
+ui-finished = Finished
+
+ui-finished-1 =  finished: 
+
+ui-finished-in =  finished in 
+
+ui-finished-in-1 = [/bold] finished in 
+
+ui-flagged = FLAGGED 
+
+ui-flagged-at = Flagged at: 
+
+ui-flags =  flags
+
+ui-flags-1 = Flags (
+
+ui-flags-2 = Flags
+
+ui-follow-up-failed-for-s = follow-up failed for %s
+
+ui-follow-up-s-pending =  follow-up(s) pending[/]
+
+ui-for =  for 
+
+ui-from =  from 
+
+ui-from-calls = from calls
+
+ui-from-events-jsonl-runtime-orchestrator-telemetry = From `events.jsonl` (runtime/orchestrator telemetry), not the agent `updates.jsonl` stream.
+
+ui-from-your-grok-config-toml-no-extra-def-unless-y = ] from your ~/.grok/config.toml (no extra def unless you configure).[/dim]
+
+ui-full-refresh-from = Full refresh from 
+
+ui-fully-loaded-full-tools-share-loop = fully-loaded (full tools + share loop)
+
+ui-gh-off =  · gh off · 
+
+ui-gh-on = [/yellow] gh on · 
+
+ui-gh-write = GH Write
+
+ui-git = git: 
+
+ui-github-mcp-skills-footer-for-keys =
+     · GitHub / MCP / skills · Footer + ? for keys[/dim]
+    
+
+ui-github-pat-stored-on-this-persona = github_pat_… stored on this persona
+
+ui-github-write-is-on-but-repo-url-is-empty-set-htt = GitHub write is ON but repo URL is empty — set HTTPS repo_url matching your token scope
+
+ui-github-write-push = GitHub write / push
+
+ui-grok-packages-this-run-only = )[/bold green]  [dim]Grok packages · this run only[/dim]
+
+ui-groket = groket  [
+
+ui-groket-batch = groket  [batch 
+
+    
+        HelpModal {'{'{'}'}
+            align: center middle;
+            background: $background 55%;
+        {'}'}
+    
+        #help-modal {'{'{'}'}
+            width: 80%;
+            height: 80%;
+            max-width: 100;
+            max-height: 100%;
+            min-width: 40;
+            min-height: 12;
+            layout: vertical;
+            border: tall $accent;
+            background: $panel;
+            padding: 1 2;
+        {'}'}
+    
+        #help-modal-title {'{'{'}'}
+            height: auto;
+            dock: top;
+            text-style: bold;
+            color: $text;
+            margin: 0 0 1 0;
+        {'}'}
+    
+        #help-modal-body {'{'{'}'}
+            height: 1fr;
+            width: 100%;
+            min-height: 4;
+            overflow-y: auto;
+            scrollbar-gutter: stable;
+        {'}'}
+    
+        #help-modal-text {'{'{'}'}
+            width: 100%;
+            height: auto;
+            padding: 0 1 0 0;
+        {'}'}
+    
+        #help-modal-actions {'{'{'}'}
+            height: auto;
+            dock: bottom;
+            width: 100%;
+            align: right middle;
+            margin-top: 1;
+            padding-top: 0;
+        {'}'}
+    
+        #help-modal-actions Button {'{'{'}'}
+            min-width: 10;
+        {'}'}
+        
+
+ui-high = [/red bold] high
+
+ui-high-1 = High
+
+ui-high-2 =  high, 
+
+ui-high-3 = HIGH
+
+ui-high-4 =  high
+
+ui-high-5 = [red bold]High[/]
+
+ui-highlight-a-config-or-select-with-s-then-x-to-de = Highlight a config (or select with s), then x to delete
+
+ui-host-env = host env $
+
+ui-host-env-fallback = [dim]host env fallback[/dim]
+
+ui-host-pass-through-uses-mcp-servers = [dim]Host pass-through: uses [mcp_servers.
+
+ui-host-tools = Host tools
+
+ui-id = ID
+
+ui-id-1 = [/bold]  [dim]id=
+
+ui-id-2 = Id
+
+ui-image = image: 
+
+ui-image-profile = [dim]image profile[/dim]
+
+ui-in-flight-running-in-background-j-jobs-logs-no-p =  in flight — running in background ([bold]j[/bold] = jobs/logs; no per-run popups)
+
+ui-inactive-model-s-not-in-grok-models-models-cache =  inactive model(s) (not in `grok models` / models_cache.json). Launching: 
+
+ui-info =  info 
+
+ui-inherit-from-runner-run-config = (inherit from runner / run config)
+
+ui-input = Input
+
+ui-input-select-textarea-checkbox-button = Input, Select, TextArea, Checkbox, Button
+
+ui-input-select-textarea-selectionlist-switch-butto = Input, Select, TextArea, SelectionList, Switch, Button
+
+ui-interactive-follow-ups-open-the-session-in-the-b = [dim]Interactive follow-ups: open the session in the browser (pending bar while the eval is not finished).[/dim]
+
+ui-interactive-multi-turn-follow-ups-until-done = Interactive multi-turn (follow-ups until Done)
+
+ui-j-jobs = … · j=jobs]
+
+ui-jobs-for-logs-esc-closes-jobs-run-keeps-going =  — Jobs for logs (Esc closes Jobs; run keeps going)
+
+ui-kind = Kind
+
+ui-label = Label
+
+ui-label-1 = label: 
+
+ui-last =   last: 
+
+ui-last-outcome = Last outcome
+
+ui-last-run = Last run [bold]
+
+ui-last-turn = Last turn
+
+ui-last-turn-gate-see-turns-table =   (last turn / gate — see Turns table)
+
+ui-last-turn-outcome =   Last turn outcome=
+
+ui-latest =   latest=
+
+ui-launch = Launch: 
+
+ui-launch-error-s-open-j-for-jobs-logs =  launch error(s). Open [bold]j[/bold] for jobs/logs.
+
+ui-launch-pick-models = launch (pick models)
+
+ui-launch-selected = Launch selected
+
+ui-launch-selected-1 = [bold]Launch selected[/bold]  [dim]
+
+ui-launch-selected-2 = launch selected
+
+ui-launched = Launched 
+
+ui-launches = Launches
+
+ui-launches-1 =   launches: 
+
+ui-leave-blank-to-keep-existing-token = (leave blank to keep existing token)
+
+ui-live =  · LIVE
+
+ui-live-turn =  · LIVE turn=
+
+ui-loaded = Loaded 
+
+ui-loaded-1 = loaded 
+
+ui-local = Local
+
+ui-local-1 = local · 
+
+ui-local-catalog-entry-configure-to-set-headers-env = [dim]Local/catalog entry — configure to set headers/env; no registry docs page unless you added one.[/dim]
+
+ui-loops = Loops
+
+ui-mark-done-failed-for-s = mark done failed for %s
+
+ui-max = Max
+
+ui-max-configs-in-flight-at-once-each-config-still = Max configs in flight at once (each config still runs all its models together):
+
+ui-mcp = MCP
+
+ui-mcp-0-none-added-for-this-run = [dim]MCP (0) — none added for this run[/dim]
+
+ui-mcp-1 = [bold green]MCP (
+
+ui-mcp-2 =  MCP · 
+
+ui-mcp-3 = : mcp=
+
+ui-mcp-bridge = mcp bridge
+
+ui-mcp-bridge-calls = mcp bridge calls
+
+ui-mcp-servers = MCP servers (
+
+ui-med = Med
+
+ui-med-1 =  med)
+
+ui-medium = MEDIUM
+
+ui-medium-1 = [dark_orange bold]Medium[/]
+
+ui-messages = Messages
+
+ui-min = Min
+
+ui-minimal-baseline-share-loop-setup-sh-for-rest = minimal (baseline + share loop; setup.sh for rest)
+
+ui-model = Model
+
+ui-model-1 = *Model:* `
+
+ui-model-filter = Model filter: 
+
+ui-model-s =  model(s)
+
+ui-model-s-from-config =  model(s) from config 
+
+ui-models = Models
+
+ui-models-1 =   models: 
+
+ui-models-optional-override-leave-none-selected-to = Models (optional override). Leave none selected to use each config's saved models (falls back to app defaults):
+
+ui-models-select-one-or-more-one-container-each = Models (select one or more — one container each):
+
+ui-more =
+     more
+    
+
+ui-more-1 =  more
+
+ui-more-2 =  more)
+
+ui-msg =  | [green bold]
+
+ui-msg-1 =  | [yellow]
+
+ui-msg-2 = [\s,]+
+
+ui-msg-3 = ):[/dim] 
+
+ui-msg-4 =   [green]•[/green] [bold]
+
+ui-msg-5 =   [green]•[/green] 
+
+ui-n-4 = \n{'{'{'}'}4,{'}'}
+
+ui-name = Name
+
+ui-needs-env = [dim]needs env:[/dim] 
+
+ui-new = New
+
+ui-new-in-runner = new in runner
+
+ui-no-active-models-check-config-models-vs-grok-mod = No active models (check config models vs `grok models`)
+
+ui-no-active-models-to-launch-edit-the-models-field = No active models to launch — edit the models field to match `grok models`
+
+ui-no-active-runs-fill-the-form-and-press-launch = No active runs — fill the form and press Launch
+
+ui-no-base-mcp-skills = : no base MCP/skills[/dim]
+
+ui-no-companion-skill = ` (no companion skill).
+
+ui-no-config-selected = No config selected
+
+ui-no-config-under-cursor = No config under cursor
+
+ui-no-description = (no description)
+
+ui-no-diff-data =
+      (no diff data)
+    
+
+ui-no-diff-data-1 = (no diff data)
+
+ui-no-docs-repo-url-from-registry-search-the-server = [dim]No docs/repo URL from registry — search the server name on registry.modelcontextprotocol.io[/dim]
+
+ui-no-findings =
+      (no findings)
+    
+
+ui-no-input = (no input)
+
+ui-no-models = : no models
+
+ui-no-models-for = No models for 
+
+ui-no-note = no note
+
+ui-no-prompt-extracted = (no prompt extracted)
+
+ui-no-row-selected = [dim]No row selected.[/dim]
+
+ui-no-saved-configs-yet-save-a-recipe-from-the-runn = [dim]No saved configs yet. Save a recipe from the Runner, or create with New.[/dim]
+
+ui-no-session-yet-for = No session yet for 
+
+ui-no-sessions-found-in = No sessions found in 
+
+ui-no-timeline = (no timeline)
+
+ui-no-token-stored-yet = [dim]No token stored yet.[/dim]
+
+ui-no-traces-dir-to-refresh = No traces dir to refresh: 
+
+ui-none =
+      (none)
+    
+
+ui-none-host-groket-gh-token-gh-token-only-if-orche = none (host GROKET_GH_TOKEN/GH_TOKEN only if orchestrator allows)
+
+ui-none-run-defaults-only = none (run defaults only)
+
+ui-none-saved = (none saved)
+
+ui-noop = Noop
+
+ui-note =  note 
+
+ui-note-1 = Note
+
+ui-notes = notes: 
+
+ui-nothing-to-launch-no-models = Nothing to launch (no models)
+
+ui-nothing-to-refresh = Nothing to refresh: 
+
+ui-ok =  ok, 
+
+ui-ok-1 =  ok 
+
+ui-ok-2 = ok 
+
+ui-ok-3 = OK
+
+ui-one-id-per-line = [dim]One id per line[/dim]
+
+ui-one-name-per-line = [dim]One name per line[/dim]
+
+ui-one-per-line-pick-or-type-names = [dim]one per line · pick or type names[/dim]
+
+ui-open-in-runner = open in runner
+
+ui-open-session-failed = Open session failed: 
+
+ui-open-the-diff-tab-for-rewind-and-search-replace =
+      Open the Diff tab for rewind and search_replace changes.
+    
+
+ui-open-with-c-configs-sessions-unchanged = ) — open with C (Configs); sessions unchanged
+
+ui-other = Other
+
+ui-outcome = Outcome
+
+ui-output = Output (
+
+ui-overall-fail =   Overall: FAIL  (
+
+ui-overall-pass-required-checks-ok =
+      Overall: PASS (required checks ok)
+    
+
+ui-panel-card-panel-card-grow = panel-card panel-card-grow
+
+ui-panel-card-report-section = panel-card report-section
+
+ui-parallelism = parallelism: 
+
+ui-pat-for-this-persona = [dim]PAT for this persona[/dim]
+
+ui-path = Path
+
+ui-paths-are-set-on-the-command-line-restart-groket =
+    
+    [dim]Paths are set on the command line (restart groket to change).[/dim]
+
+ui-pending-analysis = [/yellow] pending analysis
+
+ui-pending-in-background =  pending in background)
+
+ui-pending-refresh-with-f5 = pending (refresh with F5)
+
+ui-persona = [dim]persona 
+
+ui-persona-1 =  · persona=
+
+ui-persona-2 = Persona
+
+ui-persona-builder = [bold]Persona builder[/bold]  [dim]
+
+ui-persona-has-github-write-on-but-no-token-set-pat = Persona has GitHub write ON but no token — set PAT (or token env) on the persona (new / manage…), or export GH_TOKEN/GITHUB_TOKEN on the host
+
+ui-persona-ready = Persona ready: 
+
+ui-personastore-initialization-failed = PersonaStore initialization failed
+
+ui-plan = Plan
+
+ui-planning = Planning
+
+ui-plugin = *Plugin:* `
+
+ui-plugin-s =  plugin(s): 
+
+ui-plugin-s-1 =  plugin(s)
+
+ui-plugins =  plugins)…
+
+ui-plugins-0-none-added-for-this-run = [dim]Plugins (0) — none added for this run[/dim]
+
+ui-plugins-1 =  plugins
+
+ui-plugins-2 = [bold green]Plugins (
+
+ui-plugins-3 =  plugins=
+
+ui-plugins-persona-unchanged =  plugins (persona unchanged)
+
+ui-pre-grok-shell = [dim]pre-grok shell[/dim]
+
+ui-press-again-to-delete = Press [x] again to DELETE 
+
+ui-press-w-to-launch-selected = [/dim]  [dim]press [bold]w[/bold] to launch selected[/dim]
+
+ui-prompt = prompt: 
+
+ui-prompt-1 = Prompt
+
+ui-queued-follow-up-sent = Queued follow-up sent (
+
+ui-quiet-mode-open-j-for-live-logs-status-f5-refres = ) — [dim]quiet mode: open [bold]j[/bold] for live logs/status · F5 refreshes this snapshot · Esc leaves docker running[/dim]
+
+ui-r-n = \r\n?
+
+ui-r-registry =  · r registry
+
+ui-recipes =  recipes).
+
+ui-refresh-all-failed = Refresh all failed: 
+
+ui-refresh-catalog-run-grok-models-on-the-host = refresh catalog: run `grok models` on the host
+
+ui-refresh-done-sessions = Refresh done: sessions=
+
+ui-refresh-tip-surfaces-failed-on-s = refresh_tip_surfaces failed on %s
+
+ui-refreshed = Refreshed: 
+
+ui-refreshing-sessions-from = Refreshing sessions from 
+
+ui-registry = Registry
+
+ui-registry-1 = registry · 
+
+ui-registry-2 = [cyan]registry[/cyan]  
+
+ui-registry-3 = [dim]registry:[/dim] 
+
+ui-registry-error = registry error · 
+
+ui-registry-searching = registry · searching 
+
+ui-registry-type-a-query-enter = registry · type a query · enter
+
+ui-reload-meta-failed-for-s = reload meta failed for %s
+
+ui-replace-host =   [dim]replace_host=
+
+ui-replace-host-mcp-persona-only = Replace host MCP (persona only)
+
+ui-repo = Repo
+
+ui-repo-1 = repo: 
+
+ui-report =  (report)
+
+ui-report-static-s-missing = report static %s missing
+
+ui-report-unavailable = report unavailable
+
+ui-report-uses-selected =  [dim](report uses selected)[/dim]
+
+ui-report-view-select-sync-failed = report view select sync failed
+
+ui-repository = [cyan]repository[/cyan]  
+
+ui-required =  required, 
+
+ui-result = [dim cyan]Result[/]
+
+ui-run = Run 
+
+ui-run-1 = Run
+
+ui-run-2 = Run [bold]
+
+ui-run-config-s =  run config(s)
+
+ui-run-config-s-recipes-only-sessions-traces-kept =  run config(s) (recipes only — sessions/traces kept): 
+
+ui-run-crashed = Run crashed: 
+
+ui-run-env-keys-from-mcp-configure = [dim]Run env keys from MCP configure: 
+
+ui-run-extras = Run extras: 
+
+ui-run-mcp =  · run+mcp=
+
+ui-run-s-active = [/bold] run(s) active (
+
+ui-run-s-active-1 = [/bold] run(s) active — 
+
+ui-run-s-j-jobs =  run(s) · j=jobs]
+
+ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt =  run(s) keep going in docker — [bold]j[/bold] jobs/logs; quit anytime (relaunch prunes finished eval containers)
+
+ui-run-s-latest =  run(s), latest 
+
+ui-run-s-started =  run(s) started, 
+
+ui-running = [yellow bold]  RUNNING [/]  
+
+ui-running-1 = [yellow]Running…[/]
+
+ui-running-analysis = [dim italic]Running analysis...[/]
+
+ui-running-analysis-1 = [dim italic]Running analysis…[/]
+
+ui-running-checks = Running checks…
+
+ui-runs = runs → 
+
+ui-runs-0 = runs 0
+
+ui-runs-1 = runs 
+
+ui-save = Save
+
+ui-save-config-failed = Save config failed: 
+
+ui-save-failed = Save failed: 
+
+ui-save-persona-to-keep = save persona to keep
+
+ui-save-run-config-launch-to-keep-persona-unchanged = save run config / launch to keep (persona unchanged)
+
+ui-saved-config = Saved config 
+
+ui-saved-persona = Saved persona 
+
+ui-saved-run-config = Saved run config 
+
+ui-saved-run-configs-recipes-in-runs-run-configs-no =
+    [bold]Saved run configs[/bold]  [dim]recipes in runs/run_configs/ (not sessions). [bold]s[/bold]/space toggle select · [bold]S[/bold] select all · [bold]w[/bold] launch selected (multi) · [bold]l[/bold] launch one · [bold]x[/bold] twice to delete · [bold]Enter[/bold] edit in runner.[/dim]
+    
+
+ui-scanning = Scanning 
+
+ui-see-summary-tab-or-session-session-error-timelin =  (see Summary tab or Session / Session error timeline rows)
+
+ui-sel = Sel
+
+ui-select-a-row-for-description-endpoint-env-needs = [dim]Select a row (↑↓) for description, endpoint, env needs, and doc links.[/dim]
+
+ui-select-an-event-from-the-timeline = [dim]Select an event from the timeline[/dim]
+
+ui-select-at-least-one-model = Select at least one model
+
+ui-select-configs-with-s-space-or-cursor-on-one-the = Select configs with s/space (or cursor on one) then w
+
+ui-select-sessions-with-s-or-highlight-a-row-then-p = Select sessions with [s]/S] or highlight a row, then press [x] to delete
+
+ui-selected = [/green bold] selected
+
+ui-selected-1 =  selected · 
+
+ui-selected-2 = [dim]Selected (
+
+ui-selected-3 =  selected[/dim] 
+
+ui-selected-4 =  [green]● selected[/green]
+
+ui-selected-5 =  (selected)
+
+ui-selection = [bold green]Selection: 
+
+ui-selection-none-s-toggle-row-s-all-none-w-launche = [dim]Selection: none — [bold]s[/bold] toggle row · [bold]S[/bold] all/none · [bold]w[/bold] launches cursor config only if nothing selected.[/dim]
+
+ui-self-test = Self-test
+
+ui-self-test-external-dependencies = Self-test — external dependencies
+
+ui-self-test-fail = self-test FAIL×
+
+ui-self-test-ok = self-test OK (
+ui-self-test-ok-warns = self-test OK ({ $n } warn)
+ui-blm-title = Launch selected ({ $n } config(s)): { $names }
+ui-selection-bar = Selection: { $n }  { $labels }{ $extra } — press w to launch selected
+ui-config-detail-title = { $name }  id={ $id }{ $sel }
+ui-no-saved-configs = No saved configs yet. Save a recipe from the Runner, or create with New.
+
+
+ui-self-test-pass = self-test PASS
+
+ui-session = *Session:* `
+
+ui-session-1 =   session=
+
+ui-session-2 = Session
+
+ui-session-error = [bold red]Session error[/]
+
+ui-session-error-1 = [bold red]session error[/]
+
+ui-session-errors =  session errors
+
+ui-session-id = Session ID
+
+ui-session-meta-is-last-turn-ended-gate-earlier-tur =
+     (session meta is last turn_ended / gate). Earlier turns may still be success — see Turns above. Stream may stop without a final assistant message.
+    
+
+ui-session-meta-last-turn-interactive-gate =   (session meta = last turn / interactive gate)
+
+ui-session-model-select-update-failed = session model select update failed
+
+ui-session-outcome-pending = session outcome pending
+
+ui-session-report =
+    Session report
+    
+
+ui-session-s =  session(s)
+
+ui-session-s-from-disk-traces-feedback-cache-run-co =  session(s) from disk (traces + feedback_cache; run configs are kept)
+
+ui-session-task-select-update-failed = session task select update failed
+
+ui-session-turn-runtime = Session / turn runtime
+
+ui-sessions = [/bold] sessions | [bold]
+
+ui-sessions-1 =  sessions (
+
+ui-sessions-2 =  sessions
+
+ui-sessions-3 = sessions 
+
+ui-sessions-press-a-to-run-detectors =  sessions — press 'a' to run detectors
+
+ui-set-models-above = ; set models above
+
+ui-setup = setup: 
+
+ui-severity = *Severity:* 
+
+ui-share = Share
+
+ui-share-meta-failed = share meta failed
+
+ui-shown-in-the-runner-dropdown = [dim]Shown in the Runner dropdown[/dim]
+
+ui-signal =   signal=
+
+ui-single-segment-no-turn-started-markers-in-timeli =
+      Single segment (no turn_started markers in timeline yet).
+    
+
+ui-skill = ` + skill `
+
+ui-skill-not-written = ` (skill not written).
+
+ui-skill-packs = [dim]skill packs[/dim]
+
+ui-skill-write-failed = `; skill write failed: 
+
+ui-skills = Skills (
+
+ui-skills-0-none-added-for-this-run = [dim]Skills (0) — none added for this run[/dim]
+
+ui-skills-1 = Skills
+
+ui-skills-2 =  skills=
+
+ui-skills-3 = [bold green]Skills (
+
+ui-skills-4 =  skills · 
+
+ui-skip = Skip 
+
+ui-skipping = Skipping 
+
+ui-snapshot = Snapshot
+
+ui-solid-blue = solid blue
+
+ui-solid-cyan = solid cyan
+
+ui-solid-green = solid green
+
+ui-solid-red = solid red
+
+ui-solid-white = solid white
+
+ui-solid-yellow = solid yellow
+
+ui-source = Source
+
+ui-source-1 =   source=
+
+ui-source-run-id = source run_id: 
+
+ui-source-session = source session: 
+
+ui-sources =
+    
+      sources: 
+
+ui-space-click-to-select-no-selection-per-config-mo = [dim]space/click to select · no selection = per-config models[/dim]
+
+ui-span = Span
+
+ui-started = Started
+
+ui-statistics =
+    Statistics
+    
+
+ui-status = Status
+
+ui-stdio-needs-tools-in-image = [dim]stdio needs tools in image[/dim]
+
+ui-stop-live-refresh-on-quit-failed = stop live refresh on quit failed
+
+ui-stored = stored (
+
+ui-stored-on-persona = stored on persona
+
+ui-sub-finding-s =  sub-finding(s):*
+
+ui-subagent = Subagent
+
+ui-succeeded =  succeeded[/green], [red]
+
+ui-succeeded-1 =  succeeded[/green]
+
+ui-sync-browser-tip-messages-failed = sync browser tip messages failed
+
+ui-target-directory = target_directory: 
+
+ui-target-file = target_file: 
+
+ui-task = Task
+
+ui-task-1 =   task: 
+
+ui-task-catalog-lookup-failed-for-s = Task catalog lookup failed for %s
+
+ui-task-filter = Task filter: 
+
+ui-theme = Theme: 
+
+ui-theme-failed = Theme failed: 
+
+ui-thinking = Thinking
+
+ui-this-run-only = )[/bold green]  [dim]this run only[/dim]
+
+ui-thought = Thought
+
+ui-thought-1 = [dim cyan italic]Thought[/]
+
+ui-time = Time: 
+
+ui-timeline = , timeline #
+
+ui-tip =  tip 
+
+ui-tips-callouts-off-hidden = Tips & callouts: off (hidden)
+
+ui-tips-callouts-on = Tips & callouts: on
+
+    
+        TipSurface {'{'{'}'}
+            height: auto;
+            width: 100%;
+            max-width: 100%;
+            margin: 0 0 1 0;
+            padding: 0 1;
+            border: solid cyan;
+            background: $boost;
+        {'}'}
+        TipSurface.tip-surface-empty {'{'{'}'}
+            display: none;
+            height: 0;
+            margin: 0;
+            padding: 0;
+            border: none;
+        {'}'}
+        
+
+ui-title = Title
+
+ui-token = [/b]  token=[b]
+
+ui-token-on-file-yes = [dim]Token on file: yes (
+
+ui-token-status-unknown = token status unknown
+
+ui-tool = tool 
+
+ui-tool-1 = Tool
+
+ui-tool-2 = [bold cyan]Tool[/]
+
+ui-tool-err = Tool err
+
+ui-tool-err-1 =  tool err)
+
+ui-tool-errors =  tool errors, 
+
+ui-tool-execution = Tool execution
+
+ui-tool-servers = [dim]tool servers[/dim]
+
+ui-tools = Tools
+
+ui-tools-1 =  tools
+
+ui-tools-2 =   tools=
+
+ui-tools-3 =            tools: 
+
+ui-top-tools = Top tools
+
+ui-total =
+     total
+    
+
+ui-total-1 = Total
+
+ui-total-2 = TOTAL
+
+ui-trace-evaluation-error-hunting = Trace Evaluation & Error Hunting
+
+ui-traces =
+    
+    [bold]Traces[/bold]  
+
+ui-traces-path-not-found-yet-runner-writes-to = Traces path not found yet — Runner writes to 
+
+ui-transport =   transport=
+
+ui-truncated =
+    
+    
+    … truncated …
+    
+    
+
+ui-truncated-1 =
+    
+    … truncated …
+
+ui-truncated-for-display =
+    
+    
+    … *(truncated for display)* …
+    
+    
+
+ui-truncated-see-rewind-points-jsonl-updates =
+    
+    
+    … (truncated; see rewind_points.jsonl / updates)
+    
+    
+
+ui-turn = Turn
+
+ui-turn-1 =  ⚠ turn=
+
+ui-turn-2 =  · turn=
+
+ui-turn-ended = turn ended
+
+ui-turn-ended-with-outcome = Turn ended with outcome=
+
+ui-turn-in-progress = turn in progress
+
+ui-turn-segmentation-failed = turn segmentation failed
+
+ui-turn-started = turn started
+
+ui-turns =  turns
+
+ui-turns-1 = Turns
+
+ui-ubuntu-24-04-fully-loaded = ubuntu:24.04 @ fully-loaded
+
+ui-ubuntu-24-04-raw-os-still-share-loop-via-entrypo = ubuntu:24.04 (raw OS; still share loop via entrypoint)
+
+ui-ufffd-2 = \ufffd{'{'{'}'}2,{'}'}
+
+ui-up = Up
+
+ui-updated-config = Updated config 
+
+ui-url = URL
+
+ui-usage-summary-failed = usage summary failed
+
+ui-use-tool =     use_tool  
+
+ui-user = User
+
+ui-user-1 =   user=
+
+ui-user-2 = [bold white]User[/]
+
+ui-user-input = User input
+
+ui-viewing =   Viewing: 
+
+ui-wait-for-traces-to-appear =  — wait for traces to appear
+
+ui-warn =  warn 
+
+ui-warn-1 =  warn)
+
+ui-warn-2 = WARN
+
+ui-warnings =
+     warnings)
+    
+
+ui-what-the-model-should-have-done = *What the model should have done:*
+
+ui-will-be-git-fetched-into-the-container-volume-at = ` will be git-fetched into the container volume at launch
+
+ui-with =  with 
+
+ui-work = [bold]Work[/bold]  
+
+ui-work-1 = work: 
+
+ui-work-dir = [dim]work_dir: 
+
+ui-workers-cancel-on-quit-failed = workers cancel on quit failed
+
+ui-workspace = Workspace
+
+ui-writing = Writing
+
+ui-x1b = \x1b\[[0-?]*[ -/]*[@-~]
+
+ui-x1b-x07-x1b = \x1b\][^\x07\x1b]*(?:\x07|\x1b\\)
+
+ui-xml = <?xml
+
+# interpolating fragments / templates
+ui-plugins-count = plugins: { $n }
+ui-gate-turn =   gate_turn={ $turn }
+ui-queued-count =   ·  { $n } queued
+ui-batches-count =  · batches { $n }
+ui-version-prefix =   v{ $version }
+ui-failed-suffix =  failed)
+ui-eg-prefix = 
+    e.g. { $example }
+ui-session-prefix = Session { $id }
+ui-runs-active = runs { $n }
+ui-analyze-active = analyze { $n }
+ui-sessions-count = sessions { $n }
+ui-analyzed-count = analyzed { $n }
+ui-failed-paren =  ({ $n } failed)
+ui-batch-err-example = 
+    e.g. { $id }: { $sample }
+ui-version-tag =   v{ $ver }
+ui-status-bracket =   [{ $status }]
+
+# Activity bar (compact)
+activity-runs = Runs { $n }
+activity-analysis = Analysis { $n }
+activity-sessions = Sessions { $n }
+
+# Session list turn / status column
+status-running = running
+status-cancelled = cancelled
+status-complete = complete
+status-waiting-prompt = waiting for prompt
+status-unknown = —
+
+# Follow-up shortcut (sessions home + browser)
+bind-next-prompt = Next
+bind-end-session = Done
+cmd-next-prompt = Next prompt
+cmd-next-prompt-help = Send follow-up to awaiting sessions
+cmd-end-session = End session
+cmd-end-session-help = Mark awaiting sessions done
+turn-filter-all = All turns
+turn-filter-n = Turn { $n }
+
+ui-press-again-to-delete-persona = Press [x] again to DELETE persona 
+ui-press-again-to-delete-personas = Press [x] again to DELETE { $n } persona(s)

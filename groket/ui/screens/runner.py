@@ -1,0 +1,1346 @@
+"""Session runner screen — configure and launch parallel grok evaluations.
+
+Runs are owned by the app-level ``RunManager`` so you can leave this screen
+(Esc) while containers keep building/running in the background.
+"""
+
+from __future__ import annotations
+
+import logging
+from contextlib import suppress
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from rich.markup import escape as rich_escape
+from textual import on, work
+from textual.app import ComposeResult
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message import Message
+from textual.widgets import (
+    Button,
+    Checkbox,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    Select,
+    SelectionList,
+    Static,
+    TabbedContent,
+    TabPane,
+    TextArea,
+)
+
+from ...docker.base_profiles import DEFAULT_DOCKER_IMAGE
+from ...docker.orchestrator import ContainerStatus
+from ...runs.run_manager import BackgroundRun, RunManager
+from ...utils import fmt_duration as _format_duration
+from .. import text as U
+from ..bindings import RUNNER, ChromeActions
+from ..data_table import style_data_table
+from ..forms import (
+    PERSONA_NONE,
+    docker_select_options,
+    docker_select_value_or_default,
+    load_active_model_ids,
+    model_selection_items,
+    normalize_docker_choice,
+    normalize_persona_id,
+    persona_select_options,
+    persona_select_value,
+    select_value_str,
+    selection_list_selected_ids,
+)
+from ..i18n import t
+from ..panel_render import TipSurface
+
+logger = logging.getLogger(__name__)
+_RUNNER_TABS = ("runner-tab-recipe", "runner-tab-runtime", "runner-tab-models", "runner-tab-extras")
+
+
+@dataclass
+class RunnerPrefill:
+    """Pre-fill data for the runner form, e.g. when re-running a session."""
+
+    prompt: str = ""
+    setup_instructions: str = ""
+    docker_image: str = ""
+    repo_url: str = ""
+    repo_branch: str = ""
+    models: list[str] = field(default_factory=list)
+    persona_id: str = ""
+    run_mcp_servers: list[str] = field(default_factory=list)
+    run_mcp_definitions: list = field(default_factory=list)
+    run_skills: list[str] = field(default_factory=list)
+    run_plugins: list[str] = field(default_factory=list)
+    run_env_vars: dict = field(default_factory=dict)
+
+
+class RunnerScreen(ChromeActions):
+    """Screen for configuring and launching evaluation runs."""
+
+    class StatusUpdate(Message):
+        """A container status change."""
+
+        def __init__(self, status: ContainerStatus) -> None:
+            super().__init__()
+            self.status = status
+
+    class RunFinished(Message):
+        """The evaluation run completed."""
+
+        def __init__(self, run: BackgroundRun) -> None:
+            super().__init__()
+            self.run = run
+
+    BINDINGS = list(RUNNER)
+
+    def __init__(
+        self,
+        work_dir: Path,
+        run_manager: RunManager | None = None,
+        prefill: RunnerPrefill | None = None,
+        config_id: str | None = None,
+        config_name: str = "",
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.work_dir = work_dir
+        self.prefill = prefill
+        self._config_id = config_id
+        self._config_name = config_name
+        self._run_manager = run_manager
+        self._known_rows: set[str] = set()
+        self._subscribed = False
+        self._last_run_id: str | None = None
+        self._restoring_status = False
+        self._persona_id: str = (prefill.persona_id or "").strip() if prefill is not None else ""
+        if prefill is not None:
+            self._run_mcp_ids: list[str] = list(prefill.run_mcp_servers or [])
+            self._run_mcp_definitions: list[dict] = [
+                dict(d) for d in prefill.run_mcp_definitions or [] if isinstance(d, dict)
+            ]
+            self._run_skills_ids: list[str] = list(prefill.run_skills or [])
+            self._run_plugins_ids: list[str] = list(getattr(prefill, "run_plugins", None) or [])
+            self._run_env_vars: dict[str, str] = {
+                str(k): str(v) for k, v in (prefill.run_env_vars or {}).items() if k
+            }
+        else:
+            self._run_mcp_ids = []
+            self._run_mcp_definitions = []
+            self._run_skills_ids = []
+            self._run_plugins_ids = []
+            self._run_env_vars = {}
+        self._pending_model_skips: list[str] | None = None
+
+    @property
+    def run_manager(self) -> RunManager:
+        if self._run_manager is not None:
+            return self._run_manager
+        app_rm = getattr(self.app, "run_manager", None)
+        if app_rm is not None:
+            return app_rm
+        self._run_manager = RunManager(self.work_dir)
+        return self._run_manager
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        from ..widgets.activity_bar import ActivityBar
+
+        yield ActivityBar()
+        with Vertical(id="runner-screen"):
+            with Vertical(id="runner-main"):
+                yield Static(f"[bold]{U.runner_title()}[/bold]", id="runner-title")
+                with TabbedContent(id="runner-tabs"):
+                    with TabPane(U.runner_tab_recipe(), id="runner-tab-recipe"):
+                        with VerticalScroll(classes="runner-pane"):
+                            yield Label(U.config_name_label())
+                            yield Static("[dim]optional[/dim]", classes="runner-field-hint")
+                            yield Input(
+                                value=self._config_name or "",
+                                placeholder=U.config_name_placeholder(),
+                                id="config-name-input",
+                            )
+                            yield Label(U.prompt_label())
+                            yield TextArea(id="prompt-input", language="markdown")
+                            yield Label(U.setup_commands_label())
+                            yield Static(t("ui-pre-grok-shell"), classes="runner-field-hint")
+                            yield TextArea(
+                                id="setup-input", language="bash", classes="runner-setup"
+                            )
+                            yield Checkbox(
+                                t("ui-interactive-multi-turn-follow-ups-until-done"),
+                                id="interactive-multi-turn",
+                            )
+                    with TabPane(U.runner_tab_runtime(), id="runner-tab-runtime"):
+                        with VerticalScroll(classes="runner-pane"):
+                            yield Label(U.container_image_label())
+                            yield Static(t("ui-image-profile"), classes="runner-field-hint")
+                            yield Select(
+                                options=docker_select_options(),
+                                value=DEFAULT_DOCKER_IMAGE,
+                                id="docker-image-select",
+                                allow_blank=False,
+                                classes="field-select",
+                            )
+                            yield Static("", id="docker-profile-hint")
+                            yield Label(U.persona_label())
+                            yield Static("[dim]persona[/dim]", classes="runner-field-hint")
+                            with Horizontal(id="persona-row"):
+                                yield Select(
+                                    options=persona_select_options(self.work_dir),
+                                    value=PERSONA_NONE,
+                                    id="persona-select",
+                                    allow_blank=False,
+                                    classes="field-select",
+                                )
+                                yield Button(
+                                    t("ui-new"), id="persona-new-btn", classes="runner-inline-btn"
+                                )
+                                yield Button(
+                                    t("ui-edit"),
+                                    id="persona-builder-btn",
+                                    classes="runner-inline-btn",
+                                )
+                            yield Static("", id="persona-gh-hint")
+                            yield Label(U.repository_label())
+                            yield Static("[dim]optional[/dim]", classes="runner-field-hint")
+                            yield Input(placeholder=U.repo_url_placeholder(), id="repo-url-input")
+                            yield Input(placeholder=U.branch_placeholder(), id="repo-branch-input")
+                            yield Static("", id="github-write-hint")
+                    with TabPane(U.runner_tab_models(), id="runner-tab-models"):
+                        with VerticalScroll(classes="runner-pane"):
+                            yield Label(U.models_heading())
+                            yield TipSurface(
+                                U.tip_runner_models(),
+                                id="runner-models-tip",
+                                classes="runner-field-hint",
+                            )
+                            yield SelectionList[str](
+                                *model_selection_items(None), id="models-select"
+                            )
+                            try:
+                                from ...runs.batch import models_catalog_help_text
+
+                                _mc_hint = models_catalog_help_text()
+                            except Exception:
+                                _mc_hint = t("ui-refresh-catalog-run-grok-models-on-the-host")
+                            yield Static("", id="models-catalog-hint")
+                    with TabPane(U.runner_tab_extras(), id="runner-tab-extras"):
+                        with VerticalScroll(classes="runner-pane", id="runner-run-caps"):
+                            yield Label(U.extras())
+                            yield Static(U.this_launch_only_dim(), classes="runner-field-hint")
+                            yield Static("", id="run-caps-persona-hint")
+                            yield Input(placeholder=U.search_mcp_placeholder(), id="run-mcp-search")
+                            with Horizontal(id="run-caps-actions"):
+                                yield Button(U.mcp_btn(), id="run-mcp-pick-btn", variant="primary")
+                                yield Button(U.skills_btn(), id="run-skills-pick-btn")
+                                yield Button(U.plugins_btn(), id="run-plugins-pick-btn")
+                                yield Button(
+                                    U.clear_btn(),
+                                    id="run-caps-clear-btn",
+                                    classes="runner-secondary-btn",
+                                )
+                            yield Label(U.added_to_this_run())
+                            yield Static(U.em_dash_dim(), id="run-caps-summary")
+                            yield Static("", id="run-caps-help")
+                with Vertical(id="runner-status-panel"):
+                    yield Static("", id="run-banner")
+                    yield Static(f"[bold]{U.containers_heading()}[/bold]", id="status-header")
+                    yield DataTable(id="container-status-table")
+            with Horizontal(id="runner-toolbar"):
+                with Horizontal(id="runner-toolbar-primary"):
+                    yield Button(U.launch(), variant="primary", id="launch-btn")
+                    yield Button(U.save_config(), id="save-config-btn")
+                yield TipSurface(U.tip_runner_toolbar(), id="runner-toolbar-hint")
+        yield Footer()
+
+    def _runner_tab_index(self) -> int:
+        try:
+            active = self.query_one("#runner-tabs", TabbedContent).active
+        except Exception:
+            return 0
+        try:
+            return _RUNNER_TABS.index(active)
+        except ValueError:
+            return 0
+
+    def _activate_runner_tab(self, pane_id: str) -> None:
+        try:
+            tabs = self.query_one("#runner-tabs", TabbedContent)
+            tabs.active = pane_id
+        except Exception:
+            return
+
+        def _focus_pane() -> None:
+            with suppress(Exception):
+                pane = self.query_one(f"#{pane_id}")
+                for w in pane.query(t("ui-input-select-textarea-selectionlist-switch-butto")):
+                    if getattr(w, "can_focus", False) and (not getattr(w, "disabled", False)):
+                        w.focus()
+                        return
+
+        self.call_after_refresh(lambda: self.call_after_refresh(_focus_pane))
+
+    def action_tab_next(self) -> None:
+        i = (self._runner_tab_index() + 1) % len(_RUNNER_TABS)
+        self._activate_runner_tab(_RUNNER_TABS[i])
+
+    def action_tab_prev(self) -> None:
+        i = (self._runner_tab_index() - 1) % len(_RUNNER_TABS)
+        self._activate_runner_tab(_RUNNER_TABS[i])
+
+    def action_tab_recipe(self) -> None:
+        self._activate_runner_tab("runner-tab-recipe")
+
+    def action_tab_runtime(self) -> None:
+        self._activate_runner_tab("runner-tab-runtime")
+
+    def action_tab_models(self) -> None:
+        self._activate_runner_tab("runner-tab-models")
+
+    def action_tab_extras(self) -> None:
+        self._activate_runner_tab("runner-tab-extras")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#container-status-table", DataTable)
+        style_data_table(table)
+        table.add_columns(
+            t("ui-container"), t("ui-model"), t("ui-status"), t("ui-started"), t("ui-finished")
+        )
+        if self.prefill:
+            pf = self.prefill
+            if pf.prompt:
+                self.query_one("#prompt-input", TextArea).load_text(pf.prompt)
+            if pf.setup_instructions:
+                self.query_one("#setup-input", TextArea).load_text(pf.setup_instructions)
+            if pf.docker_image:
+                try:
+                    self.query_one(
+                        "#docker-image-select", Select
+                    ).value = docker_select_value_or_default(pf.docker_image)
+                except Exception:
+                    logger.debug(t("ui-failed-to-set-docker-image-prefill"), exc_info=True)
+            if pf.repo_url:
+                self.query_one("#repo-url-input", Input).value = pf.repo_url
+            if pf.repo_branch:
+                self.query_one("#repo-branch-input", Input).value = pf.repo_branch
+            if pf.models:
+                self._set_models_selection(pf.models)
+            if pf.persona_id is not None:
+                self._persona_id = (pf.persona_id or "").strip()
+                try:
+                    self.query_one("#persona-select", Select).value = persona_select_value(
+                        self._persona_id
+                    )
+                except Exception:
+                    logger.debug(t("ui-failed-to-set-persona-prefill"), exc_info=True)
+        self._sync_persona_github_hint()
+        self.call_after_refresh(self._rebuild_run_capability_lists)
+        self.call_after_refresh(self._restore_run_state)
+        self.call_after_refresh(
+            lambda: self.call_after_refresh(lambda: self._activate_runner_tab("runner-tab-recipe"))
+        )
+
+    def _persona_obj(self):
+        """Loaded persona for the current selection, or None."""
+        pid = self._persona_id_from_form()
+        if not pid:
+            return None
+        try:
+            from ...runs.personas import PersonaStore
+
+            return PersonaStore(self.work_dir).get(pid)
+        except Exception:
+            logger.debug(t("ui-failed-to-load-persona-s"), pid, exc_info=True)
+            return None
+
+    def _persona_github_write(self) -> bool:
+        """GitHub write is persona-only (not a run/form property)."""
+        p = self._persona_obj()
+        return bool(p and p.github_write)
+
+    def _persona_github_token(self) -> str:
+        """Token from selected persona only (stored or github_token_env on host)."""
+        p = self._persona_obj()
+        if not p:
+            return ""
+        try:
+            return p.resolve_github_token()
+        except Exception:
+            return ""
+
+    def _sync_persona_github_hint(self) -> None:
+        """Show persona GitHub write + token status (configured on persona, not the run)."""
+        p = self._persona_obj()
+        pid = self._persona_id_from_form() or "(none)"
+        gh = bool(p and p.github_write)
+        tok = self._persona_github_token()
+        if p and (p.github_token or "").strip():
+            tok_src = t("ui-stored-on-persona")
+        elif p and (p.github_token_env or "").strip():
+            tok_src = f"{t('ui-host-env')}{p.github_token_env}"
+        elif tok:
+            tok_src = "resolved"
+        else:
+            tok_src = "none"
+        try:
+            from ...docker.orchestrator import describe_github_write_token_status
+
+            tok_status = describe_github_write_token_status(ui_token=tok)
+        except Exception:
+            tok_status = t("ui-token-status-unknown")
+        mcp_n = len(p.mcp_servers or []) if p else 0
+        sk_n = len(p.skills or []) if p else 0
+        caps = f"mcp={mcp_n}{t('ui-skills-2')}{sk_n}"
+        if gh:
+            persona_line = f"[yellow]{pid}{t('ui-gh-on')}{tok_src} · {caps}"
+        else:
+            persona_line = f"[dim]{pid}{t('ui-gh-off')}{caps}[/dim]"
+        with suppress(Exception):
+            self.query_one("#persona-gh-hint", Static).update(persona_line)
+        with suppress(Exception):
+            self.query_one("#github-write-hint", Static).update("")
+
+    def _rebuild_models_selection(
+        self, selected: list[str] | None = None, *, default_select_all: bool = False
+    ) -> None:
+        """Replace model options from live ``grok models`` catalog; re-apply ticks."""
+        try:
+            sl = self.query_one("#models-select", SelectionList)
+        except Exception:
+            return
+        catalog = load_active_model_ids()
+        items = model_selection_items(
+            selected, catalog=catalog, default_select_all=default_select_all
+        )
+        with suppress(Exception):
+            sl.clear_options()
+        for label, mid, is_on in items:
+            try:
+                sl.add_option((label, mid))
+            except Exception:
+                continue
+            if is_on:
+                with suppress(Exception):
+                    sl.select(mid)
+        try:
+            from ...runs.batch import models_catalog_help_text
+
+            hint = models_catalog_help_text()
+            self.query_one("#models-catalog-hint", Static).update(f"[dim]{hint}[/dim]")
+        except Exception:
+            pass
+
+    def _set_models_selection(self, models: list[str]) -> None:
+        """Set model SelectionList ticks; rebuilds options if catalog drifted."""
+        try:
+            sl = self.query_one("#models-select", SelectionList)
+        except Exception:
+            return
+        want = [m.strip() for m in models if (m or "").strip()]
+        catalog = load_active_model_ids()
+        catalog_set = set(catalog)
+        existing_ids: set[str] = set()
+        try:
+            for opt in sl._options:
+                vid = getattr(opt, "id", None) or getattr(opt, "value", None)
+                if vid is not None:
+                    existing_ids.add(str(vid))
+        except Exception:
+            existing_ids = set()
+        if existing_ids != catalog_set and (
+            not (existing_ids <= catalog_set and catalog_set <= existing_ids)
+        ):
+            stale_in_ui = existing_ids - catalog_set
+            missing_in_ui = catalog_set - existing_ids
+            if stale_in_ui or missing_in_ui:
+                self._rebuild_models_selection(want, default_select_all=False)
+                return
+        try:
+            for sid in list(sl.selected):
+                try:
+                    sl.deselect(sid)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        for mid in sorted(set(want) - existing_ids):
+            with suppress(Exception):
+                sl.add_option((f"{mid} [not in catalog]", mid))
+        for mid in want:
+            with suppress(Exception):
+                sl.select(mid)
+
+    def _persona_id_from_form(self) -> str:
+        try:
+            sel = self.query_one("#persona-select", Select)
+            return normalize_persona_id(sel.value)
+        except Exception:
+            return self._persona_id or ""
+
+    @on(Select.Changed, "#persona-select")
+    def _persona_changed(self, _event: Select.Changed) -> None:
+        self._persona_id = self._persona_id_from_form()
+        self._sync_persona_github_hint()
+        self._update_run_caps_persona_hint()
+
+    def on_unmount(self) -> None:
+        pass
+
+    def _persona_capability_snapshot(self) -> tuple[list[str], list[str]]:
+        """Return (mcp_server_ids, skill_names) from the selected persona."""
+        pid = self._persona_id_from_form()
+        if not pid:
+            return ([], [])
+        try:
+            from ...runs.personas import PersonaStore
+
+            p = PersonaStore(self.work_dir).get(pid)
+            if not p:
+                return ([], [])
+            return (list(p.mcp_servers or []), list(p.skills or []))
+        except Exception:
+            logger.debug(t("ui-failed-to-load-persona-capabilities-for-s"), pid, exc_info=True)
+            return ([], [])
+
+    def _rebuild_run_capability_lists(self) -> None:
+        """Refresh persona hint + summary (pickers own the actual selection state)."""
+        self._update_run_caps_persona_hint()
+        self._update_run_caps_summary()
+
+    def _run_mcp_display_rows(self) -> list[tuple[str, str, str]]:
+        """(id, title, transport) for each run-extra MCP, defs preferred for title."""
+        defs_by_id: dict[str, dict] = {}
+        for d in self._run_mcp_definitions or []:
+            if not isinstance(d, dict):
+                continue
+            did = str(d.get("id") or "").strip()
+            if did:
+                defs_by_id[did] = d
+        rows: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for mid in self._run_mcp_ids or []:
+            mid = (mid or "").strip()
+            if not mid or mid in seen:
+                continue
+            seen.add(mid)
+            d = defs_by_id.get(mid) or {}
+            title = str(d.get("title") or d.get("registry_name") or "").strip()
+            transport = str(d.get("transport") or "").strip()
+            rows.append((mid, title, transport))
+        for did, d in defs_by_id.items():
+            if did in seen:
+                continue
+            title = str(d.get("title") or d.get("registry_name") or "").strip()
+            transport = str(d.get("transport") or "").strip()
+            rows.append((did, title, transport))
+        return rows
+
+    def _update_run_caps_summary(self) -> None:
+        """Show an explicit list of run-only MCP/skills so selection is obvious after the picker."""
+        try:
+            w = self.query_one("#run-caps-summary", Static)
+        except Exception:
+            return
+        mcp_rows = self._run_mcp_display_rows()
+        skills = [s for s in self._run_skills_ids or [] if (s or "").strip()]
+        plugins = [s for s in self._run_plugins_ids or [] if (s or "").strip()]
+        env_keys = sorted(k for k in self._run_env_vars or {} if k)
+        if not mcp_rows and (not skills) and (not plugins):
+            w.update("[dim]—[/dim]")
+            return
+        lines: list[str] = []
+        if mcp_rows:
+            lines.append(f"{t('ui-mcp-1')}{len(mcp_rows)}{t('ui-this-run-only')}")
+            for mid, title, transport in mcp_rows:
+                extra = []
+                if title and title.lower() != mid.lower():
+                    extra.append(title[:48])
+                if transport:
+                    extra.append(transport)
+                suffix = f"  [dim]({' · '.join(extra)})[/dim]" if extra else ""
+                lines.append(f"{t('ui-msg-4')}{mid}[/bold]{suffix}")
+        else:
+            lines.append(t("ui-mcp-0-none-added-for-this-run"))
+        if skills:
+            lines.append(f"{t('ui-skills-3')}{len(skills)}{t('ui-this-run-only')}")
+            for sk in skills:
+                lines.append(f"{t('ui-msg-5')}{sk}")
+        else:
+            lines.append(t("ui-skills-0-none-added-for-this-run"))
+        if plugins:
+            lines.append(f"{t('ui-plugins-2')}{len(plugins)}{t('ui-grok-packages-this-run-only')}")
+            for name in plugins:
+                lines.append(f"{t('ui-msg-5')}{name}")
+        else:
+            lines.append(t("ui-plugins-0-none-added-for-this-run"))
+        if env_keys:
+            shown = ", ".join(env_keys[:12])
+            more = f" +{len(env_keys) - 12}" if len(env_keys) > 12 else ""
+            lines.append(f"{t('ui-run-env-keys-from-mcp-configure')}{shown}{more}[/dim]")
+        lines.append("")
+        w.update("\n".join(lines))
+
+    def _run_mcp_query_from_form(self) -> str:
+        try:
+            return (self.query_one("#run-mcp-search", Input).value or "").strip()
+        except Exception:
+            return ""
+
+    def _open_run_mcp_picker(
+        self, *, initial_query: str = "", auto_registry: bool | None = None
+    ) -> None:
+        """Open the same McpPickerModal as Personas (registry search + configure)."""
+        from .personas import McpPickerModal
+
+        current = list(self._run_mcp_ids or [])
+        defs = list(self._run_mcp_definitions or [])
+        q = (initial_query or "").strip()
+        if auto_registry is None:
+            auto_registry = bool(q)
+
+        def _done(result) -> None:
+            if result is None:
+                return
+            ids, new_defs, env_add, skills_add = result
+            self._run_mcp_ids = list(ids or [])
+            self._run_mcp_definitions = [dict(d) for d in new_defs or [] if isinstance(d, dict)]
+            if env_add:
+                for k, v in env_add.items():
+                    kk = (k or "").strip()
+                    if not kk:
+                        continue
+                    if (
+                        kk not in self._run_env_vars
+                        or not (self._run_env_vars.get(kk) or "").strip()
+                    ):
+                        self._run_env_vars[kk] = str(v if v is not None else "")
+            if skills_add:
+                for s in skills_add:
+                    ss = (s or "").strip()
+                    if ss and ss not in self._run_skills_ids:
+                        self._run_skills_ids.append(ss)
+            self._update_run_caps_summary()
+            self.notify(
+                f"{t('ui-run-extras')}{len(self._run_mcp_ids)}{t('ui-mcp-2')}{len(self._run_skills_ids)}{t('ui-skills-4')}{len(self._run_plugins_ids)}{t('ui-plugins-persona-unchanged')}",
+                severity="information",
+                timeout=6,
+            )
+
+        self.app.push_screen(
+            McpPickerModal(
+                self.work_dir,
+                current,
+                defs,
+                initial_query=q,
+                auto_registry=auto_registry,
+                heading=t("ui-mcp"),
+                keep_hint=t("ui-save-run-config-launch-to-keep-persona-unchanged"),
+            ),
+            _done,
+        )
+
+    @on(Input.Submitted, "#run-mcp-search")
+    def _run_mcp_search_submitted(self, event: Input.Submitted) -> None:
+        q = (event.value or "").strip()
+        self._open_run_mcp_picker(initial_query=q, auto_registry=bool(q))
+
+    @on(Button.Pressed, "#run-mcp-pick-btn")
+    def _run_mcp_pick_btn(self) -> None:
+        q = self._run_mcp_query_from_form()
+        self._open_run_mcp_picker(initial_query=q, auto_registry=bool(q))
+
+    @on(Button.Pressed, "#run-skills-pick-btn")
+    def _run_skills_pick_btn(self) -> None:
+        from .personas import SkillsPickerModal
+
+        current = list(self._run_skills_ids or [])
+
+        def _done(result: list[str] | None) -> None:
+            if result is None:
+                return
+            self._run_skills_ids = list(result or [])
+            self._update_run_caps_summary()
+
+        self.app.push_screen(SkillsPickerModal(self.work_dir, current), _done)
+
+    @on(Button.Pressed, "#run-plugins-pick-btn")
+    def _run_plugins_pick_btn(self) -> None:
+        from .personas import PluginPickerModal
+
+        current = list(self._run_plugins_ids or [])
+
+        def _done(result: list[str] | None) -> None:
+            if result is None:
+                return
+            self._run_plugins_ids = list(result or [])
+            self._update_run_caps_summary()
+
+        self.app.push_screen(PluginPickerModal(self.work_dir, current), _done)
+
+    @on(Button.Pressed, "#run-caps-clear-btn")
+    def _run_caps_clear_btn(self) -> None:
+        self._run_mcp_ids = []
+        self._run_mcp_definitions = []
+        self._run_skills_ids = []
+        self._run_plugins_ids = []
+        self._run_env_vars = {}
+        self._update_run_caps_summary()
+        self.notify(
+            t("ui-cleared-run-only-mcp-skills-plugins-extras"), severity="information", timeout=4
+        )
+
+    def _update_run_caps_persona_hint(self) -> None:
+        try:
+            w = self.query_one("#run-caps-persona-hint", Static)
+        except Exception:
+            return
+        p_mcp, p_skills = self._persona_capability_snapshot()
+        pid = self._persona_id_from_form() or "(none)"
+        if not p_mcp and (not p_skills):
+            w.update(f"{t('ui-persona')}{pid}{t('ui-no-base-mcp-skills')}")
+        else:
+            m = ", ".join(p_mcp[:8]) + ("…" if len(p_mcp) > 8 else "")
+            s = ", ".join(p_skills[:8]) + ("…" if len(p_skills) > 8 else "")
+            w.update(
+                f"{t('ui-persona')}{pid}{t('ui-mcp-3')}{m or '—'}{t('ui-skills-2')}{s or '—'}[/dim]"
+            )
+
+    def _run_mcp_from_form(self) -> list[str]:
+        return list(self._run_mcp_ids or [])
+
+    def _run_skills_from_form(self) -> list[str]:
+        return list(self._run_skills_ids or [])
+
+    def _run_plugins_from_form(self) -> list[str]:
+        return list(self._run_plugins_ids or [])
+
+    def _run_mcp_definitions_from_form(self) -> list[dict]:
+        return [dict(d) for d in self._run_mcp_definitions or [] if isinstance(d, dict)]
+
+    def _run_env_from_form(self) -> dict[str, str]:
+        return dict(self._run_env_vars or {})
+
+    def refresh_tip_surfaces(self) -> None:
+        """Re-apply all ``TipSurface`` widgets after global show_tips toggle."""
+        from ..panel_render import refresh_tip_surfaces_in
+
+        refresh_tip_surfaces_in(self)
+
+    def action_open_jobs(self) -> None:
+        from .jobs import JobsModal
+
+        self.app.push_screen(JobsModal(self.run_manager, work_dir=self.work_dir))
+
+    @on(Button.Pressed, "#persona-new-btn")
+    def _persona_new_btn(self) -> None:
+        self.action_new_persona_from_runner()
+
+    @on(Button.Pressed, "#persona-builder-btn")
+    def _persona_builder_btn(self) -> None:
+        """In-recipe control (not the removed bottom toolbar Personas button)."""
+        self.action_open_persona_builder()
+
+    def _refresh_persona_select(self, *, select_id: str | None = None) -> None:
+        """Reload persona options; optionally select a persona_id."""
+        try:
+            from ...runs.personas import PersonaStore
+
+            PersonaStore(self.work_dir).ensure_defaults()
+        except Exception:
+            logger.debug(t("ui-failed-to-ensure-persona-defaults"), exc_info=True)
+        try:
+            ps = self.query_one("#persona-select", Select)
+            target = persona_select_value(
+                select_id if select_id is not None else normalize_persona_id(ps.value)
+            )
+            ps.set_options(persona_select_options(self.work_dir))
+            try:
+                ps.value = target
+            except Exception:
+                try:
+                    ps.value = PERSONA_NONE
+                except Exception:
+                    pass
+            self._persona_id = normalize_persona_id(ps.value)
+            self._sync_persona_github_hint()
+        except Exception:
+            pass
+
+    def action_new_persona_from_runner(self) -> None:
+        """Create a persona inline from the Runner (editor modal only)."""
+        from .personas import PersonaEditorModal
+
+        def _done(result: object | None) -> None:
+            if result is None:
+                return
+            pid = getattr(result, "persona_id", None) or ""
+            self._refresh_persona_select(select_id=str(pid) if pid else None)
+            if pid:
+                self.notify(
+                    f"{t('ui-persona-ready')}{pid}{t('ui-selected-5')}",
+                    severity="information",
+                    timeout=6,
+                )
+            else:
+                self.notify(U.persona_saved(), severity="information", timeout=4)
+
+        self.app.push_screen(PersonaEditorModal(self.work_dir, persona=None, is_new=True), _done)
+
+    def action_open_persona_builder(self) -> None:
+        """Open full persona builder; refresh dropdown on return."""
+        from .personas import PersonasScreen
+
+        def _back(_: object | None = None) -> None:
+            try:
+                self._refresh_persona_select()
+            except Exception:
+                with suppress(Exception):
+                    self.action_refresh_context()
+
+        self.app.push_screen(PersonasScreen(self.work_dir), _back)
+
+    def _restore_run_state(self) -> None:
+        """Snapshot status rows from RunManager (no live subscriptions / log tail)."""
+        if self._restoring_status:
+            return
+        self._restoring_status = True
+        try:
+            self._restore_run_state_inner()
+        finally:
+            self._restoring_status = False
+
+    def _restore_run_state_inner(self) -> None:
+        known = self.run_manager.list_all_known()
+        table = self.query_one("#container-status-table", DataTable)
+        with suppress(Exception):
+            table.clear()
+        self._known_rows.clear()
+        if not known:
+            self._set_launch_enabled(True)
+            return
+        active = self.run_manager.list_active()
+        show_runs = list(active)
+        if not show_runs:
+            show_runs = known[-3:]
+        else:
+            for bg in reversed(known):
+                if bg not in show_runs and bg.is_finished:
+                    show_runs.append(bg)
+                if len(show_runs) >= 8:
+                    break
+        seen_containers: set[str] = set()
+        for bg in show_runs:
+            for st in bg.statuses.values():
+                name = st.container_name
+                if name in seen_containers:
+                    continue
+                seen_containers.add(name)
+                self._upsert_status_row(table, st)
+        latest = self.run_manager.latest()
+        if latest is None:
+            self._set_launch_enabled(True)
+            return
+        self._last_run_id = latest.run_id
+        n_active = len(active)
+        batches = self.run_manager.active_batch_ids
+        self._set_launch_enabled(True)
+        if batches or n_active:
+            batch_bit = f"{t('ui-batch-2')}{batches[0][:12]}[/bold] · " if batches else ""
+            ids = ", ".join(r.run_id for r in active[-3:]) if active else "—"
+            more = f" (+{n_active - 3}{t('ui-more-2')}" if n_active > 3 else ""
+            self._set_banner(
+                "running",
+                f"{batch_bit}[bold]{n_active}{t('ui-run-s-active')}{ids}{more}{t('ui-quiet-mode-open-j-for-live-logs-status-f5-refres')}",
+            )
+        elif bg.error and (not bg.quiet):
+            elapsed_str = _format_duration(bg.elapsed_s)
+            self._set_banner(
+                "error",
+                f"{t('ui-last-run')}{bg.run_id}{t('ui-crashed-after')}{elapsed_str}: {rich_escape(bg.error)}",
+            )
+        elif not bg.quiet:
+            self._apply_finished_banner(bg)
+        else:
+            self._set_banner("idle", t("ui-background-runs-finished-batch-quiet-press-j-for"))
+
+    def action_check_docker(self) -> None:
+        """Bound to `d` / palette — not a toolbar button."""
+        self._do_docker_check()
+
+    @work(thread=True)
+    def _do_docker_check(self) -> None:
+        available = self.run_manager.orchestrator.check_docker_available()
+        if available:
+            self.app.call_from_thread(
+                self.notify, t("ui-docker-is-available-and-running"), severity="information"
+            )
+        else:
+            self.app.call_from_thread(
+                self.notify,
+                t("ui-docker-is-not-available-install-docker-or-start"),
+                severity="error",
+            )
+
+    @on(Button.Pressed, "#launch-btn")
+    def _launch_evaluation(self) -> None:
+        self.action_run_evaluation()
+
+    @on(Button.Pressed, "#save-config-btn")
+    def _save_config_btn(self) -> None:
+        self.action_save_config_only()
+
+    def action_refresh_context(self) -> None:
+        """Re-read models/personas and container snapshot (F5)."""
+        with suppress(Exception):
+            current = selection_list_selected_ids(self.query_one("#models-select", SelectionList))
+            self._rebuild_models_selection(current, default_select_all=False)
+        with suppress(Exception):
+            self._refresh_persona_select()
+        with suppress(Exception):
+            self._rebuild_run_capability_lists()
+        with suppress(Exception):
+            self._restore_run_state()
+        with suppress(Exception):
+            active = self.run_manager.list_active()
+            n = len(active)
+            if n:
+                ids = ", ".join(r.run_id for r in active[-4:])
+                more = f" (+{n - 4}{t('ui-more-2')}" if n > 4 else ""
+                self._set_banner("running", f"[bold]{n}{t('ui-run-s-active-1')}{ids}{more}")
+            else:
+                self._set_banner("idle", t("ui-no-active-runs-fill-the-form-and-press-launch"))
+
+    def action_run_evaluation(self) -> None:
+        self._do_launch()
+
+    def action_save_config_only(self) -> None:
+        """Persist the form as a run config without launching Docker."""
+        fields = self._read_form(require_models=False)
+        if fields is None:
+            return
+        (
+            prompt,
+            setup,
+            docker_image,
+            repo_url,
+            repo_branch,
+            models,
+            name,
+            persona_id,
+            run_mcp,
+            run_mcp_defs,
+            run_skills,
+            run_plugins,
+            run_env,
+        ) = fields
+        if not prompt:
+            self.notify(U.prompt_required_save(), severity="error")
+            return
+        try:
+            from ...runs.run_configs import RunConfigStore
+
+            store = RunConfigStore(self.work_dir)
+            if self._config_id:
+                existing = store.get(self._config_id)
+                if existing:
+                    existing.prompt = prompt
+                    existing.setup_instructions = setup
+                    existing.docker_image = docker_image
+                    existing.repo_url = repo_url
+                    existing.repo_branch = repo_branch
+                    existing.persona_id = persona_id
+                    existing.github_write = False
+                    existing.run_mcp_servers = list(run_mcp)
+                    existing.run_mcp_definitions = list(run_mcp_defs)
+                    existing.run_skills = list(run_skills)
+                    existing.run_plugins = list(run_plugins)
+                    existing.run_env_vars = dict(run_env)
+                    if models:
+                        existing.models = models
+                    existing.parallelism = 1
+                    if name:
+                        existing.name = name
+                    store.save(existing)
+                    extra = ""
+                    if run_mcp or run_skills or run_plugins:
+                        extra = f"{t('ui-run-mcp')}{len(run_mcp)}{t('ui-skills-2')}{len(run_skills)}{t('ui-plugins-3')}{len(run_plugins)}"
+                    self.notify(
+                        f"{t('ui-updated-config')}{existing.config_id} ({existing.display_name()})"
+                        + (f"{t('ui-persona-1')}{persona_id}" if persona_id else "")
+                        + extra,
+                        severity="information",
+                    )
+                    return
+            cfg = store.create(
+                prompt=prompt,
+                setup_instructions=setup,
+                docker_image=docker_image,
+                repo_url=repo_url,
+                repo_branch=repo_branch,
+                models=models,
+                parallelism=1,
+                name=name,
+                github_write=False,
+            )
+            if persona_id:
+                cfg.persona_id = persona_id
+            cfg.run_mcp_servers = list(run_mcp)
+            cfg.run_mcp_definitions = list(run_mcp_defs)
+            cfg.run_skills = list(run_skills)
+            cfg.run_plugins = list(run_plugins)
+            cfg.run_env_vars = dict(run_env)
+            store.save(cfg)
+            self._config_id = cfg.config_id
+            self.notify(
+                f"{t('ui-saved-config')}{cfg.config_id} → {store.root}",
+                severity="information",
+                timeout=8,
+            )
+        except Exception as exc:
+            self.notify(f"{t('ui-save-failed')}{exc}", severity="error")
+
+    def _read_form(
+        self, *, require_models: bool = True
+    ) -> (
+        tuple[
+            str,
+            str,
+            str,
+            str,
+            str,
+            list[str],
+            str,
+            str,
+            list[str],
+            list[dict],
+            list[str],
+            list[str],
+            dict[str, str],
+        ]
+        | None
+    ):
+        prompt = self.query_one("#prompt-input", TextArea).text.strip()
+        setup = self.query_one("#setup-input", TextArea).text.strip()
+        try:
+            docker_raw = select_value_str(
+                self.query_one("#docker-image-select", Select).value, default=DEFAULT_DOCKER_IMAGE
+            )
+        except Exception:
+            docker_raw = DEFAULT_DOCKER_IMAGE
+        docker_image = normalize_docker_choice(docker_raw)
+        try:
+            from ...docker.base_profiles import resolve_docker_base
+
+            _r = resolve_docker_base(docker_image)
+            docker_image = _r.stored
+        except Exception:
+            logger.debug(t("ui-failed-to-resolve-docker-base-for-s"), docker_image, exc_info=True)
+        repo_url = self.query_one("#repo-url-input", Input).value.strip()
+        repo_branch = self.query_one("#repo-branch-input", Input).value.strip()
+        try:
+            models = selection_list_selected_ids(self.query_one("#models-select", SelectionList))
+        except Exception:
+            models = []
+        _model_skips: list[str] = []
+        try:
+            from ...runs.batch import validate_models_for_launch
+
+            models, _model_skips = validate_models_for_launch(models)
+        except Exception:
+            try:
+                from ...runs.batch import resolve_model_ids
+
+                models = resolve_model_ids(models)
+            except Exception:
+                logger.debug(t("ui-failed-to-validate-resolve-models-for-launch"), exc_info=True)
+        _seen: set[str] = set()
+        _deduped: list[str] = []
+        for m in models:
+            if m and m not in _seen:
+                _seen.add(m)
+                _deduped.append(m)
+        models = _deduped
+        if _model_skips:
+            self._pending_model_skips = _model_skips
+        try:
+            name = self.query_one("#config-name-input", Input).value.strip()
+        except Exception:
+            name = self._config_name or ""
+        persona_id = self._persona_id_from_form()
+        self._persona_id = persona_id
+        run_mcp = self._run_mcp_from_form()
+        run_mcp_defs = self._run_mcp_definitions_from_form()
+        run_skills = self._run_skills_from_form()
+        run_plugins = self._run_plugins_from_form()
+        run_env = self._run_env_from_form()
+        if require_models and (not models):
+            self.notify(U.select_at_least_one_model(), severity="error")
+            return None
+        return (
+            prompt,
+            setup,
+            docker_image,
+            repo_url,
+            repo_branch,
+            models,
+            name,
+            persona_id,
+            run_mcp,
+            run_mcp_defs,
+            run_skills,
+            run_plugins,
+            run_env,
+        )
+
+    def _do_launch(self) -> None:
+        try:
+            if not self.run_manager.orchestrator.check_docker_available():
+                self.notify(
+                    t("ui-docker-is-not-running-start-the-docker-daemon-an"),
+                    severity="error",
+                    timeout=10,
+                )
+                return
+        except Exception:
+            self.notify(
+                t("ui-could-not-reach-docker-is-the-daemon-installed-a"),
+                severity="error",
+                timeout=10,
+            )
+            return
+        fields = self._read_form(require_models=True)
+        if fields is None:
+            return
+        (
+            prompt,
+            setup,
+            docker_image,
+            repo_url,
+            repo_branch,
+            models,
+            name,
+            persona_id,
+            run_mcp,
+            run_mcp_defs,
+            run_skills,
+            run_plugins,
+            run_env,
+        ) = fields
+        if not prompt:
+            self.notify(U.prompt_required(), severity="error")
+            return
+        github_write = self._persona_github_write()
+        github_token = self._persona_github_token()
+        skips = self._pending_model_skips or []
+        if skips:
+            self.notify(
+                f"{t('ui-skipping')}{len(skips)}{t('ui-inactive-model-s-not-in-grok-models-models-cache')}{', '.join(models) or '(none)'}",
+                severity="warning",
+                timeout=12,
+            )
+            for msg in skips[:4]:
+                self.notify(msg[:200], severity="warning", timeout=10)
+            self._pending_model_skips = []
+        if not models:
+            self.notify(
+                t("ui-no-active-models-to-launch-edit-the-models-field"),
+                severity="error",
+                timeout=12,
+            )
+            return
+        if github_write and (not repo_url):
+            self.notify(
+                t("ui-github-write-is-on-but-repo-url-is-empty-set-htt"),
+                severity="warning",
+                timeout=10,
+            )
+        if github_write and (not github_token):
+            try:
+                from ...docker.orchestrator import describe_github_write_token_status
+
+                st = describe_github_write_token_status(ui_token="")
+                if "no token" in st:
+                    self.notify(
+                        t("ui-persona-has-github-write-on-but-no-token-set-pat"),
+                        severity="warning",
+                        timeout=12,
+                    )
+            except Exception:
+                pass
+        auth_json = Path.home() / ".grok" / "auth.json"
+        grok_config = Path.home() / ".grok" / "config.toml"
+        if not auth_json.exists():
+            self._set_banner("error", f"{t('ui-auth-file-not-found')}{auth_json}")
+            return
+        already = self.run_manager.active_count
+        interactive = False
+        try:
+            interactive = bool(self.query_one("#interactive-multi-turn", Checkbox).value)
+        except Exception:
+            interactive = False
+        try:
+            bg = self.run_manager.start_run(
+                prompt=prompt,
+                interactive=interactive,
+                setup_instructions=setup,
+                docker_image=docker_image,
+                models=models,
+                parallelism=1,
+                repo_url=repo_url,
+                repo_branch=repo_branch,
+                auth_json=auth_json,
+                grok_config=grok_config,
+                prune_exited=True,
+                save_config=True,
+                config_name=name,
+                existing_config_id=self._config_id,
+                persona_id=persona_id,
+                github_token="",
+                run_mcp_servers=run_mcp,
+                run_mcp_definitions=run_mcp_defs,
+                run_skills=run_skills,
+                run_plugins=run_plugins,
+                run_env_vars=run_env,
+            )
+        except RuntimeError as exc:
+            self.notify(str(exc), severity="warning")
+            return
+        try:
+            from ...runs.run_configs import RunConfigStore
+
+            for c in RunConfigStore(self.work_dir).list_configs():
+                if c.source_run_id == bg.run_id:
+                    self._config_id = c.config_id
+                    break
+        except Exception:
+            pass
+        self._last_run_id = bg.run_id
+        n = len(models)
+        rid = (bg.run_id or "")[:12]
+        more = f" (+{already}{t('ui-already-running')}" if already else ""
+        self.notify(
+            f"{t('ui-launched')}{n}{t('ui-model-s')}{more}"
+            + (f" · {rid}" if rid else "")
+            + t("ui-jobs-for-logs-esc-closes-jobs-run-keeps-going"),
+            severity="information",
+            timeout=10,
+        )
+        rm = self.run_manager
+        wd = self.work_dir
+
+        def _leave_to_jobs() -> None:
+            with suppress(Exception):
+                self.app.pop_screen()
+            try:
+                from .jobs import JobsModal
+
+                self.app.push_screen(JobsModal(rm, work_dir=wd))
+            except Exception:
+                pass
+
+        self.call_after_refresh(_leave_to_jobs)
+
+    def _apply_finished_banner(self, run: BackgroundRun) -> None:
+        elapsed_str = _format_duration(run.elapsed_s)
+        if run.error:
+            self._set_banner("error", f"{t('ui-run-crashed')}{rich_escape(run.error)}")
+            return
+        completed = sum(1 for r in run.results if r.status == "completed")
+        failed_count = sum(1 for r in run.results if r.status == "failed")
+        if failed_count:
+            failed_results = [r for r in run.results if r.status == "failed"]
+            error_summary = "  |  ".join(
+                f"{r.container_name}: {r.error[:120]}" for r in failed_results
+            )
+            self._set_banner(
+                "error",
+                f"{t('ui-run-2')}{run.run_id}{t('ui-finished-in-1')}{elapsed_str} — [green]{completed}{t('ui-succeeded')}{failed_count}{t('ui-failed-2')}{rich_escape(error_summary)}[/dim]",
+            )
+        else:
+            self._set_banner(
+                "success",
+                f"{t('ui-run-2')}{run.run_id}{t('ui-completed-in')}{elapsed_str} — [green]{completed}/{len(run.results)}{t('ui-succeeded-1')}",
+            )
+
+    def _set_banner(self, level: str, text: str) -> None:
+        """Update the persistent run-status banner.
+
+        level: "idle", "running", "success", "error"
+        """
+        banner = self.query_one("#run-banner", Static)
+        if level == "idle":
+            banner.update(f"[dim]{text}[/dim]")
+        elif level == "running":
+            banner.update(f"{t('ui-running')}{text}")
+        elif level == "success":
+            banner.update(f"{t('ui-done-1')}{text}")
+        elif level == "error":
+            banner.update(f"{t('ui-failed-3')}{text}")
+        else:
+            banner.update(text)
+
+    def _scroll_to_status(self) -> None:
+        self.query_one("#run-banner", Static).scroll_visible(animate=False)
+
+    def _set_launch_enabled(self, enabled: bool) -> None:
+        btn = self.query_one("#launch-btn", Button)
+        btn.disabled = not enabled
+
+    def _update_status_row(self, status: ContainerStatus) -> None:
+        table = self.query_one("#container-status-table", DataTable)
+        self._upsert_status_row(table, status)
+
+    def _upsert_status_row(self, table: DataTable, status: ContainerStatus) -> None:
+        """Insert or replace a status row without raising DuplicateKey on races."""
+        from ..styles import STATUS_LABEL
+
+        if status.status == "failed":
+            status_display = f"{t('ui-failed-1')}{rich_escape(status.error[:80])}[/]"
+        else:
+            status_display = STATUS_LABEL.get(status.status, status.status)
+        row_key = status.container_name
+        started = status.started_at[:19] if status.started_at else ""
+        finished = status.finished_at[:19] if status.finished_at else ""
+        cells = (status.container_name, status.model, status_display, started, finished)
+        exists = row_key in self._known_rows
+        if not exists:
+            try:
+                table.get_row_index(row_key)
+                exists = True
+                self._known_rows.add(row_key)
+            except Exception:
+                exists = False
+        if exists:
+            try:
+                cols = list(table.columns.keys())
+                for i, val in enumerate(cells):
+                    if i < len(cols):
+                        table.update_cell(row_key, cols[i], val)
+                return
+            except Exception:
+                with suppress(Exception):
+                    table.remove_row(row_key)
+                self._known_rows.discard(row_key)
+        try:
+            table.add_row(*cells, key=row_key)
+            self._known_rows.add(row_key)
+        except Exception:
+            with suppress(Exception):
+                cols = list(table.columns.keys())
+                for i, val in enumerate(cells):
+                    if i < len(cols):
+                        table.update_cell(row_key, cols[i], val)
+                self._known_rows.add(row_key)
+
+    def action_go_back(self) -> None:
+        n = self.run_manager.active_count
+        if n:
+            self.notify(
+                f"{n}{t('ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt')}",
+                severity="information",
+                timeout=6,
+            )
+        self.app.pop_screen()

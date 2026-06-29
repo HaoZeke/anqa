@@ -1,0 +1,1666 @@
+/* ── groket theme ──────────────────────────────────────────────────────── */
+
+Screen {
+    background: $surface;
+}
+
+/* ── Header / Footer ──────────────────────────────────────────────────── */
+
+Header {
+    dock: top;
+    background: $primary;
+    color: $text;
+}
+
+ActivityBar,
+#activity-bar {
+    dock: top;
+    height: 1;
+    width: 100%;
+    background: $boost;
+    color: $text-muted;
+    padding: 0 1;
+    content-align: right middle;
+    text-align: right;
+}
+
+Footer {
+    dock: bottom;
+}
+
+/* ── Self-test modal ─────────────────────────────────────────────────── */
+
+#self-test-modal {
+    width: 72;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: thick $primary;
+}
+
+#self-test-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#self-test-body {
+    height: auto;
+    max-height: 28;
+    margin-bottom: 1;
+}
+
+#self-test-actions {
+    height: auto;
+    align: left middle;
+}
+
+#self-test-actions Button {
+    margin-right: 1;
+}
+
+/* Standalone tip/admonition widgets (panel_render.TipSurface / .tip-surface).
+   Frame = CSS border (width-adaptive). Do NOT rely on box-drawing Text — that
+   breaks in narrow modals (e.g. configs → w batch launch). */
+.tip-surface,
+TipSurface {
+    height: auto;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    border: solid cyan;
+    background: $boost;
+    color: $text;
+}
+
+.tip-surface.tip-surface-empty,
+TipSurface.tip-surface-empty {
+    display: none;
+    height: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+/* ── Trace Browser ────────────────────────────────────────────────────── */
+
+#browser-tabs {
+    height: 1fr;
+}
+
+TabPane {
+    height: 1fr;
+    layout: vertical;
+}
+
+#browser-layout {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#timeline-panel {
+    width: 3fr;
+    height: 1fr;
+    layout: vertical;
+    border-right: solid $primary-lighten-2;
+}
+
+#detail-panel {
+    width: 2fr;
+    height: 1fr;
+    padding: 0 1;
+}
+
+#timeline-list {
+    height: 1fr;
+    min-height: 5;
+}
+
+/* ── Analysis settings modal ─────────────────────────────────────────── */
+
+#analysis-settings-modal {
+    width: 72;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: solid $primary;
+}
+
+#analysis-settings-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#analysis-settings-help {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#analysis-settings-modal Select {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#analysis-settings-actions {
+    height: 3;
+    align: right middle;
+}
+
+#interactive-sessions-modal {
+    width: 72;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: solid $primary;
+}
+
+#interactive-modal-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#interactive-follow-input {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#interactive-modal-actions {
+    height: 3;
+    align: right middle;
+}
+
+#analysis-settings-actions Button {
+    margin-left: 1;
+}
+
+/* ── Session load bar (main screen) ───────────────────────────────────── */
+/* Do not force height: 1 on toolbars that contain Input/Button — clips chrome. */
+
+#session-paths {
+    padding: 0 1 1 1;
+    height: auto;
+    color: $text-muted;
+}
+
+#session-bar {
+    height: auto;
+    min-height: 3;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+    background: $surface;
+    border-bottom: solid $primary-background;
+}
+
+#session-bar Input {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    border: solid $primary-background;
+    padding: 0 1;
+    background: $surface-darken-1;
+    color: $text;
+}
+
+#session-bar Input:focus {
+    border: solid $accent;
+}
+
+#session-bar Button {
+    min-width: 8;
+    margin: 0 0 0 1;
+    padding: 0 2;
+    height: auto;
+    min-height: 3;
+}
+
+#session-summary {
+    height: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+/* ── Shared filter bars (sessions, Timeline, Report) ─────────────────── */
+/* Sit in the vertical stack (not dock: top) so TabPane layout is stable.   */
+/* See widgets/controls.py — label + Select, never chips. */
+
+#session-filter-bar,
+#filter-bar,
+#report-filter-bar,
+.filter-bar {
+    height: auto;
+    min-height: 3;
+    width: 100%;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+    background: $surface;
+    border-bottom: solid $primary-background;
+}
+
+#filter-view-label,
+.filter-view-label {
+    width: auto;
+    height: auto;
+    min-height: 3;
+    content-align: left middle;
+    padding: 0 1 0 0;
+    text-style: bold;
+    color: $text;
+}
+
+/* Timeline View — short option labels (All events, Tools only, …). */
+#timeline-view-select {
+    width: 24;
+    min-width: 20;
+    max-width: 32;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+/* Sessions list — Model + Task selects (orthogonal filters). */
+#session-model-select,
+#session-task-select,
+.session-filter-select {
+    width: 1fr;
+    min-width: 16;
+    max-width: 40;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+/* Report Filter — long plugin names (Security Scanner (2), Feedback (report), …). */
+#report-view-select,
+.report-view-select {
+    width: 1fr;
+    min-width: 28;
+    max-width: 72;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+#timeline-view-select > SelectCurrent,
+#session-model-select > SelectCurrent,
+#session-task-select > SelectCurrent,
+.session-filter-select > SelectCurrent,
+#report-view-select > SelectCurrent,
+.report-view-select > SelectCurrent {
+    background: $boost;
+    border: solid $primary;
+    color: $text;
+    height: auto;
+    min-height: 3;
+    padding: 0 1;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+#report-view-select > SelectCurrent,
+.report-view-select > SelectCurrent,
+#session-model-select > SelectCurrent,
+#session-task-select > SelectCurrent,
+.session-filter-select > SelectCurrent {
+    /* Prefer full labels; bar already allows wide select */
+    width: 100%;
+}
+
+#timeline-view-select:focus > SelectCurrent,
+#session-model-select:focus > SelectCurrent,
+#session-task-select:focus > SelectCurrent,
+.session-filter-select:focus > SelectCurrent,
+#report-view-select:focus > SelectCurrent,
+.report-view-select:focus > SelectCurrent {
+    border: solid $accent;
+    background: $surface-lighten-1;
+}
+
+/* Dropdown list options should not squeeze plugin names either */
+#report-view-select > SelectOverlay,
+.report-view-select > SelectOverlay,
+#session-model-select > SelectOverlay,
+#session-task-select > SelectOverlay,
+.session-filter-select > SelectOverlay {
+    min-width: 100%;
+    width: auto;
+    max-width: 80;
+}
+
+#filter-bar Input {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    border: solid $primary-background;
+    padding: 0 1;
+    margin: 0 0 0 1;
+    background: $surface-darken-1;
+    color: $text;
+}
+
+#filter-bar Input:focus {
+    border: solid $accent;
+    background: $surface;
+}
+
+/* Report — one scroll, inline panels; Filter = Select (same as Timeline). */
+#reports-panel {
+    height: 1fr;
+    layout: vertical;
+}
+
+#reports-scroll {
+    height: 1fr;
+}
+
+#report-sections-host {
+    height: auto;
+    width: 100%;
+    layout: vertical;
+}
+
+.report-section {
+    height: auto;
+}
+
+/* ── Selects — natural height, light chrome (no height:1 clipping) ───── */
+
+Select {
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+Select > SelectCurrent {
+    height: auto;
+    min-height: 3;
+    background: $surface;
+    border: solid $primary-background;
+    color: $text;
+    padding: 0 1;
+}
+
+Select > SelectCurrent Static#label {
+    color: $text;
+    background: transparent;
+}
+
+Select > SelectCurrent .arrow {
+    color: $text-muted;
+}
+
+Select:focus > SelectCurrent {
+    border: solid $accent;
+    background: $surface-lighten-1;
+}
+
+SelectOverlay {
+    background: $surface;
+    border: solid $primary;
+    max-height: 12;
+}
+
+SelectOverlay:focus {
+    border: solid $accent;
+}
+
+#runner-main Select,
+#persona-editor-shell Select,
+#analysis-settings-modal Select {
+    width: 100%;
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+#persona-row Select {
+    width: 1fr;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+#persona-row {
+    height: auto;
+    min-height: 3;
+    align: left middle;
+}
+
+.field-select {
+    min-width: 16;
+}
+
+/* ── Detail View ──────────────────────────────────────────────────────── */
+
+#detail-content {
+    padding: 1 2;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+#detail-header {
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border-bottom: solid $primary-lighten-2;
+}
+
+.event-badge {
+    padding: 0 1;
+    margin: 0 1;
+}
+
+.event-badge-user {
+    background: $success;
+    color: $text;
+}
+
+.event-badge-assistant {
+    background: $primary;
+    color: $text;
+}
+
+.event-badge-thought {
+    background: $surface-lighten-2;
+    color: $text-muted;
+}
+
+.event-badge-tool_call {
+    background: $accent;
+    color: $text;
+}
+
+.event-badge-tool_result {
+    background: $warning;
+    color: $text;
+}
+
+.event-badge-error {
+    background: $error;
+    color: $text;
+    text-style: bold;
+}
+
+.event-badge-plan {
+    background: $warning;
+    color: $text;
+}
+
+.event-badge-subagent {
+    background: $warning;
+    color: $text;
+}
+
+/* ── Issues Panel ─────────────────────────────────────────────────────── */
+
+#issues-list {
+    height: 1fr;
+}
+
+.issue-row {
+    height: auto;
+    padding: 1 2;
+    border-bottom: solid $surface-lighten-1;
+}
+
+.issue-row:hover {
+    background: $boost;
+}
+
+.severity-high {
+    color: $error;
+    text-style: bold;
+}
+
+.severity-medium {
+    color: $warning;
+}
+
+.severity-low {
+    color: $text-muted;
+}
+
+/* ── Flag Panel ───────────────────────────────────────────────────────── */
+
+#flag-form {
+    padding: 1 2;
+    height: auto;
+}
+
+#flag-form TextArea {
+    height: 6;
+    margin: 1 0;
+}
+
+/* Pending interactive / live session controls (browser) */
+#session-pending-bar {
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+    padding: 0 1;
+    background: $boost;
+    border-bottom: tall $primary;
+}
+
+#session-pending-queue {
+    color: $text-muted;
+    padding: 0 1;
+    height: auto;
+    max-height: 8;
+}
+
+#session-pending-status {
+    height: auto;
+}
+
+#session-follow-input {
+    width: 100%;
+}
+
+#session-pending-actions {
+    height: 3;
+    align: left middle;
+}
+
+#session-pending-actions Button {
+    margin-right: 1;
+}
+
+/* ── Runner Screen (tabbed recipe — not one scroll wall) ──────────────── */
+
+#runner-screen {
+    height: 1fr;
+    layout: vertical;
+    /* Keep action bar clear of Footer; toolbar is in-flow (not dock:bottom). */
+    padding-bottom: 1;
+}
+
+#runner-main {
+    height: 1fr;
+    layout: vertical;
+    padding: 0 2 0 2;
+}
+
+#runner-title {
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+#runner-tabs {
+    height: 1fr;
+    min-height: 10;
+}
+
+#runner-main .runner-pane {
+    height: 1fr;
+    padding: 0 1 1 0;
+}
+
+#runner-main Label {
+    margin: 1 0 0 0;
+    text-style: bold;
+}
+
+#runner-main .runner-field-hint {
+    height: auto;
+    margin: 0 0 0 0;
+    color: $text-muted;
+}
+
+#runner-main Input,
+#runner-main Select {
+    margin: 0 0 0 0;
+    width: 100%;
+}
+
+#runner-main TextArea {
+    margin: 0 0 1 0;
+    height: 8;
+    width: 100%;
+}
+
+#runner-main TextArea.runner-setup {
+    height: 5;
+}
+
+#runner-main SelectionList,
+#models-select {
+    height: 1fr;
+    min-height: 8;
+    max-height: 20;
+    margin: 0 0 1 0;
+    width: 100%;
+    border: solid $primary-lighten-2;
+}
+
+/* Action bar above Footer (not dock:bottom — avoids clipping under Footer). */
+#runner-toolbar {
+    height: auto;
+    min-height: 3;
+    width: 100%;
+    margin: 1 0 0 0;
+    padding: 1 2 1 2;
+    background: $surface-darken-1;
+    border-top: solid $primary-lighten-2;
+    align: left middle;
+    layout: horizontal;
+}
+
+#runner-toolbar-primary {
+    width: auto;
+    height: auto;
+    min-height: 3;
+    align: left middle;
+}
+
+#runner-toolbar Button {
+    margin-right: 1;
+    min-width: 10;
+}
+
+#runner-toolbar-hint {
+    width: 1fr;
+    height: auto;
+    margin: 0 0 0 1;
+    padding: 0 1;
+    color: $text-muted;
+    content-align: left middle;
+}
+
+#runner-status-panel {
+    height: auto;
+    max-height: 12;
+    padding: 1 1 0 0;
+    border-top: solid $primary-background;
+}
+
+#run-mcp-search {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#run-caps-actions {
+    height: 3;
+    align: left middle;
+    margin-bottom: 1;
+}
+
+#run-caps-actions Button {
+    margin-right: 1;
+}
+
+#run-caps-persona-hint,
+#run-caps-help {
+    margin-bottom: 1;
+}
+
+#run-caps-summary {
+    margin-bottom: 1;
+    padding: 1;
+    background: $surface-lighten-1;
+    border: solid $success;
+    height: auto;
+    min-height: 3;
+    max-height: 16;
+    overflow-y: auto;
+}
+
+
+/* MCP / skills pickers (Personas + Runner) — full height so registry search is usable */
+#plugins-picker-modal {
+    width: 96;
+    max-width: 100%;
+    height: 85%;
+    max-height: 92%;
+    padding: 1 2;
+    background: $surface;
+    border: heavy $primary;
+}
+
+#plugins-picker-modal #plugins-pick-search {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#plugins-picker-modal #plugins-pick-table {
+    height: 1fr;
+    min-height: 8;
+    margin-bottom: 1;
+}
+
+#plugins-picker-modal #plugins-pick-detail {
+    height: auto;
+    min-height: 4;
+    max-height: 10;
+    margin-bottom: 1;
+    padding: 1;
+    border: solid $primary-lighten-2;
+    background: $surface-darken-1;
+}
+
+#plugins-picker-modal #plugins-pick-sel {
+    margin-bottom: 1;
+}
+
+#mcp-picker-modal,
+#skills-picker-modal {
+    width: 92;
+    max-width: 100%;
+    height: auto;
+    max-height: 92%;
+    padding: 1 2;
+    background: $surface;
+    border: heavy $primary;
+}
+
+#mcp-picker-modal #mcp-pick-search,
+#skills-picker-modal #skills-pick-search {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#mcp-picker-modal #mcp-pick-search-row,
+#mcp-picker-modal #mcp-pick-footer {
+    height: 3;
+    align: left middle;
+    margin-bottom: 1;
+}
+
+#mcp-picker-modal #mcp-pick-table,
+#skills-picker-modal #skills-pick-table {
+    height: auto;
+    min-height: 8;
+    max-height: 14;
+    margin-bottom: 1;
+}
+
+#mcp-picker-modal #mcp-pick-detail {
+    height: auto;
+    min-height: 6;
+    max-height: 14;
+    overflow-y: auto;
+    margin-bottom: 1;
+    padding: 1;
+    background: $surface-darken-1;
+    border: solid $primary-lighten-2;
+    color: $text;
+}
+
+#mcp-picker-modal #mcp-pick-status,
+#mcp-picker-modal #mcp-pick-sel,
+#skills-picker-modal #skills-pick-sel {
+    margin-bottom: 1;
+}
+
+#mcp-cfg-modal {
+    width: 88;
+    max-width: 100%;
+    max-height: 92%;
+    padding: 1 2;
+    background: $surface;
+    border: heavy $primary;
+}
+
+#runner-status-panel #container-status-table {
+    height: 8;
+    min-height: 5;
+    max-height: 12;
+    margin-top: 0;
+}
+
+#github-write-bar {
+    height: 3;
+    width: 100%;
+    align: left middle;
+}
+
+/* Booleans: label + [ ] / [x]. Room for focus border so the label never clips. */
+Checkbox {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: $boost;
+    color: $text;
+    border: tall $panel;
+}
+
+Checkbox:focus {
+    background: $primary 20%;
+    color: $text;
+    text-style: bold;
+    border: tall $accent;
+}
+
+Checkbox.-on {
+    color: $success;
+    background: $boost;
+    text-style: bold;
+}
+
+Checkbox.-on:focus {
+    color: $success;
+    background: $primary 20%;
+    border: tall $accent;
+}
+
+/* Legacy Switch (if any remain): keep compact, don't inflate to 3 rows */
+Switch {
+    width: auto;
+    height: 1;
+    min-width: 7;
+    background: $panel;
+    border: none;
+    padding: 0 1;
+    margin: 0 0 0 1;
+}
+
+Switch .switch--slider {
+    background: $surface-darken-1;
+    color: $text-muted;
+}
+
+Switch.-on .switch--slider {
+    color: $success;
+    background: $success 20%;
+}
+
+.switch-row,
+.pe-switch-row,
+#github-write-bar {
+    height: auto;
+    width: 100%;
+    align: left middle;
+    margin: 0;
+}
+
+#models-override-modal, #batch-launch-modal {
+    width: 72;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: heavy $primary;
+}
+
+/* Persona editor — tabbed, not a single scroll wall */
+PersonaEditorModal {
+    align: center middle;
+    background: $background 50%;
+}
+
+#persona-editor-shell {
+    width: 88;
+    max-width: 96%;
+    height: 85%;
+    max-height: 90%;
+    layout: vertical;
+    background: $surface;
+    border: heavy $primary;
+    padding: 1 2;
+}
+
+#pe-title {
+    height: auto;
+    margin: 0 0 0 0;
+}
+
+#pe-hint {
+    height: auto;
+    margin: 0 0 1 0;
+    color: $text-muted;
+}
+
+#pe-tabs {
+    height: 1fr;
+    min-height: 12;
+}
+
+#persona-editor-shell .pe-pane {
+    height: 1fr;
+    padding: 0 1 1 0;
+}
+
+#persona-editor-shell Label {
+    margin: 1 0 0 0;
+    text-style: bold;
+}
+
+#persona-editor-shell .pe-field-hint {
+    height: auto;
+    margin: 0 0 0 0;
+    color: $text-muted;
+}
+
+#persona-editor-shell Input,
+#persona-editor-shell Select {
+    margin: 0 0 0 0;
+    width: 100%;
+}
+
+#persona-editor-shell TextArea {
+    margin: 0 0 1 0;
+    height: 5;
+    width: 100%;
+}
+
+#persona-editor-shell TextArea.pe-medium {
+    height: 7;
+}
+
+#persona-editor-shell TextArea.pe-tall {
+    height: 14;
+    min-height: 8;
+}
+
+#persona-editor-shell .pe-switch-row {
+    height: 3;
+    align: left middle;
+    margin: 1 0 0 0;
+}
+
+#persona-editor-shell .pe-btn-row {
+    height: 3;
+    align: left middle;
+    margin: 0 0 1 0;
+}
+
+#pe-actions {
+    height: 3;
+    dock: bottom;
+    align: left middle;
+    margin-top: 1;
+    padding-top: 0;
+}
+
+#pe-actions Button {
+    margin-right: 1;
+}
+
+#pe-gh-row {
+    height: 3;
+    align: left middle;
+    margin: 0 0 0 0;
+}
+
+#personas-screen {
+    padding: 1 2;
+}
+
+#pb-detail {
+    margin: 1 0;
+    height: auto;
+    min-height: 4;
+    border: solid $primary-lighten-2;
+    padding: 1;
+}
+
+#pb-actions {
+    height: 3;
+    margin-top: 1;
+}
+
+#pb-actions Button {
+    margin-right: 1;
+}
+
+#persona-row {
+    height: 3;
+    width: 100%;
+    align: left middle;
+}
+
+#persona-row Select {
+    width: 1fr;
+    margin: 0 1 0 0;
+}
+
+#persona-row .runner-inline-btn {
+    min-width: 8;
+    margin: 0 0 0 1;
+    height: 3;
+}
+
+#models-override-modal SelectionList, #batch-launch-modal SelectionList,
+#mom-models, #blm-models {
+    height: 12;
+    min-height: 6;
+    border: solid $primary-lighten-2;
+    margin: 1 0;
+}
+
+#docker-profile-hint {
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+#run-banner {
+    padding: 1 2;
+    margin: 1 0 1 0;
+    height: auto;
+    border: solid $primary-lighten-2;
+    background: $surface-darken-1;
+}
+
+#container-status {
+    padding: 1 2;
+    height: 1fr;
+    border-top: solid $primary;
+}
+
+/* Runner: compact status only (full logs in Jobs modal) */
+#container-status-table {
+    height: auto;
+    max-height: 12;
+    margin: 0 1 1 1;
+}
+
+#jobs-modal {
+    width: 96;
+    height: 90%;
+    max-height: 48;
+    padding: 1 2;
+    border: heavy $primary;
+    background: $surface;
+    margin: 1 2;
+}
+
+#jobs-modal-title {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#jobs-app-status {
+    height: auto;
+    padding: 0 0 1 0;
+}
+
+#jobs-tabs {
+    height: 1fr;
+}
+
+#jobs-status-table, #jobs-history-table {
+    height: auto;
+    max-height: 14;
+    margin: 0 0 1 0;
+}
+
+#jobs-logs-tabs {
+    height: 1fr;
+    min-height: 16;
+    border: solid $primary-lighten-2;
+    background: $surface-darken-1;
+}
+
+#jobs-logs-tabs RichLog {
+    height: 1fr;
+    background: $surface-darken-1;
+    padding: 0 1;
+    scrollbar-size: 1 1;
+}
+
+#jobs-modal-actions {
+    height: auto;
+    padding-top: 1;
+}
+
+#jobs-modal-actions Button {
+    margin-right: 1;
+}
+
+/* ── Rule Manager ─────────────────────────────────────────────────────── */
+
+#rule-list {
+    height: 1fr;
+    padding: 1 2;
+}
+
+.rule-row {
+    height: 3;
+    padding: 0 2;
+}
+
+.rule-row:hover {
+    background: $boost;
+}
+
+.rule-enabled {
+    color: $success;
+}
+
+.rule-disabled {
+    color: $text-muted;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+
+ContentSwitcher {
+    height: 1fr;
+}
+
+/* ── Feedback tab (BTNB cache: report / evidence / prompt) ─────────────── */
+
+#feedback-panel {
+    height: 1fr;
+    layout: vertical;
+}
+
+#feedback-bar {
+    height: 3;
+    padding: 0 1;
+    layout: horizontal;
+    background: $surface-darken-1;
+}
+
+#feedback-bar Button {
+    min-width: 0;
+    margin: 0 1 0 0;
+    padding: 0 1;
+    height: 1;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+}
+
+#feedback-bar Button.active {
+    color: $accent;
+    background: transparent;
+    text-style: bold;
+}
+
+#feedback-bar Button:hover {
+    color: $text;
+    background: transparent;
+    text-style: underline;
+}
+
+#feedback-bar Button:focus {
+    background: transparent;
+    text-style: underline;
+}
+
+#feedback-actions {
+    height: 3;
+    padding: 0 1;
+    layout: horizontal;
+    background: $surface-darken-1;
+}
+
+#feedback-actions Button {
+    min-width: 0;
+    margin: 0 1 0 0;
+    padding: 0 1;
+    height: 1;
+}
+
+.feedback-status {
+    height: auto;
+    max-height: 8;
+    padding: 0 1 1 1;
+    border-bottom: solid $surface-lighten-1;
+    color: $text-muted;
+}
+
+#feedback-scroll {
+    height: 1fr;
+}
+
+#feedback-content {
+    padding: 1 2;
+    height: auto;
+}
+
+/* Shared card frame for non-table blocks AND table hosts (matches DataTable border) */
+.panel-card {
+    height: auto;
+    layout: vertical;
+    background: $surface;
+    border: solid $primary-background;
+    padding: 1;
+    margin: 0 0 1 0;
+    color: $text;
+}
+
+.panel-card-grow {
+    height: 1fr;
+    min-height: 8;
+    margin-bottom: 0;
+}
+
+.panel-card-title {
+    height: auto;
+    padding: 0 0 1 0;
+    text-style: bold;
+    color: $text;
+}
+
+/* Content sits inside .panel-card — no second border on the Static */
+#summary-content,
+#reports-content,
+#diff-content,
+#stats-header,
+#stats-usage,
+#findings-header {
+    height: auto;
+    padding: 0;
+    color: $text;
+    background: transparent;
+    border: none;
+}
+
+/* Scroll hosts: page background; cards provide the frames */
+#summary-scroll,
+#reports-scroll,
+#diff-scroll,
+#stats-scroll {
+    height: 1fr;
+    background: $background;
+    padding: 1 1 0 1;
+}
+
+#findings-panel {
+    height: 1fr;
+    layout: vertical;
+    padding: 1 1 0 1;
+    background: $background;
+}
+
+/* Tables inside cards: no double outer border (card already frames) */
+.panel-card DataTable {
+    height: auto;
+    min-height: 5;
+    max-height: 18;
+    margin: 0;
+    border: none;
+    background: $surface-darken-1;
+}
+
+#findings-table {
+    height: 1fr;
+    min-height: 8;
+    border: none;
+    background: $surface-darken-1;
+}
+
+#stats-usage-card {
+    /* Hide empty usage card via height; content may be blank */
+    height: auto;
+}
+
+/* Focused browser pane tab — accent from user theme (lazygit-style active edge) */
+#browser-tabs UnderlineTab.-active,
+#browser-tabs Tab.-active,
+#runner-tabs UnderlineTab.-active,
+#runner-tabs Tab.-active,
+#pe-tabs UnderlineTab.-active,
+#pe-tabs Tab.-active {
+    text-style: bold;
+    color: $text;
+    background: $primary 20%;
+}
+
+#browser-tabs ContentSwitcher,
+#runner-tabs ContentSwitcher {
+    height: 1fr;
+    border-top: solid $primary-background;
+}
+
+#detail-body {
+    height: auto;
+    padding: 1;
+}
+
+/* ── DataTable — zebra + frame (theme tokens; enable zebra_stripes in code) ─ */
+
+DataTable {
+    height: 1fr;
+    background: $surface;
+    color: $text;
+    border: solid $primary-background;
+}
+
+/* Modal / embedded tables should not always eat 1fr */
+#mcp-pick-table,
+#plugins-pick-table,
+#skills-pick-table,
+#jobs-status-table,
+#jobs-history-table,
+#container-status-table,
+#rule-table {
+    height: auto;
+    min-height: 6;
+    max-height: 1fr;
+}
+
+DataTable > .datatable--header {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+DataTable > .datatable--header-cursor {
+    background: $primary-lighten-1;
+    text-style: bold;
+}
+
+/* Zebra: subtle alternation (only when zebra_stripes=True on the widget) */
+DataTable > .datatable--odd-row {
+    background: $surface;
+}
+
+DataTable > .datatable--even-row {
+    background: $surface-darken-1;
+}
+
+DataTable > .datatable--cursor {
+    background: $accent;
+    color: $text;
+    text-style: bold;
+}
+
+DataTable > .datatable--hover {
+    background: $primary 25%;
+}
+
+DataTable > .datatable--fixed {
+    background: $panel;
+}
+
+/* ── Session Search Modal ─────────────────────────────────────────────── */
+
+SessionSearchModal {
+    align: center top;
+    background: $background 60%;
+}
+
+#session-search-modal {
+    width: 80%;
+    height: auto;
+    max-height: 50%;
+    border: tall $primary;
+    background: $panel;
+    padding: 1 2;
+    margin: 2 0 0 0;
+}
+
+#session-search-list {
+    height: auto;
+    max-height: 20;
+    margin: 1 0 0 0;
+}
+
+#session-search-label {
+    text-style: bold;
+    margin: 0 0 1 0;
+}
+
+/* ── Modals ───────────────────────────────────────────────────────────── */
+
+ModalScreen {
+    align: center middle;
+}
+
+/* Help modal styles: HelpModal.DEFAULT_CSS in widgets/help_modal.py */
+
+#modal-container {
+    width: 80;
+    height: auto;
+    max-height: 40;
+    border: thick $primary;
+    background: $surface;
+    padding: 2 4;
+}
+
+#flag-buttons {
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+#modal-container Button {
+    margin: 0 1 0 0;
+    height: 1;
+}
+
+/* ── Buttons — quiet terminal links/actions (avoid blocky "toggle" look) ─ */
+
+Button {
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+    margin: 0 1 0 0;
+    background: transparent;
+    color: $text;
+    text-style: none;
+}
+
+Button:hover {
+    color: $accent;
+    background: transparent;
+    text-style: underline;
+}
+
+Button:focus {
+    background: $surface-lighten-1;
+    text-style: none;
+    color: $text;
+}
+
+/* Keyboard focus — visible for Tab navigation (AGENTS.md TUI patterns) */
+DataTable:focus {
+    border: tall $accent;
+}
+
+Input:focus,
+TextArea:focus,
+Checkbox:focus,
+OptionList:focus {
+    border: tall $accent;
+}
+
+/* Select focus is on SelectCurrent (see Select rules above), not the outer widget */
+Select:focus {
+    border: none;
+}
+
+
+/* Real action buttons (toolbars, modals) — subtle pill, not a filled block */
+#runner-toolbar Button,
+#jobs-modal-actions Button,
+#rc-actions Button,
+#run-caps-actions Button,
+#pb-actions Button,
+#analysis-settings-actions Button,
+#session-bar Button,
+#feedback-actions Button,
+#modal-container Button,
+#mcp-pick-search-row Button,
+#mcp-pick-footer Button,
+#skills-picker-modal Button,
+#persona-editor-modal Button,
+#personas-screen Button {
+    background: $surface-lighten-1;
+    color: $text;
+    padding: 0 2;
+}
+
+#runner-toolbar Button:hover,
+#jobs-modal-actions Button:hover,
+#rc-actions Button:hover,
+#run-caps-actions Button:hover,
+#pb-actions Button:hover,
+#analysis-settings-actions Button:hover,
+#session-bar Button:hover,
+#feedback-actions Button:hover,
+#modal-container Button:hover,
+#mcp-pick-search-row Button:hover,
+#mcp-pick-footer Button:hover,
+#skills-picker-modal Button:hover,
+#persona-editor-modal Button:hover,
+#personas-screen Button:hover {
+    background: $boost;
+    color: $text;
+    text-style: none;
+}
+
+#runner-toolbar Button:focus,
+#jobs-modal-actions Button:focus,
+#rc-actions Button:focus,
+#run-caps-actions Button:focus,
+#pb-actions Button:focus,
+#analysis-settings-actions Button:focus,
+#session-bar Button:focus,
+#feedback-actions Button:focus,
+#modal-container Button:focus,
+#mcp-pick-search-row Button:focus,
+#mcp-pick-footer Button:focus,
+#skills-picker-modal Button:focus,
+#persona-editor-modal Button:focus,
+#personas-screen Button:focus {
+    background: $boost;
+    text-style: bold;
+}
+
+Button.-primary {
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+}
+
+Button.-primary:hover {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+Button.-primary:focus {
+    background: $primary;
+    text-style: bold;
+}
+
+/* Muted secondary actions on runner toolbar */
+#runner-toolbar .runner-secondary-btn,
+.runner-secondary-btn,
+.runner-inline-btn {
+    background: transparent;
+    color: $text-muted;
+}
+
+#runner-toolbar .runner-secondary-btn:hover,
+.runner-secondary-btn:hover,
+.runner-inline-btn:hover {
+    color: $text;
+    background: $surface-lighten-1;
+    text-style: none;
+}
+
+Button.-error {
+    color: $error;
+    background: transparent;
+}
+
+Button.-error:hover {
+    background: $error-darken-2;
+    color: $text;
+}
+
+Button:disabled {
+    color: $text-muted;
+    background: transparent;
+    text-style: dim;
+    opacity: 50%;
+}
+
+/* SelectionList looks like a list, not a wall of buttons */
+SelectionList {
+    background: $surface;
+    padding: 0 1;
+}
+
+SelectionList > .selection-list--option-highlighted {
+    background: $boost;
+}
+
+/* ── Loading indicator ────────────────────────────────────────────────── */
+
+LoadingIndicator {
+    height: auto;
+}
+
+/* ── Utility ──────────────────────────────────────────────────────────── */
+
+.hidden {
+    display: none;
+}
+
+.text-error { color: $error; }
+.text-warning { color: $warning; }
+.text-success { color: $success; }
+.text-muted { color: $text-muted; }
+/* ── Run configs screen ──────────────────────────────────────────────── */
+#rc-banner {
+    padding: 1 2;
+    height: auto;
+}
+
+#rc-selection-status {
+    padding: 0 2 0 2;
+    height: auto;
+    color: $text-muted;
+}
+
+#rc-selection-tip {
+    padding: 0 2 1 2;
+    height: auto;
+}
+
+#rc-table {
+    height: 1fr;
+    min-height: 10;
+    margin: 0 1;
+}
+
+#rc-detail {
+    padding: 1 2;
+    height: auto;
+    max-height: 10;
+    border-top: solid $primary-lighten-2;
+}
+
+#rc-actions {
+    height: auto;
+    padding: 1 2;
+}
+
+#rc-actions Button {
+    margin-right: 1;
+}
+
+#models-override-modal {
+    width: 70;
+    height: auto;
+    padding: 2 3;
+    border: heavy $primary;
+    background: $surface;
+    margin: 4 8;
+}
+
+#models-override-modal Input {
+    margin: 1 0;
+}
+
+#batch-launch-modal {
+    width: 76;
+    height: auto;
+    padding: 2 3;
+    border: heavy $warning;
+    background: $surface;
+    margin: 3 6;
+}
+
+#batch-launch-modal Input {
+    margin: 1 0;
+}
+
+#batch-launch-modal Label {
+    margin-top: 1;
+}
