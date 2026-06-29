@@ -604,7 +604,7 @@ Do **not** invent ad-hoc key legends in banners or button labels
 |-------|---------|------|----------|
 | Session panes | Browser Report vs Timeline | `[` `]` , `1`–`6` | Tab strip + titles |
 | Editor panes | Persona Identity … Plugins | `[` `]` , `1`–`6` | Tab strip + titles |
-| Runner panes | Recipe / Runtime / Models / Extras | `[` `]` , `1`–`4` | Tab strip + titles |
+| Runner panes | Recipe / Runtime / Extras | `[` `]` , `1`–`3` | Tab strip + titles |
 | In-pane view | Timeline event filter | `v` → Select | Dropdown label |
 | Row actions | Flag event | `f` when actionable | Footer via `check_action` |
 | Multi-select | Sessions, configs, capability pickers | **`s` / `space`** | Green `*` column 0 |

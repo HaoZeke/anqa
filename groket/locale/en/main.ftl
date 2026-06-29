@@ -763,9 +763,7 @@ rules-title = Rules
 
 runner = Runner
 
-runner-tab-extras = 4 Run extras
-
-runner-tab-models = 3 Models
+runner-tab-extras = 3 Extras
 
 runner-tab-recipe = 1 Recipe
 

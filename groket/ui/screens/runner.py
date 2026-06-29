@@ -54,7 +54,7 @@ from ..i18n import t
 from ..panel_render import TipSurface
 
 logger = logging.getLogger(__name__)
-_RUNNER_TABS = ("runner-tab-recipe", "runner-tab-runtime", "runner-tab-models", "runner-tab-extras")
+_RUNNER_TABS = ("runner-tab-recipe", "runner-tab-runtime", "runner-tab-extras")
 
 
 @dataclass
@@ -171,6 +171,11 @@ class RunnerScreen(ChromeActions):
                                 t("ui-interactive-multi-turn-follow-ups-until-done"),
                                 id="interactive-multi-turn",
                             )
+                            yield Label(U.repository_label())
+                            yield Static("[dim]optional[/dim]", classes="runner-field-hint")
+                            yield Input(placeholder=U.repo_url_placeholder(), id="repo-url-input")
+                            yield Input(placeholder=U.branch_placeholder(), id="repo-branch-input")
+                            yield Static("", id="github-write-hint")
                     with TabPane(U.runner_tab_runtime(), id="runner-tab-runtime"):
                         with VerticalScroll(classes="runner-pane"):
                             yield Label(U.container_image_label())
@@ -202,13 +207,6 @@ class RunnerScreen(ChromeActions):
                                     classes="runner-inline-btn",
                                 )
                             yield Static("", id="persona-gh-hint")
-                            yield Label(U.repository_label())
-                            yield Static("[dim]optional[/dim]", classes="runner-field-hint")
-                            yield Input(placeholder=U.repo_url_placeholder(), id="repo-url-input")
-                            yield Input(placeholder=U.branch_placeholder(), id="repo-branch-input")
-                            yield Static("", id="github-write-hint")
-                    with TabPane(U.runner_tab_models(), id="runner-tab-models"):
-                        with VerticalScroll(classes="runner-pane"):
                             yield Label(U.models_heading())
                             yield TipSurface(
                                 U.tip_runner_models(),
@@ -218,12 +216,6 @@ class RunnerScreen(ChromeActions):
                             yield SelectionList[str](
                                 *model_selection_items(None), id="models-select"
                             )
-                            try:
-                                from ...runs.batch import models_catalog_help_text
-
-                                _mc_hint = models_catalog_help_text()
-                            except Exception:
-                                _mc_hint = t("ui-refresh-catalog-run-grok-models-on-the-host")
                             yield Static("", id="models-catalog-hint")
                     with TabPane(U.runner_tab_extras(), id="runner-tab-extras"):
                         with VerticalScroll(classes="runner-pane", id="runner-run-caps"):
@@ -290,9 +282,6 @@ class RunnerScreen(ChromeActions):
 
     def action_tab_runtime(self) -> None:
         self._activate_runner_tab("runner-tab-runtime")
-
-    def action_tab_models(self) -> None:
-        self._activate_runner_tab("runner-tab-models")
 
     def action_tab_extras(self) -> None:
         self._activate_runner_tab("runner-tab-extras")

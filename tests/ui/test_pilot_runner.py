@@ -14,7 +14,6 @@ from groket.ui.screens.runner import RunnerPrefill, RunnerScreen
 from textual.app import App
 from textual.widgets import (
     Button,
-    DataTable,
     Input,
     TabbedContent,
     TextArea,
@@ -128,15 +127,9 @@ async def test_runner_tab_switching(tmp_path: Path) -> None:
             lambda: tabs.active == "runner-tab-runtime",
             description="runtime tab active",
         )
-
-        scr.action_tab_models()
-        await pilot.pause()
-        tabs.active = "runner-tab-models"
-        await wait_until(
-            pilot,
-            lambda: tabs.active == "runner-tab-models",
-            description="models tab active",
-        )
+        # Models live on Runtime (no separate Models pane)
+        assert scr.query_one("#models-select") is not None
+        assert scr.query_one("#docker-image-select") is not None
 
         scr.action_tab_extras()
         await pilot.pause()
@@ -155,6 +148,9 @@ async def test_runner_tab_switching(tmp_path: Path) -> None:
             lambda: tabs.active == "runner-tab-recipe",
             description="recipe tab active",
         )
+        # Repo/branch on Recipe
+        assert scr.query_one("#repo-url-input") is not None
+        assert scr.query_one("#repo-branch-input") is not None
 
 
 @pytest.mark.asyncio

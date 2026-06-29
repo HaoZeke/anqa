@@ -105,8 +105,7 @@ RUNNER: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("right_square_bracket", "tab_next", U.bind_next_pane(), show=True),
     _b("1", "tab_recipe", U.bind_recipe(), show=False),
     _b("2", "tab_runtime", U.bind_runtime(), show=False),
-    _b("3", "tab_models", U.bind_models(), show=False),
-    _b("4", "tab_extras", U.bind_extras(), show=False),
+    _b("3", "tab_extras", U.bind_extras(), show=False),
 )
 RUN_CONFIGS: tuple[Binding, ...] = (
     SCREEN_CHROME
