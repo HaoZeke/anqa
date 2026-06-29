@@ -1,4 +1,4 @@
-"""One-line activity strip: Runs · Analysis · Sessions (top right)."""
+"""One-line activity strip (top right): live sessions, runs, optional analysis, library."""
 
 from __future__ import annotations
 
@@ -19,32 +19,39 @@ class _RunManagerView(Protocol):
     @property
     def active_count(self) -> int: ...
 
-
-class _AppActivityView(Protocol):
-    run_manager: _RunManagerView
-    _analysis_jobs_active: int
-    _meta_only: list[object]
+    @property
+    def active_session_count(self) -> int: ...
 
 
 def build_activity_line(
     *,
+    live_sessions: int,
     runs_active: int,
     analyze_active: int,
     sessions_loaded: int,
 ) -> Text:
-    """Build a right-aligned strip: Runs N · Analysis N · Sessions N.
+    """Right-aligned strip: Live · Runs · [Analysis] · Lib.
 
-    Colours match :data:`~groket.ui.styles.STATUS_RICH_STYLE`: active runs use
-    ``running`` (yellow), analysis uses ``building`` (cyan), idle is dim.
+    * **Live** — running eval sessions (containers); yellow when > 0.
+    * **Runs** — active launches (one run may own several sessions); yellow when > 0.
+    * **Analysis** — only when background analyze jobs are in flight (cyan).
+    * **Lib** — sessions loaded in the home list (always dim; catalog size).
     """
+    idle = status_rich_style("idle")
     line = Text()
+    live_style = status_rich_style("running" if live_sessions else "idle")
     runs_style = status_rich_style("running" if runs_active else "idle")
-    analyze_style = status_rich_style("building" if analyze_active else "idle")
+    line.append(t("activity-live", n=live_sessions), style=live_style)
+    line.append("  ·  ", style=idle)
     line.append(t("activity-runs", n=runs_active), style=runs_style)
-    line.append("  ·  ", style=status_rich_style("idle"))
-    line.append(t("activity-analysis", n=analyze_active), style=analyze_style)
-    line.append("  ·  ", style=status_rich_style("idle"))
-    line.append(t("activity-sessions", n=sessions_loaded), style=status_rich_style("idle"))
+    if analyze_active > 0:
+        line.append("  ·  ", style=idle)
+        line.append(
+            t("activity-analysis", n=analyze_active),
+            style=status_rich_style("building"),
+        )
+    line.append("  ·  ", style=idle)
+    line.append(t("activity-lib", n=sessions_loaded), style=idle)
     return line
 
 
@@ -52,15 +59,30 @@ if TYPE_CHECKING:
     from textual.app import App
 
 
-def activity_counters_from_app(app: App) -> tuple[int, int, int]:
+def activity_counters_from_app(app: App) -> tuple[int, int, int, int]:
+    """Return ``(live_sessions, runs, analysis, lib_sessions)``."""
     runs_n = 0
+    live_n = 0
     rm = getattr(app, "run_manager", None)
     if rm is not None:
         runs_n = int(getattr(rm, "active_count", 0) or 0)
-    analyze_n = int(getattr(app, "_analysis_jobs_active", 0) or 0)
+        live_n = int(getattr(rm, "active_session_count", 0) or 0)
+    # Also count loaded metas that are still in-progress / awaiting (no container yet).
     meta_only = getattr(app, "_meta_only", None) or []
+    meta_live = 0
+    for item in meta_only:
+        meta = item[0] if isinstance(item, tuple) and item else item
+        label_fn = getattr(meta, "list_status_label", None)
+        if callable(label_fn):
+            st = label_fn()
+            if st in ("running", "awaiting"):
+                meta_live += 1
+        elif getattr(meta, "turn_in_progress", False):
+            meta_live += 1
+    live_n = max(live_n, meta_live)
+    analyze_n = int(getattr(app, "_analysis_jobs_active", 0) or 0)
     sessions_n = len(meta_only) if hasattr(meta_only, "__len__") else 0
-    return (runs_n, analyze_n, sessions_n)
+    return (live_n, runs_n, analyze_n, sessions_n)
 
 
 class ActivityBar(Static):
@@ -95,12 +117,13 @@ class ActivityBar(Static):
 
     def refresh_activity(self) -> None:
         try:
-            runs, analyze, sessions = activity_counters_from_app(self.app)
+            live, runs, analyze, lib = activity_counters_from_app(self.app)
             self.update(
                 build_activity_line(
+                    live_sessions=live,
                     runs_active=runs,
                     analyze_active=analyze,
-                    sessions_loaded=sessions,
+                    sessions_loaded=lib,
                 )
             )
         except Exception:

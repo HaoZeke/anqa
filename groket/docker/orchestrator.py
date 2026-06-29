@@ -1075,6 +1075,14 @@ class DockerOrchestrator:
                 continue
         return names
 
+    def count_running_eval_containers(
+        self,
+        *,
+        name_prefixes: tuple[str, ...] | None = None,
+    ) -> int:
+        """Count running eval *containers* (each usually maps to one session)."""
+        return len(self.list_running_eval_container_names(name_prefixes=name_prefixes))
+
     def count_running_eval_runs(
         self,
         *,
@@ -1083,7 +1091,7 @@ class DockerOrchestrator:
         """Count distinct eval *runs* still active in Docker.
 
         Container names are ``groket-<run_id>-…``; unique ``run_id`` segments
-        map to one activity-bar “run” (one launch may use several containers).
+        map to one launch (one launch may use several containers/sessions).
         """
         names = self.list_running_eval_container_names(name_prefixes=name_prefixes)
         if not names:

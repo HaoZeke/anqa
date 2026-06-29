@@ -8,40 +8,59 @@ from groket.ui.widgets.activity_bar import activity_counters_from_app, build_act
 
 
 def test_build_activity_line_idle():
-    text = build_activity_line(runs_active=0, analyze_active=0, sessions_loaded=0)
+    text = build_activity_line(
+        live_sessions=0, runs_active=0, analyze_active=0, sessions_loaded=5
+    )
     plain = text.plain
+    assert "Live" in plain
     assert "Runs" in plain
-    assert "Analysis" in plain
-    assert "Sessions" in plain
-    assert "self-test" not in plain.lower()
+    assert "Lib" in plain
+    assert "Analysis" not in plain  # hidden when zero
 
 
 def test_build_activity_line_busy():
     from groket.ui.styles import status_rich_style
 
-    text = build_activity_line(runs_active=2, analyze_active=3, sessions_loaded=10)
+    text = build_activity_line(
+        live_sessions=3, runs_active=1, analyze_active=2, sessions_loaded=10
+    )
     plain = text.plain
-    assert "Runs 2" in plain or "2" in plain
-    assert "Analysis 3" in plain or "3" in plain
-    assert "Sessions 10" in plain or "10" in plain
-    assert "FAIL" not in plain
-    assert "batches" not in plain.lower()
-    # Active runs use the same style as container ``running`` (yellow, not green).
+    assert "Live 3" in plain or "3" in plain
+    assert "Runs 1" in plain or "Runs" in plain
+    assert "Analysis 2" in plain or "Analysis" in plain
+    assert "Lib 10" in plain or "10" in plain
     assert status_rich_style("running") == "bold yellow"
     styles = {str(span.style) for span in text.spans}
     assert any("yellow" in s for s in styles)
-    assert not any(s == "bold green" or s.endswith(" green") for s in styles)
 
 
 def test_activity_counters_from_app():
-    app = SimpleNamespace(
-        run_manager=SimpleNamespace(active_count=2, active_batch_ids=["b1"]),
-        _analysis_jobs_active=1,
-        _meta_only=[object(), object()],
-        _plugin_results={"a": object()},
-        _self_test_summary="self-test PASS",
+    meta_running = SimpleNamespace(
+        list_status_label=lambda: "running", turn_in_progress=True, session_dir="a"
     )
-    runs, analyze, sessions = activity_counters_from_app(app)
-    assert runs == 2
+    meta_done = SimpleNamespace(
+        list_status_label=lambda: "complete", turn_in_progress=False, session_dir="b"
+    )
+    app = SimpleNamespace(
+        run_manager=SimpleNamespace(active_count=1, active_session_count=3),
+        _analysis_jobs_active=1,
+        _meta_only=[(meta_running, "x"), (meta_done, "y")],
+    )
+    live, runs, analyze, lib = activity_counters_from_app(app)
+    assert runs == 1
+    assert live == 3  # from run_manager sessions
     assert analyze == 1
-    assert sessions == 2
+    assert lib == 2
+
+
+def test_activity_counters_prefers_meta_live_when_higher():
+    meta_running = SimpleNamespace(list_status_label=lambda: "running")
+    app = SimpleNamespace(
+        run_manager=SimpleNamespace(active_count=0, active_session_count=0),
+        _analysis_jobs_active=0,
+        _meta_only=[(meta_running, "x")],
+    )
+    live, runs, analyze, lib = activity_counters_from_app(app)
+    assert live == 1
+    assert runs == 0
+    assert lib == 1

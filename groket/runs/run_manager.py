@@ -104,9 +104,11 @@ class RunManager:
         self._active_batches: set[str] = set()
         # Set on TUI quit so workers stop calling into the UI (avoids hang on exit).
         self._ui_detached = False
-        # Cache for Docker-backed active run counts (TUI restart / orphan containers).
+        # Cache for Docker-backed active run/session counts (TUI restart).
         self._docker_runs_cache_at: float = 0.0
         self._docker_runs_cache_n: int = 0
+        self._docker_sessions_cache_at: float = 0.0
+        self._docker_sessions_cache_n: int = 0
         # Best-effort prune of exited eval containers at manager creation
         try:
             self.orchestrator.prune_eval_containers(remove_exited=True, remove_running=False)
@@ -167,19 +169,32 @@ class RunManager:
 
     @property
     def active_count(self) -> int:
-        """In-process running launches, or Docker-backed count after TUI restart.
-
-        Closing the app leaves containers under dockerd; the activity bar must
-        still show those runs until they finish (or are pruned on next launch).
-        """
+        """In-process running *launches*, or Docker-backed run count after restart."""
         with self._lock:
             in_proc = sum(1 for r in self._active.values() if r.is_running)
         if in_proc:
             return in_proc
         return self._docker_active_run_count()
 
+    @property
+    def active_session_count(self) -> int:
+        """Running eval *sessions* (containers), not launches.
+
+        One run with three models → three sessions while containers are up.
+        Falls back to Docker container count after TUI restart.
+        """
+        with self._lock:
+            names: set[str] = set()
+            for bg in self._active.values():
+                if bg.is_running:
+                    names.update(bg.container_names)
+            in_proc = len(names)
+        if in_proc:
+            return in_proc
+        return self._docker_active_session_count()
+
     def _docker_active_run_count(self) -> int:
-        """Cached count of distinct ``groket-<run_id>-*`` containers still running."""
+        """Cached count of distinct ``groket-<run_id>-*`` launches still running."""
         import time
 
         now = time.monotonic()
@@ -196,6 +211,31 @@ class RunManager:
         self._docker_runs_cache_at = now
         self._docker_runs_cache_n = max(0, n)
         return self._docker_runs_cache_n
+
+    def _docker_active_session_count(self) -> int:
+        """Cached count of running eval containers (sessions)."""
+        import time
+
+        # Share TTL clock with run cache; store sessions in a parallel field.
+        now = time.monotonic()
+        cache_at = getattr(self, "_docker_sessions_cache_at", 0.0)
+        if now - cache_at < 2.0:
+            return int(getattr(self, "_docker_sessions_cache_n", 0) or 0)
+        n = 0
+        try:
+            count_fn = getattr(self.orchestrator, "count_running_eval_containers", None)
+            if callable(count_fn):
+                n = int(count_fn() or 0)
+            else:
+                list_fn = getattr(self.orchestrator, "list_running_eval_container_names", None)
+                if callable(list_fn):
+                    n = len(list_fn() or [])
+        except Exception:
+            logger.debug("docker active session count failed", exc_info=True)
+            n = 0
+        self._docker_sessions_cache_at = now
+        self._docker_sessions_cache_n = max(0, n)
+        return self._docker_sessions_cache_n
 
     def list_active(self) -> list[BackgroundRun]:
         with self._lock:

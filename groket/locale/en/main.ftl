@@ -2316,8 +2316,10 @@ ui-version-tag =   v{ $ver }
 ui-status-bracket =   [{ $status }]
 
 # Activity bar (compact)
+activity-live = Live { $n }
 activity-runs = Runs { $n }
 activity-analysis = Analysis { $n }
+activity-lib = Lib { $n }
 activity-sessions = Sessions { $n }
 
 # Session list turn / status column

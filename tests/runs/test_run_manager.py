@@ -82,6 +82,9 @@ class FakeOrchestrator:
     def count_running_eval_runs(self, *, name_prefixes=None) -> int:
         return int(self.running_eval_runs)
 
+    def count_running_eval_containers(self, *, name_prefixes=None) -> int:
+        return int(getattr(self, "running_eval_containers", self.running_eval_runs))
+
     def check_docker_available(self):
         return True
 
