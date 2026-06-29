@@ -4,6 +4,12 @@ Screen {
     background: $surface;
 }
 
+/* Multiline editors: tall border uses 1 row top+bottom; keep ≥2 content lines
+   so Enter does not look like the field was cleared. */
+TextArea {
+    min-height: 4;
+}
+
 /* ── Header / Footer ──────────────────────────────────────────────────── */
 
 Header {
@@ -523,6 +529,7 @@ SelectOverlay:focus > .option-list--option-highlighted {
 
 #flag-form TextArea {
     height: 6;
+    min-height: 4;
     margin: 1 0;
 }
 
@@ -673,13 +680,13 @@ SelectOverlay:focus > .option-list--option-highlighted {
 #runner-main TextArea {
     margin: 0;
     height: 5;
-    min-height: 3;
+    min-height: 4;
     width: 100%;
 }
 
 #runner-main TextArea.runner-setup {
-    height: 3;
-    min-height: 2;
+    height: 4;
+    min-height: 4;
 }
 
 #runner-main SelectionList,
@@ -880,6 +887,13 @@ SelectOverlay:focus > .option-list--option-highlighted {
     border: heavy $primary;
 }
 
+#mcp-cfg-modal TextArea {
+    height: 4;
+    min-height: 4;
+    width: 100%;
+    margin: 0 0 1 0;
+}
+
 #runner-status-panel #container-status-table {
     height: 8;
     min-height: 5;
@@ -1023,12 +1037,13 @@ PersonaEditorModal {
 #persona-editor-shell TextArea {
     margin: 0;
     height: 4;
-    min-height: 3;
+    min-height: 4;
     width: 100%;
 }
 
 #persona-editor-shell TextArea.pe-medium {
     height: 5;
+    min-height: 4;
 }
 
 #persona-editor-shell TextArea.pe-tall {
