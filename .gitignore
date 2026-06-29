@@ -1,0 +1,25 @@
+
+.benchmarks/
+build/
+/config.json
+.coverage
+coverage.json
+dist/
+docs/_build/
+*.egg-info/
+/flags/
+htmlcov/
+/_meta_cache.json
+/models.yaml
+.mypy_cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# Python
+# Repo-root runtime (traces, local overrides — not package sources)
+/reports/
+.ruff_cache/
+/runs/
+# Tooling caches / coverage (local only)
+traces/
+.venv/

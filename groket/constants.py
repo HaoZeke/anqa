@@ -1,0 +1,28 @@
+"""Named constants used across the application."""
+
+from __future__ import annotations
+
+# ── Defaults ──────────────────────────────────────────────────────────────
+
+DEFAULT_DOCKER_IMAGE = "fully-loaded"
+DEFAULT_MODEL_ID = "unknown"
+CONFIG_FILENAME = "config.json"
+META_CACHE_FILENAME = "_meta_cache.json"
+
+# ── Container / run naming ────────────────────────────────────────────────
+
+INTERRUPTED_MARKER_FILENAME = "groket-interrupted.json"  # on-disk marker
+
+# ── Limits ────────────────────────────────────────────────────────────────
+
+LOG_BUFFER_MAXLEN = 8000
+LOG_TAIL_MAXLEN = 4000
+MAX_RUN_HISTORY = 20
+META_LOAD_WORKERS = 8
+LIVE_REFRESH_INTERVAL = 4.0
+LIVE_POLL_ACTIVE_INTERVAL = 3.0
+LIVE_POLL_IDLE_INTERVAL = 12.0
+DIFF_TRUNCATE_THRESHOLD = 120_000
+DIFF_TRUNCATE_HEAD = 60_000
+DIFF_TRUNCATE_TAIL = 40_000
+INCOMPLETE_STALE_SECONDS = 20 * 60
