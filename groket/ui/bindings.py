@@ -81,7 +81,6 @@ BROWSER: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("3", "tab_summary", U.bind_summary(), show=False),
     _b("4", "tab_diff", U.bind_diff(), show=False),
     _b("5", "tab_report", U.bind_report(), show=False),
-    _b("6", "tab_stats", U.bind_stats(), show=False),
     _b("v", "focus_timeline_filter", U.bind_view(), show=False),
     _b("f", "flag_event", U.bind_flag(), show=True),
     _b("slash", "search", U.bind_search(), show=False),

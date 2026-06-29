@@ -406,7 +406,7 @@ Sphinx-style docstrings on shared helpers, ruff on ``tests/`` in the gate
   ``BrowserScreen._stop_live_refresh()`` after the screen is ready) so
   background ticks are not part of the scenario.
 - **Do** prefer setting authoritative widget state and then waiting
-  (``tabs.active = "tab-stats"`` + ``wait_until``) when actions only schedule
+  (``tabs.active = "tab-summary"`` + ``wait_until``) when actions only schedule
   work; still call the real action/binding so the path is covered.
 - **Unit-test pure domain** (parser, turn gate, activity line builder) without
   Pilot when no widget tree is required — zero event-loop waits.
@@ -602,7 +602,7 @@ Do **not** invent ad-hoc key legends in banners or button labels
 
 | Layer | Example | Keys | Feedback |
 |-------|---------|------|----------|
-| Session panes | Browser Report vs Timeline | `[` `]` , `1`–`6` | Tab strip + titles |
+| Session panes | Browser Timeline … Report | `[` `]` , `1`–`5` | Tab strip + titles |
 | Editor panes | Persona Identity … Plugins | `[` `]` , `1`–`6` | Tab strip + titles |
 | Runner panes | Recipe / Runtime / Extras | `[` `]` , `1`–`3` | Tab strip + titles |
 | In-pane view | Timeline event filter | `v` → Select | Dropdown label |
@@ -744,7 +744,7 @@ chrome.
 | Kind | Examples | How |
 |------|----------|-----|
 | **UI structure** | Titles, keys, sections, status, tips | `panel_render` / `TipSurface`; full words; no `#` / `**` as chrome |
-| **Panel frames** | Summary / Report / Stats | TCSS **`.panel-card`** — prefer `Vertical(classes="panel-card")` |
+| **Panel frames** | Summary / Report | TCSS **`.panel-card`** — prefer `Vertical(classes="panel-card")` |
 | **Markdown content** | Assistant text, plugin reports, MD diffs | `md_content()` / `content_block()` only |
 
 Active tab uses `$primary` tint. New panels: `panel_group(...)`; do not

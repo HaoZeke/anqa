@@ -29,7 +29,8 @@ def test_setup_english() -> None:
     assert current_language() == "en"
     assert ui_text.save() == "Save"
     assert ui_text.cancel() == "Cancel"
-    assert "keyboard" in ui_text.help_markup().lower() or "groket" in ui_text.help_markup().lower()
+    help_l = ui_text.help_markup().lower()
+    assert "timeline" in help_l or "ctrl+p" in help_l
 
 
 def test_t_with_variable() -> None:

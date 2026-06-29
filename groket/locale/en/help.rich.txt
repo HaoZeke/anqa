@@ -16,7 +16,7 @@ s select · S select all · a analyze · x delete (twice)
 Ctrl+S save row as a recipe
 
 [bold]Session browser[/bold]
-[ ] or 1–6     panes (timeline, findings, summary, diff, report, stats)
+[ ] or 1–5     panes (timeline, findings, summary, diff, report)
 v              timeline view filter
 f              flag event
 n              follow-up prompt · e done (multi-turn)

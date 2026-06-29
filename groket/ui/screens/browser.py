@@ -48,7 +48,6 @@ from ..panel_render import (
     content_block,
     dim_rule,
     kv_line,
-    meta_strip,
     panel_group,
     refresh_all_tip_surfaces,
     section_header,
@@ -68,7 +67,6 @@ _BROWSER_TABS: tuple[tuple[str, str], ...] = (
     ("tab-summary", "#summary-scroll"),
     ("tab-diff", "#diff-scroll"),
     ("tab-reports", "#reports-scroll"),
-    ("tab-stats", "#stats-scroll"),
 )
 
 
@@ -171,6 +169,18 @@ class BrowserScreen(ChromeActions):
                     with Vertical(classes="panel-card"):
                         yield Static(id="summary-content")
                         yield TipSurface(U.tip_share_url(), id="summary-share-tip")
+                    with Vertical(classes="panel-card"):
+                        yield Static(t("ui-turns-1"), classes="panel-card-title")
+                        yield DataTable(id="stats-turns-table")
+                    with Vertical(classes="panel-card"):
+                        yield Static(U.event_types(), classes="panel-card-title")
+                        yield DataTable(id="stats-events-table")
+                    with Vertical(classes="panel-card"):
+                        yield Static(U.tool_timing(), classes="panel-card-title")
+                        yield DataTable(id="stats-tools-table")
+                    with Vertical(classes="panel-card"):
+                        yield Static(U.time_breakdown(), classes="panel-card-title")
+                        yield DataTable(id="stats-phases-table")
             with TabPane(U.tab_diff(), id="tab-diff"):
                 with VerticalScroll(id="diff-scroll"):
                     with Vertical(classes="panel-card"):
@@ -197,24 +207,6 @@ class BrowserScreen(ChromeActions):
                             yield Static(id="report-flags-content")
                             yield TipSurface(U.tip_no_flags(), id="report-flags-tip")
                         yield Vertical(id="report-sections-host")
-            with TabPane(U.tab_stats(), id="tab-stats"):
-                with VerticalScroll(id="stats-scroll"):
-                    with Vertical(classes="panel-card"):
-                        yield Static(id="stats-header")
-                    with Vertical(classes="panel-card"):
-                        yield Static(t("ui-turns-1"), classes="panel-card-title")
-                        yield DataTable(id="stats-turns-table")
-                    with Vertical(classes="panel-card"):
-                        yield Static(U.event_types(), classes="panel-card-title")
-                        yield DataTable(id="stats-events-table")
-                    with Vertical(classes="panel-card"):
-                        yield Static(U.tool_timing(), classes="panel-card-title")
-                        yield DataTable(id="stats-tools-table")
-                    with Vertical(classes="panel-card"):
-                        yield Static(U.time_breakdown(), classes="panel-card-title")
-                        yield DataTable(id="stats-phases-table")
-                    with Vertical(classes="panel-card", id="stats-usage-card"):
-                        yield Static(id="stats-usage")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -1198,12 +1190,11 @@ class BrowserScreen(ChromeActions):
         return out
 
     def _update_stats(self) -> None:
-        """Stats: header chrome + DataTables (same zebra/frame as Findings)."""
+        """Fill Summary-pane tables (turns, event mix, tool timing, phases)."""
         if not self.meta:
             return
         m = self.meta
         type_counts = Counter(e.event_type for e in self.timeline)
-        error_count = sum(1 for e in self.timeline if e.is_error)
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         durations = timeline_table.durations
         tool_call_events = [e for e in self.timeline if e.event_type == "tool_call" and e.tool_name]
@@ -1214,14 +1205,6 @@ class BrowserScreen(ChromeActions):
             dur = durations.get(e.index)
             if dur is not None:
                 tool_durations[e.tool_name].append(dur)
-        outcome = (m.turn_outcome or "unknown").strip()
-        kind = "unknown"
-        oc = outcome.lower()
-        if oc in ("success", "ok", "completed", "complete"):
-            kind = "ok"
-        elif m.turn_failed or oc in ("error", "failed", "failure", "timeout"):
-            kind = "bad"
-        turn_segments = []
         try:
             from ...session.turns import segment_timeline_turns, turn_summary_rows
 
@@ -1229,60 +1212,6 @@ class BrowserScreen(ChromeActions):
             turn_rows = turn_summary_rows(turn_segments, durations=durations)
         except Exception:
             turn_rows = []
-        head = Text()
-        head.append(t("ui-statistics"), style="bold")
-        head.append("\n  ")
-        head.append_text(status_chip(outcome, kind=kind))
-        head.append("\n")
-        strip_bits = [
-            m.model_id or "—",
-            m.duration_str or "—",
-            f"{len(self.timeline)} {t('ui-events-1')}",
-            f"{error_count} {t('ui-errors-1')}",
-            f"{len(self._findings)} {t('ui-findings-2')}",
-        ]
-        if turn_segments:
-            strip_bits.insert(2, f"{len(turn_segments)} {t('ui-turns')}")
-        head.append_text(meta_strip(strip_bits))
-        meta_t = Text()
-        meta_t.append_text(kv_line(t("ui-session-2"), m.session_id or "—"))
-        if m.title:
-            meta_t.append_text(kv_line(t("ui-title"), m.title))
-        meta_t.append_text(kv_line(t("ui-model"), m.model_id or "—"))
-        if turn_segments:
-            meta_t.append_text(kv_line(t("ui-turns-1"), str(len(turn_segments))))
-            last_seg = turn_segments[-1]
-            meta_t.append_text(kv_line(t("ui-last-turn"), last_seg.label))
-        meta_t.append_text(kv_line(t("ui-loops"), str(m.loop_count or "—")))
-        meta_t.append_text(kv_line(t("ui-duration"), m.duration_str or "—"))
-        meta_t.append_text(
-            kv_line(t("ui-outcome"), f"{outcome} {t('ui-last-turn-gate-see-turns-table')}")
-        )
-        diff_line = format_diff_meta_line(self._diff_meta or {})
-        if diff_line:
-            meta_t.append_text(kv_line(t("ui-diff-2"), diff_line))
-        meta_t.append_text(
-            kv_line(
-                t("ui-findings-1"),
-                f"{len(self._findings)} {t('ui-from')} {len(self.plugin_results)} {t('ui-plugins-1')}",
-            )
-        )
-        try:
-            from ...runs.live_share import get_share_display
-
-            info = get_share_display(self.session_dir)
-            share_raw = info.get("share_url")
-            url = str(share_raw).strip() if share_raw else ""
-            if url:
-                meta_t.append_text(kv_line(t("ui-share"), url))
-            elif info.get("pending"):
-                meta_t.append_text(kv_line(t("ui-share"), "pending"))
-        except Exception:
-            pass
-        try:
-            self.query_one("#stats-header", Static).update(panel_group(head, dim_rule(), meta_t))
-        except Exception:
-            pass
         try:
             turns_table = self.query_one("#stats-turns-table", DataTable)
             style_data_table(turns_table)
@@ -1337,13 +1266,9 @@ class BrowserScreen(ChromeActions):
         if not type_counts:
             ev_table.add_row("(none)", "0")
         tool_cat: dict[str, str] = {}
-        usage = None
-        _append_usage_rich = None
         try:
             from ...session.usage_stats import collect_session_usage
-            from ..session_summary import append_usage_rich as _aur
 
-            _append_usage_rich = _aur
             usage = collect_session_usage(self.session_dir, self.timeline, durations=durations)
             tool_cat = {r.name: r.category for r in usage.tools}
         except Exception:
@@ -1431,16 +1356,6 @@ class BrowserScreen(ChromeActions):
                 phases_table.add_row("overhead", self._fmt_dur(unaccounted), "—")
         else:
             phases_table.add_row("(none)", "—", "—")
-        try:
-            usage_w = self.query_one("#stats-usage", Static)
-            if usage is not None and _append_usage_rich is not None:
-                usage_t = Text()
-                _append_usage_rich(usage_t, usage)
-                usage_w.update(usage_t if usage_t.plain.strip() else "")
-            else:
-                usage_w.update("")
-        except Exception:
-            pass
 
     @on(TimelineTable.EventSelected)
     def _on_event_selected(self, message: TimelineTable.EventSelected) -> None:
@@ -1782,9 +1697,6 @@ class BrowserScreen(ChromeActions):
 
     def action_tab_report(self) -> None:
         self._activate_browser_tab("tab-reports")
-
-    def action_tab_stats(self) -> None:
-        self._activate_browser_tab("tab-stats")
 
     def _timeline_event_actionable(self) -> bool:
         """True when Flag (etc.) should be enabled: Timeline pane + focused list + event."""

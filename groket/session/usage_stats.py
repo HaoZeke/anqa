@@ -1,4 +1,4 @@
-"""Per-session tool / skill / MCP usage for Summary and Stats tabs.
+"""Per-session tool / skill / MCP usage for the session Summary pane.
 
 Presentation goals:
   - Host/built-in tools (read_file, grep, …) as a flat call table.
@@ -707,7 +707,7 @@ def format_usage_markdown(usage: SessionUsageStats) -> str:
     return "\n".join(lines)
 
 def format_usage_stats_text(usage: SessionUsageStats, *, fmt_dur=None) -> str:
-    """Rich blocks for the Stats tab (capabilities + MCP/skills; host tools stay in the table)."""
+    """Plain-text usage block (capabilities + MCP/skills; host tools stay in the table)."""
     _ = fmt_dur
     out: list[str] = []
 

@@ -225,7 +225,7 @@ def format_share_summary_markdown(session_dir: Path | str) -> str:
 
 
 def format_share_stats_line(session_dir: Path | str) -> str:
-    """Block for Stats tab."""
+    """Plain-text share line for summary-style displays."""
     info = get_share_display(session_dir)
     url = info.get("share_url") or ""
     if url:

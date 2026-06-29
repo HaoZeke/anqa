@@ -1,7 +1,7 @@
 """Session-derived views on traces (usage stats, workspace diffs).
 
 Complements :mod:`groket.parser` (raw timeline/tool extraction) with higher-level
-aggregates used by Summary / Stats tabs — still UI-agnostic.
+aggregates used by the session Summary pane — still UI-agnostic.
 """
 
 from __future__ import annotations

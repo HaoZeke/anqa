@@ -1623,15 +1623,18 @@ async def test_analyze_targets_already_analyzed(tmp_path: Path) -> None:
         assert app._plugin_results == before
 
 
-def test_analyze_targets_guard_bad_input(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_analyze_targets_guard_bad_input(tmp_path: Path) -> None:
     """_analyze_targets early-return guards for invalid input types."""
     work = tmp_path / "w"
     (work / "runs" / "traces").mkdir(parents=True)
     app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
-    # These must return immediately (before call_from_thread) due to type guards
-    app._analyze_targets(None)  # type: ignore[arg-type]  # deliberate wrong type
-    app._analyze_targets([])
-    app._analyze_targets("bad")  # type: ignore[arg-type]  # deliberate wrong type
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        app._analyze_targets(None)  # type: ignore[arg-type]  # deliberate wrong type
+        app._analyze_targets([])
+        app._analyze_targets("bad")  # type: ignore[arg-type]  # deliberate wrong type
+        await pilot.pause()
 
 
 @pytest.mark.asyncio

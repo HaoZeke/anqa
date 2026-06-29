@@ -145,8 +145,6 @@ bind-share = Share
 
 bind-skills = 5 Skills
 
-bind-stats = 6 Stats
-
 bind-summary = 3 Summary
 
 bind-task = Task
@@ -407,13 +405,9 @@ cmd-tab-report = Tab: Report
 
 cmd-tab-report-help = 5 — analysis report
 
-cmd-tab-stats = Tab: Stats
-
-cmd-tab-stats-help = 6 — usage stats
-
 cmd-tab-summary = Tab: Summary
 
-cmd-tab-summary-help = 3 — session summary
+cmd-tab-summary-help = 3 — session summary and usage tables
 
 cmd-tab-timeline = Tab: Timeline
 
@@ -850,8 +844,6 @@ tab-diff = 4 Diff
 tab-findings = 2 Findings
 
 tab-report = 5 Report
-
-tab-stats = 6 Stats
 
 tab-summary = 3 Summary
 

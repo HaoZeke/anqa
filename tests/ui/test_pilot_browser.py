@@ -157,7 +157,6 @@ async def _activate_tab(pilot, screen: BrowserScreen, pane_id: str) -> None:
         "tab-summary": screen.action_tab_summary,
         "tab-diff": screen.action_tab_diff,
         "tab-reports": screen.action_tab_report,
-        "tab-stats": screen.action_tab_stats,
     }
     actions[pane_id]()
     tabs = screen.query_one("#browser-tabs", TabbedContent)
@@ -196,16 +195,15 @@ async def test_browser_tabs_and_stats_turns(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
 
-        await _activate_tab(pilot, screen, "tab-stats")
+        await _activate_tab(pilot, screen, "tab-summary")
         turns_table = screen.query_one("#stats-turns-table")
         screen._update_stats()
         await wait_until(
             pilot,
             lambda: turns_table.row_count >= 1,
-            description="stats turns table has rows",
+            description="summary turns table has rows",
         )
 
-        await _activate_tab(pilot, screen, "tab-summary")
         await _activate_tab(pilot, screen, "tab-timeline")
 
         screen.action_tab_next()
@@ -406,12 +404,12 @@ async def test_browser_report_filter_sections(tmp_path: Path) -> None:
         assert screen._section_visible("flags")
 
 
-# ── Stats tab ────────────────────────────────────────────────────────────
+# ── Summary stats tables ─────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_browser_stats_tab_tables(tmp_path: Path) -> None:
-    """Stats tab builds event, tool, phase, and turns tables."""
+async def test_browser_summary_stats_tables(tmp_path: Path) -> None:
+    """Summary pane builds event, tool, phase, and turns tables."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -419,7 +417,7 @@ async def test_browser_stats_tab_tables(tmp_path: Path) -> None:
 
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
-        await _activate_tab(pilot, screen, "tab-stats")
+        await _activate_tab(pilot, screen, "tab-summary")
         screen._update_stats()
         await pilot.pause()
 

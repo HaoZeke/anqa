@@ -1336,8 +1336,6 @@ ContentSwitcher {
 #summary-content,
 #reports-content,
 #diff-content,
-#stats-header,
-#stats-usage,
 #findings-header {
     height: auto;
     padding: 0;
@@ -1378,11 +1376,6 @@ ContentSwitcher {
     min-height: 8;
     border: none;
     background: $surface-darken-1;
-}
-
-#stats-usage-card {
-    /* Hide empty usage card via height; content may be blank */
-    height: auto;
 }
 
 /* Focused browser pane tab — accent from user theme (lazygit-style active edge) */
