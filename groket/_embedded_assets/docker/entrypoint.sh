@@ -110,9 +110,9 @@ if [ -n "${GH_TOKEN:-}" ] && [ -d /workspace/.git ] && command -v git >/dev/null
 fi
 
 # Install persona/runner marketplace plugins from /groket-plugins-manifest.json.
-# Prefer ``grok plugin install`` so Grok registers plugins under
-# ~/.grok/installed-plugins and wires bundled .mcp.json — not a raw git tree
-# under ~/.grok/plugins alone (that skips CLI registration and confuses skills).
+# Single path: git clone (+ optional commit checkout), then
+# ``grok plugin install --trust <local-dir>``. Requires git and grok.
+# Do not pass url@sha to grok (suffix is treated as a branch name).
 _gte_install_plugins_from_manifest() {
     local manifest="${1:-/groket-plugins-manifest.json}"
     if [ ! -f "$manifest" ]; then
@@ -122,10 +122,18 @@ _gte_install_plugins_from_manifest() {
         echo ">>> WARNING: plugins manifest present but python3 missing — skipping plugin install."
         return 0
     fi
-    echo ">>> Installing Grok plugins from manifest (grok plugin install) ..."
+    if ! command -v git >/dev/null 2>&1 || ! command -v grok >/dev/null 2>&1; then
+        echo ">>> WARNING: plugins manifest present but git+grok required — skipping plugin install."
+        return 0
+    fi
+    echo ">>> Installing Grok plugins from manifest ..."
     # shellcheck disable=SC2016
     python3 - "$manifest" <<'PY'
-import json, shutil, subprocess, sys
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 manifest_path = Path(sys.argv[1])
@@ -137,10 +145,6 @@ except Exception as exc:
 if not isinstance(items, list):
     sys.exit(0)
 
-has_grok = shutil.which("grok") is not None
-has_git = shutil.which("git") is not None
-import tempfile
-
 for item in items:
     if not isinstance(item, dict):
         continue
@@ -149,62 +153,43 @@ for item in items:
     sha = str(item.get("sha") or "").strip()
     if not name or not url:
         continue
+    tmp = Path(tempfile.mkdtemp(prefix=f"groket-pl-{name}-"))
+    src = tmp / "src"
     try:
-        if not has_git:
-            print(f">>> WARNING: no git — cannot install plugin {name}", file=sys.stderr)
-            continue
-        # Grok treats url@ref as a *branch* name; commit SHAs fail with
-        # "Remote branch <sha> not found". Clone, checkout pin, then
-        # ``grok plugin install --trust <local-path>`` so Grok registers plugins.
-        tmp = Path(tempfile.mkdtemp(prefix=f"groket-pl-{name}-"))
-        src = tmp / "src"
-        try:
+        subprocess.run(
+            ["git", "clone", "--quiet", url, str(src)],
+            check=True,
+            capture_output=True,
+            timeout=300,
+            text=True,
+        )
+        if sha:
             subprocess.run(
-                ["git", "clone", "--quiet", url, str(src)],
+                ["git", "-C", str(src), "checkout", "--quiet", sha],
                 check=True,
                 capture_output=True,
-                timeout=300,
+                timeout=60,
                 text=True,
             )
-            if sha:
-                subprocess.run(
-                    ["git", "-C", str(src), "checkout", "--quiet", sha],
-                    check=True,
-                    capture_output=True,
-                    timeout=60,
-                    text=True,
-                )
-            if has_grok:
-                r = subprocess.run(
-                    ["grok", "plugin", "install", "--trust", str(src)],
-                    capture_output=True,
-                    timeout=300,
-                    text=True,
-                )
-                out = ((r.stdout or "") + (r.stderr or "")).strip()
-                failed = (
-                    r.returncode != 0
-                    or out.lower().startswith("error")
-                    or "install failed" in out.lower()
-                )
-                if failed:
-                    print(
-                        f">>> WARNING: plugin {name} install failed: {out[:800] or r.returncode}",
-                        file=sys.stderr,
-                    )
-                else:
-                    print(f">>> plugin {name} installed via grok plugin install ({url})")
-            else:
-                dest_root = Path.home() / ".grok" / "installed-plugins" / name
-                if dest_root.exists():
-                    shutil.rmtree(dest_root, ignore_errors=True)
-                shutil.copytree(src, dest_root)
-                print(f">>> plugin {name} copied to {dest_root} (no grok CLI)")
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        r = subprocess.run(
+            ["grok", "plugin", "install", "--trust", str(src)],
+            capture_output=True,
+            timeout=300,
+            text=True,
+        )
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        if r.returncode != 0 or out.lower().startswith("error") or "install failed" in out.lower():
+            print(
+                f">>> WARNING: plugin {name} install failed: {out[:800] or r.returncode}",
+                file=sys.stderr,
+            )
+        else:
+            print(f">>> plugin {name} installed ({url})")
     except Exception as exc:
         err = getattr(exc, "stderr", None) or exc
         print(f">>> WARNING: plugin {name} install failed: {err}", file=sys.stderr)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 PY
 }
 
