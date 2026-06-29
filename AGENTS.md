@@ -20,8 +20,9 @@ make lint           # ruff + mypy
 ```
 
 Non-TUI CLI: ``groket gen …`` scaffolds extensions; ``groket self-test`` runs
-host checks (Docker, auth, work dir) without starting the TUI. Default
-``groket`` / ``groket PATH`` is the interactive TUI.
+host checks without the TUI; ``groket batch run|validate|schema`` runs task
+YAML catalogs through Docker (see ``examples/tasks/``). Default ``groket`` /
+``groket PATH`` is the interactive TUI.
 
 Prefer **`uv run …`** for project tools (`pytest`, `ruff`, `groket`) so the
 environment matches the lockfile.

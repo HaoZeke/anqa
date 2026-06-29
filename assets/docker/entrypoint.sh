@@ -46,16 +46,36 @@ if [ -n "${GH_TOKEN:-}" ]; then
     fi
     _gte_setup_git_gh_auth
 else
-    echo ">>> No GH_TOKEN — gh/git push unauthenticated; agents should pivot / local-only."
+    # Informational only — public HTTPS clones do not need a token.
+    echo ">>> No GH_TOKEN (optional): private remotes / git push need a persona PAT or host GH_TOKEN."
 fi
 
 # Repo is optional — jobs may be "prompt + initial commands" only (empty workspace).
 if [ -n "$REPO_URL" ] && [ ! -d /workspace/.git ]; then
-    echo ">>> Cloning $REPO_URL ..."
+    if ! command -v git >/dev/null 2>&1; then
+        echo ">>> ERROR: git not installed in the image; cannot clone $REPO_URL"
+        echo ">>> Use docker_image fully-loaded (or an image with git)."
+        exit 127
+    fi
+    echo ">>> Cloning $REPO_URL${REPO_BRANCH:+ (branch $REPO_BRANCH)} ..."
+    set +e
     if [ -n "$REPO_BRANCH" ]; then
-        git clone --branch "$REPO_BRANCH" "$REPO_URL" /workspace
+        git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" /workspace
+        clone_rc=$?
     else
-        git clone "$REPO_URL" /workspace
+        git clone --depth 1 "$REPO_URL" /workspace
+        clone_rc=$?
+    fi
+    set -e
+    if [ "$clone_rc" -ne 0 ]; then
+        echo ">>> ERROR: git clone failed (exit $clone_rc)"
+        echo ">>>   url:    $REPO_URL"
+        echo ">>>   branch: ${REPO_BRANCH:-"(default)"}"
+        if [ -z "${GH_TOKEN:-}" ]; then
+            echo ">>> Public HTTPS repos need network + git only."
+            echo ">>> Private repos need GH_TOKEN (persona github_token / github_token_env, or host GH_TOKEN)."
+        fi
+        exit "$clone_rc"
     fi
     echo ">>> Clone complete."
 elif [ -z "$REPO_URL" ]; then

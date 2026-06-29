@@ -32,7 +32,8 @@ app = typer.Typer(
         "[cyan]-P PATH[/cyan] or [cyan]groket PATH[/cyan] "
         "(default work root: [cyan]~/.groket/work[/cyan]). "
         "Scaffold extensions with [cyan]groket gen[/cyan]. "
-        "Host checks without the TUI: [cyan]groket self-test[/cyan]."
+        "Headless Docker catalogs: [cyan]groket batch[/cyan]. "
+        "Host checks: [cyan]groket self-test[/cyan]."
     ),
     no_args_is_help=False,
     add_completion=True,
@@ -52,8 +53,19 @@ gen_app = typer.Typer(
 )
 app.add_typer(gen_app, name="gen")
 
+batch_app = typer.Typer(
+    name="batch",
+    help=(
+        "Run task YAML catalogs through Docker (headless). "
+        "See [cyan]examples/tasks/[/cyan] and "
+        "[cyan]https://indynull.github.io/groket/schemas/tasks.schema.json[/cyan]."
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(batch_app, name="batch")
+
 # Subcommand names — must not be consumed as a TUI path positional.
-TOOL_COMMANDS = frozenset({"gen", "generator", "self-test"})
+TOOL_COMMANDS = frozenset({"gen", "generator", "self-test", "batch"})
 COMMAND_ALIASES = {"generator": "gen"}
 
 
@@ -99,6 +111,138 @@ def main_callback(
     if ctx.invoked_subcommand is not None:
         return
     launch_tui(path=path, config=config)
+
+
+@batch_app.command("run")
+def cmd_batch_run(
+    tasks: Annotated[
+        Path,
+        typer.Option(
+            "-t",
+            "--tasks",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Tasks YAML file (schema: schemas/tasks.schema.json).",
+        ),
+    ],
+    path: Annotated[
+        Path | None,
+        typer.Option(
+            "-P",
+            "--path",
+            help="Work root for traces and Docker builds (default ~/.groket/work).",
+            show_default=False,
+        ),
+    ] = None,
+    category: Annotated[
+        str | None,
+        typer.Option(
+            "-C",
+            "--category",
+            help="Only tasks with this category field.",
+        ),
+    ] = None,
+    task_id: Annotated[
+        list[str] | None,
+        typer.Option("-i", "--task-id", help="Only these task ids (repeatable)."),
+    ] = None,
+    models: Annotated[
+        list[str] | None,
+        typer.Option(
+            "-m",
+            "--models",
+            help="Model ids (default: host Grok models catalog).",
+        ),
+    ] = None,
+    parallelism: Annotated[
+        int,
+        typer.Option("-p", "--parallelism", min=1, help="Concurrent (task, model) jobs."),
+    ] = 1,
+) -> None:
+    """Validate tasks YAML and run each task × model through Docker."""
+    from .paths import resolve_work_and_traces
+    from .runs.batch import load_models, load_tasks, run_batch
+    from .runs.task_schema import load_task_file
+
+    try:
+        load_task_file(tasks)  # fail fast with Pydantic errors before Docker
+        loaded = load_tasks(tasks, category)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except (ValueError, Exception) as exc:
+        # Pydantic ValidationError subclasses Exception
+        typer.echo(f"error: invalid tasks file: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if task_id:
+        wanted = set(task_id)
+        loaded = [t for t in loaded if t.task_id in wanted]
+    if not loaded:
+        typer.echo("No tasks matched filters.", err=True)
+        raise typer.Exit(0)
+
+    wd, _tr = resolve_work_and_traces(path)
+    typer.echo(f"batch: work_dir={wd}", err=True)
+    typer.echo(f"  tasks={len(loaded)}  models={models or load_models()}", err=True)
+    results = run_batch(
+        loaded,
+        work_dir=wd,
+        models=models or load_models(),
+        parallelism=parallelism,
+    )
+    failed = sum(1 for r in results if (r.get("status") or "") != "completed")
+    raise typer.Exit(1 if failed else 0)
+
+
+@batch_app.command("validate")
+def cmd_batch_validate(
+    tasks: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Tasks YAML file to validate.",
+        ),
+    ],
+) -> None:
+    """Validate a tasks YAML file against the Pydantic / JSON Schema model."""
+    from .runs.task_schema import load_task_file
+
+    try:
+        doc = load_task_file(tasks)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"OK  {tasks}  ({len(doc.resolved_tasks())} task(s), schema_version={doc.schema_version})"
+    )
+
+
+@batch_app.command("schema")
+def cmd_batch_schema(
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "-o",
+            "--out",
+            help="Write JSON Schema to this path (default: stdout).",
+        ),
+    ] = None,
+) -> None:
+    """Emit JSON Schema for tasks YAML (same as ``make schema`` / Pages publish)."""
+    from .runs.task_schema import emit_tasks_schema
+
+    text = emit_tasks_schema(out)
+    if out is None:
+        typer.echo(text, nl=False)
+    else:
+        typer.echo(f"Wrote {out}")
 
 
 @app.command("self-test")

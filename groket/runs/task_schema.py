@@ -19,14 +19,6 @@ SCHEMA_TITLE = "groket-tasks"
 SCHEMA_ID = "https://indynull.github.io/groket/schemas/tasks.schema.json"
 
 
-class TaskTurn(BaseModel):
-    """One scripted follow-up prompt after the task's primary ``prompt``."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    prompt: str = Field(..., min_length=1, description="User message for this turn.")
-
-
 class TaskDefaults(BaseModel):
     """Document-level defaults inherited by each task unless overridden."""
 
@@ -63,13 +55,36 @@ class TaskDefinition(BaseModel):
     models: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
-    turns: list[TaskTurn] = Field(default_factory=list)
+    # Scripted follow-ups after the primary prompt (plain strings).
+    # Also accepts legacy ``[{prompt: "…"}]`` maps for older catalogs.
+    turns: list[str] = Field(default_factory=list)
     success_hints: list[str] = Field(default_factory=list)
 
     @field_validator("repo_url", "repo_branch", "persona_id", mode="before")
     @classmethod
     def _none_to_empty(cls, v: str | None) -> str:
         return "" if v is None else v
+
+    @field_validator("turns", mode="before")
+    @classmethod
+    def _coerce_turns(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise TypeError("turns must be a list of strings (or {prompt: …} maps)")
+        out: list[str] = []
+        for item in v:
+            if isinstance(item, str):
+                text = item.strip()
+            elif isinstance(item, dict):
+                raw = item.get("prompt", item.get("text", ""))
+                text = str(raw).strip() if raw is not None else ""
+            else:
+                raise TypeError("each turn must be a string or a mapping with prompt")
+            if text:
+                out.append(text)
+        return out
+
 
     def setup_shell(self) -> str:
         for val in (self.initial_commands, self.setup_instructions, self.setup):
@@ -204,7 +219,7 @@ def task_definition_to_eval_task(task: TaskDefinition) -> EvalTask:
         models=list(task.models or []) or None,
         tags=list(task.tags or []) or None,
         env=dict(task.env or {}) or None,
-        turns=[t.prompt for t in task.turns] or None,
+        turns=list(task.turns) or None,
         success_hints=list(task.success_hints or []) or None,
     )
 
@@ -216,7 +231,6 @@ __all__ = [
     "TaskDefaults",
     "TaskDefinition",
     "TaskFile",
-    "TaskTurn",
     "emit_tasks_schema",
     "load_task_file",
     "task_definition_to_eval_task",

@@ -542,14 +542,15 @@ def _run_single_task(
                 "container": status.container_name,
                 "status": status.status,
                 "session_dir": str(status.session_dir) if status.session_dir else None,
-                "error": status.error[:200] if status.error else "",
+                "error": (status.error or "")[:800],
             }
             results.append(entry)
             sfx = model_suffix(status.model)
             if status.status == "completed":
                 logger.info(f"{tag} [{sfx:>5}] DONE -> {status.session_dir}")
             else:
-                logger.error(f"{tag} [{sfx:>5}] FAILED: {status.error[:100]}")
+                err = (status.error or "").replace("\n", " | ")
+                logger.error(f"{tag} [{sfx:>5}] FAILED: {err[:400]}")
 
     except Exception as e:
         logger.error(f"{tag} ERROR: {e}")

@@ -43,9 +43,12 @@ lint-complexity:
 schema:
 	uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; emit_tasks_schema(Path('schemas/tasks.schema.json'))"
 
-schema-check: schema
-	@git diff --exit-code -- schemas/tasks.schema.json || \
-	  (echo "schemas/tasks.schema.json is stale — run make schema and commit" >&2; exit 1)
+schema-check:
+	@tmp=$$(mktemp) && \
+	  uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; import sys; emit_tasks_schema(Path(sys.argv[1]))" "$$tmp" && \
+	  diff -q "$$tmp" schemas/tasks.schema.json >/dev/null || \
+	  (echo "schemas/tasks.schema.json is stale — run make schema and commit" >&2; rm -f "$$tmp"; exit 1) && \
+	  rm -f "$$tmp"
 
 test:
 	uv run pytest tests/ -q --tb=short

@@ -72,14 +72,19 @@ Launch Docker evals from a recipe (prompt, models, persona, repo, extras).
 | Command | Purpose |
 |---------|---------|
 | `groket self-test` | Host checks (Docker, Grok auth, work dir) — **no TUI** |
-| `groket gen …` | Scaffold detectors, rules, analysis plugins, example files under `~/.groket/` |
+| `groket gen …` | Scaffold detectors, rules, analysis plugins under `~/.groket/` |
+| `groket batch …` | Headless Docker runs from a **task YAML** catalog (optional power path) |
 
 ```bash
 groket self-test
 groket gen detector my_check
-groket gen rule my-rule --detector my_check
-groket gen plugin my_stats --register
+groket batch validate examples/tasks/demo_tasks.yaml
+groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
 ```
+
+Task catalogs use JSON Schema
+[`tasks.schema.json`](https://indynull.github.io/groket/schemas/tasks.schema.json)
+(see [`examples/tasks/`](examples/tasks/)). Prefer the TUI runner for interactive work.
 
 ## Development
 

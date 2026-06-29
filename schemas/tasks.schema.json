@@ -240,7 +240,7 @@
         },
         "turns": {
           "items": {
-            "$ref": "#/$defs/TaskTurn"
+            "type": "string"
           },
           "title": "Turns",
           "type": "array"
@@ -258,23 +258,6 @@
         "prompt"
       ],
       "title": "TaskDefinition",
-      "type": "object"
-    },
-    "TaskTurn": {
-      "additionalProperties": false,
-      "description": "One scripted follow-up prompt after the task's primary ``prompt``.",
-      "properties": {
-        "prompt": {
-          "description": "User message for this turn.",
-          "minLength": 1,
-          "title": "Prompt",
-          "type": "string"
-        }
-      },
-      "required": [
-        "prompt"
-      ],
-      "title": "TaskTurn",
       "type": "object"
     }
   },

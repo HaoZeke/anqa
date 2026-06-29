@@ -12,20 +12,22 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
-def test_help_lists_gen_and_self_test() -> None:
+def test_help_lists_main_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     out = result.stdout or result.output or ""
     assert "gen" in out
     assert "self-test" in out
-    assert "batch" not in out
+    assert "batch" in out
     assert "audit" not in out
     result2 = runner.invoke(app, ["gen", "--help"])
     assert result2.exit_code == 0
+    result3 = runner.invoke(app, ["batch", "--help"])
+    assert result3.exit_code == 0
 
 
 def test_tool_commands() -> None:
-    assert TOOL_COMMANDS == frozenset({"gen", "generator", "self-test"})
+    assert TOOL_COMMANDS == frozenset({"gen", "generator", "self-test", "batch"})
 
 
 class TestSelfTestCommand:
@@ -141,6 +143,35 @@ class TestMainEntryArgv:
         ):
             main(argv=None)
             mock_app.assert_called_once()
+
+
+class TestBatchCommands:
+    def test_batch_validate_ok(self, tmp_path: Path) -> None:
+        demo = Path("examples/tasks/demo_tasks.yaml")
+        if not demo.is_file():
+            pytest.skip("demo tasks missing")
+        result = runner.invoke(app, ["batch", "validate", str(demo)])
+        assert result.exit_code == 0
+        out = result.stdout or result.output or ""
+        assert "OK" in out
+
+    def test_batch_validate_bad(self, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("tasks: []\n", encoding="utf-8")
+        result = runner.invoke(app, ["batch", "validate", str(bad)])
+        assert result.exit_code == 2
+
+    def test_batch_schema_stdout(self) -> None:
+        result = runner.invoke(app, ["batch", "schema"])
+        assert result.exit_code == 0
+        out = result.stdout or result.output or ""
+        assert "tasks.schema.json" in out or "TaskDefinition" in out or "$id" in out
+
+    def test_batch_not_rewritten_as_path(self) -> None:
+        with patch("groket.cli.app") as mock_app:
+            main(argv=["batch", "validate", "x.yaml"])
+            args = mock_app.call_args.kwargs.get("args") or mock_app.call_args[1].get("args", [])
+            assert args[0] == "batch"
 
 
 class TestGenCommands:

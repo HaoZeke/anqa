@@ -1,26 +1,34 @@
-# Editor $schema (published):
-#   https://indynull.github.io/groket/schemas/tasks.schema.json
-# Local copy: schemas/tasks.schema.json (regenerate: make schema)
-# Load tasks in code via groket.runs.task_schema / batch helpers.
+# yaml-language-server: $schema=https://indynull.github.io/groket/schemas/tasks.schema.json
+# Local schema: schemas/tasks.schema.json (make schema)
+#
+#   groket batch validate examples/tasks/demo_tasks.yaml
+#   groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
+#   groket batch run -t examples/tasks/demo_tasks.yaml -i demo-list-workspace
 
 schema_version: 1
 
+defaults:
+  docker_image: fully-loaded
+  category: regular
+
 tasks:
   - task_id: demo-list-workspace
-    category: custom
-    # Optional git clone into /workspace (omit for empty workspace + prompt only)
-    # repo_url: https://github.com/org/repo.git
-    # repo_branch: main
+    description: Empty workspace smoke check (no git clone).
     prompt: >
       List the top-level files in /workspace and print the current date.
       Do not modify any files.
     # initial_commands: |
     #   echo "workspace ready"
-    # turns:
-    #   - prompt: Also print the disk usage of /workspace.
 
   - task_id: demo-readme-summary
-    category: custom
+    description: Summarize README if present.
     prompt: >
       If a README exists in the workspace, summarize it in three bullets.
       If not, say so and stop.
+
+  - task_id: demo-follow-up-turns
+    description: Multi-turn scripted follow-ups (second user message after first turn).
+    prompt: >
+      Create a file named hello.txt in /workspace containing the word hello.
+    turns:
+      - Print the contents of hello.txt and confirm it exists.

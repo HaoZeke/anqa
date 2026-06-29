@@ -1275,7 +1275,9 @@ class DockerOrchestrator:
 
             if exit_code != 0 and status.session_dir is None:
                 logs = self.get_container_logs(config.container_name)
-                _update("failed", f"Exit code {exit_code}. Logs: {logs[-500:]}")
+                # Prefer the tail of logs (clone/setup errors land late; banners early).
+                tail = (logs or "")[-1200:].strip()
+                _update("failed", f"Exit code {exit_code}. Logs (tail): {tail}")
             else:
                 _update("completed")
 

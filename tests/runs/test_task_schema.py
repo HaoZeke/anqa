@@ -37,7 +37,7 @@ def test_validate_and_defaults(tmp_path: Path):
                     {
                         "task_id": "a",
                         "prompt": "hello world",
-                        "turns": [{"prompt": "second turn"}],
+                        "turns": ["second turn"],
                         "tags": ["x"],
                     }
                 ],
@@ -206,14 +206,14 @@ def test_resolved_tasks_defaults_override_string_fields(tmp_path: Path):
 
 
 def test_task_definition_to_eval_task():
-    from groket.runs.task_schema import TaskDefinition, TaskTurn, task_definition_to_eval_task
+    from groket.runs.task_schema import TaskDefinition, task_definition_to_eval_task
 
     td = TaskDefinition(
         task_id="t1",
         prompt="do stuff",
         repo_url="https://github.com/x/y",
         tags=["a"],
-        turns=[TaskTurn(prompt="follow up")],
+        turns=["follow up"],
         success_hints=["check output"],
         env={"K": "V"},
     )
@@ -244,3 +244,14 @@ def test_batch_task_turns_on_eval_task():
 
     t = EvalTask(task_id="t", prompt="p", turns=["a", "b"])
     assert t.turns == ["a", "b"]
+
+
+def test_turns_accept_string_list_and_legacy_maps(tmp_path: Path) -> None:
+    from groket.runs.task_schema import TaskDefinition
+
+    assert TaskDefinition(task_id="t", prompt="p", turns=["a", "b"]).turns == ["a", "b"]
+    assert TaskDefinition(
+        task_id="t",
+        prompt="p",
+        turns=[{"prompt": "legacy"}, {"text": "also"}],
+    ).turns == ["legacy", "also"]

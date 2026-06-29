@@ -200,12 +200,15 @@ def write_tasks_file(path: Path | None = None, *, force: bool = False) -> Path:
         raise FileExistsError(f"already exists: {out} (use --force to overwrite)")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        """# Tasks for: uv run groket batch --tasks <this-file> [--models …]
-# There is no built-in default catalog — pass this path explicitly.
+        """# yaml-language-server: $schema=https://indynull.github.io/groket/schemas/tasks.schema.json
+# Run: groket batch validate <this-file>
+#      groket batch run -t <this-file> -m <model-id>
+
+schema_version: 1
 
 tasks:
   - task_id: example-hello
-    category: custom
+    category: regular
     # repo_url: https://github.com/org/repo.git
     # repo_branch: main
     prompt: >
