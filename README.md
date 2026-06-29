@@ -1,8 +1,14 @@
 # groket
 
-Interactive [Textual](https://github.com/Textualize/textual) TUI for evaluating
-[Grok Build](https://docs.x.ai/grok-build) sessions — timeline, findings, workspace
-diff, Docker launches, personas, and pluggable detectors.
+**groket** (grok evaluation tool) — a TUI for evaluating
+[Grok Build](https://docs.x.ai/build/overview) agent sessions (timeline,
+findings, workspace diffs, Docker launches, personas, and pluggable detectors).
+
+It is **not** the Grok coding agent itself. The agent CLI is `grok`
+([install / TUI](https://docs.x.ai/build/overview),
+[headless & scripting](https://docs.x.ai/build/cli/headless-scripting#cli)).
+Groket runs alongside it: open traces, score runs, and drive Docker-based
+evals.
 
 ## Install
 
@@ -47,11 +53,11 @@ Footer shows the main shortcuts for the current screen; `?` and `Ctrl+P` cover t
 
 Panes (``[`` / ``]`` or digits **1–5**):
 
-1. **Timeline** — events + detail; `v` view filter, `f` flag event, `/` search  
-2. **Summary** — session overview and usage tables  
-3. **Diff** — workspace changes  
-4. **Findings** — detector hits (`i` also jumps here)  
-5. **Report** — analysis panels and flags  
+1. **Timeline** — events + detail; `v` view filter, `f` flag event, `/` search
+2. **Summary** — session overview and usage tables
+3. **Diff** — workspace changes
+4. **Findings** — detector hits (`i` also jumps here)
+5. **Report** — analysis panels and flags
 
 While a multi-turn session is live: follow-up bar, `n` focus prompt, `e` mark done.
 `x` deletes the session (confirm twice). `Esc` returns to the session list.
