@@ -452,7 +452,7 @@ class SessionMeta:
     session_id: str
     session_dir: Path
     model_id: str = "unknown"
-    # From launch token ``model:effort`` or run ``*config.toml`` when set.
+    # From launch token ``model:effort``, run-dir slug, or run config.toml when set.
     reasoning_effort: str = ""
     title: str = ""
     summary_text: str = ""

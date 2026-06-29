@@ -1140,6 +1140,28 @@ def test_load_session_meta_run_json_from_parent(tmp_path: Path):
     assert meta.run_id == "abc"
 
 
+def test_model_display_effort_from_run_dir_slug(tmp_path: Path) -> None:
+    """Session under groket-*-{effort} shows model:effort without config.toml effort."""
+    vol = tmp_path / "runs" / "traces" / "groket-abc123-xhigh"
+    sd = vol / "%2Fworkspace" / "sess-eff"
+    sd.mkdir(parents=True)
+    (sd / "summary.json").write_text(
+        json.dumps({"current_model_id": "v9-zingster", "info": {"id": "sess-eff"}}),
+        encoding="utf-8",
+    )
+    meta = load_session_meta(sd)
+    assert meta.reasoning_effort == "xhigh"
+    assert meta.model_display == "v9-zingster:xhigh"
+
+
+def test_reasoning_effort_from_run_dir_max(tmp_path: Path) -> None:
+    from groket.parser import _reasoning_effort_from_run_dir
+
+    p = tmp_path / "groket-deadbeef-max" / "sess"
+    p.mkdir(parents=True)
+    assert _reasoning_effort_from_run_dir(p) == "max"
+
+
 def test_load_session_meta_turn_gate_running(tmp_path: Path):
     """Gate state=running overrides turn_outcome."""
     vol = tmp_path / "traces" / "groket-r-m"

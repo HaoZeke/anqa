@@ -758,7 +758,9 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
             if meta.model_id in ("unknown", "v9") or len(inferred) > len(meta.model_id):
                 meta.model_id = inferred
 
-    # Effort from eval config.toml when not on the launch token (older runs).
+    # Effort from container/run dir name (…-high, …-xhigh, …-max) or config.toml.
+    if not meta.reasoning_effort:
+        meta.reasoning_effort = _reasoning_effort_from_run_dir(session_dir)
     if not meta.reasoning_effort:
         meta.reasoning_effort = _reasoning_effort_from_run_config(session_dir)
 
@@ -946,8 +948,35 @@ def _match_model_to_container(container_name: str, models: list[str]) -> str:
     return best
 
 
+def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
+    """Infer effort from a ``groket-{run_id}-{slug}`` parent (effort suffix in slug)."""
+    from .runs.batch import REASONING_EFFORTS
+
+    # Longest names first so ``xhigh`` wins over ``high``.
+    efforts = sorted(REASONING_EFFORTS, key=len, reverse=True)
+    for anc in [session_dir, *session_dir.parents]:
+        if not is_run_dir_name(anc.name):
+            if anc.name == "traces":
+                break
+            continue
+        name = anc.name.lower()
+        for eff in efforts:
+            if name.endswith(f"-{eff}"):
+                return eff
+        # Container slugs may truncate (e.g. ``…-xhig``); match effort prefixes.
+        for eff in efforts:
+            prefix = eff[:4] if len(eff) >= 4 else eff
+            if prefix and (name.endswith(f"-{prefix}") or f"-{prefix}-" in name):
+                # Only accept when the prefix uniquely identifies one effort.
+                hits = [e for e in efforts if e.startswith(prefix) or e[:4] == prefix]
+                if len(hits) == 1:
+                    return hits[0]
+        break
+    return ""
+
+
 def _reasoning_effort_from_run_config(session_dir: Path) -> str:
-    """Read ``default_reasoning_effort`` from the eval run's config.toml if present."""
+    """Read ``default_reasoning_effort`` from a run ``*config.toml`` if present."""
     from .runs.batch import REASONING_EFFORTS
 
     names = ("gte-config.toml", "groket-config.toml", "config.toml")
