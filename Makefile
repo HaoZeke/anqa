@@ -1,6 +1,6 @@
 # Local development targets (uv-first), shaped after alisaifee/coredis.
 
-.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install
+.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check
 
 help:
 	@echo "groket development targets"
@@ -8,9 +8,11 @@ help:
 	@echo "  lint             ruff check + format --check + mypy (whole groket/)"
 	@echo "  lint-fix        ruff autofix + format + mypy (whole groket/)"
 	@echo "  lint-complexity  ruff PLR on groket (informational / debt)"
+	@echo "  schema           regenerate schemas/tasks.schema.json from Pydantic"
+	@echo "  schema-check     fail if committed tasks schema is out of date"
 	@echo "  test             pytest"
 	@echo "  test-cov         pytest with coverage report"
-	@echo "  ci               lint + test"
+	@echo "  ci               lint + schema-check + test"
 	@echo "  clean            caches and build artefacts"
 
 install:
@@ -35,13 +37,22 @@ lint-fix:
 lint-complexity:
 	uv run ruff check --select PLR groket
 
+# JSON Schema for batch/task YAML (source of truth: groket.runs.task_schema).
+# Committed under schemas/ for editors; not hosted on Pages yet.
+schema:
+	uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; emit_tasks_schema(Path('schemas/tasks.schema.json'))"
+
+schema-check: schema
+	@git diff --exit-code -- schemas/tasks.schema.json || \
+	  (echo "schemas/tasks.schema.json is stale — run make schema and commit" >&2; exit 1)
+
 test:
 	uv run pytest tests/ -q --tb=short
 
 test-cov:
 	uv run pytest tests/ --cov=groket --cov-report=term-missing --cov-report=html
 
-ci: lint test
+ci: lint schema-check test
 
 clean:
 	rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ \

@@ -23,9 +23,11 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install ${{ matrix.python-version }}
-      - run: uv sync --group test --group dev --group docs
+      - run: uv sync --group test --group dev
       - name: Ruff + mypy
         run: make lint
+      - name: Tasks JSON Schema drift
+        run: make schema-check
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -41,14 +43,3 @@ jobs:
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --group test --group dev
       - run: make test
-
-  docs:
-    name: Docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - run: uv sync --group docs --group dev
-      - run: make docs

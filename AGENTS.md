@@ -275,7 +275,9 @@ Mirror of coredis-style targets — always via ``uv run`` / ``make``:
 | ``make lint-fix`` | ruff autofix + format + mypy |
 | ``make test`` | pytest |
 | ``make test-cov`` | pytest + coverage |
-| ``make ci`` | ``lint`` + ``test`` (default PR gate) |
+| ``make schema`` | Regenerate ``schemas/tasks.schema.json`` from Pydantic |
+| ``make schema-check`` | Fail if committed tasks schema drifts |
+| ``make ci`` | ``lint`` + ``schema-check`` + ``test`` (default PR gate) |
 | ``make clean`` | caches and build artefacts |
 
 GitHub Actions (``.github/workflows/ci.yml``) runs the same lint/test path.

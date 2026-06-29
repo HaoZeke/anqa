@@ -1,7 +1,6 @@
-# Optional editor schema: schemas/tasks.schema.json (repo root)
-# Validate: uv run groket tasks validate examples/tasks/demo_tasks.yaml
-#
-#   uv run groket batch --tasks examples/tasks/demo_tasks.yaml
+# Editor: point YAML language server at schemas/tasks.schema.json (repo root).
+# Regenerate schema: make schema
+# Load tasks in code via groket.runs.task_schema / batch helpers.
 
 schema_version: 1
 
