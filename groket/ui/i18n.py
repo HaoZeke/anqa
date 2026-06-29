@@ -10,7 +10,6 @@ in screens. Call :func:`setup_i18n` at process start (CLI / app).
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from fluent.runtime import FluentLocalization, FluentResourceLoader
@@ -79,16 +78,11 @@ def _build_l10n(lang: str) -> FluentLocalization:
 
 
 def setup_i18n(lang: str | None = None) -> str:
-    """Load Fluent bundles for *lang* (``GROKET_LANG`` / ``LANG`` / ``en``)."""
+    """Load Fluent bundles for *lang* (default ``en``; pass explicitly to override)."""
     global _current_lang, _l10n, _, ngettext  # noqa: PLW0603
 
     if lang is None:
-        lang = (
-            os.environ.get("GROKET_LANG")
-            or (os.environ.get("LANGUAGE") or "").split(":")[0]
-            or os.environ.get("LANG")
-            or "en"
-        )
+        lang = "en"
     _current_lang = _normalize_lang(str(lang))
     try:
         _l10n = _build_l10n(_current_lang)

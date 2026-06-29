@@ -382,10 +382,9 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     ):
         d.mkdir(parents=True, exist_ok=True)
 
-    # Environment (CLI / os.environ readers)
+    # Isolate home / git prompts; work root is patched on paths.DEFAULT_WORK_DIR.
     monkeypatch.setenv("HOME", str(user_home))
     monkeypatch.setenv("USERPROFILE", str(user_home))  # Windows no-op on Linux
-    monkeypatch.setenv("GROKET_WORK_DIR", str(work_root))
     monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
     monkeypatch.setenv("GIT_ASKPASS", "echo")
     monkeypatch.setenv("GCM_INTERACTIVE", "never")
@@ -444,5 +443,3 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
         monkeypatch.setattr(batch_mod, "_GROK_MODELS_CACHE", grok_home / "models_cache.json")
     if hasattr(batch_mod, "_USER_MODELS_PATH"):
         monkeypatch.setattr(batch_mod, "_USER_MODELS_PATH", app_home / "models.yaml")
-
-    monkeypatch.setenv("GROKET_TEST_ISOLATION_ROOT", str(root))

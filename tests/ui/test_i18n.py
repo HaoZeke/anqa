@@ -91,9 +91,7 @@ class TestLocalesFor:
 
 
 class TestSetupI18n:
-    def test_from_env_groket_lang(self, monkeypatch) -> None:
-        monkeypatch.setenv("GROKET_LANG", "en")
-        monkeypatch.delenv("LANGUAGE", raising=False)
+    def test_default_english(self) -> None:
         lang = setup_i18n()
         assert lang == "en"
 
@@ -150,15 +148,7 @@ class TestBuildL10nNonExistingLocale:
         assert l10n is not None
 
 
-class TestSetupI18nLanguageEnv:
-    def test_language_env_variable(self, monkeypatch) -> None:
-        """LANGUAGE env var is respected in the locale chain."""
-        monkeypatch.delenv("GROKET_LANG", raising=False)
-        monkeypatch.setenv("LANGUAGE", "fr:en")
-        monkeypatch.delenv("LANG", raising=False)
-        lang = setup_i18n()
-        assert lang == "fr"
-
+class TestSetupI18nNgettext:
     def test_ngettext_singular(self) -> None:
         """ngettext returns singular and plural forms."""
         setup_i18n("en")

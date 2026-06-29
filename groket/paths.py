@@ -6,9 +6,8 @@ cache, exported reports, flag fallbacks, optional ``models.yaml``.
 
 **Work dir** holds only session / run data — traces, run configs, feedback
 cache, Docker build contexts for launches, batch result log. Default work dir
-is ``~/.groket/work`` (override with ``GROKET_WORK_DIR`` or a CLI path). Never
-defaults to the process cwd so an installed tool does not write into the
-caller's current directory.
+is ``~/.groket/work``. Pass a CLI path to open another work root, traces tree,
+or session. The default is never the process cwd.
 
 Passing a path to ``groket`` sets what is loaded and, when that path is a work
 root, where new runs go — see :func:`resolve_work_and_traces`.
@@ -16,7 +15,6 @@ root, where new runs go — see :func:`resolve_work_and_traces`.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 # App-global state and user extensions (not per-workspace run data).
@@ -133,17 +131,9 @@ def run_name(*parts: str) -> str:
     return f"{RUN_PREFIX}{body}"
 
 
-def _env_work_dir() -> Path | None:
-    raw = (os.environ.get("GROKET_WORK_DIR") or "").strip()
-    if raw:
-        return Path(raw).expanduser()
-    return None
-
-
 def default_work_dir() -> Path:
-    """Default work root: ``GROKET_WORK_DIR`` or ``~/.groket/work`` (never cwd)."""
-    env = _env_work_dir()
-    return env if env is not None else DEFAULT_WORK_DIR
+    """Default work root: ``~/.groket/work`` (never cwd; CLI path overrides)."""
+    return DEFAULT_WORK_DIR
 
 
 def default_traces_root(work_dir: Path | None = None) -> Path:
@@ -157,22 +147,14 @@ def eval_results_path(work_dir: Path | None = None) -> Path:
     return Path(wd).expanduser() / "runs" / "eval_results.json"
 
 
-def resolve_work_and_traces(
-    path: Path | str | None = None,
-    *,
-    work_dir_override: Path | str | None = None,
-) -> tuple[Path, Path]:
+def resolve_work_and_traces(path: Path | str | None = None) -> tuple[Path, Path]:
     """Return ``(work_dir, traces_root)`` for TUI / runner / batch / feedback.
 
-    ``work_dir`` owns session/run data: ``runs/traces``, ``runs/run_configs``,
-    ``runs/feedback_cache``, ``docker-build``. App config lives under
-    :data:`APP_HOME`, not here.
+    *path* may be a work root, ``…/runs/traces``, a session directory, or
+    omitted (defaults to :func:`default_work_dir`). ``work_dir`` owns session/run
+    data: ``runs/traces``, ``runs/run_configs``, ``runs/feedback_cache``,
+    ``docker-build``. App config lives under :data:`APP_HOME`, not here.
     """
-    if work_dir_override is not None:
-        wd = Path(work_dir_override).expanduser().resolve()
-        tr = Path(path).expanduser().resolve() if path else default_traces_root(wd)
-        return wd, tr
-
     if path is None:
         wd = default_work_dir()
         try:

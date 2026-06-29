@@ -11,10 +11,8 @@ Groket uses **[Fluent](https://projectfluent.org/)** (`.ftl` files), not gettext
 
 ## Language selection
 
-```bash
-GROKET_LANG=fr groket
-# or LANG=fr_FR.UTF-8
-```
+Default language is English (`en`). Call ``setup_i18n("fr")`` (or another
+catalog under ``locale/<lang>/``) when you add translations.
 
 ## Message format
 

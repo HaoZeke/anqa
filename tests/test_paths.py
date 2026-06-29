@@ -62,13 +62,6 @@ class TestResolveWorkAndTraces:
         assert wd.is_absolute()
         assert tr == wd / "runs" / "traces"
 
-    def test_work_dir_override(self, tmp_path):
-        traces = tmp_path / "custom" / "traces"
-        traces.mkdir(parents=True)
-        wd, tr = resolve_work_and_traces(str(traces), work_dir_override=tmp_path)
-        assert wd == tmp_path.resolve()
-        assert tr == traces.resolve()
-
     def test_runs_traces_path(self, tmp_path):
         p = tmp_path / "runs" / "traces"
         p.mkdir(parents=True)
@@ -161,9 +154,9 @@ import yaml
 def test_paths_more(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from groket import paths
 
-    monkeypatch.setenv("GROKET_WORK_DIR", str(tmp_path / "w"))
+    monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", tmp_path / "w")
     wd = paths.default_work_dir()
-    assert wd
+    assert wd == tmp_path / "w"
     tr = paths.default_traces_root(tmp_path / "w")
     assert "traces" in str(tr)
     w2, t2 = paths.resolve_work_and_traces(tmp_path / "w")
@@ -366,15 +359,19 @@ class TestUserExtensionDirs:
 
 
 class TestDefaultWorkDir:
-    def test_env_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("GROKET_WORK_DIR", str(tmp_path / "custom"))
-        wd = default_work_dir()
-        assert wd == tmp_path / "custom"
+    def test_default_is_under_app_home(self, monkeypatch: pytest.MonkeyPatch):
+        from groket import paths
 
-    def test_no_env(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("GROKET_WORK_DIR", raising=False)
+        monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", paths.APP_HOME / "work")
         wd = default_work_dir()
+        assert wd == paths.APP_HOME / "work"
         assert wd.is_absolute()
+
+    def test_patched_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from groket import paths
+
+        monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", tmp_path / "custom")
+        assert default_work_dir() == tmp_path / "custom"
 
 
 class TestResolveWorkAndTracesExtended:
