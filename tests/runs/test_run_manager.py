@@ -74,9 +74,13 @@ class FakeOrchestrator:
         self.pruned = False
         self.cancelled: list[str] = []
         self._abort = False
+        self.running_eval_runs: int = 0
 
     def prune_eval_containers(self, remove_exited=True, remove_running=False, protect_names=None):
         self.pruned = True
+
+    def count_running_eval_runs(self, *, name_prefixes=None) -> int:
+        return int(self.running_eval_runs)
 
     def check_docker_available(self):
         return True
@@ -133,6 +137,26 @@ def test_background_run_properties():
     assert bg.log_lines[-1] == ("src", "hello")
     ev.status = "completed"
     assert bg.is_finished is True
+
+
+def test_active_count_uses_docker_when_no_in_process_runs(rm: RunManager) -> None:
+    """After TUI restart, activity bar must count still-running eval containers."""
+    assert rm.active_count == 0
+    rm.orchestrator.running_eval_runs = 2
+    rm._docker_runs_cache_at = 0.0
+    assert rm.active_count == 2
+    # Cache avoids re-query within TTL even if docker count changes.
+    rm.orchestrator.running_eval_runs = 9
+    assert rm.active_count == 2
+    rm._docker_runs_cache_at = 0.0
+    assert rm.active_count == 9
+    # In-process runs take precedence over Docker scan.
+    ev = EvalRun(run_id="r1", prompt="p", status="running")
+    with rm._lock:
+        rm._active["r1"] = BackgroundRun(
+            run_id="r1", eval_run=ev, configs=[FakeContainerConfig()]
+        )
+    assert rm.active_count == 1
 
 
 def test_manager_listeners_and_state(rm: RunManager):

@@ -104,6 +104,9 @@ class RunManager:
         self._active_batches: set[str] = set()
         # Set on TUI quit so workers stop calling into the UI (avoids hang on exit).
         self._ui_detached = False
+        # Cache for Docker-backed active run counts (TUI restart / orphan containers).
+        self._docker_runs_cache_at: float = 0.0
+        self._docker_runs_cache_n: int = 0
         # Best-effort prune of exited eval containers at manager creation
         try:
             self.orchestrator.prune_eval_containers(remove_exited=True, remove_running=False)
@@ -164,8 +167,35 @@ class RunManager:
 
     @property
     def active_count(self) -> int:
+        """In-process running launches, or Docker-backed count after TUI restart.
+
+        Closing the app leaves containers under dockerd; the activity bar must
+        still show those runs until they finish (or are pruned on next launch).
+        """
         with self._lock:
-            return sum(1 for r in self._active.values() if r.is_running)
+            in_proc = sum(1 for r in self._active.values() if r.is_running)
+        if in_proc:
+            return in_proc
+        return self._docker_active_run_count()
+
+    def _docker_active_run_count(self) -> int:
+        """Cached count of distinct ``groket-<run_id>-*`` containers still running."""
+        import time
+
+        now = time.monotonic()
+        if now - self._docker_runs_cache_at < 2.0:
+            return self._docker_runs_cache_n
+        n = 0
+        try:
+            count_fn = getattr(self.orchestrator, "count_running_eval_runs", None)
+            if callable(count_fn):
+                n = int(count_fn() or 0)
+        except Exception:
+            logger.debug("docker active run count failed", exc_info=True)
+            n = 0
+        self._docker_runs_cache_at = now
+        self._docker_runs_cache_n = max(0, n)
+        return self._docker_runs_cache_n
 
     def list_active(self) -> list[BackgroundRun]:
         with self._lock:

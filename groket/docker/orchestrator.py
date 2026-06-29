@@ -1035,6 +1035,69 @@ class DockerOrchestrator:
         except Exception:
             pass
 
+    def list_running_eval_container_names(
+        self,
+        *,
+        name_prefixes: tuple[str, ...] | None = None,
+    ) -> list[str]:
+        """Names of still-running eval containers (``groket-*`` by default).
+
+        Used after TUI restart so activity counters reflect Docker state when
+        no in-process :class:`~groket.runs.run_manager.BackgroundRun` remains.
+        """
+        from ..paths import RUN_PREFIX
+
+        prefixes = name_prefixes if name_prefixes is not None else (RUN_PREFIX,)
+        names: list[str] = []
+        try:
+            containers = self._docker.container.list(all=False)
+        except Exception:
+            return names
+        for c in containers:
+            try:
+                raw = getattr(c, "name", None) or ""
+                if isinstance(raw, (list, tuple)):
+                    cname = (raw[0] if raw else "") or ""
+                else:
+                    cname = str(raw)
+                cname = cname.lstrip("/")
+                if not cname or not any(cname.startswith(pfx) for pfx in prefixes):
+                    continue
+                state = ""
+                try:
+                    state = (c.state.status or "").lower()
+                except Exception:
+                    state = str(getattr(c, "status", "") or "").lower()
+                if state in ("running", "restarting", "paused") or not state:
+                    # list(all=False) is running-only; include if status unreadable.
+                    names.append(cname)
+            except Exception:
+                continue
+        return names
+
+    def count_running_eval_runs(
+        self,
+        *,
+        name_prefixes: tuple[str, ...] | None = None,
+    ) -> int:
+        """Count distinct eval *runs* still active in Docker.
+
+        Container names are ``groket-<run_id>-…``; unique ``run_id`` segments
+        map to one activity-bar “run” (one launch may use several containers).
+        """
+        names = self.list_running_eval_container_names(name_prefixes=name_prefixes)
+        if not names:
+            return 0
+        run_ids: set[str] = set()
+        for cname in names:
+            parts = cname.split("-")
+            # groket-<12hex run_id>-<model short>…
+            if len(parts) >= 3 and parts[0] == "groket" and len(parts[1]) >= 8:
+                run_ids.add(parts[1])
+            else:
+                run_ids.add(cname)
+        return len(run_ids)
+
     def prune_eval_containers(
         self,
         *,
