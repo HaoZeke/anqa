@@ -1,5 +1,5 @@
-# Editor: point YAML language server at schemas/tasks.schema.json (repo root).
-# Regenerate schema: make schema
+# Editor $schema (published): https://groket.dev/schemas/tasks.schema.json
+# Local copy: schemas/tasks.schema.json (regenerate: make schema)
 # Load tasks in code via groket.runs.task_schema / batch helpers.
 
 schema_version: 1

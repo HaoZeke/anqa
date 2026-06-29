@@ -278,6 +278,12 @@ Mirror of coredis-style targets — always via ``uv run`` / ``make``:
 | ``make schema`` | Regenerate ``schemas/tasks.schema.json`` from Pydantic |
 | ``make schema-check`` | Fail if committed tasks schema drifts |
 | ``make ci`` | ``lint`` + ``schema-check`` + ``test`` (default PR gate) |
+
+**Published tasks schema:** ``https://groket.dev/schemas/tasks.schema.json``
+(GitHub Pages from ``main`` / ``master`` via ``.github/workflows/pages.yml``;
+custom domain ``groket.dev`` via Pages ``CNAME``). Repo also keeps
+``schemas/tasks.schema.json`` for offline editors. Point task YAML at the URL
+with ``# yaml-language-server: $schema=…`` or your editor’s schema mapping.
 | ``make clean`` | caches and build artefacts |
 
 GitHub Actions (``.github/workflows/ci.yml``) runs the same lint/test path.

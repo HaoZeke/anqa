@@ -13,8 +13,6 @@ groket                # launch the TUI (or: uv run groket)
 ## Usage
 
 ```bash
-uv run groket                           # interactive TUI
-uv run groket ./my-project              # open a specific work directory
 groket                            # interactive TUI
 groket PATH                       # open work root / traces / session
 groket self-test                  # Docker / auth / work dir (no TUI)
@@ -22,13 +20,24 @@ groket gen detector|rule|plugin|tasks   # scaffold under ~/.groket/
 groket --help
 ```
 
+## Task YAML schema
+
+Published JSON Schema (GitHub Pages + ``groket.dev``):
+
+- https://groket.dev/schemas/tasks.schema.json
+
+Local copy (same content, for offline editors): ``schemas/tasks.schema.json``.
+Regenerate with ``make schema``; CI fails if it drifts (``make schema-check``).
+
 ## Development
 
 ```bash
-make lint       # ruff check + format + mypy
-make test       # pytest
-make ci         # lint + test
+make lint          # ruff + mypy
+make schema-check  # tasks.schema.json matches Pydantic
+make test          # pytest
+make ci            # lint + schema-check + test
 ```
+
 
 ## Paths
 

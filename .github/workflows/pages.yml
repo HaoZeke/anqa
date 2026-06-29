@@ -1,0 +1,82 @@
+# Publish JSON Schema(s) to GitHub Pages (custom domain: groket.dev).
+# Repo Settings → Pages → Source: GitHub Actions.
+
+name: Pages
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "schemas/**"
+      - "groket/runs/task_schema.py"
+      - ".github/workflows/pages.yml"
+      - "Makefile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build schema site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --group test --group dev
+      - name: Regenerate tasks schema from Pydantic
+        run: make schema
+      - name: Assemble site (schemas/ + index)
+        run: |
+          mkdir -p _site/schemas
+          cp schemas/tasks.schema.json _site/schemas/tasks.schema.json
+          # Stable host for $id in task_schema.py / committed schema
+          printf '%s\n' 'groket.dev' > _site/CNAME
+          cat > _site/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>groket schemas</title>
+            <style>
+              body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+              code { background: #f4f4f5; padding: 0.1em 0.35em; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            <h1>groket schemas</h1>
+            <p>JSON Schema artifacts for editor validation and tooling.</p>
+            <ul>
+              <li>
+                <a href="/schemas/tasks.schema.json"><code>tasks.schema.json</code></a>
+                — batch / task list YAML
+                (<code>$id</code>: <code>https://groket.dev/schemas/tasks.schema.json</code>)
+              </li>
+            </ul>
+            <p>Regenerate locally with <code>make schema</code>; CI fails on drift via <code>make schema-check</code>.</p>
+          </body>
+          </html>
+          HTML
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
