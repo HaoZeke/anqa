@@ -1157,7 +1157,7 @@ def test_load_session_meta_turn_gate_running(tmp_path: Path):
 
 
 def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
-    """Extra turn_started after turn_ended → awaiting (next turn), not completed."""
+    """Extra turn_started after turn_ended → running the next turn (not awaiting)."""
     sd = tmp_path / "open-turn"
     sd.mkdir()
     (sd / "summary.json").write_text("{}", encoding="utf-8")
@@ -1173,7 +1173,8 @@ def test_load_session_meta_open_turn_after_completed(tmp_path: Path):
         encoding="utf-8",
     )
     meta = load_session_meta(sd)
-    assert meta.turn_outcome == "awaiting_follow_up"
+    assert meta.turn_outcome == "running"
+    assert meta.list_status_label() == "running"
     assert meta.turn_in_progress is True
 
 

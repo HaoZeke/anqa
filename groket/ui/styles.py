@@ -151,6 +151,7 @@ STATUS_RICH_STYLE: dict[str, str] = {
     "pending": "dim",
     "building": "bold cyan",
     "running": "bold yellow",
+    "awaiting": "bold cyan",
     "extracting": "bold cyan",
     "completed": "bold green",
     "failed": "bold red",

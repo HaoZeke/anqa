@@ -621,12 +621,11 @@ def session_trace_mtime(session_dir: Path) -> float:
     return newest
 
 
-def _events_awaiting_next_turn(session_dir: Path) -> bool:
-    """True when a *later* turn has started after at least one turn completed.
+def _events_open_turn_after_completed(session_dir: Path) -> bool:
+    """True when a later turn has started after at least one turn completed.
 
-    A single in-progress turn (``turn_started`` with no ``turn_ended`` yet) is
-    **running**, not awaiting a follow-up prompt. Only multi-turn / interactive
-    wait looks like: ended turn(s), then an open ``turn_started`` for the next.
+    That means the agent is **running** the next turn (not waiting for a
+    follow-up prompt). Awaiting is only from the interactive turn gate.
     """
     events_file = session_dir / "events.jsonl"
     if not events_file.is_file():
@@ -786,8 +785,8 @@ def load_session_meta(session_dir: Path) -> SessionMeta:
         if inferred:
             meta.turn_outcome = inferred
 
-    # Interactive multi-turn gate overrides harness outcome while the eval is open.
-    # Never treat an open first turn as awaiting — that is simply running.
+    # Interactive gate overrides while the eval is open. Awaiting only when the
+    # gate is awaiting_follow_up; an open turn after a completed one is running.
     try:
         from .session.turn_gate import read_turn_gate_status, session_awaits_follow_up
 
@@ -796,18 +795,16 @@ def load_session_meta(session_dir: Path) -> SessionMeta:
         else:
             gst = read_turn_gate_status(session_dir)
             gstate = str(gst.get("state") or "")
-            # Mid-turn in container (quit TUI and reopen — still live / resumable).
             if gstate == "running":
                 meta.turn_outcome = "running"
             elif gstate == "done":
-                pass  # keep harness outcome (usually completed)
-            elif _events_awaiting_next_turn(session_dir):
-                # Extra turn_started after a completed turn (gate lag / no gate file).
-                meta.turn_outcome = "awaiting_follow_up"
+                pass
+            elif _events_open_turn_after_completed(session_dir):
+                meta.turn_outcome = "running"
     except Exception:
         logger.debug("turn gate status for %s", session_dir, exc_info=True)
-        if _events_awaiting_next_turn(session_dir):
-            meta.turn_outcome = "awaiting_follow_up"
+        if _events_open_turn_after_completed(session_dir):
+            meta.turn_outcome = "running"
 
     if meta.turn_failed and not meta.error_count:
         # Surface harness failure even when signals.json tool errors are zero

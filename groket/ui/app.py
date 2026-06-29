@@ -880,18 +880,22 @@ class TraceEvalApp(App):
                 high_text = Text("--", style="dim")
                 med_text = Text("--", style="dim")
             task_text = Text(meta.task_id[:20], style="cyan") if meta.task_id else Text("")
+            from .styles import status_rich_style
+
             status = meta.list_status_label()
             if status == "awaiting":
-                # Short + high contrast — full phrase was truncated in the Turn column.
-                turn_text = Text(t("status-waiting-prompt"), style="bold yellow on dark_blue")
+                turn_text = Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
             elif status == "running":
-                turn_text = Text(t("status-running"), style="bold yellow")
+                turn_text = Text(t("status-running"), style=status_rich_style("running"))
             elif status == "cancelled":
-                turn_text = Text(t("status-cancelled"), style="bold red")
+                turn_text = Text(t("status-cancelled"), style=status_rich_style("failed"))
             elif status == "complete":
-                turn_text = Text(t("status-complete"), style="green")
+                turn_text = Text(t("status-complete"), style=status_rich_style("completed"))
             else:
-                turn_text = Text(status if status != "—" else t("status-unknown"), style="dim")
+                turn_text = Text(
+                    status if status != "—" else t("status-unknown"),
+                    style=status_rich_style("idle"),
+                )
             try:
                 table.add_row(
                     sel,
