@@ -74,6 +74,8 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
             for method, th in (
                 ("action_focus_timeline_filter", U.cmd_focus_timeline_view()),
                 ("action_clear_filters", U.cmd_clear_timeline_view()),
+                ("action_delete_session", U.cmd_delete_sessions()),
+                ("action_export_finding", U.cmd_export_finding()),
                 ("action_go_back", U.cmd_back_sessions()),
             ):
                 yield _scr(screen, method, th)

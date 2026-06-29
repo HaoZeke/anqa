@@ -87,7 +87,8 @@ BROWSER: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("slash", "search", U.bind_search(), show=False),
     _b("c", "clear_filters", U.bind_clear_view(), show=False),
     _b("i", "tab_findings", U.bind_findings(), show=False),
-    _b("x", "export_finding", U.bind_export_finding(), show=False),
+    _b("x", "delete_session", U.bind_delete(), show=True),
+    _b("delete", "delete_session", U.bind_delete(), show=False),
     _b("s", "open_share", U.bind_share(), show=False),
     # n = type next prompt (focus input); Enter in input sends; e = end session.
     _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -98,6 +99,7 @@ class BrowserScreen(ChromeActions):
         self._report_select_options_key: tuple[str, ...] = ()
         self._report_updating: bool = False
         self._live_refresh_timer: Timer | None = None
+        self._delete_pending: bool = False
         self._live_refresh_busy = False
 
     def compose(self) -> ComposeResult:
@@ -1751,13 +1753,6 @@ class BrowserScreen(ChromeActions):
         """Hide Flag in the footer/bindings unless a timeline event is selected+focused."""
         if action == "flag_event":
             return True if self._timeline_event_actionable() else False
-        if action == "export_finding":
-            try:
-                tabs = self.query_one("#browser-tabs", TabbedContent)
-                on_findings = tabs.active == "tab-findings"
-            except Exception:
-                on_findings = False
-            return bool(on_findings and self._selected_finding is not None)
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
             # Only when this session can accept a next prompt or end (interactive gate).
             try:
@@ -1868,8 +1863,65 @@ class BrowserScreen(ChromeActions):
         except Exception as exc:
             self.notify(U.report_failed(str(exc)), severity="error")
 
+    def action_delete_session(self) -> None:
+        """Double-press ``x`` deletes this session from disk and leaves the browser."""
+        from ..delete_confirm import second_press_armed
+
+        key = str(self.session_dir)
+        pending = [key] if self._delete_pending else []
+        commit, _pending = second_press_armed(pending, [key])
+        if not commit:
+            self._delete_pending = True
+            self.notify(
+                f"{t('ui-press-again-to-delete')} 1 {t('ui-session-s-from-disk-traces-feedback-cache-run-co')}",
+                severity="warning",
+                timeout=10,
+            )
+            return
+        self._delete_pending = False
+        self._stop_live_refresh()
+        from ...runs.run_configs import delete_session_dirs, session_dirs_for_delete
+
+        paths = session_dirs_for_delete([self.session_dir])
+        traces_root = getattr(self.app, "traces_path", None)
+        stats = delete_session_dirs(
+            paths, traces_root=traces_root, prune_empty_parents=True
+        )
+        gone = {str(p) for p in paths}
+        app = self.app
+        # Drop from home-screen caches while we still hold the app ref.
+        meta_only = getattr(app, "_meta_only", None)
+        if isinstance(meta_only, list):
+            app._meta_only = [
+                (m, lab) for m, lab in meta_only if str(m.session_dir) not in gone
+            ]
+        selected = getattr(app, "_selected", None)
+        if isinstance(selected, set):
+            selected -= gone
+        plugin_results = getattr(app, "_plugin_results", None)
+        if isinstance(plugin_results, dict):
+            for k in list(plugin_results):
+                if k in gone:
+                    del plugin_results[k]
+        err_n = 0
+        errors_raw = stats.get("errors")
+        if isinstance(errors_raw, list):
+            err_n = len(errors_raw)
+        self.notify(
+            f"{t('ui-deleted')} {stats.get('deleted', 0)}/{stats.get('requested', 0)} "
+            f"{t('ui-session-s')}"
+            + (f" {t('ui-errors')} {err_n}" if err_n else ""),
+            severity="warning" if err_n else "information",
+            timeout=10,
+        )
+        self.app.pop_screen()
+        populate = getattr(app, "_populate_session_table", None)
+        if callable(populate):
+            with suppress(Exception):
+                populate()
+
     def action_export_finding(self) -> None:
-        """Export the selected finding to a markdown file."""
+        """Export the selected finding to a markdown file (command palette)."""
         tabbed = self.query_one(TabbedContent)
         if tabbed.active != "tab-findings" or self._selected_finding is None:
             self.notify(U.select_finding_first(), severity="warning")
