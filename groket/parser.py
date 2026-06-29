@@ -358,7 +358,7 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
             m.index = idx
             events.append(m)
             idx += 1
-        return _finalize_timeline_order(events)
+        return _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
 
     with open(updates_file) as f:
         for line_no, line in enumerate(f):
@@ -462,7 +462,7 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
         events.append(m)
         idx += 1
 
-    return _finalize_timeline_order(events)
+    return _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
 
 
 def _is_turn_started_marker(ev: TraceEvent) -> bool:
@@ -530,6 +530,29 @@ def _drop_empty_turn_starts(events: list[TraceEvent]) -> list[TraceEvent]:
     if not drop:
         return events
     return [ev for i, ev in enumerate(events) if i not in drop]
+
+
+def load_system_prompt_text(session_dir: Path) -> str:
+    """Return ``system_prompt.txt`` for the session, or empty if missing."""
+    fp = Path(session_dir) / "system_prompt.txt"
+    if not fp.is_file():
+        return ""
+    try:
+        return fp.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _prepend_system_prompt(session_dir: Path, events: list[TraceEvent]) -> list[TraceEvent]:
+    """Put the session system prompt first in the timeline when the file exists."""
+    text = load_system_prompt_text(session_dir).strip()
+    if not text:
+        return events
+    head = TraceEvent(index=0, event_type="system", content=text)
+    out = [head, *events]
+    for i, ev in enumerate(out):
+        ev.index = i
+    return out
 
 
 def _finalize_timeline_order(events: list[TraceEvent]) -> list[TraceEvent]:

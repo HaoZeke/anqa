@@ -1162,6 +1162,18 @@ def test_reasoning_effort_from_run_dir_max(tmp_path: Path) -> None:
     assert _reasoning_effort_from_run_dir(p) == "max"
 
 
+def test_parse_timeline_prepends_system_prompt(tmp_path: Path) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    (sd / "system_prompt.txt").write_text("You are the system.", encoding="utf-8")
+    (sd / "updates.jsonl").write_text("", encoding="utf-8")
+    events = parse_timeline(sd)
+    assert events
+    assert events[0].event_type == "system"
+    assert "You are the system" in events[0].content
+    assert events[0].type_label == "System"
+
+
 def test_load_session_meta_turn_gate_running(tmp_path: Path):
     """Gate state=running overrides turn_outcome."""
     vol = tmp_path / "traces" / "groket-r-m"

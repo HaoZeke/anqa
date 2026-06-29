@@ -1433,7 +1433,9 @@ class BrowserScreen(ChromeActions):
         elif mode == "asst":
             self._apply_filter(event_type="assistant", errors_only=False)
         elif mode == "sess":
-            self._apply_filter(event_types={"session", "session_error"}, errors_only=False)
+            self._apply_filter(
+                event_types={"session", "session_error", "system"}, errors_only=False
+            )
         elif mode == "errors":
             self._apply_filter(errors_only=True)
 
@@ -1476,7 +1478,9 @@ class BrowserScreen(ChromeActions):
         elif mode == "asst":
             self._apply_filter(event_type="assistant", errors_only=False)
         elif mode == "sess":
-            self._apply_filter(event_types={"session", "session_error"}, errors_only=False)
+            self._apply_filter(
+                event_types={"session", "session_error", "system"}, errors_only=False
+            )
         elif mode == "errors":
             self._apply_filter(errors_only=True)
 
@@ -1541,7 +1545,11 @@ class BrowserScreen(ChromeActions):
         self._apply_filter(search_query=event.value)
 
     def _turn_event_indices(self) -> set[int] | None:
-        """Event indices for the Turn filter, or None for all turns."""
+        """Event indices for the Turn filter, or None for all turns.
+
+        Session-level timeline rows (e.g. system prompt) are not part of any
+        turn segment but stay visible when a specific turn is selected.
+        """
         tf = getattr(self, "_turn_filter", "all")
         if tf in (None, "", "all"):
             return None
@@ -1549,9 +1557,15 @@ class BrowserScreen(ChromeActions):
             ti = int(tf)
         except (TypeError, ValueError):
             return None
+        from ...session.turns import is_session_level_timeline_event
+
         for seg in getattr(self, "_turn_segments", None) or []:
             if seg.turn_index == ti:
-                return {e.index for e in seg.events}
+                indices = {e.index for e in seg.events}
+                for ev in self.timeline:
+                    if is_session_level_timeline_event(ev):
+                        indices.add(ev.index)
+                return indices
         return None
 
     def _rebuild_turn_select(self) -> None:

@@ -50,6 +50,7 @@ EVENT_TYPE_STYLE: dict[str, str] = {
     "subagent": "cyan",
     "session": "yellow",
     "session_error": "bold red",
+    "system": "bold magenta",
 }
 
 EVENT_TYPE_LABEL: dict[str, str] = {
@@ -62,6 +63,7 @@ EVENT_TYPE_LABEL: dict[str, str] = {
     "subagent": "[cyan]Subagent[/]",
     "session": "[yellow]Session[/]",
     "session_error": "[bold red]Session error[/]",
+    "system": "[bold magenta]System[/]",
 }
 
 # Color by *action family*, not per-tool identity (keeps the column scannable):

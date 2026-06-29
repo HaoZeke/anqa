@@ -356,7 +356,7 @@ class TraceEvent:
     """A single event in the conversation timeline."""
 
     index: int
-    event_type: str  # user, assistant, thought, tool_call, tool_result, plan, subagent, session, session_error
+    event_type: str  # user, assistant, thought, tool_call, tool_result, plan, subagent, session, session_error, system
     timestamp: int | None = None
     content: str = ""
     tool_name: str = ""
@@ -393,10 +393,15 @@ class TraceEvent:
             "subagent": "Subagent",
             "session": "Session",
             "session_error": "Session error",
+            "system": "System",
         }.get(self.event_type, (self.event_type or "?").replace("_", " ").title())
 
     @property
     def summary_line(self) -> str:
+        if self.event_type == "system":
+            text = self.content if isinstance(self.content, str) else str(self.content)
+            one = text.replace("\n", " ").strip()
+            return (one[:100] + "…") if len(one) > 100 else (one or "system prompt")
         if self.event_type in ("session", "session_error"):
             text = self.content if isinstance(self.content, str) else str(self.content)
             return text[:80].replace("\n", " ") or "session runtime"

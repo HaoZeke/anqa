@@ -151,7 +151,7 @@ def test_turn_ended_before_started_creates_segment():
 
 
 def test_preamble_events_before_first_start():
-    """Events before first turn_started form preamble turn 0."""
+    """Real events before first turn_started form preamble turn 0."""
     tl = [
         _ev(0, "user", "preamble question"),
         _ev(1, "session", "turn started  turn_number=0"),
@@ -165,6 +165,50 @@ def test_preamble_events_before_first_start():
     assert segs[1].turn_index == 1
     assert segs[1].turn_number == 0  # harness number
     assert segs[1].outcome == "success"
+
+
+def test_system_prompt_is_session_level_not_a_turn():
+    """Parser-injected system event is outside turn segments (not merged, not counted)."""
+    from groket.session.turns import is_session_level_timeline_event
+
+    tl = [
+        _ev(0, "system", "You are Grok…"),
+        _ev(1, "session", "turn started  turn_number=0"),
+        _ev(2, "user", "hi"),
+        _ev(3, "assistant", "hello"),
+        _ev(4, "session", "turn ended  outcome=success"),
+    ]
+    assert is_session_level_timeline_event(tl[0])
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 1
+    assert segs[0].turn_number == 0
+    assert all(e.event_type != "system" for e in segs[0].events)
+    assert segs[0].user_count == 1
+    assert segs[0].outcome == "success"
+
+
+def test_system_prompt_does_not_affect_multi_turn_count():
+    """Session-level system chrome leaves harness turn count unchanged."""
+    tl = [
+        _ev(0, "system", "You are Grok…"),
+        _ev(1, "session", "turn started  turn_number=0"),
+        _ev(2, "session", "turn ended  outcome=success"),
+        _ev(3, "session", "turn started  turn_number=1"),
+        _ev(4, "user", "again"),
+        _ev(5, "session", "turn ended  outcome=success"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 2
+    assert segs[0].turn_number == 0
+    assert segs[1].turn_number == 1
+    assert segs[1].user_count == 1
+    assert all(e.event_type != "system" for seg in segs for e in seg.events)
+
+
+def test_system_only_timeline_has_no_turns():
+    """A timeline that is only session-level chrome yields no turn segments."""
+    tl = [_ev(0, "system", "You are Grok…")]
+    assert segment_timeline_turns(tl) == []
 
 
 def test_previous_turn_closed_on_new_start():

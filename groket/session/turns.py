@@ -117,17 +117,33 @@ def _outcome_from_event(ev: TraceEvent) -> str:
     return m.group(1) if m else ("error" if ev.is_error else "unknown")
 
 
+def is_session_level_timeline_event(ev: TraceEvent) -> bool:
+    """Return True for timeline rows that are not part of any agent turn.
+
+    The parser may inject session-scoped chrome (e.g. ``system_prompt.txt`` as
+    ``event_type=system``) onto the timeline for display. Turn segmentation and
+    per-turn stats use only harness / conversation events; these stay visible
+    on the full timeline and when filtering by turn (see browser turn filter).
+    """
+    return ev.event_type == "system"
+
+
 def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     """Split *timeline* into turns using session turn_started / turn_ended markers.
 
-    Events before the first turn_started form turn 0 if any exist (single-turn
-    sessions often lack markers until harness writes them). Multiple markers
-    produce multiple segments for interactive multi-turn.
+    Session-level timeline events (see :func:`is_session_level_timeline_event`)
+    are omitted from segments entirely — they are not a turn and must not
+    create an extra segment before the first ``turn started``.
+
+    Remaining events before the first turn_started form turn 0 when present
+    (e.g. user messages). Multiple markers produce multiple segments for
+    interactive multi-turn.
     """
-    if not timeline:
+    turn_events = [e for e in timeline if not is_session_level_timeline_event(e)]
+    if not turn_events:
         return []
 
-    has_markers = any(_is_turn_started(e) or _is_turn_ended(e) for e in timeline)
+    has_markers = any(_is_turn_started(e) or _is_turn_ended(e) for e in turn_events)
     if not has_markers:
         return [
             TurnSegment(
@@ -135,7 +151,7 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
                 turn_number=None,
                 outcome="",
                 open=True,
-                events=list(timeline),
+                events=list(turn_events),
             )
         ]
 
@@ -148,7 +164,7 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
             seg.outcome = outcome
         seg.open = False
 
-    for ev in timeline:
+    for ev in turn_events:
         if _is_turn_started(ev):
             if current is not None and current.events:
                 # Previous turn had no explicit end — close as open=False unknown

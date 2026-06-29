@@ -1989,6 +1989,8 @@ ui-share = Share
 
 ui-share-meta-failed = share meta failed
 
+ui-system-prompt = System prompt
+
 ui-shown-in-the-runner-dropdown = [dim]Shown in the Runner dropdown[/dim]
 
 ui-signal =   signal=
