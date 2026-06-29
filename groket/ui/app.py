@@ -659,8 +659,9 @@ class TraceEvalApp(App):
 
         self.push_screen(SelfTestModal(work_dir=self.work_dir))
 
+    @work(thread=True)
     def _analyze_targets(self, targets: list[tuple[SessionMeta, str]] | None = None) -> None:
-        """Analyze a list of (meta, label) pairs in background, updating the table incrementally."""
+        """Analyze (meta, label) pairs on a worker thread; UI updates via call_from_thread."""
         if (
             not targets
             or isinstance(targets, (str, Path))
