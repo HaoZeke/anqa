@@ -13,10 +13,10 @@ Layout (per work_dir, same root as traces/feedback_cache):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
-import subprocess
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -30,6 +30,8 @@ from ..models import (
     json_as_object,
     json_as_str,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -628,8 +630,22 @@ def prune_orphan_trace_runs(
     )
 
 
+def _host_uid_gid() -> tuple[int, int] | None:
+    """Current process uid/gid, or ``None`` when the platform has no getuid."""
+    try:
+        return os.getuid(), os.getgid()
+    except AttributeError:
+        return None
+
+
 def _docker_run_alpine(host_path: Path, cmd: list[str], *, timeout: int = 120) -> tuple[bool, str]:
-    """Run *cmd* inside alpine with *host_path* mounted at /data (root in container)."""
+    """Run *cmd* in alpine with *host_path* at ``/data`` via python-on-whales.
+
+    Same Docker daemon as :class:`~groket.docker.orchestrator.DockerOrchestrator`
+    (not a separate ``subprocess`` ``docker`` CLI path). *timeout* is accepted
+    for call-site compatibility; whales ``run`` waits until the container exits.
+    """
+    _ = timeout
     host_path = Path(host_path).expanduser()
     try:
         host_path = host_path.resolve()
@@ -638,62 +654,44 @@ def _docker_run_alpine(host_path: Path, cmd: list[str], *, timeout: int = 120) -
     if not host_path.exists():
         return True, ""
     try:
-        proc = subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{host_path}:/data",
-                "alpine",
-                *cmd,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+        from python_on_whales import DockerClient
+    except ImportError:
+        return False, "python-on-whales not available"
+    try:
+        DockerClient().run(
+            "alpine",
+            list(cmd),
+            volumes=[(str(host_path), "/data")],
+            remove=True,
         )
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()
-            return False, err[:500]
         return True, ""
-    except FileNotFoundError:
-        return False, "docker not found"
-    except subprocess.TimeoutExpired:
-        return False, "docker timed out"
     except Exception as exc:
-        return False, str(exc)
+        msg = str(exc).strip() or type(exc).__name__
+        logger.debug("alpine docker run failed for %s: %s", host_path, msg)
+        return False, msg[:500]
 
 
 def chown_path_to_host_user(path: Path, *, uid: int | None = None, gid: int | None = None) -> bool:
-    """chown -R path to current (or given) uid:gid via alpine container.
+    """chown -R *path* to the host user via python-on-whales + alpine.
 
-    Eval containers write as root into the mounted traces volume; host user cannot
-    delete without this fix. Best-effort — returns False if docker/chown fails.
+    Eval containers write as root into the bind-mounted traces volume; the host
+    user cannot delete or edit those files without this. Best-effort.
     """
     path = Path(path).expanduser()
     if not path.exists():
         return True
-    uid = os.getuid() if uid is None else uid
-    gid = os.getgid() if gid is None else gid
-    # Fast path: already writable by us
-    try:
-        if os.access(path, os.W_OK):
-            # still may have root children; probe one level
-            try:
-                next(path.iterdir(), None)
-            except PermissionError:
-                pass
-            else:
-                # shallow check only; always docker-chown if any non-owned file below
-                pass
-    except OSError:
-        pass
+    if uid is None or gid is None:
+        ids = _host_uid_gid()
+        if ids is None:
+            return False
+        uid = uid if uid is not None else ids[0]
+        gid = gid if gid is not None else ids[1]
     ok, _err = _docker_run_alpine(path, ["chown", "-R", f"{uid}:{gid}", "/data"])
     return ok
 
 
 def rmtree_robust(path: Path) -> None:
-    """shutil.rmtree with docker chown / docker rm fallback for root-owned trace dirs."""
+    """``shutil.rmtree`` with whales/alpine chown and ``rm -rf`` fallback."""
     path = Path(path).expanduser()
     if not path.exists():
         return
@@ -702,11 +700,8 @@ def rmtree_robust(path: Path) -> None:
         return
     except PermissionError:
         pass
-    except OSError as exc:
-        # EACCES often surfaces as PermissionError subclass; other OSErrors too
-        if getattr(exc, "errno", None) not in (13, 1):  # EACCES, EPERM
-            # still try docker path for other permission-ish errors
-            pass
+    except OSError:
+        pass
 
     # 1) Fix ownership then normal rmtree
     chown_path_to_host_user(path)
@@ -717,7 +712,7 @@ def rmtree_robust(path: Path) -> None:
     except Exception:
         pass
 
-    # 2) Remove inside container as root (mount parent, rm child name)
+    # 2) Remove inside alpine as root (mount parent, rm child name)
     parent = path.parent
     name = path.name
     if not parent.exists():
@@ -730,11 +725,9 @@ def rmtree_robust(path: Path) -> None:
     if not ok and path.exists():
         raise PermissionError(
             f"cannot delete {path} (root-owned from docker traces?). "
-            f"chown/rm via docker failed: {err or 'unknown'}. "
-            f"Try: docker run --rm -v {path}:/data alpine chown -R $(id -u):$(id -g) /data"
+            f"chown/rm via python-on-whales failed: {err or 'unknown'}."
         )
     if path.exists():
-        # last attempt
         shutil.rmtree(path)
 
 

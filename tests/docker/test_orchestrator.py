@@ -454,10 +454,6 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     with patch("groket.runs.run_configs.chown_path_to_host_user", return_value=True):
         assert o_ok.fix_traces_ownership(td) is True
     with patch("groket.runs.run_configs.chown_path_to_host_user", side_effect=RuntimeError("x")):
-        o_ok._docker.fail_run = False
-        assert o_ok.fix_traces_ownership(td) is True
-    with patch("groket.runs.run_configs.chown_path_to_host_user", side_effect=RuntimeError("x")):
-        o_ok._docker.fail_run = True
         assert o_ok.fix_traces_ownership(td) is False
 
     assert o_ok.peek_session_dir("no-dir") is None

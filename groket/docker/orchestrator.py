@@ -853,47 +853,34 @@ class DockerOrchestrator:
             pass  # container gone or stream error — both fine
 
     def fix_traces_ownership(self, traces_dir: Path | str) -> bool:
-        """chown traces_dir (and children) to host uid:gid.
+        """chown traces_dir (and children) to host uid:gid via python-on-whales.
 
         Eval containers run as root and bind-mount ``runs/traces/<name>`` at
         ``/root/.grok/sessions``, so session files are often root-owned on the
-        host. Without this, TUI delete / normal file ops fail with PermissionError.
-
-        Uses ``docker run alpine chown`` (works even if python_on_whales run fails).
+        host. Delegates to :func:`~groket.runs.run_configs.chown_path_to_host_user`
+        (same whales client path as eval ``run`` / build).
         """
         traces_dir = Path(traces_dir)
         if not traces_dir.exists():
             return True
-        try:
-            from ..runs.run_configs import chown_path_to_host_user
+        from ..runs.run_configs import chown_path_to_host_user
 
+        try:
             return chown_path_to_host_user(traces_dir)
         except Exception:
-            pass
-        uid = os.getuid()
-        gid = os.getgid()
-        try:
-            self._docker.run(
-                "alpine",
-                ["chown", "-R", f"{uid}:{gid}", "/data"],
-                volumes=[(str(traces_dir), "/data")],
-                remove=True,
-            )
-            return True
-        except Exception:
+            logger.debug("fix_traces_ownership failed for %s", traces_dir, exc_info=True)
             return False
 
     def peek_session_dir(self, container_name: str) -> Path | None:
-        """Locate a live session under the bind-mounted traces dir (no chown).
+        """Locate a live session under the bind-mounted traces dir.
 
         Eval containers write incrementally to ``runs/traces/<container>/``.
-        Call this while the container is still running so the TUI/Jobs can
-        surface the session and open it in the browser mid-run.
+        Best-effort chown while live (entrypoint also uses ``HOST_UID``).
+        Call while the container is running so the TUI/Jobs can open mid-run.
         """
         traces_dir = self.work_dir / "traces" / container_name
         if not traces_dir.exists():
             return None
-        # Best-effort while the run is live (entrypoint also chowns with HOST_UID).
         self.fix_traces_ownership(traces_dir)
         from ..parser import find_sessions
 

@@ -262,30 +262,21 @@ class TestTraceMaintenance:
     ):
         ok, _ = rc._docker_run_alpine(tmp_path / "nope", ["true"])
         assert ok is True
-        # FileNotFoundError for docker binary
-        import subprocess as sp
 
-        def boom(*a, **k):
-            raise FileNotFoundError("docker")
+        class _Cli:
+            def run(self, *a, **k):
+                raise RuntimeError("docker daemon down")
 
-        monkeypatch.setattr(sp, "run", boom)
+        monkeypatch.setattr("python_on_whales.DockerClient", _Cli)
         ok2, err = rc._docker_run_alpine(tmp_path, ["true"])
         assert ok2 is False
         assert "docker" in err.lower() or err
 
-        def timeout(*a, **k):
-            raise sp.TimeoutExpired(cmd="docker", timeout=1)
+        class _Fail:
+            def run(self, *a, **k):
+                raise RuntimeError("fail")
 
-        monkeypatch.setattr(sp, "run", timeout)
-        ok3, err3 = rc._docker_run_alpine(tmp_path, ["true"])
-        assert ok3 is False
-
-        class Proc:
-            returncode = 1
-            stderr = "fail"
-            stdout = ""
-
-        monkeypatch.setattr(sp, "run", lambda *a, **k: Proc())
+        monkeypatch.setattr("python_on_whales.DockerClient", _Fail)
         ok4, err4 = rc._docker_run_alpine(tmp_path, ["false"])
         assert ok4 is False
         assert "fail" in err4
@@ -1012,12 +1003,12 @@ class TestValidateFeedbackCacheSyncExtended:
 class TestDockerRunAlpineGenericException:
     def test_generic_exception(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """_docker_run_alpine handles a generic exception."""
-        import subprocess as sp
 
-        def boom(*a, **k):
-            raise RuntimeError("kaboom")
+        class _Boom:
+            def run(self, *a, **k):
+                raise RuntimeError("kaboom")
 
-        monkeypatch.setattr(sp, "run", boom)
+        monkeypatch.setattr("python_on_whales.DockerClient", _Boom)
         ok, err = rc._docker_run_alpine(tmp_path, ["true"])
         assert ok is False
         assert "kaboom" in err
@@ -1310,33 +1301,48 @@ class TestChownPathToHostUser:
 
 
 class TestDockerRunAlpine:
-    """Cover _docker_run_alpine paths: not found, timeout, generic error."""
+    """Cover _docker_run_alpine paths: missing path, whales errors."""
 
     def test_path_not_exists_returns_ok(self, tmp_path: Path):
         ok, err = rc._docker_run_alpine(tmp_path / "nope", ["ls"])
         assert ok is True
         assert err == ""
 
-    def test_docker_not_found(self, tmp_path: Path):
+    def test_docker_client_error(self, tmp_path: Path):
         from unittest.mock import patch
 
         d = tmp_path / "data"
         d.mkdir()
-        with patch("subprocess.run", side_effect=FileNotFoundError):
+
+        class _Cli:
+            def run(self, *a, **k):
+                raise RuntimeError("connection refused")
+
+        with patch("python_on_whales.DockerClient", _Cli):
             ok, err = rc._docker_run_alpine(d, ["ls"])
         assert ok is False
-        assert "docker not found" in err
+        assert "connection refused" in err
 
-    def test_docker_timeout(self, tmp_path: Path):
-        import subprocess as sp
+    def test_import_error(self, tmp_path: Path):
         from unittest.mock import patch
 
         d = tmp_path / "data"
         d.mkdir()
-        with patch("subprocess.run", side_effect=sp.TimeoutExpired(cmd=["docker"], timeout=5)):
-            ok, err = rc._docker_run_alpine(d, ["ls"])
+        with patch.dict("sys.modules", {"python_on_whales": None}):
+            # Force re-import failure path via ImportError on from-import
+            import builtins
+
+            real_import = builtins.__import__
+
+            def _imp(name, *a, **k):
+                if name == "python_on_whales":
+                    raise ImportError("no whales")
+                return real_import(name, *a, **k)
+
+            with patch("builtins.__import__", _imp):
+                ok, err = rc._docker_run_alpine(d, ["ls"])
         assert ok is False
-        assert "timed out" in err
+        assert "python-on-whales" in err
 
 
 class TestRmtreeRobustAdvanced:
@@ -2391,46 +2397,48 @@ class TestPruneOrphanTraceRunsIterError:
 
 
 class TestDockerRunAlpineEdge:
-    """_docker_run_alpine subprocess edge cases."""
+    """_docker_run_alpine python-on-whales edge cases."""
 
     def test_nonexistent_path_returns_ok(self, tmp_path: Path) -> None:
         ok, msg = rc._docker_run_alpine(tmp_path / "gone", ["echo"])
         assert ok is True
         assert msg == ""
 
-    def test_docker_not_found(self, tmp_path: Path) -> None:
+    def test_docker_client_error(self, tmp_path: Path) -> None:
         target = tmp_path / "data"
         target.mkdir()
-        with patch("groket.runs.run_configs.subprocess.run", side_effect=FileNotFoundError):
+
+        class _Cli:
+            def run(self, *a, **k):
+                raise RuntimeError("daemon offline")
+
+        with patch("python_on_whales.DockerClient", _Cli):
             ok, msg = rc._docker_run_alpine(target, ["echo"])
         assert not ok
-        assert "docker not found" in msg
-
-    def test_docker_timeout(self, tmp_path: Path) -> None:
-        import subprocess as sp
-
-        target = tmp_path / "data"
-        target.mkdir()
-        with patch(
-            "groket.runs.run_configs.subprocess.run", side_effect=sp.TimeoutExpired("docker", 120)
-        ):
-            ok, msg = rc._docker_run_alpine(target, ["echo"])
-        assert not ok
-        assert "timed out" in msg
+        assert "daemon offline" in msg
 
     def test_docker_generic_error(self, tmp_path: Path) -> None:
         target = tmp_path / "data"
         target.mkdir()
-        with patch("groket.runs.run_configs.subprocess.run", side_effect=RuntimeError("crash")):
+
+        class _Cli:
+            def run(self, *a, **k):
+                raise RuntimeError("crash")
+
+        with patch("python_on_whales.DockerClient", _Cli):
             ok, msg = rc._docker_run_alpine(target, ["echo"])
         assert not ok
         assert "crash" in msg
 
-    def test_docker_nonzero_exit(self, tmp_path: Path) -> None:
+    def test_docker_permission_error(self, tmp_path: Path) -> None:
         target = tmp_path / "data"
         target.mkdir()
-        mock_proc = Mock(returncode=1, stderr="permission denied", stdout="")
-        with patch("groket.runs.run_configs.subprocess.run", return_value=mock_proc):
+
+        class _Cli:
+            def run(self, *a, **k):
+                raise RuntimeError("permission denied")
+
+        with patch("python_on_whales.DockerClient", _Cli):
             ok, msg = rc._docker_run_alpine(target, ["chown", "-R", "1000:1000", "/data"])
         assert not ok
         assert "permission denied" in msg
