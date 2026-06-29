@@ -7,17 +7,14 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from groket.models import ChatMessage, RuleParams, Severity, ToolCall
-from groket.engine.models import Match
 from groket.engine.detectors import detector
+from groket.engine.models import Match
+from groket.models import ChatMessage, RuleParams, Severity, ToolCall
+
 from .patterns import (
     GIT_CMD_RE,
     TEMP_PREFIXES,
 )
-
-# ---------------------------------------------------------------------------
-# 6. file_ops
-# ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
@@ -26,7 +23,6 @@ class _ReadMeta:
 
     offset: int
     tc: ToolCall
-
 
 def _detect_re_reads(
     tool_calls: list[ToolCall],
@@ -76,7 +72,6 @@ def _detect_re_reads(
 
     return results, reads_per_file
 
-
 def _detect_fragmented_reads(
     reads_per_file: dict[str, list[tuple[int, int, ToolCall]]],
     small_read_limit: int,
@@ -110,7 +105,6 @@ def _detect_fragmented_reads(
                 )
             )
     return results
-
 
 def _detect_blind_edits(tool_calls: list[ToolCall]) -> list[Match]:
     """Detect search_replace edits on files never read with read_file."""
@@ -164,7 +158,6 @@ def _detect_blind_edits(tool_calls: list[ToolCall]) -> list[Match]:
         )
     return results
 
-
 @detector("file_ops")
 def file_ops(
     tool_calls: list[ToolCall],
@@ -182,12 +175,6 @@ def file_ops(
     )
     blind = _detect_blind_edits(tool_calls)
     return re_reads + fragmented + blind
-
-
-# ---------------------------------------------------------------------------
-# 7. git_check
-# ---------------------------------------------------------------------------
-
 
 @detector("git_check")
 def git_check(
@@ -219,7 +206,7 @@ def git_check(
         if "git " in cmd:
             git_tool_calls.append(tc)
 
-    # 1) Parallel git commands (same timestamp)
+
     bash_calls_by_time: dict[int, list[ToolCall]] = defaultdict(list)
     for tc in git_tool_calls:
         if tc.timestamp:
@@ -251,7 +238,7 @@ def git_check(
             )
         )
 
-    # 2) Sequential batchable git commands
+
     runs: list[list[tuple[int, ToolCall, str, str]]] = []
     current_run: list[tuple[int, ToolCall, str, str]] = []
 
@@ -279,7 +266,7 @@ def git_check(
                 current_run.append((i, tc, sub, cmd))
                 continue
 
-        # Non-git terminal command or non-batchable git command breaks the run
+
         if len(current_run) >= 2:
             runs.append(current_run)
         current_run = []

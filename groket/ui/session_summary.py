@@ -102,13 +102,13 @@ def render_session_summary(
     strip_parts = [
         model,
         dur,
-        f"{len(timeline)}{t('ui-events-1')}",
-        f"{len(tool_calls)}{t('ui-tools-1')}",
+        f"{len(timeline)} {t('ui-events-1')}",
+        f"{len(tool_calls)} {t('ui-tools-1')}",
     ]
     if len(turns) > 1:
-        strip_parts.append(f"{len(turns)}{t('ui-turns')}")
+        strip_parts.append(f"{len(turns)} {t('ui-turns')}")
     if tool_errs or sess_errs:
-        strip_parts.append(f"{tool_errs}{t('ui-tool-errors')}{sess_errs}{t('ui-session-errors')}")
+        strip_parts.append(f"{tool_errs} {t('ui-tool-errors')} {sess_errs} {t('ui-session-errors')}")
     head.append_text(meta_strip(strip_parts))
     blocks.append(head)
     blocks.append(dim_rule())
@@ -178,21 +178,21 @@ def render_session_summary(
             if seg.first_index is not None and seg.last_index is not None:
                 span = f"  #{seg.first_index}–#{seg.last_index}"
             line = (
-                f"{seg.label:<22}{t('ui-events-3')}{seg.event_count:<4}{t('ui-tools-2')}{tools_n}"
-                + (f" ({terr}{t('ui-err')}" if terr else "")
-                + f"{t('ui-user-1')}{seg.user_count}{t('ui-asst-1')}{seg.assistant_count}{span}"
+                f"{seg.label:<22} {t('ui-events-3')} {seg.event_count:<4} {t('ui-tools-2')} {tools_n}"
+                + (f" ({terr} {t('ui-err')}" if terr else "")
+                + f"{t('ui-user-1')} {seg.user_count} {t('ui-asst-1')} {seg.assistant_count} {span}"
             )
             turns_t.append_text(bullet(line))
             if len(turns) > 1 and tools_n:
                 mix_t = Counter(e.tool_name for e in seg.tool_calls if e.tool_name)
                 top = ", ".join((f"{n}×{c}" for n, c in mix_t.most_common(4)))
-                turns_t.append(f"{t('ui-tools-3')}{top}\n", style="dim")
+                turns_t.append(f"{t('ui-tools-3')} {top}\n", style="dim")
         blocks.append(turns_t)
     if meta.turn_failed or kind == "bad":
         note = Text()
         note.append_text(section_header(t("ui-note-1")))
         note.append(
-            f"{t('ui-last-turn-outcome')}{outcome!r}{t('ui-session-meta-is-last-turn-ended-gate-earlier-tur')}",
+            f"{t('ui-last-turn-outcome')} {outcome!r} {t('ui-session-meta-is-last-turn-ended-gate-earlier-tur')}",
             style="dim",
         )
         blocks.append(note)
@@ -260,7 +260,7 @@ def append_usage_rich(out: Text, usage: SessionUsageStats) -> None:
     out.append_text(section_header(t("ui-host-tools")))
     if usage.host_tools:
         for row in usage.host_tools:
-            err = f"  ({row.errors}{t('ui-errors-3')}" if row.errors else ""
+            err = f"  ({row.errors} {t('ui-errors-3')}" if row.errors else ""
             out.append_text(list_row(f"{row.name:<24} {row.calls}×{err}"))
         out.append_text(list_row(f"{'total':<24} {usage.host_tool_call_total}"))
     else:
@@ -278,7 +278,7 @@ def append_usage_rich(out: Text, usage: SessionUsageStats) -> None:
                 out.append(t("ui-enabled-no-tool-hits"), style="dim")
                 continue
             if srv.use_tool_calls:
-                out.append(f"{t('ui-use-tool')}{srv.use_tool_calls}×\n", style="dim")
+                out.append(f"{t('ui-use-tool')} {srv.use_tool_calls}×\n", style="dim")
             for m in srv.methods:
                 out.append(f"    .{m.method}  {m.calls}×\n", style="dim")
     out.append_text(section_header(t("ui-skills-1")))
@@ -290,10 +290,10 @@ def append_usage_rich(out: Text, usage: SessionUsageStats) -> None:
             if sk.configured:
                 bits.append("mounted")
             if sk.skill_md_reads:
-                bits.append(f"{t('ui-loaded-1')}{sk.skill_md_reads}×")
+                bits.append(f"{t('ui-loaded-1')} {sk.skill_md_reads}×")
             out.append_text(list_row(f"{sk.skill_id}  — {', '.join(bits) or 'seen'}"))
     if usage.source_notes:
-        out.append(f"{t('ui-sources')}{', '.join(usage.source_notes)}\n", style="dim")
+        out.append(f"{t('ui-sources')} {', '.join(usage.source_notes)}\n", style="dim")
 
 
 def assistant_text_from_timeline(timeline: list[TraceEvent]) -> str:

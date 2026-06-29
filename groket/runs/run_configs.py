@@ -31,22 +31,18 @@ from ..models import (
     json_as_str,
 )
 
-
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
-
 
 def run_configs_dir(work_dir: Path) -> Path:
     d = Path(work_dir).expanduser() / "runs" / "run_configs"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-
 def _slug(text: str, max_len: int = 40) -> str:
     s = re.sub(r"[^a-zA-Z0-9._-]+", "-", (text or "").strip().lower())
     s = s.strip("-")[:max_len].strip("-")
     return s or "config"
-
 
 @dataclass
 class RunConfig:
@@ -179,7 +175,6 @@ class RunConfig:
             run_plugins=list(self.run_plugins),
             run_env_vars=dict(self.run_env_vars),
         )
-
 
 class RunConfigStore:
     """CRUD for run configs under a work_dir."""
@@ -447,7 +442,6 @@ class RunConfigStore:
             source_session_dir=session_dir,
         )
 
-
 # Files that may linger in a groket-* run folder after the real session dir is gone.
 # Not enough to count as a real trace — safe to drop with the parent run dir.
 _ORPHAN_RUN_ONLY_NAMES = frozenset(
@@ -462,7 +456,6 @@ _ORPHAN_RUN_ONLY_NAMES = frozenset(
     }
 )
 
-
 def _is_session_trace_dir(d: Path) -> bool:
     """True if *d* looks like a real Grok session (has events / chat / summary)."""
     if not d.is_dir():
@@ -471,7 +464,6 @@ def _is_session_trace_dir(d: Path) -> bool:
         if (d / name).is_file():
             return True
     return False
-
 
 def _run_folder_has_sessions(run_dir: Path) -> bool:
     """Any descendant that looks like a session trace?"""
@@ -482,7 +474,6 @@ def _run_folder_has_sessions(run_dir: Path) -> bool:
     except OSError:
         return True  # be conservative
     return False
-
 
 def _run_folder_is_orphan(run_dir: Path) -> bool:
     """groket-* (or similar) parent with no real session data — only empty dirs / noise files."""
@@ -498,7 +489,6 @@ def _run_folder_is_orphan(run_dir: Path) -> bool:
     except OSError:
         return False
     return True
-
 
 def prune_empty_parents_after_session_delete(
     session_dir: Path,
@@ -572,7 +562,6 @@ def prune_empty_parents_after_session_delete(
 
     return removed
 
-
 def prune_orphan_trace_runs(
     traces_root: Path,
     *,
@@ -627,7 +616,6 @@ def prune_orphan_trace_runs(
         }
     )
 
-
 def _docker_run_alpine(host_path: Path, cmd: list[str], *, timeout: int = 120) -> tuple[bool, str]:
     """Run *cmd* inside alpine with *host_path* mounted at /data (root in container)."""
     host_path = Path(host_path).expanduser()
@@ -663,7 +651,6 @@ def _docker_run_alpine(host_path: Path, cmd: list[str], *, timeout: int = 120) -
     except Exception as exc:
         return False, str(exc)
 
-
 def chown_path_to_host_user(path: Path, *, uid: int | None = None, gid: int | None = None) -> bool:
     """chown -R path to current (or given) uid:gid via alpine container.
 
@@ -690,7 +677,6 @@ def chown_path_to_host_user(path: Path, *, uid: int | None = None, gid: int | No
         pass
     ok, _err = _docker_run_alpine(path, ["chown", "-R", f"{uid}:{gid}", "/data"])
     return ok
-
 
 def rmtree_robust(path: Path) -> None:
     """shutil.rmtree with docker chown / docker rm fallback for root-owned trace dirs."""
@@ -736,7 +722,6 @@ def rmtree_robust(path: Path) -> None:
     if path.exists():
         # last attempt
         shutil.rmtree(path)
-
 
 def delete_session_dirs(
     session_dirs: list[Path],
@@ -816,7 +801,6 @@ def delete_session_dirs(
         }
     )
 
-
 def session_dirs_for_delete(session_dirs: list[Path]) -> list[Path]:
     """Normalize + de-dupe paths before delete."""
     seen: set[str] = set()
@@ -832,11 +816,7 @@ def session_dirs_for_delete(session_dirs: list[Path]) -> list[Path]:
         out.append(Path(key))
     return out
 
-
-# --- trace health / interrupted sessions ---
-
 from ..constants import INTERRUPTED_MARKER_FILENAME as INTERRUPTED_MARKER
-
 
 def _session_dirs_under(traces_root: Path) -> list[Path]:
     root = Path(traces_root).expanduser()
@@ -850,7 +830,6 @@ def _session_dirs_under(traces_root: Path) -> list[Path]:
     except OSError:
         pass
     return out
-
 
 def _turn_outcome_from_events(session_dir: Path) -> str:
     ev_path = session_dir / "events.jsonl"
@@ -869,7 +848,6 @@ def _turn_outcome_from_events(session_dir: Path) -> str:
         pass
     return ""
 
-
 def _read_interrupted_marker(session_dir: Path) -> dict | None:
     p = session_dir / INTERRUPTED_MARKER
     if not p.is_file():
@@ -879,7 +857,6 @@ def _read_interrupted_marker(session_dir: Path) -> dict | None:
         return data if isinstance(data, dict) else {"raw": data}
     except Exception:
         return {"reason": "marker present (unreadable)"}
-
 
 def _session_trace_age_seconds(session_dir: Path) -> float | None:
     """Seconds since newest trace artifact write; None if unknown."""
@@ -902,7 +879,6 @@ def _session_trace_age_seconds(session_dir: Path) -> float | None:
     if newest <= 0:
         return None
     return datetime.now(UTC).timestamp() - newest
-
 
 def audit_trace_sessions(traces_root: Path) -> JsonObject:
     """Classify sessions under traces_root: ok / interrupted / empty-shell runs.
@@ -981,7 +957,6 @@ def audit_trace_sessions(traces_root: Path) -> JsonObject:
         }
     )
 
-
 def mark_interrupted_sessions(
     traces_root: Path,
     *,
@@ -1034,7 +1009,6 @@ def mark_interrupted_sessions(
             "dry_run": dry_run,
         }
     )
-
 
 def prune_feedback_cache_orphans(
     cache_dir: Path,
@@ -1157,7 +1131,6 @@ def prune_feedback_cache_orphans(
         }
     )
 
-
 def rebuild_feedback_cache_index(cache_dir: Path) -> JsonObject:
     """Rewrite feedback_cache/index.json from on-disk session dirs (source of truth)."""
     from datetime import datetime
@@ -1221,7 +1194,6 @@ def rebuild_feedback_cache_index(cache_dir: Path) -> JsonObject:
             "index_path": str(root / "index.json"),
         }
     )
-
 
 def validate_feedback_cache_sync(
     traces_root: Path,

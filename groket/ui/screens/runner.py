@@ -395,7 +395,7 @@ class RunnerScreen(ChromeActions):
         if p and (p.github_token or "").strip():
             tok_src = t("ui-stored-on-persona")
         elif p and (p.github_token_env or "").strip():
-            tok_src = f"{t('ui-host-env')}{p.github_token_env}"
+            tok_src = f"{t('ui-host-env')} {p.github_token_env}"
         elif tok:
             tok_src = "resolved"
         else:
@@ -408,11 +408,11 @@ class RunnerScreen(ChromeActions):
             tok_status = t("ui-token-status-unknown")
         mcp_n = len(p.mcp_servers or []) if p else 0
         sk_n = len(p.skills or []) if p else 0
-        caps = f"mcp={mcp_n}{t('ui-skills-2')}{sk_n}"
+        caps = f"mcp={mcp_n} {t('ui-skills-2')} {sk_n}"
         if gh:
-            persona_line = f"[yellow]{pid}{t('ui-gh-on')}{tok_src} · {caps}"
+            persona_line = f"[yellow]{pid} {t('ui-gh-on')} {tok_src} · {caps}"
         else:
-            persona_line = f"[dim]{pid}{t('ui-gh-off')}{caps}[/dim]"
+            persona_line = f"[dim]{pid} {t('ui-gh-off')} {caps}[/dim]"
         self._set_status_line("persona-gh-hint", persona_line)
         self._set_status_line("github-write-hint", "")
 
@@ -586,7 +586,7 @@ class RunnerScreen(ChromeActions):
             return
         lines: list[str] = []
         if mcp_rows:
-            lines.append(f"{t('ui-mcp-1')}{len(mcp_rows)}{t('ui-this-run-only')}")
+            lines.append(f"{t('ui-mcp-1')} {len(mcp_rows)} {t('ui-this-run-only')}")
             for mid, title, transport in mcp_rows:
                 extra = []
                 if title and title.lower() != mid.lower():
@@ -594,25 +594,25 @@ class RunnerScreen(ChromeActions):
                 if transport:
                     extra.append(transport)
                 suffix = f"  [dim]({' · '.join(extra)})[/dim]" if extra else ""
-                lines.append(f"{t('ui-msg-4')}{mid}[/bold]{suffix}")
+                lines.append(f"{t('ui-msg-4')} {mid}[/bold]{suffix}")
         else:
             lines.append(t("ui-mcp-0-none-added-for-this-run"))
         if skills:
-            lines.append(f"{t('ui-skills-3')}{len(skills)}{t('ui-this-run-only')}")
+            lines.append(f"{t('ui-skills-3')} {len(skills)} {t('ui-this-run-only')}")
             for sk in skills:
-                lines.append(f"{t('ui-msg-5')}{sk}")
+                lines.append(f"{t('ui-msg-5')} {sk}")
         else:
             lines.append(t("ui-skills-0-none-added-for-this-run"))
         if plugins:
-            lines.append(f"{t('ui-plugins-2')}{len(plugins)}{t('ui-grok-packages-this-run-only')}")
+            lines.append(f"{t('ui-plugins-2')} {len(plugins)} {t('ui-grok-packages-this-run-only')}")
             for name in plugins:
-                lines.append(f"{t('ui-msg-5')}{name}")
+                lines.append(f"{t('ui-msg-5')} {name}")
         else:
             lines.append(t("ui-plugins-0-none-added-for-this-run"))
         if env_keys:
             shown = ", ".join(env_keys[:12])
             more = f" +{len(env_keys) - 12}" if len(env_keys) > 12 else ""
-            lines.append(f"{t('ui-run-env-keys-from-mcp-configure')}{shown}{more}[/dim]")
+            lines.append(f"{t('ui-run-env-keys-from-mcp-configure')} {shown} {more}[/dim]")
         lines.append("")
         w.update("\n".join(lines))
 
@@ -657,7 +657,7 @@ class RunnerScreen(ChromeActions):
                         self._run_skills_ids.append(ss)
             self._update_run_caps_summary()
             self.notify(
-                f"{t('ui-run-extras')}{len(self._run_mcp_ids)}{t('ui-mcp-2')}{len(self._run_skills_ids)}{t('ui-skills-4')}{len(self._run_plugins_ids)}{t('ui-plugins-persona-unchanged')}",
+                f"{t('ui-run-extras')} {len(self._run_mcp_ids)} {t('ui-mcp-2')} {len(self._run_skills_ids)} {t('ui-skills-4')} {len(self._run_plugins_ids)} {t('ui-plugins-persona-unchanged')}",
                 severity="information",
                 timeout=6,
             )
@@ -729,12 +729,12 @@ class RunnerScreen(ChromeActions):
         p_mcp, p_skills = self._persona_capability_snapshot()
         pid = self._persona_id_from_form() or "(none)"
         if not p_mcp and (not p_skills):
-            body = f"{t('ui-persona')}{pid}{t('ui-no-base-mcp-skills')}"
+            body = f"{t('ui-persona')} {pid} {t('ui-no-base-mcp-skills')}"
         else:
             m = ", ".join(p_mcp[:8]) + ("…" if len(p_mcp) > 8 else "")
             s = ", ".join(p_skills[:8]) + ("…" if len(p_skills) > 8 else "")
             body = (
-                f"{t('ui-persona')}{pid}{t('ui-mcp-3')}{m or '—'}{t('ui-skills-2')}{s or '—'}[/dim]"
+                f"{t('ui-persona')} {pid} {t('ui-mcp-3')} {m or '—'} {t('ui-skills-2')} {s or '—'}[/dim]"
             )
         self._set_status_line("run-caps-persona-hint", body)
 
@@ -810,7 +810,7 @@ class RunnerScreen(ChromeActions):
             self._refresh_persona_select(select_id=str(pid) if pid else None)
             if pid:
                 self.notify(
-                    f"{t('ui-persona-ready')}{pid}{t('ui-selected-5')}",
+                    f"{t('ui-persona-ready')} {pid} {t('ui-selected-5')}",
                     severity="information",
                     timeout=6,
                 )
@@ -893,8 +893,8 @@ class RunnerScreen(ChromeActions):
             n = len(active)
             if n:
                 ids = ", ".join(r.run_id for r in active[-4:])
-                more = f" (+{n - 4}{t('ui-more-2')}" if n > 4 else ""
-                self._set_banner("running", f"[bold]{n}{t('ui-run-s-active-1')}{ids}{more}")
+                more = f" (+{n - 4} {t('ui-more-2')}" if n > 4 else ""
+                self._set_banner("running", f"[bold]{n} {t('ui-run-s-active-1')} {ids} {more}")
             else:
                 self._set_banner("idle", t("ui-no-active-runs-fill-the-form-and-press-launch"))
 
@@ -951,10 +951,10 @@ class RunnerScreen(ChromeActions):
                     store.save(existing)
                     extra = ""
                     if run_mcp or run_skills or run_plugins:
-                        extra = f"{t('ui-run-mcp')}{len(run_mcp)}{t('ui-skills-2')}{len(run_skills)}{t('ui-plugins-3')}{len(run_plugins)}"
+                        extra = f"{t('ui-run-mcp')} {len(run_mcp)} {t('ui-skills-2')} {len(run_skills)} {t('ui-plugins-3')} {len(run_plugins)}"
                     self.notify(
-                        f"{t('ui-updated-config')}{existing.config_id} ({existing.display_name()})"
-                        + (f"{t('ui-persona-1')}{persona_id}" if persona_id else "")
+                        f"{t('ui-updated-config')} {existing.config_id} ({existing.display_name()})"
+                        + (f"{t('ui-persona-1')} {persona_id}" if persona_id else "")
                         + extra,
                         severity="information",
                     )
@@ -981,13 +981,13 @@ class RunnerScreen(ChromeActions):
             store.save(cfg)
             self._config_id = cfg.config_id
             self.notify(
-                f"{t('ui-saved-config')}{cfg.config_id} → {store.root}",
+                f"{t('ui-saved-config')} {cfg.config_id} → {store.root}",
                 severity="information",
                 timeout=8,
             )
             self._mark_form_clean()
         except Exception as exc:
-            self.notify(f"{t('ui-save-failed')}{exc}", severity="error")
+            self.notify(f"{t('ui-save-failed')} {exc}", severity="error")
 
     def _read_form(
         self, *, require_models: bool = True
@@ -1124,7 +1124,7 @@ class RunnerScreen(ChromeActions):
         skips = self._pending_model_skips or []
         if skips:
             self.notify(
-                f"{t('ui-skipping')}{len(skips)}{t('ui-inactive-model-s-not-in-grok-models-models-cache')}{', '.join(models) or '(none)'}",
+                f"{t('ui-skipping')} {len(skips)} {t('ui-inactive-model-s-not-in-grok-models-models-cache')} {', '.join(models) or '(none)'}",
                 severity="warning",
                 timeout=12,
             )
@@ -1160,7 +1160,7 @@ class RunnerScreen(ChromeActions):
         auth_json = Path.home() / ".grok" / "auth.json"
         grok_config = Path.home() / ".grok" / "config.toml"
         if not auth_json.exists():
-            self._set_banner("error", f"{t('ui-auth-file-not-found')}{auth_json}")
+            self._set_banner("error", f"{t('ui-auth-file-not-found')} {auth_json}")
             return
         already = self.run_manager.active_count
         interactive = False
@@ -1207,9 +1207,9 @@ class RunnerScreen(ChromeActions):
         self._last_run_id = bg.run_id
         n = len(models)
         rid = (bg.run_id or "")[:12]
-        more = f" (+{already}{t('ui-already-running')}" if already else ""
+        more = f" (+{already} {t('ui-already-running')}" if already else ""
         self.notify(
-            f"{t('ui-launched')}{n}{t('ui-model-s')}{more}"
+            f"{t('ui-launched')} {n} {t('ui-model-s')} {more}"
             + (f" · {rid}" if rid else "")
             + t("ui-jobs-for-logs-esc-closes-jobs-run-keeps-going"),
             severity="information",
@@ -1233,7 +1233,7 @@ class RunnerScreen(ChromeActions):
     def _apply_finished_banner(self, run: BackgroundRun) -> None:
         elapsed_str = _format_duration(run.elapsed_s)
         if run.error:
-            self._set_banner("error", f"{t('ui-run-crashed')}{rich_escape(run.error)}")
+            self._set_banner("error", f"{t('ui-run-crashed')} {rich_escape(run.error)}")
             return
         completed = sum(1 for r in run.results if r.status == "completed")
         failed_count = sum(1 for r in run.results if r.status == "failed")
@@ -1244,12 +1244,12 @@ class RunnerScreen(ChromeActions):
             )
             self._set_banner(
                 "error",
-                f"{t('ui-run-2')}{run.run_id}{t('ui-finished-in-1')}{elapsed_str} — [green]{completed}{t('ui-succeeded')}{failed_count}{t('ui-failed-2')}{rich_escape(error_summary)}[/dim]",
+                f"{t('ui-run-2')} {run.run_id} {t('ui-finished-in-1')} {elapsed_str} — [green]{completed} {t('ui-succeeded')} {failed_count} {t('ui-failed-2')} {rich_escape(error_summary)}[/dim]",
             )
         else:
             self._set_banner(
                 "success",
-                f"{t('ui-run-2')}{run.run_id}{t('ui-completed-in')}{elapsed_str} — [green]{completed}/{len(run.results)}{t('ui-succeeded-1')}",
+                f"{t('ui-run-2')} {run.run_id} {t('ui-completed-in')} {elapsed_str} — [green]{completed}/{len(run.results)} {t('ui-succeeded-1')}",
             )
 
     def _set_banner(self, level: str, text: str) -> None:
@@ -1347,7 +1347,7 @@ class RunnerScreen(ChromeActions):
         n = self.run_manager.active_count
         if n:
             self.notify(
-                f"{n}{t('ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt')}",
+                f"{n} {t('ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt')}",
                 severity="information",
                 timeout=6,
             )

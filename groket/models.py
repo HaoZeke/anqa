@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field
 
 from .utils import fmt_duration, strip_control_chars
 
-# ── Shared type aliases (extension contracts) ────────────────────────────────
 #
 # Recursive JSON types use PEP 695 ``type`` statements (Python 3.12+), same
 # pattern as coredis :data:`coredis.typing.JsonType` / ``ResponseType`` in
@@ -45,7 +44,6 @@ type JsonObject = dict[str, JsonValue]
 type TemplateValue = JsonValue
 type MatchVariables = JsonObject
 
-
 def json_as_str(value: JsonValue | None, default: str = "") -> str:
     """Coerce a JSON value to ``str``.
 
@@ -62,7 +60,6 @@ def json_as_str(value: JsonValue | None, default: str = "") -> str:
     if isinstance(value, (int, float)):
         return str(value)
     return json.dumps(value)
-
 
 def json_as_int(value: JsonValue | None, default: int = 0) -> int:
     """Coerce a JSON value to ``int``."""
@@ -81,7 +78,6 @@ def json_as_int(value: JsonValue | None, default: int = 0) -> int:
             return default
     return default
 
-
 def json_as_float(value: JsonValue | None, default: float = 0.0) -> float:
     """Coerce a JSON value to ``float``."""
     if value is None:
@@ -97,7 +93,6 @@ def json_as_float(value: JsonValue | None, default: float = 0.0) -> float:
             return default
     return default
 
-
 def json_as_bool(value: JsonValue | None, default: bool = False) -> bool:
     """Coerce a JSON value to ``bool``."""
     if value is None:
@@ -110,7 +105,6 @@ def json_as_bool(value: JsonValue | None, default: bool = False) -> bool:
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return default
 
-
 def json_as_str_list(value: JsonValue | None, default: Sequence[str] | None = None) -> list[str]:
     """Coerce a JSON value to ``list[str]``."""
     if value is None:
@@ -121,13 +115,11 @@ def json_as_str_list(value: JsonValue | None, default: Sequence[str] | None = No
         return [json_as_str(item) for item in value]
     return list(default or ())
 
-
 def json_as_object(value: JsonValue | None) -> JsonObject:
     """Coerce a JSON value to a mapping (empty if not a dict)."""
     if isinstance(value, dict):
         return {str(k): v for k, v in value.items()}
     return {}
-
 
 def json_as_list(value: JsonValue | None) -> list[JsonValue]:
     """Coerce a JSON value to a list (empty if not a list)."""
@@ -135,11 +127,9 @@ def json_as_list(value: JsonValue | None) -> list[JsonValue]:
         return list(value)
     return []
 
-
 def json_as_mapping_list(value: JsonValue | None) -> list[JsonObject]:
     """Coerce a JSON value to a list of objects (skip non-dicts)."""
     return [json_as_object(item) for item in json_as_list(value) if isinstance(item, dict)]
-
 
 def json_value_from_unknown(value: object) -> JsonValue:
     """Best-effort coerce an arbitrary Python value into :data:`JsonValue`.
@@ -158,11 +148,9 @@ def json_value_from_unknown(value: object) -> JsonValue:
         return [json_value_from_unknown(v) for v in value]
     return str(value)
 
-
 def as_json_object(data: Mapping[str, object]) -> JsonObject:
     """Build a :data:`JsonObject` from a heterogeneous mapping (audit helpers)."""
     return {str(k): json_value_from_unknown(v) for k, v in data.items()}
-
 
 class ParamBag:
     """Typed accessors for rule YAML ``params`` (JSON-shaped open key set).
@@ -249,24 +237,19 @@ class ParamBag:
             return [json_as_int(item) for item in raw]
         return list(default or ())
 
-
 # Rule YAML ``params:`` — prefer :class:`ParamBag` at detector boundaries.
 type RuleParams = ParamBag
-
 
 class ToolInputBag(ParamBag):
     """Tool / MCP argument bag with the same accessors as :class:`ParamBag`."""
 
-
 type ToolInput = ToolInputBag
-
 
 class ChatContentBlock(TypedDict, total=False):
     """One block inside a multimodal chat ``content`` list."""
 
     type: str
     text: str
-
 
 class ChatMessage(TypedDict, total=False):
     """One line from ``chat_history.jsonl`` (role + content, optional extras)."""
@@ -277,9 +260,7 @@ class ChatMessage(TypedDict, total=False):
     timestamp: NotRequired[int | float | str]
     id: NotRequired[str]
 
-
 type ChatHistory = Sequence[ChatMessage]
-
 
 class Severity(str, Enum):
     HIGH = "high"
@@ -300,13 +281,11 @@ class Severity(str, Enum):
         order = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
         return order[self] < order[other]
 
-
 class FlagVerdict(str, Enum):
     BAD = "bad"
     ACCEPTABLE = "acceptable"
     GOOD = "good"
     NEEDS_REVIEW = "needs_review"
-
 
 @dataclass
 class ToolCall:
@@ -350,7 +329,6 @@ class ToolCall:
         if isinstance(self.raw_input, dict):
             return ToolInputBag(self.raw_input)
         return ToolInputBag()
-
 
 @dataclass
 class TraceEvent:
@@ -432,7 +410,6 @@ class TraceEvent:
             text = strip_control_chars(text[:200])
             return text[:80].replace("\n", " ")
 
-
 class Flag(BaseModel):
     """A user flag on a trace event."""
 
@@ -444,7 +421,6 @@ class Flag(BaseModel):
     tool_call_id: str = ""
     timestamp: int | None = None
     created_at: str = ""
-
 
 @dataclass
 class SessionMeta:
@@ -536,7 +512,6 @@ class SessionMeta:
         if not oc:
             return "—"
         return "complete"
-
 
 class EvalRun(BaseModel):
     """A single evaluation run: prompt + config + resulting sessions."""

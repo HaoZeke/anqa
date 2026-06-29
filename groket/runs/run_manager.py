@@ -39,7 +39,6 @@ StatusCallback = Callable[[ContainerStatus], None]
 LogCallback = Callable[[str, str], None]
 FinishedCallback = Callable[["BackgroundRun"], None]
 
-
 @dataclass
 class BackgroundRun:
     """State for one evaluation launch (may outlive the Runner screen / app)."""
@@ -81,7 +80,6 @@ class BackgroundRun:
         """Thread-safe capture; does not require a UI listener."""
         self.log_buffer.append(source, text)
         self.log_lines.append((source, text))
-
 
 class RunManager:
     """Owns orchestrator work on daemon threads; UI screens subscribe optionally.
@@ -145,8 +143,6 @@ class RunManager:
         with self._lock:
             return self._ui_detached
 
-    # ── Public state ──────────────────────────────────────────────────────
-
     @property
     def current(self) -> BackgroundRun | None:
         """Most recently started still-active run, else latest in history."""
@@ -197,8 +193,6 @@ class RunManager:
             for bg in self._active.values():
                 names.update(bg.container_names)
             return names
-
-    # ── Listener registration (main thread) ───────────────────────────────
 
     def add_status_listener(self, cb: StatusCallback) -> None:
         with self._lock:
@@ -252,8 +246,6 @@ class RunManager:
                 self._finished_listeners.remove(cb)
             except ValueError:
                 pass
-
-    # ── Launch ────────────────────────────────────────────────────────────
 
     def start_run(
         self,
@@ -670,8 +662,6 @@ class RunManager:
             daemon=True,
         ).start()
         return batch_id
-
-    # ── Worker (daemon thread) ────────────────────────────────────────────
 
     def _worker(
         self,

@@ -18,11 +18,11 @@ Restart the TUI (or reload rules) so the engine imports detectors and merges rul
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from groket.engine.detectors import detector
 from groket.engine.models import Match
-from groket.models import ToolCall, ChatMessage, RuleParams
+from groket.models import ChatMessage, RuleParams, ToolCall
 
 
 @detector("repeated_shell_cd")

@@ -7,6 +7,8 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 
+from groket.engine.detectors import detector
+from groket.engine.models import Match
 from groket.models import (
     ChatMessage,
     JsonObject,
@@ -16,10 +18,6 @@ from groket.models import (
     json_as_bool,
     json_as_str,
 )
-from groket.engine.models import Match
-from groket.engine.detectors import detector
-
-# ── Language-specific patterns for wrong_language_search ──
 
 _DEFAULT_LANG_PATTERNS: dict[str, list[str]] = {
     "typescript": [
@@ -70,7 +68,7 @@ _DEFAULT_LANG_GLOBS: dict[str, list[str]] = {
     "rust": [".rs"],
 }
 
-# Type filter flags that imply specific languages
+
 _TYPE_LANG_MAP: dict[str, str] = {
     "ts": "typescript",
     "js": "javascript",
@@ -83,7 +81,7 @@ _TYPE_LANG_MAP: dict[str, str] = {
     "cpp": "cpp",
 }
 
-# Default shell patterns for terminal_native_check
+
 _DEFAULT_SHELL_PATTERNS: list[JsonObject] = [
     {"pattern": r"\bgrep\s+", "alternative": "grep tool", "primary_only": True},
     {"pattern": r"\brg\s+", "alternative": "grep tool", "primary_only": True},
@@ -102,7 +100,7 @@ _DEFAULT_SHELL_PATTERNS: list[JsonObject] = [
     {"pattern": r"\btree\s+", "alternative": "list_dir", "primary_only": True},
 ]
 
-# Default environment error patterns for terminal_env_check
+
 _DEFAULT_ENV_ERROR_PATTERNS: list[dict[str, str]] = [
     {"pattern": r"unrecognized option", "description": "Unrecognized flag (likely BusyBox/Alpine)"},
     {"pattern": r"invalid option", "description": "Invalid option (environment mismatch)"},
@@ -113,7 +111,7 @@ _DEFAULT_ENV_ERROR_PATTERNS: list[dict[str, str]] = [
     {"pattern": r"applet not found", "description": "BusyBox applet not available"},
 ]
 
-# Default generic/shotgun patterns for premature_generic_search
+
 _DEFAULT_GENERIC_PATTERNS = (
     r"(?:eval|exec|system|sql|inject|xss|csrf|deserializ|pickle|yaml\.load|shell_exec"
     r"|TODO|FIXME|HACK|XXX|BUG|DEPRECATED)"
@@ -124,30 +122,26 @@ _DEFAULT_SHOTGUN_RE = re.compile(_DEFAULT_SHOTGUN_PATTERNS, re.IGNORECASE)
 _MULTI_LANG_GLOB_RE = re.compile(r"\*\.\{.*,.*\}")
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _is_primary_command(cmd: str, pat: str) -> bool:
     """Check if the matched pattern is the primary command,
     not something piped from another command or a file write."""
-    # Strip leading cd/env/bash -c wrapper
+
     stripped = re.sub(r'^(?:cd\s+\S+\s*&&\s*|bash\s+-c\s+["\']?)', "", cmd.strip())
 
-    # Find the position of the pattern match
+
     m = re.search(pat, stripped)
     if not m:
         return False
 
-    # Check if there's a pipe before this match
+
     before = stripped[: m.start()]
     if "|" in before:
         return False
 
-    # Check if the match is piped into something
+
     after = stripped[m.end() :]
-    # Find pipe in the current segment (before next && or ;)
+
     next_chain = len(after)
     for sep in ["&&", ";"]:
         pos = after.find(sep)
@@ -162,31 +156,25 @@ def _is_primary_command(cmd: str, pat: str) -> bool:
         if "find" in pat:
             return False
 
-    # Skip commands used after && or ; if the first command is substantive
+
     for sep in ["&&", ";"]:
         if sep in before:
             pre_chain = before.split(sep)[0].strip()
             if pre_chain and not pre_chain.startswith("cd "):
                 return False
 
-    # Check if cat/tee is being used to WRITE a file (cat > file, cat << EOF)
+
     if "cat" in pat:
         if re.search(r">\s*\S+", after[:40]) or "<<" in after[:40]:
             return False
 
-    # Complex find commands with exec/xargs or multiple predicates
+
     if "find" in pat:
         full_cmd = before + stripped[m.start() :]
         if any(kw in full_cmd for kw in ["-exec", "xargs", " -o ", "-newer", "-mtime"]):
             return False
 
     return True
-
-
-# ---------------------------------------------------------------------------
-# 1. wrong_language_search
-# ---------------------------------------------------------------------------
-
 
 @detector("wrong_language_search")
 def wrong_language_search(
@@ -215,7 +203,7 @@ def wrong_language_search(
 
     results: list[Match] = []
 
-    # Determine file extensions from list_dir results AND read_file/grep/search_replace paths
+
     extensions: dict[str, int] = defaultdict(int)
     for tc in tool_calls:
         if tc.tool_name == "list_dir" and tc.result_content:
@@ -235,7 +223,7 @@ def wrong_language_search(
     if not extensions:
         return results
 
-    # Which language families have actual files?
+
     present_langs: set[str] = set()
     for lang, exts in lang_globs.items():
         if any(extensions.get(e, 0) > 0 for e in exts):
@@ -249,7 +237,7 @@ def wrong_language_search(
         glob = tc.input_str("glob") or ""
         type_filter = tc.input_str("type") or ""
 
-        # Check --type flag for absent languages
+
         if type_filter and type_filter in _TYPE_LANG_MAP:
             target_lang = _TYPE_LANG_MAP[type_filter]
             if target_lang not in present_langs:
@@ -275,7 +263,7 @@ def wrong_language_search(
                 )
                 continue
 
-        # Check glob for absent language extensions
+
         absent_in_glob: list[str] = []
         for lang, exts in lang_globs.items():
             if lang in present_langs:
@@ -306,7 +294,7 @@ def wrong_language_search(
             )
             continue
 
-        # Check pattern for language-specific constructs
+
         for lang, lp_list in lang_patterns.items():
             if lang in present_langs:
                 continue
@@ -341,12 +329,6 @@ def wrong_language_search(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 2. terminal_native_check
-# ---------------------------------------------------------------------------
-
-
 @detector("terminal_native_check")
 def terminal_native_check(
     tool_calls: list[ToolCall],
@@ -367,23 +349,23 @@ def terminal_native_check(
             continue
         cmd = tc.input_str("command")
 
-        # Skip inline scripts — perl/python/ruby -e/-c are legitimate terminal use
+
         if re.match(r"^\s*(?:perl|python[23]?|ruby|node)\s+(?:-[ec]|-m\s)", cmd):
             continue
-        # Skip echo used for test output display (not file redirect)
+
         if re.match(r"^\s*echo\s", cmd) and ">" not in cmd:
             continue
-        # Skip heredoc file writes — they may contain shell-like content
+
         if "<<" in cmd and re.search(r"(?:cat|tee)\s+>?\s*\S+\s*<<", cmd):
             continue
-        # Skip git subcommands (git grep, git log, git diff, etc.)
+
         if re.match(r"^\s*(?:cd\s+\S+\s*&&\s*)?git\s+", cmd):
             continue
-        # Skip compound commands with 3+ subcommands
+
         chain_count = cmd.count("&&") + cmd.count(";") + 1
         if chain_count >= 3:
             continue
-        # Skip commands ending with `| cat` (force no-pager/no-color)
+
         if re.search(r"\|\s*cat\s*$", cmd.strip()):
             continue
 
@@ -420,15 +402,9 @@ def terminal_native_check(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 3. terminal_env_check
-# ---------------------------------------------------------------------------
-
 _CMD_NOT_FOUND_RE = re.compile(r"(\S+):\s*(?:command\s+)?not found", re.IGNORECASE)
 _NO_SUCH_FILE_RE = re.compile(r"(\S+):\s*No such file", re.IGNORECASE)
 _CHAIN_SPLIT_RE = re.compile(r"\s*(?:&&|;)\s*")
-
 
 def _extract_missing_binary(output: str, cmd: str) -> str | None:
     """Extract the missing binary name from 'command not found' output.
@@ -438,14 +414,13 @@ def _extract_missing_binary(output: str, cmd: str) -> str | None:
     if not m:
         return None
     binary = m.group(1).split("/")[-1]
-    # Compound-command check: skip if binary only in a later segment
+
     segments = _CHAIN_SPLIT_RE.split(cmd)
     if len(segments) > 1:
         first_seg_bins = set(re.findall(r"(?:^|\s)(\S+)", segments[0]))
         if binary not in first_seg_bins:
             return None
     return binary
-
 
 def _missing_binary_match(
     tc: ToolCall,
@@ -468,7 +443,6 @@ def _missing_binary_match(
         ),
     )
 
-
 def _option_error_match(
     tc: ToolCall,
     cmd: str,
@@ -488,7 +462,6 @@ def _option_error_match(
             f"BusyBox/Alpine container."
         ),
     )
-
 
 @detector("terminal_env_check")
 def terminal_env_check(
@@ -544,12 +517,6 @@ def terminal_env_check(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 4. overlapping_reads
-# ---------------------------------------------------------------------------
-
-
 @detector("overlapping_reads")
 def overlapping_reads(
     tool_calls: list[ToolCall],
@@ -563,9 +530,9 @@ def overlapping_reads(
 
     results: list[Match] = []
 
-    # Track reads by file with their position in the tool call sequence
+
     reads_by_file: dict[str, list[tuple[int, int, ToolCall, int]]] = defaultdict(list)
-    # Track which files were edited between tool calls
+
     edit_indices_by_file: dict[str, set[int]] = defaultdict(set)
 
     for idx, tc in enumerate(tool_calls):
@@ -574,10 +541,10 @@ def overlapping_reads(
             if not f:
                 continue
             offset = tc.inputs().as_int("offset", 0)
-            # Only use explicit limits; cap default at 200 to avoid inflation
+
             limit = tc.inputs().as_int_opt("limit")
             if limit is None:
-                limit = 200  # conservative cap for overlap calculation
+                limit = 200
             reads_by_file[f].append((offset, limit, tc, idx))
         elif tc.tool_name == "search_replace" and not tc.is_error:
             f = tc.input_str("file_path")
@@ -596,7 +563,7 @@ def overlapping_reads(
                 start_a, limit_a, tc_a, idx_a = reads[i]
                 start_b, limit_b, tc_b, idx_b = reads[j]
 
-                # Skip if there was an edit between these reads
+
                 if any(idx_a < eidx < idx_b or idx_b < eidx < idx_a for eidx in edit_indices):
                     continue
 
@@ -646,12 +613,6 @@ def overlapping_reads(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 5. premature_generic_search
-# ---------------------------------------------------------------------------
-
-
 @detector("premature_generic_search")
 def premature_generic_search(
     tool_calls: list[ToolCall],
@@ -666,7 +627,7 @@ def premature_generic_search(
 
     results: list[Match] = []
 
-    # Use pre-compiled defaults when params aren't overridden
+
     generic_re = (
         re.compile(generic_patterns_str, re.IGNORECASE)
         if generic_patterns_str != _DEFAULT_GENERIC_PATTERNS
@@ -678,7 +639,7 @@ def premature_generic_search(
         else _DEFAULT_SHOTGUN_RE
     )
 
-    # Find when the model has meaningfully oriented — read at least N files
+
     files_read = 0
     oriented_idx: int | None = None
     for i, tc in enumerate(tool_calls):
@@ -692,7 +653,7 @@ def premature_generic_search(
         if tc.tool_name != "grep":
             continue
 
-        # Only flag greps before the model has deeply oriented
+
         if oriented_idx is not None and i > oriented_idx:
             continue
 

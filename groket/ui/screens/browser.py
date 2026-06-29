@@ -269,7 +269,7 @@ class BrowserScreen(ChromeActions):
             drained = drain_queued_follow_up(self.session_dir)
             if drained:
                 preview = drained if len(drained) <= 48 else drained[:48] + "…"
-                self.notify(f"{t('ui-queued-follow-up-sent')}{preview})")
+                self.notify(f"{t('ui-queued-follow-up-sent')} {preview})")
         except Exception:
             pass
         meta = self.meta
@@ -309,7 +309,7 @@ class BrowserScreen(ChromeActions):
             chip = status_chip(label or "idle", kind="unknown" if not label else "ok")
             sid = str(st.get("session_id") or (meta.session_id if meta else ""))
             turn = st.get("turn", "")
-            extra = f"{t('ui-session-1')}{sid}" if sid else ""
+            extra = f"{t('ui-session-1')} {sid}" if sid else ""
             if turn != "" and turn is not None:
                 extra += t("ui-gate-turn", turn=turn)
             if queued:
@@ -320,14 +320,14 @@ class BrowserScreen(ChromeActions):
         try:
             q_widget = self.query_one("#session-pending-queue", Static)
             if queued:
-                lines = [f"[bold yellow]{len(queued)}{t('ui-follow-up-s-pending')}"]
+                lines = [f"[bold yellow]{len(queued)} {t('ui-follow-up-s-pending')}"]
                 for i, p in enumerate(queued[:5], start=1):
                     preview = p.replace("\n", " ")
                     if len(preview) > 72:
                         preview = preview[:69] + "…"
                     lines.append(f"  {i}. {preview}")
                 if len(queued) > 5:
-                    lines.append(f"  … +{len(queued) - 5}{t('ui-more-1')}")
+                    lines.append(f"  … +{len(queued) - 5} {t('ui-more-1')}")
                 q_widget.update("\n".join(lines))
                 q_widget.display = True
             else:
@@ -578,14 +578,14 @@ class BrowserScreen(ChromeActions):
         outcome_bit = ""
         if self.meta and self.meta.turn_outcome:
             if self.meta.turn_failed:
-                outcome_bit = f"{t('ui-turn-1')}{self.meta.turn_outcome}"
+                outcome_bit = f"{t('ui-turn-1')} {self.meta.turn_outcome}"
             elif self.meta.turn_in_progress:
-                outcome_bit = f"{t('ui-live-turn')}{self.meta.turn_outcome}"
+                outcome_bit = f"{t('ui-live-turn')} {self.meta.turn_outcome}"
             else:
-                outcome_bit = f"{t('ui-turn-2')}{self.meta.turn_outcome}"
+                outcome_bit = f"{t('ui-turn-2')} {self.meta.turn_outcome}"
         elif self.meta:
             outcome_bit = t("ui-live")
-        self.title = f"{t('ui-browser')}{label} ({model}){outcome_bit}"
+        self.title = f"{t('ui-browser')} {label} ({model}){outcome_bit}"
 
     def _populate_ui(self) -> None:
         """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""
@@ -601,7 +601,7 @@ class BrowserScreen(ChromeActions):
         timeline_table.focus()
         if self.meta and self.meta.turn_failed:
             self.notify(
-                f"{t('ui-turn-ended-with-outcome')}{self.meta.turn_outcome}{t('ui-see-summary-tab-or-session-session-error-timelin')}",
+                f"{t('ui-turn-ended-with-outcome')} {self.meta.turn_outcome} {t('ui-see-summary-tab-or-session-session-error-timelin')}",
                 severity="warning",
                 timeout=8,
             )
@@ -707,12 +707,12 @@ class BrowserScreen(ChromeActions):
         high = sum(1 for f in self._findings if f.severity.value == "high")
         fh.append("\n  ")
         if high:
-            fh.append_text(status_chip(f"{high}{t('ui-high-4')}", kind="bad"))
+            fh.append_text(status_chip(f"{high} {t('ui-high-4')}", kind="bad"))
         elif n:
-            fh.append_text(status_chip(f"{n}{t('ui-findings-2')}", kind="unknown"))
+            fh.append_text(status_chip(f"{n} {t('ui-findings-2')}", kind="unknown"))
         else:
             fh.append_text(status_chip("none", kind="ok"))
-        fh.append(f"  ·  {n}{t('ui-total')}", style="dim")
+        fh.append(f"  ·  {n} {t('ui-total')}", style="dim")
         self.query_one("#findings-header", Static).update(fh)
 
     def _update_summary_tab(self) -> None:
@@ -829,14 +829,14 @@ class BrowserScreen(ChromeActions):
         opts: list[tuple[str, str]] = [(U.all_sections(), "all")]
         n_flags = len(self._flags)
         if n_flags:
-            opts.append((f"{t('ui-flags-1')}{n_flags})", "flags"))
+            opts.append((f"{t('ui-flags-1')} {n_flags})", "flags"))
         for aid in self._report_plugin_ids():
             n = sum(1 for f in self._findings if (f.plugin_id or "") == aid)
             label = self._plugin_title(aid)
             if n:
                 label = f"{label} ({n})"
             else:
-                label = f"{label}{t('ui-report')}"
+                label = f"{label} {t('ui-report')}"
             opts.append((label, f"plugin:{aid}"))
         return opts
 
@@ -943,18 +943,18 @@ class BrowserScreen(ChromeActions):
         head.append(t("ui-session-report"), style="bold")
         head.append("\n")
         if high:
-            head.append_text(status_chip(f"{high}{t('ui-high-4')}", kind="bad"))
+            head.append_text(status_chip(f"{high} {t('ui-high-4')}", kind="bad"))
             head.append("  ")
         elif total:
-            head.append_text(status_chip(f"{total}{t('ui-findings-2')}", kind="unknown"))
+            head.append_text(status_chip(f"{total} {t('ui-findings-2')}", kind="unknown"))
             head.append("  ")
         else:
             head.append_text(status_chip("clean", kind="ok"))
             head.append("  ")
-        head.append(f"{len(flags)}{t('ui-flags')}", style="dim")
+        head.append(f"{len(flags)} {t('ui-flags')}", style="dim")
         head.append(" │ ", style="dim")
         head.append(
-            f"{total}{t('ui-findings-3')}{high}{t('ui-high-2')}{med}{t('ui-med-1')}", style="dim"
+            f"{total} {t('ui-findings-3')} {high} {t('ui-high-2')} {med} {t('ui-med-1')}", style="dim"
         )
         head.append("\n")
         blocks.append(head)
@@ -984,14 +984,14 @@ class BrowserScreen(ChromeActions):
                 for seg in segs:
                     turns_t.append_text(
                         bullet(
-                            f"{seg.label}: {seg.event_count}{t('ui-events-2')}{seg.tool_call_count}{t('ui-tools-1')}"
+                            f"{seg.label}: {seg.event_count} {t('ui-events-2')} {seg.tool_call_count} {t('ui-tools-1')}"
                             + (
-                                f" ({seg.tool_error_count}{t('ui-tool-err-1')}"
+                                f" ({seg.tool_error_count} {t('ui-tool-err-1')}"
                                 if seg.tool_error_count
                                 else ""
                             )
                             + (
-                                f"{t('ui-timeline')}{seg.first_index}–#{seg.last_index}"
+                                f"{t('ui-timeline')} {seg.first_index}–#{seg.last_index}"
                                 if seg.first_index is not None
                                 else ""
                             )
@@ -1008,7 +1008,7 @@ class BrowserScreen(ChromeActions):
                 focus = self._plugin_title(mode[7:])
             else:
                 focus = mode
-            blocks.append(Text(f"{t('ui-viewing')}{focus}\n", style="dim"))
+            blocks.append(Text(f"{t('ui-viewing')} {focus}\n", style="dim"))
         try:
             self._set_static_content("report-overview-content", panel_group(*blocks))
         except Exception:
@@ -1057,7 +1057,7 @@ class BrowserScreen(ChromeActions):
             elif result.summary:
                 blocks.append(Text(f"  {result.summary}\n", style="dim"))
             elif not result.ok and result.error:
-                blocks.append(Text(f"{t('ui-error-2')}{result.error}\n", style="red"))
+                blocks.append(Text(f"{t('ui-error-2')} {result.error}\n", style="red"))
             else:
                 blocks.append(Text(t("ui-no-findings"), style="dim"))
         else:
@@ -1107,7 +1107,7 @@ class BrowserScreen(ChromeActions):
                 out.append(f"  ·  {cat}", style="dim")
             n_ev = len(getattr(f, "all_tool_call_ids", None) or [])
             if n_ev:
-                out.append(f"  ·  {n_ev}{t('ui-events-1')}", style="dim")
+                out.append(f"  ·  {n_ev} {t('ui-events-1')}", style="dim")
             out.append("\n")
             detail = (getattr(f, "detail", None) or "").strip()
             if detail:
@@ -1120,7 +1120,7 @@ class BrowserScreen(ChromeActions):
                 ch_title = getattr(ch, "title", None) or getattr(ch, "id", "") or ""
                 out.append(f"           - {ch_title}\n", style="dim")
             if len(children) > 8:
-                out.append(f"           … +{len(children) - 8}{t('ui-more')}", style="dim")
+                out.append(f"           … +{len(children) - 8} {t('ui-more')}", style="dim")
         if not findings:
             out.append(t("ui-none"), style="dim")
         return out
@@ -1165,12 +1165,12 @@ class BrowserScreen(ChromeActions):
         strip_bits = [
             m.model_id or "—",
             m.duration_str or "—",
-            f"{len(self.timeline)}{t('ui-events-1')}",
-            f"{error_count}{t('ui-errors-1')}",
-            f"{len(self._findings)}{t('ui-findings-2')}",
+            f"{len(self.timeline)} {t('ui-events-1')}",
+            f"{error_count} {t('ui-errors-1')}",
+            f"{len(self._findings)} {t('ui-findings-2')}",
         ]
         if turn_segments:
-            strip_bits.insert(2, f"{len(turn_segments)}{t('ui-turns')}")
+            strip_bits.insert(2, f"{len(turn_segments)} {t('ui-turns')}")
         head.append_text(meta_strip(strip_bits))
         meta_t = Text()
         meta_t.append_text(kv_line(t("ui-session-2"), m.session_id or "—"))
@@ -1184,7 +1184,7 @@ class BrowserScreen(ChromeActions):
         meta_t.append_text(kv_line(t("ui-loops"), str(m.loop_count or "—")))
         meta_t.append_text(kv_line(t("ui-duration"), m.duration_str or "—"))
         meta_t.append_text(
-            kv_line(t("ui-outcome"), f"{outcome}{t('ui-last-turn-gate-see-turns-table')}")
+            kv_line(t("ui-outcome"), f"{outcome} {t('ui-last-turn-gate-see-turns-table')}")
         )
         diff_line = format_diff_meta_line(self._diff_meta or {})
         if diff_line:
@@ -1192,7 +1192,7 @@ class BrowserScreen(ChromeActions):
         meta_t.append_text(
             kv_line(
                 t("ui-findings-1"),
-                f"{len(self._findings)}{t('ui-from')}{len(self.plugin_results)}{t('ui-plugins-1')}",
+                f"{len(self._findings)} {t('ui-from')} {len(self.plugin_results)} {t('ui-plugins-1')}",
             )
         )
         try:
@@ -1826,12 +1826,12 @@ class BrowserScreen(ChromeActions):
         model = self.meta.model_id if self.meta else "unknown"
         session_id = self.meta.session_id if self.meta else "unknown"
         lines = [
-            f"{t('ui-model-1')}{model}`",
-            f"{t('ui-session')}{session_id}`",
-            f"{t('ui-plugin')}{finding.plugin_id}`",
-            f"{t('ui-finding-1')}{finding.id}`",
-            f"{t('ui-severity')}{finding.severity.value.upper()}",
-            f"{t('ui-category')}{finding.category}",
+            f"{t('ui-model-1')} {model}`",
+            f"{t('ui-session')} {session_id}`",
+            f"{t('ui-plugin')} {finding.plugin_id}`",
+            f"{t('ui-finding-1')} {finding.id}`",
+            f"{t('ui-severity')} {finding.severity.value.upper()}",
+            f"{t('ui-category')} {finding.category}",
             "",
             f"**{finding.title}**",
         ]
@@ -1841,7 +1841,7 @@ class BrowserScreen(ChromeActions):
                 lines.append(f"> {dl}")
         if finding.children:
             lines.append("")
-            lines.append(f"*{len(finding.children)}{t('ui-sub-finding-s')}")
+            lines.append(f"*{len(finding.children)} {t('ui-sub-finding-s')}")
             for child in finding.children:
                 lines.append(f"> [{child.severity.value.upper()}] `{child.id}`: {child.title[:80]}")
         if finding.extras.get("should_have"):

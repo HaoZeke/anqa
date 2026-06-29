@@ -26,9 +26,6 @@ DEFAULT_DOCKER_IMAGE = "fully-loaded"
 # Underlying OS image when a profile alias does not specify one.
 DEFAULT_BASE_OS_IMAGE = "ubuntu:24.04"
 
-
-# ── Fully-loaded toolset (edit here to grow the default agent environment) ──
-
 # apt / apk / dnf package names. Keep this list the single source of truth for
 # "what fully-loaded means"; the Dockerfile generator maps them per package manager.
 FULLY_LOADED_APT_PACKAGES: list[str] = [
@@ -186,7 +183,6 @@ FULLY_LOADED_EXTRA_RUN: list[str] = [
     fi""",
 ]
 
-
 @dataclass(frozen=True)
 class BaseProfile:
     """A named image profile (minimal vs fully-loaded, …)."""
@@ -200,17 +196,14 @@ class BaseProfile:
     fully_loaded: bool = False
     aliases: tuple[str, ...] = ()
 
-
 # Register profiles here; add new ones as needed (e.g. "ci-lite", "go-heavy").
 PROFILES: dict[str, BaseProfile] = {}
-
 
 def _register(p: BaseProfile) -> BaseProfile:
     PROFILES[p.id] = p
     for a in p.aliases:
         PROFILES[a] = p
     return p
-
 
 MINIMAL = _register(
     BaseProfile(
@@ -241,7 +234,6 @@ FULLY_LOADED = _register(
     )
 )
 
-
 @dataclass
 class ResolvedDockerBase:
     """Result of resolving a runner/config ``docker_image`` string."""
@@ -254,7 +246,6 @@ class ResolvedDockerBase:
     fully_loaded: bool
     profile_label: str = ""
 
-
 def list_profiles() -> list[BaseProfile]:
     """Unique profiles (aliases collapsed)."""
     seen: set[str] = set()
@@ -266,7 +257,6 @@ def list_profiles() -> list[BaseProfile]:
         out.append(p)
     return out
 
-
 def profile_help_text() -> str:
     parts = []
     for p in list_profiles():
@@ -274,10 +264,8 @@ def profile_help_text() -> str:
         parts.append(f"{p.id} — {p.description} (aliases: {aliases})")
     return " | ".join(parts)
 
-
 def _norm_key(s: str) -> str:
     return (s or "").strip().lower().replace("_", "-")
-
 
 def resolve_docker_base(docker_image: str | None) -> ResolvedDockerBase:
     """Map runner input to a real base image + profile flags.
@@ -321,11 +309,9 @@ def resolve_docker_base(docker_image: str | None) -> ResolvedDockerBase:
         profile_label=profile.label,
     )
 
-
 def _pkg_join(pkgs: list[str]) -> str:
     # Dockerfile line continuation friendly
     return " \\\n            ".join(pkgs)
-
 
 def fully_loaded_install_dockerfile_block() -> str:
     """RUN blocks installing the fully-loaded toolset (inserted into eval Dockerfile)."""
@@ -334,7 +320,6 @@ def fully_loaded_install_dockerfile_block() -> str:
     dnf = _pkg_join(FULLY_LOADED_DNF_PACKAGES)
 
     block = f"""\
-# ── Fully-loaded toolset (see docker/base_profiles.py to extend) ──────────
 RUN if command -v apt-get >/dev/null 2>&1; then \\
         apt-get update && apt-get install -y --no-install-recommends \\
             {apt} \\
@@ -352,7 +337,6 @@ RUN if command -v apt-get >/dev/null 2>&1; then \\
         block += "\n" + extra.rstrip() + "\n"
     return block.rstrip() + "\n"
 
-
 def minimal_deps_dockerfile_block() -> str:
     """Baseline deps for every profile (share loop needs python3 + groket-share-once.py).
 
@@ -369,7 +353,6 @@ RUN if command -v apt-get >/dev/null 2>&1; then \\
         dnf install -y git curl ca-certificates python3 && dnf clean all; \\
     fi
 """
-
 
 def build_shared_base_dockerfile(*, base_image: str, fully_loaded: bool = False) -> str:
     """Heavy layers only — packages + Grok CLI. No per-task setup/entrypoint.
@@ -394,13 +377,11 @@ def build_shared_base_dockerfile(*, base_image: str, fully_loaded: bool = False)
         tool_block=tool_block,
     )
 
-
 def build_run_dockerfile(*, shared_base_tag: str) -> str:
     """Thin per-run image: shared base + setup.sh + entrypoint only."""
     from .resources import dockerfile_run
 
     return dockerfile_run(shared_base_tag=shared_base_tag)
-
 
 def build_dockerfile(*, base_image: str, fully_loaded: bool = False) -> str:
     """Monolithic Dockerfile for tests; prefer shared base + run split in production."""
@@ -409,13 +390,11 @@ def build_dockerfile(*, base_image: str, fully_loaded: bool = False) -> str:
     shared = build_shared_base_dockerfile(base_image=base_image, fully_loaded=fully_loaded)
     return shared.rstrip() + dockerfile_monolithic_suffix()
 
-
 def _slug_image_ref(base_image: str) -> str:
     """ubuntu:24.04 → ubuntu-24.04"""
     s = (base_image or "ubuntu").strip().lower()
     s = re.sub(r"[^a-z0-9._-]+", "-", s)
     return s.strip("-")[:48] or "base"
-
 
 def shared_base_content_hash(*, base_image: str, fully_loaded: bool) -> str:
     """Short hash of the shared Dockerfile so toolset edits get a new tag (rebuild once)."""
@@ -423,7 +402,6 @@ def shared_base_content_hash(*, base_image: str, fully_loaded: bool) -> str:
 
     body = build_shared_base_dockerfile(base_image=base_image, fully_loaded=fully_loaded)
     return hashlib.sha256(body.encode("utf-8")).hexdigest()[:10]
-
 
 def shared_base_image_tag(*, base_image: str, fully_loaded: bool, profile_id: str = "") -> str:
     """Stable local image name for the cached agent base (never deleted per-run)."""
@@ -434,7 +412,6 @@ def shared_base_image_tag(*, base_image: str, fully_loaded: bool, profile_id: st
     h = shared_base_content_hash(base_image=base_image, fully_loaded=fully_loaded)
     return f"groket-base:{prof}-{slug}-{h}"
 
-
 def shared_base_build_dirname(*, base_image: str, fully_loaded: bool, profile_id: str = "") -> str:
     """Fixed directory under docker-build/ so layer cache and tags align."""
     tag = shared_base_image_tag(
@@ -442,7 +419,6 @@ def shared_base_build_dirname(*, base_image: str, fully_loaded: bool, profile_id
     )
     # groket-base:fl-ubuntu-24.04-abc123 → fl-ubuntu-24.04-abc123
     return tag.split(":", 1)[-1]
-
 
 __all__ = [
     "BaseProfile",

@@ -10,13 +10,12 @@ Config:
 
 from __future__ import annotations
 
-from typing import Unpack
-
 import logging
 import re
 from pathlib import Path
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.models import Severity
 from groket.parser import parse_timeline, parse_tool_calls
 
@@ -31,7 +30,7 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Bearer Token", re.compile(r"Bearer\s+[A-Za-z0-9\-._~+/]{20,}")),
 ]
 
-# Commands that alter state in ways that deserve review.
+
 RISKY_COMMAND_PATTERNS: list[tuple[str, Severity, re.Pattern[str]]] = [
     ("Force push", Severity.HIGH, re.compile(r"git\s+push\s+.*--force")),
     ("Hard reset", Severity.MEDIUM, re.compile(r"git\s+reset\s+--hard")),
@@ -71,7 +70,6 @@ class SecurityScannerAnalyzer:
         findings: list[Finding] = []
 
         for tc in tool_calls:
-            # --- Terminal commands: check for risky operations ---
             if tc.tool_name == "run_terminal_command":
                 cmd = tc.raw_input.get("command", "")
                 for label, severity, pattern in RISKY_COMMAND_PATTERNS:
@@ -86,7 +84,6 @@ class SecurityScannerAnalyzer:
                             tool_call_ids=[tc.call_id],
                         ))
 
-            # --- Scan all tool call content for secrets ---
             chunks = [str(v) for v in tc.raw_input.values()]
             if tc.result_content:
                 chunks.append(tc.result_content)
@@ -103,7 +100,6 @@ class SecurityScannerAnalyzer:
                             tool_call_ids=[tc.call_id],
                         ))
 
-        # --- Scan assistant / user messages for secrets ---
         for ev in timeline:
             if ev.event_type not in ("assistant", "user", "thought"):
                 continue

@@ -9,17 +9,14 @@ from __future__ import annotations
 
 import re
 
-# -- File-write via heredoc (cat > file << EOF) --
 HEREDOC_WRITE_RE = re.compile(r"(?:cat|tee)\s+>?\s*(\S+)\s*<<")
 
-# -- Build commands --
 BUILD_CMD_RE = re.compile(
     r"(?<!\.)(?<!\w)\b(?:make|gcc|g\+\+|cc\s|cmake|configure|meson|cargo\s+build"
     r"|go\s+build|npm\s+run\s+build|tsc|python.*setup\.py)\b",
     re.IGNORECASE,
 )
 
-# -- Test commands --
 TEST_CMD_RE = re.compile(
     r"\b(?:runtest|pytest|cargo\s+test|go\s+test"
     r"|npm\s+test|make\s+test|jest|mocha"
@@ -28,13 +25,11 @@ TEST_CMD_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Build OR test (union — generated from BUILD_CMD_RE + TEST_CMD_RE) --
 BUILD_OR_TEST_RE = re.compile(
     f"(?:{BUILD_CMD_RE.pattern})|(?:{TEST_CMD_RE.pattern})",
     re.IGNORECASE,
 )
 
-# -- Compile/syntax error patterns --
 COMPILE_ERROR_RE = re.compile(
     r"|".join(
         [
@@ -62,7 +57,6 @@ COMPILE_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Crash / runtime failure patterns --
 CRASH_RE = re.compile(
     r"|".join(
         [
@@ -86,7 +80,6 @@ CRASH_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Test failure (broader: includes assertion failures) --
 TEST_FAIL_RE = re.compile(
     CRASH_RE.pattern + r"|"
     r"(?<![0O] )FAIL(?:ED|URE)|AssertionError|assert.*fail|"
@@ -95,7 +88,6 @@ TEST_FAIL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Environment failures (not caused by the model's code changes) --
 ENV_FAILURE_RE = re.compile(
     r"command not found|"
     r"No such file or directory.*gcc|"
@@ -116,8 +108,7 @@ ENV_FAILURE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Infra/tooling failures unrelated to task correctness --
-# (git author not set in container, lock contention, etc.)
+
 INFRA_ERROR_RE = re.compile(
     r"Author identity unknown|"
     r"tell me who you are|"
@@ -131,8 +122,7 @@ INFRA_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Intentional/verification failures (model is proving the bug/fix works) --
-# Only treat as non-errors when the command itself looks like a repro/verify step.
+
 VERIFY_SUCCESS_ERROR_RE = re.compile(
     r"call stack too deep|"
     r"maximum recursion|"
@@ -142,20 +132,17 @@ VERIFY_SUCCESS_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Generic error-in-output pattern --
 ERROR_IN_OUTPUT_RE = re.compile(
     r"error(?:\[E\d+\])?:|fatal:|FAILED|panic[!:\s]|Traceback",
     re.IGNORECASE,
 )
 
-# -- Package install commands --
 INSTALL_CMD_RE = re.compile(
     r"\b(?:apt-get\s+install|apt\s+install|yum\s+install"
     r"|dnf\s+install|apk\s+add|pacman\s+-S)\b",
     re.IGNORECASE,
 )
 
-# -- Terminal error patterns (for terminal_errors_ignored, premature_completion) --
 TERMINAL_ERROR_RE = re.compile(
     r"(?:^|\n)\s*(?:"
     r"error(?:\[E\d+\])?:\s"
@@ -176,13 +163,11 @@ TERMINAL_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Signal-killed processes (intentional server shutdown, benchmark stop) --
 SIGNAL_KILL_RE = re.compile(
     r"exit:\s*killed\s*\(signal\s*\d+\)|signal:\s*\d+|Killed$",
     re.IGNORECASE,
 )
 
-# -- Server/daemon commands expected to be killed --
 SERVER_CMD_RE = re.compile(
     r"(?:redis-server|nginx|node\s+server|flask\s+run|uvicorn|gunicorn"
     r"|python.*serve|java\s+-jar|pkill|kill\s+"
@@ -190,38 +175,32 @@ SERVER_CMD_RE = re.compile(
     re.IGNORECASE,
 )
 
-# -- Git subcommand extraction --
 GIT_CMD_RE = re.compile(r"(?:^|&&|;|\|)\s*git\s+(\S+)")
 
-# -- Inline interpreter scripts (python -c, node -e, etc.) --
 INLINE_SCRIPT_RE = re.compile(
     r"(?:python3?)\s+(?:\S+\s+)*-c\s"
     r"|(?:node|perl|ruby)\s+(?:\S+\s+)*-[eE]\s",
     re.IGNORECASE,
 )
 
-# -- Interpreter/shell fed via stdin heredoc (python <<EOF, bash <<EOF) --
-# Length comes from the embedded program, not shell pipeline complexity.
+
 HEREDOC_SCRIPT_RE = re.compile(
     r"(?:^|&&|;|\|)\s*(?:python3?|node|bash|sh|perl|ruby|php)\s*<<",
     re.IGNORECASE | re.MULTILINE,
 )
 
-# -- Exploratory/orientation command chains (git status && ls && find) --
-# These are long due to chaining diagnostics, not overcomplex logic.
+
 EXPLORATORY_CMD_RE = re.compile(
     r"\bgit\s+(?:log|status|branch|stash|show|diff|remote|tag)\b"
     r"|\b(?:ls|find|which|type|uname|pwd)\b",
     re.IGNORECASE,
 )
 
-# -- Cargo/npm/make progress output (not a real build failure) --
 BUILD_PROGRESS_RE = re.compile(
     r"^\s*(?:Building|Compiling|Downloading|Installing|Fetching)\b"
-    r"|Building\s+\[=*>",  # cargo progress bars mid-line
+    r"|Building\s+\[=*>",
     re.IGNORECASE | re.MULTILINE,
 )
-
 
 def is_build_progress_only(output: str) -> bool:
     """True when output looks like truncated mid-build progress without diagnostics."""
@@ -237,7 +216,6 @@ def is_build_progress_only(output: str) -> bool:
     )
     return has_progress and not has_diag
 
-
 def is_truncated_only_output(output: str) -> bool:
     """True when the stored result is only a truncation/metadata wrapper.
 
@@ -248,7 +226,7 @@ def is_truncated_only_output(output: str) -> bool:
     """
     if not output:
         return False
-    # Strip exit: line and see if only truncation note remains
+
     body = re.sub(r"^exit:\s*\S+\s*", "", output.strip(), count=1)
     body = body.strip()
     if not body:
@@ -259,7 +237,7 @@ def is_truncated_only_output(output: str) -> bool:
         re.IGNORECASE | re.DOTALL,
     ):
         return True
-    # Short output that's mostly the truncation pointer
+
     if (
         "[truncated:" in body
         and len(body) < 250
@@ -267,7 +245,6 @@ def is_truncated_only_output(output: str) -> bool:
     ):
         return True
     return False
-
 
 def is_successful_verification(
     cmd: str, output: str, *, is_error: bool = False, exit_code: int | None = None
@@ -289,7 +266,7 @@ def is_successful_verification(
 
     tail = output[-2500:]
 
-    # Summary must not report any real failures (exclude "0 failed")
+
     if re.search(
         r"(?:^|\n)\s*[1-9]\d*\s+failed(?:,|\s|$)"
         r"|(?:^|\n)\s*FAILED\s+\S+",
@@ -305,7 +282,7 @@ def is_successful_verification(
     ):
         return False
 
-    # Strong success markers (pytest / cargo / make)
+
     if re.search(
         r"\d+\s+passed(?:,|\s|$)"
         r"|\ball\s+tests?\s+passed\b"
@@ -316,12 +293,11 @@ def is_successful_verification(
     ):
         return True
 
-    # Cargo/make success without a test runner summary
+
     if re.search(r"\bmake\b|\bcargo\s+build\b", cmd, re.IGNORECASE):
         if output.startswith("exit: 0") or exit_code == 0:
             return True
     return False
-
 
 def tool_call_is_successful_verification(tc) -> bool:
     """Wrapper over is_successful_verification for ToolCall objects."""
@@ -336,7 +312,6 @@ def tool_call_is_successful_verification(tc) -> bool:
         exit_code=tc.exit_code,
     )
 
-
 def had_successful_verification_before(tool_calls: list, end_idx: int) -> bool:
     """True if any run_terminal_command before end_idx is a green verify."""
     for j in range(max(0, end_idx)):
@@ -344,26 +319,20 @@ def had_successful_verification_before(tool_calls: list, end_idx: int) -> bool:
             return True
     return False
 
-
-# -- Temp file prefixes (throwaway verification scripts, not project edits) --
 TEMP_PREFIXES = ("/tmp/", "/var/tmp/")
-
 
 def is_env_failure(output: str) -> bool:
     """Check if test/build output indicates an environment issue, not a code bug."""
     return bool(ENV_FAILURE_RE.search(output[:1000]))
 
-
 def is_infra_error(output: str) -> bool:
     """Check if output is infra/tooling noise (git author, locks), not task failure."""
     return bool(INFRA_ERROR_RE.search(output[:1500]))
-
 
 def is_verify_expected_error(cmd: str, output: str) -> bool:
     """True when the model is verifying a depth/recursion fix and the error is expected."""
     if not VERIFY_SUCCESS_ERROR_RE.search(output[:2000]):
         return False
-    # Heuristic: command runs the tool under test (jq, python -c with recursion, etc.)
     return bool(
         re.search(
             r"\bjq\b|python3?\s+-c|node\s+-e|recursion|nested|depth",

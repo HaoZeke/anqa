@@ -7,6 +7,8 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 
+from groket.engine.detectors import detector
+from groket.engine.models import Match
 from groket.models import (
     ChatMessage,
     JsonObject,
@@ -18,15 +20,8 @@ from groket.models import (
     as_json_object,
     json_as_str_list,
 )
-from groket.engine.models import Match
-from groket.engine.detectors import detector
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 _regex_cache: dict[str, re.Pattern[str]] = {}
-
 
 def _compile(pattern: str) -> re.Pattern[str]:
     """Compile *pattern* with caching."""
@@ -36,11 +31,9 @@ def _compile(pattern: str) -> re.Pattern[str]:
         _regex_cache[pattern] = compiled
     return compiled
 
-
 def _raw_input_str(raw_input: ToolInput, field: str) -> str:
     """Return a single tool-input field as text."""
     return ToolInputBag.ensure(raw_input).as_str(field)
-
 
 def _command_snippet(tc: ToolCall, max_len: int = 80) -> str:
     """Extract a short command snippet from a ToolCall."""
@@ -50,12 +43,6 @@ def _command_snippet(tc: ToolCall, max_len: int = 80) -> str:
     if len(cmd) > max_len:
         return cmd[:max_len] + "…"
     return cmd
-
-
-# ---------------------------------------------------------------------------
-# 1. count_matching_calls
-# ---------------------------------------------------------------------------
-
 
 @detector("count_matching_calls")
 def count_matching_calls(
@@ -74,7 +61,7 @@ def count_matching_calls(
     group_min: int = params.as_int("group_min", min_count)
     high_threshold: int | None = params.as_int_opt("high_threshold")
 
-    # Pre-compile regexes
+
     compiled_input: dict[str, re.Pattern[str]] = {k: _compile(v) for k, v in input_patterns.items()}
     compiled_result: re.Pattern[str] | None = _compile(result_patterns) if result_patterns else None
 
@@ -82,17 +69,17 @@ def count_matching_calls(
 
     matched: list[ToolCall] = []
     for tc in tool_calls:
-        # Tool name filter
+
         if tools_set and tc.tool_name not in tools_set:
             continue
 
-        # Error / success filter
+
         if error_only and not tc.is_error:
             continue
         if success_only and tc.is_error:
             continue
 
-        # Input pattern filters (all must match)
+
         skip = False
         for field_name, pat in compiled_input.items():
             value = _raw_input_str(tc.raw_input, field_name)
@@ -102,7 +89,7 @@ def count_matching_calls(
         if skip:
             continue
 
-        # Result content pattern
+
         if compiled_result and not compiled_result.search(tc.result_content or ""):
             continue
 
@@ -111,7 +98,7 @@ def count_matching_calls(
     if not matched:
         return []
 
-    # Build variables helper
+
     def _build_match(group_calls: list[ToolCall], group_key: str | None = None) -> Match:
         tool_names = sorted({tc.tool_name for tc in group_calls})
         error_count = sum(1 for tc in group_calls if tc.is_error)
@@ -131,7 +118,7 @@ def count_matching_calls(
             "matched_commands": "; ".join(commands),
         }
 
-        # Extract field-specific variables from first match for template use
+
         first = group_calls[0]
         for field_name in (
             "query",
@@ -151,7 +138,7 @@ def count_matching_calls(
 
         if group_key is not None:
             variables["group_key"] = group_key
-            # If the group_by field looks like a file path, set file variable
+
             if group_by and any(kw in group_by for kw in ("file", "path", "target")):
                 variables["file"] = group_key
 
@@ -179,19 +166,13 @@ def count_matching_calls(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 2. repeated_identical_calls
-# ---------------------------------------------------------------------------
-
 _DEFAULT_MUTATING_TOOLS = frozenset({"search_replace", "todo_write", "update_goal"})
-
 
 def _signature_key(tc: ToolCall, key_fields: RuleParams | None) -> tuple[str, ...]:
     """Build a hashable signature for a tool call."""
     name = tc.tool_name
 
-    # If explicit key_fields config exists for this tool, use it
+
     if key_fields is not None and name in key_fields:
         fields = json_as_str_list(key_fields.get(name))
         parts: list[str] = [name]
@@ -199,7 +180,7 @@ def _signature_key(tc: ToolCall, key_fields: RuleParams | None) -> tuple[str, ..
             parts.append(_raw_input_str(tc.raw_input, f))
         return tuple(parts)
 
-    # Sane defaults per tool
+
     ri = tc.inputs()
     if name == "read_file":
         return (
@@ -212,7 +193,7 @@ def _signature_key(tc: ToolCall, key_fields: RuleParams | None) -> tuple[str, ..
         return (name, ri.as_str("pattern"), ri.as_str("path"))
     if name == "run_terminal_command":
         cmd = ri.as_str("command")
-        # Use full command if it looks like a heredoc, otherwise truncate
+
         if "<<" in cmd or len(cmd) <= 200:
             return (name, cmd)
         return (name, cmd[:200])
@@ -225,13 +206,12 @@ def _signature_key(tc: ToolCall, key_fields: RuleParams | None) -> tuple[str, ..
             ri.as_str("old_string"),
             ri.as_str("new_string"),
         )
-    # Generic: tool name + sorted raw_input as JSON
+
     try:
         serialized = json.dumps(ri.raw(), sort_keys=True, default=str)
     except (TypeError, ValueError):
         serialized = str(ri.raw())
     return (name, serialized)
-
 
 @detector("repeated_identical_calls")
 def repeated_identical_calls(
@@ -262,7 +242,7 @@ def repeated_identical_calls(
     def _flush_streak() -> None:
         if len(streak_calls) >= min_repeat:
             first = streak_calls[0]
-            # Build a short summary of the input
+
             ri = first.inputs()
             if first.tool_name == "read_file":
                 summary = ri.as_str("target_file") or str(ri.raw())
@@ -291,14 +271,14 @@ def repeated_identical_calls(
             )
 
     for tc in tool_calls:
-        # Mutating tool resets streak
+
         if tc.tool_name in mutating_tools:
             _flush_streak()
             streak_key = None
             streak_calls = []
             continue
 
-        # Skip non-error calls when error_only is set
+
         if error_only and not tc.is_error:
             _flush_streak()
             streak_key = None
@@ -315,12 +295,6 @@ def repeated_identical_calls(
 
     _flush_streak()
     return results
-
-
-# ---------------------------------------------------------------------------
-# 3. session_metric
-# ---------------------------------------------------------------------------
-
 
 def _metric_vars(
     value: float,
@@ -339,7 +313,6 @@ def _metric_vars(
         "ratio": round(value, 4),
     }
 
-
 def _check_threshold(value: float, threshold: float, comparison: str) -> bool:
     """Return True if *value* passes the *comparison* against *threshold*."""
     if comparison == "gt":
@@ -347,7 +320,6 @@ def _check_threshold(value: float, threshold: float, comparison: str) -> bool:
     if comparison == "lt":
         return value < threshold
     return value >= threshold
-
 
 def _metric_tool_ratio(
     tool_calls: list[ToolCall],
@@ -369,7 +341,6 @@ def _metric_tool_ratio(
         )
     ]
 
-
 def _metric_density(
     tool_calls: list[ToolCall],
     params: RuleParams,
@@ -390,7 +361,6 @@ def _metric_density(
         )
     ]
 
-
 def _metric_read_before_action(
     tool_calls: list[ToolCall],
     params: RuleParams,
@@ -402,7 +372,7 @@ def _metric_read_before_action(
     read_set = set(params.as_str_list("read_tools"))
     min_reads: int = params.as_int("min_reads", 0)
 
-    # No action_tools => detect "all reads, no actions at all"
+
     if not action_set:
         if params.as_bool("require_no_text_output", False):
             has_text = any(
@@ -434,7 +404,7 @@ def _metric_read_before_action(
         )
         return [Match(tool_calls=[], variables=variables)]
 
-    # Has action_tools => count reads before first action
+
     reads_before = 0
     first_action_idx: int | None = None
     exclude_investigative = params.as_bool("exclude_investigative_cmds", False)
@@ -467,7 +437,6 @@ def _metric_read_before_action(
         )
     ]
 
-
 @detector("session_metric")
 def session_metric(
     tool_calls: list[ToolCall],
@@ -499,11 +468,6 @@ def session_metric(
         return _metric_read_before_action(tool_calls, params, total, duration, threshold)
     return []
 
-
-# ---------------------------------------------------------------------------
-# 4. time_gap
-# ---------------------------------------------------------------------------
-
 _BG_TASK_TOOLS = frozenset(
     {
         "get_command_or_subagent_output",
@@ -511,7 +475,6 @@ _BG_TASK_TOOLS = frozenset(
         "wait_commands_or_subagents",
     }
 )
-
 
 @detector("time_gap")
 def time_gap(
@@ -529,13 +492,13 @@ def time_gap(
     slow_set: set[str] = set(slow_tools)
     timeout_low = timeout_range[0] if len(timeout_range) >= 1 else 298
     timeout_high = timeout_range[1] if len(timeout_range) >= 2 else 310
-    # Build/configure commands that routinely take 2-5 minutes
+
     slow_cmd_re: re.Pattern[str] | None = None
     slow_cmd_pattern: str = params.as_str("slow_cmd_pattern", "")
     if slow_cmd_pattern:
         slow_cmd_re = re.compile(slow_cmd_pattern, re.IGNORECASE)
 
-    # Filter to calls with timestamps
+
     timed = [tc for tc in tool_calls if tc.timestamp is not None]
     if len(timed) < 2:
         return []
@@ -548,11 +511,11 @@ def time_gap(
         assert prev.timestamp is not None and curr.timestamp is not None
         gap = curr.timestamp - prev.timestamp
 
-        # Choose appropriate threshold
+
         effective_threshold = threshold_seconds
         if prev.tool_name in slow_set:
             effective_threshold = slow_tool_threshold
-        # Build/configure commands are inherently slow — use slow threshold
+
         elif slow_cmd_re and prev.tool_name == "run_terminal_command":
             prev_cmd = prev.input_str("command")
             if isinstance(prev_cmd, str) and slow_cmd_re.search(prev_cmd):
@@ -561,13 +524,13 @@ def time_gap(
         if gap < effective_threshold:
             continue
 
-        # Suppress background-task management patterns — these gaps are
-        # the background task running, not the model stalling.
+
+
         if prev.tool_name in _BG_TASK_TOOLS or curr.tool_name in _BG_TASK_TOOLS:
             continue
-        # Also suppress when the previous call was a background launch
-        # (run_terminal_command with background=true) — the gap is the
-        # task running, the model intentionally waiting.
+
+
+
         if prev.tool_name == "run_terminal_command":
             bg = prev.inputs().as_bool("background", False)
             if bg is True or bg == "true":
@@ -594,12 +557,6 @@ def time_gap(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 5. consecutive_pattern
-# ---------------------------------------------------------------------------
-
-
 @detector("consecutive_pattern")
 def consecutive_pattern(
     tool_calls: list[ToolCall],
@@ -619,7 +576,7 @@ def consecutive_pattern(
 
     def _matches_condition(tc: ToolCall) -> bool:
         """Check whether a tool call matches the configured condition."""
-        # Must match tool filter first
+
         if tools_set and tc.tool_name not in tools_set:
             return False
 
@@ -630,10 +587,10 @@ def consecutive_pattern(
         elif match_condition == "crash":
             if crash_re and crash_re.search(tc.result_content):
                 return True
-            # Only count signal kills (SIGSEGV, SIGABRT, etc.) as crashes.
-            # Generic non-zero exit codes (exit 1 from import errors, exit 127
-            # from "command not found") are NOT crashes — the model may be
-            # adapting through a sequence of different env/setup failures.
+
+
+
+
             return tc.signal is not None and tc.signal != ""
         elif match_condition == "any":
             return True
@@ -666,7 +623,7 @@ def consecutive_pattern(
             )
 
     for tc in tool_calls:
-        # Reset tool breaks the streak
+
         if tc.tool_name in reset_set:
             _flush_streak()
             streak = []
@@ -680,12 +637,6 @@ def consecutive_pattern(
 
     _flush_streak()
     return results
-
-
-# ---------------------------------------------------------------------------
-# 6. sequence_pair
-# ---------------------------------------------------------------------------
-
 
 def _matches_trigger(tc: ToolCall, spec: RuleParams) -> bool:
     """Check if *tc* matches a trigger/follower spec."""
@@ -701,11 +652,9 @@ def _matches_trigger(tc: ToolCall, spec: RuleParams) -> bool:
 
     return True
 
-
 def _field_value(tc: ToolCall, field_name: str) -> str:
     """Get a field value, handling common aliases."""
     return _raw_input_str(tc.raw_input, field_name)
-
 
 @detector("sequence_pair")
 def sequence_pair(
@@ -731,11 +680,11 @@ def sequence_pair(
         if not _matches_trigger(tc, trigger_spec):
             continue
 
-        # Skip failed triggers — reading after a failed edit is legitimate
+
         if trigger_success_only and tc.is_error:
             continue
 
-        # Look ahead within window for the follower
+
         found_follower: ToolCall | None = None
         end = min(i + 1 + window, n)
         for j in range(i + 1, end):
@@ -743,8 +692,8 @@ def sequence_pair(
             if not _matches_trigger(candidate, follower_spec):
                 continue
 
-            # Check match_fields: field values must match between trigger and follower
-            # Supports "fieldA:fieldB" syntax for cross-field matching
+
+
             fields_ok = True
             for mf in match_fields:
                 if ":" in mf:
@@ -761,19 +710,19 @@ def sequence_pair(
                 found_follower = candidate
                 break
 
-        # Determine if we should fire
+
         should_fire = False
         if invert and found_follower is None:
-            # A-without-B: fire because B was NOT found
+
             should_fire = True
         elif not invert and found_follower is not None:
-            # A-then-B: fire because B WAS found
+
             should_fire = True
 
         if not should_fire:
             continue
 
-        # Build file variable from match_fields or common fields
+
         file_val = ""
         for mf in match_fields:
             val = _field_value(tc, mf)
@@ -781,7 +730,7 @@ def sequence_pair(
                 file_val = val
                 break
         if not file_val:
-            # Try common file fields
+
             for fname in ("file_path", "target_file", "path"):
                 val = _field_value(tc, fname)
                 if val:

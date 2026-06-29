@@ -21,7 +21,7 @@ DOCKER_IMAGE_OPTIONS: list[tuple[str, str]] = [
     (t("ui-ubuntu-24-04-raw-os-still-share-loop-via-entrypo"), "ubuntu:24.04"),
 ]
 BATCH_PARALLEL_OPTIONS: list[tuple[str, str]] = [
-    (f"{n}{t('ui-config-s-in-flight')}", str(n)) for n in (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32)
+    (f"{n} {t('ui-config-s-in-flight')}", str(n)) for n in (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32)
 ]
 PERSONA_NONE = "__none__"
 

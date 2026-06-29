@@ -6,9 +6,10 @@ import json
 import re
 from collections.abc import Sequence
 
-from groket.models import ChatMessage, RuleParams, Severity, ToolCall, as_json_object
-from groket.engine.models import Match
 from groket.engine.detectors import detector
+from groket.engine.models import Match
+from groket.models import ChatMessage, RuleParams, Severity, ToolCall, as_json_object
+
 from .patterns import (
     BUILD_OR_TEST_RE,
     ENV_FAILURE_RE,
@@ -20,12 +21,9 @@ from .patterns import (
     is_verify_expected_error,
 )
 
-# ── Shared helpers ───────────────────────────────────────────────────────────
-
 _SKIP_TOKENS = {"cd", "&&", ";", "sudo", "timeout", "nohup", "env", "nice", "exec"}
 
 _DIAGNOSTIC_CMDS = {"which", "whereis", "type", "command", "hash"}
-
 
 def _core_tokens(tokens: list[str]) -> list[str]:
     """Extract the core command (binary + subcommand) from a tokenized shell
@@ -37,21 +35,17 @@ def _core_tokens(tokens: list[str]) -> list[str]:
             skip_next = False
             continue
         if "=" in t and not t.startswith("-"):
-            continue  # skip env vars (FOO=bar)
+            continue
         if t in _SKIP_TOKENS:
             if t in ("cd", "timeout", "nice"):
                 skip_next = True
             continue
         if t.startswith("-") and not out:
-            continue  # skip leading flags (e.g. env -i)
+            continue
         out.append(t)
         if len(out) >= 2:
             break
     return out
-
-
-# ── 1. tool_call_failures ────────────────────────────────────────────────────
-
 
 @detector("tool_call_failures")
 def detect_tool_call_failures(
@@ -97,12 +91,12 @@ def detect_tool_call_failures(
     if not error_calls:
         return matches
 
-    # If after noise filter we only have non-terminal or infra leftovers, bail
+
     substantive = [tc for tc in error_calls if tc.tool_name not in ("update_goal", "todo_write")]
     if not substantive:
         return matches
 
-    # Build index for follow-up checking
+
     tc_by_idx: dict[int, ToolCall] = {tc.update_index: tc for tc in tool_calls}
     idx_list = sorted(tc_by_idx.keys())
 
@@ -127,7 +121,7 @@ def detect_tool_call_failures(
         cmd = tc.input_str("command")
         if not build_test_pattern.search(cmd):
             return False
-        # Extract keywords from the error for matching
+
         error_files = set()
         if tc.result_content:
             error_files = set(re.findall(r"[\w/.-]+\.\w{1,5}", tc.result_content[:500]))
@@ -141,10 +135,10 @@ def detect_tool_call_failures(
                 return True
             if next_tc.tool_name == "run_terminal_command":
                 next_cmd = next_tc.input_str("command")
-                # Check for install/fix commands
+
                 if any(kw in next_cmd.lower() for kw in _INSTALL_KEYWORDS):
                     return True
-                # Check if next command is a retry of the same build/test
+
                 cmd_tokens = cmd.split()
                 next_tokens = next_cmd.split()
                 if cmd_tokens and next_tokens:
@@ -152,13 +146,13 @@ def detect_tool_call_failures(
                     next_core = _core_tokens(next_tokens)
                     if cmd_core and cmd_core == next_core:
                         return True
-                # Check if next command references files from the error
+
                 if error_files and any(f in next_cmd for f in error_files):
                     return True
         return False
 
     _READ_ONLY_TOOLS = {"read_file", "list_dir", "grep"}
-    _META_TOOLS = {"update_goal", "todo_write"}  # not real task failures
+    _META_TOOLS = {"update_goal", "todo_write"}
     _INFRA_ERROR_TOOLS = {"web_search", "update_goal", "todo_write"}
     _INFRA_ERROR_RE = re.compile(
         r"HTTP request failed|error sending request|connection.*refused"
@@ -172,7 +166,7 @@ def detect_tool_call_failures(
         if tc.call_id in reported_ids:
             continue
 
-        # Find parallel failures within the timestamp window
+
         parallel_errors = [
             ec
             for ec in error_calls
@@ -194,7 +188,7 @@ def detect_tool_call_failures(
                 t.tool_name in _INFRA_ERROR_TOOLS and _INFRA_ERROR_RE.search(t.result_content or "")
                 for t in all_tcs
             ):
-                sev = Severity.LOW  # infrastructure failures, not model error
+                sev = Severity.LOW
             else:
                 sev = Severity.HIGH
 
@@ -217,7 +211,7 @@ def detect_tool_call_failures(
                 )
             )
         else:
-            # Skip build/test failures that the model addressed
+
             if _is_addressed(tc):
                 continue
 
@@ -243,39 +237,35 @@ def detect_tool_call_failures(
 
     return matches
 
-
-# ── 2. ignored_errors ────────────────────────────────────────────────────────
-
-
 def _should_skip_error(tc: ToolCall, skip_tools: set[str]) -> bool:
     """Return True if this error should be excluded from ignored-error checks."""
-    # Harness-related errors on skip_tools
+
     if tc.tool_name in skip_tools:
         content_lower = (tc.result_content or "").lower()
         if "harness" in content_lower or "channel" in content_lower:
             return True
-    # No-op edit failures (old_string == new_string) — file already correct
+
     if tc.tool_name == "search_replace":
         result_lower = (tc.result_content or "").lower()
         if "old string and new string are the same" in result_lower:
             return True
-    # Signal-killed server/daemon commands (intentional termination)
+
     if tc.tool_name == "run_terminal_command":
         output = tc.result_content or ""
         cmd = tc.input_str("command")
         if SIGNAL_KILL_RE.search(output) and SERVER_CMD_RE.search(cmd):
             return True
-    # list_dir errors are exploratory — empty or nonexistent dirs are not
-    # errors that need to be "addressed"
+
+
     if tc.tool_name == "list_dir":
         return True
-    # read_file on a file that doesn't exist is exploratory — the model
-    # is probing for the file's location
+
+
     if tc.tool_name == "read_file":
         result = (tc.result_content or "").lower()
         if "does not exist" in result or "no such file" in result:
             return True
-    # Infra/env errors are not "ignored" task failures — model didn't cause them
+
     if tc.tool_name == "run_terminal_command":
         output = tc.result_content or ""
         cmd = tc.input_str("command")
@@ -285,19 +275,19 @@ def _should_skip_error(tc: ToolCall, skip_tools: set[str]) -> bool:
             return True
         if is_verify_expected_error(cmd, output):
             return True
-        # Git show/log/diff with commit header in output but exit 128 is often
-        # pager/pipe noise, not an ignored failure worth flagging HIGH
+
+
         if re.search(r"^commit [0-9a-f]{7,}", output, re.MULTILINE) and not re.search(
             r"fatal:|error:", output[:500], re.IGNORECASE
         ):
             return True
-        # Cargo/npm still compiling (progress only) — not an ignored error
+
         from .patterns import is_build_progress_only
 
         if is_build_progress_only(output):
             return True
-        # Truncated terminal logs ("[truncated: showing first/last") with only
-        # build progress — model didn't ignore a real error
+
+
         if "[truncated:" in output and not re.search(
             r"error(?:\[E\d+\])?:\s", output, re.IGNORECASE
         ):
@@ -310,7 +300,6 @@ def _should_skip_error(tc: ToolCall, skip_tools: set[str]) -> bool:
         return True
     return False
 
-
 def _cmd_addresses_error(
     tc: ToolCall,
     nxt: ToolCall,
@@ -321,7 +310,7 @@ def _cmd_addresses_error(
     failed_cmd = tc.input_str("command")
     next_cmd = nxt.input_str("command")
 
-    # For "command not found": diagnostic commands count as addressing
+
     if cmd_not_found:
         next_lower = next_cmd.lower()
         if any(d in next_lower for d in _DIAGNOSTIC_CMDS):
@@ -336,23 +325,22 @@ def _cmd_addresses_error(
             if any(v in next_cmd for v in variants):
                 return True
 
-    # Same base command retried (possibly with different flags)
+
     failed_core = _core_tokens(failed_cmd.split())
     next_core = _core_tokens(next_cmd.split())
     if failed_core and failed_core == next_core:
         return True
 
-    # Next command references same files
+
     files_in_cmd = re.findall(r"[\w/.-]+\.\w{1,5}", failed_cmd)
     if files_in_cmd and any(f in next_cmd for f in files_in_cmd):
         return True
 
-    # Debug tools
+
     if any(d in next_cmd for d in ["gdb", "strace", "valgrind", "debug"]):
         return True
 
     return False
-
 
 def _is_error_addressed(
     tc: ToolCall,
@@ -363,44 +351,43 @@ def _is_error_addressed(
 ) -> bool:
     """Check if any call in *window* addresses the error from *tc*."""
     for nxt in window:
-        # Terminal command addressing terminal error
+
         if tc.tool_name == "run_terminal_command" and nxt.tool_name == "run_terminal_command":
             if _cmd_addresses_error(tc, nxt, cmd_not_found, missing_binary):
                 return True
-            continue  # Don't count unrelated terminal commands
+            continue
 
-        # Same tool retried
+
         if nxt.tool_name == tc.tool_name:
             return True
 
-        # Reading the file that failed
+
         if nxt.tool_name == "read_file" and failed_file:
             nxt_file = nxt.input_str("target_file")
             if nxt_file and (nxt_file == failed_file or failed_file in nxt_file):
                 return True
 
-        # Any grep or list_dir counts as investigation
+
         if nxt.tool_name in ("grep", "list_dir"):
             return True
 
-        # Editing the file that failed
+
         if nxt.tool_name == "search_replace" and failed_file:
             if nxt.input_str("file_path") == failed_file:
                 return True
 
-        # After a terminal error, any search_replace counts as adapting
-        # (model often pivots from a failed diagnostic to fixing code)
+
+
         if tc.tool_name == "run_terminal_command" and nxt.tool_name == "search_replace":
             return True
 
-        # Reading source after a build/test failure is investigation, not ignoring
+
         if tc.tool_name == "run_terminal_command" and nxt.tool_name == "read_file":
             cmd = tc.input_str("command")
             if BUILD_OR_TEST_RE.search(cmd):
                 return True
 
     return False
-
 
 @detector("ignored_errors")
 def detect_ignored_errors(
@@ -428,7 +415,7 @@ def detect_ignored_errors(
 
         remaining = tool_calls[i + 1 :]
 
-        # Error on the very last call — never addressed
+
         if not remaining:
             error_snippet = tc.result_content[:200] if tc.result_content else "(no content)"
             matches.append(
@@ -450,7 +437,7 @@ def detect_ignored_errors(
             tc.input_str("target_file") or tc.input_str("file_path") or tc.input_str("path")
         )
 
-        # Extract missing binary for "command not found" errors
+
         cmd_not_found = False
         missing_binary = ""
         if tc.tool_name == "run_terminal_command":
@@ -480,11 +467,7 @@ def detect_ignored_errors(
     return matches
 
 
-# ── 3. terminal_errors_ignored ───────────────────────────────────────────────
-
-# Use TERMINAL_ERROR_RE.pattern as default; YAML params can override.
 _DEFAULT_ERROR_PATTERNS = TERMINAL_ERROR_RE.pattern
-
 
 @detector("terminal_errors_ignored")
 def detect_terminal_errors_ignored(

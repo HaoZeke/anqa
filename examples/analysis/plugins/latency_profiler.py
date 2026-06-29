@@ -11,16 +11,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Unpack, Any
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.models import JsonObject, Severity
 from groket.parser import load_session_meta, parse_timeline
 
 logger = logging.getLogger(__name__)
 
 SLOW_TOOL_THRESHOLD_SECONDS = 30.0
-
 
 class LatencyProfilerAnalyzer:
     @property
@@ -44,7 +43,7 @@ class LatencyProfilerAnalyzer:
                 summary="No timeline data",
             )
 
-        # Pair tool_call → tool_result by call_id to compute durations
+
         call_timestamps: dict[str, int] = {}
         tool_durations: list[JsonObject] = []
 
@@ -102,6 +101,4 @@ class LatencyProfilerAnalyzer:
                 "durations": tool_durations[:20],
             },
         )
-
-
 

@@ -7,28 +7,21 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 
-from groket.models import ChatMessage, RuleParams, ToolCall
-from groket.engine.models import Match
 from groket.engine.detectors import detector
+from groket.engine.models import Match
+from groket.models import ChatMessage, RuleParams, ToolCall
 
-# ---------------------------------------------------------------------------
-# 1. unscoped_grep — grep without path scope returning excessive matches
-# ---------------------------------------------------------------------------
-
-# Heuristic: result_content lines that look like ripgrep match output
 _MATCH_LINE_RE = re.compile(r"^[^\s:]+:\d+:", re.MULTILINE)
 _AT_LEAST_RE = re.compile(r"at least (\d+)")
 
-
 def _count_matches(result: str) -> int:
     """Estimate how many matches a grep call returned."""
-    # Check for "at least N" truncation message
+
     m = _AT_LEAST_RE.search(result)
     if m:
         return int(m.group(1))
-    # Count match-format lines
-    return len(_MATCH_LINE_RE.findall(result))
 
+    return len(_MATCH_LINE_RE.findall(result))
 
 @detector("unscoped_grep")
 def unscoped_grep(
@@ -46,7 +39,7 @@ def unscoped_grep(
             continue
 
         path = tc.input_str("path") or ""
-        # Unscoped = empty path or root-level path
+
         if path and path not in (".", "./", "/"):
             continue
 
@@ -67,19 +60,11 @@ def unscoped_grep(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 2. inefficient_searches — overly broad grep patterns
-# ---------------------------------------------------------------------------
-
-# Single-char or very short patterns are usually too broad
 _BROAD_PATTERN_RE = re.compile(r"^.{1,2}$")
-# Common overly-broad patterns
 _BROAD_KEYWORDS_RE = re.compile(
     r"^(import|def|class|function|return|const|let|var|if|for|while|error|test|TODO)$",
     re.IGNORECASE,
 )
-
 
 @detector("inefficient_search")
 def inefficient_search(
@@ -137,12 +122,6 @@ def inefficient_search(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 3. repeated_empty_searches — repeated greps returning zero results
-# ---------------------------------------------------------------------------
-
-
 @detector("repeated_empty_searches")
 def repeated_empty_searches(
     tool_calls: list[ToolCall],
@@ -155,7 +134,7 @@ def repeated_empty_searches(
 
     results: list[Match] = []
 
-    # Group empty greps by path prefix
+
     groups: dict[str, list[tuple[ToolCall, str]]] = defaultdict(list)
 
     for tc in tool_calls:
@@ -163,12 +142,12 @@ def repeated_empty_searches(
             continue
 
         result = tc.result_content or ""
-        # Empty result or explicit "0 matches" indication
+
         match_count = _count_matches(result)
         if match_count > 0:
             continue
 
-        # Also skip if result has substantial content (might be an error msg, not empty)
+
         stripped = result.strip()
         if stripped and not stripped.startswith("exit:") and len(stripped) > 50:
             continue
@@ -176,7 +155,7 @@ def repeated_empty_searches(
         path = tc.input_str("path") or "."
         pattern = tc.input_str("pattern")
 
-        # Group by path prefix (first two path components)
+
         parts = path.strip("/").split("/")
         prefix = "/".join(parts[:2]) if len(parts) >= 2 else (parts[0] if parts else ".")
 
@@ -186,19 +165,19 @@ def repeated_empty_searches(
         if len(entries) < group_min:
             continue
 
-        # Check pattern diversity — if all patterns are genuinely different
-        # investigations, this is exploration, not mindless retrying.
-        # Only flag if patterns share significant overlap.
+
+
+
         raw_patterns = [p.lower().strip() for _, p in entries]
         unique_terms: set[str] = set()
         for p in raw_patterns:
-            # Split on regex operators to get search terms
+
             terms = set(re.split(r"[|\\().*+?\[\]{}^$]+", p))
             terms = {t.strip() for t in terms if len(t.strip()) > 2}
             unique_terms.update(terms)
 
-        # If we have many unique terms relative to search count,
-        # the model is exploring different concepts, not retrying
+
+
         if len(unique_terms) >= len(entries) * 2:
             continue
 

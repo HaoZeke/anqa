@@ -12,10 +12,6 @@ from dataclasses import dataclass
 
 __all__ = ["LogBuffer", "LogLine"]
 
-
-# ── Log capture ──────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True, slots=True)
 class LogLine:
     """One captured log line tagged by stream/container source."""
@@ -23,9 +19,7 @@ class LogLine:
     source: str
     text: str
 
-
 LogListener = Callable[[str, str], None]
-
 
 class LogBuffer:
     """Thread-safe ring buffer with optional fan-out to live listeners.

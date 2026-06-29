@@ -13,16 +13,15 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from pathlib import Path
-from typing import Unpack, Any
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.models import JsonObject, Severity
 from groket.parser import parse_timeline, parse_tool_calls
 
 logger = logging.getLogger(__name__)
 
-LOOP_THRESHOLD = 4  # same tool called N+ times in a row → likely a retry loop
-
+LOOP_THRESHOLD = 4
 
 class ConversationFlowAnalyzer:
     @property
@@ -46,7 +45,7 @@ class ConversationFlowAnalyzer:
                 summary="No trace data",
             )
 
-        # Count event types from timeline
+
         type_counts: Counter[str] = Counter()
         for ev in timeline:
             type_counts[ev.event_type] += 1
@@ -54,12 +53,12 @@ class ConversationFlowAnalyzer:
         user_turns = type_counts.get("user", 0)
         assistant_turns = type_counts.get("assistant", 0)
 
-        # Build tool sequence and counts from parsed tool calls
+
         tool_sequence = [tc.tool_name for tc in tool_calls]
         tool_counts: Counter[str] = Counter(tool_sequence)
         error_count = sum(1 for tc in tool_calls if tc.is_error)
 
-        # Detect retry loops: consecutive runs of the same tool
+
         loops: list[JsonObject] = []
         if tool_sequence:
             current_tool = tool_sequence[0]
@@ -75,7 +74,7 @@ class ConversationFlowAnalyzer:
             if run_length >= LOOP_THRESHOLD:
                 loops.append({"tool": current_tool, "consecutive_calls": run_length})
 
-        # Planning vs execution: read-only tools vs write tools
+
         read_tools = {"read_file", "list_dir", "grep"}
         write_tools = {"search_replace", "write_file", "create_file", "edit_file"}
         exec_tools = {"run_terminal_command"}
@@ -129,6 +128,4 @@ class ConversationFlowAnalyzer:
                 "exec_calls": exec_count,
             },
         )
-
-
 

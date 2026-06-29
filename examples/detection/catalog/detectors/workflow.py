@@ -9,9 +9,10 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from groket.models import ChatMessage, RuleParams, Severity, ToolCall
-from groket.engine.models import Match
 from groket.engine.detectors import detector
+from groket.engine.models import Match
+from groket.models import ChatMessage, RuleParams, Severity, ToolCall
+
 from .patterns import (
     BUILD_CMD_RE,
     EXPLORATORY_CMD_RE,
@@ -20,10 +21,6 @@ from .patterns import (
     INLINE_SCRIPT_RE,
     INSTALL_CMD_RE,
 )
-
-# ---------------------------------------------------------------------------
-# 1. large_file_full_read — reading large files without offset/limit
-# ---------------------------------------------------------------------------
 
 
 @detector("large_file_full_read")
@@ -49,7 +46,7 @@ def large_file_full_read(
         if tc.tool_name != "read_file":
             continue
 
-        # Skip if offset or limit was specified
+
         if tc.inputs().has("offset"):
             continue
         if tc.inputs().has("limit"):
@@ -59,13 +56,13 @@ def large_file_full_read(
         if not target:
             continue
 
-        # Filter by extension if configured
+
         if ext_set:
             suffix = target.rsplit(".", 1)[-1] if "." in target else ""
             if suffix not in ext_set:
                 continue
 
-        # Count lines in the result
+
         result = tc.result_content or ""
         line_count = result.count("\n")
         if line_count < min_lines:
@@ -85,12 +82,6 @@ def large_file_full_read(
         )
 
     return results
-
-
-# ---------------------------------------------------------------------------
-# 2. late_dependency_install — build fails, then apt-get install
-# ---------------------------------------------------------------------------
-
 
 @detector("late_dependency_install")
 def late_dependency_install(
@@ -116,7 +107,7 @@ def late_dependency_install(
         if not isinstance(cmd, str):
             continue
 
-        # Is this a build command that failed?
+
         if not BUILD_CMD_RE.search(cmd):
             continue
 
@@ -126,7 +117,7 @@ def late_dependency_install(
         if not is_fail:
             continue
 
-        # Look ahead for a package install within max_gap calls
+
         end = min(i + 1 + max_gap, len(tool_calls))
         for j in range(i + 1, end):
             candidate = tool_calls[j]
@@ -141,7 +132,7 @@ def late_dependency_install(
                 if j not in seen_install_after:
                     seen_install_after.add(j)
 
-                    # Extract package names (rough)
+
                     pkg_match = re.search(
                         r"install\s+(?:-[yq]+\s+)*(.+?)(?:\s*&&|\s*\|\||$)",
                         cand_cmd,
@@ -164,22 +155,15 @@ def late_dependency_install(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# 3. overcomplex_shell_commands — commands >N chars
-# ---------------------------------------------------------------------------
-
-
 def _is_structurally_complex(cmd: str, min_pipes: int, min_chains: int) -> bool:
     """Require real shell pipeline complexity, not just a long string."""
     pipes = cmd.count("|")
     chains = cmd.count("&&") + cmd.count(";")
     newlines = cmd.count("\n")
-    # Multiline scripts with many lines are complex even without pipes
+
     if newlines >= 12 and (pipes >= 2 or chains >= 3):
         return True
     return pipes >= min_pipes or chains >= min_chains
-
 
 def _should_skip_long_cmd(cmd: str) -> bool:
     """Skip long commands that aren't overcomplex *shell* — just long payloads."""
@@ -189,7 +173,7 @@ def _should_skip_long_cmd(cmd: str) -> bool:
         return True
     if HEREDOC_SCRIPT_RE.search(cmd):
         return True
-    # Pure exploratory chains (git/ls/find) — orientation, not complexity
+
     if EXPLORATORY_CMD_RE.search(cmd):
         non_explore = re.sub(
             r"\b(?:cd|git|ls|find|which|type|uname|pwd|echo|head|tail|wc|cat)\b"
@@ -198,11 +182,10 @@ def _should_skip_long_cmd(cmd: str) -> bool:
             cmd,
             flags=re.IGNORECASE,
         )
-        # If after stripping explore tokens little remains, it's orientation
+
         if len(non_explore.strip()) < 40:
             return True
     return False
-
 
 @detector("overcomplex_shell_commands")
 def overcomplex_shell_commands(
@@ -244,7 +227,7 @@ def overcomplex_shell_commands(
     if len(long_cmds) < min_count:
         return []
 
-    # Count pipes and semicolons in the worst offender for detail
+
     worst = max(long_cmds, key=lambda t: len(t.input_str("command")))
     worst_cmd = worst.input_str("command")
     pipe_count = worst_cmd.count("|")

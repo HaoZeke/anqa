@@ -43,7 +43,7 @@ class FlagModal(ModalScreen):
         with Vertical(id="modal-container"):
             yield Static(f"[bold]{title}[/bold]")
             yield Static(
-                f"{t('ui-event')}{ev.index} | {ev.type_label} | {rich_escape(ev.tool_name or ev.event_type)}[/dim]"
+                f"{t('ui-event')} {ev.index} | {ev.type_label} | {rich_escape(ev.tool_name or ev.event_type)}[/dim]"
             )
             yield Static(f"[dim]{rich_escape(ev.summary_line[:80])}[/dim]")
             yield Static("")

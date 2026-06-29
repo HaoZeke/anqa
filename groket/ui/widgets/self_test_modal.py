@@ -69,7 +69,7 @@ class SelfTestModal(ModalScreen[bool]):
             body.append(t("ui-overall-pass-required-checks-ok"), style="bold green")
         else:
             body.append(
-                f"{t('ui-overall-fail')}{report.fail_count}{t('ui-required')}{report.warn_count}{t('ui-warnings')}",
+                f"{t('ui-overall-fail')} {report.fail_count} {t('ui-required')} {report.warn_count} {t('ui-warnings')}",
                 style="bold red",
             )
         with suppress(Exception):
@@ -78,7 +78,7 @@ class SelfTestModal(ModalScreen[bool]):
             summary = (
                 t("ui-self-test-pass")
                 if report.ok
-                else f"{t('ui-self-test-fail')}{report.fail_count}"
+                else f"{t('ui-self-test-fail')} {report.fail_count}"
             )
             if report.warn_count and report.ok:
                 summary = t(

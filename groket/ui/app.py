@@ -162,7 +162,7 @@ class AnalysisSettingsModal(ModalScreen[bool]):
         with Container(id="analysis-settings-modal"):
             yield Label(U.analysis_pipeline_title(), id="analysis-settings-title")
             yield Static(
-                f"{t('ui-enabled-analyzers')}{plugin_list}. Optional plugins: analysis.plugins as module:ClassName (active config: {config_path or '~/.groket or work_dir'}).",
+                f"{t('ui-enabled-analyzers')} {plugin_list}. Optional plugins: analysis.plugins as module:ClassName (active config: {config_path or '~/.groket or work_dir'}).",
                 id="analysis-settings-help",
             )
             yield Checkbox(
@@ -524,7 +524,7 @@ class TraceEvalApp(App):
             t("ui-label"),
         )
         try:
-            bits = [f"{t('ui-work-1')}{self.work_dir}", f"{t('ui-runs')}{self.work_dir / 'runs'}"]
+            bits = [f"{t('ui-work-1')} {self.work_dir}", f"{t('ui-runs')} {self.work_dir / 'runs'}"]
             try:
                 n_plugins = len([p for p in self._analysis_svc().list_plugins() if p.id != "noop"])
                 bits.append(t("ui-plugins-count", n=n_plugins))
@@ -543,7 +543,7 @@ class TraceEvalApp(App):
             self._load_sessions(load_p)
         else:
             self.notify(
-                f"{t('ui-traces-path-not-found-yet-runner-writes-to')}{self.work_dir / 'runs' / 'traces'}",
+                f"{t('ui-traces-path-not-found-yet-runner-writes-to')} {self.work_dir / 'runs' / 'traces'}",
                 severity="information",
                 timeout=6,
             )
@@ -593,7 +593,7 @@ class TraceEvalApp(App):
     def _load_sessions(self, root: Path | None = None) -> None:
         if root is None:
             return
-        self.call_from_thread(self.notify, f"{t('ui-scanning')}{root}...", severity="information")
+        self.call_from_thread(self.notify, f"{t('ui-scanning')} {root}...", severity="information")
         session_dirs = find_sessions(root)
         if not session_dirs:
             if root.is_dir():
@@ -602,7 +602,7 @@ class TraceEvalApp(App):
                         session_dirs.extend(find_sessions(sub))
         if not session_dirs:
             self.call_from_thread(
-                self.notify, f"{t('ui-no-sessions-found-in')}{root}", severity="error"
+                self.notify, f"{t('ui-no-sessions-found-in')} {root}", severity="error"
             )
             return
         self._meta_only = []
@@ -932,7 +932,7 @@ class TraceEvalApp(App):
             progress = t("ui-a-analyze")
         else:
             progress = ""
-        summary = f"[bold]{total} {t('ui-sessions')} {total_findings} {t('ui-findings')} {total_high} {t('ui-high')}{progress}{sel_part}{scope}"
+        summary = f"[bold]{total} {t('ui-sessions')} {total_findings} {t('ui-findings')} {total_high} {t('ui-high')} {progress} {sel_part} {scope}"
         self.query_one("#session-summary", Static).update(summary)
 
     def _restore_cursor(self, table: DataTable, row_key_value: str) -> None:
@@ -975,7 +975,7 @@ class TraceEvalApp(App):
         else:
             self._filter_model = models[0]
         self._set_session_filter_selects()
-        self.notify(f"{t('ui-model-filter')}{self._filter_model or 'all'}")
+        self.notify(f"{t('ui-model-filter')} {self._filter_model or 'all'}")
         self._populate_session_table()
 
     def action_toggle_select(self) -> None:
@@ -1182,13 +1182,13 @@ class TraceEvalApp(App):
             )
             self.call_from_thread(
                 self.notify,
-                f"{t('ui-saved-run-config')}{cfg.config_id} ({cfg.display_name()}{t('ui-open-with-c-configs-sessions-unchanged')}",
+                f"{t('ui-saved-run-config')} {cfg.config_id} ({cfg.display_name()} {t('ui-open-with-c-configs-sessions-unchanged')}",
                 severity="information",
                 timeout=10,
             )
         except Exception as exc:
             self.call_from_thread(
-                self.notify, f"{t('ui-save-config-failed')}{exc}", severity="error"
+                self.notify, f"{t('ui-save-config-failed')} {exc}", severity="error"
             )
 
     def _toast(
@@ -1338,7 +1338,7 @@ class TraceEvalApp(App):
         self.refresh_bindings()
         if errors:
             self._toast(
-                f"{t('ui-failed-for')}{errors}/{len(targets)}", severity="warning", timeout=3.0
+                f"{t('ui-failed-for')} {errors}/{len(targets)}", severity="warning", timeout=3.0
             )
 
     def action_follow_up_sessions(self) -> None:
@@ -1355,7 +1355,7 @@ class TraceEvalApp(App):
             self.refresh_bindings()
             if errors:
                 self._toast(
-                    f"{t('ui-failed-for')}{errors}/{len(targets)}", severity="warning", timeout=3.0
+                    f"{t('ui-failed-for')} {errors}/{len(targets)}", severity="warning", timeout=3.0
                 )
 
         self.push_screen(InteractiveSessionsModal(n_awaiting=len(targets)), _apply)
@@ -1433,7 +1433,7 @@ class TraceEvalApp(App):
                 err_hint = f" — {sample[:120]}"
             self.notify(
                 f"{t('ui-deleted')} {stats['deleted']}/{stats['requested']} {t('ui-session-s')}"
-                + (f"{t('ui-errors')} {err_n}{err_hint}" if err_n else ""),
+                + (f"{t('ui-errors')} {err_n} {err_hint}" if err_n else ""),
                 severity="warning" if err_n else "information",
                 timeout=12,
             )
@@ -1463,7 +1463,7 @@ class TraceEvalApp(App):
         runner_traces = self.work_dir / "runs" / "traces"
         root = runner_traces if runner_traces.exists() else traces
         if not root.exists():
-            self.notify(f"{t('ui-no-traces-dir-to-refresh')}{root}", severity="error")
+            self.notify(f"{t('ui-no-traces-dir-to-refresh')} {root}", severity="error")
             return
         self._meta_only = []
         self._plugin_results = {}
@@ -1475,7 +1475,7 @@ class TraceEvalApp(App):
         except OSError:
             pass
         self.notify(
-            f"{t('ui-full-refresh-from')}{root}{t('ui-background')}", severity="warning", timeout=12
+            f"{t('ui-full-refresh-from')} {root} {t('ui-background')}", severity="warning", timeout=12
         )
         self._run_refresh_everything(root)
 
@@ -1515,7 +1515,7 @@ class TraceEvalApp(App):
                 pass
             if summary.get("error"):
                 self.notify(
-                    f"{t('ui-refresh-all-failed')}{summary['error']}", severity="error", timeout=15
+                    f"{t('ui-refresh-all-failed')} {summary['error']}", severity="error", timeout=15
                 )
                 return
             err_n = int(summary.get("analysis_err") or 0)
@@ -2006,11 +2006,11 @@ class TraceEvalApp(App):
         try:
             self.theme = next_theme
         except Exception as e:
-            self.notify(f"{t('ui-theme-failed')}{e}", severity="error")
+            self.notify(f"{t('ui-theme-failed')} {e}", severity="error")
             return
         self._config["theme"] = next_theme
         self._save_config()
-        self.notify(f"{t('ui-theme')}{next_theme}")
+        self.notify(f"{t('ui-theme')} {next_theme}")
 
     def action_toggle_tips(self) -> None:
         """Show/hide framed admonitions **app-wide** (``show_tips`` in config.json).
@@ -2098,10 +2098,10 @@ class TraceEvalApp(App):
         """Reload the sessions table from the fixed traces root."""
         root = self._session_traces_root()
         if not root.exists():
-            self.notify(f"{t('ui-nothing-to-refresh')}{root}", severity="warning")
+            self.notify(f"{t('ui-nothing-to-refresh')} {root}", severity="warning")
             return
         self._update_session_paths_banner()
-        self.notify(f"{t('ui-refreshing-sessions-from')}{root}…", severity="information", timeout=4)
+        self.notify(f"{t('ui-refreshing-sessions-from')} {root}…", severity="information", timeout=4)
         self._load_sessions(root)
         try:
             self._populate_session_table()

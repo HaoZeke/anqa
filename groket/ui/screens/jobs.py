@@ -175,7 +175,7 @@ class JobsModal(ModalScreen[None]):
                     session_dir = Path(sd)
         if session_dir is None or not session_dir.is_dir():
             self.notify(
-                f"{t('ui-no-session-yet-for')}{cname}{t('ui-wait-for-traces-to-appear')}",
+                f"{t('ui-no-session-yet-for')} {cname} {t('ui-wait-for-traces-to-appear')}",
                 severity="warning",
                 timeout=5,
             )
@@ -192,7 +192,7 @@ class JobsModal(ModalScreen[None]):
                 app.push_screen(BrowserScreen(session_dir))
         except Exception as exc:
             with suppress(Exception):
-                app.notify(f"{t('ui-open-session-failed')}{exc}", severity="error")
+                app.notify(f"{t('ui-open-session-failed')} {exc}", severity="error")
 
     def action_clear_logs(self) -> None:
         with suppress(Exception):
@@ -330,10 +330,10 @@ class JobsModal(ModalScreen[None]):
         latest = self.run_manager.latest()
         rid = latest.run_id if latest else "—"
         batches = self.run_manager.active_batch_ids
-        batch_bit = f"{t('ui-batch')}{batches[0][:14]}" if batches else ""
+        batch_bit = f"{t('ui-batch')} {batches[0][:14]}" if batches else ""
         lines.append(
-            f"{t('ui-docker-eval-runs')}{n_runs}{t('ui-active')}"
-            + (f"{t('ui-latest')}{rid}" if n_runs else "")
+            f"{t('ui-docker-eval-runs')} {n_runs} {t('ui-active')}"
+            + (f"{t('ui-latest')} {rid}" if n_runs else "")
             + batch_bit
         )
         if batches:
@@ -350,16 +350,16 @@ class JobsModal(ModalScreen[None]):
             pend = max(0, total - done)
             if pend and total:
                 lines.append(
-                    f"{t('ui-detector-analysis')}{done}/{total}[/yellow] ({pend}{t('ui-pending-in-background')}"
+                    f"{t('ui-detector-analysis')} {done}/{total}[/yellow] ({pend} {t('ui-pending-in-background')}"
                 )
             elif total:
-                lines.append(f"{t('ui-detector-analysis-1')}{done}/{total}{t('ui-done')}")
+                lines.append(f"{t('ui-detector-analysis-1')} {done}/{total} {t('ui-done')}")
             else:
                 lines.append(t("ui-detector-analysis-no-sessions-loaded"))
         with suppress(Exception):
             wd = getattr(app, "work_dir", None) or self.work_dir
             if wd:
-                lines.append(f"{t('ui-work-dir')}{wd}[/dim]")
+                lines.append(f"{t('ui-work-dir')} {wd}[/dim]")
         self.query_one("#jobs-app-status", Static).update("\n".join(lines))
 
     @staticmethod
@@ -408,7 +408,7 @@ class JobsModal(ModalScreen[None]):
                 tail = url.rstrip("/").split("/")[-1][:8]
             except Exception:
                 tail = "ok"
-            return f"{t('ui-ok-2')}{tail}"
+            return f"{t('ui-ok-2')} {tail}"
         if sd is not None:
             return "…"
         return "—"
@@ -461,7 +461,7 @@ class JobsModal(ModalScreen[None]):
             webbrowser.open(url)
         except Exception as exc:
             self.notify(
-                f"{t('ui-could-not-open-share-for')}{cname}: {exc}", severity="error", timeout=10
+                f"{t('ui-could-not-open-share-for')} {cname}: {exc}", severity="error", timeout=10
             )
 
     def _update_status_row(self, status: ContainerStatus, *, run_id: str = "") -> None:

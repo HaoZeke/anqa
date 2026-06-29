@@ -6,9 +6,10 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 
-from groket.models import ChatMessage, RuleParams, Severity, ToolCall, as_json_object
-from groket.engine.models import Match
 from groket.engine.detectors import detector
+from groket.engine.models import Match
+from groket.models import ChatMessage, RuleParams, Severity, ToolCall, as_json_object
+
 from .patterns import (
     BUILD_OR_TEST_RE,
     ENV_FAILURE_RE,
@@ -21,14 +22,11 @@ from .patterns import (
     is_truncated_only_output,
 )
 
-# ── 1. premature_completion ──────────────────────────────────────────────────
-
 _EXPECTED_SIGNAL_KILL = SERVER_CMD_RE
 
-# Use the shared terminal error pattern for completion checks.
+
 _DEFAULT_COMPLETION_ERROR_PATTERNS = TERMINAL_ERROR_RE.pattern
 _DEFAULT_COMPLETION_ERROR_RE = re.compile(_DEFAULT_COMPLETION_ERROR_PATTERNS, re.IGNORECASE)
-
 
 @detector("premature_completion")
 def detect_premature_completion(
@@ -62,12 +60,12 @@ def detect_premature_completion(
         cmd = tc.input_str("command")
         output = tc.result_content or ""
 
-        # Signal-killed server/benchmark commands are expected
+
         if "signal" in output[:100].lower() or "killed" in output[:100].lower():
             if _EXPECTED_SIGNAL_KILL.search(cmd):
                 return False
 
-        # Backgrounded/timed-out tasks are not real errors
+
         if "automatically moved to background" in output:
             return False
         if "Background task" in output and "started" in output[:200]:
@@ -75,14 +73,14 @@ def detect_premature_completion(
         if tc.signal and tc.signal.lower() in ("killed", "sigkill", "sigterm"):
             return False
 
-        # Temp-file verification scripts: model writes to /tmp and
-        # compiles/runs it.  Errors are often intentional (proving a
-        # fix rejects bad input).
+
+
+
         m = HEREDOC_WRITE_RE.search(cmd)
         if m and m.group(1).startswith("/tmp/"):
             return False
 
-        # Infra/env are not task-blocking
+
         if ENV_FAILURE_RE.search(output[:1000]) or is_infra_error(output):
             return False
         if is_build_progress_only(output):
@@ -90,8 +88,8 @@ def detect_premature_completion(
         if is_truncated_only_output(output):
             return False
 
-        # Only treat build/test failures (or explicit FAILED in pytest etc.)
-        # as blocking completion. A failed `git commit` due to config is infra.
+
+
         is_build_or_test = bool(BUILD_OR_TEST_RE.search(cmd))
         has_test_fail = bool(
             re.search(
@@ -109,12 +107,12 @@ def detect_premature_completion(
                 return False
             if ENV_FAILURE_RE.search(output[:1000]):
                 return False
-            # Require actual failure evidence, not just non-zero exit mid-build
+
             if not has_test_fail and not error_patterns.search(output):
                 return False
             return True
 
-        # For exit 0 commands, require stronger error evidence
+
         if output.startswith("exit: 0"):
             if re.search(r"\d+\s+(?:failed|errors?)\s*[,\n]", output, re.IGNORECASE):
                 return True
@@ -124,7 +122,7 @@ def detect_premature_completion(
 
         return bool(error_patterns.search(output))
 
-    # Track last terminal result as we iterate
+
     last_terminal_result: tuple[ToolCall, bool] | None = None
 
     for i, tc in enumerate(tool_calls):
@@ -137,8 +135,8 @@ def detect_premature_completion(
             if not had_errors:
                 continue
 
-            # Green verify anywhere earlier in the session supersedes a noisy
-            # last command (e.g. full suite with pre-existing failures).
+
+
             if had_successful_verification_before(tool_calls, i):
                 continue
 
@@ -174,7 +172,7 @@ def detect_premature_completion(
                     )
                 )
 
-    # Check if session ends with unresolved errors in last 5 tool calls
+
     if len(tool_calls) >= 5:
         last_terminal: ToolCall | None = None
         last_terminal_idx = -1
@@ -185,7 +183,7 @@ def detect_premature_completion(
                 break
 
         if last_terminal and _is_real_error(last_terminal):
-            # Don't flag end-of-session noise if there was a successful verify
+
             if not had_successful_verification_before(tool_calls, len(tool_calls)):
                 remaining_after = tool_calls[last_terminal_idx + 1 :]
                 substantive_after = [
@@ -217,16 +215,12 @@ def detect_premature_completion(
 
     return matches
 
-
-# ── 2. malformed_tool_arguments ──────────────────────────────────────────────
-
 _DEFAULT_FLAG_IN_PATH_PATTERN = (
     r'^["\s]*-?[iBAC]["\s]'
     r'|^"[iBAC]"\s*(true|false|\d+)'
     r"|^\s+$"
 )
 _DEFAULT_FLAG_IN_PATH_RE = re.compile(_DEFAULT_FLAG_IN_PATH_PATTERN)
-
 
 @detector("malformed_tool_arguments")
 def detect_malformed_tool_arguments(
@@ -276,7 +270,7 @@ def detect_malformed_tool_arguments(
         )
         return True
 
-    # Collect aggregatable issues
+
     null_path_calls: list[ToolCall] = []
     null_glob_calls: list[ToolCall] = []
     bare_glob_calls: dict[str, list[ToolCall]] = defaultdict(list)
@@ -288,18 +282,18 @@ def detect_malformed_tool_arguments(
         path = tc.input_str("path") or ""
         glob_val = tc.input_str("glob") or ""
 
-        # Check path field for flag/quote/space malformation
+
         if _check_path(tc, path, "path"):
             continue
 
-        # Check glob field
+
         if glob_val:
-            # null-prefixed glob
+
             if glob_val.startswith("null"):
                 null_glob_calls.append(tc)
                 continue
 
-            # Bare extension without wildcard (e.g. "h" instead of "*.h")
+
             if (
                 len(glob_val) <= 4
                 and not glob_val.startswith(("*", "!", "."))
@@ -310,11 +304,11 @@ def detect_malformed_tool_arguments(
                 bare_glob_calls[glob_val].append(tc)
                 continue
 
-        # null-prefixed paths
+
         if path and path.startswith("null"):
             null_path_calls.append(tc)
 
-    # Emit aggregated issues
+
     def _emit_aggregated(
         field: str,
         tcs: list[ToolCall],
@@ -360,11 +354,7 @@ def detect_malformed_tool_arguments(
 
     return matches
 
-
-# ── 3. background_check ─────────────────────────────────────────────────────
-
 _BG_TASK_RE = re.compile(r"Background task (\S+) started")
-
 
 @detector("background_check")
 def detect_background_task_issues(
@@ -382,7 +372,7 @@ def detect_background_task_issues(
     if not tool_calls:
         return matches
 
-    bg_tasks: dict[str, ToolCall] = {}  # task_id -> ToolCall that started it
+    bg_tasks: dict[str, ToolCall] = {}
     bg_task_checked: set[str] = set()
 
     for tc in tool_calls:
@@ -392,7 +382,7 @@ def detect_background_task_issues(
                 if m:
                     bg_tasks[m.group(1)] = tc
                 else:
-                    # Fallback: use call_id if we can't find the task_id
+
                     bg_tasks[tc.call_id] = tc
 
         if tc.tool_name == "get_command_or_subagent_output":
@@ -421,15 +411,11 @@ def detect_background_task_issues(
 
     return matches
 
-
-# ── 4. malformed_paths ───────────────────────────────────────────────────────
-
 _DEFAULT_BAD_PATH_PATTERN = (
     r"^(null|undefined|None|NaN)"
     r"|(//)"
     r"|([\x00-\x1f])"
 )
-
 
 @detector("malformed_paths")
 def detect_malformed_paths(
@@ -495,10 +481,6 @@ def detect_malformed_paths(
 
     return matches
 
-
-# ── 5. failed_edit_patterns ──────────────────────────────────────────────────
-
-
 @detector("failed_edit_patterns")
 def detect_failed_edit_patterns(
     tool_calls: list[ToolCall],
@@ -531,7 +513,7 @@ def detect_failed_edit_patterns(
         elif "found multiple times" in result or "not unique" in result:
             ambiguous.append((i, tc))
         elif "not found" in result:
-            # Check for blind retries — same failing edit without read_file
+
             key = (file_path, old_str[:100])
             for j in range(i - 1, max(i - 6, -1), -1):
                 prev = tool_calls[j]
@@ -550,7 +532,7 @@ def detect_failed_edit_patterns(
                             blind_retries.append((i, tc, j))
                         break
 
-    # Emit one Match per failure type
+
     if noop_edits:
         files = sorted({tc.input_str("file_path") for _, tc in noop_edits})
         matches.append(

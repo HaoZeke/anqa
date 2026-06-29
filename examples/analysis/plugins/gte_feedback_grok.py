@@ -15,8 +15,6 @@ second pass with ``prior_findings`` from built-in detectors.
 
 from __future__ import annotations
 
-from typing import Unpack
-
 import logging
 import shutil
 import subprocess
@@ -24,8 +22,9 @@ import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.parser import extract_prompt, load_session_meta, parse_timeline
 from groket.utils import fmt_duration
 
@@ -35,9 +34,7 @@ PLUGIN_ID = "feedback"
 
 _EDIT_TOOLS = frozenset({"search_replace", "write_file", "create_file"})
 
-# ---------------------------------------------------------------------------
-# Evidence
-# ---------------------------------------------------------------------------
+
 
 @dataclass
 class SessionEvidence:
@@ -102,9 +99,7 @@ def gather_evidence(session_dir: Path) -> SessionEvidence:
         assistant_final=assistant_final,
     )
 
-# ---------------------------------------------------------------------------
-# LLM review prompt + invocation
-# ---------------------------------------------------------------------------
+
 
 def build_review_prompt(
     evidence: SessionEvidence,
@@ -233,9 +228,7 @@ def run_grok_review(
     finally:
         prompt_path.unlink(missing_ok=True)
 
-# ---------------------------------------------------------------------------
-# Analyzer
-# ---------------------------------------------------------------------------
+
 
 class FeedbackReportAnalyzer:
     """LLM-drafted session review via ``grok`` headless mode."""

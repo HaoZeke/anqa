@@ -10,12 +10,11 @@ Config:
 
 from __future__ import annotations
 
-from typing import Unpack
-
 import logging
 from pathlib import Path
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.models import Severity
 from groket.parser import parse_timeline, parse_tool_calls
 
@@ -23,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 CHARS_PER_TOKEN = 4
 
-# Thresholds per dimension — (good_limit, bad_limit).
-# Below good = A-tier contribution; above bad = failing.
+
+
 ERROR_RATE_THRESHOLDS = (0.05, 0.20)
 RETRY_DENSITY_THRESHOLDS = (0.10, 0.30)
 LATENCY_P95_THRESHOLDS = (60, 180)
@@ -74,12 +73,10 @@ class SessionHealthAnalyzer:
                 summary="No trace data",
             )
 
-        # --- Dimension 1: tool error rate ---
         total_calls = len(tool_calls)
         error_calls = sum(1 for tc in tool_calls if tc.is_error)
         error_rate = error_calls / max(total_calls, 1)
 
-        # --- Dimension 2: retry density (consecutive same-tool runs) ---
         tool_sequence = [tc.tool_name for tc in tool_calls]
         retry_count = 0
         if tool_sequence:
@@ -97,7 +94,6 @@ class SessionHealthAnalyzer:
                 retry_count += run
         retry_density = retry_count / max(total_calls, 1)
 
-        # --- Dimension 3: latency P95 ---
         durations: list[float] = []
         pending: dict[str, float] = {}
         for ev in timeline:
@@ -115,7 +111,6 @@ class SessionHealthAnalyzer:
         else:
             latency_p95 = 0.0
 
-        # --- Dimension 4: estimated tokens ---
         total_chars = 0
         for ev in timeline:
             if isinstance(ev.content, str):
@@ -125,7 +120,6 @@ class SessionHealthAnalyzer:
             total_chars += len(tc.result_content)
         est_tokens = total_chars // CHARS_PER_TOKEN
 
-        # --- Composite score ---
         scores = {
             "error_rate": _dimension_score(error_rate, *ERROR_RATE_THRESHOLDS),
             "retry_density": _dimension_score(retry_density, *RETRY_DENSITY_THRESHOLDS),

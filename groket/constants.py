@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-# ── Defaults ──────────────────────────────────────────────────────────────
-
 DEFAULT_DOCKER_IMAGE = "fully-loaded"
 DEFAULT_MODEL_ID = "unknown"
 CONFIG_FILENAME = "config.json"
 META_CACHE_FILENAME = "_meta_cache.json"
 
-# ── Container / run naming ────────────────────────────────────────────────
-
 INTERRUPTED_MARKER_FILENAME = "groket-interrupted.json"  # on-disk marker
-
-# ── Limits ────────────────────────────────────────────────────────────────
 
 LOG_BUFFER_MAXLEN = 8000
 LOG_TAIL_MAXLEN = 4000

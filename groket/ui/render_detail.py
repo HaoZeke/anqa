@@ -231,7 +231,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "search_replace":
         fp = ri.get("file_path") or ri.get("target_file") or ""
         if fp:
-            parts.append(Text(f"{t('ui-file')}{fp}", style="cyan"))
+            parts.append(Text(f"{t('ui-file')} {fp}", style="cyan"))
         lang = _lang_from_path(str(fp)) or "text"
         old_s, new_s = (str(ri.get("old_string") or ""), str(ri.get("new_string") or ""))
         if old_s:
@@ -252,7 +252,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "read_file":
         tf = ri.get("target_file") or ri.get("file_path") or path_hint
         if tf:
-            parts.append(Text(f"{t('ui-target-file')}{tf}", style="cyan"))
+            parts.append(Text(f"{t('ui-target-file')} {tf}", style="cyan"))
         extra = {k: v for k, v in ri.items() if k not in ("target_file", "file_path")}
         if extra:
             with suppress(Exception):
@@ -276,7 +276,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "list_dir":
         td = ri.get("target_directory") or path_hint
         if td:
-            parts.append(Text(f"{t('ui-target-directory')}{td}", style="blue"))
+            parts.append(Text(f"{t('ui-target-directory')} {td}", style="blue"))
         extra = {k: v for k, v in ri.items() if k != "target_directory"}
         if extra:
             with suppress(Exception):
@@ -338,8 +338,8 @@ def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
     out_disp = _truncate_mid(cleaned)
     note = ""
     if raw_len and n_out < raw_len * 0.9:
-        note = f"{t('ui-cleaned-from')}{raw_len}"
-    parts.append(Rule(f"{t('ui-output')}{n_out}{t('ui-chars')}{note})", style="bright_black"))
+        note = f"{t('ui-cleaned-from')} {raw_len}"
+    parts.append(Rule(f"{t('ui-output')} {n_out} {t('ui-chars')} {note})", style="bright_black"))
     if not out_disp.strip():
         parts.append(Text("(empty)", style="dim italic"))
         return parts
@@ -515,7 +515,7 @@ def render_event_detail(
         ft = Text()
         ft.append(t("ui-flagged"), style="red bold")
         ft.append(f"[{flag.verdict.value}] {flag.description}\n", style="red")
-        ft.append(f"{t('ui-flagged-at')}{flag.created_at}", style="dim")
+        ft.append(f"{t('ui-flagged-at')} {flag.created_at}", style="dim")
         banners.append(ft)
     if finding:
         sc = severity_style(finding.severity.value)

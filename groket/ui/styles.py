@@ -14,8 +14,6 @@ from contextlib import suppress
 
 from textual.app import App
 
-# ── Severity ──────────────────────────────────────────────────────────────
-
 SEVERITY_STYLE: dict[str, str] = {
     "high": "red bold",
     "medium": "dark_orange bold",
@@ -28,15 +26,12 @@ SEVERITY_LABEL: dict[str, str] = {
     "low": "[yellow]Low[/]",
 }
 
-
 def finding_mark(severity: str) -> str:
     """Timeline / report glyph for an automated finding (⚠ + severity color)."""
     sev = (severity or "low").lower()
     style = SEVERITY_STYLE.get(sev, SEVERITY_STYLE["low"])
     return f"[{style}]⚠[/]"
 
-
-# ── Event types (timeline Type column) ───────────────────────────────────
 # Small palette by *role* (not a rainbow per label):
 #   white  = human input
 #   cyan   = model / tools stream (call vs result = bold vs dim)
@@ -67,7 +62,6 @@ EVENT_TYPE_LABEL: dict[str, str] = {
     "session_error": "[bold red]Session error[/]",
 }
 
-# ── Tool names (timeline Tool column) ─────────────────────────────────────
 # Color by *action family*, not per-tool identity (keeps the column scannable):
 #   cyan   = read / search / inspect
 #   green  = write / edit / mutate workspace
@@ -131,7 +125,6 @@ TOOL_FAMILY_STYLE: dict[str, str] = {
 # Explicit overrides (optional); prefer families via tool_style().
 TOOL_STYLE: dict[str, str] = {}
 
-
 def tool_family(name: str) -> str:
     """Map a tool name to read | write | shell | agent | other."""
     n = (name or "").strip()
@@ -153,9 +146,6 @@ def tool_family(name: str) -> str:
         return "shell"
     return "other"
 
-
-# ── Container / run status ────────────────────────────────────────────────
-
 STATUS_LABEL: dict[str, str] = {
     "pending": "[dim]Pending[/]",
     "building": "[cyan]Building…[/]",
@@ -165,11 +155,8 @@ STATUS_LABEL: dict[str, str] = {
     "failed": "[red]Failed[/]",
 }
 
-# ── Syntax highlighting ──────────────────────────────────────────────────
-
 SYNTAX_THEME_LIGHT = "friendly"
 SYNTAX_THEME_DARK = "monokai"
-
 
 def syntax_theme_for_app(app: App) -> str:
     """Pick a Syntax highlight theme matching the active Textual theme.
@@ -183,21 +170,15 @@ def syntax_theme_for_app(app: App) -> str:
             return SYNTAX_THEME_LIGHT
     return SYNTAX_THEME_DARK
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────
-
-
 def severity_style(value: str) -> str:
     """Rich style string for a severity value (``"high"`` / ``"medium"`` / ``"low"``)."""
     return SEVERITY_STYLE.get(value, "white")
-
 
 def tool_style(name: str) -> str:
     """Rich style for a tool name (family palette, optional per-name override)."""
     if name and name in TOOL_STYLE:
         return TOOL_STYLE[name]
     return TOOL_FAMILY_STYLE.get(tool_family(name or ""), TOOL_FAMILY_STYLE["other"])
-
 
 def tool_label(name: str, *, max_len: int = 28) -> str:
     """Rich markup label for a tool name in tables."""

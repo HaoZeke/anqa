@@ -160,14 +160,14 @@ class McpConfigureModal(ModalScreen[dict | None]):
                     meta += t("ui-version-tag", ver=ver)
                 if status:
                     meta += t("ui-status-bracket", status=status)
-                yield Static(f"{t('ui-registry-3')}{meta}")
+                yield Static(f"{t('ui-registry-3')} {meta}")
             if desc:
                 yield Static(f"{desc}")
             link_lines: list[str] = []
             if repo:
-                link_lines.append(f"{t('ui-repository')}{repo}")
+                link_lines.append(f"{t('ui-repository')} {repo}")
             if reg_url:
-                link_lines.append(f"{t('ui-registry-2')}{reg_url}")
+                link_lines.append(f"{t('ui-registry-2')} {reg_url}")
             if isinstance(docs_links, list):
                 for item in docs_links:
                     if not isinstance(item, dict):
@@ -191,7 +191,7 @@ class McpConfigureModal(ModalScreen[dict | None]):
             yield Input(value=str(d.get("id") or "mcp"), id="mcp-cfg-id")
             yield Label(U.transport_endpoint())
             yield Static(
-                f"[dim]transport={transport}[/dim]\n[dim]url={url or '—'}[/dim]\n[dim]command={command or '—'}{t('ui-args')}{d.get('args') or []}[/dim]"
+                f"[dim]transport={transport}[/dim]\n[dim]url={url or '—'}[/dim]\n[dim]command={command or '—'} {t('ui-args')} {d.get('args') or []}[/dim]"
             )
             yield Label(U.headers_hint())
             yield TextArea(hdr_lines, id="mcp-cfg-headers")
@@ -394,7 +394,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     return str(summary())
                 return str(hit)
             except Exception as exc:
-                return f"{t('ui-could-not-render-details')}{exc}[/red]"
+                return f"{t('ui-could-not-render-details')} {exc}[/red]"
         from ...capabilities.catalog import McpCatalogEntry
 
         if not isinstance(payload, McpCatalogEntry):
@@ -402,7 +402,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
         e = payload
         lines = [
             f"[bold]{e.title or e.id}[/bold]",
-            f"[dim]id={e.id}{t('ui-source-1')}{e.source}{t('ui-transport')}{e.transport}[/dim]",
+            f"[dim]id={e.id} {t('ui-source-1')} {e.source} {t('ui-transport')} {e.transport}[/dim]",
         ]
         if e.description:
             lines.append((e.description or "")[:500])
@@ -412,7 +412,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
             args = " ".join(str(a) for a in e.args or [])
             lines.append(f"[dim]command=[/dim]{e.command} {args}".rstrip())
         if e.needs_env:
-            lines.append(f"{t('ui-needs-env')}{', '.join(e.needs_env)}")
+            lines.append(f"{t('ui-needs-env')} {', '.join(e.needs_env)}")
         if e.source == "host":
             lines.append(
                 t("ui-host-pass-through-uses-mcp-servers")
@@ -468,7 +468,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     key=key,
                 )
                 self._row_meta[key] = ("local", e)
-        self._set_status(f"{t('ui-local-1')}{len(self._row_meta)}{t('ui-r-registry')}")
+        self._set_status(f"{t('ui-local-1')} {len(self._row_meta)} {t('ui-r-registry')}")
         self.call_after_refresh(self._update_detail_from_cursor)
 
     @work(thread=True, exclusive=True, group="mcp-registry")
@@ -492,7 +492,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
 
             self.app.call_from_thread(_empty)
             return
-        self.app.call_from_thread(self._set_status, f"{t('ui-registry-searching')}{q!r}…")
+        self.app.call_from_thread(self._set_status, f"{t('ui-registry-searching')} {q!r}…")
         hits, err = search_registry(q, limit=40)
 
         def _apply_results() -> None:
@@ -503,7 +503,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                 self._row_meta.clear()
                 self._registry_hits = list(hits or [])
                 if err and (not hits):
-                    self._set_status(f"{t('ui-registry-error')}{err}")
+                    self._set_status(f"{t('ui-registry-error')} {err}")
                     return
                 for i, hit in enumerate(hits or []):
                     entry = hit.to_catalog_entry()
@@ -519,7 +519,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     )
                     self._row_meta[key] = ("registry", hit)
             extra = f" · {err}" if err else ""
-            self._set_status(f"{t('ui-registry-1')}{len(hits or [])}{t('ui-for')}{q!r}{extra}")
+            self._set_status(f"{t('ui-registry-1')} {len(hits or [])} {t('ui-for')} {q!r} {extra}")
             self.call_after_refresh(self._update_detail_from_cursor)
 
         self.app.call_from_thread(_apply_results)
@@ -529,7 +529,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
         n_def = len(self._definitions)
         with suppress(Exception):
             self.query_one("#mcp-pick-sel", Static).update(
-                f"[dim]{len(ids)}{t('ui-selected-1')}{n_def}{t('ui-configured')}"
+                f"[dim]{len(ids)} {t('ui-selected-1')} {n_def} {t('ui-configured')}"
                 + (", ".join(ids[:10]) + ("…" if len(ids) > 10 else "") if ids else "—")
             )
 
@@ -680,14 +680,14 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     if skill_name not in self._skills_add:
                         self._skills_add.append(skill_name)
                     self._set_status(
-                        f"{t('ui-added-mcp')}{rid}{t('ui-skill')}{skill_name}` ({self._keep_hint})."
+                        f"{t('ui-added-mcp')} {rid} {t('ui-skill')} {skill_name}` ({self._keep_hint})."
                     )
                 else:
-                    self._set_status(f"{t('ui-added-mcp')}{rid}{t('ui-skill-not-written')}")
+                    self._set_status(f"{t('ui-added-mcp')} {rid} {t('ui-skill-not-written')}")
             except Exception as exc:
-                self._set_status(f"{t('ui-added-mcp')}{rid}{t('ui-skill-write-failed')}{exc}")
+                self._set_status(f"{t('ui-added-mcp')} {rid} {t('ui-skill-write-failed')} {exc}")
         else:
-            self._set_status(f"{t('ui-added-mcp')}{rid}{t('ui-no-companion-skill')}")
+            self._set_status(f"{t('ui-added-mcp')} {rid} {t('ui-no-companion-skill')}")
         self._rerender_selection_marks()
         self._update_sel_label()
 
@@ -740,7 +740,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                 self._update_sel_label()
                 return
             self.app.push_screen(
-                McpConfigureModal(defn, title=f"{t('ui-configure')}{sid}"),
+                McpConfigureModal(defn, title=f"{t('ui-configure')} {sid}"),
                 lambda r: self._apply_configure_result(r, default_sid=sid),
             )
             return
@@ -754,7 +754,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
             reg_defn: dict = {str(k): v for k, v in defn_obj.items()}
             hit_name = str(hit.name or reg_defn.get("id") or "mcp")
             self.app.push_screen(
-                McpConfigureModal(reg_defn, title=f"{t('ui-configure')}{hit_name}"),
+                McpConfigureModal(reg_defn, title=f"{t('ui-configure')} {hit_name}"),
                 lambda r: self._apply_configure_result(
                     r, default_sid=str(reg_defn.get("id") or "mcp")
                 ),
@@ -857,7 +857,7 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
         ids = sorted(self._selected)
         with suppress(Exception):
             self.query_one("#plugins-pick-sel", Static).update(
-                f"{t('ui-selected-2')}{len(ids)}{t('ui-msg-3')}"
+                f"{t('ui-selected-2')} {len(ids)} {t('ui-msg-3')}"
                 + (", ".join(ids) if ids else "(none)")
             )
 
@@ -889,7 +889,7 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
             row = self._rows_by_name.get(name)
             if row is not None and getattr(row, "status", "") == "fetch":
                 self.notify(
-                    f"`{name}{t('ui-will-be-git-fetched-into-the-container-volume-at')}",
+                    f"`{name} {t('ui-will-be-git-fetched-into-the-container-volume-at')}",
                     severity="information",
                     timeout=5,
                 )
@@ -960,7 +960,7 @@ class SkillsPickerModal(ModalScreen[list[str] | None]):
         ids = sorted(self._selected)
         with suppress(Exception):
             self.query_one("#skills-pick-sel", Static).update(
-                f"[dim]{len(ids)}{t('ui-selected-3')}"
+                f"[dim]{len(ids)} {t('ui-selected-3')}"
                 + (", ".join(ids[:8]) + ("…" if len(ids) > 8 else "") if ids else "—")
             )
 
@@ -1092,7 +1092,7 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
             else t("ui-github-pat-stored-on-this-persona")
         )
         tok_status = (
-            f"{t('ui-token-on-file-yes')}{len(p.github_token.strip())}{t('ui-chars-blank-keeps-current-enter-a-value-to-repla')}"
+            f"{t('ui-token-on-file-yes')} {len(p.github_token.strip())} {t('ui-chars-blank-keeps-current-enter-a-value-to-repla')}"
             if not self._is_new and (p.github_token or "").strip()
             else t("ui-no-token-stored-yet")
         )
@@ -1532,7 +1532,7 @@ class PersonasScreen(ChromeActions):
         yield ActivityBar()
         with Vertical(id="personas-screen"):
             yield Static(
-                f"{t('ui-persona-builder')}{root}{t('ui-github-mcp-skills-footer-for-keys')}",
+                f"{t('ui-persona-builder')} {root} {t('ui-github-mcp-skills-footer-for-keys')}",
                 id="pb-banner",
             )
             yield DataTable(id="pb-table")
@@ -1624,9 +1624,9 @@ class PersonasScreen(ChromeActions):
         if len(p.env_vars or {}) > 8:
             env_preview += "…"
         if (p.github_token or "").strip():
-            tok_info = f"{t('ui-stored')}{len(p.github_token.strip())}{t('ui-chars-1')}"
+            tok_info = f"{t('ui-stored')} {len(p.github_token.strip())} {t('ui-chars-1')}"
         elif (p.github_token_env or "").strip():
-            tok_info = f"{t('ui-host-env')}{p.github_token_env}"
+            tok_info = f"{t('ui-host-env')} {p.github_token_env}"
         else:
             tok_info = t("ui-none-host-groket-gh-token-gh-token-only-if-orche")
         mcp_ids = getattr(p, "mcp_servers", None) or []
@@ -1634,14 +1634,14 @@ class PersonasScreen(ChromeActions):
         lines = [
             f"[bold]{p.name}[/bold]  [dim]{p.persona_id}[/dim]",
             f"[dim]{p.description or t('ui-no-description')}[/dim]",
-            f"github_write=[b]{('on' if p.github_write else 'off')}{t('ui-token')}{tok_info}{t('ui-docker')}{p.docker_image or 'inherit'}[/b]",
-            f"{t('ui-git')}{p.git_user_name or '—'} <{p.git_user_email or '—'}>",
-            f"{t('ui-env-keys')}{env_preview}",
-            f"{t('ui-mcp-servers')}{len(mcp_ids)}): {', '.join(mcp_ids[:12]) or '—'}{t('ui-replace-host')}{getattr(p, 'mcp_replace_host', True)}[/dim]",
-            f"{t('ui-skills')}{len(skill_ids)}): {', '.join(skill_ids[:12]) or '—'}",
+            f"github_write=[b]{('on' if p.github_write else 'off')} {t('ui-token')} {tok_info} {t('ui-docker')} {p.docker_image or 'inherit'}[/b]",
+            f"{t('ui-git')} {p.git_user_name or '—'} <{p.git_user_email or '—'}>",
+            f"{t('ui-env-keys')} {env_preview}",
+            f"{t('ui-mcp-servers')} {len(mcp_ids)}): {', '.join(mcp_ids[:12]) or '—'} {t('ui-replace-host')} {getattr(p, 'mcp_replace_host', True)}[/dim]",
+            f"{t('ui-skills')} {len(skill_ids)}): {', '.join(skill_ids[:12]) or '—'}",
         ]
         if p.notes:
-            lines.append(f"{t('ui-notes')}{p.notes[:200]}")
+            lines.append(f"{t('ui-notes')} {p.notes[:200]}")
         self.query_one("#pb-detail", Static).update("\n".join(lines))
 
     @on(DataTable.RowHighlighted, "#pb-table")
@@ -1700,7 +1700,7 @@ class PersonasScreen(ChromeActions):
             if result is None:
                 return
             self.notify(
-                f"{t('ui-saved-persona')}{result.persona_id}", severity="information", timeout=5
+                f"{t('ui-saved-persona')} {result.persona_id}", severity="information", timeout=5
             )
             self._selected_id = result.persona_id
             self.post_message(self.PersonasChanged())

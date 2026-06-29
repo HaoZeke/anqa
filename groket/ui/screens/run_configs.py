@@ -167,7 +167,7 @@ class _BatchLaunchModal(ModalScreen[object]):
             models = models_override or list(c.models) or defaults
             if not models:
                 self.notify(
-                    f"{t('ui-no-models-for')}{c.task_id or c.display_name()}{t('ui-set-models-above')}",
+                    f"{t('ui-no-models-for')} {c.task_id or c.display_name()} {t('ui-set-models-above')}",
                     severity="error",
                 )
                 return
@@ -252,7 +252,7 @@ class RunConfigsScreen(ChromeActions):
         """Reload configs from disk only."""
         self._reload_table()
         self.notify(
-            f"{t('ui-configs-reloaded')}{len(self._rows)}{t('ui-recipes')}",
+            f"{t('ui-configs-reloaded')} {len(self._rows)} {t('ui-recipes')}",
             severity="information",
             timeout=5,
         )
@@ -375,23 +375,23 @@ class RunConfigsScreen(ChromeActions):
         ]
         if cfg.task_id or cfg.category or cfg.label:
             lines.append(
-                f"{t('ui-label-1')}{cfg.catalog_label()}{t('ui-task-1')}{cfg.task_id or '—'}{t('ui-category-2')}{cfg.category or '—'}"
+                f"{t('ui-label-1')} {cfg.catalog_label()} {t('ui-task-1')} {cfg.task_id or '—'} {t('ui-category-2')} {cfg.category or '—'}"
             )
         lines.extend(
             [
-                f"{t('ui-repo-1')}{cfg.repo_url or '(none)'}{t('ui-branch')}{cfg.repo_branch or '—'}",
-                f"{t('ui-image')}{cfg.docker_image}{t('ui-models-1')}{', '.join(cfg.models) or t('ui-none-saved')}",
-                f"{t('ui-parallelism')}{cfg.parallelism}{t('ui-launches-1')}{cfg.launch_count}{t('ui-last')}{cfg.last_launched_at or 'never'}",
+                f"{t('ui-repo-1')} {cfg.repo_url or '(none)'} {t('ui-branch')} {cfg.repo_branch or '—'}",
+                f"{t('ui-image')} {cfg.docker_image} {t('ui-models-1')} {', '.join(cfg.models) or t('ui-none-saved')}",
+                f"{t('ui-parallelism')} {cfg.parallelism} {t('ui-launches-1')} {cfg.launch_count} {t('ui-last')} {cfg.last_launched_at or 'never'}",
             ]
         )
         if cfg.source_session_id:
-            lines.append(f"{t('ui-source-session')}{cfg.source_session_id}")
+            lines.append(f"{t('ui-source-session')} {cfg.source_session_id}")
         if cfg.source_run_id:
-            lines.append(f"{t('ui-source-run-id')}{cfg.source_run_id}")
-        lines.append(f"{t('ui-prompt')}{cfg.prompt_preview(120)}")
+            lines.append(f"{t('ui-source-run-id')} {cfg.source_run_id}")
+        lines.append(f"{t('ui-prompt')} {cfg.prompt_preview(120)}")
         if cfg.setup_instructions:
             su = cfg.setup_instructions.replace("\n", " ")[:100]
-            lines.append(f"{t('ui-setup')}{su}")
+            lines.append(f"{t('ui-setup')} {su}")
         self.query_one("#rc-detail", Static).update("\n".join(lines))
 
     @on(DataTable.RowHighlighted, "#rc-table")
@@ -475,7 +475,7 @@ class RunConfigsScreen(ChromeActions):
             self._do_launch(cfg, list(models))
 
         self.app.push_screen(
-            _ModelsOverrideModal(defaults, f"{t('ui-launch')}{cfg.display_name()}"), _after
+            _ModelsOverrideModal(defaults, f"{t('ui-launch')} {cfg.display_name()}"), _after
         )
 
     def action_launch_selected(self) -> None:
@@ -513,7 +513,7 @@ class RunConfigsScreen(ChromeActions):
         auth_json = Path.home() / ".grok" / "auth.json"
         grok_config = Path.home() / ".grok" / "config.toml"
         if not auth_json.exists():
-            self.notify(f"{t('ui-auth-missing')}{auth_json}", severity="error")
+            self.notify(f"{t('ui-auth-missing')} {auth_json}", severity="error")
             return
         try:
             from ...runs.batch import validate_models_for_launch
@@ -549,7 +549,7 @@ class RunConfigsScreen(ChromeActions):
             self.notify(str(exc), severity="error")
             return
         self.notify(
-            f"{t('ui-launched')}{bg.run_id}{t('ui-with')}{len(models)}{t('ui-model-s-from-config')}{cfg.config_id}",
+            f"{t('ui-launched')} {bg.run_id} {t('ui-with')} {len(models)} {t('ui-model-s-from-config')} {cfg.config_id}",
             severity="information",
             timeout=8,
         )
@@ -561,14 +561,14 @@ class RunConfigsScreen(ChromeActions):
         auth_json = Path.home() / ".grok" / "auth.json"
         grok_config = Path.home() / ".grok" / "config.toml"
         if not auth_json.exists():
-            self.notify(f"{t('ui-auth-missing')}{auth_json}", severity="error")
+            self.notify(f"{t('ui-auth-missing')} {auth_json}", severity="error")
             return
         defaults = load_models()
         items: list[dict] = []
         for c in configs:
             models = list(models_override) if models_override else list(c.models) or list(defaults)
             if not models:
-                self.notify(f"{t('ui-skip')}{c.config_id}{t('ui-no-models')}", severity="warning")
+                self.notify(f"{t('ui-skip')} {c.config_id} {t('ui-no-models')}", severity="warning")
                 continue
             items.append(
                 {
@@ -606,7 +606,7 @@ class RunConfigsScreen(ChromeActions):
                         fn()
                 with suppress(Exception):
                     screen._reload_table()
-                msg = f"{t('ui-batch-1')}{batch_id}{t('ui-finished-1')}{len(started)}{t('ui-run-s-started')}{len(all_err)}{t('ui-launch-error-s-open-j-for-jobs-logs')}"
+                msg = f"{t('ui-batch-1')} {batch_id} {t('ui-finished-1')} {len(started)} {t('ui-run-s-started')} {len(all_err)} {t('ui-launch-error-s-open-j-for-jobs-logs')}"
                 if all_err:
                     sample = all_err[0][1][:80]
                     # Build example without nested Rich tags (notify markup is fragile).
@@ -640,7 +640,7 @@ class RunConfigsScreen(ChromeActions):
             if callable(fn):
                 fn()
         self.notify(
-            f"{t('ui-batch-1')}{batch_id}: {len(items)}{t('ui-config-s-max')}{max_parallel}{t('ui-in-flight-running-in-background-j-jobs-logs-no-p')}",
+            f"{t('ui-batch-1')} {batch_id}: {len(items)} {t('ui-config-s-max')} {max_parallel} {t('ui-in-flight-running-in-background-j-jobs-logs-no-p')}",
             severity="information",
             timeout=8,
         )
@@ -695,7 +695,7 @@ class RunConfigsScreen(ChromeActions):
             names = ", ".join((c.task_id or c.display_name())[:24] for c in targets[:5])
             more = f" …+{len(targets) - 5}" if len(targets) > 5 else ""
             self.notify(
-                f"{t('ui-press-again-to-delete')}{len(targets)}{t('ui-run-config-s-recipes-only-sessions-traces-kept')}{names}{more}",
+                f"{t('ui-press-again-to-delete')} {len(targets)} {t('ui-run-config-s-recipes-only-sessions-traces-kept')} {names} {more}",
                 severity="warning",
                 timeout=10,
             )
@@ -718,7 +718,7 @@ class RunConfigsScreen(ChromeActions):
             else:
                 failed += 1
         if deleted:
-            msg = f"{t('ui-deleted')}{deleted}{t('ui-run-config-s')}"
+            msg = f"{t('ui-deleted')} {deleted} {t('ui-run-config-s')}"
             if failed:
                 msg += t("ui-failed-paren", n=failed)
             self.notify(msg, severity="warning" if failed else "information", timeout=10)

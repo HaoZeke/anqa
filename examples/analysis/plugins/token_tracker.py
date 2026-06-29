@@ -9,18 +9,17 @@ Config:
 
 from __future__ import annotations
 
-from typing import Unpack
-
 import logging
 from pathlib import Path
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.models import Severity
 from groket.parser import load_session_meta, parse_timeline, parse_tool_calls
 
 logger = logging.getLogger(__name__)
 
-# Rough per-1K-token pricing (input/output) — update as needed.
+
 MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gpt-4o": (0.0025, 0.01),
     "claude-sonnet": (0.003, 0.015),
@@ -28,7 +27,7 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 }
 DEFAULT_PRICING = (0.003, 0.015)
 
-# ~4 chars per token (rough English average)
+
 CHARS_PER_TOKEN = 4
 
 class TokenTrackerAnalyzer:
@@ -67,7 +66,7 @@ class TokenTrackerAnalyzer:
             elif ev.event_type == "tool_result":
                 input_chars += char_count
 
-        # Tool call inputs count as output (model-generated)
+
         for tc in tool_calls:
             output_chars += sum(len(str(v)) for v in tc.raw_input.values())
             input_chars += len(tc.result_content)

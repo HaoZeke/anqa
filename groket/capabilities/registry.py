@@ -228,7 +228,7 @@ class RegistryServerHit:
                 req = " required" if h.get("required") == "1" else ""
                 sec = " secret" if h.get("secret") == "1" else ""
                 lines.append(
-                    f"[dim]header[/dim] {h.get('name')}: {h.get('value') or '—'}{req}{sec}"
+                    f"[dim]header[/dim] {h.get('name')}: {h.get('value') or '—'} {req} {sec}"
                     + (f" — {h.get('description')}" if h.get("description") else "")
                 )
         links = self.docs_links()

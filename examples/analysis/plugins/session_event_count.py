@@ -23,14 +23,14 @@ appear on the Report / Findings views for the plugin id ``session-event-count``.
 
 from __future__ import annotations
 
-from typing import Unpack
-
 from collections import Counter
 from pathlib import Path
+from typing import Unpack
 
-from groket.analysis.base import AnalyzeContext, AnalysisResult, AnalyzerInfo, Finding
+from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.models import Severity
 from groket.parser import load_session_meta, parse_timeline
+
 
 class SessionEventCountAnalyzer:
     @property

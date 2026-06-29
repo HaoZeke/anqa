@@ -7,9 +7,10 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 
-from groket.models import ChatMessage, RuleParams, Severity, ToolCall
-from groket.engine.models import Match
 from groket.engine.detectors import detector
+from groket.engine.models import Match
+from groket.models import ChatMessage, RuleParams, Severity, ToolCall
+
 from .patterns import (
     BUILD_CMD_RE,
     BUILD_OR_TEST_RE,
@@ -27,11 +28,6 @@ from .patterns import (
     is_truncated_only_output,
 )
 
-# ── Helpers ──
-
-# Test framework configuration crash patterns — these indicate the test
-# runner itself failed to start, not that the model's code changes caused
-# test failures.
 _CONFIGCRASH_RE = re.compile(
     r"_pytest/config|pytest_cmdline_parse|PytestConfigWarning"
     r"|pluggy.*_hooks|Failed to import filter module"
@@ -40,17 +36,14 @@ _CONFIGCRASH_RE = re.compile(
 )
 _TEST_RESULTS_RE = re.compile(r"\d+\s+passed", re.IGNORECASE)
 
-
 def _is_config_crash(output: str) -> bool:
     """Check if test failure is a framework config crash, not a test failure."""
     return bool(_CONFIGCRASH_RE.search(output)) and not bool(_TEST_RESULTS_RE.search(output))
 
 
-# Patterns for extracting individual test failure names from output
 _PYTEST_FAIL_RE = re.compile(r"FAILED\s+(\S+::\S+)", re.MULTILINE)
 _CARGO_FAIL_RE = re.compile(r"(\S+)\s+\.\.\.\s+FAILED", re.MULTILINE)
 _GENERIC_FAIL_RE = re.compile(r"FAIL:\s+(\S+)", re.MULTILINE)
-
 
 def _extract_failing_tests(output: str) -> set[str]:
     """Extract individual test names from test output."""
@@ -63,7 +56,6 @@ def _extract_failing_tests(output: str) -> set[str]:
         names.add(m.group(1))
     return names
 
-
 def _extract_error_line(output: str, tc: ToolCall) -> str:
     """Extract the first error/crash line from build output."""
     for line in output.splitlines():
@@ -72,7 +64,6 @@ def _extract_error_line(output: str, tc: ToolCall) -> str:
     if tc.signal:
         return f"Process killed by {tc.signal}"
     return ""
-
 
 def _get_edited_file(tc: ToolCall) -> str:
     """Get edited file from search_replace or cat heredoc."""
@@ -83,7 +74,6 @@ def _get_edited_file(tc: ToolCall) -> str:
         return m.group(1) if m else ""
     return ""
 
-
 def _is_build_failure(tc: ToolCall) -> bool:
     """Check if a terminal command represents a build/test failure."""
     output = tc.result_content or ""
@@ -93,12 +83,6 @@ def _is_build_failure(tc: ToolCall) -> bool:
         or bool(CRASH_RE.search(output))
         or bool(tc.signal)
     )
-
-
-# ---------------------------------------------------------------------------
-# 8. edit_build_failure
-# ---------------------------------------------------------------------------
-
 
 def _build_failure_match(
     involved_tcs: list[ToolCall],
@@ -131,7 +115,6 @@ def _build_failure_match(
         ),
     )
 
-
 @detector("edit_build_failure")
 def edit_build_failure(
     tool_calls: list[ToolCall],
@@ -161,16 +144,16 @@ def edit_build_failure(
     def _is_compile_or_crash(output: str, tc: ToolCall) -> bool:
         has_compile = bool(compile_re.search(output))
         has_crash = bool(CRASH_RE.search(output)) or bool(tc.signal)
-        # Errors in inline python -c scripts (SyntaxError, NameError, etc.)
-        # are the model's test script being malformed, not the edited file
-        # causing a build failure.
+
+
+
         if has_compile and not has_crash:
             cmd = tc.input_str("command")
             if INLINE_SCRIPT_RE.search(cmd):
                 if 'File "<string>"' in output or 'File "<stdin>"' in output:
                     return False
-        # Cargo/npm progress lines alone are not failures (truncated output
-        # often looks like "Building [...]" with exit 101 mid-compile)
+
+
         if is_build_progress_only(output):
             return False
         if is_truncated_only_output(output):
@@ -180,8 +163,8 @@ def edit_build_failure(
                 r"error(?:\[E\d+\])?:\s", output, re.IGNORECASE
             ):
                 return False
-        # Require an actual compiler diagnostic — bare is_error is too noisy
-        # (OOM, timeout, truncated logs all set is_error without a code bug)
+
+
         if has_compile or has_crash:
             return True
         return False
@@ -200,11 +183,11 @@ def edit_build_failure(
         m = HEREDOC_WRITE_RE.search(cmd)
         is_heredoc = bool(m)
 
-        # Combined heredoc+build: `cat > file << 'EOF' ... && gcc ...`
+
         if is_heredoc and build_re.search(cmd):
             edit_path = m.group(1) if m else ""
-            # Skip temp-file writes — throwaway verification scripts,
-            # not edits to the project.
+
+
             if any(edit_path.startswith(p) for p in TEMP_PREFIXES):
                 last_edit = None
                 continue
@@ -227,15 +210,15 @@ def edit_build_failure(
             last_edit = None
             continue
 
-        # Pure heredoc write (no build in same command)
+
         if is_heredoc and not tc.is_error:
             last_edit = tc
             last_edit_file = m.group(1) if m else ""
             continue
 
-        # Separate build command following a prior edit
+
         if last_edit is not None and build_re.search(cmd):
-            # Skip if the prior edit was to a temp file
+
             if any(last_edit_file.startswith(p) for p in TEMP_PREFIXES):
                 last_edit = None
                 continue
@@ -258,17 +241,11 @@ def edit_build_failure(
                 last_edit = None
                 continue
 
-        # Reset edit tracking on successful build
+
         if not tc.is_error and build_re.search(cmd):
             last_edit = None
 
     return results
-
-
-# ---------------------------------------------------------------------------
-# 9. edit_test_failure
-# ---------------------------------------------------------------------------
-
 
 @detector("edit_test_failure")
 def edit_test_failure(
@@ -285,11 +262,11 @@ def edit_test_failure(
 
     results: list[Match] = []
 
-    # Track most recent edit(s) before a test
+
     recent_edits: list[tuple[ToolCall, str]] = []
-    # Track per-file failure count to reduce severity after repeated failures
+
     file_fail_count: dict[str, int] = defaultdict(int)
-    # Track pre-existing test failures (seen before any edit)
+
     known_failures: set[str] = set()
 
     for tc in tool_calls:
@@ -300,7 +277,7 @@ def edit_test_failure(
 
         if tc.tool_name == "run_terminal_command":
             cmd = tc.input_str("command")
-            # Track heredoc edits
+
             m = HEREDOC_WRITE_RE.search(cmd)
             if m and not tc.is_error and not test_re.search(cmd):
                 recent_edits.append((tc, m.group(1)))
@@ -309,14 +286,14 @@ def edit_test_failure(
             output = tc.result_content or ""
             has_test = test_re.search(cmd)
 
-            # Track pre-existing failures from test runs with no pending edits
+
             if has_test and not recent_edits:
                 known_failures.update(_extract_failing_tests(output))
                 continue
 
             if recent_edits:
-                # Exclude temp-file-only edits — writes to /tmp/ don't
-                # affect the project's test suite.
+
+
                 project_edits = [
                     (e, f)
                     for e, f in recent_edits
@@ -328,25 +305,25 @@ def edit_test_failure(
                 has_fail = TEST_FAIL_RE.search(output) or tc.signal
 
                 if has_test and (has_fail or tc.is_error):
-                    # Skip environment failures -- not caused by the edit
+
                     if is_env_failure(output):
                         continue
-                    # Skip test framework config crashes (pytest plugin
-                    # errors, missing coverage module, etc.)
+
+
                     if _is_config_crash(output):
                         continue
 
-                    # Skip if all failing tests were already failing
-                    # before the edit (pre-existing failures).
+
+
                     current_failures = _extract_failing_tests(output)
                     if current_failures and current_failures.issubset(known_failures):
                         known_failures.update(current_failures)
                         continue
-                    # Record these failures for future reference
+
                     known_failures.update(current_failures)
 
-                    # Skip when only docs/comments were edited (filter those out
-                    # of project_edits for causality attribution)
+
+
                     code_edits = [
                         (e, f)
                         for e, f in project_edits
@@ -365,9 +342,9 @@ def edit_test_failure(
                     if not crash_line and tc.signal:
                         crash_line = f"Process killed by {tc.signal}"
 
-                    # Deduplicate edited files, most recent first (closest
-                    # to the test is the most likely cause). Use code_edits
-                    # so doc-only files don't dominate attribution.
+
+
+
                     seen_files: list[str] = []
                     seen_set: set[str] = set()
                     for _, f in reversed(code_edits):
@@ -378,19 +355,19 @@ def edit_test_failure(
                     edit_files = ", ".join(seen_files[:5])
                     edit_tcs = [e for e, _ in code_edits[-5:]]
 
-                    # Track per-file failure count — primary is the
-                    # most recent edit (closest to the failing test).
+
+
                     primary_file = seen_files[0] if seen_files else ""
                     file_fail_count[primary_file] += 1
                     count = file_fail_count[primary_file]
 
-                    # After 3rd failure on same file, downgrade severity
+
                     if count <= 2:
                         sev = Severity.HIGH
                     elif count <= max_per_file:
                         sev = Severity.MEDIUM
                     else:
-                        # 5th+ failure on same file — skip entirely
+
                         recent_edits.clear()
                         continue
 
@@ -418,7 +395,7 @@ def edit_test_failure(
                     )
                     recent_edits.clear()
 
-        # Reset on successful test
+
         if (
             tc.tool_name == "run_terminal_command"
             and not tc.is_error
@@ -428,12 +405,6 @@ def edit_test_failure(
             recent_edits.clear()
 
     return results
-
-
-# ---------------------------------------------------------------------------
-# 10. fix_cycle
-# ---------------------------------------------------------------------------
-
 
 @detector("fix_cycle")
 def fix_cycle(
@@ -461,25 +432,25 @@ def fix_cycle(
         if tc.tool_name == "run_terminal_command":
             cmd = tc.input_str("command")
 
-            # Check if this is a file write via heredoc
+
             m = HEREDOC_WRITE_RE.search(cmd)
             has_heredoc = bool(m)
             has_build = bool(BUILD_OR_TEST_RE.search(cmd))
 
-            # Combined heredoc+build in one command
+
             if has_heredoc and has_build and m is not None:
                 f = m.group(1)
                 if _is_build_failure(tc):
                     file_cycles[f].append((tc, tc))
                 else:
-                    # Successful combined write+build — check cycles
+
                     if f in file_cycles and len(file_cycles[f]) >= min_cycles:
                         _emit_cycle_match(results, f, file_cycles[f], resolved=True)
                     file_cycles.pop(f, None)
                     file_last_edit.pop(f, None)
                 continue
 
-            # Pure heredoc write (no build in same command)
+
             if has_heredoc and not tc.is_error and m is not None:
                 f = m.group(1)
                 if f:
@@ -489,7 +460,7 @@ def fix_cycle(
                 continue
 
             if _is_build_failure(tc) and not is_env_failure(tc.result_content):
-                # Try to blame only the file mentioned in the error
+
                 error_files = set()
                 if tc.result_content:
                     for ef in re.findall(r"[\w/.-]+\.\w{1,5}", tc.result_content[:1000]):
@@ -497,7 +468,7 @@ def fix_cycle(
                         for f in file_last_edit:
                             if f.endswith(ef) or f.split("/")[-1] == ef_base:
                                 error_files.add(f)
-                # If we found specific files, only blame those
+
                 blame_files = error_files if error_files else set(file_last_edit.keys())
                 for f in blame_files:
                     if f in file_last_edit:
@@ -510,13 +481,12 @@ def fix_cycle(
                 file_cycles.clear()
                 file_last_edit.clear()
 
-    # Check remaining unclosed cycles
+
     for f, cycles in file_cycles.items():
         if len(cycles) >= min_cycles:
             _emit_cycle_match(results, f, cycles, resolved=False)
 
     return results
-
 
 def _emit_cycle_match(
     results: list[Match],
@@ -554,12 +524,6 @@ def _emit_cycle_match(
             ),
         )
     )
-
-
-# ---------------------------------------------------------------------------
-# 11. edit_build_loops
-# ---------------------------------------------------------------------------
-
 
 @detector("edit_build_loops")
 def edit_build_loops(
