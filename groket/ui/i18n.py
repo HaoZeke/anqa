@@ -28,6 +28,18 @@ def locale_dir() -> Path:
     return _LOCALE_DIR
 
 
+def join_ui(*parts: object, sep: str = " ") -> str:
+    """Join UI fragments with *sep*, dropping empties.
+
+    Fluent strips leading/trailing spaces on message values, so callers must
+    not rely on fragment-edge whitespace when concatenating. Use this (or
+    explicit separators in the format string) whenever combining ``t()`` pieces
+    with values.
+    """
+    bits = [str(p).strip() for p in parts if p is not None and str(p).strip()]
+    return sep.join(bits)
+
+
 def current_language() -> str:
     return _current_lang
 

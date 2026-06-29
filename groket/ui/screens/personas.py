@@ -155,12 +155,12 @@ class McpConfigureModal(ModalScreen[dict | None]):
         with VerticalScroll(id="mcp-cfg-modal"):
             yield Static(f"[bold]{self._title}[/bold]")
             if reg:
-                meta = reg
+                meta_bits = [reg]
                 if ver:
-                    meta += t("ui-version-tag", ver=ver)
+                    meta_bits.append(f"v{ver}")
                 if status:
-                    meta += t("ui-status-bracket", status=status)
-                yield Static(f"{t('ui-registry-3')} {meta}")
+                    meta_bits.append(f"[{status}]")
+                yield Static(f"{t('ui-registry-3').strip()} {' '.join(meta_bits)}")
             if desc:
                 yield Static(f"{desc}")
             link_lines: list[str] = []

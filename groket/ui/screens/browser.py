@@ -309,12 +309,17 @@ class BrowserScreen(ChromeActions):
             chip = status_chip(label or "idle", kind="unknown" if not label else "ok")
             sid = str(st.get("session_id") or (meta.session_id if meta else ""))
             turn = st.get("turn", "")
-            extra = f"{t('ui-session-1')} {sid}" if sid else ""
+            # Fluent strips leading/trailing spaces on fragments — always separate
+            # with explicit spaces when joining chip + extras.
+            bits: list[str] = []
+            if sid:
+                bits.append(f"session={sid}")
             if turn != "" and turn is not None:
-                extra += t("ui-gate-turn", turn=turn)
+                bits.append(f"gate_turn={turn}")
             if queued:
-                extra += t("ui-queued-count", n=len(queued))
-            status.update(Text.assemble(chip, extra))
+                bits.append(f"{len(queued)} queued")
+            extra = ("  ·  " + "  ·  ".join(bits)) if bits else ""
+            status.update(Text.assemble(chip, Text(extra, style="dim")))
         except Exception:
             pass
         try:
@@ -575,17 +580,19 @@ class BrowserScreen(ChromeActions):
     def _set_title_from_meta(self) -> None:
         label = self.meta.label if self.meta else self.session_dir.name
         model = self.meta.model_display if self.meta else "unknown"
+        # Explicit leading " · " — Fluent strips edge spaces on fragment messages.
         outcome_bit = ""
         if self.meta and self.meta.turn_outcome:
+            oc = self.meta.turn_outcome
             if self.meta.turn_failed:
-                outcome_bit = f"{t('ui-turn-1')} {self.meta.turn_outcome}"
+                outcome_bit = f" · turn={oc}"
             elif self.meta.turn_in_progress:
-                outcome_bit = f"{t('ui-live-turn')} {self.meta.turn_outcome}"
+                outcome_bit = f" · LIVE turn={oc}"
             else:
-                outcome_bit = f"{t('ui-turn-2')} {self.meta.turn_outcome}"
+                outcome_bit = f" · turn={oc}"
         elif self.meta:
-            outcome_bit = t("ui-live")
-        self.title = f"{t('ui-browser')} {label} ({model}){outcome_bit}"
+            outcome_bit = " · LIVE"
+        self.title = f"{t('ui-browser').strip()} {label} ({model}){outcome_bit}"
 
     def _populate_ui(self) -> None:
         """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""
