@@ -121,28 +121,20 @@ def _eval_config_toml(
     host_config: Path,
     *,
     primary_model: str,
-    reasoning_effort: str = "",
 ) -> str:
     """Build config.toml for an eval container.
 
-    Keeps installer/ui prefs from the host when possible, but overrides models so
-    ``fork_secondary_model`` / defaults do not silently call ``grok-build`` (which
-    needs a subscription many eval accounts do not have). Sets
-    ``default_reasoning_effort`` when *reasoning_effort* is a known level.
+    Pins ``models.default`` and ``fork_secondary_model`` to the launch model so
+    host prefs do not call ``grok-build``. Reasoning effort is not written here;
+    the entrypoint passes ``--effort`` from ``REASONING_EFFORT`` / the launch
+    token. Host ``default_reasoning_effort`` lines are omitted so they cannot
+    override the CLI flag.
     """
-    from ..runs.batch import REASONING_EFFORTS, split_model_effort
+    from ..runs.batch import split_model_effort
 
-    mid, effort_from_token = split_model_effort(primary_model)
+    mid, _ = split_model_effort(primary_model)
     model = (mid or primary_model or "v9").strip() or "v9"
-    # Only set effort when the launch token (or explicit arg) carries one.
-    # Models that do not support effort must not get a forced host/global default.
-    effort = (reasoning_effort or effort_from_token or "").strip().lower()
-    if effort not in REASONING_EFFORTS:
-        effort = ""
-    # Secondary fork: prefer the same experimental model; never force grok-build.
-    secondary = model
-    if model == "grok-build":
-        secondary = "v9"
+    secondary = "v9" if model == "grok-build" else model
 
     base = ""
     if host_config and Path(host_config).exists():
@@ -151,9 +143,6 @@ def _eval_config_toml(
         except OSError:
             base = ""
 
-    effort_line = f'default_reasoning_effort = "{effort}"\n' if effort else ""
-
-    # Minimal safe config if host is missing/unreadable
     if not base.strip():
         return (
             "[cli]\n"
@@ -167,9 +156,7 @@ def _eval_config_toml(
             "\n"
             "[models]\n"
             f'default = "{model}"\n'
-            f"{effort_line}"
             "\n"
-            # Agent dashboard + session sharing: monitor live evals from the browser.
             "[dashboard]\n"
             "enabled = true\n"
         )
@@ -179,7 +166,6 @@ def _eval_config_toml(
     section = ""
     saw_fork = False
     saw_default = False
-    saw_effort = False
     saw_auto_update = False
     for line in lines:
         stripped = line.strip()
@@ -187,7 +173,6 @@ def _eval_config_toml(
             section = stripped[1:-1].strip().lower()
             out.append(line)
             continue
-        # Parallel eval containers must not race the internal installer update.
         if section == "cli" and stripped.startswith("auto_update"):
             out.append("auto_update = false")
             saw_auto_update = True
@@ -203,17 +188,10 @@ def _eval_config_toml(
                 saw_default = True
                 continue
             if key == "default_reasoning_effort":
-                if effort:
-                    out.append(f'default_reasoning_effort = "{effort}"')
-                    saw_effort = True
-                else:
-                    # Drop host effort override for models that do not use effort.
-                    saw_effort = True
                 continue
         out.append(line)
 
     text = "\n".join(out)
-    # Force off even when host had auto_update = true (common; breaks multi-model launches).
     if saw_auto_update or re.search(r"(?im)^\s*auto_update\s*=", text):
         text = re.sub(
             r"(?im)^(\s*auto_update\s*=\s*)\S+",
@@ -243,23 +221,6 @@ def _eval_config_toml(
             )
         else:
             text += f'\n\n[models]\ndefault = "{model}"\n'
-    if effort and not saw_effort:
-        if "[models]" in text:
-            # Append effort under existing [models] block (after default when present).
-            text = re.sub(
-                r"(?im)^(\s*default\s*=\s*\"[^\"]*\"\s*)$",
-                rf'\1\ndefault_reasoning_effort = "{effort}"',
-                text,
-                count=1,
-            )
-            if "default_reasoning_effort" not in text:
-                text = text.replace(
-                    "[models]",
-                    f'[models]\ndefault_reasoning_effort = "{effort}"',
-                    1,
-                )
-        else:
-            text += f'\n\n[models]\ndefault_reasoning_effort = "{effort}"\n'
     if not text.endswith("\n"):
         text += "\n"
     # Always enable agent dashboard in eval containers so live sessions can be
@@ -701,7 +662,6 @@ class DockerOrchestrator:
         cfg_text = _eval_config_toml(
             grok_config,
             primary_model=config.model,
-            reasoning_effort=config.reasoning_effort,
         )
         cfg_text = self._apply_persona_capabilities_config(
             cfg_text,

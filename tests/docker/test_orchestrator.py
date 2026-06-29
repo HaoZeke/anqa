@@ -196,6 +196,16 @@ def test_eval_config_toml_branches(tmp_path: Path):
     t6 = _eval_config_toml(bad, primary_model="m")
     assert "default" in t6
 
+    # Effort is CLI-only; host default_reasoning_effort must not appear in eval config.
+    host_eff = tmp_path / "eff.toml"
+    host_eff.write_text(
+        '[models]\ndefault = "old"\ndefault_reasoning_effort = "high"\n',
+        encoding="utf-8",
+    )
+    t_eff = _eval_config_toml(host_eff, primary_model="v9-zingster")
+    assert "default_reasoning_effort" not in t_eff
+    assert 'default = "v9-zingster"' in t_eff
+
 
 def test_build_setup_script():
     assert "#!/bin/bash" in _build_setup_script("")
