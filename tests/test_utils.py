@@ -1,0 +1,66 @@
+"""Tests for shared utilities."""
+
+from __future__ import annotations
+
+from groket.utils import collapse_blank_lines, fmt_duration
+
+
+class TestFmtDuration:
+    def test_subsecond(self):
+        assert fmt_duration(0.5) == "<1s"
+        assert fmt_duration(0) == "<1s"
+
+    def test_seconds(self):
+        assert fmt_duration(1) == "1s"
+        assert fmt_duration(59) == "59s"
+
+    def test_minutes(self):
+        assert fmt_duration(60) == "1m00s"
+        assert fmt_duration(90) == "1m30s"
+        assert fmt_duration(155) == "2m35s"
+
+    def test_hours(self):
+        assert fmt_duration(3600) == "1h00m"
+        assert fmt_duration(3661) == "1h01m"
+        assert fmt_duration(7200) == "2h00m"
+
+
+class TestCollapseBlankLines:
+    def test_no_blanks(self):
+        assert collapse_blank_lines("a\nb\nc") == "a\nb\nc"
+
+    def test_double_blank_preserved(self):
+        assert collapse_blank_lines("a\n\nb") == "a\n\nb"
+
+    def test_triple_collapsed(self):
+        assert collapse_blank_lines("a\n\n\nb") == "a\n\nb"
+
+    def test_many_blanks(self):
+        result = collapse_blank_lines("a\n\n\n\n\nb")
+        assert "\n\n\n" not in result
+        assert result == "a\n\nb"
+
+
+from groket.utils import strip_control_chars
+
+
+class TestStripControlChars:
+    def test_empty_string(self):
+        assert strip_control_chars("") == ""
+
+    def test_plain_text_unchanged(self):
+        assert strip_control_chars("hello world") == "hello world"
+
+    def test_ansi_csi_removed(self):
+        assert strip_control_chars("\x1b[31mred\x1b[0m") == "red"
+
+    def test_ansi_osc_removed(self):
+        assert strip_control_chars("\x1b]8;;http://example.com\x07link\x1b]8;;\x07") == "link"
+
+    def test_c0_controls_removed_except_tab_newline(self):
+        result = strip_control_chars("a\x00b\x01c\td\ne")
+        assert result == "abc\td\ne"
+
+    def test_mixed_escapes(self):
+        result = strip_control_chars("\x1b[1;32mOK\x1b[0m\x00\x01done")
+        assert result == "OKdone"
