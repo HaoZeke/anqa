@@ -19,6 +19,7 @@ from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen, Screen
+from textual.theme import Theme
 from textual.timer import Timer
 from textual.widgets import (
     Button,
@@ -35,10 +36,10 @@ from textual.widgets import (
 
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
-from ..constants import CONFIG_FILENAME, META_CACHE_FILENAME, META_LOAD_WORKERS
-from ..models import SessionMeta
+from ..constants import META_CACHE_FILENAME, META_LOAD_WORKERS
+from ..models import JsonObject, SessionMeta
 from ..parser import extract_prompt, find_sessions, load_session_meta
-from ..paths import APP_HOME
+from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
 from . import text as U
 from .bindings import (
@@ -333,8 +334,6 @@ class TraceEvalApp(App):
         for title, help_text, callback in yield_app_commands(self, screen):
             yield SystemCommand(title, help_text, callback)
 
-    _CONFIG_PATH = APP_HOME / CONFIG_FILENAME
-
     class _BgStatus(Message):
         """Worker → UI: container status with a session_dir (thread-safe via post_message)."""
 
@@ -395,8 +394,9 @@ class TraceEvalApp(App):
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
         self._delete_row_keys_snapshot: list[str] | None = None
-        self._config = self._load_config()
-        early = (self._config.get("theme") or "").strip()
+        self._config: JsonObject = self._load_config()
+        self._theme_persist = False
+        early = str(self._config.get("theme") or "").strip()
         if early:
             try:
                 self.theme = early
@@ -440,18 +440,41 @@ class TraceEvalApp(App):
         # Fluent strips trailing spaces in labels — join with explicit separators.
         banner.update(f"[dim]Traces[/dim]  {traces}")
 
-    def _load_config(self) -> dict:
+    def _load_config(self) -> JsonObject:
+        """Load ``~/.groket/config.json`` (empty mapping when missing or invalid)."""
+        fp = app_config_path()
         try:
-            return json.loads(self._CONFIG_PATH.read_text())
-        except (FileNotFoundError, json.JSONDecodeError):
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
             return {}
+        return data if isinstance(data, dict) else {}
 
     def _save_config(self) -> None:
-        self._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(self._config, indent=2)
+        """Merge in-memory keys into ``~/.groket/config.json`` and write.
+
+        Re-reads the file so concurrent writers (prefs, analysis settings)
+        are not clobbered by a partial in-memory snapshot.
+        """
+        fp = app_config_path()
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        on_disk: JsonObject = {}
+        if fp.is_file():
+            try:
+                loaded = json.loads(fp.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    on_disk = loaded
+            except (OSError, json.JSONDecodeError):
+                logger.debug(t("ui-failed-to-read-prefs-from-s"), fp, exc_info=True)
+                on_disk = {}
+        on_disk.update(self._config)
+        self._config = on_disk
+        text = json.dumps(on_disk, indent=2)
         if not text.endswith("\n"):
             text += "\n"
-        self._CONFIG_PATH.write_text(text)
+        try:
+            fp.write_text(text, encoding="utf-8")
+        except OSError:
+            logger.warning(t("ui-failed-to-write-prefs-to-s"), fp, exc_info=True)
 
     def _theme_names(self) -> list[str]:
         reg = getattr(self, "available_themes", None) or {}
@@ -464,9 +487,9 @@ class TraceEvalApp(App):
         """Restore theme from config.json (or keep current). Re-applied after refresh.
 
         Textual can reset ``self.theme`` during App/mount; setting only once in
-        ``on_mount`` is unreliable. ``trace_viewer`` uses the same pattern.
+        ``on_mount`` is unreliable.
         """
-        name = (self._config.get("theme") or "").strip() or self.theme
+        name = str(self._config.get("theme") or "").strip() or self.theme
         names = set(self._theme_names())
         if name not in names:
             if not names:
@@ -480,6 +503,27 @@ class TraceEvalApp(App):
         if save:
             self._save_config()
         return name
+
+    def _enable_theme_persist(self) -> None:
+        """Re-apply saved theme, then persist any later theme changes to disk.
+
+        Covers ``t`` (cycle), Ctrl+P → Change theme, and any other path that
+        sets ``App.theme``.
+        """
+        self.apply_saved_theme(save=False)
+        if not self._theme_persist:
+            self._theme_persist = True
+            self.theme_changed_signal.subscribe(self, self._on_theme_changed)
+
+    def _on_theme_changed(self, theme: Theme) -> None:
+        """Persist the active theme name when Textual applies a new theme."""
+        if not self._theme_persist:
+            return
+        name = (theme.name or self.theme or "").strip()
+        if not name or self._config.get("theme") == name:
+            return
+        self._config["theme"] = name
+        self._save_config()
 
     def on_mount(self) -> None:
         try:
@@ -508,7 +552,7 @@ class TraceEvalApp(App):
         except Exception:
             logger.warning(t("ui-analysis-service-initialization-failed"), exc_info=True)
         self.apply_saved_theme(save=False)
-        self.call_after_refresh(lambda: self.apply_saved_theme(save=False))
+        self.call_after_refresh(self._enable_theme_persist)
         table = self.query_one("#session-table", DataTable)
         style_data_table(table)
         table.add_columns(
@@ -2035,7 +2079,7 @@ class TraceEvalApp(App):
         if not themes:
             self.notify(U.no_themes_available(), severity="warning")
             return
-        current = (self._config.get("theme") or self.theme or "").strip()
+        current = str(self._config.get("theme") or self.theme or "").strip()
         try:
             idx = themes.index(current)
         except ValueError:
