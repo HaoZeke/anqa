@@ -115,15 +115,23 @@ def bullet(label: str, *, detail: str = "") -> Text:
 
 
 def status_chip(label: str, *, kind: str = "unknown") -> Text:
-    """Inline status (bold + semantic colour). No decorative symbols."""
-    t = Text()
-    style = "bold"
-    if kind == "ok":
-        style = "bold green"
-    elif kind == "bad":
-        style = "bold red"
-    t.append(label, style=style)
-    return t
+    """Inline status using the shared run/outcome palette."""
+    from .styles import status_rich_style
+
+    kind_l = (kind or "unknown").lower()
+    if kind_l in ("ok", "success", "completed"):
+        style = status_rich_style("completed")
+    elif kind_l in ("bad", "error", "failed"):
+        style = status_rich_style("failed")
+    elif kind_l in ("running", "active"):
+        style = status_rich_style("running")
+    elif kind_l in ("pending", "idle", "unknown"):
+        style = status_rich_style("idle")
+    else:
+        style = status_rich_style(kind_l)
+    chip = Text()
+    chip.append(label, style=style)
+    return chip
 
 
 def _footer_key_rich_style() -> str:

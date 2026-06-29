@@ -10,6 +10,7 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from ..i18n import t
+from ..styles import status_rich_style
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +32,19 @@ def build_activity_line(
     analyze_active: int,
     sessions_loaded: int,
 ) -> Text:
-    """Build a right-aligned strip: Runs N · Analysis N · Sessions N."""
+    """Build a right-aligned strip: Runs N · Analysis N · Sessions N.
+
+    Colours match :data:`~groket.ui.styles.STATUS_RICH_STYLE`: active runs use
+    ``running`` (yellow), analysis uses ``building`` (cyan), idle is dim.
+    """
     line = Text()
-    line.append(t("activity-runs", n=runs_active), style="bold green" if runs_active else "dim")
-    line.append("  ·  ", style="dim")
-    line.append(
-        t("activity-analysis", n=analyze_active),
-        style="bold yellow" if analyze_active else "dim",
-    )
-    line.append("  ·  ", style="dim")
-    line.append(t("activity-sessions", n=sessions_loaded), style="dim")
+    runs_style = status_rich_style("running" if runs_active else "idle")
+    analyze_style = status_rich_style("building" if analyze_active else "idle")
+    line.append(t("activity-runs", n=runs_active), style=runs_style)
+    line.append("  ·  ", style=status_rich_style("idle"))
+    line.append(t("activity-analysis", n=analyze_active), style=analyze_style)
+    line.append("  ·  ", style=status_rich_style("idle"))
+    line.append(t("activity-sessions", n=sessions_loaded), style=status_rich_style("idle"))
     return line
 
 

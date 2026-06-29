@@ -469,15 +469,10 @@ class JobsModal(ModalScreen[None]):
         name = status.container_name
         started = self._fmt_ts(status.started_at)
         finished = self._fmt_ts(status.finished_at)
+        from ..styles import status_rich_style
+
         st = status.status
-        if st == "running":
-            st_disp = Text(st, style="yellow")
-        elif st == "completed":
-            st_disp = Text(st, style="green")
-        elif st == "failed":
-            st_disp = Text(st, style="red")
-        else:
-            st_disp = Text(st, style="dim")
+        st_disp = Text(st, style=status_rich_style(st))
         rid = run_id
         if not rid:
             for bg in self.run_manager.list_all_known():

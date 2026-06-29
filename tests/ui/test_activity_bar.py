@@ -17,6 +17,8 @@ def test_build_activity_line_idle():
 
 
 def test_build_activity_line_busy():
+    from groket.ui.styles import status_rich_style
+
     text = build_activity_line(runs_active=2, analyze_active=3, sessions_loaded=10)
     plain = text.plain
     assert "Runs 2" in plain or "2" in plain
@@ -24,6 +26,12 @@ def test_build_activity_line_busy():
     assert "Sessions 10" in plain or "10" in plain
     assert "FAIL" not in plain
     assert "batches" not in plain.lower()
+    # Active runs use the same style as container ``running`` (yellow, not green).
+    assert status_rich_style("running") == "bold yellow"
+    spans = {span.style for span, _start, _end in text.spans if span.style}
+    assert status_rich_style("running") in spans or any(
+        "yellow" in str(s) for s in spans
+    )
 
 
 def test_activity_counters_from_app():

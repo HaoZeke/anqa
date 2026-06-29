@@ -146,14 +146,30 @@ def tool_family(name: str) -> str:
         return "shell"
     return "other"
 
-STATUS_LABEL: dict[str, str] = {
-    "pending": "[dim]Pending[/]",
-    "building": "[cyan]Building…[/]",
-    "running": "[yellow]Running…[/]",
-    "extracting": "[cyan]Extracting…[/]",
-    "completed": "[green]Completed[/]",
-    "failed": "[red]Failed[/]",
+# Run / container lifecycle — one palette for tables, activity bar, labels.
+STATUS_RICH_STYLE: dict[str, str] = {
+    "pending": "dim",
+    "building": "bold cyan",
+    "running": "bold yellow",
+    "extracting": "bold cyan",
+    "completed": "bold green",
+    "failed": "bold red",
+    "idle": "dim",
 }
+
+STATUS_LABEL: dict[str, str] = {
+    "pending": f"[{STATUS_RICH_STYLE['pending']}]Pending[/]",
+    "building": f"[{STATUS_RICH_STYLE['building']}]Building…[/]",
+    "running": f"[{STATUS_RICH_STYLE['running']}]Running…[/]",
+    "extracting": f"[{STATUS_RICH_STYLE['extracting']}]Extracting…[/]",
+    "completed": f"[{STATUS_RICH_STYLE['completed']}]Completed[/]",
+    "failed": f"[{STATUS_RICH_STYLE['failed']}]Failed[/]",
+}
+
+
+def status_rich_style(status: str) -> str:
+    """Rich style for a container/run status name (``running``, ``failed``, …)."""
+    return STATUS_RICH_STYLE.get((status or "").strip().lower(), STATUS_RICH_STYLE["idle"])
 
 SYNTAX_THEME_LIGHT = "friendly"
 SYNTAX_THEME_DARK = "monokai"
