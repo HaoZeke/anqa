@@ -1,82 +1,93 @@
 # groket
 
-Evaluate [Grok Build](https://docs.x.ai/grok-build) sessions — interactive TUI,
-Docker-backed eval runs from the TUI, and pluggable analysis.
+Interactive [Textual](https://github.com/Textualize/textual) TUI for evaluating
+[Grok Build](https://docs.x.ai/grok-build) sessions — timeline, findings, workspace
+diff, Docker launches, personas, and pluggable detectors.
 
 ## Install
 
 ```bash
-make install          # project venv + install `groket` on PATH (uv tool)
-groket                # launch the TUI (or: uv run groket)
+make install    # project venv + `groket` on PATH (uv tool)
+groket          # open the TUI
 ```
 
-## Usage
+Default work root is `~/.groket/work` (traces, recipes, Docker builds).
+Config and extensions live under `~/.groket/` (personas, detectors, rules, plugins).
 
 ```bash
-groket                            # interactive TUI
-groket PATH                       # open work root / traces / session
-groket self-test                  # Docker / auth / work dir (no TUI)
-groket gen detector|rule|plugin|tasks   # scaffold under ~/.groket/
-groket --help
+groket                    # ~/.groket/work
+groket /path/to/work      # that work root (or a traces / session path)
 ```
 
-## Task YAML schema
+## Using the TUI
 
-Published JSON Schema (GitHub Pages):
+### Sessions home
 
-- https://indynull.github.io/groket/schemas/tasks.schema.json
+Browse past and live runs. Primary keys:
 
-Local copy (same content, for offline editors): ``schemas/tasks.schema.json``.
-Regenerate with ``make schema``; CI fails if it drifts (``make schema-check``).
+| Key | Action |
+|-----|--------|
+| `Enter` | Open session (browser) |
+| `/` | Search sessions |
+| `s` / `Space` | Select row (multi-select) |
+| `r` | New run (runner) |
+| `C` | Run configs (recipes) |
+| `P` | Personas |
+| `a` | Analyze selection |
+| `n` / `e` | Follow-up / end session (when awaiting) |
+| `j` | Jobs / logs |
+| `F5` / `Ctrl+R` | Refresh list |
+| `?` | Help |
+| `Ctrl+P` | Command palette (everything for this screen) |
+| `q` | Quit |
 
-Enable **Settings → Pages → Source: GitHub Actions** so the Pages workflow can
-deploy (no custom domain required).
+Footer shows the main shortcuts for the current screen; `?` and `Ctrl+P` cover the rest.
+
+### Session browser
+
+Panes (``[`` / ``]`` or digits **1–5**):
+
+1. **Timeline** — events + detail; `v` view filter, `f` flag event, `/` search  
+2. **Summary** — session overview and usage tables  
+3. **Diff** — workspace changes  
+4. **Findings** — detector hits (`i` also jumps here)  
+5. **Report** — analysis panels and flags  
+
+While a multi-turn session is live: follow-up bar, `n` focus prompt, `e` mark done.
+`x` deletes the session (confirm twice). `Esc` returns to the session list.
+
+### Runner
+
+Launch Docker evals from a recipe (prompt, models, persona, repo, extras).
+**Ctrl+Enter** or **Ctrl+J** launch, **Ctrl+S** save recipe, ``[`` / ``]`` panes.
+`Esc` back (asks to discard if the form changed).
+
+### Personas & configs
+
+**P** / **C** open persona and recipe managers. Edit with tabbed panes
+(``[`` / ``]`` + digits), **Ctrl+S** save, **Esc** cancel.
+
+## Other CLI commands
+
+| Command | Purpose |
+|---------|---------|
+| `groket self-test` | Host checks (Docker, Grok auth, work dir) — **no TUI** |
+| `groket gen …` | Scaffold detectors, rules, analysis plugins, example files under `~/.groket/` |
+
+```bash
+groket self-test
+groket gen detector my_check
+groket gen rule my-rule --detector my_check
+groket gen plugin my_stats --register
+```
 
 ## Development
 
 ```bash
-make lint          # ruff + mypy
-make schema-check  # tasks.schema.json matches Pydantic
-make test          # pytest
-make ci            # lint + schema-check + test
+make install
+make lint
+make test
+make ci      # lint + schema-check + test
 ```
 
-
-## Paths
-
-| Root | Default | Role |
-|------|---------|------|
-| Config home | `~/.groket` | `config.json`, personas, detectors, rules, analysis plugins, cache |
-| Work dir | `~/.groket/work` (CLI path overrides) | Traces, run configs, Docker build contexts, batch results |
-
-```bash
-uv run groket                           # work dir: ~/.groket/work
-uv run groket /path/to/work             # open that work root
-```
-
-## Key concepts
-
-| Concept | What |
-|---------|------|
-| **Session** | One model run — traces under `<work>/runs/traces/<container>/<session-id>/` |
-| **Run config** | Reusable recipe: prompt, models, persona. Auto-saved on launch. |
-| **Persona** | Environment profile — Docker image, MCP servers, skills, env vars (`~/.groket/personas`) |
-| **Detector** | Rule that flags patterns in traces (install under `~/.groket/detectors` + `rules`) |
-| **Finding** | Automated detector hit shown in the Report tab |
-| **Flag** | Manual annotation on a timeline event (verdict + note) |
-
-## Keyboard shortcuts
-
-| Key | Action |
-|-----|--------|
-| `?` | Help |
-| `Ctrl+P` | Command palette |
-| `F5` / `Ctrl+R` | Refresh |
-| `j` | Jobs / logs |
-| `Esc` | Back / dismiss |
-| `q` | Quit |
-| `[` / `]` | Previous / next pane |
-| `Enter` | Open selection |
-| `/` | Search sessions |
-| `f` | Flag event (browser) |
-
+See [AGENTS.md](AGENTS.md) for architecture, keyboard conventions, and contribution rules.
