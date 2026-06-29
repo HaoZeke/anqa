@@ -82,31 +82,30 @@ def _write_status(gate: Path, *, state: str, session_id: str = "", turn: int = 0
 def read_turn_gate_status(session_dir: Path) -> JsonObject:
     """Return turn-gate status for *session_dir*, preferring matching session_id.
 
-    If the host already wrote ``command=done``, report ``state=done`` even when
-    ``status.json`` is still ``awaiting_follow_up`` (entrypoint may not have
-    rewritten status before exit).
+    Host ``command=done`` is *not* forced into ``state`` here: the entrypoint
+    rewrites status when it finishes. Until then the UI treats the session as
+    still live (running / finishing) even though no more follow-ups are accepted.
     """
     sid = Path(session_dir).name
     best: JsonObject = {}
-    saw_done_cmd = False
     for gate in turn_gate_dirs_for_session(session_dir):
-        if _gate_command(gate) == "done":
-            saw_done_cmd = True
         data = _read_status_file(gate)
         if not data.get("state"):
             continue
         gate_sid = json_as_str(data.get("session_id"))
         if gate_sid == sid:
-            if saw_done_cmd or _gate_command(gate) == "done":
-                data = {**data, "state": "done"}
             return data
         if not best:
             best = data
-    if saw_done_cmd:
-        if best:
-            return {**best, "state": "done"}
-        return {"state": "done", "session_id": sid}
     return best
+
+
+def host_requested_done(session_dir: Path) -> bool:
+    """True when the host wrote ``command=done`` (session finishing, not idle yet)."""
+    for gate in turn_gate_dirs_for_session(session_dir):
+        if _gate_command(gate) == "done":
+            return True
+    return False
 
 
 def session_awaits_follow_up(session_dir: Path) -> bool:
@@ -138,8 +137,8 @@ def _queue_path(gate: Path) -> Path:
     return gate / _PENDING_QUEUE
 
 
-def list_queued_follow_ups(session_dir: Path) -> list[str]:
-    """Prompts queued on the host while the agent is busy or a follow-up is staged."""
+def list_queued_follow_up_items(session_dir: Path) -> list[tuple[str, bool]]:
+    """Queued follow-ups as ``(prompt, final_turn)``."""
     try:
         gate = _primary_gate(session_dir)
     except RuntimeError:
@@ -147,7 +146,7 @@ def list_queued_follow_ups(session_dir: Path) -> list[str]:
     qp = _queue_path(gate)
     if not qp.is_file():
         return []
-    out: list[str] = []
+    out: list[tuple[str, bool]] = []
     try:
         for line in qp.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -158,46 +157,64 @@ def list_queued_follow_ups(session_dir: Path) -> list[str]:
                 if isinstance(obj, dict) and obj.get("prompt") is not None:
                     text = str(obj["prompt"]).strip()
                     if text:
-                        out.append(text)
+                        out.append((text, bool(obj.get("final"))))
                     continue
             except json.JSONDecodeError:
                 pass
-            out.append(line)
+            out.append((line, False))
     except OSError:
         return []
     return out
 
 
-def _write_queue(gate: Path, prompts: list[str]) -> None:
+def list_queued_follow_ups(session_dir: Path) -> list[str]:
+    """Prompt texts queued on the host (display / length)."""
+    return [p for p, _final in list_queued_follow_up_items(session_dir)]
+
+
+def _write_queue(gate: Path, items: list[tuple[str, bool]]) -> None:
     qp = _queue_path(gate)
-    if not prompts:
+    if not items:
         try:
             qp.unlink(missing_ok=True)
         except OSError:
             pass
         return
     gate.mkdir(parents=True, exist_ok=True)
-    body = "".join(json.dumps({"prompt": p}, ensure_ascii=False) + "\n" for p in prompts)
+    body = "".join(
+        json.dumps({"prompt": p, "final": bool(fin)}, ensure_ascii=False) + "\n"
+        for p, fin in items
+    )
     qp.write_text(body, encoding="utf-8")
 
 
-def enqueue_follow_up(session_dir: Path, prompt: str) -> int:
+def enqueue_follow_up(session_dir: Path, prompt: str, *, final: bool = False) -> int:
     """Append a follow-up to the host queue; returns new queue length."""
     text = (prompt or "").strip()
     if not text:
         raise ValueError("follow-up prompt is empty")
     gate = _primary_gate(session_dir)
     gate.mkdir(parents=True, exist_ok=True)
-    q = list_queued_follow_ups(session_dir)
-    q.append(text)
+    q = list_queued_follow_up_items(session_dir)
+    q.append((text, bool(final)))
     _write_queue(gate, q)
     return len(q)
 
 
-def _stage_follow_up_on_gate(gate: Path, text: str, *, session_id: str) -> None:
+def _stage_follow_up_on_gate(
+    gate: Path, text: str, *, session_id: str, final: bool = False
+) -> None:
     gate.mkdir(parents=True, exist_ok=True)
     (gate / "next-prompt.txt").write_text(text, encoding="utf-8")
     (gate / "command").write_text("follow_up\n", encoding="utf-8")
+    final_path = gate / "final_turn"
+    if final:
+        final_path.write_text("1\n", encoding="utf-8")
+    else:
+        try:
+            final_path.unlink(missing_ok=True)
+        except OSError:
+            pass
     prev = _read_status_file(gate)
     turn = json_as_int(prev.get("turn"), 0)
     _write_status(
@@ -218,12 +235,13 @@ def _follow_up_already_staged(gate: Path) -> bool:
         return False
 
 
-def write_follow_up_for_session(session_dir: Path, prompt: str) -> str:
+def write_follow_up_for_session(
+    session_dir: Path, prompt: str, *, final: bool = False
+) -> str:
     """Stage a follow-up for the entrypoint, or queue it if the gate is busy.
 
-    Returns ``\"sent\"`` when ``command``/``next-prompt`` were written for the
-    container, or ``\"queued\"`` when the prompt was appended to the host queue
-    (agent still running or a follow-up already staged).
+    When *final* is true, the entrypoint runs this turn then exits without
+    awaiting another follow-up (``final_turn`` on the gate).
     """
     text = (prompt or "").strip()
     if not text:
@@ -232,7 +250,6 @@ def write_follow_up_for_session(session_dir: Path, prompt: str) -> str:
     gate = dirs[0]
     sid = Path(session_dir).name
 
-    # Already marked done — do not accept more prompts.
     if _gate_command(gate) == "done":
         raise RuntimeError("session already marked done")
 
@@ -240,11 +257,10 @@ def write_follow_up_for_session(session_dir: Path, prompt: str) -> str:
     staged = _follow_up_already_staged(gate)
     if awaits and not staged:
         for g in dirs:
-            _stage_follow_up_on_gate(g, text, session_id=sid)
+            _stage_follow_up_on_gate(g, text, session_id=sid, final=final)
         return "sent"
 
-    # Mid-turn or follow-up already waiting for entrypoint — queue on host.
-    enqueue_follow_up(session_dir, text)
+    enqueue_follow_up(session_dir, text, final=final)
     return "queued"
 
 
@@ -258,48 +274,41 @@ def drain_queued_follow_up(session_dir: Path) -> str | None:
         return None
     if _follow_up_already_staged(gate):
         return None
-    q = list_queued_follow_ups(session_dir)
-    if not q:
+    items = list_queued_follow_up_items(session_dir)
+    if not items:
         return None
-    text, rest = q[0], q[1:]
+    (text, final), rest = items[0], items[1:]
     _write_queue(gate, rest)
     sid = Path(session_dir).name
     for g in _ensure_gate_dirs(session_dir):
-        _stage_follow_up_on_gate(g, text, session_id=sid)
+        _stage_follow_up_on_gate(g, text, session_id=sid, final=final)
     return text
 
 
 def write_done_for_session(session_dir: Path) -> None:
+    """Ask the entrypoint to stop (``command=done`` only — status stays live)."""
     dirs = _ensure_gate_dirs(session_dir)
-    sid = Path(session_dir).name
     for gate in dirs:
         gate.mkdir(parents=True, exist_ok=True)
         (gate / "command").write_text("done\n", encoding="utf-8")
-        # Drop host queue — session is finishing.
+        try:
+            (gate / "final_turn").unlink(missing_ok=True)
+        except OSError:
+            pass
         try:
             _write_queue(gate, [])
         except OSError:
             logger.debug("clear pending queue on done failed", exc_info=True)
-        prev = _read_status_file(gate)
-        turn = json_as_int(prev.get("turn"), 0)
-        _write_status(
-            gate,
-            state="done",
-            session_id=json_as_str(prev.get("session_id")) or sid,
-            turn=turn,
-        )
 
 
 def session_pending_label(session_dir: Path, *, turn_in_progress: bool = False) -> str:
     """Short status for UI: interactive wait, agent running, or empty if settled."""
-    # Host marked complete — never show awaiting after Done.
-    for gate in turn_gate_dirs_for_session(session_dir):
-        if _gate_command(gate) == "done":
-            return ""
     st = read_turn_gate_status(session_dir)
     state = json_as_str(st.get("state"))
     if state == "done":
         return ""
+    if host_requested_done(session_dir):
+        return "finishing (done requested)"
     turn = json_as_int(st.get("turn"), 0)
     queued = 0
     try:

@@ -786,21 +786,27 @@ def load_session_meta(session_dir: Path) -> SessionMeta:
             meta.turn_outcome = inferred
 
     # Interactive gate overrides while the eval is open. Awaiting only when the
-    # gate is awaiting_follow_up; an open turn after a completed one is running.
+    # gate is awaiting_follow_up. Host ``command=done`` keeps the session
+    # *running* until the entrypoint sets status done (mid-turn / finishing).
     try:
-        from .session.turn_gate import read_turn_gate_status, session_awaits_follow_up
+        from .session.turn_gate import (
+            host_requested_done,
+            read_turn_gate_status,
+            session_awaits_follow_up,
+        )
 
-        if session_awaits_follow_up(session_dir):
+        gst = read_turn_gate_status(session_dir)
+        gstate = str(gst.get("state") or "")
+        if host_requested_done(session_dir) and gstate != "done":
+            meta.turn_outcome = "running"
+        elif session_awaits_follow_up(session_dir):
             meta.turn_outcome = "awaiting_follow_up"
-        else:
-            gst = read_turn_gate_status(session_dir)
-            gstate = str(gst.get("state") or "")
-            if gstate == "running":
-                meta.turn_outcome = "running"
-            elif gstate == "done":
-                pass
-            elif _events_open_turn_after_completed(session_dir):
-                meta.turn_outcome = "running"
+        elif gstate == "running":
+            meta.turn_outcome = "running"
+        elif gstate == "done":
+            pass
+        elif _events_open_turn_after_completed(session_dir):
+            meta.turn_outcome = "running"
     except Exception:
         logger.debug("turn gate status for %s", session_dir, exc_info=True)
         if _events_open_turn_after_completed(session_dir):

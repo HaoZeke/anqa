@@ -21,6 +21,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.timer import Timer
 from textual.widgets import (
     Button,
+    Checkbox,
     DataTable,
     Footer,
     Header,
@@ -112,6 +113,11 @@ class BrowserScreen(ChromeActions):
             yield Static("", id="session-pending-status")
             yield Static("", id="session-pending-queue")
             yield Input(placeholder=U.follow_up_placeholder_send(), id="session-follow-input")
+            yield Checkbox(
+                t("follow-up-last-turn"),
+                id="session-follow-last-turn",
+                value=False,
+            )
             with Horizontal(id="session-pending-actions"):
                 yield Button(
                     U.follow_up_btn_send(), id="session-follow-send-btn", variant="primary"
@@ -373,13 +379,20 @@ class BrowserScreen(ChromeActions):
         if not text:
             self.notify(U.follow_up_empty(), severity="warning")
             return
+        final = False
+        with suppress(Exception):
+            final = bool(self.query_one("#session-follow-last-turn", Checkbox).value)
         try:
-            how = write_follow_up_for_session(self.session_dir, text)
+            how = write_follow_up_for_session(self.session_dir, text, final=final)
             self.query_one("#session-follow-input", Input).value = ""
+            with suppress(Exception):
+                self.query_one("#session-follow-last-turn", Checkbox).value = False
             if how == "queued":
-                self.notify(U.follow_up_queued())
+                self.notify(
+                    t("follow-up-queued-final") if final else U.follow_up_queued()
+                )
             else:
-                self.notify(U.follow_up_sent())
+                self.notify(t("follow-up-sent-final") if final else U.follow_up_sent())
             rm = getattr(self.app, "run_manager", None)
             if rm is not None and hasattr(rm, "submit_follow_up") and (how == "sent"):
                 try:
@@ -404,7 +417,8 @@ class BrowserScreen(ChromeActions):
                     rm.complete_interactive(rid)
                 except Exception:
                     pass
-            self.notify(U.mark_session_done_ok())
+            # Do not imply the agent finished — only that stop was requested.
+            self.notify(t("mark-done-requested"))
         except Exception as exc:
             self.notify(U.mark_session_done_failed(exc), severity="error")
         self._refresh_session_pending_bar()

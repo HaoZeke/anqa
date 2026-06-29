@@ -421,6 +421,14 @@ while true; do
         continue
     fi
 
+    # Host sent a "last turn" follow-up — do not await further prompts.
+    if [ -f "$TURN_DIR/final_turn" ]; then
+        echo ">>> Final-turn flag set — not awaiting further follow-ups"
+        rm -f "$TURN_DIR/final_turn" "$TURN_CMD" "$TURN_NEXT"
+        _gte_write_turn_status "done" "$SESSION_ID" "$TURN_INDEX"
+        break
+    fi
+
     # Interactive: wait for host follow-up or done
     if [ "$INTERACTIVE" = "1" ] || [ "$INTERACTIVE" = "true" ]; then
         rm -f "$TURN_CMD" "$TURN_NEXT"
@@ -437,8 +445,12 @@ while true; do
                     break 2
                 fi
                 if [ "$cmd" = "follow_up" ] && [ -s "$TURN_NEXT" ]; then
+                    # Preserve final_turn across rm of command/next (host may set it).
+                    FINAL_TURN=0
+                    [ -f "$TURN_DIR/final_turn" ] && FINAL_TURN=1
                     cp "$TURN_NEXT" "$PROMPT_FILE"
                     rm -f "$TURN_CMD" "$TURN_NEXT"
+                    [ "$FINAL_TURN" = "1" ] && printf '1\n' > "$TURN_DIR/final_turn"
                     _gte_write_turn_status "running" "$SESSION_ID" "$TURN_INDEX"
                     continue 2
                 fi

@@ -231,13 +231,21 @@ follow-up-btn-send = Send follow-up (Enter)
 
 follow-up-btn-done = Mark session done (Ctrl+D)
 
+follow-up-last-turn = Last turn (do not await after this)
+
 follow-up-queued = Follow-up queued (agent busy — will send when gate awaits)
 
+follow-up-queued-final = Last-turn follow-up queued (no further awaits after it runs)
+
 follow-up-sent = Follow-up sent to eval container
+
+follow-up-sent-final = Last-turn follow-up sent (session ends after this turn)
 
 follow-up-failed = Follow-up failed: { $exc }
 
 mark-session-done-ok = Session marked done — stopping eval container
+
+mark-done-requested = Done requested — session stays live until the current turn finishes
 
 mark-session-done-failed = Mark done failed: { $exc }
 

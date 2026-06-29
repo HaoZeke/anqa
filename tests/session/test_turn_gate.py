@@ -64,11 +64,14 @@ def test_write_follow_up_and_done_clears_pending(tmp_path: Path) -> None:
 
     write_done_for_session(sess)
     assert "done" in (gate / "command").read_text(encoding="utf-8")
-    assert json.loads((gate / "status.json").read_text())["state"] == "done"
-    # Stale awaiting must not win over command=done / status=done
+    # Host only writes command=done; status stays until entrypoint finishes.
+    assert json.loads((gate / "status.json").read_text())["state"] == "running"
     assert session_awaits_follow_up(sess) is False
-    assert session_pending_label(sess) == ""
-    assert read_turn_gate_status(sess).get("state") == "done"
+    assert "finishing" in session_pending_label(sess)
+    from groket.session.turn_gate import host_requested_done
+
+    assert host_requested_done(sess) is True
+    assert read_turn_gate_status(sess).get("state") == "running"
 
 
 def test_queue_follow_ups_while_running_and_drain(tmp_path: Path) -> None:
