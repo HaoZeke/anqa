@@ -22,12 +22,15 @@ groket --help
 
 ## Task YAML schema
 
-Published JSON Schema (GitHub Pages + ``groket.dev``):
+Published JSON Schema (GitHub Pages):
 
-- https://groket.dev/schemas/tasks.schema.json
+- https://indynull.github.io/groket/schemas/tasks.schema.json
 
 Local copy (same content, for offline editors): ``schemas/tasks.schema.json``.
 Regenerate with ``make schema``; CI fails if it drifts (``make schema-check``).
+
+Enable **Settings → Pages → Source: GitHub Actions** so the Pages workflow can
+deploy (no custom domain required).
 
 ## Development
 

@@ -38,8 +38,8 @@ lint-complexity:
 	uv run ruff check --select PLR groket
 
 # JSON Schema for batch/task YAML (source of truth: groket.runs.task_schema).
-# Committed under schemas/ for editors; published at https://groket.dev/schemas/
-# via .github/workflows/pages.yml (GitHub Pages + CNAME).
+# Committed under schemas/ for editors; published on GitHub Pages at
+# https://indynull.github.io/groket/schemas/ (see .github/workflows/pages.yml).
 schema:
 	uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; emit_tasks_schema(Path('schemas/tasks.schema.json'))"
 

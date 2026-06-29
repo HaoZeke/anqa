@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 SCHEMA_VERSION = 1
 SCHEMA_TITLE = "groket-tasks"
-SCHEMA_ID = "https://groket.dev/schemas/tasks.schema.json"
+SCHEMA_ID = "https://indynull.github.io/groket/schemas/tasks.schema.json"
 
 
 class TaskTurn(BaseModel):

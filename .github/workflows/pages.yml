@@ -1,5 +1,6 @@
-# Publish JSON Schema(s) to GitHub Pages (custom domain: groket.dev).
+# Publish JSON Schema(s) to GitHub Pages (project site).
 # Repo Settings → Pages → Source: GitHub Actions.
+# URL: https://indynull.github.io/groket/schemas/tasks.schema.json
 
 name: Pages
 
@@ -39,8 +40,6 @@ jobs:
         run: |
           mkdir -p _site/schemas
           cp schemas/tasks.schema.json _site/schemas/tasks.schema.json
-          # Stable host for $id in task_schema.py / committed schema
-          printf '%s\n' 'groket.dev' > _site/CNAME
           cat > _site/index.html << 'HTML'
           <!DOCTYPE html>
           <html lang="en">
@@ -57,9 +56,10 @@ jobs:
             <p>JSON Schema artifacts for editor validation and tooling.</p>
             <ul>
               <li>
-                <a href="/schemas/tasks.schema.json"><code>tasks.schema.json</code></a>
+                <a href="schemas/tasks.schema.json"><code>tasks.schema.json</code></a>
                 — batch / task list YAML
-                (<code>$id</code>: <code>https://groket.dev/schemas/tasks.schema.json</code>)
+                (<code>$id</code>:
+                <code>https://indynull.github.io/groket/schemas/tasks.schema.json</code>)
               </li>
             </ul>
             <p>Regenerate locally with <code>make schema</code>; CI fails on drift via <code>make schema-check</code>.</p>

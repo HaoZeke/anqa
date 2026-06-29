@@ -307,5 +307,5 @@
   "title": "groket-tasks",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://groket.dev/schemas/tasks.schema.json"
+  "$id": "https://indynull.github.io/groket/schemas/tasks.schema.json"
 }

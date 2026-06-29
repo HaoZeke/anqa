@@ -1,4 +1,5 @@
-# Editor $schema (published): https://groket.dev/schemas/tasks.schema.json
+# Editor $schema (published):
+#   https://indynull.github.io/groket/schemas/tasks.schema.json
 # Local copy: schemas/tasks.schema.json (regenerate: make schema)
 # Load tasks in code via groket.runs.task_schema / batch helpers.
 
