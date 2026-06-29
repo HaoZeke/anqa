@@ -617,8 +617,9 @@ class RunConfigsScreen(ChromeActions):
                     )
                 screen.notify(msg, severity="warning" if all_err else "information", timeout=14)
 
-            with suppress(Exception):
-                screen.app.call_from_thread(_ui)
+            from ..threads import call_ui
+
+            call_ui(screen.app, _ui)
 
         try:
             batch_id = self.run_manager.start_batch(

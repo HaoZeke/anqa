@@ -474,10 +474,11 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
     @work(thread=True, exclusive=True, group="mcp-registry")
     def _refresh_registry(self) -> None:
         from ...capabilities import search_registry
+        from ..threads import call_ui
 
-        self.app.call_from_thread(lambda: setattr(self, "_mode", "registry"))
+        call_ui(self.app, lambda: setattr(self, "_mode", "registry"))
         try:
-            q = self.app.call_from_thread(self._search_query)
+            q = call_ui(self.app, self._search_query)
         except Exception:
             q = ""
         if not q:
@@ -490,9 +491,9 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                 self._registry_hits = []
                 self._set_status(t("ui-registry-type-a-query-enter"))
 
-            self.app.call_from_thread(_empty)
+            call_ui(self.app, _empty)
             return
-        self.app.call_from_thread(self._set_status, f"{t('ui-registry-searching')} {q!r}…")
+        call_ui(self.app, self._set_status, f"{t('ui-registry-searching')} {q!r}…")
         hits, err = search_registry(q, limit=40)
 
         def _apply_results() -> None:
@@ -522,7 +523,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
             self._set_status(f"{t('ui-registry-1')} {len(hits or [])} {t('ui-for')} {q!r} {extra}")
             self.call_after_refresh(self._update_detail_from_cursor)
 
-        self.app.call_from_thread(_apply_results)
+        call_ui(self.app, _apply_results)
 
     def _update_sel_label(self) -> None:
         ids = sorted(self._selected)

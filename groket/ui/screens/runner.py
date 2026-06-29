@@ -859,15 +859,9 @@ class RunnerScreen(ChromeActions):
         )
         sev = "information" if available else "error"
 
-        def _toast() -> None:
-            self.notify(msg, severity=sev)
+        from ..threads import call_ui
 
-        try:
-            self.app.call_from_thread(_toast)
-        except RuntimeError:
-            # Already on the app thread (e.g. worker cancelled onto main during quit).
-            with suppress(Exception):
-                _toast()
+        call_ui(self.app, lambda: self.notify(msg, severity=sev))
 
     @on(Button.Pressed, "#launch-btn")
     def _launch_evaluation(self) -> None:

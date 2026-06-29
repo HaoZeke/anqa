@@ -49,7 +49,9 @@ class SelfTestModal(ModalScreen[bool]):
         if wd is None:
             wd = getattr(self.app, "work_dir", None)
         report = run_self_test(work_dir=wd)
-        self.app.call_from_thread(self._apply_report, report)
+        from ..threads import call_ui
+
+        call_ui(self.app, self._apply_report, report)
 
     def _apply_report(self, report) -> None:
         body = Text()

@@ -55,6 +55,7 @@ from .screens.browser import BrowserScreen
 from .screens.rules import RulesScreen
 from .screens.run_configs import RunConfigsScreen
 from .screens.runner import RunnerPrefill, RunnerScreen
+from .threads import call_ui
 from .widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 
 logger = logging.getLogger(__name__)
@@ -589,11 +590,11 @@ class TraceEvalApp(App):
         except Exception:
             pass
 
-    @work(thread=True)
-    def _load_sessions(self, root: Path | None = None) -> None:
-        if root is None:
-            return
-        self.call_from_thread(self.notify, f"{t('ui-scanning')} {root}...", severity="information")
+    def _load_sessions_sync(self, root: Path) -> int:
+        """Load session metas into ``_meta_only`` (any thread; no UI calls).
+
+        :returns: Number of sessions loaded (0 if none found — leaves prior list untouched).
+        """
         session_dirs = find_sessions(root)
         if not session_dirs:
             if root.is_dir():
@@ -601,10 +602,7 @@ class TraceEvalApp(App):
                     if sub.is_dir():
                         session_dirs.extend(find_sessions(sub))
         if not session_dirs:
-            self.call_from_thread(
-                self.notify, f"{t('ui-no-sessions-found-in')} {root}", severity="error"
-            )
-            return
+            return 0
         self._meta_only = []
         self._plugin_results = {}
         seen_dirs: set[str] = set()
@@ -630,11 +628,28 @@ class TraceEvalApp(App):
             if result is not None:
                 self._meta_only.append(result)
         self._save_meta_cache(root, self._meta_only)
-        self.call_from_thread(self._rebuild_session_filters)
-        self.call_from_thread(self._populate_session_table)
-        self.call_from_thread(
+        return len(self._meta_only)
+
+    @work(thread=True)
+    def _load_sessions(self, root: Path | None = None) -> None:
+        if root is None:
+            return
+        call_ui(self, self.notify, f"{t('ui-scanning')} {root}...", severity="information")
+        n = self._load_sessions_sync(root)
+        if n == 0:
+            call_ui(
+                self,
+                self.notify,
+                f"{t('ui-no-sessions-found-in')} {root}",
+                severity="error",
+            )
+            return
+        call_ui(self, self._rebuild_session_filters)
+        call_ui(self, self._populate_session_table)
+        call_ui(
+            self,
             self.notify,
-            f"{t('ui-loaded')} {len(self._meta_only)} {t('ui-sessions-press-a-to-run-detectors')}",
+            f"{t('ui-loaded')} {n} {t('ui-sessions-press-a-to-run-detectors')}",
             severity="information",
         )
 
@@ -652,16 +667,15 @@ class TraceEvalApp(App):
             logger.warning(t("ui-analysis-failed-for-s-s"), sd_key, exc)
             self._plugin_results[sd_key] = {}
 
-    @work(thread=True)
     def action_self_test(self) -> None:
-        """Open dependency self-test (Docker, Grok auth, work dir, …)."""
+        """Open dependency self-test (Docker, Grok auth, work dir, …) on the UI thread."""
         from .widgets.self_test_modal import SelfTestModal
 
         self.push_screen(SelfTestModal(work_dir=self.work_dir))
 
     @work(thread=True)
     def _analyze_targets(self, targets: list[tuple[SessionMeta, str]] | None = None) -> None:
-        """Analyze (meta, label) pairs on a worker thread; UI updates via call_from_thread."""
+        """Analyze (meta, label) pairs on a worker thread; UI updates via call_ui."""
         if (
             not targets
             or isinstance(targets, (str, Path))
@@ -676,14 +690,15 @@ class TraceEvalApp(App):
             if str(meta.session_dir) not in self._plugin_results:
                 pending.append((meta, str(label)))
         if not pending:
-            self.call_from_thread(self.notify, t("ui-already-analyzed"), severity="information")
+            call_ui(self, self.notify, t("ui-already-analyzed"), severity="information")
             return
         n_plugins = 0
         try:
             n_plugins = len([p for p in self._analysis_svc().list_plugins() if p.id != "noop"])
         except Exception:
             pass
-        self.call_from_thread(
+        call_ui(
+            self,
             self.notify,
             f"{t('ui-analyzing')} {len(pending)} {t('ui-sessions-1')} {n_plugins} {t('ui-plugins')}",
             severity="information",
@@ -696,11 +711,12 @@ class TraceEvalApp(App):
                 finally:
                     self._analysis_jobs_active = max(0, self._analysis_jobs_active - 1)
                 if (idx + 1) % 5 == 0 or idx == len(pending) - 1:
-                    self.call_from_thread(self._populate_session_table)
+                    call_ui(self, self._populate_session_table)
         except Exception:
             self._analysis_jobs_active = 0
             raise
-        self.call_from_thread(
+        call_ui(
+            self,
             self.notify,
             f"{t('ui-analysis-complete')} {len(pending)} {t('ui-sessions-2')}",
             severity="information",
@@ -1135,7 +1151,7 @@ class TraceEvalApp(App):
             return
         params = self._extract_session_launch_params(meta)
         prefill = RunnerPrefill(**params)
-        self.call_from_thread(self._push_runner_with_prefill, prefill)
+        call_ui(self, self._push_runner_with_prefill, prefill)
 
     def action_save_session_config(self) -> None:
         """Save the highlighted (or first selected) session as a reusable run config."""
@@ -1185,15 +1201,16 @@ class TraceEvalApp(App):
                 session_dir=str(meta.session_dir),
                 name=meta.task_id or meta.label or meta.session_id[:12],
             )
-            self.call_from_thread(
+            call_ui(
+                self,
                 self.notify,
                 f"{t('ui-saved-run-config')} {cfg.config_id} ({cfg.display_name()} {t('ui-open-with-c-configs-sessions-unchanged')}",
                 severity="information",
                 timeout=10,
             )
         except Exception as exc:
-            self.call_from_thread(
-                self.notify, f"{t('ui-save-config-failed')} {exc}", severity="error"
+            call_ui(
+                self, self.notify, f"{t('ui-save-config-failed')} {exc}", severity="error"
             )
 
     def _toast(
@@ -1215,11 +1232,7 @@ class TraceEvalApp(App):
                     self.clear_notifications()
             self.notify(message, severity=sev, timeout=timeout)
 
-        try:
-            self.call_from_thread(_show)
-        except Exception:
-            with suppress(Exception):
-                _show()
+        call_ui(self, _show)
 
     def _session_action_targets(self) -> list[Path]:
         """Selected session dirs, or the cursor row if nothing is selected."""
@@ -1443,10 +1456,7 @@ class TraceEvalApp(App):
                 timeout=12,
             )
 
-        try:
-            self.call_from_thread(_refresh)
-        except Exception:
-            pass
+        call_ui(self, _refresh)
 
     def action_open_run_configs(self) -> None:
         """Browse reusable run configs (launch again with new models)."""
@@ -1490,8 +1500,8 @@ class TraceEvalApp(App):
             return
         summary: dict = {"sessions_loaded": 0, "analysis_ok": 0, "analysis_err": 0, "error": ""}
         try:
-            self._load_sessions(traces_root)
-            summary["sessions_loaded"] = len(self._meta_only)
+            # Sync load — do not nest @work _load_sessions (would not run inline).
+            summary["sessions_loaded"] = self._load_sessions_sync(traces_root)
             targets = list(self._meta_only)
             for meta, label in targets:
                 self._analyze_one(meta, label)
@@ -1501,10 +1511,7 @@ class TraceEvalApp(App):
                     summary["analysis_ok"] += 1
                 else:
                     summary["analysis_err"] += 1
-            try:
-                self.call_from_thread(self._populate_session_table)
-            except Exception:
-                pass
+            call_ui(self, self._populate_session_table)
         except Exception as exc:
             summary["error"] = str(exc)
 
@@ -1530,10 +1537,7 @@ class TraceEvalApp(App):
                 timeout=16,
             )
 
-        try:
-            self.call_from_thread(_done)
-        except Exception:
-            pass
+        call_ui(self, _done)
 
     def action_analyze(self) -> None:
         """Run configured session analyzer on selected sessions (or all if none selected)."""

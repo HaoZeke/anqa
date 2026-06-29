@@ -55,6 +55,7 @@ from ..panel_render import (
 )
 from ..session_summary import assistant_text_from_timeline, render_session_summary
 from ..styles import SEVERITY_LABEL
+from ..threads import call_ui
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.flag_panel import FlagModal
@@ -487,7 +488,7 @@ class BrowserScreen(ChromeActions):
         self.meta = load_session_meta(self.session_dir)
         self.timeline = parse_timeline(self.session_dir)
         self._rebuild_indices()
-        self.app.call_from_thread(self._populate_ui_light)
+        call_ui(self.app, self._populate_ui_light)
 
     def _populate_ui_light(self) -> None:
         """Update title + timeline + share/stats without rebuilding analysis tabs."""
@@ -515,8 +516,8 @@ class BrowserScreen(ChromeActions):
         except Exception:
             self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
             self._diff_meta = {}
-        self.app.call_from_thread(self._populate_ui)
-        self.app.call_from_thread(self._schedule_live_refresh)
+        call_ui(self.app, self._populate_ui)
+        call_ui(self.app, self._schedule_live_refresh)
         self._run_analysis()
 
     def _run_analysis(self) -> None:
@@ -535,7 +536,7 @@ class BrowserScreen(ChromeActions):
                 pass
         self._collect_findings()
         self._rebuild_indices()
-        self.app.call_from_thread(self._populate_analysis_ui)
+        call_ui(self.app, self._populate_analysis_ui)
 
     def _load_flags(self) -> None:
         """Load user flags from disk into a dict keyed by event_index."""
