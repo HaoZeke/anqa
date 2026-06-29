@@ -353,11 +353,11 @@ class BrowserScreen(ChromeActions):
             turn = st.get("turn", "")
             bits: list[str] = []
             if sid:
-                bits.append(f"session={sid}")
+                bits.append(t("ui-session-prefix", id=sid).strip())
             if turn != "" and turn is not None:
-                bits.append(f"gate_turn={turn}")
+                bits.append(t("ui-turn-number", turn=turn).strip())
             if queued:
-                bits.append(f"{len(queued)} queued")
+                bits.append(t("ui-queued-count", n=len(queued)).strip())
             extra = ("  ·  " + "  ·  ".join(bits)) if bits else ""
             status.update(Text.assemble(chip, Text(extra, style="dim")))
         except Exception:

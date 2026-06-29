@@ -223,7 +223,7 @@ follow-up-placeholder-send = Follow-up prompt — Enter / Ctrl+Enter to send…
 
 follow-up-placeholder-awaiting = Follow-up — Enter sends now…
 
-follow-up-placeholder-queue = Follow-up — Enter queues until gate is ready (Ctrl+D = done)…
+follow-up-placeholder-queue = Follow-up — Enter queues until the agent is ready (Ctrl+D = done)…
 
 follow-up-btn-send = Send follow-up (Enter)
 
@@ -231,7 +231,7 @@ follow-up-btn-done = Mark session done (Ctrl+D)
 
 follow-up-last-turn = Last turn (do not await after this)
 
-follow-up-queued = Follow-up queued (agent busy — will send when gate awaits)
+follow-up-queued = Follow-up queued (agent busy — will send when it awaits the next turn)
 
 follow-up-queued-final = Last-turn follow-up queued (no further awaits after it runs)
 
@@ -1465,7 +1465,7 @@ ui-last-run = Last run [bold]
 
 ui-last-turn = Last turn
 
-ui-last-turn-gate-see-turns-table =   (last turn / gate — see Turns table)
+ui-last-turn-gate-see-turns-table =   (last turn outcome — see Turns table)
 
 ui-last-turn-outcome =   Last turn outcome=
 
@@ -1956,10 +1956,10 @@ ui-session-errors =  session errors
 ui-session-id = Session ID
 
 ui-session-meta-is-last-turn-ended-gate-earlier-tur =
-     (session meta is last turn_ended / gate). Earlier turns may still be success — see Turns above. Stream may stop without a final assistant message.
+     (session meta reflects the last finished turn). Earlier turns may still be success — see Turns above. Stream may stop without a final assistant message.
     
 
-ui-session-meta-last-turn-interactive-gate =   (session meta = last turn / interactive gate)
+ui-session-meta-last-turn-interactive-gate =   (session meta = last finished turn)
 
 ui-session-model-select-update-failed = session model select update failed
 
@@ -2297,8 +2297,8 @@ ui-xml = <?xml
 
 # interpolating fragments / templates
 ui-plugins-count = plugins: { $n }
-ui-gate-turn =   gate_turn={ $turn }
-ui-queued-count =   ·  { $n } queued
+ui-turn-number = Turn { $turn }
+ui-queued-count = { $n } queued
 ui-batches-count =  · batches { $n }
 ui-version-prefix =   v{ $version }
 ui-failed-suffix =  failed)
