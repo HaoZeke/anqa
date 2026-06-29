@@ -250,7 +250,7 @@ class SessionSearchModal(ModalScreen):
     def _session_label(self, idx: int) -> str:
         """Build a rich search candidate string covering many metadata fields."""
         meta, label = self._sessions[idx]
-        model = meta.model_id or ""
+        model = meta.model_display
         title = meta.label[:40]
         parts = [meta.session_id[:12], model, title, label]
         if meta.task_id:
@@ -720,7 +720,7 @@ class TraceEvalApp(App):
     def _session_model_options(self) -> list[tuple[str, str]]:
         models = sorted(
             {
-                meta.model_id
+                meta.model_display
                 for meta, _ in self._meta_only
                 if meta.model_id and meta.model_id != "unknown"
             }
@@ -847,7 +847,7 @@ class TraceEvalApp(App):
         table.clear()
         rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
         for meta, label in self._meta_only:
-            if self._filter_model and meta.model_id != self._filter_model:
+            if self._filter_model and meta.model_display != self._filter_model:
                 continue
             sd_key = str(meta.session_dir)
             results = self._plugin_results.get(sd_key)
@@ -856,7 +856,7 @@ class TraceEvalApp(App):
         def sort_key(item):
             meta, _label, _results = item
             ts = self._session_sort_ts(meta)
-            return (-ts, meta.model_id or "", meta.task_id or "", meta.session_id or "")
+            return (-ts, meta.model_display, meta.task_id or "", meta.session_id or "")
 
         rows.sort(key=sort_key)
         total_findings = 0
@@ -896,7 +896,7 @@ class TraceEvalApp(App):
                 table.add_row(
                     sel,
                     meta.session_id[:20],
-                    meta.model_id[:35],
+                    meta.model_display[:40],
                     task_text,
                     meta.label[:40],
                     turn_text,

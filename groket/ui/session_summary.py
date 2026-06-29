@@ -71,7 +71,7 @@ def render_session_summary(
     title = (meta.title or meta.session_id or "session").strip()
     outcome = (meta.turn_outcome or "").strip() or "unknown"
     dur = fmt_duration(meta.duration_seconds) if meta.duration_seconds else "—"
-    model = (meta.model_id or "").strip() or "—"
+    model = (meta.model_display or "").strip() or "—"
     kind = _outcome_kind(outcome)
     pending = ""
     try:

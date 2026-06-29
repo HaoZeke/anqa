@@ -574,7 +574,7 @@ class BrowserScreen(ChromeActions):
 
     def _set_title_from_meta(self) -> None:
         label = self.meta.label if self.meta else self.session_dir.name
-        model = self.meta.model_id if self.meta else "unknown"
+        model = self.meta.model_display if self.meta else "unknown"
         outcome_bit = ""
         if self.meta and self.meta.turn_outcome:
             if self.meta.turn_failed:
@@ -933,7 +933,7 @@ class BrowserScreen(ChromeActions):
 
     def _render_report_overview(self) -> None:
         sid = self._session_id()
-        model = self.meta.model_id if self.meta else "unknown"
+        model = self.meta.model_display if self.meta else "unknown"
         flags = self._flags
         total = len(self._findings)
         high = sum(1 for f in self._findings if f.severity.value == "high")
@@ -1823,7 +1823,7 @@ class BrowserScreen(ChromeActions):
 
     def _report_finding(self, finding: Finding) -> None:
         """Generate a markdown report for a finding."""
-        model = self.meta.model_id if self.meta else "unknown"
+        model = self.meta.model_display if self.meta else "unknown"
         session_id = self.meta.session_id if self.meta else "unknown"
         lines = [
             f"{t('ui-model-1')} {model}`",
