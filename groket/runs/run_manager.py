@@ -896,8 +896,12 @@ class RunManager:
                 continue
         return {"state": "unknown"}
 
-    def submit_follow_up(self, prompt: str, *, run_id: str = "") -> None:
-        """Queue a follow-up prompt for an interactive container (turn gate)."""
+    def submit_follow_up(self, prompt: str, *, run_id: str = "", final: bool = False) -> None:
+        """Queue a follow-up prompt for an interactive container (turn gate).
+
+        When *final* is true, write ``final_turn`` so the entrypoint treats this
+        as the last interactive turn (no further await).
+        """
         text = (prompt or "").strip()
         if not text:
             raise ValueError("follow-up prompt is empty")
@@ -907,6 +911,14 @@ class RunManager:
                 turn_dir.mkdir(parents=True, exist_ok=True)
                 (turn_dir / "next-prompt.txt").write_text(text, encoding="utf-8")
                 (turn_dir / "command").write_text("follow_up\n", encoding="utf-8")
+                final_path = turn_dir / "final_turn"
+                if final:
+                    final_path.write_text("1\n", encoding="utf-8")
+                else:
+                    try:
+                        final_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                 written = True
             except OSError:
                 logger.debug("turn gate write failed under %s", turn_dir, exc_info=True)

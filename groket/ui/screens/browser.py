@@ -435,7 +435,7 @@ class BrowserScreen(ChromeActions):
             if rm is not None and hasattr(rm, "submit_follow_up") and (how == "sent"):
                 try:
                     rid = (self.meta.run_id if self.meta else "") or ""
-                    rm.submit_follow_up(text, run_id=rid)
+                    rm.submit_follow_up(text, run_id=rid, final=final)
                 except Exception:
                     pass
         except Exception as exc:

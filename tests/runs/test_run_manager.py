@@ -1462,6 +1462,18 @@ def test_submit_follow_up_writes(rm: RunManager, tmp_path: Path) -> None:
     rm.submit_follow_up("do more work")
     assert (gate / "next-prompt.txt").read_text(encoding="utf-8").strip() == "do more work"
     assert (gate / "command").read_text(encoding="utf-8").strip() == "follow_up"
+    assert not (gate / "final_turn").exists()
+
+
+def test_submit_follow_up_final_turn(rm: RunManager, tmp_path: Path) -> None:
+    """final=True writes final_turn marker on the gate."""
+    traces = tmp_path / "traces"
+    gate = traces / ".groket-turn"
+    gate.mkdir(parents=True)
+    rm.submit_follow_up("last one", final=True)
+    assert (gate / "final_turn").read_text(encoding="utf-8").strip() == "1"
+    rm.submit_follow_up("not last", final=False)
+    assert not (gate / "final_turn").exists()
 
 
 def test_submit_follow_up_all_fail_raises(rm: RunManager) -> None:

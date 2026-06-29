@@ -83,11 +83,12 @@ def _coerce_select_value(value, *, default=None):
     return value
 
 
-class InteractiveSessionsModal(ModalScreen[str | None]):
+class InteractiveSessionsModal(ModalScreen[tuple[str, bool] | None]):
     """Prompt for a follow-up on awaiting sessions (sessions home).
 
-    Dismisses with the prompt text, or ``None`` on cancel. Mark-done is a
-    separate binding (``ctrl+d``), not this dialog.
+    Dismisses with ``(prompt, final_turn)`` or ``None`` on cancel. When
+    *final_turn* is true, the gate runs this turn then stops awaiting
+    (same as the browser pending bar). Mark-done (``e``) remains separate.
     """
 
     BINDINGS = list(FORM_SAVE)
@@ -100,6 +101,11 @@ class InteractiveSessionsModal(ModalScreen[str | None]):
         with Container(id="interactive-sessions-modal"):
             yield Label(U.interactive_modal_title(self._n), id="interactive-modal-title")
             yield Input(placeholder=U.follow_up_placeholder(), id="interactive-follow-input")
+            yield Checkbox(
+                t("follow-up-last-turn"),
+                id="interactive-follow-last-turn",
+                value=False,
+            )
             with Horizontal(id="interactive-modal-actions"):
                 yield Button(U.send(), variant="primary", id="interactive-send")
                 yield Button(U.cancel(), id="interactive-cancel")
@@ -137,7 +143,10 @@ class InteractiveSessionsModal(ModalScreen[str | None]):
             with suppress(Exception):
                 self.notify(U.follow_up_empty(), severity="warning", timeout=2)
             return
-        self.dismiss(text)
+        final = False
+        with suppress(Exception):
+            final = bool(self.query_one("#interactive-follow-last-turn", Checkbox).value)
+        self.dismiss((text, final))
 
 
 class AnalysisSettingsModal(ModalScreen[bool]):
@@ -240,7 +249,7 @@ class SessionSearchModal(ModalScreen):
         self._sessions = sessions
         self._results: list[int] = []
 
-    def action_dismiss(self) -> None:
+    async def action_dismiss(self, result: object = None) -> None:  # noqa: ARG002
         from .bindings import dismiss_after_blur
 
         dismiss_after_blur(self, None)
@@ -1332,13 +1341,15 @@ class TraceEvalApp(App):
                 logger.debug(t("ui-awaiting-check-failed-for-s"), path, exc_info=True)
         return out
 
-    def _apply_follow_up_to_paths(self, paths: list[Path], prompt: str) -> int:
+    def _apply_follow_up_to_paths(
+        self, paths: list[Path], prompt: str, *, final: bool = False
+    ) -> int:
         from ..session.turn_gate import write_follow_up_for_session
 
         errors = 0
         for path in paths:
             try:
-                how = write_follow_up_for_session(path, prompt)
+                how = write_follow_up_for_session(path, prompt, final=final)
             except Exception:
                 errors += 1
                 logger.debug(t("ui-follow-up-failed-for-s"), path, exc_info=True)
@@ -1350,7 +1361,7 @@ class TraceEvalApp(App):
                 rid = (meta.run_id if meta else "") or ""
                 rm = self.run_manager
                 if how == "sent" and rid and hasattr(rm, "submit_follow_up"):
-                    rm.submit_follow_up(prompt, run_id=rid)
+                    rm.submit_follow_up(prompt, run_id=rid, final=final)
             except Exception:
                 pass
         return errors
@@ -1441,16 +1452,19 @@ class TraceEvalApp(App):
         if not targets:
             return
 
-        def _apply(prompt: str | None) -> None:
-            if not prompt:
+        def _apply(result: tuple[str, bool] | None) -> None:
+            if not result:
                 return
-            errors = self._apply_follow_up_to_paths(targets, prompt)
+            prompt, final = result
+            errors = self._apply_follow_up_to_paths(targets, prompt, final=final)
             self._refresh_session_meta_rows(targets)
             self.refresh_bindings()
             if errors:
                 self._toast(
                     f"{t('ui-failed-for')} {errors}/{len(targets)}", severity="warning", timeout=3.0
                 )
+            elif final:
+                self._toast(t("follow-up-sent-final"), severity="information", timeout=2.5)
 
         self.push_screen(InteractiveSessionsModal(n_awaiting=len(targets)), _apply)
 

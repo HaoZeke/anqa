@@ -170,11 +170,17 @@ TabPane {
 
 #interactive-follow-input {
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 0;
+}
+
+#interactive-follow-last-turn {
+    width: 100%;
+    height: auto;
+    margin: 0 0 1 0;
 }
 
 #interactive-modal-actions {
-    height: 3;
+    height: auto;
     align: right middle;
 }
 
