@@ -239,10 +239,12 @@ class BrowserScreen(ChromeActions):
         self._live_refresh_timer = None
 
     def _session_is_pending(self) -> bool:
-        """True only while multi-turn / live eval can still accept follow-up or Done.
+        """True only for interactive multi-turn follow-up / Done UI.
 
-        Completed or cancelled sessions hide the bar even if a stale gate file
-        still says ``awaiting_follow_up``.
+        Single-turn evals still create a turn gate with ``state=running`` and never
+        set ``awaiting_follow_up``; do not treat that as a follow-up bar.
+        Show only when the gate is waiting for a prompt, the host has queued
+        follow-ups, or the host has requested Done while the agent finishes.
         """
         from ...session.turn_gate import (
             host_requested_done,
@@ -251,23 +253,16 @@ class BrowserScreen(ChromeActions):
             session_awaits_follow_up,
         )
 
-        meta = self.meta
-        settled = False
-        if meta is not None:
-            with suppress(Exception):
-                settled = meta.list_status_label() in ("complete", "cancelled", "—")
-
         try:
             st = read_turn_gate_status(self.session_dir)
         except Exception:
             st = {}
         gstate = str(st.get("state") or "")
 
-        # Entrypoint has finished interactive loop.
         if gstate == "done":
             return False
 
-        # Host asked to stop but agent may still be finishing the current turn.
+        # Host asked to stop (interactive Done) while the agent may still be finishing.
         if host_requested_done(self.session_dir):
             return True
 
@@ -280,14 +275,6 @@ class BrowserScreen(ChromeActions):
         except Exception:
             pass
 
-        # Settled sessions: ignore stale gate state / empty outcome.
-        if settled:
-            return False
-
-        if gstate in ("awaiting_follow_up", "running"):
-            return True
-        if meta is not None and meta.turn_in_progress:
-            return True
         return False
 
     def _refresh_session_pending_bar(self) -> None:
