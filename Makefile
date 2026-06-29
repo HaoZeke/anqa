@@ -4,7 +4,7 @@
 
 help:
 	@echo "groket development targets"
-	@echo "  install          uv sync with test+dev dependency groups"
+	@echo "  install          project venv (test+dev) + groket on PATH (uv tool)"
 	@echo "  lint             ruff check + format --check + mypy (whole groket/)"
 	@echo "  lint-fix        ruff autofix + format + mypy (whole groket/)"
 	@echo "  lint-complexity  ruff PLR on groket (informational / debt)"
@@ -14,7 +14,11 @@ help:
 	@echo "  clean            caches and build artefacts"
 
 install:
+	# Editable project + test/dev groups in .venv (uv run pytest / make test).
 	uv sync --group test --group dev
+	# Console script on the user PATH (typically ~/.local/bin/groket).
+	uv tool install --force --editable .
+	@echo "groket installed — try: groket --help   (or: uv run groket)"
 
 lint:
 	uv run ruff check --select I groket tests
