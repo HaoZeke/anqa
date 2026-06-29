@@ -247,79 +247,118 @@ class BrowserScreen(ChromeActions):
         self._live_refresh_timer = None
 
     def _session_is_pending(self) -> bool:
-        """True while agent may still run or interactive gate awaits a follow-up."""
-        from ...session.turn_gate import session_awaits_follow_up, session_pending_label
+        """True only while multi-turn / live eval can still accept follow-up or Done.
+
+        Completed or cancelled sessions hide the bar even if a stale gate file
+        still says ``awaiting_follow_up``.
+        """
+        from ...session.turn_gate import (
+            host_requested_done,
+            list_queued_follow_ups,
+            read_turn_gate_status,
+            session_awaits_follow_up,
+        )
 
         meta = self.meta
-        if meta and meta.turn_in_progress:
-            return True
-        if meta and (not (meta.turn_outcome or "").strip()):
-            return True
+        settled = False
+        if meta is not None:
+            with suppress(Exception):
+                settled = meta.list_status_label() in ("complete", "cancelled", "—")
+
         try:
-            if session_awaits_follow_up(self.session_dir):
-                return True
-            if session_pending_label(
-                self.session_dir, turn_in_progress=bool(meta and meta.turn_in_progress)
-            ):
+            st = read_turn_gate_status(self.session_dir)
+        except Exception:
+            st = {}
+        gstate = str(st.get("state") or "")
+
+        # Entrypoint has finished interactive loop.
+        if gstate == "done":
+            return False
+
+        # Host asked to stop but agent may still be finishing the current turn.
+        if host_requested_done(self.session_dir):
+            return True
+
+        if session_awaits_follow_up(self.session_dir):
+            return True
+
+        try:
+            if list_queued_follow_ups(self.session_dir):
                 return True
         except Exception:
             pass
+
+        # Settled sessions: ignore stale gate state / empty outcome.
+        if settled:
+            return False
+
+        if gstate in ("awaiting_follow_up", "running"):
+            return True
+        if meta is not None and meta.turn_in_progress:
+            return True
         return False
 
     def _refresh_session_pending_bar(self) -> None:
         from ...session.turn_gate import (
             drain_queued_follow_up,
+            host_requested_done,
             list_queued_follow_ups,
             read_turn_gate_status,
             session_pending_label,
         )
 
-        try:
-            drained = drain_queued_follow_up(self.session_dir)
-            if drained:
-                preview = drained if len(drained) <= 48 else drained[:48] + "…"
-                self.notify(f"{t('ui-queued-follow-up-sent')} {preview})")
-        except Exception:
-            pass
+        show = self._session_is_pending()
+        if show:
+            try:
+                drained = drain_queued_follow_up(self.session_dir)
+                if drained:
+                    preview = drained if len(drained) <= 48 else drained[:48] + "…"
+                    self.notify(f"{t('ui-queued-follow-up-sent')} {preview})")
+            except Exception:
+                pass
+
         meta = self.meta
         label = ""
-        try:
-            label = session_pending_label(
-                self.session_dir, turn_in_progress=bool(meta and meta.turn_in_progress)
-            )
-        except Exception:
-            label = ""
-        if not label and meta and (not (meta.turn_outcome or "").strip()):
-            label = t("ui-session-outcome-pending")
-        if not label and meta and meta.turn_in_progress:
-            label = t("ui-turn-in-progress")
-        st = {}
+        if show:
+            try:
+                label = session_pending_label(
+                    self.session_dir,
+                    turn_in_progress=bool(meta and meta.turn_in_progress),
+                )
+            except Exception:
+                label = ""
+            if not label and meta and meta.turn_in_progress:
+                label = t("ui-turn-in-progress")
+
+        st: dict = {}
         try:
             st = read_turn_gate_status(self.session_dir)
         except Exception:
             pass
         queued: list[str] = []
-        try:
-            queued = list_queued_follow_ups(self.session_dir)
-        except Exception:
-            queued = []
-        show = (
-            bool(label)
-            or bool(queued)
-            or str(st.get("state") or "") in ("awaiting_follow_up", "running")
-        )
+        if show:
+            try:
+                queued = list_queued_follow_ups(self.session_dir)
+            except Exception:
+                queued = []
+
         try:
             bar = self.query_one("#session-pending-bar")
             bar.display = show
         except Exception:
             pass
+        if not show:
+            try:
+                self.refresh_bindings()
+            except Exception:
+                pass
+            return
+
         try:
             status = self.query_one("#session-pending-status", Static)
             chip = status_chip(label or "idle", kind="unknown" if not label else "ok")
             sid = str(st.get("session_id") or (meta.session_id if meta else ""))
             turn = st.get("turn", "")
-            # Fluent strips leading/trailing spaces on fragments — always separate
-            # with explicit spaces when joining chip + extras.
             bits: list[str] = []
             if sid:
                 bits.append(f"session={sid}")
@@ -349,19 +388,28 @@ class BrowserScreen(ChromeActions):
                 q_widget.display = False
         except Exception:
             pass
-        awaiting = str(st.get("state") or "") == "awaiting_follow_up"
+
+        # Host already requested stop: allow Done is inert; still allow viewing queue
+        # but do not accept new follow-ups.
+        finishing = host_requested_done(self.session_dir)
+        awaiting = str(st.get("state") or "") == "awaiting_follow_up" and not finishing
+        can_send = show and not finishing
         try:
-            self.query_one("#session-follow-send-btn", Button).disabled = not show
-            self.query_one("#session-follow-done-btn", Button).disabled = not show
+            self.query_one("#session-follow-send-btn", Button).disabled = not can_send
+            self.query_one("#session-follow-done-btn", Button).disabled = not show or finishing
         except Exception:
             pass
         try:
             hint = self.query_one("#session-follow-input", Input)
             if awaiting:
                 hint.placeholder = U.follow_up_placeholder_awaiting()
-            elif show:
+            elif can_send:
                 hint.placeholder = U.follow_up_placeholder_queue()
-            hint.disabled = not show
+            hint.disabled = not can_send
+        except Exception:
+            pass
+        try:
+            self.query_one("#session-follow-last-turn", Checkbox).disabled = not can_send
         except Exception:
             pass
         try:
@@ -1769,20 +1817,7 @@ class BrowserScreen(ChromeActions):
         if action == "flag_event":
             return True if self._timeline_event_actionable() else False
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
-            # Only when this session can accept a next prompt or end (interactive gate).
-            try:
-                from ...session.turn_gate import (
-                    list_queued_follow_ups,
-                    session_awaits_follow_up,
-                )
-
-                if session_awaits_follow_up(self.session_dir):
-                    return True
-                if list_queued_follow_ups(self.session_dir):
-                    return True
-            except Exception:
-                pass
-            return False
+            return self._session_is_pending()
         return True
 
     def action_flag_event(self) -> None:

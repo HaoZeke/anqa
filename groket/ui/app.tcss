@@ -526,8 +526,9 @@ SelectOverlay:focus > .option-list--option-highlighted {
     margin: 1 0;
 }
 
-/* Pending interactive / live session controls (browser) */
+/* Pending interactive / live session controls (browser; hidden when settled) */
 #session-pending-bar {
+    display: none;
     height: auto;
     min-height: 3;
     max-height: 8;
