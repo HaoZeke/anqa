@@ -6,8 +6,9 @@ on:
     tags: ["*"]
   pull_request:
 
+# One in-flight CI per branch / PR; a new push cancels the previous run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

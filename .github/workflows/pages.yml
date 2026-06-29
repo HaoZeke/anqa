@@ -19,9 +19,10 @@ permissions:
   pages: write
   id-token: write
 
+# Only the latest Pages deploy for the branch matters.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
