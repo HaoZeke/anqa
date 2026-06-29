@@ -14,7 +14,7 @@ from groket.ui.screens.run_configs import RunConfigsScreen, _BatchLaunchModal, _
 from textual.app import App
 from textual.widgets import DataTable, Static
 
-from .pilot_helpers import assert_static_contains, wait_until
+from .pilot_helpers import wait_until
 
 
 def _make_work(tmp_path: Path) -> Path:

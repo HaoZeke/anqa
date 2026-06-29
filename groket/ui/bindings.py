@@ -274,8 +274,8 @@ class ChromeActions(Screen):
             return
         self._leave_screen()
 
-    def action_dismiss(self) -> None:
-        """Esc on modals that bind dismiss."""
+    async def action_dismiss(self, result: object = None) -> None:  # noqa: ARG002
+        """Esc on modals that bind dismiss (async to match Screen.action_dismiss)."""
         if blur_focused_edit(self):
             return
         self._leave_screen()
@@ -317,12 +317,12 @@ def dismiss_after_blur(screen: Screen, result: object = None) -> None:
         def _done(discard: bool | None) -> None:
             if discard:
                 with suppress(Exception):
-                    screen.dismiss(result)  # type: ignore[attr-defined]
+                    screen.dismiss(result)
 
         screen.app.push_screen(DiscardConfirmModal(), _done)
         return
     with suppress(Exception):
-        screen.dismiss(result)  # type: ignore[attr-defined]
+        screen.dismiss(result)
 
 
 def focus_primary_list(widget: Widget) -> None:

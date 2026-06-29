@@ -129,7 +129,6 @@ class TestTruncateMid:
 # ── Event and tool detail rendering ───────────────────────────────────────
 
 from conftest import make_trace_event
-from .pilot_helpers import assert_rich_contains, rich_plain
 from groket.analysis.base import Finding
 from groket.models import Flag, FlagVerdict, Severity
 from groket.ui.render_detail import (
@@ -139,6 +138,8 @@ from groket.ui.render_detail import (
 from groket.ui.styles import tool_label as tool_markup
 from rich.console import Group
 from rich.text import Text
+
+from .pilot_helpers import assert_rich_contains, rich_plain
 
 
 class TestToolMarkup:

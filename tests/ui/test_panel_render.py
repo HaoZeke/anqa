@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 from groket.ui import prefs
-from .pilot_helpers import assert_rich_contains, rich_plain
 from groket.ui.panel_render import (
     TIP_SURFACE_CLASS,
     TipSurface,
@@ -13,6 +12,8 @@ from groket.ui.panel_render import (
     tip_surface_content,
 )
 from rich.text import Text
+
+from .pilot_helpers import assert_rich_contains, rich_plain
 
 
 def setup_function():

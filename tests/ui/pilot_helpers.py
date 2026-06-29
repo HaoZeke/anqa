@@ -9,7 +9,7 @@ assert what the user would read, not merely that a renderable is non-None.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable
 from io import StringIO
 from typing import TypeVar
 

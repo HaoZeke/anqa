@@ -8,7 +8,7 @@ import pytest
 from textual.app import App
 from textual.widgets import DataTable, Static
 
-from .pilot_helpers import assert_static_contains, static_plain
+from .pilot_helpers import static_plain
 
 
 @pytest.mark.asyncio

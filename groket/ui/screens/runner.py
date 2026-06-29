@@ -182,9 +182,7 @@ class RunnerScreen(ChromeActions):
                                     id="repo-branch-input",
                                     classes="runner-repo-branch",
                                 )
-                            yield Static(
-                                "", id="github-write-hint", classes="runner-status-line"
-                            )
+                            yield Static("", id="github-write-hint", classes="runner-status-line")
                     with TabPane(U.runner_tab_runtime(), id="runner-tab-runtime"):
                         with VerticalScroll(classes="runner-pane"):
                             with Horizontal(id="runtime-top-row", classes="runner-inline-row"):
@@ -217,12 +215,8 @@ class RunnerScreen(ChromeActions):
                                             id="persona-builder-btn",
                                             classes="runner-inline-btn",
                                         )
-                            yield Static(
-                                "", id="docker-profile-hint", classes="runner-status-line"
-                            )
-                            yield Static(
-                                "", id="persona-gh-hint", classes="runner-status-line"
-                            )
+                            yield Static("", id="docker-profile-hint", classes="runner-status-line")
+                            yield Static("", id="persona-gh-hint", classes="runner-status-line")
                             yield Label(U.models_heading())
                             yield TipSurface(
                                 U.tip_runner_models(),
@@ -231,14 +225,10 @@ class RunnerScreen(ChromeActions):
                             yield SelectionList[str](
                                 *model_selection_items(None), id="models-select"
                             )
-                            yield Static(
-                                "", id="models-catalog-hint", classes="runner-status-line"
-                            )
+                            yield Static("", id="models-catalog-hint", classes="runner-status-line")
                     with TabPane(U.runner_tab_extras(), id="runner-tab-extras"):
                         with VerticalScroll(classes="runner-pane", id="runner-run-caps"):
-                            yield Static(
-                                U.this_launch_only_dim(), classes="runner-field-hint"
-                            )
+                            yield Static(U.this_launch_only_dim(), classes="runner-field-hint")
                             yield Static(
                                 "",
                                 id="run-caps-persona-hint",
@@ -253,14 +243,10 @@ class RunnerScreen(ChromeActions):
                                     id="run-caps-clear-btn",
                                     classes="runner-secondary-btn",
                                 )
-                            yield Input(
-                                placeholder=U.search_mcp_placeholder(), id="run-mcp-search"
-                            )
+                            yield Input(placeholder=U.search_mcp_placeholder(), id="run-mcp-search")
                             yield Label(U.added_to_this_run())
                             yield Static(U.em_dash_dim(), id="run-caps-summary")
-                            yield Static(
-                                "", id="run-caps-help", classes="runner-status-line"
-                            )
+                            yield Static("", id="run-caps-help", classes="runner-status-line")
             with Horizontal(id="runner-toolbar"):
                 with Horizontal(id="runner-toolbar-primary"):
                     yield Button(U.launch(), variant="primary", id="launch-btn")
@@ -354,9 +340,7 @@ class RunnerScreen(ChromeActions):
             lambda: self.call_after_refresh(lambda: self._activate_runner_tab("runner-tab-recipe"))
         )
         # After models / persona widgets settle — baseline for Esc discard.
-        self.call_after_refresh(
-            lambda: self.call_after_refresh(self._capture_clean_snapshot)
-        )
+        self.call_after_refresh(lambda: self.call_after_refresh(self._capture_clean_snapshot))
 
     def _persona_obj(self):
         """Loaded persona for the current selection, or None."""
@@ -449,9 +433,7 @@ class RunnerScreen(ChromeActions):
             from ...runs.batch import models_catalog_help_text
 
             hint = models_catalog_help_text()
-            self._set_status_line(
-                "models-catalog-hint", f"[dim]{hint}[/dim]" if hint else ""
-            )
+            self._set_status_line("models-catalog-hint", f"[dim]{hint}[/dim]" if hint else "")
         except Exception:
             pass
 
@@ -471,9 +453,7 @@ class RunnerScreen(ChromeActions):
             return
         from ...session.models_catalog import normalize_model_selection_tokens
 
-        want = normalize_model_selection_tokens(
-            [m.strip() for m in models if (m or "").strip()]
-        )
+        want = normalize_model_selection_tokens([m.strip() for m in models if (m or "").strip()])
         from ..forms import load_model_launch_options
 
         launch_tokens = {tok for _, tok in load_model_launch_options()}
@@ -604,7 +584,9 @@ class RunnerScreen(ChromeActions):
         else:
             lines.append(t("ui-skills-0-none-added-for-this-run"))
         if plugins:
-            lines.append(f"{t('ui-plugins-2')} {len(plugins)} {t('ui-grok-packages-this-run-only')}")
+            lines.append(
+                f"{t('ui-plugins-2')} {len(plugins)} {t('ui-grok-packages-this-run-only')}"
+            )
             for name in plugins:
                 lines.append(f"{t('ui-msg-5')} {name}")
         else:
@@ -733,9 +715,7 @@ class RunnerScreen(ChromeActions):
         else:
             m = ", ".join(p_mcp[:8]) + ("…" if len(p_mcp) > 8 else "")
             s = ", ".join(p_skills[:8]) + ("…" if len(p_skills) > 8 else "")
-            body = (
-                f"{t('ui-persona')} {pid} {t('ui-mcp-3')} {m or '—'} {t('ui-skills-2')} {s or '—'}[/dim]"
-            )
+            body = f"{t('ui-persona')} {pid} {t('ui-mcp-3')} {m or '—'} {t('ui-skills-2')} {s or '—'}[/dim]"
         self._set_status_line("run-caps-persona-hint", body)
 
     def _run_mcp_from_form(self) -> list[str]:
@@ -857,7 +837,9 @@ class RunnerScreen(ChromeActions):
             if available
             else t("ui-docker-is-not-available-install-docker-or-start")
         )
-        sev = "information" if available else "error"
+        from typing import Literal
+
+        sev: Literal["information", "error"] = "information" if available else "error"
 
         from ..threads import call_ui
 

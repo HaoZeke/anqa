@@ -428,9 +428,7 @@ class BrowserScreen(ChromeActions):
             with suppress(Exception):
                 self.query_one("#session-follow-last-turn", Checkbox).value = False
             if how == "queued":
-                self.notify(
-                    t("follow-up-queued-final") if final else U.follow_up_queued()
-                )
+                self.notify(t("follow-up-queued-final") if final else U.follow_up_queued())
             else:
                 self.notify(t("follow-up-sent-final") if final else U.follow_up_sent())
             rm = getattr(self.app, "run_manager", None)
@@ -1018,7 +1016,8 @@ class BrowserScreen(ChromeActions):
         head.append(f"{len(flags)} {t('ui-flags')}", style="dim")
         head.append(" │ ", style="dim")
         head.append(
-            f"{total} {t('ui-findings-3')} {high} {t('ui-high-2')} {med} {t('ui-med-1')}", style="dim"
+            f"{total} {t('ui-findings-3')} {high} {t('ui-high-2')} {med} {t('ui-med-1')}",
+            style="dim",
         )
         head.append("\n")
         blocks.append(head)
@@ -1609,8 +1608,6 @@ class BrowserScreen(ChromeActions):
         self._timeline_filter = ""  # force re-apply
         self._apply_timeline_mode(mode)
 
-
-
     def action_search(self) -> None:
         self._ensure_timeline_tab()
 
@@ -1846,17 +1843,17 @@ class BrowserScreen(ChromeActions):
 
         paths = session_dirs_for_delete([self.session_dir])
         traces_root = getattr(self.app, "traces_path", None)
-        stats = delete_session_dirs(
-            paths, traces_root=traces_root, prune_empty_parents=True
-        )
+        stats = delete_session_dirs(paths, traces_root=traces_root, prune_empty_parents=True)
         gone = {str(p) for p in paths}
         app = self.app
         # Drop from home-screen caches while we still hold the app ref.
         meta_only = getattr(app, "_meta_only", None)
         if isinstance(meta_only, list):
-            app._meta_only = [
-                (m, lab) for m, lab in meta_only if str(m.session_dir) not in gone
-            ]
+            setattr(
+                app,
+                "_meta_only",
+                [(m, lab) for m, lab in meta_only if str(m.session_dir) not in gone],
+            )
         selected = getattr(app, "_selected", None)
         if isinstance(selected, set):
             selected -= gone
@@ -1871,8 +1868,7 @@ class BrowserScreen(ChromeActions):
             err_n = len(errors_raw)
         self.notify(
             f"{t('ui-deleted')} {stats.get('deleted', 0)}/{stats.get('requested', 0)} "
-            f"{t('ui-session-s')}"
-            + (f" {t('ui-errors')} {err_n}" if err_n else ""),
+            f"{t('ui-session-s')}" + (f" {t('ui-errors')} {err_n}" if err_n else ""),
             severity="warning" if err_n else "information",
             timeout=10,
         )

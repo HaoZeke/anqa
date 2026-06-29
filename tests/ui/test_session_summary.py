@@ -1,7 +1,6 @@
 """Tests for session_summary builder."""
 
 from __future__ import annotations
-from .pilot_helpers import assert_rich_contains, rich_plain
 
 from conftest import make_trace_event
 from groket.models import SessionMeta
@@ -10,6 +9,8 @@ from groket.ui.session_summary import (
     build_session_summary,
     render_session_summary,
 )
+
+from .pilot_helpers import assert_rich_contains, rich_plain
 
 
 class TestAssistantTextFromTimeline:

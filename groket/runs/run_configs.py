@@ -31,6 +31,7 @@ from ..models import (
     json_as_str,
 )
 
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
@@ -817,6 +818,7 @@ def session_dirs_for_delete(session_dirs: list[Path]) -> list[Path]:
     return out
 
 from ..constants import INTERRUPTED_MARKER_FILENAME as INTERRUPTED_MARKER
+
 
 def _session_dirs_under(traces_root: Path) -> list[Path]:
     root = Path(traces_root).expanduser()

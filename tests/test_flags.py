@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from groket.flags import load_flags, save_flags
 from groket.models import Flag, FlagVerdict
