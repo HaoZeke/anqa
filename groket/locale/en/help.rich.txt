@@ -24,7 +24,7 @@ x              delete this session (twice)
 s              open share link
 
 [bold]Runner[/bold]
-Ctrl+Enter launch · Ctrl+S save recipe · [ ] panes
+Ctrl+Enter (or Ctrl+J) launch · Ctrl+S save recipe · [ ] panes
 
 [bold]Recipes & personas[/bold]
 Enter open · l launch · s select · n new · x delete

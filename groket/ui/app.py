@@ -1348,16 +1348,33 @@ class TraceEvalApp(App):
         except Exception:
             return True
 
+    def _runner_active(self) -> bool:
+        """True when the evaluation runner form is the top screen."""
+        from .screens.runner import RunnerScreen
+
+        return isinstance(self.screen, RunnerScreen)
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Gate session-home bindings so they do not leak into pushed-screen footers.
 
         ``n`` / ``e`` also require an awaiting multi-turn target on the home list.
+        Priority launch (Ctrl+Enter / Ctrl+J) only while the runner is open.
         """
+        if action == "launch_from_runner":
+            return self._runner_active()
         if action in SESSION_HOME_ACTIONS and not self._sessions_home_active():
             return False
         if action in ("follow_up_sessions", "mark_sessions_done"):
             return bool(self._awaiting_session_targets())
         return True
+
+    def action_launch_from_runner(self) -> None:
+        """Priority hotkey: launch eval when Runner is the active screen."""
+        from .screens.runner import RunnerScreen
+
+        screen = self.screen
+        if isinstance(screen, RunnerScreen):
+            screen.action_run_evaluation()
 
     def action_mark_sessions_done(self) -> None:
         """``e`` — end awaiting sessions (mark done)."""

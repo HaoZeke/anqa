@@ -85,6 +85,17 @@ class TestBindingTuples:
         assert "go_back" in shown
         assert "run_evaluation" in shown
 
+    def test_launch_priority_keys_include_ctrl_j(self) -> None:
+        """Ctrl+Enter often arrives as ctrl+j in terminals — both must be bound."""
+        from groket.ui.bindings import APP_GLOBAL_PRIORITY
+
+        keys = " ".join(b.key for b in APP_GLOBAL_PRIORITY)
+        assert "ctrl+enter" in keys
+        assert "ctrl+j" in keys
+        launch = [b for b in RUNNER if b.action == "run_evaluation"]
+        assert launch
+        assert "ctrl+j" in launch[0].key
+
     def test_session_home_actions_covers_list_bindings(self) -> None:
         assert "quit" in SESSION_HOME_ACTIONS
         assert "open_runner" in SESSION_HOME_ACTIONS
@@ -278,3 +289,44 @@ async def test_session_home_bindings_hidden_when_runner_pushed(tmp_path: Path) -
             assert action not in shown
         # Focus may sit in a TextArea (consumes some keys); chrome still includes Back.
         assert "go_back" in shown
+
+
+@pytest.mark.asyncio
+async def test_ctrl_enter_launches_from_prompt_textarea(tmp_path: Path) -> None:
+    """Priority launch fires while focus is in the runner prompt TextArea."""
+    from groket.ui.app import TraceEvalApp
+    from groket.ui.screens.runner import RunnerScreen
+    from textual.widgets import TextArea
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    launched: list[int] = []
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.push_screen(RunnerScreen(work, run_manager=app.run_manager))
+        await pilot.pause()
+        scr = app.screen
+        assert isinstance(scr, RunnerScreen)
+        orig = scr.action_run_evaluation
+
+        def _track() -> None:
+            launched.append(1)
+
+        scr.action_run_evaluation = _track  # type: ignore[method-assign]
+        try:
+            ta = scr.query_one("#prompt-input", TextArea)
+            ta.focus()
+            await pilot.pause()
+            assert app.check_action("launch_from_runner", ()) is True
+            await pilot.press("ctrl+enter")
+            await pilot.pause()
+            assert launched == [1]
+            launched.clear()
+            await pilot.press("ctrl+j")
+            await pilot.pause()
+            assert launched == [1]
+        finally:
+            scr.action_run_evaluation = orig  # type: ignore[method-assign]

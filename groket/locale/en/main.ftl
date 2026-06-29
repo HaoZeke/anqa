@@ -307,7 +307,7 @@ cmd-launch-config-help = Launch with model override modal
 
 cmd-launch-evaluation = Launch evaluation
 
-cmd-launch-evaluation-help = Start Docker run
+cmd-launch-evaluation-help = Ctrl+Enter or Ctrl+J — start Docker run
 
 cmd-launch-selected = Launch selected
 
@@ -885,7 +885,7 @@ tip-report-filter = Use Filter above (same as Timeline) — All, Flags, or one p
 
 tip-runner-models = `space` toggle models · `f5` refresh catalog
 
-tip-runner-toolbar = `ctrl+enter` launch · `ctrl+s` save · `[` `]` panes · `j` jobs · `p` personas · `esc` back
+tip-runner-toolbar = `ctrl+enter` / `ctrl+j` launch · `ctrl+s` save · `[` `]` panes · `j` jobs · `p` personas · `esc` back
 
 tip-share-url = Press `s` to open the share URL
 

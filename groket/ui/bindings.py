@@ -28,7 +28,17 @@ def _ctrl_s(action: str, description: str = t("ui-save"), *, show: bool = True) 
     return _b("ctrl+s", action, description, show=show, priority=True)
 
 
-APP_GLOBAL_PRIORITY: tuple[Binding, ...] = ()
+# Priority hotkeys checked app-down before focused widgets (TextArea / Input).
+# Ctrl+Enter often arrives as ctrl+j in terminals; bind both for launch while Runner is top.
+APP_GLOBAL_PRIORITY: tuple[Binding, ...] = (
+    _b(
+        "ctrl+enter,ctrl+j",
+        "launch_from_runner",
+        U.bind_launch(),
+        show=False,
+        priority=True,
+    ),
+)
 
 # Footer layout (left → right; command palette is always on the far right):
 #   Help · Back (pushed screens) · context actions · Jobs · Quit (sessions home only)
@@ -125,9 +135,9 @@ BROWSER: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("e", "mark_session_done", U.bind_end_session(), show=True),
 )
 RUNNER: tuple[Binding, ...] = SCREEN_CHROME + (
-    # Priority so launch works while focus is in TextArea / Input / SelectionList
-    # (same idea as Ctrl+S for save — without priority, the focused widget eats the key).
-    _b("ctrl+enter", "run_evaluation", U.bind_launch(), show=True, priority=True),
+    # Priority + ctrl+j: many terminals map Ctrl+Enter to ctrl+j (or plain enter).
+    # App also binds launch_from_runner with priority so TextArea cannot swallow it.
+    _b("ctrl+enter,ctrl+j", "run_evaluation", U.bind_launch(), show=True, priority=True),
     _ctrl_s("save_config_only", U.bind_save(), show=True),
     _b("n", "new_persona_from_runner", U.bind_new_persona(), show=False),
     _b("p", "open_persona_builder", U.bind_personas(), show=False),
