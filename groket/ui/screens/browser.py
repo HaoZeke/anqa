@@ -63,9 +63,9 @@ from ..widgets.timeline import TimelineTable
 
 _BROWSER_TABS: tuple[tuple[str, str], ...] = (
     ("tab-timeline", "#timeline-list"),
-    ("tab-findings", "#findings-table"),
     ("tab-summary", "#summary-scroll"),
     ("tab-diff", "#diff-scroll"),
+    ("tab-findings", "#findings-table"),
     ("tab-reports", "#reports-scroll"),
 )
 
@@ -157,13 +157,6 @@ class BrowserScreen(ChromeActions):
                             )
                         yield TimelineTable(id="timeline-list")
                     yield DetailView(id="detail-panel")
-            with TabPane(U.tab_findings(), id="tab-findings"):
-                with Vertical(id="findings-panel"):
-                    with Vertical(classes="panel-card"):
-                        yield Static("", id="findings-header")
-                        yield TipSurface(U.tip_findings_row(), id="findings-tip")
-                    with Vertical(classes=t("ui-panel-card-panel-card-grow")):
-                        yield DataTable(id="findings-table")
             with TabPane(U.tab_summary(), id="tab-summary"):
                 with VerticalScroll(id="summary-scroll"):
                     with Vertical(classes="panel-card"):
@@ -185,6 +178,13 @@ class BrowserScreen(ChromeActions):
                 with VerticalScroll(id="diff-scroll"):
                     with Vertical(classes="panel-card"):
                         yield Static(id="diff-content")
+            with TabPane(U.tab_findings(), id="tab-findings"):
+                with Vertical(id="findings-panel"):
+                    with Vertical(classes="panel-card"):
+                        yield Static("", id="findings-header")
+                        yield TipSurface(U.tip_findings_row(), id="findings-tip")
+                    with Vertical(classes=t("ui-panel-card-panel-card-grow")):
+                        yield DataTable(id="findings-table")
             with TabPane(U.tab_report(), id="tab-reports"):
                 with Vertical(id="reports-panel"):
                     with Horizontal(id="report-filter-bar", classes=FILTER_BAR_CLASS):
@@ -1630,7 +1630,7 @@ class BrowserScreen(ChromeActions):
         self._apply_timeline_mode("all")
 
     def action_show_findings(self) -> None:
-        """Jump to Findings (same as tab 2 / ``i``)."""
+        """Jump to Findings (same as tab 4 / ``i``)."""
         self.action_tab_findings()
 
     def _browser_tab_index(self) -> int:

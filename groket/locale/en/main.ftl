@@ -51,7 +51,7 @@ bind-configs = Configs
 
 bind-delete = Delete
 
-bind-diff = 4 Diff
+bind-diff = 3 Diff
 
 bind-disable-all = Disable all
 
@@ -69,7 +69,7 @@ bind-export-finding = Export finding
 
 bind-extras = Extras
 
-bind-findings = 2 Findings
+bind-findings = 4 Findings
 
 bind-flag = Flag
 
@@ -145,7 +145,7 @@ bind-share = Share
 
 bind-skills = 5 Skills
 
-bind-summary = 3 Summary
+bind-summary = 2 Summary
 
 bind-task = Task
 
@@ -395,11 +395,11 @@ cmd-select-all-none-help = Toggle select all sessions
 
 cmd-tab-diff = Tab: Diff
 
-cmd-tab-diff-help = 4 — workspace diff
+cmd-tab-diff-help = 3 — workspace diff
 
 cmd-tab-findings = Tab: Findings
 
-cmd-tab-findings-help = 2 / i — detector findings
+cmd-tab-findings-help = 4 / i — detector findings
 
 cmd-tab-report = Tab: Report
 
@@ -407,7 +407,7 @@ cmd-tab-report-help = 5 — analysis report
 
 cmd-tab-summary = Tab: Summary
 
-cmd-tab-summary-help = 3 — session summary and usage tables
+cmd-tab-summary-help = 2 — session summary and usage tables
 
 cmd-tab-timeline = Tab: Timeline
 
@@ -839,13 +839,13 @@ skills-search-placeholder = search review, implement, docx…
 
 skills-title = Skills
 
-tab-diff = 4 Diff
+tab-diff = 3 Diff
 
-tab-findings = 2 Findings
+tab-findings = 4 Findings
 
 tab-report = 5 Report
 
-tab-summary = 3 Summary
+tab-summary = 2 Summary
 
 tab-timeline = 1 Timeline
 

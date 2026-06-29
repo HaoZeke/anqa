@@ -602,7 +602,7 @@ Do **not** invent ad-hoc key legends in banners or button labels
 
 | Layer | Example | Keys | Feedback |
 |-------|---------|------|----------|
-| Session panes | Browser Timeline … Report | `[` `]` , `1`–`5` | Tab strip + titles |
+| Session panes | Browser Timeline / Summary / Diff / Findings / Report | `[` `]` , `1`–`5` | Tab strip + titles |
 | Editor panes | Persona Identity … Plugins | `[` `]` , `1`–`6` | Tab strip + titles |
 | Runner panes | Recipe / Runtime / Extras | `[` `]` , `1`–`3` | Tab strip + titles |
 | In-pane view | Timeline event filter | `v` → Select | Dropdown label |
