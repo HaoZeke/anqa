@@ -154,7 +154,6 @@ class RunnerScreen(ChromeActions):
                     with TabPane(U.runner_tab_recipe(), id="runner-tab-recipe"):
                         with VerticalScroll(classes="runner-pane"):
                             yield Label(U.config_name_label())
-                            yield Static("[dim]optional[/dim]", classes="runner-field-hint")
                             yield Input(
                                 value=self._config_name or "",
                                 placeholder=U.config_name_placeholder(),
@@ -163,7 +162,6 @@ class RunnerScreen(ChromeActions):
                             yield Label(U.prompt_label())
                             yield TextArea(id="prompt-input", language="markdown")
                             yield Label(U.setup_commands_label())
-                            yield Static(t("ui-pre-grok-shell"), classes="runner-field-hint")
                             yield TextArea(
                                 id="setup-input", language="bash", classes="runner-setup"
                             )
@@ -172,58 +170,80 @@ class RunnerScreen(ChromeActions):
                                 id="interactive-multi-turn",
                             )
                             yield Label(U.repository_label())
-                            yield Static("[dim]optional[/dim]", classes="runner-field-hint")
-                            yield Input(placeholder=U.repo_url_placeholder(), id="repo-url-input")
-                            yield Input(placeholder=U.branch_placeholder(), id="repo-branch-input")
-                            yield Static("", id="github-write-hint")
+                            with Horizontal(id="repo-row", classes="runner-inline-row"):
+                                yield Input(
+                                    placeholder=U.repo_url_placeholder(),
+                                    id="repo-url-input",
+                                    classes="runner-repo-url",
+                                )
+                                yield Input(
+                                    placeholder=U.branch_placeholder(),
+                                    id="repo-branch-input",
+                                    classes="runner-repo-branch",
+                                )
+                            yield Static(
+                                "", id="github-write-hint", classes="runner-status-line"
+                            )
                     with TabPane(U.runner_tab_runtime(), id="runner-tab-runtime"):
                         with VerticalScroll(classes="runner-pane"):
-                            yield Label(U.container_image_label())
-                            yield Static(t("ui-image-profile"), classes="runner-field-hint")
-                            yield Select(
-                                options=docker_select_options(),
-                                value=DEFAULT_DOCKER_IMAGE,
-                                id="docker-image-select",
-                                allow_blank=False,
-                                classes="field-select",
+                            with Horizontal(id="runtime-top-row", classes="runner-inline-row"):
+                                with Vertical(classes="runner-col"):
+                                    yield Label(U.container_image_label())
+                                    yield Select(
+                                        options=docker_select_options(),
+                                        value=DEFAULT_DOCKER_IMAGE,
+                                        id="docker-image-select",
+                                        allow_blank=False,
+                                        classes="field-select",
+                                    )
+                                with Vertical(classes="runner-col"):
+                                    yield Label(U.persona_label())
+                                    with Horizontal(id="persona-row"):
+                                        yield Select(
+                                            options=persona_select_options(self.work_dir),
+                                            value=PERSONA_NONE,
+                                            id="persona-select",
+                                            allow_blank=False,
+                                            classes="field-select",
+                                        )
+                                        yield Button(
+                                            t("ui-new"),
+                                            id="persona-new-btn",
+                                            classes="runner-inline-btn",
+                                        )
+                                        yield Button(
+                                            t("ui-edit"),
+                                            id="persona-builder-btn",
+                                            classes="runner-inline-btn",
+                                        )
+                            yield Static(
+                                "", id="docker-profile-hint", classes="runner-status-line"
                             )
-                            yield Static("", id="docker-profile-hint")
-                            yield Label(U.persona_label())
-                            yield Static("[dim]persona[/dim]", classes="runner-field-hint")
-                            with Horizontal(id="persona-row"):
-                                yield Select(
-                                    options=persona_select_options(self.work_dir),
-                                    value=PERSONA_NONE,
-                                    id="persona-select",
-                                    allow_blank=False,
-                                    classes="field-select",
-                                )
-                                yield Button(
-                                    t("ui-new"), id="persona-new-btn", classes="runner-inline-btn"
-                                )
-                                yield Button(
-                                    t("ui-edit"),
-                                    id="persona-builder-btn",
-                                    classes="runner-inline-btn",
-                                )
-                            yield Static("", id="persona-gh-hint")
+                            yield Static(
+                                "", id="persona-gh-hint", classes="runner-status-line"
+                            )
                             yield Label(U.models_heading())
                             yield TipSurface(
                                 U.tip_runner_models(),
                                 id="runner-models-tip",
-                                classes="runner-field-hint",
                             )
                             yield SelectionList[str](
                                 *model_selection_items(None), id="models-select"
                             )
-                            yield Static("", id="models-catalog-hint")
+                            yield Static(
+                                "", id="models-catalog-hint", classes="runner-status-line"
+                            )
                     with TabPane(U.runner_tab_extras(), id="runner-tab-extras"):
                         with VerticalScroll(classes="runner-pane", id="runner-run-caps"):
-                            yield Label(U.extras())
-                            yield Static(U.this_launch_only_dim(), classes="runner-field-hint")
-                            yield Static("", id="run-caps-persona-hint")
-                            yield Input(placeholder=U.search_mcp_placeholder(), id="run-mcp-search")
-                            with Horizontal(id="run-caps-actions"):
+                            yield Static(
+                                U.this_launch_only_dim(), classes="runner-field-hint"
+                            )
+                            yield Static(
+                                "",
+                                id="run-caps-persona-hint",
+                                classes="runner-status-line",
+                            )
+                            with Horizontal(id="run-caps-actions", classes="runner-inline-row"):
                                 yield Button(U.mcp_btn(), id="run-mcp-pick-btn", variant="primary")
                                 yield Button(U.skills_btn(), id="run-skills-pick-btn")
                                 yield Button(U.plugins_btn(), id="run-plugins-pick-btn")
@@ -232,9 +252,14 @@ class RunnerScreen(ChromeActions):
                                     id="run-caps-clear-btn",
                                     classes="runner-secondary-btn",
                                 )
+                            yield Input(
+                                placeholder=U.search_mcp_placeholder(), id="run-mcp-search"
+                            )
                             yield Label(U.added_to_this_run())
                             yield Static(U.em_dash_dim(), id="run-caps-summary")
-                            yield Static("", id="run-caps-help")
+                            yield Static(
+                                "", id="run-caps-help", classes="runner-status-line"
+                            )
             with Horizontal(id="runner-toolbar"):
                 with Horizontal(id="runner-toolbar-primary"):
                     yield Button(U.launch(), variant="primary", id="launch-btn")
@@ -315,6 +340,13 @@ class RunnerScreen(ChromeActions):
                 except Exception:
                     logger.debug(t("ui-failed-to-set-persona-prefill"), exc_info=True)
         self._sync_persona_github_hint()
+        for wid in (
+            "github-write-hint",
+            "docker-profile-hint",
+            "models-catalog-hint",
+            "run-caps-help",
+        ):
+            self._set_status_line(wid, "")
         self.call_after_refresh(self._rebuild_run_capability_lists)
         self.call_after_refresh(self._restore_run_state)
         self.call_after_refresh(
@@ -376,10 +408,8 @@ class RunnerScreen(ChromeActions):
             persona_line = f"[yellow]{pid}{t('ui-gh-on')}{tok_src} · {caps}"
         else:
             persona_line = f"[dim]{pid}{t('ui-gh-off')}{caps}[/dim]"
-        with suppress(Exception):
-            self.query_one("#persona-gh-hint", Static).update(persona_line)
-        with suppress(Exception):
-            self.query_one("#github-write-hint", Static).update("")
+        self._set_status_line("persona-gh-hint", persona_line)
+        self._set_status_line("github-write-hint", "")
 
     def _rebuild_models_selection(
         self, selected: list[str] | None = None, *, default_select_all: bool = False
@@ -414,9 +444,19 @@ class RunnerScreen(ChromeActions):
             from ...runs.batch import models_catalog_help_text
 
             hint = models_catalog_help_text()
-            self.query_one("#models-catalog-hint", Static).update(f"[dim]{hint}[/dim]")
+            self._set_status_line(
+                "models-catalog-hint", f"[dim]{hint}[/dim]" if hint else ""
+            )
         except Exception:
             pass
+
+    def _set_status_line(self, widget_id: str, text: str) -> None:
+        """Update a status Static and hide it when empty (saves a row in small terminals)."""
+        with suppress(Exception):
+            w = self.query_one(f"#{widget_id}", Static)
+            body = (text or "").strip()
+            w.update(body)
+            w.display = bool(body)
 
     def _set_models_selection(self, models: list[str]) -> None:
         """Set model SelectionList ticks; rebuilds options if catalog drifted."""
@@ -681,20 +721,17 @@ class RunnerScreen(ChromeActions):
         )
 
     def _update_run_caps_persona_hint(self) -> None:
-        try:
-            w = self.query_one("#run-caps-persona-hint", Static)
-        except Exception:
-            return
         p_mcp, p_skills = self._persona_capability_snapshot()
         pid = self._persona_id_from_form() or "(none)"
         if not p_mcp and (not p_skills):
-            w.update(f"{t('ui-persona')}{pid}{t('ui-no-base-mcp-skills')}")
+            body = f"{t('ui-persona')}{pid}{t('ui-no-base-mcp-skills')}"
         else:
             m = ", ".join(p_mcp[:8]) + ("…" if len(p_mcp) > 8 else "")
             s = ", ".join(p_skills[:8]) + ("…" if len(p_skills) > 8 else "")
-            w.update(
+            body = (
                 f"{t('ui-persona')}{pid}{t('ui-mcp-3')}{m or '—'}{t('ui-skills-2')}{s or '—'}[/dim]"
             )
+        self._set_status_line("run-caps-persona-hint", body)
 
     def _run_mcp_from_form(self) -> list[str]:
         return list(self._run_mcp_ids or [])

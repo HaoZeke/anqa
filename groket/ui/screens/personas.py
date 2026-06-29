@@ -1101,21 +1101,22 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
             with TabbedContent(id="pe-tabs"):
                 with TabPane(U.pe_tab_identity(), id="pe-tab-identity"):
                     with VerticalScroll(classes="pe-pane"):
-                        yield Label(U.persona_id_label())
-                        yield Static("[dim]id[/dim]", classes="pe-field-hint")
-                        yield Input(
-                            value=p.persona_id if not self._is_new else "",
-                            placeholder=U.persona_id_placeholder(),
-                            id="pe-id",
-                            disabled=not self._is_new,
-                        )
-                        yield Label(U.display_name_label())
-                        yield Static(t("ui-shown-in-the-runner-dropdown"), classes="pe-field-hint")
-                        yield Input(
-                            value=p.name or "",
-                            placeholder=U.friendly_name_placeholder(),
-                            id="pe-name",
-                        )
+                        with Horizontal(classes="pe-inline-row"):
+                            with Vertical():
+                                yield Label(U.persona_id_label())
+                                yield Input(
+                                    value=p.persona_id if not self._is_new else "",
+                                    placeholder=U.persona_id_placeholder(),
+                                    id="pe-id",
+                                    disabled=not self._is_new,
+                                )
+                            with Vertical():
+                                yield Label(U.display_name_label())
+                                yield Input(
+                                    value=p.name or "",
+                                    placeholder=U.friendly_name_placeholder(),
+                                    id="pe-name",
+                                )
                         yield Label(U.description_field_label())
                         yield Input(
                             value=p.description or "",
@@ -1123,7 +1124,6 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                             id="pe-desc",
                         )
                         yield Label(U.default_docker_image_label())
-                        yield Static(t("ui-default-image"), classes="pe-field-hint")
                         yield Select(
                             options=_PERSONA_DOCKER_OPTIONS,
                             value=_persona_docker_value(p.docker_image),
@@ -1132,41 +1132,39 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                             classes="field-select",
                         )
                         yield Label(U.notes_label())
-                        yield Static("[dim]notes[/dim]", classes="pe-field-hint")
                         yield TextArea(p.notes or "", id="pe-notes")
                 with TabPane(U.pe_tab_github_title(), id="pe-tab-github"):
                     with VerticalScroll(classes="pe-pane"):
                         yield Checkbox(
                             t("ui-github-write-push"), value=bool(p.github_write), id="pe-gh-write"
                         )
-                        yield Static(t("ui-pat-for-this-persona"), classes="pe-field-hint")
                         yield Label(U.github_token_label())
-                        yield Static("[dim]secret[/dim]", classes="pe-field-hint")
                         yield Input(value="", placeholder=tok_hint, id="pe-gh-token", password=True)
                         yield Static(tok_status, id="pe-gh-token-status")
                         yield Label(U.token_from_host_env())
-                        yield Static(t("ui-host-env-fallback"), classes="pe-field-hint")
                         yield Input(
                             value=p.github_token_env or "",
                             placeholder=U.optional_env_var_name(),
                             id="pe-gh-token-env",
                         )
-                        yield Label(U.git_user_name())
-                        yield Input(
-                            value=p.git_user_name or "",
-                            placeholder=U.optional_git_user_name(),
-                            id="pe-git-name",
-                        )
-                        yield Label(U.git_user_email())
-                        yield Input(
-                            value=p.git_user_email or "",
-                            placeholder=U.optional_git_user_email(),
-                            id="pe-git-email",
-                        )
+                        with Horizontal(classes="pe-inline-row"):
+                            with Vertical():
+                                yield Label(U.git_user_name())
+                                yield Input(
+                                    value=p.git_user_name or "",
+                                    placeholder=U.optional_git_user_name(),
+                                    id="pe-git-name",
+                                )
+                            with Vertical():
+                                yield Label(U.git_user_email())
+                                yield Input(
+                                    value=p.git_user_email or "",
+                                    placeholder=U.optional_git_user_email(),
+                                    id="pe-git-email",
+                                )
                 with TabPane(U.pe_tab_env_title(), id="pe-tab-env"):
                     with VerticalScroll(classes="pe-pane"):
                         yield Label(U.extra_env_vars_label())
-                        yield Static("[dim]KEY=value[/dim]", classes="pe-field-hint")
                         yield TextArea(
                             _env_vars_to_text(p.env_vars),
                             id="pe-env",
@@ -1175,14 +1173,12 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                         )
                 with TabPane(U.pe_tab_mcp_title(), id="pe-tab-mcp"):
                     with VerticalScroll(classes="pe-pane"):
-                        yield Static(t("ui-tool-servers"), classes="pe-field-hint")
                         yield Checkbox(
                             t("ui-replace-host-mcp-persona-only"),
                             value=bool(p.mcp_replace_host),
                             id="pe-mcp-replace",
                         )
                         yield Label(U.mcp_server_ids_label())
-                        yield Static(t("ui-one-id-per-line"), classes="pe-field-hint")
                         yield TextArea(
                             _ids_to_text(p.mcp_servers or []), id="pe-mcp-ids", classes="pe-medium"
                         )
@@ -1200,16 +1196,13 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                         )
                 with TabPane(U.pe_tab_skills_title(), id="pe-tab-skills"):
                     with VerticalScroll(classes="pe-pane"):
-                        yield Static(t("ui-skill-packs"), classes="pe-field-hint")
                         yield Label(U.enabled_skill_names())
-                        yield Static(t("ui-one-name-per-line"), classes="pe-field-hint")
                         yield TextArea(
                             _ids_to_text(p.skills or []), id="pe-skills-ids", classes="pe-medium"
                         )
                         with Horizontal(id="pe-skills-actions", classes="pe-btn-row"):
                             yield Button(U.pick_skills(), id="pe-skills-pick")
                         yield Label(U.disabled_skills())
-                        yield Static("[dim]exclude[/dim]", classes="pe-field-hint")
                         yield TextArea(
                             _ids_to_text(p.skills_disabled or []),
                             id="pe-skills-disabled",
@@ -1218,9 +1211,6 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                 with TabPane(U.pe_tab_plugins_title(), id="pe-tab-plugins"):
                     with VerticalScroll(classes="pe-pane"):
                         yield Label(U.plugins_title())
-                        yield Static(
-                            t("ui-one-per-line-pick-or-type-names"), classes="pe-field-hint"
-                        )
                         yield TextArea(
                             _ids_to_text(p.plugins or []), id="pe-plugins-ids", classes="pe-medium"
                         )

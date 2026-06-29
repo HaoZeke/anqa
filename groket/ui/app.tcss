@@ -576,64 +576,107 @@ SelectOverlay:focus > .option-list--option-highlighted {
 }
 
 #runner-title {
-    height: auto;
-    margin: 0 0 1 0;
+    height: 1;
+    margin: 0;
 }
 
 #runner-tabs {
     height: 1fr;
-    min-height: 10;
+    min-height: 8;
 }
 
 #runner-main .runner-pane {
     height: 1fr;
-    padding: 0 1 1 0;
+    padding: 0 1 0 0;
 }
 
 #runner-main Label {
-    margin: 1 0 0 0;
+    margin: 0;
+    height: 1;
     text-style: bold;
 }
 
 #runner-main .runner-field-hint {
     height: auto;
-    margin: 0 0 0 0;
+    margin: 0;
     color: $text-muted;
+}
+
+/* Status lines take no space until shown (display toggled in code). */
+#runner-main .runner-status-line {
+    height: auto;
+    margin: 0;
+    color: $text-muted;
+}
+
+#runner-main .runner-inline-row {
+    height: auto;
+    width: 100%;
+    margin: 0;
+}
+
+#runner-main .runner-col {
+    width: 1fr;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+#runner-main .runner-col:last-child {
+    margin-right: 0;
+}
+
+#runner-main #repo-row .runner-repo-url {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#runner-main #repo-row .runner-repo-branch {
+    width: 18;
+    min-width: 12;
+    max-width: 24;
 }
 
 #runner-main Input,
 #runner-main Select {
     margin: 0 0 0 0;
     width: 100%;
+    height: 3;
 }
 
 #runner-main TextArea {
-    margin: 0 0 1 0;
-    height: 8;
+    margin: 0;
+    height: 5;
+    min-height: 3;
     width: 100%;
 }
 
 #runner-main TextArea.runner-setup {
-    height: 5;
+    height: 3;
+    min-height: 2;
 }
 
 #runner-main SelectionList,
 #models-select {
     height: 1fr;
-    min-height: 8;
-    max-height: 20;
-    margin: 0 0 1 0;
+    min-height: 4;
+    max-height: 16;
+    margin: 0;
     width: 100%;
     border: solid $primary-lighten-2;
+}
+
+#runner-models-tip {
+    margin: 0;
+    height: auto;
 }
 
 /* Action bar above Footer (not dock:bottom — avoids clipping under Footer). */
 #runner-toolbar {
     height: auto;
-    min-height: 3;
+    min-height: 1;
     width: 100%;
-    margin: 1 0 0 0;
-    padding: 1 2 1 2;
+    margin: 0;
+    padding: 0 1;
     background: $surface-darken-1;
     border-top: solid $primary-lighten-2;
     align: left middle;
@@ -643,20 +686,20 @@ SelectOverlay:focus > .option-list--option-highlighted {
 #runner-toolbar-primary {
     width: auto;
     height: auto;
-    min-height: 3;
+    min-height: 1;
     align: left middle;
 }
 
 #runner-toolbar Button {
     margin-right: 1;
-    min-width: 10;
+    min-width: 8;
 }
 
 #runner-toolbar-hint {
     width: 1fr;
     height: auto;
     margin: 0 0 0 1;
-    padding: 0 1;
+    padding: 0;
     color: $text-muted;
     content-align: left middle;
 }
@@ -664,13 +707,28 @@ SelectOverlay:focus > .option-list--option-highlighted {
 #runner-status-panel {
     height: auto;
     max-height: 12;
-    padding: 1 1 0 0;
+    padding: 0 1 0 0;
     border-top: solid $primary-background;
 }
 
 #run-mcp-search {
     width: 100%;
-    margin-bottom: 1;
+    margin: 0;
+}
+
+#persona-row {
+    height: auto;
+    width: 100%;
+}
+
+#persona-row Select {
+    width: 1fr;
+}
+
+#persona-row .runner-inline-btn {
+    width: auto;
+    min-width: 6;
+    margin-left: 1;
 }
 
 #run-caps-actions {
@@ -902,50 +960,68 @@ PersonaEditorModal {
 
 #pe-hint {
     height: auto;
-    margin: 0 0 1 0;
+    margin: 0;
     color: $text-muted;
 }
 
 #pe-tabs {
     height: 1fr;
-    min-height: 12;
+    min-height: 8;
 }
 
 #persona-editor-shell .pe-pane {
     height: 1fr;
-    padding: 0 1 1 0;
+    padding: 0 1 0 0;
 }
 
 #persona-editor-shell Label {
-    margin: 1 0 0 0;
+    margin: 0;
+    height: 1;
     text-style: bold;
 }
 
 #persona-editor-shell .pe-field-hint {
     height: auto;
-    margin: 0 0 0 0;
+    margin: 0;
     color: $text-muted;
 }
 
 #persona-editor-shell Input,
 #persona-editor-shell Select {
-    margin: 0 0 0 0;
+    margin: 0;
     width: 100%;
+    height: 3;
 }
 
 #persona-editor-shell TextArea {
-    margin: 0 0 1 0;
-    height: 5;
+    margin: 0;
+    height: 4;
+    min-height: 3;
     width: 100%;
 }
 
 #persona-editor-shell TextArea.pe-medium {
-    height: 7;
+    height: 5;
 }
 
 #persona-editor-shell TextArea.pe-tall {
-    height: 14;
-    min-height: 8;
+    height: 1fr;
+    min-height: 5;
+}
+
+#persona-editor-shell .pe-inline-row {
+    height: auto;
+    width: 100%;
+}
+
+#persona-editor-shell .pe-inline-row > Vertical {
+    width: 1fr;
+    height: auto;
+    margin-right: 1;
+}
+
+#persona-editor-shell .pe-inline-row > Vertical:last-child {
+    margin-right: 0;
 }
 
 #persona-editor-shell .pe-switch-row {
