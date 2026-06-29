@@ -67,6 +67,24 @@ Before **any** commit from an agent session:
 Do not leave related edits unstaged after claiming work is done. Re-run tests
 after the final diff for that commit — not only “earlier in the session.”
 
+### No speculative fallbacks
+
+**Implement one clear path** for a behaviour (one install method, one I/O
+client, one ownership fix, one config source of truth). Do **not** add
+secondary branches “just in case” (e.g. copy trees if CLI install fails,
+``subprocess`` Docker beside python-on-whales, write effort both in TOML and
+on the CLI, chown on every peek *and* at exit).
+
+**Fallbacks are allowed only when environments truly diverge** and the product
+must run on more than one concrete platform or tool surface — for example
+``os.getuid()`` missing on Windows, or two documented install sources (PyPI vs
+git) that the user chooses explicitly. State the divergence in a short positive
+comment (what each path is for), not “fallback if X fails.”
+
+If a single path is wrong, **fix that path** (as with marketplace plugin
+install: clone + ``grok plugin install --trust <local-dir>``) rather than
+stacking alternatives.
+
 ---
 
 ## 3. Architecture
