@@ -131,6 +131,7 @@ class RunnerScreen(ChromeActions):
             self._run_plugins_ids = []
             self._run_env_vars = {}
         self._pending_model_skips: list[str] | None = None
+        self._clean_snapshot: tuple[object, ...] | None = None
 
     @property
     def run_manager(self) -> RunManager:
@@ -351,6 +352,10 @@ class RunnerScreen(ChromeActions):
         self.call_after_refresh(self._restore_run_state)
         self.call_after_refresh(
             lambda: self.call_after_refresh(lambda: self._activate_runner_tab("runner-tab-recipe"))
+        )
+        # After models / persona widgets settle — baseline for Esc discard.
+        self.call_after_refresh(
+            lambda: self.call_after_refresh(self._capture_clean_snapshot)
         )
 
     def _persona_obj(self):
@@ -953,6 +958,7 @@ class RunnerScreen(ChromeActions):
                         + extra,
                         severity="information",
                     )
+                    self._mark_form_clean()
                     return
             cfg = store.create(
                 prompt=prompt,
@@ -979,6 +985,7 @@ class RunnerScreen(ChromeActions):
                 severity="information",
                 timeout=8,
             )
+            self._mark_form_clean()
         except Exception as exc:
             self.notify(f"{t('ui-save-failed')}{exc}", severity="error")
 
@@ -1278,7 +1285,65 @@ class RunnerScreen(ChromeActions):
     def _upsert_status_row(self, table: DataTable, status: ContainerStatus) -> None:
         _ = table, status
 
-    def _leave_screen(self) -> None:
+    def _form_snapshot(self) -> tuple[object, ...]:
+        """Serializable form fields for dirty detection (no model validation)."""
+        with suppress(Exception):
+            prompt = self.query_one("#prompt-input", TextArea).text
+            setup = self.query_one("#setup-input", TextArea).text
+            name = self.query_one("#config-name-input", Input).value
+            repo_url = self.query_one("#repo-url-input", Input).value
+            repo_branch = self.query_one("#repo-branch-input", Input).value
+            try:
+                docker = select_value_str(
+                    self.query_one("#docker-image-select", Select).value,
+                    default=DEFAULT_DOCKER_IMAGE,
+                )
+            except Exception:
+                docker = DEFAULT_DOCKER_IMAGE
+            try:
+                models = tuple(
+                    selection_list_selected_ids(self.query_one("#models-select", SelectionList))
+                )
+            except Exception:
+                models = ()
+            try:
+                interactive = bool(self.query_one("#interactive-multi-turn", Checkbox).value)
+            except Exception:
+                interactive = False
+            persona = self._persona_id_from_form()
+            run_mcp = tuple(self._run_mcp_ids or [])
+            run_skills = tuple(self._run_skills_ids or [])
+            run_plugins = tuple(self._run_plugins_ids or [])
+            run_env = tuple(sorted((self._run_env_vars or {}).items()))
+            return (
+                name,
+                prompt,
+                setup,
+                docker,
+                repo_url,
+                repo_branch,
+                models,
+                interactive,
+                persona,
+                run_mcp,
+                run_skills,
+                run_plugins,
+                run_env,
+            )
+        return ()
+
+    def _capture_clean_snapshot(self) -> None:
+        self._clean_snapshot = self._form_snapshot()
+
+    def _mark_form_clean(self) -> None:
+        self._capture_clean_snapshot()
+
+    def form_is_dirty(self) -> bool:
+        if self._clean_snapshot is None:
+            return False
+        return self._form_snapshot() != self._clean_snapshot
+
+    def _finish_leave(self) -> None:
         n = self.run_manager.active_count
         if n:
             self.notify(
@@ -1286,4 +1351,4 @@ class RunnerScreen(ChromeActions):
                 severity="information",
                 timeout=6,
             )
-        super()._leave_screen()
+        super()._finish_leave()

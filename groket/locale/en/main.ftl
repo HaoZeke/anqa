@@ -761,6 +761,14 @@ rules-list-refreshed = Rules list refreshed
 
 rules-title = Rules
 
+discard-unsaved-title = Discard unsaved changes?
+
+discard-unsaved-body = Leave this form and lose your edits?
+
+ui-discard = Discard
+
+ui-keep-editing = Keep editing
+
 runner = Runner
 
 runner-tab-extras = 3 Extras

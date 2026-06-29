@@ -200,9 +200,9 @@ def blur_focused_edit(screen: Screen) -> bool:
 class ChromeActions(Screen):
     """Base for screens using SCREEN_CHROME (Esc / help / refresh / jobs).
 
-    **Esc** is handled here for all subclasses: first press blurs a focused
-    Input / TextArea / Select; only then does :meth:`_leave_screen` run.
-    Override :meth:`_leave_screen` for custom leave behaviour (toasts, etc.),
+    **Esc** blurs a focused Input / TextArea / Select first; then, if
+    :meth:`form_is_dirty` is true, asks to discard edits; otherwise leaves.
+    Override :meth:`_finish_leave` for post-confirm side effects (toasts),
     not :meth:`action_go_back`, unless you re-call :func:`blur_focused_edit`.
     """
 
@@ -216,6 +216,10 @@ class ChromeActions(Screen):
         fn = getattr(self.app, "action_self_test", None)
         if callable(fn):
             fn()
+
+    def form_is_dirty(self) -> bool:
+        """True when leaving would lose uncommitted form edits (override on editors)."""
+        return False
 
     def action_go_back(self) -> None:
         """Esc: blur edit controls first; otherwise leave the screen."""
@@ -236,7 +240,20 @@ class ChromeActions(Screen):
         self._leave_screen()
 
     def _leave_screen(self) -> None:
-        """Pop this screen (override for custom leave side effects)."""
+        """Leave after optional discard confirmation when the form is dirty."""
+        if self.form_is_dirty():
+            from .confirm_modal import DiscardConfirmModal
+
+            def _done(discard: bool | None) -> None:
+                if discard:
+                    self._finish_leave()
+
+            self.app.push_screen(DiscardConfirmModal(), _done)
+            return
+        self._finish_leave()
+
+    def _finish_leave(self) -> None:
+        """Pop this screen (override for leave side effects after confirm)."""
         with suppress(Exception):
             if len(self.app.screen_stack) > 1:
                 self.app.pop_screen()
@@ -251,6 +268,17 @@ def open_jobs_on_app(screen: Screen) -> None:
 def dismiss_after_blur(screen: Screen, result: object = None) -> None:
     """Esc on modals: blur Input/TextArea/Select first, else ``dismiss(result)``."""
     if blur_focused_edit(screen):
+        return
+    dirty_fn = getattr(screen, "form_is_dirty", None)
+    if callable(dirty_fn) and dirty_fn():
+        from .confirm_modal import DiscardConfirmModal
+
+        def _done(discard: bool | None) -> None:
+            if discard:
+                with suppress(Exception):
+                    screen.dismiss(result)  # type: ignore[attr-defined]
+
+        screen.app.push_screen(DiscardConfirmModal(), _done)
         return
     with suppress(Exception):
         screen.dismiss(result)  # type: ignore[attr-defined]

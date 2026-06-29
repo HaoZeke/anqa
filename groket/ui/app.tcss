@@ -575,6 +575,32 @@ SelectOverlay:focus > .option-list--option-highlighted {
     padding: 0 2 0 2;
 }
 
+#discard-confirm-modal {
+    width: 56;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: thick $warning;
+}
+
+#discard-confirm-title {
+    margin: 0 0 1 0;
+}
+
+#discard-confirm-body {
+    margin: 0 0 1 0;
+    color: $text-muted;
+}
+
+#discard-confirm-actions {
+    height: auto;
+    align: left middle;
+}
+
+#discard-confirm-actions Button {
+    margin-right: 1;
+}
+
 #runner-title {
     height: 1;
     margin: 0;

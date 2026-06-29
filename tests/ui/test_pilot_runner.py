@@ -167,6 +167,44 @@ async def test_runner_tab_next_prev(tmp_path: Path) -> None:
         await pilot.pause()
 
 
+@pytest.mark.asyncio
+async def test_runner_esc_confirms_when_dirty(tmp_path: Path) -> None:
+    """Dirty form: leave asks to discard; keep stays; discard pops runner."""
+    from groket.ui.confirm_modal import DiscardConfirmModal
+
+    work = _make_work(tmp_path)
+    app = _Harness(work)
+    async with app.run_test(size=(140, 50)) as pilot:
+        scr = await _wait_runner(pilot, app)
+        await pilot.pause()
+        scr._capture_clean_snapshot()
+        assert scr.form_is_dirty() is False
+        scr.query_one("#prompt-input", TextArea).load_text("changed prompt")
+        await pilot.pause()
+        assert scr.form_is_dirty() is True
+        # Bypass blur-first Esc (focus may be on TextArea)
+        scr._leave_screen()
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, DiscardConfirmModal),
+            description="discard confirm shown",
+        )
+        app.screen.action_keep()
+        await wait_until(pilot, lambda: app.screen is scr, description="stayed on runner")
+        scr._leave_screen()
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, DiscardConfirmModal),
+            description="discard confirm again",
+        )
+        app.screen.action_discard()
+        await wait_until(
+            pilot,
+            lambda: app.screen is not scr,
+            description="runner left after discard",
+        )
+
+
 # ── Save config ──────────────────────────────────────────────────────────
 
 

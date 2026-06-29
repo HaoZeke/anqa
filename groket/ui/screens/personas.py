@@ -1081,6 +1081,7 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
         self._is_new = is_new or persona is None
         self._persona = persona or Persona(persona_id="", name="")
         self._mcp_definitions: list[dict] = list(self._persona.mcp_definitions or [])
+        self._clean_snapshot: tuple[object, ...] | None = None
 
     def compose(self) -> ComposeResult:
         p = self._persona
@@ -1273,6 +1274,74 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
     def action_tab_plugins(self) -> None:
         self._activate_pe_tab("pe-tab-plugins")
 
+    def on_mount(self) -> None:
+        self.call_after_refresh(self._capture_clean_snapshot)
+
+    def _pe_form_snapshot(self) -> tuple[object, ...]:
+        with suppress(Exception):
+            pid = self.query_one("#pe-id", Input).value
+            name = self.query_one("#pe-name", Input).value
+            desc = self.query_one("#pe-desc", Input).value
+            notes = self.query_one("#pe-notes", TextArea).text
+            try:
+                docker = str(self.query_one("#pe-docker", Select).value)
+            except Exception:
+                docker = ""
+            try:
+                gh_write = bool(self.query_one("#pe-gh-write", Checkbox).value)
+            except Exception:
+                gh_write = False
+            gh_token = self.query_one("#pe-gh-token", Input).value
+            gh_env = self.query_one("#pe-gh-token-env", Input).value
+            git_name = self.query_one("#pe-git-name", Input).value
+            git_email = self.query_one("#pe-git-email", Input).value
+            env_text = self.query_one("#pe-env", TextArea).text
+            try:
+                mcp_replace = bool(self.query_one("#pe-mcp-replace", Checkbox).value)
+            except Exception:
+                mcp_replace = True
+            mcp_ids = self.query_one("#pe-mcp-ids", TextArea).text
+            mcp_extra = self.query_one("#pe-mcp-extra", TextArea).text
+            skills = self.query_one("#pe-skills-ids", TextArea).text
+            skills_dis = self.query_one("#pe-skills-disabled", TextArea).text
+            plugins = self.query_one("#pe-plugins-ids", TextArea).text
+            mcp_defs = tuple(
+                sorted(
+                    (str(d.get("id") or ""), str(d.get("transport") or ""))
+                    for d in (self._mcp_definitions or [])
+                    if isinstance(d, dict)
+                )
+            )
+            return (
+                pid,
+                name,
+                desc,
+                notes,
+                docker,
+                gh_write,
+                gh_token,
+                gh_env,
+                git_name,
+                git_email,
+                env_text,
+                mcp_replace,
+                mcp_ids,
+                mcp_extra,
+                skills,
+                skills_dis,
+                plugins,
+                mcp_defs,
+            )
+        return ()
+
+    def _capture_clean_snapshot(self) -> None:
+        self._clean_snapshot = self._pe_form_snapshot()
+
+    def form_is_dirty(self) -> bool:
+        if self._clean_snapshot is None:
+            return False
+        return self._pe_form_snapshot() != self._clean_snapshot
+
     def action_cancel(self) -> None:
         from ..bindings import dismiss_after_blur
 
@@ -1283,7 +1352,9 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
 
     @on(Button.Pressed, "#pe-cancel")
     def _cancel_btn(self) -> None:
-        self.dismiss(None)
+        from ..bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
 
     @on(Button.Pressed, "#pe-save")
     def _save_btn(self) -> None:
