@@ -25,6 +25,7 @@ from .detectors import DetectorFunc, get_detector
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class RuleConfig:
     """A loaded rule definition from YAML."""
@@ -41,6 +42,7 @@ class RuleConfig:
     recommendation: str
     detector_func: DetectorFunc | None = None
 
+
 @dataclass
 class CompositeConfig:
     """A loaded composite rule definition from YAML."""
@@ -55,6 +57,7 @@ class CompositeConfig:
     root_cause: str = ""
     should_have: str = ""
 
+
 @dataclass
 class LoadedConfig:
     """The complete loaded configuration."""
@@ -62,7 +65,9 @@ class LoadedConfig:
     rules: dict[str, RuleConfig] = field(default_factory=dict)
     composites: list[CompositeConfig] = field(default_factory=list)
 
+
 _CONFIG: LoadedConfig | None = None
+
 
 def get_config() -> LoadedConfig:
     """Get the loaded config, loading from defaults if not yet loaded."""
@@ -71,11 +76,13 @@ def get_config() -> LoadedConfig:
         _CONFIG = load_config()
     return _CONFIG
 
+
 def reload_config() -> LoadedConfig:
     """Force reload of all config."""
     global _CONFIG
     _CONFIG = load_config()
     return _CONFIG
+
 
 def load_config() -> LoadedConfig:
     """Load detectors and rules from user dirs plus empty package stubs.
@@ -108,6 +115,7 @@ def load_config() -> LoadedConfig:
 
     return config
 
+
 def _load_rules_file(path: Path, config: LoadedConfig) -> None:
     """Load rules from a YAML file."""
     if not path.exists():
@@ -128,6 +136,7 @@ def _load_rules_file(path: Path, config: LoadedConfig) -> None:
         rule = _parse_rule(entry)
         config.rules[rule.rule_id] = rule
 
+
 def _load_composites_file(path: Path, config: LoadedConfig) -> None:
     """Load composites from a YAML file."""
     if not path.exists():
@@ -147,6 +156,7 @@ def _load_composites_file(path: Path, config: LoadedConfig) -> None:
             continue
         comp = _parse_composite(entry)
         config.composites.append(comp)
+
 
 def _load_override_file(path: Path, config: LoadedConfig) -> None:
     """Load a user override file that merges into existing config."""
@@ -202,6 +212,7 @@ def _load_override_file(path: Path, config: LoadedConfig) -> None:
         config.composites = [c for c in config.composites if c.composite_id != comp.composite_id]
         config.composites.append(comp)
 
+
 def _load_detector_modules(plugin_dir: Path) -> None:
     """Import ``*.py`` files that register detectors via ``@detector``."""
     for py_file in sorted(plugin_dir.glob("*.py")):
@@ -218,10 +229,12 @@ def _load_detector_modules(plugin_dir: Path) -> None:
         except Exception as e:
             logger.warning("Failed to load detector module %s: %s", py_file, e)
 
+
 def _yaml_mapping(raw: JsonValue | None) -> JsonObject:
     if isinstance(raw, dict):
         return {str(k): v for k, v in raw.items()}
     return {}
+
 
 def _parse_rule(entry: JsonObject) -> RuleConfig:
     """Parse a rule dict from YAML into a RuleConfig."""
@@ -240,6 +253,7 @@ def _parse_rule(entry: JsonObject) -> RuleConfig:
         detail_template=str(entry.get("detail", "")),
         recommendation=str(entry.get("recommendation", "")),
     )
+
 
 def _parse_composite(entry: JsonObject) -> CompositeConfig:
     """Parse a composite dict from YAML into a CompositeConfig."""

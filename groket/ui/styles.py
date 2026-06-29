@@ -26,11 +26,13 @@ SEVERITY_LABEL: dict[str, str] = {
     "low": "[yellow]Low[/]",
 }
 
+
 def finding_mark(severity: str) -> str:
     """Timeline / report glyph for an automated finding (⚠ + severity color)."""
     sev = (severity or "low").lower()
     style = SEVERITY_STYLE.get(sev, SEVERITY_STYLE["low"])
     return f"[{style}]⚠[/]"
+
 
 # Small palette by *role* (not a rainbow per label):
 #   white  = human input
@@ -125,6 +127,7 @@ TOOL_FAMILY_STYLE: dict[str, str] = {
 # Explicit overrides (optional); prefer families via tool_style().
 TOOL_STYLE: dict[str, str] = {}
 
+
 def tool_family(name: str) -> str:
     """Map a tool name to read | write | shell | agent | other."""
     n = (name or "").strip()
@@ -145,6 +148,7 @@ def tool_family(name: str) -> str:
     if any(k in low for k in ("run", "exec", "shell", "terminal", "wait", "kill")):
         return "shell"
     return "other"
+
 
 # Run / container lifecycle — one palette for tables, activity bar, labels.
 STATUS_RICH_STYLE: dict[str, str] = {
@@ -172,8 +176,10 @@ def status_rich_style(status: str) -> str:
     """Rich style for a container/run status name (``running``, ``failed``, …)."""
     return STATUS_RICH_STYLE.get((status or "").strip().lower(), STATUS_RICH_STYLE["idle"])
 
+
 SYNTAX_THEME_LIGHT = "friendly"
 SYNTAX_THEME_DARK = "monokai"
+
 
 def syntax_theme_for_app(app: App) -> str:
     """Pick a Syntax highlight theme matching the active Textual theme.
@@ -187,15 +193,18 @@ def syntax_theme_for_app(app: App) -> str:
             return SYNTAX_THEME_LIGHT
     return SYNTAX_THEME_DARK
 
+
 def severity_style(value: str) -> str:
     """Rich style string for a severity value (``"high"`` / ``"medium"`` / ``"low"``)."""
     return SEVERITY_STYLE.get(value, "white")
+
 
 def tool_style(name: str) -> str:
     """Rich style for a tool name (family palette, optional per-name override)."""
     if name and name in TOOL_STYLE:
         return TOOL_STYLE[name]
     return TOOL_FAMILY_STYLE.get(tool_family(name or ""), TOOL_FAMILY_STYLE["other"])
+
 
 def tool_label(name: str, *, max_len: int = 28) -> str:
     """Rich markup label for a tool name in tables."""

@@ -1210,9 +1210,7 @@ class TraceEvalApp(App):
                 timeout=10,
             )
         except Exception as exc:
-            call_ui(
-                self, self.notify, f"{t('ui-save-config-failed')} {exc}", severity="error"
-            )
+            call_ui(self, self.notify, f"{t('ui-save-config-failed')} {exc}", severity="error")
 
     def _toast(
         self,
@@ -1520,7 +1518,9 @@ class TraceEvalApp(App):
         except OSError:
             pass
         self.notify(
-            f"{t('ui-full-refresh-from')} {root} {t('ui-background')}", severity="warning", timeout=12
+            f"{t('ui-full-refresh-from')} {root} {t('ui-background')}",
+            severity="warning",
+            timeout=12,
         )
         self._run_refresh_everything(root)
 
@@ -1665,7 +1665,9 @@ class TraceEvalApp(App):
             n = self.run_manager.active_count
             batches = self._run_manager_batch_ids()
             if batches:
-                self.title = f"{t('ui-groket-batch')} {batches[0][:12]}… · {n} {t('ui-run-s-j-jobs')}"
+                self.title = (
+                    f"{t('ui-groket-batch')} {batches[0][:12]}… · {n} {t('ui-run-s-j-jobs')}"
+                )
             elif n:
                 cur = self.run_manager.latest()
                 rid = cur.run_id if cur else "?"
@@ -2140,7 +2142,9 @@ class TraceEvalApp(App):
             self.notify(f"{t('ui-nothing-to-refresh')} {root}", severity="warning")
             return
         self._update_session_paths_banner()
-        self.notify(f"{t('ui-refreshing-sessions-from')} {root}…", severity="information", timeout=4)
+        self.notify(
+            f"{t('ui-refreshing-sessions-from')} {root}…", severity="information", timeout=4
+        )
         self._load_sessions(root)
         try:
             self._populate_session_table()

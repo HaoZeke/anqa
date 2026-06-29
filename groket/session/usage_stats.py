@@ -39,6 +39,7 @@ _SKILL_DIR_RE = re.compile(
     re.IGNORECASE,
 )
 
+
 @dataclass
 class ToolUsageRow:
     name: str
@@ -57,6 +58,7 @@ class ToolUsageRow:
             return None
         return sum(self.durations) / len(self.durations)
 
+
 @dataclass
 class McpMethodUsage:
     """One MCP tool on a server (method part of server__method)."""
@@ -65,6 +67,7 @@ class McpMethodUsage:
     calls: int = 0
     errors: int = 0
     qualified_name: str = ""  # server__method when known
+
 
 @dataclass
 class McpServerUsage:
@@ -81,6 +84,7 @@ class McpServerUsage:
     def total_invocations(self) -> int:
         return self.use_tool_calls + len(self.search_queries)
 
+
 @dataclass
 class SkillUsageRow:
     skill_id: str
@@ -92,6 +96,7 @@ class SkillUsageRow:
     @property
     def engaged(self) -> bool:
         return self.skill_md_reads > 0 or self.name_in_transcript
+
 
 @dataclass
 class SessionUsageStats:
@@ -123,6 +128,7 @@ class SessionUsageStats:
     def tool_error_total(self) -> int:
         return sum(t.errors for t in self.tools)
 
+
 def _load_json(path: Path) -> JsonObject:
     try:
         with open(path) as f:
@@ -131,6 +137,7 @@ def _load_json(path: Path) -> JsonObject:
     except (OSError, json.JSONDecodeError, TypeError):
         return {}
 
+
 def _find_run_parent(session_dir: Path) -> Path | None:
     for anc in [session_dir, *session_dir.parents]:
         if is_run_dir_name(anc.name):
@@ -138,6 +145,7 @@ def _find_run_parent(session_dir: Path) -> Path | None:
         if anc.name == "traces":
             break
     return None
+
 
 def _load_run_manifest(session_dir: Path) -> JsonObject:
     run_json = session_dir / "run.json"
@@ -156,6 +164,7 @@ def _load_run_manifest(session_dir: Path) -> JsonObject:
             break
     return {}
 
+
 def _skills_from_skills_dir(session_dir: Path) -> list[str]:
     parent = _find_run_parent(session_dir)
     if parent is None:
@@ -171,6 +180,7 @@ def _skills_from_skills_dir(session_dir: Path) -> list[str]:
     except OSError:
         pass
     return names
+
 
 def _parse_config_toml_caps(session_dir: Path) -> tuple[list[str], list[str]]:
     mcp: list[str] = []
@@ -205,6 +215,7 @@ def _parse_config_toml_caps(session_dir: Path) -> tuple[list[str], list[str]]:
             break
     return mcp, skills_disabled
 
+
 def _split_mcp_qualified(name: str) -> tuple[str, str]:
     """``ascii-art__get_ascii_art`` → (``ascii-art``, ``get_ascii_art``)."""
     s = (name or "").strip()
@@ -214,6 +225,7 @@ def _split_mcp_qualified(name: str) -> tuple[str, str]:
     if s.startswith("mcp_"):
         return "mcp", s[4:] or s
     return "", s
+
 
 def _mcp_target_from_input(tool_name: str, raw_input: ToolInput) -> tuple[str, str, str]:
     """Return ``(server_id, method_or_label, kind)`` with kind in use|search|unknown."""
@@ -234,6 +246,7 @@ def _mcp_target_from_input(tool_name: str, raw_input: ToolInput) -> tuple[str, s
             return server, qs[:80], "search"
     return "", "", "unknown"
 
+
 def _skill_id_from_path(path: str) -> str:
     if not path:
         return ""
@@ -245,6 +258,7 @@ def _skill_id_from_path(path: str) -> str:
         return m2.group(1).strip()
     return ""
 
+
 def _path_from_raw_input(raw_input: ToolInput) -> str:
     bag = ToolInputBag.ensure(raw_input)
     for key in ("target_file", "file_path", "path"):
@@ -252,6 +266,7 @@ def _path_from_raw_input(raw_input: ToolInput) -> str:
         if val:
             return val
     return ""
+
 
 def _infer_mcp_from_skill_id(skill_id: str, mcp_configured: list[str]) -> list[str]:
     """Best-effort: use-ascii-art-mcp → ascii-art if that server is configured."""
@@ -276,6 +291,7 @@ def _infer_mcp_from_skill_id(skill_id: str, mcp_configured: list[str]) -> list[s
             out.append(r)
     return out
 
+
 def _categorize_tool(name: str) -> str:
     if name in _MCP_BRIDGE_TOOLS:
         return "mcp_bridge"
@@ -283,12 +299,14 @@ def _categorize_tool(name: str) -> str:
         return "mcp"
     return "builtin"
 
+
 def _name_in_transcript(skill_id: str, hay: str) -> bool:
     token = (skill_id or "").strip()
     if not token or len(token) < 3:
         return False
     needles = [token.lower(), f"skill {token.lower()}", f"/{token.lower()}/"]
     return any(n in hay for n in needles)
+
 
 def collect_session_usage(
     session_dir: Path | str,
@@ -528,6 +546,7 @@ def collect_session_usage(
 
     return stats
 
+
 def _fmt_host_tools_md(usage: SessionUsageStats) -> list[str]:
     lines = ["", "## Host tools", ""]
     lines.append(
@@ -555,6 +574,7 @@ def _fmt_host_tools_md(usage: SessionUsageStats) -> list[str]:
             f"`search_tool`/`use_tool` — see MCP section"
         )
     return lines
+
 
 def _fmt_mcp_md(usage: SessionUsageStats) -> list[str]:
     lines = ["", "## MCP (by server)", ""]
@@ -584,6 +604,7 @@ def _fmt_mcp_md(usage: SessionUsageStats) -> list[str]:
                 lines.append(f"  - … +{len(srv.search_queries) - 8} more")
         lines.append("")
     return lines
+
 
 def _fmt_skills_md(usage: SessionUsageStats) -> list[str]:
     lines = ["", "## Skills", ""]
@@ -624,6 +645,7 @@ def _fmt_skills_md(usage: SessionUsageStats) -> list[str]:
         for s in usage.skills_disabled:
             lines.append(f"- `{s}`")
     return lines
+
 
 def format_usage_plain(usage: SessionUsageStats) -> str:
     """Plain sections for the calm Summary tab (theme-native, no Markdown)."""
@@ -694,6 +716,7 @@ def format_usage_plain(usage: SessionUsageStats) -> str:
         lines += ["", f"  sources: {', '.join(usage.source_notes)}"]
     return "\n".join(lines)
 
+
 def format_usage_markdown(usage: SessionUsageStats) -> str:
     """Markdown sections for the Summary tab."""
     lines: list[str] = []
@@ -705,6 +728,7 @@ def format_usage_markdown(usage: SessionUsageStats) -> str:
     if usage.source_notes:
         lines += ["", f"_Sources: {'; '.join(usage.source_notes)}_"]
     return "\n".join(lines)
+
 
 def format_usage_stats_text(usage: SessionUsageStats, *, fmt_dur=None) -> str:
     """Plain-text usage block (capabilities + MCP/skills; host tools stay in the table)."""
@@ -777,6 +801,7 @@ def format_usage_stats_text(usage: SessionUsageStats, *, fmt_dur=None) -> str:
         out.append("  Disabled: " + ", ".join(usage.skills_disabled))
 
     return "\n".join(out) + "\n"
+
 
 def tool_category_label(category: str) -> str:
     return {

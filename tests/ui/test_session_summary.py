@@ -86,7 +86,10 @@ class TestBuildSessionSummary:
         summary = build_session_summary(meta, [])
         assert isinstance(summary, str)
         assert len(summary) > 0
-        assert "empty" in rich_plain(render_session_summary(meta, [])).lower() or len(rich_plain(render_session_summary(meta, []))) > 0
+        assert (
+            "empty" in rich_plain(render_session_summary(meta, [])).lower()
+            or len(rich_plain(render_session_summary(meta, []))) > 0
+        )
 
     def test_multi_turn_section(self, session_dir):
         meta = SessionMeta(
@@ -344,7 +347,12 @@ class TestSessionSummaryShareDisplay:
         )
         result = build_session_summary(meta, [])
         assert "share" in result.lower() or "pending" in result.lower() or len(result) > 0
-        assert "share-pend" in result or "Share" in result or "pending" in result.lower() or "share" in result.lower()
+        assert (
+            "share-pend" in result
+            or "Share" in result
+            or "pending" in result.lower()
+            or "share" in result.lower()
+        )
 
     def test_share_failed(self, session_dir):
         """Failed share state is represented in the summary."""
@@ -420,4 +428,9 @@ class TestSessionSummaryShareSection:
             turn_outcome="success",
         )
         result = build_session_summary(meta, [])
-        assert "error" in result.lower() or "share" in result.lower() or "fail" in result.lower() or "no messages" in result.lower()
+        assert (
+            "error" in result.lower()
+            or "share" in result.lower()
+            or "fail" in result.lower()
+            or "no messages" in result.lower()
+        )

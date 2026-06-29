@@ -63,9 +63,7 @@ def assert_rich_contains(
     if missing:
         preview = text if len(text) < 800 else text[:800] + "…"
         detail = msg or "renderable plain text"
-        raise AssertionError(
-            f"{detail}: missing {missing!r} in displayed text:\n{preview!r}"
-        )
+        raise AssertionError(f"{detail}: missing {missing!r} in displayed text:\n{preview!r}")
     return text
 
 
@@ -75,9 +73,7 @@ def assert_static_contains(widget: Static, *needles: str, msg: str = "") -> str:
     missing = [n for n in needles if n not in text]
     if missing:
         detail = msg or f"#{getattr(widget, 'id', '?')}"
-        raise AssertionError(
-            f"{detail}: missing {missing!r} in displayed text:\n{text!r}"
-        )
+        raise AssertionError(f"{detail}: missing {missing!r} in displayed text:\n{text!r}")
     return text
 
 

@@ -125,7 +125,6 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_delete_sessions", U.cmd_delete_sessions()),
                 ("action_follow_up_sessions", U.cmd_next_prompt()),
                 ("action_mark_sessions_done", U.cmd_end_session()),
-
                 ("action_analyze", U.cmd_analyze()),
                 ("action_analysis_settings", U.cmd_analysis_settings()),
             ):

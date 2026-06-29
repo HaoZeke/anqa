@@ -49,5 +49,3 @@ def match_to_finding(
         update_indices=[tc.update_index for tc in match.tool_calls],
         extras={},
     )
-
-

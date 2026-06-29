@@ -1561,7 +1561,6 @@ class PersonasScreen(ChromeActions):
         )
         self._reload_table()
 
-
     def action_refresh_context(self) -> None:
         self._reload_table()
         self.notify(U.personas_refreshed(), timeout=2)

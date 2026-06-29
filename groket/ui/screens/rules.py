@@ -115,4 +115,3 @@ class RulesScreen(ChromeActions):
         except Exception:
             logger.debug(t("ui-failed-to-refresh-rules-table"), exc_info=True)
         self.notify(U.rules_list_refreshed(), severity="information", timeout=3)
-

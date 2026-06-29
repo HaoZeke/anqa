@@ -156,9 +156,7 @@ def test_active_count_uses_docker_when_no_in_process_runs(rm: RunManager) -> Non
     # In-process runs take precedence over Docker scan.
     ev = EvalRun(run_id="r1", prompt="p", status="running")
     with rm._lock:
-        rm._active["r1"] = BackgroundRun(
-            run_id="r1", eval_run=ev, configs=[FakeContainerConfig()]
-        )
+        rm._active["r1"] = BackgroundRun(run_id="r1", eval_run=ev, configs=[FakeContainerConfig()])
     assert rm.active_count == 1
 
 
@@ -271,9 +269,7 @@ def test_start_run_model_effort_container_names_have_no_colon(
 
     monkeypatch.setattr(rm_mod, "ContainerConfig", FakeContainerConfig)
     monkeypatch.setattr(rm_mod, "DockerOrchestrator", FakeOrchestrator)
-    monkeypatch.setattr(
-        rm_mod, "validate_models_for_launch", lambda models: (list(models), [])
-    )
+    monkeypatch.setattr(rm_mod, "validate_models_for_launch", lambda models: (list(models), []))
     auth = tmp_path / "auth.json"
     auth.write_text("{}", encoding="utf-8")
     grok_cfg = tmp_path / "config.toml"

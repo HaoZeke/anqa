@@ -87,8 +87,14 @@ async def test_run_configs_mounts_empty(tmp_path: Path) -> None:
         assert table.row_count == 0
         detail = scr.query_one("#rc-detail", Static)
         from .pilot_helpers import static_plain
+
         text = static_plain(detail)
-        assert text.strip() == "" or "config" in text.lower() or "select" in text.lower() or "no " in text.lower()
+        assert (
+            text.strip() == ""
+            or "config" in text.lower()
+            or "select" in text.lower()
+            or "no " in text.lower()
+        )
 
 
 @pytest.mark.asyncio

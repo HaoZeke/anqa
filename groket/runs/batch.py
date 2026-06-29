@@ -22,10 +22,12 @@ logger = logging.getLogger(__name__)
 
 # Lazy docker imports: model catalog helpers must work without python_on_whales.
 
+
 def _docker_types():
     from ..docker.orchestrator import ContainerConfig, DockerOrchestrator
 
     return ContainerConfig, DockerOrchestrator
+
 
 # Fallback only when ~/.grok/models_cache.json is missing (prefer live catalog).
 MODELS = [
@@ -49,6 +51,7 @@ _GROK_MODELS_CACHE = Path.home() / ".grok" / "models_cache.json"
 REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_REASONING_EFFORT = "xhigh"
 
+
 def split_model_effort(token: str) -> tuple[str, str]:
     """Split ``model`` or ``model:effort`` into ``(model_id, effort)``."""
     raw = (token or "").strip()
@@ -62,11 +65,13 @@ def split_model_effort(token: str) -> tuple[str, str]:
             return model_s, effort_l
     return raw, ""
 
+
 def join_model_effort(model: str, effort: str = "") -> str:
     """Format a model token, appending ``:effort`` when *effort* is set."""
     mid = (model or "").strip()
     eff = (effort or "").strip().lower()
     return f"{mid}:{eff}" if mid and eff in REASONING_EFFORTS else mid
+
 
 def normalize_reasoning_effort(effort: str | None, *, default: str = "") -> str:
     """Return a known effort level, or *default* (may be empty)."""
@@ -75,6 +80,7 @@ def normalize_reasoning_effort(effort: str | None, *, default: str = "") -> str:
         return eff
     d = (default or "").strip().lower()
     return d if d in REASONING_EFFORTS else (default or "")
+
 
 def _read_models_cache() -> dict:
     """Raw ``~/.grok/models_cache.json`` (same source ``grok models`` uses)."""
@@ -86,16 +92,19 @@ def _read_models_cache() -> dict:
     except Exception:
         return {}
 
+
 def _models_block(data: dict | None = None) -> dict:
     data = data if data is not None else _read_models_cache()
     block = data.get("models") if isinstance(data, dict) else None
     return block if isinstance(block, dict) else {}
+
 
 def _entry_info(entry: JsonObject | str) -> JsonObject:
     if not isinstance(entry, dict):
         return {}
     info = entry.get("info") if isinstance(entry.get("info"), dict) else entry
     return info if isinstance(info, dict) else {}
+
 
 def active_model_catalog() -> dict[str, dict]:
     """Active models from cache: canonical_id → {id, name, aliases}.
@@ -126,6 +135,7 @@ def active_model_catalog() -> dict[str, dict]:
         rec["aliases"] = sorted(rec["aliases"])
     return out
 
+
 def active_model_ids() -> list[str]:
     """Canonical model ids currently available (order from models_cache.json)."""
     block = _models_block()
@@ -141,12 +151,14 @@ def active_model_ids() -> list[str]:
             ids.append(mid)
     return ids if ids else list(MODELS)
 
+
 def models_catalog_help_text() -> str:
     """Short hint for Runner UI: active models from cache."""
     ids = active_model_ids()
     if not ids:
         return "no models_cache.json — run `grok models` once on the host"
     return "active: " + ", ".join(ids)
+
 
 def _read_user_models_yaml() -> list[str] | None:
     """Optional preferred model tokens from ``~/.groket/models.yaml`` (not a hard override)."""
@@ -161,6 +173,7 @@ def _read_user_models_yaml() -> list[str] | None:
     except Exception:
         pass
     return None
+
 
 def load_models() -> list[str]:
     """Active models from ``~/.grok/models_cache.json`` (same as ``grok models``).
@@ -191,12 +204,14 @@ def load_models() -> list[str]:
             seen.add(mid)
     return ordered if ordered else live
 
+
 # Static aliases only applied when the target still exists in the live catalog.
 _MODEL_ALIASES: dict[str, str] = {
     "pizzaparty": "v9-pizzaparty",
     "dietcoke": "v9-dietcoke",
     "btnb": "v9",  # may fail active check if bare v9 is gone
 }
+
 
 def _catalog_lookup(raw: str) -> str | None:
     """Map user input to a canonical active model id, or None if not in catalog."""
@@ -219,6 +234,7 @@ def _catalog_lookup(raw: str) -> str | None:
         if name and name == low:
             return mid
     return None
+
 
 def default_model_id() -> str:
     """Default model: config.toml [models].default if active, else first in catalog."""
@@ -244,6 +260,7 @@ def default_model_id() -> str:
         except Exception:
             pass
     return ids[0] if ids else "v9-pizzaparty"
+
 
 def resolve_model_id(model: str, *, require_active: bool = False) -> str:
     """Normalize a launch token to a canonical id, preserving ``:effort`` when set.
@@ -283,6 +300,7 @@ def resolve_model_id(model: str, *, require_active: bool = False) -> str:
         return ""
     return join_model_effort(raw, effort)
 
+
 def resolve_model_ids(models: list[str]) -> list[str]:
     """Resolve a list; preserve order, drop empties. Does not filter inactive."""
     out: list[str] = []
@@ -291,6 +309,7 @@ def resolve_model_ids(models: list[str]) -> list[str]:
         if r:
             out.append(r)
     return out
+
 
 def validate_models_for_launch(
     models: list[str],
@@ -326,11 +345,13 @@ def validate_models_for_launch(
 
     return active, skips
 
+
 AUTH_JSON = Path.home() / ".grok" / "auth.json"
 GROK_CONFIG = Path.home() / ".grok" / "config.toml"
 WORK_DIR = default_work_dir()
 
 # EvalTask dataclass
+
 
 @dataclass
 class EvalTask:
@@ -364,7 +385,9 @@ class EvalTask:
     def has_repo(self) -> bool:
         return bool((self.repo_url or "").strip())
 
+
 # Task loading
+
 
 def _task_setup_from_entry(entry: dict) -> str:
     """Accept setup_instructions or initial_commands (multiline YAML | / > supported)."""
@@ -377,6 +400,7 @@ def _task_setup_from_entry(entry: dict) -> str:
             return "\n".join(str(x) for x in val)
         return str(val)
     return ""
+
 
 def load_tasks(
     path: Path,
@@ -402,7 +426,9 @@ def load_tasks(
 
     return tasks
 
+
 # Helpers
+
 
 def model_suffix(model: str) -> str:
     """Return a short filesystem/Docker-safe label for a model (or ``model:effort``)."""
@@ -419,7 +445,9 @@ def model_suffix(model: str) -> str:
         return slug_text(f"{base}-{effort}", max_len=14, fallback="model")
     return slug_text(base, max_len=10, fallback="model")
 
+
 # Batch runner
+
 
 def _run_single_task(
     task: EvalTask,
@@ -541,6 +569,7 @@ def _run_single_task(
     ok = sum(1 for r in results if r["status"] == "completed")
     logger.info(f"{tag} FINISHED in {elapsed:.0f}s ({ok}/{len(results)} ok)")
     return results
+
 
 def run_batch(
     tasks: list[EvalTask],

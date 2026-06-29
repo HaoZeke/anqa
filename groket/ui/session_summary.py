@@ -108,7 +108,9 @@ def render_session_summary(
     if len(turns) > 1:
         strip_parts.append(f"{len(turns)} {t('ui-turns')}")
     if tool_errs or sess_errs:
-        strip_parts.append(f"{tool_errs} {t('ui-tool-errors')} {sess_errs} {t('ui-session-errors')}")
+        strip_parts.append(
+            f"{tool_errs} {t('ui-tool-errors')} {sess_errs} {t('ui-session-errors')}"
+        )
     head.append_text(meta_strip(strip_parts))
     blocks.append(head)
     blocks.append(dim_rule())

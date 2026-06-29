@@ -992,7 +992,9 @@ def test_validate_models_preserves_effort(monkeypatch):
     from groket.runs import batch as b
 
     monkeypatch.setattr(b, "active_model_ids", lambda: ["v9-zingster", "v9-restfulnight"])
-    monkeypatch.setattr(b, "_catalog_lookup", lambda raw: raw if raw in ("v9-zingster", "v9-restfulnight") else None)
+    monkeypatch.setattr(
+        b, "_catalog_lookup", lambda raw: raw if raw in ("v9-zingster", "v9-restfulnight") else None
+    )
     active, skips = b.validate_models_for_launch(["v9-zingster:xhigh", "v9-restfulnight:low"])
     assert active == ["v9-zingster:xhigh", "v9-restfulnight:low"]
     assert skips == []

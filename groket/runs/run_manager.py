@@ -39,6 +39,7 @@ StatusCallback = Callable[[ContainerStatus], None]
 LogCallback = Callable[[str, str], None]
 FinishedCallback = Callable[["BackgroundRun"], None]
 
+
 @dataclass
 class BackgroundRun:
     """State for one evaluation launch (may outlive the Runner screen / app)."""
@@ -80,6 +81,7 @@ class BackgroundRun:
         """Thread-safe capture; does not require a UI listener."""
         self.log_buffer.append(source, text)
         self.log_lines.append((source, text))
+
 
 class RunManager:
     """Owns orchestrator work on daemon threads; UI screens subscribe optionally.

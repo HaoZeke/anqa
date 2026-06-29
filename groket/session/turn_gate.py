@@ -182,8 +182,7 @@ def _write_queue(gate: Path, items: list[tuple[str, bool]]) -> None:
         return
     gate.mkdir(parents=True, exist_ok=True)
     body = "".join(
-        json.dumps({"prompt": p, "final": bool(fin)}, ensure_ascii=False) + "\n"
-        for p, fin in items
+        json.dumps({"prompt": p, "final": bool(fin)}, ensure_ascii=False) + "\n" for p, fin in items
     )
     qp.write_text(body, encoding="utf-8")
 
@@ -235,9 +234,7 @@ def _follow_up_already_staged(gate: Path) -> bool:
         return False
 
 
-def write_follow_up_for_session(
-    session_dir: Path, prompt: str, *, final: bool = False
-) -> str:
+def write_follow_up_for_session(session_dir: Path, prompt: str, *, final: bool = False) -> str:
     """Stage a follow-up for the entrypoint, or queue it if the gate is busy.
 
     When *final* is true, the entrypoint runs this turn then exits without

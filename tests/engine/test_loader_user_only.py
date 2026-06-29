@@ -22,4 +22,3 @@ def test_empty_user_dirs_no_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     cfg = reload_config()
     # Bundled assets are empty stubs — no package catalog.
     assert cfg.rules == {}
-

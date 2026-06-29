@@ -94,9 +94,7 @@ class ContainerConfig:
             self.container_name = f"groket-{safe_model}-{short_id}"
         else:
             # Docker + Textual ids reject ``:`` and other punctuation from model:effort.
-            self.container_name = slug_text(
-                self.container_name, max_len=128, fallback="groket-run"
-            )
+            self.container_name = slug_text(self.container_name, max_len=128, fallback="groket-run")
 
     def resolved_base(self):
         """Resolve :attr:`docker_image` to base image + profile (fully-loaded, …)."""

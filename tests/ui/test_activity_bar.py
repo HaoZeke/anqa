@@ -8,9 +8,7 @@ from groket.ui.widgets.activity_bar import activity_counters_from_app, build_act
 
 
 def test_build_activity_line_idle():
-    text = build_activity_line(
-        live_sessions=0, runs_active=0, analyze_active=0, sessions_loaded=5
-    )
+    text = build_activity_line(live_sessions=0, runs_active=0, analyze_active=0, sessions_loaded=5)
     plain = text.plain
     assert "Live" in plain
     assert "Runs" in plain
@@ -21,9 +19,7 @@ def test_build_activity_line_idle():
 def test_build_activity_line_busy():
     from groket.ui.styles import status_rich_style
 
-    text = build_activity_line(
-        live_sessions=3, runs_active=1, analyze_active=2, sessions_loaded=10
-    )
+    text = build_activity_line(live_sessions=3, runs_active=1, analyze_active=2, sessions_loaded=10)
     plain = text.plain
     assert "Live 3" in plain or "3" in plain
     assert "Runs 1" in plain or "Runs" in plain

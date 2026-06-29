@@ -43,8 +43,7 @@ def _turn_failure_finding(meta: SessionMeta) -> Finding | None:
         title=f"Turn ended with outcome={meta.turn_outcome}",
         detail=(
             "events.jsonl recorded turn_ended with a non-success outcome "
-            f"({meta.turn_outcome})."
-            + (f" Loops: {meta.loop_count}." if meta.loop_count else "")
+            f"({meta.turn_outcome})." + (f" Loops: {meta.loop_count}." if meta.loop_count else "")
         ),
     )
 

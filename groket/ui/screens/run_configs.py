@@ -436,7 +436,6 @@ class RunConfigsScreen(ChromeActions):
         self._update_selection_bar()
         self._show_detail_for_cursor()
 
-
     def action_new_blank(self) -> None:
         self.app.pop_screen()
         self.app.push_screen(RunnerScreen(self.work_dir, run_manager=self.run_manager))

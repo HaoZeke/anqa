@@ -259,7 +259,9 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
         # Labels resolve (not Fluent message ids) and paths are the live roots.
         assert "Traces" in expected
         assert str(app._session_traces_root()) in expected
-        assert app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
+        assert (
+            app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
+        )
 
 
 @pytest.mark.asyncio
@@ -345,8 +347,6 @@ async def test_cycle_model_filter_empty(tmp_path: Path) -> None:
         assert app._filter_model == ""
 
 
-
-
 @pytest.mark.asyncio
 async def test_model_filter_select_changed(tmp_path: Path) -> None:
     """Changing model Select widget directly triggers filter update."""
@@ -361,7 +361,6 @@ async def test_model_filter_select_changed(tmp_path: Path) -> None:
         await pilot.pause()
         assert app._filter_model == "alpha"
         assert table.row_count == 2
-
 
 
 @pytest.mark.asyncio
@@ -1316,7 +1315,9 @@ async def test_session_paths_banner_is_label_only(tmp_path: Path) -> None:
         expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
         assert banner.content == expected
         assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
-        assert app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
+        assert (
+            app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
+        )
 
 
 @pytest.mark.asyncio
