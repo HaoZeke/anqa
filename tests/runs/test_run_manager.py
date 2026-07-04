@@ -49,6 +49,7 @@ class FakeContainerConfig:
     mcp_extra_toml: str = ""
     skills: list = field(default_factory=list)
     skills_disabled: list = field(default_factory=list)
+    inline_skills: list = field(default_factory=list)
     plugins: list = field(default_factory=list)
     persona_skills_dir: Path | None = None
     persona_plugins_dir: Path | None = None
@@ -158,6 +159,36 @@ def test_active_count_uses_docker_when_no_in_process_runs(rm: RunManager) -> Non
     with rm._lock:
         rm._active["r1"] = BackgroundRun(run_id="r1", eval_run=ev, configs=[FakeContainerConfig()])
     assert rm.active_count == 1
+
+
+def test_active_status_counts_by_phase(rm: RunManager) -> None:
+    """Activity bar phases come from per-container statuses on active launches."""
+    from groket.docker.orchestrator import ContainerStatus
+
+    assert rm.active_status_counts() == {}
+    ev = EvalRun(run_id="r-status", prompt="p", status="running")
+    bg = BackgroundRun(run_id="r-status", eval_run=ev, configs=[FakeContainerConfig()])
+    bg.statuses = {
+        "c1": ContainerStatus(container_name="c1", model="m", status="building"),
+        "c2": ContainerStatus(container_name="c2", model="m", status="running"),
+        "c3": ContainerStatus(container_name="c3", model="m", status="completed"),
+    }
+    with rm._lock:
+        rm._active["r-status"] = bg
+    counts = rm.active_status_counts()
+    assert counts.get("building") == 1
+    assert counts.get("running") == 1
+    assert "completed" not in counts
+    # No statuses yet → pending per config.
+    bg2 = BackgroundRun(
+        run_id="r2",
+        eval_run=EvalRun(run_id="r2", prompt="p", status="running"),
+        configs=[FakeContainerConfig(), FakeContainerConfig()],
+    )
+    with rm._lock:
+        rm._active["r2"] = bg2
+    counts2 = rm.active_status_counts()
+    assert counts2.get("pending") == 2
 
 
 def test_manager_listeners_and_state(rm: RunManager):

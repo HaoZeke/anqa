@@ -11,7 +11,7 @@ from textual.widgets import SelectionList
 from ..docker.base_profiles import DEFAULT_DOCKER_IMAGE
 from ..runs.batch import active_model_ids, load_models
 from ..runs.personas import PersonaStore
-from .i18n import t
+from .i18n import join_ui, t
 
 DOCKER_IMAGE_OPTIONS: list[tuple[str, str]] = [
     (t("ui-fully-loaded-full-tools-share-loop"), "fully-loaded"),
@@ -21,7 +21,8 @@ DOCKER_IMAGE_OPTIONS: list[tuple[str, str]] = [
     (t("ui-ubuntu-24-04-raw-os-still-share-loop-via-entrypo"), "ubuntu:24.04"),
 ]
 BATCH_PARALLEL_OPTIONS: list[tuple[str, str]] = [
-    (f"{n} {t('ui-config-s-in-flight')}", str(n)) for n in (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32)
+    (join_ui(n, t("ui-config-s-in-flight")), str(n))
+    for n in (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32)
 ]
 PERSONA_NONE = "__none__"
 

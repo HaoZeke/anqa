@@ -50,6 +50,31 @@ def _slug(text: str, max_len: int = 40) -> str:
     return s or "config"
 
 
+def normalize_run_inline_skills(raw: object) -> list[JsonObject]:
+    """Normalize inline skills from disk, launch, or runner form.
+
+    Accepts:
+    - ``[{"id": "…", "content": "…"}, …]`` (persisted / save_from_launch)
+    - ``[("id", "content"), …]`` (runner / :class:`RunnerPrefill`)
+    """
+    out: list[JsonObject] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if isinstance(item, dict):
+            sid = str(item.get("id") or "").strip()
+            if not sid:
+                continue
+            out.append({"id": sid, "content": str(item.get("content") or "")})
+            continue
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            sid = str(item[0] or "").strip()
+            if not sid:
+                continue
+            out.append({"id": sid, "content": str(item[1] or "")})
+    return out
+
+
 @dataclass
 class RunConfig:
     """Reusable evaluation recipe (not a session outcome)."""
@@ -72,6 +97,8 @@ class RunConfig:
     run_plugins: list[str] = field(default_factory=list)
     # Env vars added only for this run (e.g. from MCP configure); not written to persona.
     run_env_vars: dict[str, str] = field(default_factory=dict)
+    # Run-only inline skills: {id, content} maps (SKILL.md body); merged at launch.
+    run_inline_skills: list[JsonObject] = field(default_factory=list)
     models: list[str] = field(default_factory=list)
     parallelism: int = 1
     notes: str = ""
@@ -114,7 +141,20 @@ class RunConfig:
         return (t[: n - 1] + "…") if len(t) > n else t
 
     def to_dict(self) -> JsonObject:
-        return asdict(self)
+        data = asdict(self)
+        # Always emit run extras explicitly so older recipes upgraded on save keep keys.
+        data["run_inline_skills"] = normalize_run_inline_skills(self.run_inline_skills)
+        data["run_env_vars"] = {str(k): str(v) for k, v in (self.run_env_vars or {}).items()}
+        data["run_mcp_servers"] = list(self.run_mcp_servers or [])
+        data["run_mcp_definitions"] = [
+            {str(k): v for k, v in d.items()}
+            for d in (self.run_mcp_definitions or [])
+            if isinstance(d, dict)
+        ]
+        data["run_skills"] = list(self.run_skills or [])
+        data["run_plugins"] = list(self.run_plugins or [])
+        data["persona_id"] = self.persona_id or ""
+        return data
 
     @classmethod
     def from_dict(cls, data: JsonObject) -> RunConfig:
@@ -133,6 +173,7 @@ class RunConfig:
             for item in defs_raw:
                 if isinstance(item, dict):
                     defs.append({str(k): v for k, v in item.items()})
+        inline = normalize_run_inline_skills(data.get("run_inline_skills"))
         return cls(
             config_id=json_as_str(data.get("config_id")),
             name=json_as_str(data.get("name")),
@@ -149,6 +190,7 @@ class RunConfig:
             run_skills=json_as_str_list(data.get("run_skills")),
             run_plugins=json_as_str_list(data.get("run_plugins")),
             run_env_vars=env_vars,
+            run_inline_skills=inline,
             parallelism=json_as_int(data.get("parallelism"), 1),
             notes=json_as_str(data.get("notes")),
             wave=json_as_int(data.get("wave"), 0),
@@ -167,6 +209,7 @@ class RunConfig:
     def to_runner_prefill(self, models_override: list[str] | None = None):
         from groket.ui.screens.runner import RunnerPrefill
 
+        inline = normalize_run_inline_skills(self.run_inline_skills)
         return RunnerPrefill(
             prompt=self.prompt,
             setup_instructions=self.setup_instructions,
@@ -180,6 +223,7 @@ class RunConfig:
             run_skills=list(self.run_skills),
             run_plugins=list(self.run_plugins),
             run_env_vars=dict(self.run_env_vars),
+            run_inline_skills=[(str(x["id"]), str(x.get("content") or "")) for x in inline],
         )
 
 
@@ -368,8 +412,19 @@ class RunConfigStore:
         run_skills: list[str] | None = None,
         run_plugins: list[str] | None = None,
         run_env_vars: dict | None = None,
+        run_inline_skills: list | None = None,
     ) -> RunConfig:
-        """Upsert a config when launching an eval (auto-save recipe)."""
+        """Upsert a config when launching an eval (auto-save recipe).
+
+        Always writes run extras (MCP / skills / plugins / env / inline skills)
+        when the caller passes them — including empty lists so clears persist.
+        Accepts inline skills as ``{id, content}`` maps or ``(id, content)`` pairs.
+        """
+        inline = (
+            normalize_run_inline_skills(run_inline_skills)
+            if run_inline_skills is not None
+            else None
+        )
         if update_existing_id:
             existing = self.get(update_existing_id)
             if existing:
@@ -379,17 +434,21 @@ class RunConfigStore:
                 existing.repo_url = repo_url
                 existing.repo_branch = repo_branch
                 existing.github_write = bool(github_write)
-                existing.persona_id = persona_id or existing.persona_id
+                existing.persona_id = persona_id if persona_id else existing.persona_id
                 if run_mcp_servers is not None:
                     existing.run_mcp_servers = list(run_mcp_servers)
                 if run_mcp_definitions is not None:
-                    existing.run_mcp_definitions = list(run_mcp_definitions)
+                    existing.run_mcp_definitions = [
+                        dict(x) for x in run_mcp_definitions if isinstance(x, dict)
+                    ]
                 if run_skills is not None:
                     existing.run_skills = list(run_skills)
                 if run_plugins is not None:
                     existing.run_plugins = list(run_plugins)
                 if run_env_vars is not None:
-                    existing.run_env_vars = dict(run_env_vars)
+                    existing.run_env_vars = {str(k): str(v) for k, v in dict(run_env_vars).items()}
+                if inline is not None:
+                    existing.run_inline_skills = list(inline)
                 existing.models = list(models)
                 existing.parallelism = parallelism
                 existing.source_run_id = run_id or existing.source_run_id
@@ -408,18 +467,15 @@ class RunConfigStore:
             source_run_id=run_id,
             github_write=bool(github_write),
         )
-        if persona_id:
-            cfg.persona_id = persona_id
-        if run_mcp_servers:
-            cfg.run_mcp_servers = list(run_mcp_servers)
-        if run_mcp_definitions:
-            cfg.run_mcp_definitions = list(run_mcp_definitions)
-        if run_skills:
-            cfg.run_skills = list(run_skills)
-        if run_plugins:
-            cfg.run_plugins = list(run_plugins)
-        if run_env_vars:
-            cfg.run_env_vars = dict(run_env_vars)
+        cfg.persona_id = persona_id or ""
+        cfg.run_mcp_servers = list(run_mcp_servers or [])
+        cfg.run_mcp_definitions = [
+            dict(x) for x in (run_mcp_definitions or []) if isinstance(x, dict)
+        ]
+        cfg.run_skills = list(run_skills or [])
+        cfg.run_plugins = list(run_plugins or [])
+        cfg.run_env_vars = {str(k): str(v) for k, v in dict(run_env_vars or {}).items()}
+        cfg.run_inline_skills = list(inline or [])
         cfg.last_launched_at = _utc_now_iso()
         cfg.launch_count = 1
         return self.save(cfg)

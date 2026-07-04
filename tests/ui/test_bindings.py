@@ -23,7 +23,6 @@ from groket.ui.bindings import (
     RUNNER,
     SCREEN_CHROME,
     SESSION_HOME_ACTIONS,
-    SESSION_SEARCH_MODAL,
     ChromeActions,
     focus_primary_list,
     open_jobs_on_app,
@@ -52,25 +51,26 @@ class TestBindingTuples:
             ("MODAL_DISMISS", MODAL_DISMISS),
             ("JOBS_MODAL", JOBS_MODAL),
             ("LIST_SELECT", LIST_SELECT),
-            ("SESSION_SEARCH_MODAL", SESSION_SEARCH_MODAL),
         ]:
             assert len(tup) > 0, f"{name} should not be empty"
 
     def test_footer_chrome_order_sessions_home(self) -> None:
-        """Help first among chrome; Quit last among shown bindings; no Refresh in footer."""
+        """Help first among chrome; Quit in global chrome; no Refresh in footer."""
         shown = _shown_actions(APP_SESSIONS)
         assert shown[0] == "show_help"
-        assert shown[-1] == "quit"
+        assert "quit" in shown
         assert "refresh_context" not in shown
         assert "open_session" in shown
         assert "open_runner" in shown
 
     def test_footer_chrome_order_pushed_screens(self) -> None:
-        """Pushed screens: Help then Back; no Quit; Refresh not in footer."""
+        """Pushed screens: Help then Back; Refresh not in footer (Quit is app-global)."""
         shown = _shown_actions(SCREEN_CHROME)
         assert shown[:2] == ["show_help", "go_back"]
-        assert "quit" not in shown
         assert "refresh_context" not in shown
+
+    def test_global_always_includes_quit(self) -> None:
+        assert "quit" in _shown_actions(GLOBAL_ALWAYS)
 
     def test_runner_footer_has_no_session_list_actions(self) -> None:
         shown = set(_shown_actions(RUNNER))
@@ -78,7 +78,6 @@ class TestBindingTuples:
             "open_session",
             "search_sessions",
             "open_runner",
-            "quit",
             "toggle_select",
         ):
             assert action not in shown
@@ -98,7 +97,7 @@ class TestBindingTuples:
         assert "ctrl+j" in launch[0].key
 
     def test_session_home_actions_covers_list_bindings(self) -> None:
-        assert "quit" in SESSION_HOME_ACTIONS
+        assert "quit" not in SESSION_HOME_ACTIONS  # global, not home-gated
         assert "open_runner" in SESSION_HOME_ACTIONS
         assert "open_session" in SESSION_HOME_ACTIONS
         assert "show_help" not in SESSION_HOME_ACTIONS
@@ -279,17 +278,22 @@ async def test_session_home_bindings_hidden_when_runner_pushed(tmp_path: Path) -
         app.push_screen(RunnerScreen(work, run_manager=app.run_manager))
         await pilot.pause()
         assert app._sessions_home_active() is False
-        for action in ("open_runner", "quit", "open_session", "search_sessions"):
+        for action in ("open_runner", "open_session", "search_sessions"):
             assert app.check_action(action, ()) is False
+        # Quit stays available on pushed screens.
+        assert app.check_action("quit", ()) is not False
         shown = {
             ab.binding.action
             for ab in app.screen.active_bindings.values()
             if ab.binding.show and ab.enabled
         }
-        for action in ("open_runner", "quit", "open_session", "search_sessions"):
+        for action in ("open_runner", "open_session", "search_sessions"):
             assert action not in shown
         # Focus may sit in a TextArea (consumes some keys); chrome still includes Back.
         assert "go_back" in shown
+        # Quit must remain actionable on pushed screens (footer may hide some keys).
+        assert app.check_action("quit", ()) is not False
+        assert hasattr(app.screen, "action_quit")
 
 
 @pytest.mark.asyncio

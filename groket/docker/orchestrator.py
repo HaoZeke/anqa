@@ -74,6 +74,8 @@ class ContainerConfig:
     mcp_extra_toml: str = ""
     skills: list[str] = field(default_factory=list)
     skills_disabled: list[str] = field(default_factory=list)
+    # Run-only SKILL.md packs: (skill_id, body text)
+    inline_skills: list[tuple[str, str]] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)
     env_vars: dict[str, str] = field(default_factory=dict)
     volumes: dict[str, str] = field(default_factory=dict)
@@ -465,6 +467,7 @@ class DockerOrchestrator:
                 stage_root / "skills",
                 persona,
                 work_dir=work,
+                inline_skills=list(config.inline_skills or []),
             )
             cfg_text = apply_persona_skills_to_config_toml(cfg_text, persona)
             prepare_persona_plugins_dir(

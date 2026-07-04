@@ -84,6 +84,7 @@ class TestRunConfigModel:
             "run_mcp_servers": ["srv"],
             "run_skills": ["sk"],
             "run_plugins": ["pl"],
+            "run_inline_skills": [{"id": "hint", "content": "---\nname: hint\n---\n"}],
             "parallelism": "2",
             "github_write": "yes",
         }
@@ -92,11 +93,13 @@ class TestRunConfigModel:
         assert cfg.parallelism == 2
         assert cfg.run_env_vars["A"] == "1"
         assert cfg.run_mcp_definitions[0]["id"] == "srv"
+        assert cfg.run_inline_skills[0]["id"] == "hint"
         d = cfg.to_dict()
         assert d["config_id"] == "c1"
         pre = cfg.to_runner_prefill(models_override=["m2"])
         assert pre.models == ["m2"]
         assert pre.prompt == "do it"
+        assert pre.run_inline_skills == [("hint", "---\nname: hint\n---\n")]
 
 
 class TestRunConfigStore:
@@ -142,9 +145,11 @@ class TestRunConfigStore:
             run_skills=["sk"],
             run_plugins=["pl"],
             run_env_vars={"K": "V"},
+            run_inline_skills=[{"id": "in1", "content": "body1"}],
         )
         assert created.launch_count == 1
         assert created.persona_id == "per"
+        assert created.run_inline_skills[0]["id"] == "in1"
         updated = store.save_from_launch(
             prompt="p2",
             setup_instructions="s2",
@@ -161,11 +166,51 @@ class TestRunConfigStore:
             run_skills=["sk2"],
             run_plugins=["pl2"],
             run_env_vars={"K2": "V2"},
+            run_inline_skills=[{"id": "in2", "content": "body2"}],
         )
         assert updated.config_id == created.config_id
         assert updated.prompt == "p2"
         assert updated.launch_count == 2
         assert updated.run_skills == ["sk2"]
+        assert updated.run_inline_skills[0]["id"] == "in2"
+
+    def test_inline_skills_persist_from_tuples_and_prefill(self, tmp_path: Path):
+        """Launch autosave accepts (id, body) tuples; reload restores for runner."""
+        from groket.runs.run_configs import normalize_run_inline_skills
+
+        assert normalize_run_inline_skills(
+            [("my-skill", "---\nname: my-skill\n---\n\n# Hi\n")]
+        ) == [{"id": "my-skill", "content": "---\nname: my-skill\n---\n\n# Hi\n"}]
+        store = rc.RunConfigStore(tmp_path)
+        created = store.save_from_launch(
+            prompt="p",
+            setup_instructions="",
+            docker_image="fully-loaded",
+            repo_url="",
+            repo_branch="",
+            models=["m1"],
+            parallelism=1,
+            run_id="r-inline",
+            run_inline_skills=[("hint", "body text")],
+            run_env_vars={"K": "V"},
+            run_plugins=["pl"],
+            run_skills=["sk"],
+            run_mcp_servers=["mcp1"],
+        )
+        raw = (store.root / f"{created.config_id}.json").read_text(encoding="utf-8")
+        assert "run_inline_skills" in raw
+        assert "hint" in raw
+        loaded = store.get(created.config_id)
+        assert loaded is not None
+        assert loaded.run_inline_skills == [{"id": "hint", "content": "body text"}]
+        assert loaded.run_env_vars == {"K": "V"}
+        assert loaded.run_plugins == ["pl"]
+        assert loaded.run_skills == ["sk"]
+        assert loaded.run_mcp_servers == ["mcp1"]
+        # Prefer not importing full TUI in unit test — exercise to_dict keys.
+        d = loaded.to_dict()
+        assert d["run_inline_skills"] == [{"id": "hint", "content": "body text"}]
+        assert d["run_env_vars"] == {"K": "V"}
 
     def test_paths_for_duplicate_and_get_fallback(self, tmp_path: Path):
         store = rc.RunConfigStore(tmp_path)

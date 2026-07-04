@@ -173,16 +173,52 @@ def skills_config_toml_fragment(*, skills_enabled: list[str], skills_disabled: l
     return "\n".join(lines)
 
 
+def write_inline_skills(dest: Path, inline: list[tuple[str, str]] | None) -> list[str]:
+    """Write one-off skill packs (``SKILL.md``) under *dest*; return skill ids written."""
+    if not inline:
+        return []
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    for name, body in inline:
+        sid = (name or "").strip()
+        sid = "".join(c if c.isalnum() or c in "-_" else "-" for c in sid).strip("-_")
+        if not sid:
+            continue
+        pack = dest / sid
+        try:
+            pack.mkdir(parents=True, exist_ok=True)
+            text = (body or "").strip()
+            if not text:
+                text = f"---\nname: {sid}\ndescription: Inline run skill\n---\n\n# {sid}\n"
+            (pack / "SKILL.md").write_text(
+                text + ("\n" if not text.endswith("\n") else ""), encoding="utf-8"
+            )
+            written.append(sid)
+        except OSError:
+            continue
+    return written
+
+
 def prepare_persona_skills_dir(
     dest: Path,
     persona: Persona | None,
     *,
     work_dir: Path | None = None,
+    inline_skills: list[tuple[str, str]] | None = None,
 ) -> Path | None:
-    if persona is None:
-        return None
-    names = [s.strip() for s in (persona.skills or []) if (s or "").strip()]
-    if not names:
+    """Stage skill packs for the eval container.
+
+    Copies named skills from the host catalog, then writes *inline_skills*
+    (``(id, SKILL.md body)``) for run-only packs.
+    """
+    names = [
+        s.strip()
+        for s in ((persona.skills or []) if persona is not None else [])
+        if (s or "").strip()
+    ]
+    inline = list(inline_skills or [])
+    if not names and not inline:
         return None
 
     dest = Path(dest)
@@ -202,7 +238,8 @@ def prepare_persona_skills_dir(
         except OSError:
             continue
 
-    if copied == 0:
+    written = write_inline_skills(dest, inline)
+    if copied == 0 and not written:
         try:
             dest.rmdir()
         except OSError:

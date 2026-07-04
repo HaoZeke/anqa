@@ -24,7 +24,7 @@ from pathlib import Path
 from ..capabilities import merge_capabilities
 from ..constants import LOG_BUFFER_MAXLEN, LOG_TAIL_MAXLEN, MAX_RUN_HISTORY
 from ..docker.orchestrator import ContainerConfig, ContainerStatus, DockerOrchestrator
-from ..models import EvalRun, JsonObject, json_as_mapping_list, json_as_str_list
+from ..models import EvalRun, JsonObject, JsonValue, json_as_mapping_list, json_as_str_list
 from ..session.models_catalog import split_model_effort
 from ..utils import slug_text
 from .batch import resolve_model_ids, validate_models_for_launch
@@ -195,6 +195,31 @@ class RunManager:
             return in_proc
         return self._docker_active_session_count()
 
+    def active_status_counts(self) -> dict[str, int]:
+        """Tally container lifecycle phases across in-flight launches.
+
+        Keys match :class:`~groket.docker.orchestrator.ContainerStatus` /
+        Jobs status column: ``pending``, ``building``, ``running``,
+        ``extracting``, plus any other status string seen. Terminal states
+        (``completed`` / ``failed``) are omitted. When a launch has no
+        status entries yet, each configured container counts as ``pending``.
+        """
+        out: dict[str, int] = {}
+        with self._lock:
+            active = [bg for bg in self._active.values() if bg.is_running]
+        for bg in active:
+            statuses = bg.statuses or {}
+            if statuses:
+                for st in statuses.values():
+                    key = (st.status or "pending").strip().lower() or "pending"
+                    if key in ("completed", "failed", "idle"):
+                        continue
+                    out[key] = out.get(key, 0) + 1
+            else:
+                n = len(bg.configs) if bg.configs else 1
+                out["pending"] = out.get("pending", 0) + n
+        return out
+
     def _docker_active_run_count(self) -> int:
         """Cached count of distinct ``groket-<run_id>-*`` launches still running."""
         import time
@@ -349,6 +374,7 @@ class RunManager:
         run_skills_disabled: list[str] | None = None,
         run_plugins: list[str] | None = None,
         run_env_vars: dict[str, str] | None = None,
+        run_inline_skills: list[tuple[str, str]] | None = None,
         interactive: bool = False,
         follow_up_prompts: list[str] | None = None,
     ) -> BackgroundRun:
@@ -531,6 +557,7 @@ class RunManager:
                         skills=list(persona_skills),
                         skills_disabled=list(persona_skills_disabled),
                         plugins=list(persona_plugins),
+                        inline_skills=list(run_inline_skills or []),
                         env_vars=dict(merged_env),
                         interactive=bool(interactive),
                         follow_up_prompts=list(follow_up_prompts or []),
@@ -588,6 +615,8 @@ class RunManager:
                     run_skills=list(run_skills or []),
                     run_plugins=list(run_plugins or []),
                     run_env_vars=dict(run_env_vars or {}),
+                    # Tuples from runner or maps — RunConfigStore normalizes.
+                    run_inline_skills=list(run_inline_skills or []),
                 )
             except Exception:
                 logger.warning("Failed to save run config", exc_info=True)
@@ -882,7 +911,7 @@ class RunManager:
         _add(traces_root / ".groket-turn")
         return dirs
 
-    def interactive_status(self, run_id: str = "") -> dict[str, object]:
+    def interactive_status(self, run_id: str = "") -> dict[str, JsonValue]:
         """Read entrypoint turn gate ``status.json`` (``awaiting_follow_up``, …)."""
         for turn_dir in self.turn_gate_dirs(run_id):
             status_path = turn_dir / "status.json"
@@ -897,7 +926,11 @@ class RunManager:
         return {"state": "unknown"}
 
     def submit_follow_up(self, prompt: str, *, run_id: str = "", final: bool = False) -> None:
-        """Queue a follow-up prompt for an interactive container (turn gate).
+        """Queue a follow-up on **all** turn gates for *run_id* (every container).
+
+        Prefer :func:`~groket.session.turn_gate.write_follow_up_for_session` for
+        UI actions on one session — this method fans out across a multi-model
+        run and will affect siblings.
 
         When *final* is true, write ``final_turn`` so the entrypoint treats this
         as the last interactive turn (no further await).
@@ -925,8 +958,35 @@ class RunManager:
         if not written:
             raise RuntimeError("could not write follow-up to any turn gate directory")
 
+    def stop_session_container(self, session_dir: Path) -> None:
+        """Best-effort docker stop/remove for the container that owns *session_dir*.
+
+        Used after session-scoped ``command=done`` so a multi-model run does not
+        stop sibling containers.
+        """
+        from ..session.turn_gate import traces_volume_for_session
+
+        base = traces_volume_for_session(session_dir)
+        if base is None:
+            return
+        name = base.name
+        if not name or name.startswith("."):
+            return
+        try:
+            self.orchestrator._docker.stop(name)
+        except Exception:
+            logger.debug("docker stop failed for %s", name, exc_info=True)
+        try:
+            self.orchestrator._docker.remove(name)
+        except Exception:
+            logger.debug("docker remove failed for %s", name, exc_info=True)
+
     def complete_interactive(self, run_id: str = "") -> None:
-        """Signal interactive turn loop to exit and stop the eval container(s)."""
+        """Signal **all** containers for *run_id* to exit and stop them.
+
+        Prefer session-scoped :func:`~groket.session.turn_gate.write_done_for_session`
+        plus :meth:`stop_session_container` for one session in a multi-model run.
+        """
         for turn_dir in self.turn_gate_dirs(run_id):
             try:
                 turn_dir.mkdir(parents=True, exist_ok=True)
