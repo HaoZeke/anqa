@@ -1030,7 +1030,17 @@ def _load_signals(meta: SessionMeta, session_dir: Path) -> None:
 
 
 def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
-    """Populate meta from run.json (batch / runner metadata)."""
+    """Populate meta from launch record, then legacy run.json / path hints.
+
+    Prefer ``groket-launch.json`` on the traces volume (written at container
+    start with the operator-selected model and effort). Older traces without
+    that file fall back to ``run.json`` mapping and directory-name inference.
+    """
+    from .runs.launch_meta import apply_launch_meta, read_launch_meta
+
+    launch = read_launch_meta(session_dir)
+    if launch is not None:
+        apply_launch_meta(meta, launch)
 
     run_json = session_dir / "run.json"
     if not run_json.exists():
@@ -1045,31 +1055,36 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
         try:
             with open(run_json) as f:
                 run_data = json.load(f)
-            meta.run_id = run_data.get("run_id", "")
-            meta.task_id = run_data.get("task_id", "")
+            if not meta.run_id:
+                meta.run_id = str(run_data.get("run_id") or "")
+            if not meta.task_id:
+                meta.task_id = str(run_data.get("task_id") or "")
             if not meta.git_repo:
                 meta.git_repo = run_data.get("repo_url", "")
             if not meta.git_branch:
                 meta.git_branch = run_data.get("repo_branch", "")
-            resolved = _model_from_run_json(session_dir, run_data)
-            if resolved:
-                from .runs.batch import split_model_effort
+            if launch is None:
+                resolved = _model_from_run_json(session_dir, run_data)
+                if resolved:
+                    from .runs.batch import split_model_effort
 
-                mid, eff = split_model_effort(resolved)
-                meta.model_id = mid or resolved
-                if eff:
-                    meta.reasoning_effort = eff
+                    mid, eff = split_model_effort(resolved)
+                    meta.model_id = mid or resolved
+                    if eff:
+                        meta.reasoning_effort = eff
         except (json.JSONDecodeError, KeyError):
             pass
 
-    # No run.json: try groket-{run_id}-{model} parent folder suffix
+    if launch is not None:
+        return
+
+    # Legacy traces: infer from groket-* parent slug / config.toml.
     if not meta.model_id or meta.model_id in ("unknown", "v9", "grok-build"):
         inferred = _model_from_run_parent(session_dir)
         if inferred and inferred not in ("unknown",) and inferred != meta.model_id:
             if meta.model_id in ("unknown", "v9") or len(inferred) > len(meta.model_id):
                 meta.model_id = inferred
 
-    # Effort from container/run dir name (…-high, …-xhigh, …-max) or config.toml.
     if not meta.reasoning_effort:
         meta.reasoning_effort = _reasoning_effort_from_run_dir(session_dir)
     if not meta.reasoning_effort:

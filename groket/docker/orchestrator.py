@@ -651,6 +651,13 @@ class DockerOrchestrator:
         traces_vol = self.work_dir / "traces" / config.container_name
         traces_vol.mkdir(parents=True, exist_ok=True)
 
+        from ..runs.launch_meta import write_launch_meta_for_config
+
+        try:
+            write_launch_meta_for_config(traces_vol, config)
+        except OSError:
+            logger.warning("Failed to write launch meta under %s", traces_vol, exc_info=True)
+
         # Write prompt to a host file and mount it — avoids Docker env newline/quoting
         # issues and `-p` argparse eating values that start with `-`.
         prompt_host = traces_vol / "groket-prompt.txt"

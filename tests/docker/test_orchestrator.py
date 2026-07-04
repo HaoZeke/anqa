@@ -432,6 +432,11 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     (stage / "plugins" / "pl" / "x").write_text("x", encoding="utf-8")
     cid = o_ok.start_container(cfg_s, "img:tag", auth, grok_cfg)
     assert len(cid) == 12
+    launch_path = o_ok.work_dir / "traces" / cfg_s.container_name / "groket-launch.json"
+    assert launch_path.is_file()
+    launch_data = json.loads(launch_path.read_text(encoding="utf-8"))
+    assert launch_data["model"] == "v9"
+    assert launch_data["container_name"] == cfg_s.container_name
 
     # wait / logs / stream
     assert o_ok.wait_for_container("c") == 0
