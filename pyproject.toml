@@ -9,6 +9,7 @@ dependencies = [
     "click>=8.1",              # CLI foundation (Typer builds on Click)
     "fluent.runtime>=0.4",     # localization (Project Fluent .ftl)
     "jinja2>=3.1",
+    "orjson>=3.10",            # fast JSON for multi-MB updates.jsonl timelines
     "pydantic>=2.0",           # serialized models (Flag, configs, …)
     "python-on-whales>=0.70",  # Docker
     "pyyaml>=6.0",
@@ -16,6 +17,7 @@ dependencies = [
     "shellingham>=1.5",        # shell detection for Typer completion
     "textual>=8.2.7",          # TUI framework
     "typer>=0.26.8",           # CLI (subcommands, --help, shell completion)
+    "watchdog>=6.0.0",
 ]
 
 [project.scripts]
@@ -142,6 +144,9 @@ python_version = "3.13"
 files = ["groket"]
 mypy_path = "."
 warn_unused_ignores = true
+# Returning third-party Any is noisy (Pydantic/Textual). Explicit Any *in our
+# source* is banned by scripts/check_typing_policy.py (AGENTS §4.1 / §4.5a).
+# disallow_any_explicit also false-positives on Pydantic BaseModel classes.
 warn_return_any = false
 check_untyped_defs = true
 no_implicit_optional = true

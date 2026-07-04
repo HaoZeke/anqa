@@ -27,7 +27,7 @@ def test_help_lists_main_commands() -> None:
 
 
 def test_tool_commands() -> None:
-    assert TOOL_COMMANDS == frozenset({"gen", "generator", "self-test", "batch"})
+    assert TOOL_COMMANDS == frozenset({"gen", "generator", "self-test", "batch", "rules"})
 
 
 class TestSelfTestCommand:

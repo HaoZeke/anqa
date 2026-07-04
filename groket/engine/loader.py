@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from ..assets_loader import asset_path
-from ..models import JsonObject, JsonValue, Severity
+from ..models import JsonObject, Severity
 from ..paths import user_analysis_plugins_dir, user_detectors_dir, user_rules_dir
 from .detectors import DetectorFunc, get_detector
 
@@ -133,7 +133,11 @@ def _load_rules_file(path: Path, config: LoadedConfig) -> None:
     for entry in rules_list:
         if not isinstance(entry, dict) or "id" not in entry:
             continue
-        rule = _parse_rule(entry)
+        try:
+            rule = _parse_rule(entry)
+        except Exception as exc:
+            logger.warning("Invalid rule in %s (id=%s): %s", path, entry.get("id"), exc)
+            continue
         config.rules[rule.rule_id] = rule
 
 
@@ -154,7 +158,11 @@ def _load_composites_file(path: Path, config: LoadedConfig) -> None:
     for entry in comps_list:
         if not isinstance(entry, dict) or "id" not in entry:
             continue
-        comp = _parse_composite(entry)
+        try:
+            comp = _parse_composite(entry)
+        except Exception as exc:
+            logger.warning("Invalid composite in %s (id=%s): %s", path, entry.get("id"), exc)
+            continue
         config.composites.append(comp)
 
 
@@ -199,7 +207,11 @@ def _load_override_file(path: Path, config: LoadedConfig) -> None:
                 existing.detector_name = entry["detector"]
         else:
             # New rule from user override
-            rule = _parse_rule(entry)
+            try:
+                rule = _parse_rule(entry)
+            except Exception as exc:
+                logger.warning("Invalid rule in %s (id=%s): %s", path, rule_id, exc)
+                continue
             config.rules[rule.rule_id] = rule
 
     # Composite overrides
@@ -207,7 +219,11 @@ def _load_override_file(path: Path, config: LoadedConfig) -> None:
     for entry in comps_list:
         if not isinstance(entry, dict) or "id" not in entry:
             continue
-        comp = _parse_composite(entry)
+        try:
+            comp = _parse_composite(entry)
+        except Exception as exc:
+            logger.warning("Invalid composite in %s (id=%s): %s", path, entry.get("id"), exc)
+            continue
         # Replace existing composite with same ID, or add new
         config.composites = [c for c in config.composites if c.composite_id != comp.composite_id]
         config.composites.append(comp)
@@ -230,46 +246,15 @@ def _load_detector_modules(plugin_dir: Path) -> None:
             logger.warning("Failed to load detector module %s: %s", py_file, e)
 
 
-def _yaml_mapping(raw: JsonValue | None) -> JsonObject:
-    if isinstance(raw, dict):
-        return {str(k): v for k, v in raw.items()}
-    return {}
-
-
 def _parse_rule(entry: JsonObject) -> RuleConfig:
-    """Parse a rule dict from YAML into a RuleConfig."""
-    severity_str = str(entry.get("severity", "medium"))
-    params = _yaml_mapping(entry.get("params"))
-    enabled_raw = entry.get("enabled", True)
-    return RuleConfig(
-        rule_id=str(entry["id"]),
-        description=str(entry.get("description", "")),
-        category=str(entry.get("category", "Uncategorized")),
-        severity=Severity(severity_str),
-        enabled=bool(enabled_raw) if not isinstance(enabled_raw, bool) else enabled_raw,
-        detector_name=str(entry.get("detector", "")),
-        params=params,
-        summary_template=str(entry.get("summary", "")),
-        detail_template=str(entry.get("detail", "")),
-        recommendation=str(entry.get("recommendation", "")),
-    )
+    """Parse a rule dict from YAML into a RuleConfig (Pydantic-validated)."""
+    from .rule_schema import parse_rule_entry
+
+    return parse_rule_entry(entry)
 
 
 def _parse_composite(entry: JsonObject) -> CompositeConfig:
-    """Parse a composite dict from YAML into a CompositeConfig."""
-    severity_str = str(entry.get("severity", "medium"))
-    child_raw = entry.get("child_rules", [])
-    child_rules = [str(x) for x in child_raw] if isinstance(child_raw, list) else []
-    min_repeat_raw = entry.get("min_repeat", 3)
-    max_gap_raw = entry.get("max_gap", 5)
-    return CompositeConfig(
-        composite_id=str(entry["id"]),
-        name=str(entry.get("name", "")),
-        severity=Severity(severity_str),
-        child_rules=child_rules,
-        relationship=str(entry.get("relationship", "co_occurrence")),
-        min_repeat=int(min_repeat_raw) if isinstance(min_repeat_raw, (int, float)) else 3,
-        max_gap=int(max_gap_raw) if isinstance(max_gap_raw, (int, float)) else 5,
-        root_cause=str(entry.get("root_cause", "")),
-        should_have=str(entry.get("should_have", "")),
-    )
+    """Parse a composite dict from YAML into a CompositeConfig (Pydantic-validated)."""
+    from .rule_schema import parse_composite_entry
+
+    return parse_composite_entry(entry)

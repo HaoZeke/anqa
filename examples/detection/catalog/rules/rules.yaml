@@ -1,7 +1,12 @@
+# yaml-language-server: $schema=https://indynull.github.io/groket/schemas/rules.schema.json
+# Local schema: schemas/rules.schema.json (make schema)
+# Validate: uv run groket rules validate examples/detection/catalog/rules/rules.yaml
+#
 # =============================================================================
 # EVALUATION RULES
 # =============================================================================
 #
+
 # Each rule detects a specific bad behavior pattern in model traces.
 # Rules are evaluated against parsed tool calls and chat messages.
 #

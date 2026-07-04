@@ -8,8 +8,8 @@ help:
 	@echo "  lint             ruff check + format --check + mypy (whole groket/)"
 	@echo "  lint-fix        ruff autofix + format + mypy (whole groket/)"
 	@echo "  lint-complexity  ruff PLR on groket (informational / debt)"
-	@echo "  schema           regenerate schemas/tasks.schema.json from Pydantic"
-	@echo "  schema-check     fail if committed tasks schema is out of date"
+	@echo "  schema           regenerate schemas/*.schema.json from Pydantic"
+	@echo "  schema-check     fail if committed schemas are out of date"
 	@echo "  test             pytest"
 	@echo "  test-cov         pytest with coverage report"
 	@echo "  ci               lint + schema-check + test"
@@ -27,6 +27,8 @@ lint:
 	uv run ruff check groket tests
 	uv run ruff format --check groket tests
 	uv run mypy groket
+	uv run python scripts/check_fluent.py
+	uv run python scripts/check_typing_policy.py
 
 lint-fix:
 	uv run ruff check --select I --fix groket tests
@@ -37,17 +39,23 @@ lint-fix:
 lint-complexity:
 	uv run ruff check --select PLR groket
 
-# JSON Schema for batch/task YAML (source of truth: groket.runs.task_schema).
+# JSON Schema for batch tasks + detection rules (Pydantic sources).
 # Committed under schemas/ for editors; published on GitHub Pages at
 # https://indynull.github.io/groket/schemas/ (see .github/workflows/pages.yml).
 schema:
 	uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; emit_tasks_schema(Path('schemas/tasks.schema.json'))"
+	uv run python -c "from pathlib import Path; from groket.engine.rule_schema import emit_rules_schema; emit_rules_schema(Path('schemas/rules.schema.json'))"
 
 schema-check:
 	@tmp=$$(mktemp) && \
 	  uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; import sys; emit_tasks_schema(Path(sys.argv[1]))" "$$tmp" && \
 	  diff -q "$$tmp" schemas/tasks.schema.json >/dev/null || \
 	  (echo "schemas/tasks.schema.json is stale — run make schema and commit" >&2; rm -f "$$tmp"; exit 1) && \
+	  rm -f "$$tmp"
+	@tmp=$$(mktemp) && \
+	  uv run python -c "from pathlib import Path; from groket.engine.rule_schema import emit_rules_schema; import sys; emit_rules_schema(Path(sys.argv[1]))" "$$tmp" && \
+	  diff -q "$$tmp" schemas/rules.schema.json >/dev/null || \
+	  (echo "schemas/rules.schema.json is stale — run make schema and commit" >&2; rm -f "$$tmp"; exit 1) && \
 	  rm -f "$$tmp"
 
 test:

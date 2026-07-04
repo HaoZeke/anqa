@@ -103,9 +103,12 @@ def write_rule(
     det = (detector or slug).replace("-", "_")
     rid = slug.replace("_", "-")
     path.write_text(
-        f"""# User rule — merged with bundled rules (same id replaces bundled).
-# Detector must be registered (built-in or ~/.groket/detectors/*.py).
+        f"""# yaml-language-server: $schema=https://indynull.github.io/groket/schemas/rules.schema.json
+# User rule — merged with package / other user rules (same id replaces).
+# Detector must be registered (~/.groket/detectors/*.py or plugins).
+# Validate: uv run groket rules validate {path.name}
 
+schema_version: 1
 rules:
   - id: {rid}
     description: "User rule for {rid}"

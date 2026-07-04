@@ -184,19 +184,33 @@ follow-up / mark-done prompts, and Footer/palette human descriptions.
   `"dim"`) in Fluent — those are not copy. Leave them as CSS/style constants.
 - Treat **widget ids**, **log format strings for `logger.*`**, or **docstrings**
   as UI copy (they stay in Python).
+- Rely on **leading/trailing spaces** in FTL values for concatenation — Fluent
+  strips them (see ``join_ui``). Prefer one full message with ``{$vars}``, not
+  fragment glue.
+- Store **regexes / binary constants** in FTL (e.g. ANSI patterns). Keep those
+  in Python.
 
-**Exceptions (only):**
+### 3.1a Fluent construction gate (machine-enforced)
 
-| Kind | Where |
-|------|--------|
-| Stylesheets | `app.tcss`, widget `DEFAULT_CSS` (CSS, not sentences) |
-| Style tokens | `ui/styles.py` Rich style names (`bold red`, …) |
-| Long help markup | `locale/<lang>/help.rich.txt` via `text.help_markup()` |
-| Non-UI packages | `cli.py` may still print for non-TUI tools; prefer Fluent when the same phrase is also shown in the TUI |
+``make lint`` runs ``scripts/check_fluent.py`` (**exit 1** on violations).
+
+| Rule | Enforced how |
+|------|----------------|
+| **No f-string embedding ``t(...)``** | Hard error anywhere under ``groket/``: ``f"…{t('id')}…"`` / ``f'…{t("id")}…'``. Build copy with ``t("id", var=…)``, ``join_ui(...)``, or ``t(...) + "\\n"`` (newline is structure, not locale). |
+| **No ``re.compile(t(...))``** | Hard error — regexes stay in Python. |
+| **No regex / binary message ids in FTL** | Hard error for known bad ids. |
+| **No leading/trailing space on FTL values** that are not multi-line / placeable-only | Hard error on single-line values with edge spaces (Fluent strips them; they are not a glue strategy). |
+
+**Preferred construction (in order):**
+
+1. **One Fluent message** with ``{$placeholders}`` for the whole operator-facing phrase.
+2. **``join_ui(t("a"), value, t("b"))``** when joining already-complete pieces (ids, numbers, paths) — never rely on FTL edge whitespace.
+3. **Rich styles** applied to a full ``t(...)`` result (``Text.append(t("…"), style="dim")``), not by wrapping ``t`` inside an f-string with ``[dim]…[/dim]`` unless the FTL value itself owns the markup (rare; prefer Python styles).
 
 **Agent checklist before claiming UI work done:** no new/changed user-facing
 literals under `groket/ui/`; new phrases exist in `en/main.ftl`; call sites use
-`t` / `U`. When unsure, put it in Fluent.
+`t` / `U` / `join_ui`; ``scripts/check_fluent.py`` is green. When unsure, put
+it in Fluent.
 
 ---
 
@@ -207,14 +221,31 @@ literals under `groket/ui/`; new phrases exist in `en/main.ftl`; call sites use
 - `snake_case` functions/variables, `PascalCase` classes, `UPPER_SNAKE` constants.
 - `from __future__ import annotations` in every module (ruff enforces this).
 - Type-annotate all public signatures. Use `X | None`, lowercase generics.
-- **Typed values only:** do not use `Any` or `object` as value types (both
-  mean “unknown”). Use `JsonValue` / `JsonObject` at JSON/YAML boundaries,
-  `ChatMessage` / `ChatHistory`, `RuleParams` (`Mapping[str, JsonValue]`),
-  `ToolInput` (`JsonObject`), `MatchVariables`, concrete classes, `Protocol`s,
-  or `TypedDict` + `Unpack[...]` for open kwargs. Exception: a **forced
-  third-party signature** you cannot wrap (one-line comment naming the
-  library). Prefer importing Textual’s `App` / `Widget` / `SelectionList[...]`
-  over a loose annotation.
+- **Typed values only (hard rule + gate):** do **not** use `Any` or `object` as
+  *value bags* for our data (JSON, tool inputs, UI state, configs). Both mean
+  “unknown” and defeat the type system. Use `JsonValue` / `JsonObject` at
+  JSON/YAML boundaries, `ChatMessage` / `ChatHistory`, `RuleParams`
+  (`Mapping[str, JsonValue]`), `ToolInput` / `ToolInputBag`, concrete classes,
+  `Protocol`s, or `TypedDict` + `Unpack[...]` for open kwargs.
+
+  **Machine gate** (``make lint``):
+
+  1. **``uv run mypy groket``** — zero errors on the package (no
+     ``disable_error_code`` / module ``ignore_errors`` to hide debt).
+  2. **``scripts/check_typing_policy.py``** — fails on explicit ``Any`` in our
+     source and on ``object`` used as a **container/value bag**
+     (``dict[…, object]``, ``list[object]``, …). Single ``value: object`` at a
+     coerce boundary (Pydantic ``v: object``, ``json_value_from_unknown``,
+     dunders, JSON boundary helpers) is allowed; document forced third-party
+     signatures with a one-line library name comment (e.g. ``# Textual``).
+
+  Note: mypy ``disallow_any_explicit`` is **not** enabled because it
+  false-positives on Pydantic ``BaseModel`` classes; the script is the source
+  of truth for the no-``Any``-in-our-code rule.
+
+  Exception for **forced third-party signatures** you cannot wrap: one-line
+  comment naming the library (e.g. Textual ``Select.value``). Prefer importing
+  Textual’s `App` / `Widget` / `SelectionList[...]` over a loose annotation.
 - Detectors: `(tool_calls: list[ToolCall], messages: Sequence[ChatMessage], params: RuleParams) -> list[Match]`.
 - Analyzers: `analyze(self, session_dir: Path, **kwargs: Unpack[AnalyzeContext]) -> AnalysisResult`.
 - `logger = logging.getLogger(__name__)`. No `print()` except in `cli.py`.
@@ -294,16 +325,21 @@ Mirror of coredis-style targets — always via ``uv run`` / ``make``:
 | ``make lint-fix`` | ruff autofix + format + mypy |
 | ``make test`` | pytest |
 | ``make test-cov`` | pytest + coverage |
-| ``make schema`` | Regenerate ``schemas/tasks.schema.json`` from Pydantic |
-| ``make schema-check`` | Fail if committed tasks schema drifts |
+| ``make schema`` | Regenerate ``schemas/*.schema.json`` from Pydantic |
+| ``make schema-check`` | Fail if committed schemas drift |
 | ``make ci`` | ``lint`` + ``schema-check`` + ``test`` (default PR gate) |
 
-**Published tasks schema:**
-``https://indynull.github.io/groket/schemas/tasks.schema.json``
-(GitHub Pages from ``main`` / ``master`` via ``.github/workflows/pages.yml``).
-Repo also keeps ``schemas/tasks.schema.json`` for offline editors. Point task
-YAML at the URL with ``# yaml-language-server: $schema=…`` or your editor’s
-schema mapping. Enable **Settings → Pages → Source: GitHub Actions** once.
+**Published schemas** (also under ``schemas/`` for offline editors; GitHub Pages
+from ``main`` / ``master`` via ``.github/workflows/pages.yml``):
+
+- Tasks: ``https://indynull.github.io/groket/schemas/tasks.schema.json``
+  (``groket.runs.task_schema``; ``groket batch validate``)
+- Rules / composites: ``https://indynull.github.io/groket/schemas/rules.schema.json``
+  (``groket.engine.rule_schema``; ``groket rules validate``)
+
+Point YAML at the URL with ``# yaml-language-server: $schema=…`` or your
+editor's schema mapping. Enable **Settings → Pages → Source: GitHub Actions**
+once.
 | ``make clean`` | caches and build artefacts |
 
 GitHub Actions (``.github/workflows/ci.yml``) runs the same lint/test path.
@@ -381,18 +417,24 @@ Before claiming work complete (and before every agent commit):
 1. **`uv run mypy groket`** — **zero errors** on the entire package (all modules
    under ``groket/``). Do **not** use ``disable_error_code``, module-level
    ``ignore_errors = true``, or blanket ``# type: ignore`` to hide debt.
-2. **`uv run pytest tests/ --cov=groket --cov-fail-under=100`** — **100% line
+2. **`uv run python scripts/check_typing_policy.py`** — **zero** disallowed
+   ``object`` / ``Any`` value annotations (see §4.1).
+3. **`uv run python scripts/check_fluent.py`** — **zero** f-string+``t()`` glue,
+   regex-in-FTL, edge-space FTL values (see §3.1a).
+4. **`uv run pytest tests/ --cov=groket --cov-fail-under=100`** — **100% line
    coverage of every line in ``groket/``**. This is **non-negotiable**. Do not
    lower ``[tool.coverage.report] fail_under``, do not add ``omit`` / ``exclude``
    for our package, and do not use ``pragma: no cover`` except for the rare
    forced third-party trap door already allowed for typing (document why).
    Work is **not done** while coverage is below 100%, even if tests “pass”
    without ``--cov-fail-under=100``.
-3. **`uv run ruff check groket tests`** and format check — clean.
-4. Prefer **delete / merge duplicates** over new abstractions: unused modules,
+5. **`uv run ruff check groket tests`** and format check — clean.
+6. Prefer **delete / merge duplicates** over new abstractions: unused modules,
    copy-pasted UI helpers, and parallel “almost the same” JSON accessors are
    why type errors and coverage holes multiply. Refactor toward one path
    (e.g. ``ParamBag`` / ``ToolInputBag`` / ``json_as_*``) instead of N variants.
+
+``make lint`` runs ruff, mypy, ``check_fluent.py``, and ``check_typing_policy.py``.
 
 ### 4.5b UI and Docker test drivers
 
@@ -746,7 +788,7 @@ non-obvious → help text if major workflow.
 | `F5` / `Ctrl+R` | Refresh current context |
 | `j` | Jobs / logs |
 | `Esc` | Back / dismiss |
-| `q` | Quit (sessions home) |
+| `q` | Quit (any screen; Input/TextArea still receive ``q`` while editing) |
 | `Ctrl+P` | Command palette |
 | `Ctrl+S` | Save (forms) or Done (multi-pickers) — priority binding |
 | `[` / `]` | Previous / next **pane** (where panes exist) |

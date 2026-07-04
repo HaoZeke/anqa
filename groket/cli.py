@@ -64,8 +64,19 @@ batch_app = typer.Typer(
 )
 app.add_typer(batch_app, name="batch")
 
+rules_app = typer.Typer(
+    name="rules",
+    help=(
+        "Validate detection rules / composites YAML "
+        "([cyan]~/.groket/rules[/cyan], example packs). "
+        "Schema: [cyan]https://indynull.github.io/groket/schemas/rules.schema.json[/cyan]."
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(rules_app, name="rules")
+
 # Subcommand names — must not be consumed as a TUI path positional.
-TOOL_COMMANDS = frozenset({"gen", "generator", "self-test", "batch"})
+TOOL_COMMANDS = frozenset({"gen", "generator", "self-test", "batch", "rules"})
 COMMAND_ALIASES = {"generator": "gen"}
 
 
@@ -239,6 +250,56 @@ def cmd_batch_schema(
     from .runs.task_schema import emit_tasks_schema
 
     text = emit_tasks_schema(out)
+    if out is None:
+        typer.echo(text, nl=False)
+    else:
+        typer.echo(f"Wrote {out}")
+
+
+@rules_app.command("validate")
+def cmd_rules_validate(
+    rules: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Rules / composites YAML file to validate.",
+        ),
+    ],
+) -> None:
+    """Validate a rules YAML file against the Pydantic / JSON Schema model."""
+    from .engine.rule_schema import load_rules_file
+
+    try:
+        doc = load_rules_file(rules)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(
+        f"OK  {rules}  ({len(doc.rules)} rule(s), {len(doc.composites)} composite(s), "
+        f"schema_version={doc.schema_version})"
+    )
+
+
+@rules_app.command("schema")
+def cmd_rules_schema(
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "-o",
+            "--out",
+            help="Write JSON Schema to this path (default: stdout).",
+        ),
+    ] = None,
+) -> None:
+    """Emit JSON Schema for rules YAML (same as ``make schema`` / Pages publish)."""
+    from .engine.rule_schema import emit_rules_schema
+
+    text = emit_rules_schema(out)
     if out is None:
         typer.echo(text, nl=False)
     else:

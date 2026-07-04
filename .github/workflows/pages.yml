@@ -1,6 +1,6 @@
 # Publish JSON Schema(s) to GitHub Pages (project site).
 # Repo Settings → Pages → Source: GitHub Actions.
-# URL: https://indynull.github.io/groket/schemas/tasks.schema.json
+# URLs: …/schemas/tasks.schema.json , …/schemas/rules.schema.json
 
 name: Pages
 
@@ -10,6 +10,7 @@ on:
     paths:
       - "schemas/**"
       - "groket/runs/task_schema.py"
+      - "groket/engine/rule_schema.py"
       - ".github/workflows/pages.yml"
       - "Makefile"
   workflow_dispatch:
@@ -35,12 +36,13 @@ jobs:
           enable-cache: true
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
-      - name: Regenerate tasks schema from Pydantic
+      - name: Regenerate schemas from Pydantic
         run: make schema
       - name: Assemble site (schemas/ + index)
         run: |
           mkdir -p _site/schemas
           cp schemas/tasks.schema.json _site/schemas/tasks.schema.json
+          cp schemas/rules.schema.json _site/schemas/rules.schema.json
           cat > _site/index.html << 'HTML'
           <!DOCTYPE html>
           <html lang="en">
@@ -61,6 +63,12 @@ jobs:
                 — batch / task list YAML
                 (<code>$id</code>:
                 <code>https://indynull.github.io/groket/schemas/tasks.schema.json</code>)
+              </li>
+              <li>
+                <a href="schemas/rules.schema.json"><code>rules.schema.json</code></a>
+                — detection rules / composites YAML
+                (<code>$id</code>:
+                <code>https://indynull.github.io/groket/schemas/rules.schema.json</code>)
               </li>
             </ul>
             <p>Regenerate locally with <code>make schema</code>; CI fails on drift via <code>make schema-check</code>.</p>
