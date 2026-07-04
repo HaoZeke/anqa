@@ -1288,7 +1288,7 @@ def _match_model_to_container(container_name: str, models: list[str]) -> str:
     """
     from .runs.batch import split_model_effort
 
-    cname = container_name.lower()
+    cname = _strip_container_name_disambiguator(container_name)
     best = ""
     best_score = 0
     for model in models:
@@ -1324,6 +1324,13 @@ def _match_model_to_container(container_name: str, models: list[str]) -> str:
     return best
 
 
+def _strip_container_name_disambiguator(name: str) -> str:
+    """Remove trailing ``x2`` / ``-2`` collision suffixes from eval container names."""
+    cleaned = re.sub(r"x\d+$", "", name.lower())
+    cleaned = re.sub(r"-\d+$", "", cleaned)
+    return cleaned.rstrip("-")
+
+
 def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
     """Infer effort from a ``groket-{run_id}-{slug}`` parent (effort suffix in slug)."""
     from .runs.batch import REASONING_EFFORTS
@@ -1335,15 +1342,19 @@ def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
             if anc.name == "traces":
                 break
             continue
-        name = anc.name.lower()
+        name = _strip_container_name_disambiguator(anc.name)
         for eff in efforts:
-            if name.endswith(f"-{eff}"):
+            if name.endswith(f"-{eff}") or name == eff:
+                return eff
+            # Embedded ``-{effort}`` before a truncated tail (``…-tomato-xhigh``).
+            if f"-{eff}" in name:
                 return eff
         # Container slugs may truncate (e.g. ``…-xhig``); match effort prefixes.
         for eff in efforts:
             prefix = eff[:4] if len(eff) >= 4 else eff
-            if prefix and (name.endswith(f"-{prefix}") or f"-{prefix}-" in name):
-                # Only accept when the prefix uniquely identifies one effort.
+            if prefix and (
+                name.endswith(f"-{prefix}") or f"-{prefix}-" in name or name.endswith(prefix)
+            ):
                 hits = [e for e in efforts if e.startswith(prefix) or e[:4] == prefix]
                 if len(hits) == 1:
                     return hits[0]

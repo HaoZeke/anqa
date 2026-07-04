@@ -446,6 +446,30 @@ def model_suffix(model: str) -> str:
     return slug_text(base, max_len=10, fallback="model")
 
 
+def eval_container_model_tag(model: str) -> str:
+    """Short unique-ish tag for ``groket-{run_id}-{tag}`` container names.
+
+    Uses the model id tail (e.g. ``tomato`` from ``v9-tomato``) plus effort when
+    set, so two ``*:xhigh`` launch tokens do not both collapse to ``xhigh`` and
+    require an opaque ``x2`` disambiguator that drops effort on read-back.
+    """
+    from ..utils import slug_text
+
+    mid, effort = split_model_effort(model)
+    raw = (mid or model or "").strip()
+    parts = [
+        p
+        for p in raw.replace("_", "-").replace("/", "-").replace(":", "-").split("-")
+        if p and p.lower() != "v9"
+    ]
+    tail = (parts[-1] if parts else "model")[:10]
+    if len(parts) >= 2 and parts[-1].isdigit():
+        tail = parts[-2][:10]
+    if effort:
+        return slug_text(f"{tail}-{effort}", max_len=16, fallback="model")
+    return slug_text(tail, max_len=12, fallback="model")
+
+
 # Batch runner
 
 

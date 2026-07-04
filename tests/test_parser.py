@@ -1215,6 +1215,31 @@ def test_reasoning_effort_from_run_dir_max(tmp_path: Path) -> None:
     assert _reasoning_effort_from_run_dir(p) == "max"
 
 
+def test_reasoning_effort_from_run_dir_strips_x2_disambiguator(tmp_path: Path) -> None:
+    """Collision suffix ``x2`` on an effort-only slug still yields xhigh."""
+    from groket.parser import _reasoning_effort_from_run_dir, load_session_meta
+
+    vol = tmp_path / "traces" / "groket-49fdc12a916c-xhighx2"
+    sd = vol / "%2Fworkspace" / "019f-sess"
+    sd.mkdir(parents=True)
+    (sd / "summary.json").write_text(
+        json.dumps({"current_model_id": "v9-goldbond"}),
+        encoding="utf-8",
+    )
+    assert _reasoning_effort_from_run_dir(sd) == "xhigh"
+    meta = load_session_meta(sd, include_timeline_count=False)
+    assert meta.reasoning_effort == "xhigh"
+    assert meta.model_display == "v9-goldbond:xhigh"
+
+
+def test_reasoning_effort_from_model_tail_slug(tmp_path: Path) -> None:
+    from groket.parser import _reasoning_effort_from_run_dir
+
+    p = tmp_path / "groket-abc123def456-goldbond-xhigh" / "sess"
+    p.mkdir(parents=True)
+    assert _reasoning_effort_from_run_dir(p) == "xhigh"
+
+
 def test_parse_timeline_prepends_system_prompt(tmp_path: Path) -> None:
     sd = tmp_path / "sess"
     sd.mkdir()

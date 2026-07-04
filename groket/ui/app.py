@@ -619,6 +619,7 @@ class TraceEvalApp(App):
             sessions_cache[key] = {
                 "session_id": meta.session_id,
                 "model_id": meta.model_id,
+                "reasoning_effort": meta.reasoning_effort,
                 "title": meta.title,
                 "created_at": meta.created_at,
                 "num_events": meta.num_events,

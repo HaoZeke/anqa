@@ -116,6 +116,11 @@ def test_eval_task_and_load_tasks(tmp_path: Path):
     assert batch._task_setup_from_entry({}) == ""
     assert batch.model_suffix("v9-dietcoke") == "dietcoke"
     assert batch.model_suffix("custom-long-name") == "custom-lon"
+    assert batch.eval_container_model_tag("v9-tomato:xhigh") == "tomato-xhigh"
+    assert batch.eval_container_model_tag("v9-goldbond:xhigh") == "goldbond-xhigh"
+    assert batch.eval_container_model_tag("v9-tomato:xhigh") != batch.eval_container_model_tag(
+        "v9-goldbond:xhigh"
+    )
 
     tasks_yml = tmp_path / "tasks.yaml"
     tasks_yml.write_text(

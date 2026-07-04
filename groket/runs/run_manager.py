@@ -26,7 +26,6 @@ from ..constants import LOG_BUFFER_MAXLEN, LOG_TAIL_MAXLEN, MAX_RUN_HISTORY
 from ..docker.orchestrator import ContainerConfig, ContainerStatus, DockerOrchestrator
 from ..models import EvalRun, JsonObject, JsonValue, json_as_mapping_list, json_as_str_list
 from ..session.models_catalog import split_model_effort
-from ..utils import slug_text
 from .batch import resolve_model_ids, validate_models_for_launch
 from .personas import PersonaStore
 from .run_configs import RunConfigStore
@@ -510,24 +509,14 @@ class RunManager:
             created_at=datetime.now(UTC).isoformat(),
         )
 
+        from .batch import eval_container_model_tag
+
         configs: list[ContainerConfig] = []
         used_names: set[str] = set()
         for model in models:
             for i in range(parallelism):
                 mid, effort = split_model_effort(model)
-                # Short tag from model id only; append effort so model:effort pairs differ.
-                label = f"{mid or model}-{effort}" if effort else (mid or model)
-                parts = [
-                    p
-                    for p in label.replace("_", "-").replace("/", "-").replace(":", "-").split("-")
-                    if p
-                ]
-                short = (parts[-1] if parts else "model")[:12]
-                if len(parts) >= 2 and parts[-1].isdigit():
-                    short = parts[-2][:12]
-                if effort and effort not in short:
-                    short = f"{short}-{effort}"[:16]
-                short = slug_text(short, max_len=16, fallback="model")
+                short = eval_container_model_tag(model)
                 base = f"groket-{run_id}-{short}"
                 if parallelism > 1:
                     base = f"{base}-{i}"
