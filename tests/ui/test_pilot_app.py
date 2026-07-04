@@ -61,17 +61,21 @@ async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
         bar = list(app.query(ActivityBar))[0]
         bar.refresh_activity()
         await pilot.pause()
-        live, runs, analyze, lib = activity_counters_from_app(app)
+        counts = activity_counters_from_app(app)
         line = build_activity_line(
-            live_sessions=live,
-            runs_active=runs,
-            analyze_active=analyze,
-            sessions_loaded=lib,
+            pending=counts["pending"],
+            building=counts["building"],
+            running=counts["running"],
+            extracting=counts["extracting"],
+            awaiting=counts["awaiting"],
+            analyze_active=counts["analyze"],
+            refresh_active=counts["refresh"],
+            sessions_loaded=counts["sessions"],
         )
         plain = line.plain.lower()
-        assert "live" in plain
-        assert "runs" in plain
-        assert "lib" in plain
+        assert "sessions" in plain
+        assert "live" not in plain
+        assert "lib" not in plain
 
 
 @pytest.mark.asyncio

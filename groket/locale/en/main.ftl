@@ -31,7 +31,16 @@ analyze = Analyze
 
 assistant-messages = Assistant messages
 
-auto-analyze-on-open = Auto-analyze when opening a session in the browser
+auto-analyze-on-open = Auto-analyze completed sessions
+analysis-when-help = Runs when you open a completed session. Force: Ctrl+P → Analyze this session. Progress: j → Activity.
+analysis-workers-help = Pools: analysis ×{$analysis} · refresh ×{$refresh}
+ui-analysis-idle = [dim]No analysis yet — Ctrl+P → Analyze this session[/]
+ui-analysis-idle-report = [dim]No report yet — runs after analysis[/]
+ui-running-analysis-spinner = [dim italic]{$spin} Running analysis…[/]
+ui-running-analysis-plain = Running analysis…
+analysis-stale-banner = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session (j → Activity).
+analysis-stale-findings-row = [yellow]Stale[/] — {$detail} · Ctrl+P → Analyze this session
+analysis-stale-report = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session.
 
 back = Back
 
@@ -106,6 +115,7 @@ bind-personas = Personas
 bind-plugins = 6 Plugins
 
 bind-prev-pane = Prev pane
+bind-pane-digit = Pane
 
 bind-prev-tab = Previous tab
 
@@ -173,9 +183,15 @@ cmd-analysis-settings = Analysis settings
 
 cmd-analysis-settings-help = Configure analysis plugins (config.json)
 
-cmd-analyze = Analyze
+cmd-analyze = Analyze selected sessions
 
-cmd-analyze-help = Run analysis plugins on selected/all sessions
+cmd-analyze-help = Home list: selected sessions, or all if none selected
+
+cmd-analyze-session = Analyze this session
+
+cmd-analyze-session-help = Force re-run plugins for the open session only
+
+notify-analyzing-this-session = Analyzing this session…
 
 cmd-back = Back
 
@@ -293,7 +309,11 @@ cmd-help-help = Show key / workflow help
 
 cmd-jobs-logs = Jobs / logs
 
-cmd-jobs-logs-help = Background runs, analysis/feedback status, and container logs (j)
+cmd-jobs-logs-help = Runs, analysis/refresh activity log, and container logs (j)
+
+jobs-activity-tab = Activity
+jobs-activity-help = Analysis and refresh pool log.
+jobs-activity-status = {$spin} analysis {$analysis}/{$analysis_workers} · refresh {$refresh}/{$refresh_workers}
 
 cmd-launch-config = Launch config
 
@@ -377,7 +397,7 @@ cmd-save-session-config-help = Persist recipe without deleting session
 
 cmd-search-sessions = Search sessions
 
-cmd-search-sessions-help = Fuzzy search loaded sessions
+cmd-search-sessions-help = Filter sessions as you type
 
 cmd-select-all-configs = Select all / none
 
@@ -513,13 +533,57 @@ enabled-yes = Yes
 
 enter-traces-path = Enter a path to traces directory
 
-env-vars-on-persona = Env vars to set on persona  [dim]KEY=value; empty value = you fill later in persona env[/dim]
+env-vars-on-persona = Env vars to set on persona  [dim]key/value rows; empty value = you fill later in persona env[/dim]
 
 errors-only = Errors only
 
 event-types = Event types
 
 extra-env-vars-label = Extra environment variables
+
+env-btn = Env
+
+env-editor-title = Environment variables
+
+env-editor-run-title = Run environment variables
+
+kv-editor-hint = One row per variable — key and value in separate fields (not KEY=value text).
+
+kv-editor-add = Add variable
+
+kv-editor-key-placeholder = KEY
+
+kv-editor-value-placeholder = value
+
+inline-skill-btn = Inline skill
+
+inline-skill-title = Inline skill (this run)
+
+inline-skill-hint = Run-only Grok skill pack (same shape as ~/.grok/skills/<id>/SKILL.md). Not saved on the persona.
+
+inline-skill-name-label = Skill id
+
+inline-skill-name-placeholder = my-run-skill
+
+inline-skill-name-hint = Lowercase letters, digits, hyphens (2–64 chars). Becomes the skill folder and frontmatter name.
+
+inline-skill-description-label = Description (when to use)
+
+inline-skill-description-placeholder = Use when the agent should … (triggers auto-invoke; be specific)
+
+inline-skill-description-hint = One or two sentences plus keywords. Written to YAML frontmatter description.
+
+inline-skill-body-label = Instructions (markdown body)
+
+inline-skill-body-placeholder = Steps and guidance for the agent (not docs — actionable prompt text).
+
+inline-skill-body-hint = Body only — frontmatter is built from id + description on save.
+
+inline-skill-name-required = Skill id is required
+
+inline-skill-description-required = Description is required (controls when Grok uses the skill)
+
+inline-skill-name-invalid = Skill id must be 2–64 chars: start/end with letter or digit; only a–z, 0–9, hyphens
 
 extra-mcp-toml = Extra MCP TOML
 
@@ -547,7 +611,6 @@ flags-only = Flags only
 
 friendly-name-placeholder = Friendly name
 
-fuzzy-search-sessions = fuzzy search sessions
 
 git-user-email = Git user.email
 
@@ -789,6 +852,8 @@ search = Search
 
 search-events-placeholder = Search events…  (/)
 
+search-sessions-placeholder = Search sessions…  (/)
+
 search-mcp-placeholder = search MCP…
 
 select-all = Select all
@@ -899,7 +964,6 @@ traces-path-placeholder = Path to traces directory...
 
 transport-endpoint = Transport / endpoint
 
-type-to-filter = type to filter...
 
 user-messages = User messages
 
@@ -924,7 +988,7 @@ state-disabled = disabled
 
 # --- UI strings (no hardcoded English in groket/ui) ---
 
-ui-a-analyze =  | [dim]a=analyze[/dim]
+ui-a-analyze =
 
 ui-active =  active
 
@@ -945,30 +1009,32 @@ ui-activity-bar-refresh-failed = activity bar refresh failed
 ui-added-mcp = Added MCP `
 
 ui-already-analyzed = Already analyzed
+ui-analysis-in-flight = Analysis already in progress for this session
+notify-analysis-in-flight = Analysis already running for { $n } session(s)
 
 ui-already-running =  already running)
 
-ui-analysis = Analysis: 
+ui-analysis = Analysis:
 
-ui-analysis-complete = Analysis complete -- 
+ui-analysis-complete = Analysis complete --
 
 ui-analysis-failed-for-s-s = Analysis failed for %s: %s
 
 ui-analysis-service-initialization-failed = Analysis service initialization failed
 
-ui-analyze = analyze 
+ui-analyze = analyze
 
 ui-analyze-0 = analyze 0
 
 ui-analyzed =  analyzed=
 
-ui-analyzed-1 = analyzed 
+ui-analyzed-1 = analyzed
 
-ui-analyzing = Analyzing 
+ui-analyzing = Analyzing
 
 ui-appended-into-the-container-mcp-config = [dim]Appended into the container MCP config[/dim]
 
-ui-args =  args=
+ui-args = args
 
 ui-assistant = Assistant
 
@@ -976,9 +1042,9 @@ ui-asst = Asst
 
 ui-asst-1 =   asst=
 
-ui-auth-file-not-found = Auth file not found: 
+ui-auth-file-not-found = Auth file not found:
 
-ui-auth-missing = Auth missing: 
+ui-auth-missing = Auth missing:
 
 ui-avg = Avg
 
@@ -994,7 +1060,7 @@ ui-basic = Basic
 
 ui-batch =   batch=
 
-ui-batch-1 = Batch 
+ui-batch-1 = Batch
 
 ui-batch-2 = batch [bold]
 
@@ -1012,11 +1078,11 @@ ui-bold-white-on-blue = bold white on blue
 
 ui-bold-white-on-red = bold white on red
 
-ui-branch =   branch: 
+ui-branch = branch:
 
 ui-branch-1 = Branch
 
-ui-browser = Browser — 
+ui-browser = Browser —
 
 ui-building = [cyan]Building…[/]
 
@@ -1026,27 +1092,27 @@ ui-calls = Calls
 
 ui-cancel = Cancel
 
-ui-category = *Category:* 
+ui-category = *Category:*
 
 ui-category-1 = Category
 
-ui-category-2 =   category: 
+ui-category-2 = category:
 
 ui-changes = Changes
 
 ui-chars =  chars
 
-ui-chars-1 =  chars)
+ui-chars-1 = chars
 
 ui-chars-blank-keeps-current-enter-a-value-to-repla =  chars). Blank keeps current; enter a value to replace.[/dim]
 
-ui-cleaned-from = , cleaned from 
+ui-cleaned-from = , cleaned from
 
 ui-cleared-run-only-mcp-skills-plugins-extras = Cleared run-only MCP/skills/plugins extras
 
 ui-close = Close
 
-ui-completed-in = [/bold] completed in 
+ui-completed-in = [/bold] completed in
 
 ui-config-s =
      config(s)[/dim]
@@ -1054,13 +1120,13 @@ ui-config-s =
 
 ui-config-s-in-flight =  config(s) in flight
 
-ui-config-s-max =  config(s), max 
+ui-config-s-max = config(s), max
 
 ui-configs-reloaded = Configs reloaded (
 
-ui-configure = Configure 
+ui-configure = Configure
 
-ui-configured =  configured[/dim] 
+ui-configured = configured
 
 ui-container = Container
 
@@ -1068,13 +1134,13 @@ ui-containers = Containers
 
 ui-content = Content
 
-ui-could-not-open-share-for = Could not open share for 
+ui-could-not-open-share-for = Could not open share for
 
 ui-could-not-reach-docker-is-the-daemon-installed-a = Could not reach Docker. Is the daemon installed and running?
 
-ui-could-not-render-details = [red]Could not render details: 
+ui-could-not-render-details = [red]Could not render details:
 
-ui-crashed-after = [/bold] crashed after 
+ui-crashed-after = [/bold] crashed after
 
 ui-create-companion-skill = Create companion skill
 
@@ -1082,7 +1148,7 @@ ui-created = Created
 
 ui-ctrl-t-self-test = ctrl+t self-test
 
-ui-danger =  danger 
+ui-danger = danger
 
 ui-debian-bookworm-fully-loaded = debian:bookworm @ fully-loaded
 
@@ -1092,7 +1158,7 @@ ui-delete-config = delete config
 
 ui-delete-failed = Delete failed
 
-ui-deleted = Deleted 
+ui-deleted = Deleted
 
 ui-detach-ui-on-quit-failed = detach_ui on quit failed
 
@@ -1104,7 +1170,7 @@ ui-detector-analysis-no-sessions-loaded = [bold]Detector analysis:[/bold] [dim]n
 
 ui-detectors = Detectors
 
-ui-diff = diff 
+ui-diff = diff
 
 ui-diff-1 =
     Diff
@@ -1112,11 +1178,11 @@ ui-diff-1 =
 
 ui-diff-2 = Diff
 
-ui-docker = [/b]  docker=[b]
+ui-docker = docker
 
 ui-docker-1 = Docker
 
-ui-docker-eval-runs = [bold]Docker eval runs:[/bold] 
+ui-docker-eval-runs = [bold]Docker eval runs:[/bold]
 
 ui-docker-is-available-and-running = Docker is available and running
 
@@ -1132,7 +1198,7 @@ ui-doctype = <!DOCTYPE
 
 ui-done = [/green] done
 
-ui-done-1 = [black on green bold]  DONE [/]  
+ui-done-1 = [black on green bold]  DONE [/]
 
 ui-down = Down
 
@@ -1140,21 +1206,20 @@ ui-dur = Dur
 
 ui-duration = Duration
 
-ui-duration-1 = Duration: 
+ui-duration-1 = Duration:
 
 ui-edit = Edit…
 
 ui-elapsed = Elapsed
 
-ui-enabled-analyzers = Enabled analyzers: 
+ui-enabled-analyzers = Enabled analyzers:
 
-ui-enabled-no-tool-hits =
-        enabled; no tool hits
-    
+ui-enabled-no-tool-hits = enabled; no tool hits
+
 
 ui-env = Env
 
-ui-env-keys = env keys: 
+ui-env-keys = env keys:
 
 ui-err =  err)
 
@@ -1162,7 +1227,7 @@ ui-error =   ✗ ERROR
 
 ui-error-1 =   ERROR
 
-ui-error-2 =   Error: 
+ui-error-2 = Error:
 
 ui-error-3 = Error
 
@@ -1184,7 +1249,7 @@ ui-events = Events
 
 ui-events-1 =  events
 
-ui-events-2 =  events, 
+ui-events-2 = events,
 
 ui-events-3 =   events=
 
@@ -1198,17 +1263,17 @@ ui-fail = FAIL
 
 ui-failed =  failed
 
-ui-failed-1 = [red]Failed: 
+ui-failed-1 = [red]Failed:
 
 ui-failed-2 =
      failed[/red]
     [dim]
 
-ui-failed-3 = [white on red bold]  FAILED [/]  
+ui-failed-3 = [white on red bold]  FAILED [/]
 
-ui-failed-after =  failed after 
+ui-failed-after = failed after
 
-ui-failed-for = Failed for 
+ui-failed-for = Failed for
 
 ui-failed-to-add-row-for-s = Failed to add row for %s
 
@@ -1216,7 +1281,7 @@ ui-failed-to-apply-saved-theme-r = Failed to apply saved theme %r
 
 ui-failed-to-ensure-persona-defaults = Failed to ensure persona defaults
 
-ui-failed-to-load = Failed to load 
+ui-failed-to-load = Failed to load
 
 ui-failed-to-load-persona-capabilities-for-s = Failed to load persona capabilities for %s
 
@@ -1246,13 +1311,13 @@ ui-failed-to-write-prefs-to-s = failed to write prefs to %s
 
 ui-feedback = Feedback
 
-ui-feedback-batch = [bold]Feedback batch:[/bold] 
+ui-feedback-batch = [bold]Feedback batch:[/bold]
 
 ui-field-select-report-view-select = field-select report-view-select
 
 ui-field-select-session-filter-select = field-select session-filter-select
 
-ui-file = file: 
+ui-file = file:
 
 ui-filter = Filter
 
@@ -1276,15 +1341,15 @@ ui-findings-below-are-session-wide-use-event-indice =
 
 ui-finished = Finished
 
-ui-finished-1 =  finished: 
+ui-finished-1 = finished:
 
-ui-finished-in =  finished in 
+ui-finished-in = finished in
 
-ui-finished-in-1 = [/bold] finished in 
+ui-finished-in-1 = [/bold] finished in
 
-ui-flagged = FLAGGED 
+ui-flagged = FLAGGED
 
-ui-flagged-at = Flagged at: 
+ui-flagged-at = Flagged at:
 
 ui-flags =  flags
 
@@ -1296,27 +1361,27 @@ ui-follow-up-failed-for-s = follow-up failed for %s
 
 ui-follow-up-s-pending =  follow-up(s) pending[/]
 
-ui-for =  for 
+ui-for = for
 
-ui-from =  from 
+ui-from = from
 
 ui-from-calls = from calls
 
 ui-from-events-jsonl-runtime-orchestrator-telemetry = From `events.jsonl` (runtime/orchestrator telemetry), not the agent `updates.jsonl` stream.
 
-ui-from-your-grok-config-toml-no-extra-def-unless-y = ] from your ~/.grok/config.toml (no extra def unless you configure).[/dim]
+ui-from-your-grok-config-toml-no-extra-def-unless-y = from your ~/.grok/config.toml (no extra def unless you configure)).[/dim]
 
-ui-full-refresh-from = Full refresh from 
+ui-full-refresh-from = Full refresh from
 
 ui-fully-loaded-full-tools-share-loop = fully-loaded (full tools + share loop)
 
-ui-gh-off =  · gh off · 
+ui-gh-off = · gh off ·
 
-ui-gh-on = [/yellow] gh on · 
+ui-gh-on = [/yellow] gh on ·
 
 ui-gh-write = GH Write
 
-ui-git = git: 
+ui-git = git:
 
 ui-github-mcp-skills-footer-for-keys =
      · GitHub / MCP / skills · Footer + ? for keys[/dim]
@@ -1332,7 +1397,7 @@ ui-grok-packages-this-run-only = )[/bold green]  [dim]Grok packages · this run 
 
 ui-groket = groket  [
 
-ui-groket-batch = groket  [batch 
+ui-groket-batch = groket  [batch
 
     
         HelpModal {'{'{'}'}
@@ -1393,7 +1458,7 @@ ui-high = [/red bold] high
 
 ui-high-1 = High
 
-ui-high-2 =  high, 
+ui-high-2 = high,
 
 ui-high-3 = HIGH
 
@@ -1403,11 +1468,11 @@ ui-high-5 = [red bold]High[/]
 
 ui-highlight-a-config-or-select-with-s-then-x-to-de = Highlight a config (or select with s), then x to delete
 
-ui-host-env = host env $
+ui-host-env = host env
 
 ui-host-env-fallback = [dim]host env fallback[/dim]
 
-ui-host-pass-through-uses-mcp-servers = [dim]Host pass-through: uses [mcp_servers.
+ui-host-pass-through-uses-mcp-servers = Host pass-through: uses mcp_servers.
 
 ui-host-tools = Host tools
 
@@ -1417,15 +1482,15 @@ ui-id-1 = [/bold]  [dim]id=
 
 ui-id-2 = Id
 
-ui-image = image: 
+ui-image = image:
 
 ui-image-profile = [dim]image profile[/dim]
 
 ui-in-flight-running-in-background-j-jobs-logs-no-p =  in flight — running in background ([bold]j[/bold] = jobs/logs; no per-run popups)
 
-ui-inactive-model-s-not-in-grok-models-models-cache =  inactive model(s) (not in `grok models` / models_cache.json). Launching: 
+ui-inactive-model-s-not-in-grok-models-models-cache = inactive model(s) (not in `grok models` / models_cache.json). Launching:
 
-ui-info =  info 
+ui-info = info
 
 ui-inherit-from-runner-run-config = (inherit from runner / run config)
 
@@ -1447,9 +1512,9 @@ ui-kind = Kind
 
 ui-label = Label
 
-ui-label-1 = label: 
+ui-label-1 = label:
 
-ui-last =   last: 
+ui-last = last:
 
 ui-last-outcome = Last outcome
 
@@ -1463,7 +1528,7 @@ ui-last-turn-outcome =   Last turn outcome=
 
 ui-latest =   latest=
 
-ui-launch = Launch: 
+ui-launch = Launch:
 
 ui-launch-error-s-open-j-for-jobs-logs =  launch error(s). Open [bold]j[/bold] for jobs/logs.
 
@@ -1475,11 +1540,11 @@ ui-launch-selected-1 = [bold]Launch selected[/bold]  [dim]
 
 ui-launch-selected-2 = launch selected
 
-ui-launched = Launched 
+ui-launched = Launched
 
 ui-launches = Launches
 
-ui-launches-1 =   launches: 
+ui-launches-1 = launches:
 
 ui-leave-blank-to-keep-existing-token = (leave blank to keep existing token)
 
@@ -1487,13 +1552,13 @@ ui-live =  · LIVE
 
 ui-live-turn =  · LIVE turn=
 
-ui-loaded = Loaded 
+ui-loaded = Loaded
 
-ui-loaded-1 = loaded 
+ui-loaded-1 = loaded
 
 ui-local = Local
 
-ui-local-1 = local · 
+ui-local-1 = local ·
 
 ui-local-catalog-entry-configure-to-set-headers-env = [dim]Local/catalog entry — configure to set headers/env; no registry docs page unless you added one.[/dim]
 
@@ -1511,7 +1576,7 @@ ui-mcp-0-none-added-for-this-run = [dim]MCP (0) — none added for this run[/dim
 
 ui-mcp-1 = [bold green]MCP (
 
-ui-mcp-2 =  MCP · 
+ui-mcp-2 = MCP ·
 
 ui-mcp-3 = : mcp=
 
@@ -1519,7 +1584,7 @@ ui-mcp-bridge = mcp bridge
 
 ui-mcp-bridge-calls = mcp bridge calls
 
-ui-mcp-servers = MCP servers (
+ui-mcp-servers = MCP servers
 
 ui-med = Med
 
@@ -1539,15 +1604,15 @@ ui-model = Model
 
 ui-model-1 = *Model:* `
 
-ui-model-filter = Model filter: 
+ui-model-filter = Model filter:
 
 ui-model-s =  model(s)
 
-ui-model-s-from-config =  model(s) from config 
+ui-model-s-from-config = model(s) from config
 
 ui-models = Models
 
-ui-models-1 =   models: 
+ui-models-1 = models:
 
 ui-models-optional-override-leave-none-selected-to = Models (optional override). Leave none selected to use each config's saved models (falls back to app defaults):
 
@@ -1567,17 +1632,17 @@ ui-msg-1 =  | [yellow]
 
 ui-msg-2 = [\s,]+
 
-ui-msg-3 = ):[/dim] 
+ui-msg-3 = )
 
 ui-msg-4 =   [green]•[/green] [bold]
 
-ui-msg-5 =   [green]•[/green] 
+ui-msg-5 = [green]•[/green]
 
 ui-n-4 = \n{'{'{'}'}4,{'}'}
 
 ui-name = Name
 
-ui-needs-env = [dim]needs env:[/dim] 
+ui-needs-env = [dim]needs env:[/dim]
 
 ui-new = New
 
@@ -1615,7 +1680,7 @@ ui-no-input = (no input)
 
 ui-no-models = : no models
 
-ui-no-models-for = No models for 
+ui-no-models-for = No models for
 
 ui-no-note = no note
 
@@ -1625,15 +1690,15 @@ ui-no-row-selected = [dim]No row selected.[/dim]
 
 ui-no-saved-configs-yet-save-a-recipe-from-the-runn = [dim]No saved configs yet. Save a recipe from the Runner, or create with New.[/dim]
 
-ui-no-session-yet-for = No session yet for 
+ui-no-session-yet-for = No session yet for
 
-ui-no-sessions-found-in = No sessions found in 
+ui-no-sessions-found-in = No sessions found in
 
 ui-no-timeline = (no timeline)
 
 ui-no-token-stored-yet = [dim]No token stored yet.[/dim]
 
-ui-no-traces-dir-to-refresh = No traces dir to refresh: 
+ui-no-traces-dir-to-refresh = No traces dir to refresh:
 
 ui-none =
       (none)
@@ -1647,21 +1712,21 @@ ui-none-saved = (none saved)
 
 ui-noop = Noop
 
-ui-note =  note 
+ui-note = note
 
 ui-note-1 = Note
 
-ui-notes = notes: 
+ui-notes = notes:
 
 ui-nothing-to-launch-no-models = Nothing to launch (no models)
 
-ui-nothing-to-refresh = Nothing to refresh: 
+ui-nothing-to-refresh = Nothing to refresh:
 
-ui-ok =  ok, 
+ui-ok = ok,
 
-ui-ok-1 =  ok 
+ui-ok-1 = ok
 
-ui-ok-2 = ok 
+ui-ok-2 = ok
 
 ui-ok-3 = OK
 
@@ -1673,7 +1738,7 @@ ui-one-per-line-pick-or-type-names = [dim]one per line · pick or type names[/di
 
 ui-open-in-runner = open in runner
 
-ui-open-session-failed = Open session failed: 
+ui-open-session-failed = Open session failed:
 
 ui-open-the-diff-tab-for-rewind-and-search-replace =
       Open the Diff tab for rewind and search_replace changes.
@@ -1697,7 +1762,7 @@ ui-panel-card-panel-card-grow = panel-card panel-card-grow
 
 ui-panel-card-report-section = panel-card report-section
 
-ui-parallelism = parallelism: 
+ui-parallelism = parallelism:
 
 ui-pat-for-this-persona = [dim]PAT for this persona[/dim]
 
@@ -1711,17 +1776,34 @@ ui-pending-in-background =  pending in background)
 
 ui-pending-refresh-with-f5 = pending (refresh with F5)
 
-ui-persona = [dim]persona 
+ui-persona = [dim]persona
 
 ui-persona-1 =  · persona=
 
 ui-persona-2 = Persona
 
+ui-persona-token-stored = stored ({$n} chars)
+
+ui-persona-token-host-env = host env {$name}
+
+ui-persona-github-line = github_write={$write} token={$token} docker={$docker}
+
+ui-persona-git-line = git: {$name} <{$email}>
+
+ui-persona-env-line = env keys: {$keys}
+
+ui-persona-mcp-line = MCP servers ({$n}): {$ids} replace_host={$replace}
+
+ui-persona-skills-line = Skills ({$n}): {$ids}
+
+ui-persona-notes-line = notes: {$notes}
+
+
 ui-persona-builder = [bold]Persona builder[/bold]  [dim]
 
 ui-persona-has-github-write-on-but-no-token-set-pat = Persona has GitHub write ON but no token — set PAT (or token env) on the persona (new / manage…), or export GH_TOKEN/GITHUB_TOKEN on the host
 
-ui-persona-ready = Persona ready: 
+ui-persona-ready = Persona ready:
 
 ui-personastore-initialization-failed = PersonaStore initialization failed
 
@@ -1731,7 +1813,7 @@ ui-planning = Planning
 
 ui-plugin = *Plugin:* `
 
-ui-plugin-s =  plugin(s): 
+ui-plugin-s = plugin(s):
 
 ui-plugin-s-1 =  plugin(s)
 
@@ -1749,11 +1831,11 @@ ui-plugins-persona-unchanged =  plugins (persona unchanged)
 
 ui-pre-grok-shell = [dim]pre-grok shell[/dim]
 
-ui-press-again-to-delete = Press [x] again to DELETE 
+ui-press-again-to-delete = Press [x] again to DELETE
 
 ui-press-w-to-launch-selected = [/dim]  [dim]press [bold]w[/bold] to launch selected[/dim]
 
-ui-prompt = prompt: 
+ui-prompt = prompt:
 
 ui-prompt-1 = Prompt
 
@@ -1761,13 +1843,12 @@ ui-queued-follow-up-sent = Queued follow-up sent (
 
 ui-quiet-mode-open-j-for-live-logs-status-f5-refres = ) — [dim]quiet mode: open [bold]j[/bold] for live logs/status · F5 refreshes this snapshot · Esc leaves docker running[/dim]
 
-ui-r-n = \r\n?
 
 ui-r-registry =  · r registry
 
 ui-recipes =  recipes).
 
-ui-refresh-all-failed = Refresh all failed: 
+ui-refresh-all-failed = Refresh all failed:
 
 ui-refresh-catalog-run-grok-models-on-the-host = refresh catalog: run `grok models` on the host
 
@@ -1775,33 +1856,33 @@ ui-refresh-done-sessions = Refresh done: sessions=
 
 ui-refresh-tip-surfaces-failed-on-s = refresh_tip_surfaces failed on %s
 
-ui-refreshed = Refreshed: 
+ui-refreshed = Refreshed:
 
-ui-refreshing-sessions-from = Refreshing sessions from 
+ui-refreshing-sessions-from = Refreshing sessions from
 
 ui-registry = Registry
 
-ui-registry-1 = registry · 
+ui-registry-1 = registry ·
 
-ui-registry-2 = [cyan]registry[/cyan]  
+ui-registry-2 = [cyan]registry[/cyan]
 
-ui-registry-3 = [dim]registry:[/dim] 
+ui-registry-3 = [dim]registry:[/dim]
 
-ui-registry-error = registry error · 
+ui-registry-error = registry error ·
 
-ui-registry-searching = registry · searching 
+ui-registry-searching = registry · searching
 
 ui-registry-type-a-query-enter = registry · type a query · enter
 
 ui-reload-meta-failed-for-s = reload meta failed for %s
 
-ui-replace-host =   [dim]replace_host=
+ui-replace-host = replace_host
 
 ui-replace-host-mcp-persona-only = Replace host MCP (persona only)
 
 ui-repo = Repo
 
-ui-repo-1 = repo: 
+ui-repo-1 = repo:
 
 ui-report =  (report)
 
@@ -1813,13 +1894,13 @@ ui-report-uses-selected =  [dim](report uses selected)[/dim]
 
 ui-report-view-select-sync-failed = report view select sync failed
 
-ui-repository = [cyan]repository[/cyan]  
+ui-repository = [cyan]repository[/cyan]
 
-ui-required =  required, 
+ui-required = required,
 
 ui-result = [dim cyan]Result[/]
 
-ui-run = Run 
+ui-run = Run
 
 ui-run-1 = Run
 
@@ -1827,65 +1908,77 @@ ui-run-2 = Run [bold]
 
 ui-run-config-s =  run config(s)
 
-ui-run-config-s-recipes-only-sessions-traces-kept =  run config(s) (recipes only — sessions/traces kept): 
+ui-run-config-s-recipes-only-sessions-traces-kept = run config(s) (recipes only — sessions/traces kept):
 
-ui-run-crashed = Run crashed: 
+ui-run-crashed = Run crashed:
 
-ui-run-env-keys-from-mcp-configure = [dim]Run env keys from MCP configure: 
+ui-run-env-keys-from-mcp-configure = [dim]Run env keys from MCP configure:
 
-ui-run-extras = Run extras: 
+ui-run-env-keys = [dim]Env vars (this run):
+
+ui-run-env-0-none = [dim]Env: 0 (none)[/dim]
+
+ui-run-env-saved = Saved {$count} run env var(s)
+
+ui-inline-skills = [bold green]Inline skills (
+
+ui-inline-skills-0-none = [dim]Inline skills: 0 (none)[/dim]
+
+ui-inline-skill-saved = Inline skill saved: {$name}
+
+ui-run-extras = Run extras:
 
 ui-run-mcp =  · run+mcp=
 
 ui-run-s-active = [/bold] run(s) active (
 
-ui-run-s-active-1 = [/bold] run(s) active — 
+ui-run-s-active-1 = [/bold] run(s) active —
 
 ui-run-s-j-jobs =  run(s) · j=jobs]
 
 ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt =  run(s) keep going in docker — [bold]j[/bold] jobs/logs; quit anytime (relaunch prunes finished eval containers)
 
-ui-run-s-latest =  run(s), latest 
+ui-run-s-latest = run(s), latest
 
-ui-run-s-started =  run(s) started, 
+ui-run-s-started = run(s) started,
 
-ui-running = [yellow bold]  RUNNING [/]  
+ui-running = [yellow bold]  RUNNING [/]
 
 ui-running-1 = [yellow]Running…[/]
 
-ui-running-analysis = [dim italic]Running analysis...[/]
+ui-running-analysis = [dim italic]Running analysis…[/]
 
 ui-running-analysis-1 = [dim italic]Running analysis…[/]
 
 ui-running-checks = Running checks…
 
-ui-runs = runs → 
+ui-runs = runs →
 
 ui-runs-0 = runs 0
 
-ui-runs-1 = runs 
+ui-runs-1 = runs
 
 ui-save = Save
 
-ui-save-config-failed = Save config failed: 
+ui-save-config-failed = Save config failed:
 
-ui-save-failed = Save failed: 
+ui-save-failed = Save failed:
 
 ui-save-persona-to-keep = save persona to keep
 
 ui-save-run-config-launch-to-keep-persona-unchanged = save run config / launch to keep (persona unchanged)
 
-ui-saved-config = Saved config 
+ui-saved-config = Saved config
 
-ui-saved-persona = Saved persona 
+ui-saved-persona = Saved persona
 
-ui-saved-run-config = Saved run config 
+ui-saved-run-config = Saved run config
 
 ui-saved-run-configs-recipes-in-runs-run-configs-no =
     [bold]Saved run configs[/bold]  [dim]recipes in runs/run_configs/ (not sessions). [bold]s[/bold]/space toggle select · [bold]S[/bold] select all · [bold]w[/bold] launch selected (multi) · [bold]l[/bold] launch one · [bold]x[/bold] twice to delete · [bold]Enter[/bold] edit in runner.[/dim]
     
 
-ui-scanning = Scanning 
+ui-scanning = Scanning
 
 ui-see-summary-tab-or-session-session-error-timelin =  (see Summary tab or Session / Session error timeline rows)
 
@@ -1903,17 +1996,17 @@ ui-select-sessions-with-s-or-highlight-a-row-then-p = Select sessions with [s]/S
 
 ui-selected = [/green bold] selected
 
-ui-selected-1 =  selected · 
+ui-selected-1 = selected ·
 
-ui-selected-2 = [dim]Selected (
+ui-selected-2 = Selected
 
-ui-selected-3 =  selected[/dim] 
+ui-selected-3 = selected
 
 ui-selected-4 =  [green]● selected[/green]
 
 ui-selected-5 =  (selected)
 
-ui-selection = [bold green]Selection: 
+ui-selection = [bold green]Selection:
 
 ui-selection-none-s-toggle-row-s-all-none-w-launche = [dim]Selection: none — [bold]s[/bold] toggle row · [bold]S[/bold] all/none · [bold]w[/bold] launches cursor config only if nothing selected.[/dim]
 
@@ -1975,15 +2068,15 @@ ui-sessions-1 =  sessions (
 
 ui-sessions-2 =  sessions
 
-ui-sessions-3 = sessions 
+ui-sessions-3 = sessions
 
-ui-sessions-press-a-to-run-detectors =  sessions — press 'a' to run detectors
+ui-sessions-press-a-to-run-detectors =  sessions
 
 ui-set-models-above = ; set models above
 
-ui-setup = setup: 
+ui-setup = setup:
 
-ui-severity = *Severity:* 
+ui-severity = *Severity:*
 
 ui-share = Share
 
@@ -2005,9 +2098,9 @@ ui-skill-not-written = ` (skill not written).
 
 ui-skill-packs = [dim]skill packs[/dim]
 
-ui-skill-write-failed = `; skill write failed: 
+ui-skill-write-failed = `; skill write failed:
 
-ui-skills = Skills (
+ui-skills = Skills
 
 ui-skills-0-none-added-for-this-run = [dim]Skills (0) — none added for this run[/dim]
 
@@ -2017,11 +2110,11 @@ ui-skills-2 =  skills=
 
 ui-skills-3 = [bold green]Skills (
 
-ui-skills-4 =  skills · 
+ui-skills-4 = skills ·
 
-ui-skip = Skip 
+ui-skip = Skip
 
-ui-skipping = Skipping 
+ui-skipping = Skipping
 
 ui-snapshot = Snapshot
 
@@ -2039,11 +2132,11 @@ ui-solid-yellow = solid yellow
 
 ui-source = Source
 
-ui-source-1 =   source=
+ui-source-1 = source
 
-ui-source-run-id = source run_id: 
+ui-source-run-id = source run_id:
 
-ui-source-session = source session: 
+ui-source-session = source session:
 
 ui-sources =
     
@@ -2065,7 +2158,7 @@ ui-stdio-needs-tools-in-image = [dim]stdio needs tools in image[/dim]
 
 ui-stop-live-refresh-on-quit-failed = stop live refresh on quit failed
 
-ui-stored = stored (
+ui-stored = stored
 
 ui-stored-on-persona = stored on persona
 
@@ -2079,17 +2172,17 @@ ui-succeeded-1 =  succeeded[/green]
 
 ui-sync-browser-tip-messages-failed = sync browser tip messages failed
 
-ui-target-directory = target_directory: 
+ui-target-directory = target_directory:
 
-ui-target-file = target_file: 
+ui-target-file = target_file:
 
 ui-task = Task
 
-ui-task-1 =   task: 
+ui-task-1 = task:
 
 ui-task-catalog-lookup-failed-for-s = Task catalog lookup failed for %s
 
-ui-task-filter = Task filter: 
+ui-task-filter = Task filter:
 
 ui-thinking = Thinking
 
@@ -2099,11 +2192,11 @@ ui-thought = Thought
 
 ui-thought-1 = [dim cyan italic]Thought[/]
 
-ui-time = Time: 
+ui-time = Time:
 
 ui-timeline = , timeline #
 
-ui-tip =  tip 
+ui-tip = tip
 
 ui-tips-callouts-off-hidden = Tips & callouts: off (hidden)
 
@@ -2130,13 +2223,13 @@ ui-tips-callouts-on = Tips & callouts: on
 
 ui-title = Title
 
-ui-token = [/b]  token=[b]
+ui-token = token
 
 ui-token-on-file-yes = [dim]Token on file: yes (
 
 ui-token-status-unknown = token status unknown
 
-ui-tool = tool 
+ui-tool = tool
 
 ui-tool-1 = Tool
 
@@ -2146,7 +2239,7 @@ ui-tool-err = Tool err
 
 ui-tool-err-1 =  tool err)
 
-ui-tool-errors =  tool errors, 
+ui-tool-errors = tool errors,
 
 ui-tool-execution = Tool execution
 
@@ -2155,10 +2248,10 @@ ui-tool-servers = [dim]tool servers[/dim]
 ui-tools = Tools
 
 ui-tools-1 =  tools
-
+ui-tokens = tokens
 ui-tools-2 =   tools=
 
-ui-tools-3 =            tools: 
+ui-tools-3 = tools:
 
 ui-top-tools = Top tools
 
@@ -2172,11 +2265,11 @@ ui-total-2 = TOTAL
 
 ui-trace-evaluation-error-hunting = Trace Evaluation & Error Hunting
 
-ui-traces = [bold]Traces[/bold]  
+ui-traces = [bold]Traces[/bold]
 
-ui-traces-path-not-found-yet-runner-writes-to = Traces path not found yet — Runner writes to 
+ui-traces-path-not-found-yet-runner-writes-to = Traces path not found yet — Runner writes to
 
-ui-transport =   transport=
+ui-transport = transport
 
 ui-truncated =
     
@@ -2219,25 +2312,60 @@ ui-turn-segmentation-failed = turn segmentation failed
 
 ui-turn-started = turn started
 
+ui-turn-stat-events = events={$n}
+
+ui-turn-stat-tools = tools={$n}
+
+ui-turn-stat-err = {$n} err
+
+ui-turn-stat-user = user={$n}
+
+ui-turn-stat-asst = asst={$n}
+
+ui-turn-stat-span = #{$first}–#{$last}
+
+ui-turn-tools-mix = tools: {$mix}
+
 ui-turns =  turns
 
 ui-turns-1 = Turns
+
+ui-host-tool-errors = ({$n} errors)
+
+ui-host-tool-calls = {$n}×
+
+ui-host-tool-total = total {$n}
+
+ui-err-count = {$n} err
+
+ui-err-count-paren = ({$n} err)
+
+ui-mcp-method-line = · {$method} {$calls}×
+
+ui-mcp-search-count = · {$n} search_tool query(ies)
+
+ui-skill-line = {$id} — {$bits}
+
+ui-use-tool-count = use_tool {$n}×
+
+ui-skill-loaded = loaded {$n}×
+
+ui-sources-line = sources: {$notes}
 
 ui-ubuntu-24-04-fully-loaded = ubuntu:24.04 @ fully-loaded
 
 ui-ubuntu-24-04-raw-os-still-share-loop-via-entrypo = ubuntu:24.04 (raw OS; still share loop via entrypoint)
 
-ui-ufffd-2 = \ufffd{'{'{'}'}2,{'}'}
 
 ui-up = Up
 
-ui-updated-config = Updated config 
+ui-updated-config = Updated config
 
 ui-url = URL
 
 ui-usage-summary-failed = usage summary failed
 
-ui-use-tool =     use_tool  
+ui-use-tool = use_tool
 
 ui-user = User
 
@@ -2247,11 +2375,11 @@ ui-user-2 = [bold white]User[/]
 
 ui-user-input = User input
 
-ui-viewing =   Viewing: 
+ui-viewing = Viewing:
 
 ui-wait-for-traces-to-appear =  — wait for traces to appear
 
-ui-warn =  warn 
+ui-warn = warn
 
 ui-warn-1 =  warn)
 
@@ -2265,13 +2393,13 @@ ui-what-the-model-should-have-done = *What the model should have done:*
 
 ui-will-be-git-fetched-into-the-container-volume-at = ` will be git-fetched into the container volume at launch
 
-ui-with =  with 
+ui-with = with
 
-ui-work = [bold]Work[/bold]  
+ui-work = [bold]Work[/bold]
 
-ui-work-1 = work: 
+ui-work-1 = work:
 
-ui-work-dir = [dim]work_dir: 
+ui-work-dir = [dim]work_dir:
 
 ui-workers-cancel-on-quit-failed = workers cancel on quit failed
 
@@ -2279,9 +2407,7 @@ ui-workspace = Workspace
 
 ui-writing = Writing
 
-ui-x1b = \x1b\[[0-?]*[ -/]*[@-~]
 
-ui-x1b-x07-x1b = \x1b\][^\x07\x1b]*(?:\x07|\x1b\\)
 
 ui-xml = <?xml
 
@@ -2306,10 +2432,13 @@ ui-version-tag =   v{ $ver }
 ui-status-bracket =   [{ $status }]
 
 # Activity bar (compact)
-activity-live = Live { $n }
-activity-runs = Runs { $n }
+activity-pending = Pending { $n }
+activity-building = Building { $n }
+activity-running = Running { $n }
+activity-extracting = Extracting { $n }
+activity-awaiting = Awaiting { $n }
 activity-analysis = Analysis { $n }
-activity-lib = Lib { $n }
+activity-refresh = Refresh { $n }
 activity-sessions = Sessions { $n }
 
 # Session list turn / status column
@@ -2329,5 +2458,122 @@ cmd-end-session-help = Mark awaiting sessions done
 turn-filter-all = All turns
 turn-filter-n = Turn { $n }
 
-ui-press-again-to-delete-persona = Press [x] again to DELETE persona 
+ui-press-again-to-delete-persona = Press [x] again to DELETE persona
 ui-press-again-to-delete-personas = Press [x] again to DELETE { $n } persona(s)
+
+# --- Composed UI (prefer these over fragment glue; no edge whitespace) ---
+tool-detail-heading = #{ $index } tool { $name }
+tool-detail-heading-error = #{ $index } tool { $name } ✗ ERROR
+tool-output-rule = Output ({ $n } chars)
+tool-output-rule-cleaned = Output ({ $n } chars, cleaned from { $raw })
+tool-input-file = File: { $path }
+tool-input-target-file = target_file: { $path }
+tool-input-target-directory = target_directory: { $path }
+tool-mcp-label = MCP tool: { $name }
+tool-input-section = tool_input:
+tool-field-pattern = pattern:
+tool-field-query = query:
+tool-field-old-string = old_string:
+tool-field-new-string = new_string:
+tool-no-input = (no input)
+tool-binary-output = (binary / control-only output)
+tool-empty-output = (empty)
+notify-scanning = Scanning { $path }…
+notify-no-sessions = No sessions found in { $path }
+notify-loaded-sessions = Loaded { $n } sessions
+notify-analyzing = Analyzing { $n } sessions ({ $plugins } plugins)…
+notify-analysis-complete = Analysis complete — { $n } sessions
+notify-failed-plugins = Failed to load { $n } plugin(s)
+notify-model-filter = Model filter: { $label }
+work-path-line = work: { $path }
+runs-path-line = runs → { $path }
+flagged-at-when = Flagged at { $when }
+truncate-marker = …truncated…
+truncate-for-display = …truncated for display…
+sessions-home-summary = { $total } sessions · { $findings } findings · { $high } high
+sessions-selected-count = { $n } selected
+sessions-pending-analysis = { $n } pending analysis
+
+# --- Session / jobs / personas notifies (composed) ---
+notify-traces-path-pending = Traces path not found yet — runner writes to { $path }
+notify-saved-run-config = Saved run config { $id } ({ $name }) — open with C (configs); sessions unchanged
+notify-save-config-failed = Save config failed: { $exc }
+notify-failed-for = Failed for { $errors }/{ $total }
+notify-press-again-delete-sessions = Press again to delete { $n } session(s) from disk (traces, feedback cache, run configs)
+notify-deleted-sessions = Deleted { $deleted }/{ $requested } session(s)
+notify-deleted-sessions-errors = Deleted { $deleted }/{ $requested } session(s) — { $errors } error(s){ $hint }
+notify-no-traces-refresh = No traces dir to refresh: { $path }
+notify-full-refresh = Full refresh from { $path } (background)…
+notify-refresh-all-failed = Refresh all failed: { $error }
+notify-refresh-done = Refresh done — sessions { $sessions }, analyzed { $analyzed }, errs { $errors }
+notify-nothing-to-refresh = Nothing to refresh under { $path }
+notify-refreshing-sessions = Refreshing sessions from { $path }…
+notify-refreshed-sessions = Refreshed { $n } session(s)
+notify-run-failed = Run { $id } failed after { $elapsed }: { $error }
+notify-run-finished = Run { $id } finished in { $elapsed }: { $ok }/{ $total } ok, { $failed } failed
+title-groket-batch = groket batch { $batch }… · { $n } run(s) · j=jobs
+title-groket-runs = groket · { $n } run(s) · latest { $id } · j=jobs
+title-browser-session = Browser — { $label } ({ $model }){ $extra }
+notify-turn-ended-outcome = Turn ended with outcome { $outcome } — see Summary tab or session/session_error timeline events
+notify-queued-follow-up-sent = Queued follow-up sent: { $preview }
+notify-open-session-failed = Open session failed: { $exc }
+notify-no-session-yet = No session yet for { $container } — wait for traces to appear
+notify-share-open-failed = Could not open share for { $name }: { $exc }
+jobs-banner-runs = Docker eval runs: { $n } active{ $latest }
+jobs-detector-progress = Detector analysis { $done }/{ $total } ({ $pend } pending in background)
+jobs-detector-done = Detector analysis { $done }/{ $total } done
+jobs-work-dir = work dir: { $path }
+persona-registry-searching = Registry searching { $query }…
+persona-registry-error = Registry error: { $error }
+persona-registry-hits = Registry: { $n } for { $query }{ $extra }
+persona-local-count = Local { $n } · r=registry
+persona-saved = Saved persona { $pid }
+persona-configure-title = Configure { $name }
+persona-added-mcp = Added MCP { $id }
+analysis-settings-help = Enabled analyzers: { $list }. Optional plugins: analysis.plugins as module:ClassName (active config: { $config }).
+browser-findings-chip = { $n } findings
+browser-high-chip = { $n } high
+browser-medium-chip = { $n } medium
+browser-flags-count = Flags ({ $n })
+browser-findings-dim = · { $n } findings
+browser-status-none = none
+browser-status-clean = clean
+browser-status-idle = idle
+browser-follow-ups-pending = { $n } follow-up(s) pending
+browser-more-queued = … +{ $n } more
+browser-report-counts = { $total } findings ({ $high } high, { $med } med)
+browser-flags-dim = { $n } flags
+browser-report-turn-line = { $label }: events={ $events } tools={ $tools }{ $err_suffix }{ $span }
+browser-report-turn-err = { " " }({ $n } tool err)
+browser-report-turn-span = , timeline #{ $first }–#{ $last }
+browser-viewing-focus = Viewing: { $focus }
+browser-finding-events = { $n } events
+browser-more-children = … +{ $n } more
+browser-report-error = Error: { $msg }
+browser-mcp-configured = configured
+browser-skill-mounted = mounted
+browser-skill-seen = seen
+browser-last-turn-outcome-note = Last turn outcome={ $outcome } (session meta = last finished turn)
+title-browser-extra-turn = · turn={ $outcome }
+title-browser-extra-live-turn = · LIVE turn={ $outcome }
+title-browser-extra-live = · LIVE
+title-browser-extra-awaiting = · awaiting follow-up
+report-md-model = *Model:* `{ $model }`
+report-md-session = *Session:* `{ $id }`
+report-md-plugin = *Plugin:* `{ $id }`
+report-md-finding = *Finding:* `{ $id }`
+report-md-severity = *Severity:* { $sev }
+report-md-category = *Category:* { $cat }
+report-md-sub-findings = *{ $n } sub-finding(s):*
+notify-delete-session-arm = Press [x] again to DELETE 1 session(s) from disk (traces + feedback_cache; run configs are kept)
+notify-deleted-sessions = Deleted { $deleted }/{ $requested } session(s){ $err_suffix }
+notify-deleted-sessions-errors = , errors={ $n }
+count-events = { $n } events
+count-tools = { $n } tools
+count-turns = { $n } turns
+ui-mcp-pick-sel = {$n} selected · {$configured} configured · {$ids}
+ui-plugins-pick-sel = Selected ({$n}): {$ids}
+ui-skills-pick-sel = {$n} selected · {$ids}
+
+
+

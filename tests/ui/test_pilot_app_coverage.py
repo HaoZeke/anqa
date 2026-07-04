@@ -11,13 +11,12 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.models import SessionMeta
 from groket.parser import load_session_meta
 from groket.ui.app import (
     AnalysisSettingsModal,
-    SessionSearchModal,
     TraceEvalApp,
     _coerce_select_value,
+    _session_search_haystack,
 )
 from textual.widgets import DataTable, Input, Select, Static
 
@@ -250,7 +249,8 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
-        assert table.row_count >= 1
+        await wait_until(pilot, lambda: table.row_count >= 1, description="table populated")
+
         # Filter bar selects exist
         app.query_one("#session-model-select", Select)
         banner = app.query_one("#session-paths", Static)
@@ -756,8 +756,8 @@ async def test_rerun_session_pushes_runner(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_sessions_modal(tmp_path: Path) -> None:
-    """``/`` opens session search modal; dismissing navigates to result."""
+async def test_search_sessions_focuses_input(tmp_path: Path) -> None:
+    """``/`` focuses the inline session search field (no modal)."""
     app, _, _ = _make_app(tmp_path, n_sessions=3)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 3, description="sessions loaded")
@@ -767,76 +767,33 @@ async def test_search_sessions_modal(tmp_path: Path) -> None:
         app.action_search_sessions()
         await wait_until(
             pilot,
-            lambda: any(isinstance(s, SessionSearchModal) for s in app.screen_stack),
-            description="SessionSearchModal pushed",
-        )
-        # Dismiss search modal via Esc
-        await pilot.press("escape")
-        await wait_until(
-            pilot,
-            lambda: not any(isinstance(s, SessionSearchModal) for s in app.screen_stack),
-            description="SessionSearchModal dismissed",
+            lambda: (
+                isinstance(app.focused, Input)
+                and getattr(app.focused, "id", None) == "session-search-input"
+            ),
+            description="session search input focused",
         )
 
 
 @pytest.mark.asyncio
-async def test_search_sessions_no_sessions(tmp_path: Path) -> None:
-    """Search with no sessions notifies warning."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app.action_search_sessions()
-        await pilot.pause()
-        # No crash; modal not pushed
-        assert not any(isinstance(s, SessionSearchModal) for s in app.screen_stack)
-
-
-@pytest.mark.asyncio
-async def test_search_modal_typing_and_submit(tmp_path: Path) -> None:
-    """Typing in search modal filters, Enter selects and opens session."""
-    from groket.ui.screens.browser import BrowserScreen
-
+async def test_session_search_filters_as_you_type(tmp_path: Path) -> None:
+    """Typing in the sessions filter bar filters the table without Enter."""
     app, _, _ = _make_app(tmp_path, n_sessions=3, model_ids=["alpha", "beta", "gamma"])
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 3, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 3, description="table populated")
 
-        app.action_search_sessions()
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, SessionSearchModal) for s in app.screen_stack),
-            description="search modal",
-        )
-        modal = next(s for s in app.screen_stack if isinstance(s, SessionSearchModal))
-
-        # Wait for the modal to compose its children
-        await wait_until(
-            pilot,
-            lambda: bool(modal.query("#session-search-input")),
-            description="search input mounted",
-        )
-
-        # Type search query to filter
-        inp = modal.query_one("#session-search-input", Input)
+        inp = app.query_one("#session-search-input", Input)
         inp.value = "alpha"
+        app._on_session_search_changed(Input.Changed(inp, "alpha"))
         await pilot.pause()
+        assert table.row_count == 1
 
-        # Arrow up/down
-        modal.action_cursor_down()
+        inp.value = ""
+        app._on_session_search_changed(Input.Changed(inp, ""))
         await pilot.pause()
-        modal.action_cursor_up()
-        await pilot.pause()
-
-        # Submit
-        await pilot.press("enter")
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, BrowserScreen) for s in app.screen_stack),
-            description="BrowserScreen opened from search",
-            attempts=120,
-        )
-        await pilot.press("escape")
+        assert table.row_count >= 3
         await pilot.pause()
 
 
@@ -1087,95 +1044,19 @@ async def test_get_system_commands(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_search_modal_empty_query(tmp_path: Path) -> None:
-    """Search modal with empty query shows all sessions."""
-    sessions: list[tuple[SessionMeta, str]] = []
-    for i in range(3):
-        sd = _write_session(tmp_path / "traces", f"s{i}", model_id=f"m{i}")
-        meta = load_session_meta(sd)
-        sessions.append((meta, f"label-{i}"))
-
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        # Mount modal directly
-        modal = SessionSearchModal(sessions)
-        app.push_screen(modal)
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, SessionSearchModal) for s in app.screen_stack),
-            description="search modal mounted",
-        )
-        await wait_until(
-            pilot,
-            lambda: bool(modal.query("#session-search-input")),
-            description="search input composed",
-        )
-        # Clear query should show all
-        inp = modal.query_one("#session-search-input", Input)
-        inp.value = ""
-        await pilot.pause()
-        assert len(modal._results) == 3
-
-
-@pytest.mark.asyncio
-async def test_session_search_modal_filtering(tmp_path: Path) -> None:
-    """Typing in search modal filters results by fuzzy match."""
-    sessions: list[tuple[SessionMeta, str]] = []
-    for i, mid in enumerate(["alpha-model", "beta-model", "gamma-model"]):
-        sd = _write_session(tmp_path / "traces", f"s{i}", model_id=mid)
-        meta = load_session_meta(sd)
-        sessions.append((meta, f"label-{i}"))
-
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        modal = SessionSearchModal(sessions)
-        app.push_screen(modal)
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, SessionSearchModal) for s in app.screen_stack),
-            description="search modal mounted",
-        )
-        await wait_until(
-            pilot,
-            lambda: bool(modal.query("#session-search-input")),
-            description="search input composed",
-        )
-        inp = modal.query_one("#session-search-input", Input)
-        inp.value = "alpha"
-        await pilot.pause()
-        # At least one result should match alpha
-        assert len(modal._results) >= 1
-
-
-@pytest.mark.asyncio
-async def test_session_search_modal_submit_opens_browser(tmp_path: Path) -> None:
-    """Submitting in search modal opens the selected session in browser."""
-    from groket.ui.screens.browser import BrowserScreen
-
-    app, _, traces = _make_app(tmp_path, n_sessions=2)
+async def test_session_search_submit_focuses_table(tmp_path: Path) -> None:
+    """Enter in the session search field keeps the filter and focuses the table."""
+    app, _, _ = _make_app(tmp_path, n_sessions=2, model_ids=["alpha", "beta"])
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="table populated")
-
-        app.action_search_sessions()
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, SessionSearchModal) for s in app.screen_stack),
-            description="modal opened",
-        )
-        # Submit with Enter
-        await pilot.press("enter")
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, BrowserScreen) for s in app.screen_stack),
-            description="BrowserScreen from search submit",
-            attempts=120,
-        )
-        await pilot.press("escape")
+        inp = app.query_one("#session-search-input", Input)
+        inp.value = "alpha"
+        app._on_session_search_submitted(Input.Submitted(inp, "alpha"))
         await pilot.pause()
+        assert table.row_count == 1
+        assert app._session_search == "alpha"
 
 
 @pytest.mark.asyncio
@@ -1344,24 +1225,53 @@ async def test_auto_load_default_traces_under_work_dir(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_schedule_live_sessions_poll(tmp_path: Path) -> None:
-    """_schedule_live_sessions_poll sets up the live timer."""
+    """_schedule_live_sessions_poll arms FS watch or timer fallback."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         app._schedule_live_sessions_poll()
+        assert app._traces_watch is not None or app._live_sessions_timer is not None
+
+
+@pytest.mark.asyncio
+async def test_schedule_live_sessions_poll_timer_when_watch_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When TraceTreeWatch.start fails, arm a slow timer poll."""
+    from groket.fs_watch import TraceTreeWatch
+
+    monkeypatch.setattr(TraceTreeWatch, "start", lambda self: False)
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app._traces_watch = None
+        app._live_sessions_timer = None
+        app._schedule_live_sessions_poll()
+        assert app._traces_watch is None
         assert app._live_sessions_timer is not None
 
 
 @pytest.mark.asyncio
-async def test_scan_live_sessions_into_table(tmp_path: Path) -> None:
+async def test_scan_live_sessions_into_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """_scan_live_sessions_into_table detects new sessions."""
     app, work, traces = _make_app(tmp_path, n_sessions=1)
+    # Force idle full-walk path (host may have unrelated running eval containers).
+    monkeypatch.setattr(
+        type(app.run_manager),
+        "active_count",
+        property(lambda self: 0),
+    )
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
         before_rows = table.row_count
         # Add a session to runner traces
         _write_session(traces, "sess-live-new")
+        # Bypass min-gap / full-walk cadence so this unit exercises discovery.
+        app._live_sessions_last_scan = 0.0
+        app._live_full_walk_last = 0.0
         app._scan_live_sessions_into_table()
         await wait_until(
             pilot,
@@ -1588,9 +1498,8 @@ async def test_constructor_traces_path_only(tmp_path: Path) -> None:
     assert app.traces_path is not None
 
 
-@pytest.mark.asyncio
-async def test_session_search_label_with_metadata(tmp_path: Path) -> None:
-    """SessionSearchModal._session_label includes metadata fields."""
+def test_session_search_haystack_includes_metadata(tmp_path: Path) -> None:
+    """``_session_search_haystack`` includes model, task, repo, summary."""
     sd = _write_session(
         tmp_path / "traces",
         "s1",
@@ -1600,19 +1509,19 @@ async def test_session_search_label_with_metadata(tmp_path: Path) -> None:
         summary_text="Important fix",
     )
     meta = load_session_meta(sd)
-    sessions: list[tuple[SessionMeta, str]] = [(meta, "lab")]
-    modal = SessionSearchModal(sessions)
-    label = modal._session_label(0)
-    assert "alpha" in label
-    assert "task-fix" in label
-    assert "repo" in label
-    assert "Important fix" in label
+    hay = _session_search_haystack(meta, "lab")
+    assert "alpha" in hay
+    assert "task-fix" in hay
+    assert "repo" in hay
+    assert "important fix" in hay
 
 
 @pytest.mark.asyncio
 async def test_analyze_targets_already_analyzed(tmp_path: Path) -> None:
     """Analyze with all-analyzed sessions skips reanalysis."""
+    from groket.analysis.inflight import clear_session_analysis_inflight
 
+    clear_session_analysis_inflight()
     app, _, _ = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
@@ -1625,6 +1534,42 @@ async def test_analyze_targets_already_analyzed(tmp_path: Path) -> None:
         for meta, label in list(app._meta_only):
             app._analyze_one(meta, label)
         assert app._plugin_results == before
+    clear_session_analysis_inflight()
+
+
+@pytest.mark.asyncio
+async def test_analyze_targets_skips_inflight_sessions(tmp_path: Path) -> None:
+    """A session already in the analysis pipeline is not enqueued again."""
+    from groket.analysis.inflight import (
+        clear_session_analysis_inflight,
+        session_analysis_inflight_count,
+        try_begin_session_analysis,
+    )
+    from groket.job_pools import get_analysis_pool
+
+    clear_session_analysis_inflight()
+    app, _, _ = _make_app(tmp_path, n_sessions=1)
+    submitted: list[str] = []
+    real_submit = get_analysis_pool().submit
+
+    def _track(label: str, fn):  # type: ignore[no-untyped-def]
+        submitted.append(label)
+        return real_submit(label, fn)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        meta, label = app._meta_only[0]
+        assert try_begin_session_analysis(meta.session_dir) is True
+        app._plugin_results.clear()
+        get_analysis_pool().submit = _track  # type: ignore[method-assign]
+        try:
+            app._analyze_targets([(meta, label)])
+            await pilot.pause()
+        finally:
+            get_analysis_pool().submit = real_submit  # type: ignore[method-assign]
+        assert submitted == []
+        assert session_analysis_inflight_count() == 1
+    clear_session_analysis_inflight()
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
@@ -29,30 +28,48 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    OptionList,
     Select,
     Static,
 )
 
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
-from ..constants import META_CACHE_FILENAME, META_LOAD_WORKERS
-from ..models import JsonObject, SessionMeta
-from ..parser import extract_prompt, find_sessions, load_session_meta
+from ..constants import META_CACHE_FILENAME
+from ..models import JsonObject, JsonValue, SessionMeta
+from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
 from . import text as U
+
+# Harness / terminal outcomes — live poll must not replace these with
+# ``interrupted`` from stale-trace inference (UI shows that as "cancelled").
+_FINISHED_TURN_OUTCOMES = frozenset(
+    {
+        "success",
+        "ok",
+        "completed",
+        "complete",
+        "error",
+        "failed",
+        "failure",
+        "timeout",
+        "cancelled",
+        "canceled",
+        "aborted",
+        "interrupted",
+    }
+)
+
 from .bindings import (
     APP_GLOBAL_PRIORITY,
     APP_SESSIONS,
     FORM_SAVE,
     SESSION_HOME_ACTIONS,
-    SESSION_SEARCH_MODAL,
     focus_primary_list,
 )
 from .data_table import cursor_row_key, restore_cursor, set_marker_column, style_data_table
-from .fuzzy import fzf_match
-from .i18n import setup_i18n, t
+from .i18n import join_ui, setup_i18n, t
+from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .screens.rules import RulesScreen
 from .screens.run_configs import RunConfigsScreen
@@ -83,7 +100,7 @@ def _coerce_select_value(value, *, default=None):
     return value
 
 
-class InteractiveSessionsModal(ModalScreen[tuple[str, bool] | None]):
+class InteractiveSessionsModal(QuitActions, ModalScreen[tuple[str, bool] | None]):
     """Prompt for a follow-up on awaiting sessions (sessions home).
 
     Dismisses with ``(prompt, final_turn)`` or ``None`` on cancel. When
@@ -106,7 +123,7 @@ class InteractiveSessionsModal(ModalScreen[tuple[str, bool] | None]):
                 id="interactive-follow-last-turn",
                 value=False,
             )
-            with Horizontal(id="interactive-modal-actions"):
+            with Horizontal(id="interactive-modal-actions", classes="modal-footer"):
                 yield Button(U.send(), variant="primary", id="interactive-send")
                 yield Button(U.cancel(), id="interactive-cancel")
 
@@ -149,7 +166,7 @@ class InteractiveSessionsModal(ModalScreen[tuple[str, bool] | None]):
         self.dismiss((text, final))
 
 
-class AnalysisSettingsModal(ModalScreen[bool]):
+class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
     """Configure analysis behaviour (all registered plugins run on analyze)."""
 
     BINDINGS = list(FORM_SAVE)
@@ -160,6 +177,7 @@ class AnalysisSettingsModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         from ..analysis import list_analyzers, load_pipeline_config
+        from .i18n import t
 
         app = self.app
         config_path = getattr(app, "_config_path", None)
@@ -174,16 +192,31 @@ class AnalysisSettingsModal(ModalScreen[bool]):
         with Container(id="analysis-settings-modal"):
             yield Label(U.analysis_pipeline_title(), id="analysis-settings-title")
             yield Static(
-                f"{t('ui-enabled-analyzers')} {plugin_list}. Optional plugins: analysis.plugins as module:ClassName (active config: {config_path or '~/.groket or work_dir'}).",
+                t(
+                    "analysis-settings-help",
+                    list=plugin_list,
+                    config=str(config_path or "~/.groket or work_dir"),
+                ),
                 id="analysis-settings-help",
             )
             yield Checkbox(
-                U.auto_analyze_on_open(), value=cfg.auto_analyze_on_open, id="as-auto-analyze"
+                U.auto_analyze_on_open(),
+                value=(cfg.auto_analyze_when != "never"),
+                id="as-auto-analyze",
+            )
+            yield Static(t("analysis-when-help"), id="as-when-help")
+            yield Static(
+                t(
+                    "analysis-workers-help",
+                    analysis=cfg.analysis_workers,
+                    refresh=cfg.live_refresh_workers,
+                ),
+                id="as-workers-help",
             )
             from .prefs import show_tips_enabled
 
             yield Checkbox(U.show_tips_checkbox(), value=show_tips_enabled(), id="as-show-tips")
-            with Horizontal(id="analysis-settings-actions"):
+            with Horizontal(id="analysis-settings-actions", classes="modal-footer"):
                 yield Button(U.save(), variant="primary", id="as-save")
                 yield Button(U.cancel(), id="as-cancel")
 
@@ -222,7 +255,12 @@ class AnalysisSettingsModal(ModalScreen[bool]):
         app = self.app
         config_path = getattr(app, "_config_path", None)
         prev = load_pipeline_config(self._work_dir, config_path=config_path)
-        cfg = AnalysisPipelineConfig(plugins=list(prev.plugins), auto_analyze_on_open=bool(auto))
+        cfg = AnalysisPipelineConfig(
+            plugins=list(prev.plugins),
+            auto_analyze_when=("session_complete" if auto else "never"),
+            analysis_workers=prev.analysis_workers,
+            live_refresh_workers=prev.live_refresh_workers,
+        )
         save_pipeline_config(self._work_dir, cfg)
         from ..paths import analysis_cache_dir
 
@@ -239,97 +277,22 @@ class AnalysisSettingsModal(ModalScreen[bool]):
         self.dismiss(True)
 
 
-class SessionSearchModal(ModalScreen):
-    """Fuzzy search modal for filtering the session list."""
-
-    BINDINGS = list(SESSION_SEARCH_MODAL)
-
-    def __init__(self, sessions: list[tuple[SessionMeta, str]]) -> None:
-        super().__init__()
-        self._sessions = sessions
-        self._results: list[int] = []
-
-    async def action_dismiss(self, result: object = None) -> None:  # noqa: ARG002
-        from .bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
-
-    def compose(self) -> ComposeResult:
-        with Container(id="session-search-modal"):
-            yield Label(U.fuzzy_search_sessions(), id="session-search-label")
-            yield Input(placeholder=U.type_to_filter(), id="session-search-input")
-            yield OptionList(*self._build_all_options(), id="session-search-list")
-
-    def _build_all_options(self) -> list[Text]:
-        self._results = list(range(len(self._sessions)))
-        return [Text(self._session_label(i)) for i in self._results]
-
-    def _session_label(self, idx: int) -> str:
-        """Build a rich search candidate string covering many metadata fields."""
-        meta, label = self._sessions[idx]
-        model = meta.model_display
-        title = meta.label[:40]
-        parts = [meta.session_id[:12], model, title, label]
-        if meta.task_id:
-            parts.append(meta.task_id)
-        if meta.git_repo:
-            repo_short = meta.git_repo.rstrip("/").rsplit("/", 1)[-1]
-            parts.append(repo_short)
-        if meta.summary_text:
-            parts.append(meta.summary_text[:60])
-        if meta.turn_outcome:
-            parts.append(f"turn:{meta.turn_outcome}")
-        return "  ".join(parts)
-
-    def on_mount(self) -> None:
-        self.query_one("#session-search-input", Input).focus()
-
-    def _move_highlight(self, delta: int) -> None:
-        ol = self.query_one("#session-search-list", OptionList)
-        if ol.option_count == 0:
-            return
-        current = ol.highlighted if ol.highlighted is not None else -1
-        ol.highlighted = max(0, min(ol.option_count - 1, current + delta))
-        ol.scroll_to_highlight()
-
-    def action_cursor_up(self) -> None:
-        self._move_highlight(-1)
-
-    def action_cursor_down(self) -> None:
-        self._move_highlight(1)
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        query = event.value.strip()
-        ol = self.query_one("#session-search-list", OptionList)
-        if not query:
-            options = self._build_all_options()
-            ol.set_options(options)
-        else:
-            scored: list[tuple[float, Text, int]] = []
-            for i in range(len(self._sessions)):
-                candidate = self._session_label(i)
-                score, display = fzf_match(query, candidate)
-                if score > 0:
-                    scored.append((score, display, i))
-            scored.sort(key=lambda x: -x[0])
-            self._results = [idx for _, _, idx in scored]
-            ol.set_options([display for _, display, _ in scored])
-        if ol.option_count > 0:
-            ol.highlighted = 0
-
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        ol = self.query_one("#session-search-list", OptionList)
-        if ol.option_count > 0 and ol.highlighted is not None:
-            self._dismiss_at(ol.highlighted)
-
-    async def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        self._dismiss_at(event.option_index)
-
-    def _dismiss_at(self, idx: int) -> None:
-        if 0 <= idx < len(self._results):
-            session_idx = self._results[idx]
-            meta, label = self._sessions[session_idx]
-            self.dismiss(str(meta.session_dir))
+def _session_search_haystack(meta: SessionMeta, label: str) -> str:
+    """Plain text used for as-you-type session list filtering (case-insensitive)."""
+    parts = [
+        meta.session_id or "",
+        meta.model_display or "",
+        (meta.label or "")[:80],
+        label or "",
+        meta.task_id or "",
+        meta.git_repo or "",
+        (meta.summary_text or "")[:120],
+        meta.turn_outcome or "",
+        meta.list_status_label() or "",
+    ]
+    if meta.git_repo:
+        parts.append(meta.git_repo.rstrip("/").rsplit("/", 1)[-1])
+    return " ".join(parts).casefold()
 
 
 class TraceEvalApp(App):
@@ -393,10 +356,15 @@ class TraceEvalApp(App):
         self.run_manager.add_status_listener(self._on_background_run_status)
         self._run_status_timer: Timer | None = None
         self._live_sessions_timer: Timer | None = None
+        self._traces_watch: object | None = None
         self._live_sessions_busy = False
         self._live_sessions_last_scan: float = 0.0
+        # session_dir key → last session_trace_mtime seen on a live poll.
+        self._session_mtimes: dict[str, float] = {}
+        self._live_full_walk_last: float = 0.0
         self._share_notified: set[str] = set()
         self._populate_busy = False
+        self._sessions_table_primed = False
         self._exiting = False
         self._config_path = Path(config_path).expanduser() if config_path else None
         self._analysis_jobs_active: int = 0
@@ -405,6 +373,7 @@ class TraceEvalApp(App):
         self._plugin_results: dict[str, dict[str, AnalysisResult]] = {}
         self._selected: set[str] = set()
         self._filter_model: str = ""
+        self._session_search: str = ""
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
         self._delete_row_keys_snapshot: list[str] | None = None
@@ -434,6 +403,10 @@ class TraceEvalApp(App):
                     id="session-model-select",
                     allow_blank=False,
                     classes=t("ui-field-select-session-filter-select"),
+                )
+                yield Input(
+                    placeholder=U.search_sessions_placeholder(),
+                    id="session-search-input",
                 )
             yield DataTable(id="session-table")
         yield Footer()
@@ -557,7 +530,8 @@ class TraceEvalApp(App):
             set_analysis_service(svc)
             if svc.load_failures:
                 self.notify(
-                    f"{t('ui-failed-to-load')} {len(svc.load_failures)} {t('ui-plugin-s')}"
+                    t("notify-failed-plugins", n=len(svc.load_failures))
+                    + ": "
                     + ", ".join(svc.load_failures),
                     severity="error",
                     timeout=15,
@@ -583,7 +557,10 @@ class TraceEvalApp(App):
             t("ui-label"),
         )
         try:
-            bits = [f"{t('ui-work-1')} {self.work_dir}", f"{t('ui-runs')} {self.work_dir / 'runs'}"]
+            bits = [
+                t("work-path-line", path=str(self.work_dir)),
+                t("runs-path-line", path=str(self.work_dir / "runs")),
+            ]
             try:
                 n_plugins = len([p for p in self._analysis_svc().list_plugins() if p.id != "noop"])
                 bits.append(t("ui-plugins-count", n=n_plugins))
@@ -602,7 +579,10 @@ class TraceEvalApp(App):
             self._load_sessions(load_p)
         else:
             self.notify(
-                f"{t('ui-traces-path-not-found-yet-runner-writes-to')} {self.work_dir / 'runs' / 'traces'}",
+                t(
+                    "notify-traces-path-pending",
+                    path=str(self.work_dir / "runs" / "traces"),
+                ),
                 severity="information",
                 timeout=6,
             )
@@ -626,16 +606,23 @@ class TraceEvalApp(App):
 
     def _save_meta_cache(self, root: Path, entries: list[tuple[SessionMeta, str]]) -> None:
         """Write session metadata cache to disk."""
-        sessions_cache: dict[str, dict[str, object]] = {}
-        cache: dict[str, object] = {"root": str(root), "sessions": sessions_cache}
+        from ..parser import session_trace_mtime
+
+        sessions_cache: dict[str, JsonValue] = {}
+        cache: JsonObject = {"root": str(root), "sessions": sessions_cache}
         for meta, label in entries:
             key = str(meta.session_dir.resolve())
+            try:
+                tm = float(session_trace_mtime(Path(meta.session_dir)))
+            except Exception:
+                tm = 0.0
             sessions_cache[key] = {
                 "session_id": meta.session_id,
                 "model_id": meta.model_id,
                 "title": meta.title,
                 "created_at": meta.created_at,
                 "num_events": meta.num_events,
+                "trace_mtime": tm,
                 "duration_seconds": meta.duration_seconds,
                 "task_id": meta.task_id,
                 "run_id": meta.run_id,
@@ -651,8 +638,15 @@ class TraceEvalApp(App):
     def _load_sessions_sync(self, root: Path) -> int:
         """Load session metas into ``_meta_only`` (any thread; no UI calls).
 
+        Avoids parsing every ``updates.jsonl`` on launch when a mtime-matching
+        ``num_events`` is already in the meta cache (still coalesced timeline
+        counts — not file-size estimates). Cache misses get a deferred
+        :func:`~groket.parser.parse_timeline` pass so the UI can paint first.
+
         :returns: Number of sessions loaded (0 if none found — leaves prior list untouched).
         """
+        from ..parser import parse_timeline, session_trace_mtime
+
         session_dirs = find_sessions(root)
         if not session_dirs:
             if root.is_dir():
@@ -671,20 +665,66 @@ class TraceEvalApp(App):
                 seen_dirs.add(resolved)
                 unique_dirs.append(sd)
 
-        def _load_one(sd: Path) -> tuple[SessionMeta, str] | None:
+        cache = self._load_meta_cache(root)
+        need_timeline_count: list[int] = []  # indices into _meta_only
+
+        def _load_one(sd: Path) -> tuple[SessionMeta, str, bool] | None:
+            """Return meta, label, and whether timeline count still needed."""
             try:
-                meta = load_session_meta(sd)
+                key = str(sd.resolve())
+            except OSError:
+                key = str(sd)
+            try:
+                mtime = float(session_trace_mtime(sd))
+            except Exception:
+                mtime = 0.0
+            cached = cache.get(key) if isinstance(cache.get(key), dict) else None
+            cached_n = None
+            if isinstance(cached, dict):
+                try:
+                    if float(cached.get("trace_mtime") or -1) == mtime:
+                        ne = cached.get("num_events")
+                        cached_n = int(ne) if ne is not None else None
+                        if cached_n is None:
+                            raise ValueError("missing num_events")
+
+                except (TypeError, ValueError):
+                    cached_n = None
+            try:
+                if cached_n is not None:
+                    meta = load_session_meta(
+                        sd, include_timeline_count=False, timeline_count=cached_n
+                    )
+                    need_count = False
+                else:
+                    # Fast path for list paint — fill coalesced counts after.
+                    meta = load_session_meta(sd, include_timeline_count=False)
+                    need_count = True
             except Exception:
                 logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
                 return None
             label = self._derive_label(sd, root)
-            return (meta, label)
+            return (meta, label, need_count)
 
-        with ThreadPoolExecutor(max_workers=META_LOAD_WORKERS) as pool:
-            results = pool.map(_load_one, unique_dirs)
-        for result in results:
-            if result is not None:
-                self._meta_only.append(result)
+        # One session at a time — no thread pool (parallel meta load pegged CPUs on launch).
+        for sd in unique_dirs:
+            result = _load_one(sd)
+            if result is None:
+                continue
+            meta, label, need_count = result
+            self._meta_only.append((meta, label))
+            if need_count:
+                need_timeline_count.append(len(self._meta_only) - 1)
+
+        # Coalesced event counts for cache misses (still sequential).
+        for idx in need_timeline_count:
+            meta, label = self._meta_only[idx]
+            try:
+                meta.num_events = len(parse_timeline(Path(meta.session_dir)))
+            except Exception:
+                meta.num_events = 0
+            self._meta_only[idx] = (meta, label)
+
         self._save_meta_cache(root, self._meta_only)
         return len(self._meta_only)
 
@@ -692,38 +732,149 @@ class TraceEvalApp(App):
     def _load_sessions(self, root: Path | None = None) -> None:
         if root is None:
             return
-        call_ui(self, self.notify, f"{t('ui-scanning')} {root}...", severity="information")
-        n = self._load_sessions_sync(root)
-        if n == 0:
-            call_ui(
-                self,
-                self.notify,
-                f"{t('ui-no-sessions-found-in')} {root}",
-                severity="error",
-            )
-            return
-        call_ui(self, self._rebuild_session_filters)
-        call_ui(self, self._populate_session_table)
         call_ui(
             self,
             self.notify,
-            f"{t('ui-loaded')} {n} {t('ui-sessions-press-a-to-run-detectors')}",
+            t("notify-scanning", path=str(root)),
             severity="information",
         )
+        # Two-phase: paint list as soon as light metas are ready, then fill
+        # coalesced event counts for cache misses without blocking first paint.
+        from ..parser import parse_timeline, session_trace_mtime
+
+        session_dirs = find_sessions(root)
+        if not session_dirs and root.is_dir():
+            for sub in sorted(root.iterdir()):
+                if sub.is_dir():
+                    session_dirs.extend(find_sessions(sub))
+        if not session_dirs:
+            call_ui(
+                self,
+                self.notify,
+                t("notify-no-sessions", path=str(root)),
+                severity="error",
+            )
+            return
+
+        cache = self._load_meta_cache(root)
+        seen: set[str] = set()
+        unique: list[Path] = []
+        for sd in session_dirs:
+            try:
+                key = str(sd.resolve())
+            except OSError:
+                key = str(sd)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(sd)
+
+        self._meta_only = []
+        self._plugin_results = {}
+        need_idx: list[int] = []
+
+        for sd in unique:
+            try:
+                key = str(sd.resolve())
+            except OSError:
+                key = str(sd)
+            try:
+                mtime = float(session_trace_mtime(sd))
+            except Exception:
+                mtime = 0.0
+            cached = cache.get(key) if isinstance(cache.get(key), dict) else None
+            cached_n: int | None = None
+            if isinstance(cached, dict):
+                try:
+                    if float(cached.get("trace_mtime") or -1) == mtime:
+                        cached_n = int(cached["num_events"])
+
+                except (TypeError, ValueError, KeyError):
+                    cached_n = None
+            try:
+                if cached_n is not None:
+                    meta = load_session_meta(
+                        sd, include_timeline_count=False, timeline_count=cached_n
+                    )
+                else:
+                    meta = load_session_meta(sd, include_timeline_count=False)
+                    need_idx.append(len(self._meta_only))
+            except Exception:
+                logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
+                continue
+            label = self._derive_label(sd, root)
+            self._meta_only.append((meta, label))
+
+        n = len(self._meta_only)
+        call_ui(self, self._rebuild_session_filters)
+        call_ui(self, self._populate_session_table, force=True)
+        call_ui(
+            self,
+            self.notify,
+            t("notify-loaded-sessions", n=n),
+            severity="information",
+        )
+
+        # Coalesced timeline counts (correct, not size estimates) — one at a time.
+        updated = False
+        for idx in need_idx:
+            meta, label = self._meta_only[idx]
+            try:
+                meta.num_events = len(parse_timeline(Path(meta.session_dir)))
+            except Exception:
+                meta.num_events = 0
+            self._meta_only[idx] = (meta, label)
+            updated = True
+        if updated:
+            self._save_meta_cache(root, self._meta_only)
+            call_ui(self, self._populate_session_table, force=True)
+        else:
+            self._save_meta_cache(root, self._meta_only)
 
     def _analysis_svc(self) -> AnalysisService:
         return get_analysis_service(self.work_dir)
 
-    def _analyze_one(self, meta: SessionMeta, label: str) -> None:
-        """Analyze a single session with all plugins. Must be called from a worker thread."""
-        sd_key = str(meta.session_dir)
-        if sd_key in self._plugin_results:
+    def _analyze_one(
+        self,
+        meta: SessionMeta,
+        label: str,
+        *,
+        hold_inflight: bool = False,
+    ) -> None:
+        """Analyze a single session with all plugins. Must be called from a worker thread.
+
+        :param hold_inflight: When True, caller already called
+            :func:`~groket.analysis.inflight.try_begin_session_analysis` and will
+            :func:`~groket.analysis.inflight.end_session_analysis` in its ``finally``.
+        """
+        from ..analysis.inflight import (
+            analysis_session_key,
+            end_session_analysis,
+            try_begin_session_analysis,
+        )
+
+        _ = label
+        sd_key = analysis_session_key(meta.session_dir)
+        legacy_key = str(meta.session_dir)
+        if sd_key in self._plugin_results or legacy_key in self._plugin_results:
+            return
+        acquired = hold_inflight
+        if not acquired and not try_begin_session_analysis(meta.session_dir):
             return
         try:
-            self._plugin_results[sd_key] = self._analysis_svc().analyze_all(meta.session_dir)
+            self._plugin_results[sd_key] = self._analysis_svc().analyze_all(
+                meta.session_dir, force=True
+            )
+            if legacy_key != sd_key:
+                self._plugin_results[legacy_key] = self._plugin_results[sd_key]
         except Exception as exc:
             logger.warning(t("ui-analysis-failed-for-s-s"), sd_key, exc)
             self._plugin_results[sd_key] = {}
+            if legacy_key != sd_key:
+                self._plugin_results[legacy_key] = {}
+        finally:
+            if not hold_inflight:
+                end_session_analysis(meta.session_dir)
 
     def action_self_test(self) -> None:
         """Open dependency self-test (Docker, Grok auth, work dir, …) on the UI thread."""
@@ -740,15 +891,35 @@ class TraceEvalApp(App):
             or (not isinstance(targets, (list, tuple)))
         ):
             return
+        from ..analysis.inflight import (
+            analysis_session_key,
+            end_session_analysis,
+            try_begin_session_analysis,
+        )
+
         pending: list[tuple[SessionMeta, str]] = []
+        skipped_done = 0
+        skipped_inflight = 0
         for item in targets:
             if not isinstance(item, tuple) or len(item) != 2:
                 continue
             meta, label = item
-            if str(meta.session_dir) not in self._plugin_results:
-                pending.append((meta, str(label)))
+            key = analysis_session_key(meta.session_dir)
+            legacy = str(meta.session_dir)
+            if key in self._plugin_results or legacy in self._plugin_results:
+                skipped_done += 1
+                continue
+            if not try_begin_session_analysis(meta.session_dir):
+                skipped_inflight += 1
+                continue
+            pending.append((meta, str(label)))
         if not pending:
-            call_ui(self, self.notify, t("ui-already-analyzed"), severity="information")
+            msg = (
+                t("notify-analysis-in-flight", n=skipped_inflight)
+                if skipped_inflight
+                else t("ui-already-analyzed")
+            )
+            call_ui(self, self.notify, msg, severity="information")
             return
         n_plugins = 0
         try:
@@ -758,27 +929,45 @@ class TraceEvalApp(App):
         call_ui(
             self,
             self.notify,
-            f"{t('ui-analyzing')} {len(pending)} {t('ui-sessions-1')} {n_plugins} {t('ui-plugins')}",
+            t("notify-analyzing", n=len(pending), plugins=n_plugins),
             severity="information",
         )
+        if skipped_inflight:
+            call_ui(
+                self,
+                self.notify,
+                t("notify-analysis-in-flight", n=skipped_inflight),
+                severity="information",
+            )
+        # Serial analysis pool (default 1 worker) — avoids stampeding LLM/plugins.
+        from ..job_pools import get_analysis_pool
+
         self._analysis_jobs_active = max(0, int(self._analysis_jobs_active)) + len(pending)
-        try:
-            for idx, (meta, label) in enumerate(pending):
-                try:
-                    self._analyze_one(meta, label)
-                finally:
-                    self._analysis_jobs_active = max(0, self._analysis_jobs_active - 1)
-                if (idx + 1) % 5 == 0 or idx == len(pending) - 1:
-                    call_ui(self, self._populate_session_table)
-        except Exception:
-            self._analysis_jobs_active = 0
-            raise
-        call_ui(
-            self,
-            self.notify,
-            f"{t('ui-analysis-complete')} {len(pending)} {t('ui-sessions-2')}",
-            severity="information",
-        )
+        pending_n = len(pending)
+
+        def _run_all() -> None:
+            try:
+                for idx, (meta, label) in enumerate(pending):
+                    try:
+                        self._analyze_one(meta, label, hold_inflight=True)
+                    finally:
+                        end_session_analysis(meta.session_dir)
+                        self._analysis_jobs_active = max(0, self._analysis_jobs_active - 1)
+                    if (idx + 1) % 5 == 0 or idx == pending_n - 1:
+                        call_ui(self, self._populate_session_table)
+            except Exception:
+                for meta, _label in pending:
+                    end_session_analysis(meta.session_dir)
+                self._analysis_jobs_active = 0
+                raise
+            call_ui(
+                self,
+                self.notify,
+                t("notify-analysis-complete", n=pending_n),
+                severity="information",
+            )
+
+        get_analysis_pool().submit(f"batch {pending_n} session(s)", _run_all)
 
     def _derive_label(self, session_dir: Path, root: Path) -> str:
         """Derive a display label from directory path."""
@@ -843,7 +1032,7 @@ class TraceEvalApp(App):
         if event.value is Select.BLANK:
             return
         self._filter_model = self._select_value_to_filter(event.value)
-        self._populate_session_table()
+        self._populate_session_table(force=True)
 
     @staticmethod
     def _cursor_key_after_deletes(
@@ -905,8 +1094,15 @@ class TraceEvalApp(App):
         except OSError:
             return 0.0
 
-    def _populate_session_table(self, *, restore_key: str | None = None) -> None:
-        """Rebuild sessions table on the UI thread."""
+    def _populate_session_table(
+        self, *, restore_key: str | None = None, force: bool = False
+    ) -> None:
+        """Rebuild sessions table on the UI thread.
+
+        *force* is accepted for call sites that used debounce; ignored — if a
+        rebuild is already in progress we skip (no timer storm).
+        """
+        _ = force
         if self._populate_busy:
             return
         self._populate_busy = True
@@ -921,8 +1117,11 @@ class TraceEvalApp(App):
             restore_key = self._session_row_key_at_cursor(table)
         table.clear()
         rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
+        search_q = (self._session_search or "").strip().casefold()
         for meta, label in self._meta_only:
             if self._filter_model and meta.model_display != self._filter_model:
+                continue
+            if search_q and search_q not in _session_search_haystack(meta, label):
                 continue
             sd_key = str(meta.session_dir)
             results = self._plugin_results.get(sd_key)
@@ -991,27 +1190,39 @@ class TraceEvalApp(App):
                 logger.debug(t("ui-failed-to-add-row-for-s"), sd_key, exc_info=True)
         if restore_key:
             self._restore_cursor(table, restore_key)
+            self._sessions_table_primed = True
+        elif not self._sessions_table_primed:
+            # Only steal focus on first populate — live polls must not yank focus.
+            focus_primary_list(table)
+            self._sessions_table_primed = True
         pending = len(self._meta_only) - analyzed_count
         self._update_summary_lazy(
             len(self._meta_only), analyzed_count, total_findings, total_high, pending
         )
-        focus_primary_list(table)
         with suppress(Exception):
             self.refresh_bindings()
 
     def _update_summary_lazy(
         self, total: int, analyzed: int, total_findings: int, total_high: int, pending: int
     ) -> None:
+        from .i18n import join_ui
+
         sel_count = len(self._selected)
-        sel_part = f"{t('ui-msg')} {sel_count} {t('ui-selected')}" if sel_count else ""
-        scope = t("ui-report-uses-selected") if sel_count else ""
-        if pending > 0 and analyzed > 0:
-            progress = f"{t('ui-msg-1')} {pending} {t('ui-pending-analysis')}"
-        elif pending > 0:
-            progress = t("ui-a-analyze")
-        else:
-            progress = ""
-        summary = f"[bold]{total} {t('ui-sessions')} {total_findings} {t('ui-findings')} {total_high} {t('ui-high')} {progress} {sel_part} {scope}"
+        extras: list[str] = []
+        if sel_count:
+            extras.append(t("sessions-selected-count", n=sel_count))
+            scope = t("ui-report-uses-selected")
+            if scope.strip():
+                extras.append(scope.strip())
+        if pending > 0:
+            extras.append(t("sessions-pending-analysis", n=pending))
+        core = t(
+            "sessions-home-summary",
+            total=total,
+            findings=total_findings,
+            high=total_high,
+        )
+        summary = f"[bold]{join_ui(core, *extras, sep=' · ')}"
         self.query_one("#session-summary", Static).update(summary)
 
     def _restore_cursor(self, table: DataTable, row_key_value: str) -> None:
@@ -1054,8 +1265,8 @@ class TraceEvalApp(App):
         else:
             self._filter_model = models[0]
         self._set_session_filter_selects()
-        self.notify(f"{t('ui-model-filter')} {self._filter_model or 'all'}")
-        self._populate_session_table()
+        self.notify(t("notify-model-filter", label=self._filter_model or "all"))
+        self._populate_session_table(force=True)
 
     def action_toggle_select(self) -> None:
         """Toggle selection on the current row (in-place; cursor stays put)."""
@@ -1111,19 +1322,27 @@ class TraceEvalApp(App):
             pass
 
     def action_search_sessions(self) -> None:
-        """Open fuzzy search modal over the session list."""
-        if not self._meta_only:
-            self.notify(U.load_sessions_first(), severity="warning")
-            return
-        self.push_screen(SessionSearchModal(self._meta_only), callback=self._on_search_result)
+        """Focus the sessions search field (filter as you type, same as Timeline)."""
 
-    def _on_search_result(self, result: str | None) -> None:
-        """Handle a selected session from the search modal."""
-        if result is None:
-            return
-        table = self.query_one("#session-table", DataTable)
-        self._restore_cursor(table, result)
-        self._open_session(result)
+        def _focus_search() -> None:
+            with suppress(Exception):
+                self.query_one("#session-search-input", Input).focus()
+
+        self.call_after_refresh(lambda: self.call_after_refresh(_focus_search))
+
+    @on(Input.Changed, "#session-search-input")
+    def _on_session_search_changed(self, event: Input.Changed) -> None:
+        """Filter the sessions table as you type (no Enter required)."""
+        self._session_search = event.value or ""
+        self._populate_session_table(force=True)
+
+    @on(Input.Submitted, "#session-search-input")
+    def _on_session_search_submitted(self, event: Input.Submitted) -> None:
+        """Keep filter on Enter; move focus back to the session list."""
+        self._session_search = event.value or ""
+        self._populate_session_table(force=True)
+        with suppress(Exception):
+            focus_primary_list(self.query_one("#session-table", DataTable))
 
     def action_rerun_session(self) -> None:
         """Open the runner pre-filled with the current session's details."""
@@ -1262,12 +1481,21 @@ class TraceEvalApp(App):
             call_ui(
                 self,
                 self.notify,
-                f"{t('ui-saved-run-config')} {cfg.config_id} ({cfg.display_name()} {t('ui-open-with-c-configs-sessions-unchanged')}",
+                t(
+                    "notify-saved-run-config",
+                    id=cfg.config_id,
+                    name=cfg.display_name(),
+                ),
                 severity="information",
                 timeout=10,
             )
         except Exception as exc:
-            call_ui(self, self.notify, f"{t('ui-save-config-failed')} {exc}", severity="error")
+            call_ui(
+                self,
+                self.notify,
+                t("notify-save-config-failed", exc=str(exc)),
+                severity="error",
+            )
 
     def _toast(
         self,
@@ -1349,21 +1577,13 @@ class TraceEvalApp(App):
         errors = 0
         for path in paths:
             try:
-                how = write_follow_up_for_session(path, prompt, final=final)
+                write_follow_up_for_session(path, prompt, final=final)
             except Exception:
                 errors += 1
                 logger.debug(t("ui-follow-up-failed-for-s"), path, exc_info=True)
                 continue
-            try:
-                meta = next(
-                    (m for m, _ in self._meta_only if str(m.session_dir) == str(path)), None
-                )
-                rid = (meta.run_id if meta else "") or ""
-                rm = self.run_manager
-                if how == "sent" and rid and hasattr(rm, "submit_follow_up"):
-                    rm.submit_follow_up(prompt, run_id=rid, final=final)
-            except Exception:
-                pass
+            # Per-session gate only. Multi-select applies once per path; do not
+            # also submit_follow_up(run_id=…) which fans out to all siblings.
         return errors
 
     def _apply_done_to_paths(self, paths: list[Path]) -> int:
@@ -1376,16 +1596,13 @@ class TraceEvalApp(App):
             except Exception:
                 errors += 1
                 logger.debug(t("ui-mark-done-failed-for-s"), path, exc_info=True)
-            try:
-                meta = next(
-                    (m for m, _ in self._meta_only if str(m.session_dir) == str(path)), None
-                )
-                rid = (meta.run_id if meta else "") or ""
-                rm = self.run_manager
-                if rid and hasattr(rm, "complete_interactive"):
-                    rm.complete_interactive(rid)
-            except Exception:
-                pass
+                continue
+            rm = self.run_manager
+            if hasattr(rm, "stop_session_container"):
+                try:
+                    rm.stop_session_container(path)
+                except Exception:
+                    pass
         return errors
 
     def _awaiting_targets_or_toast(self) -> list[Path]:
@@ -1411,7 +1628,11 @@ class TraceEvalApp(App):
 
         return isinstance(self.screen, RunnerScreen)
 
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+    def check_action(
+        self,
+        action: str,
+        parameters: tuple[object, ...],  # Textual Screen.check_action
+    ) -> bool | None:
         """Gate session-home bindings so they do not leak into pushed-screen footers.
 
         ``n`` / ``e`` also require an awaiting multi-turn target on the home list.
@@ -1443,7 +1664,9 @@ class TraceEvalApp(App):
         self.refresh_bindings()
         if errors:
             self._toast(
-                f"{t('ui-failed-for')} {errors}/{len(targets)}", severity="warning", timeout=3.0
+                t("notify-failed-for", errors=errors, total=len(targets)),
+                severity="warning",
+                timeout=3.0,
             )
 
     def action_follow_up_sessions(self) -> None:
@@ -1461,7 +1684,9 @@ class TraceEvalApp(App):
             self.refresh_bindings()
             if errors:
                 self._toast(
-                    f"{t('ui-failed-for')} {errors}/{len(targets)}", severity="warning", timeout=3.0
+                    t("notify-failed-for", errors=errors, total=len(targets)),
+                    severity="warning",
+                    timeout=3.0,
                 )
             elif final:
                 self._toast(t("follow-up-sent-final"), severity="information", timeout=2.5)
@@ -1494,7 +1719,7 @@ class TraceEvalApp(App):
             self._delete_cursor_key = cursor_key
             self._delete_row_keys_snapshot = self._session_row_keys_in_order(table)
             self.notify(
-                f"{t('ui-press-again-to-delete')} {n} {t('ui-session-s-from-disk-traces-feedback-cache-run-co')}",
+                t("notify-press-again-delete-sessions", n=n),
                 severity="warning",
                 timeout=10,
             )
@@ -1525,6 +1750,13 @@ class TraceEvalApp(App):
             self._meta_only = [
                 (m, lab) for m, lab in self._meta_only if str(m.session_dir) not in gone
             ]
+            for g in gone:
+                self._session_mtimes.pop(g, None)
+                # Also drop resolve()-style keys that contain the path
+                for mk in list(self._session_mtimes):
+                    if mk == g or mk.endswith(g) or g.endswith(mk):
+                        self._session_mtimes.pop(mk, None)
+
             for key in list(self._plugin_results.keys()):
                 if key in gone:
                     del self._plugin_results[key]
@@ -1540,8 +1772,21 @@ class TraceEvalApp(App):
                 sample = str(errors_list[0]) if errors_list else ""
                 err_hint = f" — {sample[:120]}"
             self.notify(
-                f"{t('ui-deleted')} {stats['deleted']}/{stats['requested']} {t('ui-session-s')}"
-                + (f"{t('ui-errors')} {err_n} {err_hint}" if err_n else ""),
+                (
+                    t(
+                        "notify-deleted-sessions-errors",
+                        deleted=stats["deleted"],
+                        requested=stats["requested"],
+                        errors=err_n,
+                        hint=err_hint or "",
+                    )
+                    if err_n
+                    else t(
+                        "notify-deleted-sessions",
+                        deleted=stats["deleted"],
+                        requested=stats["requested"],
+                    )
+                ),
                 severity="warning" if err_n else "information",
                 timeout=12,
             )
@@ -1568,9 +1813,10 @@ class TraceEvalApp(App):
         runner_traces = self.work_dir / "runs" / "traces"
         root = runner_traces if runner_traces.exists() else traces
         if not root.exists():
-            self.notify(f"{t('ui-no-traces-dir-to-refresh')} {root}", severity="error")
+            self.notify(t("notify-no-traces-refresh", path=str(root)), severity="error")
             return
         self._meta_only = []
+        self._session_mtimes.clear()
         self._plugin_results = {}
         self._selected = set()
         try:
@@ -1580,7 +1826,7 @@ class TraceEvalApp(App):
         except OSError:
             pass
         self.notify(
-            f"{t('ui-full-refresh-from')} {root} {t('ui-background')}",
+            t("notify-full-refresh", path=str(root)),
             severity="warning",
             timeout=12,
         )
@@ -1594,12 +1840,16 @@ class TraceEvalApp(App):
         try:
             # Sync load — do not nest @work _load_sessions (would not run inline).
             summary["sessions_loaded"] = self._load_sessions_sync(traces_root)
+            from ..analysis.inflight import analysis_session_key
+
             targets = list(self._meta_only)
             for meta, label in targets:
                 self._analyze_one(meta, label)
-                sd_key = str(meta.session_dir)
-                results = self._plugin_results.get(sd_key, {})
-                if all(r.ok for r in results.values()):
+                sd_key = analysis_session_key(meta.session_dir)
+                results = self._plugin_results.get(sd_key) or self._plugin_results.get(
+                    str(meta.session_dir), {}
+                )
+                if results and all(r.ok for r in results.values()):
                     summary["analysis_ok"] += 1
                 else:
                     summary["analysis_err"] += 1
@@ -1619,12 +1869,19 @@ class TraceEvalApp(App):
                 pass
             if summary.get("error"):
                 self.notify(
-                    f"{t('ui-refresh-all-failed')} {summary['error']}", severity="error", timeout=15
+                    t("notify-refresh-all-failed", error=str(summary["error"])),
+                    severity="error",
+                    timeout=15,
                 )
                 return
             err_n = int(summary.get("analysis_err") or 0)
             self.notify(
-                f"{t('ui-refresh-done-sessions')} {summary.get('sessions_loaded', 0)} {t('ui-analyzed')} {summary.get('analysis_ok', 0)} {t('ui-errs')} {err_n}",
+                t(
+                    "notify-refresh-done",
+                    sessions=summary.get("sessions_loaded", 0),
+                    analyzed=summary.get("analysis_ok", 0),
+                    errors=err_n,
+                ),
                 severity="warning" if err_n else "information",
                 timeout=16,
             )
@@ -1727,13 +1984,11 @@ class TraceEvalApp(App):
             n = self.run_manager.active_count
             batches = self._run_manager_batch_ids()
             if batches:
-                self.title = (
-                    f"{t('ui-groket-batch')} {batches[0][:12]}… · {n} {t('ui-run-s-j-jobs')}"
-                )
+                self.title = t("title-groket-batch", batch=batches[0][:12], n=n)
             elif n:
                 cur = self.run_manager.latest()
                 rid = cur.run_id if cur else "?"
-                self.title = f"{t('ui-groket')} {n} {t('ui-run-s-latest')} {rid} {t('ui-j-jobs')}"
+                self.title = t("title-groket-runs", n=n, id=rid)
             else:
                 self.title = "groket"
         except Exception:
@@ -1750,32 +2005,56 @@ class TraceEvalApp(App):
         return self.work_dir / "runs" / "traces"
 
     def _schedule_live_sessions_poll(self) -> None:
-        """Re-arm periodic live-session scan (runs while TUI is open)."""
-        try:
-            if self._live_sessions_timer is not None:
-                try:
-                    self._live_sessions_timer.stop()
-                except Exception:
-                    pass
-            from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_IDLE_INTERVAL
+        """Watch ``runs/traces`` for create/modify (inotify).
 
-            interval = (
-                LIVE_POLL_ACTIVE_INTERVAL
-                if self.run_manager.active_count
-                else LIVE_POLL_IDLE_INTERVAL
-            )
-            self._live_sessions_timer = self.set_timer(interval, self._live_sessions_tick)
-        except Exception:
+        Idempotent. Debounced FS events schedule at most one background scan.
+        If the observer cannot start (missing root race, no watchdog), arm a
+        slow timer so idle session discovery still works.
+        """
+        if self._traces_watch is not None or self._live_sessions_timer is not None:
+            return
+        root = self._runner_traces_root()
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError:
             pass
+        from ..constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+        from ..fs_watch import TraceTreeWatch
+
+        def _on_fs() -> None:
+            if self._exiting:
+                return
+            try:
+                if self.is_running:
+                    self.call_from_thread(self._live_sessions_tick)
+            except Exception:
+                pass
+
+        watch = TraceTreeWatch(root, _on_fs, debounce_s=0.5)
+        if watch.start():
+            self._traces_watch = watch
+            return
+        self._live_sessions_timer = self.set_interval(
+            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+            self._live_sessions_tick,
+        )
 
     def _live_sessions_tick(self) -> None:
-        """Timer callback: merge any new/updated live sessions into the table."""
+        """UI thread: at most one background scan at a time (from FS events)."""
+        if self._live_sessions_busy or self._exiting:
+            return
+        self._live_sessions_busy = True
+        self._scan_live_sessions_worker()
+
+    @work(thread=True)
+    def _scan_live_sessions_worker(self) -> None:
+        """Find/peek session dirs off the UI thread."""
         try:
             self._scan_live_sessions_into_table()
         except Exception:
-            pass
+            logger.debug("live sessions scan failed", exc_info=True)
         finally:
-            self._schedule_live_sessions_poll()
+            self._live_sessions_busy = False
 
     def _on_background_run_status(self, status) -> None:
         """Worker-thread status callback: session_dir may appear mid-run."""
@@ -1817,10 +2096,10 @@ class TraceEvalApp(App):
                 self._update_session_paths_banner()
         except Exception:
             pass
-        try:
-            self._merge_session_dirs([sd_path], traces_root=runner_traces)
-        except Exception:
-            pass
+        # Coalesce with the interval scan — do not spawn extra workers per status.
+        if not self._live_sessions_busy:
+            self._live_sessions_busy = True
+            self._scan_live_sessions_worker()
         try:
             self._request_live_share(sd_path, status=status)
         except Exception:
@@ -1848,93 +2127,195 @@ class TraceEvalApp(App):
         return
 
     def _scan_live_sessions_into_table(self) -> None:
-        """Scan runner traces + active container peeks; merge new/updated sessions."""
-        if self._live_sessions_busy:
-            return
+        """Background-only: discover new sessions + refresh turn status for live ones.
+
+        Rules (keep this boring and cheap):
+        - While runs are active: only dirs we already know from ``BackgroundRun``
+          statuses (or one shallow peek per container). **No** full traces walk.
+        - Idle: full ``find_sessions`` at most every ``LIVE_POLL_FULL_WALK_INTERVAL``.
+        - Known sessions: update ``turn_outcome`` only (gate files), never re-parse
+          ``updates.jsonl`` on the list poll.
+        - New sessions only: ``load_session_meta`` once.
+        - UI: one ``call_ui`` apply if anything actually changed — no share spam.
+        """
         import time
 
+        from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
+        from ..parser import session_trace_mtime
+
         now = time.time()
-        if now - self._live_sessions_last_scan < 2.0 and (not self.run_manager.active_count):
+        active_n = int(self.run_manager.active_count or 0)
+        min_gap = LIVE_POLL_ACTIVE_INTERVAL
+        if now - self._live_sessions_last_scan < min_gap:
             return
         self._live_sessions_last_scan = now
-        self._live_sessions_busy = True
-        try:
-            runner_traces = self._runner_traces_root()
-            if not runner_traces.exists():
-                return
-            if self.run_manager.active_count:
-                try:
-                    if self.traces_path is None or not Path(self.traces_path).exists():
-                        self.traces_path = runner_traces
-                        self._update_session_paths_banner()
-                except Exception:
-                    pass
+
+        runner_traces = self._runner_traces_root()
+        if not runner_traces.exists():
+            return
+
+        found: list[Path] = []
+        if active_n:
             try:
-                viewing = Path(self.traces_path) if self.traces_path else runner_traces
-            except Exception:
-                viewing = runner_traces
-            try:
-                if viewing.resolve() != runner_traces.resolve() and self._meta_only:
-                    if not self.run_manager.active_count:
-                        return
+                for bg in self.run_manager.list_active():
+                    for cfg in bg.configs:
+                        sd: Path | None = None
+                        try:
+                            st = bg.statuses.get(cfg.container_name)
+                            if st is not None and st.session_dir is not None:
+                                p = Path(st.session_dir)
+                                if p.is_dir():
+                                    sd = p
+                        except Exception:
+                            sd = None
+                        if sd is None:
+                            try:
+                                traces_dir = (
+                                    self.run_manager.orchestrator.work_dir
+                                    / "traces"
+                                    / cfg.container_name
+                                )
+                                if traces_dir.is_dir():
+                                    # Pruned walk for one container (skips *.stage / plugins).
+                                    sessions = find_sessions(traces_dir)
+                                    if sessions:
+                                        from ..parser import session_trace_mtime
+
+                                        sd = max(sessions, key=session_trace_mtime)
+                            except Exception:
+                                sd = None
+                        if sd is not None:
+                            found.append(sd)
+                            try:
+                                st = bg.statuses.get(cfg.container_name)
+                                if st is not None and st.session_dir is None:
+                                    st.session_dir = sd
+                            except Exception:
+                                pass
             except Exception:
                 pass
-            found: list[Path] = []
+        elif now - self._live_full_walk_last >= LIVE_POLL_FULL_WALK_INTERVAL:
+            self._live_full_walk_last = now
             try:
                 found.extend(find_sessions(runner_traces))
             except Exception:
                 pass
+
+        if not found:
+            return
+
+        # Snapshot previous outcomes by path key (read-only).
+        prev_outcome: dict[str, str] = {}
+        existing_keys: set[str] = set()
+        for meta, _lab in list(self._meta_only):
             try:
-                orch = self.run_manager.orchestrator
-                for bg in self.run_manager.list_active():
-                    for cfg in bg.configs:
-                        try:
-                            sd = orch.peek_session_dir(cfg.container_name)
-                        except Exception:
-                            sd = None
-                        if sd is not None:
-                            found.append(sd)
-                        try:
-                            st = bg.statuses.get(cfg.container_name)
-                            if st is not None and st.session_dir is None and (sd is not None):
-                                st.session_dir = sd
-                        except Exception:
-                            pass
+                k = str(Path(meta.session_dir).resolve())
             except Exception:
-                pass
-            if found:
-                self._merge_session_dirs(found, traces_root=runner_traces)
+                k = str(meta.session_dir)
+            existing_keys.add(k)
+            prev_outcome[k] = meta.turn_outcome or ""
+
+        new_metas: list[tuple[str, SessionMeta, str]] = []
+        outcome_updates: list[tuple[str, str]] = []  # key, new outcome
+
+        for sd in found:
+            try:
+                sd_res = sd if sd.is_absolute() else runner_traces / sd
+                if not sd_res.is_dir():
+                    continue
+                key = str(sd_res.resolve())
+            except Exception:
+                continue
+            try:
+                mtime = session_trace_mtime(sd_res)
+            except Exception:
+                mtime = 0.0
+
+            if key not in existing_keys:
                 try:
-                    seen: set[str] = set()
-                    for sd in found:
-                        try:
-                            k = str(Path(sd).resolve())
-                        except Exception:
-                            k = str(sd)
-                        if k in seen:
-                            continue
-                        seen.add(k)
-                        self._request_live_share(Path(sd))
+                    meta = load_session_meta(sd_res)
                 except Exception:
-                    pass
-        finally:
-            self._live_sessions_busy = False
+                    continue
+                label = self._derive_label(sd_res, runner_traces)
+                self._session_mtimes[key] = mtime
+                new_metas.append((key, meta, label))
+                continue
+
+            # Known session: only refresh *live* turn status when traces moved.
+            # Never overwrite harness outcomes (success/error/…) with
+            # ``_infer_incomplete_turn_outcome`` → interrupted (shows as cancelled).
+            if self._session_mtimes.get(key) == mtime and mtime > 0:
+                continue
+            self._session_mtimes[key] = mtime
+            prev = (prev_outcome.get(key) or "").strip().lower().replace(" ", "_")
+            if prev in _FINISHED_TURN_OUTCOMES:
+                continue
+            try:
+                outcome = list_turn_outcome_for_dir(sd_res)
+            except Exception:
+                continue
+            oc = (outcome or "").strip().lower().replace(" ", "_")
+            # Light probe may return interrupted for any old unfinished session;
+            # only apply live states from the gate / freshness path.
+            if oc not in ("running", "in_progress", "pending", "awaiting_follow_up"):
+                continue
+            if outcome != prev_outcome.get(key):
+                outcome_updates.append((key, outcome))
+
+        if not new_metas and not outcome_updates:
+            return
+
+        def _apply() -> None:
+            by_key: dict[str, int] = {}
+            for idx, (meta, _lab) in enumerate(self._meta_only):
+                try:
+                    by_key[str(Path(meta.session_dir).resolve())] = idx
+                except Exception:
+                    by_key[str(meta.session_dir)] = idx
+            changed = False
+            for key, meta, label in new_metas:
+                if key in by_key:
+                    continue
+                self._meta_only.append((meta, label))
+                by_key[key] = len(self._meta_only) - 1
+                changed = True
+            for key, outcome in outcome_updates:
+                idx_opt = by_key.get(key)
+                if idx_opt is None:
+                    continue
+                idx = idx_opt
+                meta, label = self._meta_only[idx]
+                if meta.turn_outcome != outcome:
+                    meta.turn_outcome = outcome
+                    self._meta_only[idx] = (meta, label)
+                    changed = True
+            if changed:
+                with suppress(Exception):
+                    self._populate_session_table()
+
+        try:
+            call_ui(self, _apply)
+        except Exception:
+            with suppress(Exception):
+                _apply()
 
     def _merge_session_dirs(
         self, session_dirs: list[Path], *, traces_root: Path | None = None
     ) -> None:
-        """Add or refresh session metas without a full table rebuild storm."""
+        """Add new session dirs (full meta once). Safe from tests / one-off callers.
+
+        Live polling uses :meth:`_scan_live_sessions_into_table` instead.
+        """
         if not session_dirs:
             return
         root = traces_root or self._runner_traces_root()
-        existing: dict[str, int] = {}
-        for idx, (meta, _label) in enumerate(self._meta_only):
+        existing: set[str] = set()
+        for meta, _lab in list(self._meta_only):
             try:
-                existing[str(Path(meta.session_dir).resolve())] = idx
+                existing.add(str(Path(meta.session_dir).resolve()))
             except Exception:
-                existing[str(meta.session_dir)] = idx
-        added = 0
-        updated = 0
+                existing.add(str(meta.session_dir))
+        added = False
         for sd in session_dirs:
             try:
                 sd_res = sd if sd.is_absolute() else root / sd
@@ -1943,31 +2324,19 @@ class TraceEvalApp(App):
                 key = str(sd_res.resolve())
             except Exception:
                 continue
+            if key in existing:
+                continue
             try:
                 meta = load_session_meta(sd_res)
             except Exception:
                 continue
             label = self._derive_label(sd_res, root)
-            if key in existing:
-                idx = existing[key]
-                old_meta, _old_label = self._meta_only[idx]
-                if (
-                    old_meta.turn_outcome != meta.turn_outcome
-                    or old_meta.num_events != meta.num_events
-                    or old_meta.updated_at != meta.updated_at
-                    or (old_meta.title != meta.title)
-                ):
-                    self._meta_only[idx] = (meta, label)
-                    updated += 1
-            else:
-                self._meta_only.append((meta, label))
-                existing[key] = len(self._meta_only) - 1
-                added += 1
-        if added or updated:
-            try:
-                self._populate_session_table()
-            except Exception:
-                pass
+            self._meta_only.append((meta, label))
+            existing.add(key)
+            added = True
+        if added:
+            with suppress(Exception):
+                self._populate_session_table(force=True)
 
     def _on_background_run_finished(self, run: BackgroundRun) -> None:
         """Notify from worker thread when a backgrounded eval completes."""
@@ -2002,6 +2371,14 @@ class TraceEvalApp(App):
                 except Exception:
                     pass
                 setattr(self, attr, None)
+        w = self._traces_watch
+        self._traces_watch = None
+        stop = getattr(w, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
         try:
             for screen in list(self.screen_stack):
                 stop = getattr(screen, "_stop_live_refresh", None)
@@ -2042,7 +2419,12 @@ class TraceEvalApp(App):
         elapsed = fmt_duration(run.elapsed_s)
         if run.error:
             self.notify(
-                f"{t('ui-run')} {run.run_id} {t('ui-failed-after')} {elapsed}: {run.error[:120]}",
+                t(
+                    "notify-run-failed",
+                    id=run.run_id,
+                    elapsed=elapsed,
+                    error=run.error[:120],
+                ),
                 severity="error",
                 timeout=12,
             )
@@ -2052,7 +2434,14 @@ class TraceEvalApp(App):
         total = len(run.results) or len(run.configs)
         if failed:
             self.notify(
-                f"{t('ui-run')} {run.run_id} {t('ui-finished-in')} {elapsed}: {completed}/{total} {t('ui-ok')} {failed} {t('ui-failed')}",
+                t(
+                    "notify-run-finished",
+                    id=run.run_id,
+                    elapsed=elapsed,
+                    ok=completed,
+                    total=total,
+                    failed=failed,
+                ),
                 severity="error",
                 timeout=12,
             )
@@ -2082,7 +2471,7 @@ class TraceEvalApp(App):
                     svc = self._analysis_svc()
                     n = len([p for p in svc.list_plugins() if p.id != "noop"])
                     self.notify(
-                        f"{t('ui-analysis')} {n} {t('ui-plugin-s-1')}",
+                        join_ui(t("ui-analysis"), n, t("ui-plugin-s-1")),
                         severity="information",
                         timeout=8,
                     )
@@ -2177,11 +2566,13 @@ class TraceEvalApp(App):
         """Reload the sessions table from the fixed traces root."""
         root = self._session_traces_root()
         if not root.exists():
-            self.notify(f"{t('ui-nothing-to-refresh')} {root}", severity="warning")
+            self.notify(t("notify-nothing-to-refresh", path=str(root)), severity="warning")
             return
         self._update_session_paths_banner()
         self.notify(
-            f"{t('ui-refreshing-sessions-from')} {root}…", severity="information", timeout=4
+            t("notify-refreshing-sessions", path=str(root)),
+            severity="information",
+            timeout=4,
         )
         self._load_sessions(root)
         try:
@@ -2189,7 +2580,7 @@ class TraceEvalApp(App):
         except Exception:
             pass
         self.notify(
-            f"{t('ui-refreshed')} {len(self._meta_only)} {t('ui-session-s')}",
+            t("notify-refreshed-sessions", n=len(self._meta_only)),
             severity="information",
             timeout=5,
         )

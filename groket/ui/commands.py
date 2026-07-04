@@ -72,6 +72,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
     match screen:
         case BrowserScreen():
             for method, th in (
+                ("action_analyze", U.cmd_analyze_session()),
                 ("action_focus_timeline_filter", U.cmd_focus_timeline_view()),
                 ("action_clear_filters", U.cmd_clear_timeline_view()),
                 ("action_delete_session", U.cmd_delete_sessions()),

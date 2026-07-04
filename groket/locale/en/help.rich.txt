@@ -8,11 +8,11 @@ Esc                back or close
 Ctrl+P             command palette (everything for this screen)
 F5 / Ctrl+R        refresh
 j                  jobs and logs
-q                  quit (from the session list)
+q                  quit (any screen; types into focused Input/TextArea)
 
 [bold]Session list[/bold]
 Enter open · / search · r new run · C recipes · P personas
-s select · S select all · a analyze · x delete (twice)
+s select · S select all · x delete (twice)
 Ctrl+S save row as a recipe
 
 [bold]Session browser[/bold]

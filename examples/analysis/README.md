@@ -14,12 +14,31 @@ the directory is on ``sys.path``).
 | `session_health.py` | `session_health:SessionHealthAnalyzer` |
 | `session_event_count.py` | `session_event_count:SessionEventCountAnalyzer` |
 | `gte_feedback_grok.py` | `gte_feedback_grok:FeedbackReportAnalyzer` |
+| `llm_instruction_check.py` | `llm_instruction_check:InstructionCheckAnalyzer` |
+
+## LLM review plugins
+
+Use :class:`~groket.analysis.llm.LlmReviewAnalyzer` for structured Grok reviews:
+
+1. Subclass and implement ``build_instructions(pack)`` with your rubric only.
+2. Core attaches operator turns, timeline digest, and runtime fairness
+   (permission mode, sandbox, non-interactive, …).
+3. Results: **Findings tab** rows with timeline links, and **Report tab**
+   via ``artifacts["report"]`` (full did / should / why).
+
+See ``gte_feedback_grok.py`` (full multi-turn feedback) and
+``llm_instruction_check.py`` (minimal example).
+
+Do **not** embed magic tags like ``<runtime_context>`` in instructions — use
+``pack`` fields if you need dynamic text (e.g. ``pack.turn_count``).
 
 ## Install into your profile
 
 ```bash
 mkdir -p ~/.groket/plugins
-cp examples/analysis/plugins/session_event_count.py ~/.groket/plugins/
+cp examples/analysis/plugins/gte_feedback_grok.py ~/.groket/plugins/
+# optional minimal example:
+cp examples/analysis/plugins/llm_instruction_check.py ~/.groket/plugins/
 ```
 
 Enable in ``~/.groket/config.json`` (merge with your existing file):
@@ -27,7 +46,7 @@ Enable in ``~/.groket/config.json`` (merge with your existing file):
 ```json
 {
   "analysis": {
-    "plugins": ["session_event_count:SessionEventCountAnalyzer"]
+    "plugins": ["gte_feedback_grok:FeedbackReportAnalyzer"]
   }
 }
 ```

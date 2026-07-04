@@ -42,6 +42,7 @@ class Finding:
     category: str = ""
     tool_call_ids: list[str] = field(default_factory=list)
     update_indices: list[int] = field(default_factory=list)
+    event_indices: list[int] = field(default_factory=list)
     children: list[Finding] = field(default_factory=list)
     extras: JsonObject = field(default_factory=dict)
 
@@ -56,6 +57,7 @@ class Finding:
             "category": self.category,
             "tool_call_ids": list(self.tool_call_ids),
             "update_indices": list(self.update_indices),
+            "event_indices": list(self.event_indices),
         }
         if self.children:
             d["children"] = [c.to_dict() for c in self.children]
@@ -74,6 +76,7 @@ class Finding:
                     children.append(cls.from_dict(cd))
         tool_ids = d.get("tool_call_ids") or []
         upd = d.get("update_indices") or []
+        ev_idx = d.get("event_indices") or []
         extras_raw = d.get("extras") or {}
         extras: JsonObject = {}
         if isinstance(extras_raw, dict):
@@ -89,6 +92,11 @@ class Finding:
             update_indices=(
                 [int(x) for x in upd if isinstance(x, (int, float, str))]
                 if isinstance(upd, list)
+                else []
+            ),
+            event_indices=(
+                [int(x) for x in ev_idx if isinstance(x, (int, float, str))]
+                if isinstance(ev_idx, list)
                 else []
             ),
             children=children,
@@ -122,6 +130,22 @@ class Finding:
                 result.append(idx)
         for child in self.children:
             for idx in child.all_update_indices:
+                if idx not in seen:
+                    seen.add(idx)
+                    result.append(idx)
+        return sorted(result)
+
+    @property
+    def all_event_indices(self) -> list[int]:
+        """All timeline event indices including from children."""
+        seen: set[int] = set()
+        result: list[int] = []
+        for idx in self.event_indices:
+            if idx not in seen:
+                seen.add(idx)
+                result.append(idx)
+        for child in self.children:
+            for idx in child.all_event_indices:
                 if idx not in seen:
                     seen.add(idx)
                     result.append(idx)

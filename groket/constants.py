@@ -12,10 +12,19 @@ INTERRUPTED_MARKER_FILENAME = "groket-interrupted.json"  # on-disk marker
 LOG_BUFFER_MAXLEN = 8000
 LOG_TAIL_MAXLEN = 4000
 MAX_RUN_HISTORY = 20
-META_LOAD_WORKERS = 8
-LIVE_REFRESH_INTERVAL = 4.0
-LIVE_POLL_ACTIVE_INTERVAL = 3.0
-LIVE_POLL_IDLE_INTERVAL = 12.0
+# Activity bar (cheap counters — not a traces poller).
+ACTIVITY_BAR_INTERVAL = 5.0
+# While analysis/refresh pools are busy, refresh activity bar this often (spinner).
+ACTIVITY_BAR_BUSY_INTERVAL = 0.08
+# Findings/report pending spinner (update Static text only — not whole tables).
+ANALYSIS_PENDING_SPINNER_INTERVAL = 0.08
+# Full traces-tree walk only when idle and FS events were sparse (rare).
+LIVE_POLL_FULL_WALK_INTERVAL = 60.0
+# Min gap between FS-triggered session list scans (debounce beyond FS watch).
+LIVE_POLL_ACTIVE_INTERVAL = 1.0
+# Timer interval when TraceTreeWatch cannot start (no inotify / missing root).
+LIVE_POLL_WATCH_FALLBACK_INTERVAL = 5.0
+
 DIFF_TRUNCATE_THRESHOLD = 120_000
 DIFF_TRUNCATE_HEAD = 60_000
 DIFF_TRUNCATE_TAIL = 40_000

@@ -9,8 +9,13 @@ from typing import Unpack
 
 from ..flags import Flag, load_flags
 from ..paths import analysis_cache_dir, default_work_dir
-from ._cache import load_cached_result, save_cached_result
-from .base import AnalysisResult, AnalyzeContext, AnalyzerInfo, NoopAnalyzer
+from ._cache import (
+    cache_file_path,
+    load_cached_result,
+    read_cached_plugin_version,
+    save_cached_result,
+)
+from .base import AnalysisResult, AnalyzeContext, Analyzer, AnalyzerInfo, NoopAnalyzer
 from .config import AnalysisPipelineConfig, load_pipeline_config
 from .registry import (
     BUILTIN_ANALYZER_IDS,
@@ -76,6 +81,16 @@ class AnalysisService:
         )
         if enabled_ids is None:
             self._load_configured_plugins()
+        self._apply_worker_pools()
+
+    def _apply_worker_pools(self) -> None:
+        """Sync global analysis / live-refresh pools from config."""
+        from ..job_pools import configure_job_pools
+
+        configure_job_pools(
+            analysis_workers=self.config.analysis_workers,
+            live_refresh_workers=self.config.live_refresh_workers,
+        )
 
     def _load_configured_plugins(self) -> None:
         """Import config plugin specs and enable analyzer ids they register."""
@@ -98,6 +113,7 @@ class AnalysisService:
         self.config = load_pipeline_config(self.work_dir, config_path=self.config_path)
         self.load_failures = []
         self._enabled_ids = set(BUILTIN_ANALYZER_IDS)
+        self._apply_worker_pools()
         self._load_configured_plugins()
         return self.config
 
@@ -131,8 +147,92 @@ class AnalysisService:
                 results[info.id] = cached
         return results
 
+    def stale_analyzer_hints(self, session_dir: Path | str) -> list[str]:
+        """Human-readable reasons force re-analyze is useful (empty if none).
+
+        Detects enabled plugins whose on-disk cache was written with a different
+        ``AnalyzerInfo.version``, whose **source file is newer than the cache**
+        (version forgotten), or a newly enabled plugin when this session already
+        has other analysis cache. Does **not** run analyzers.
+        """
+        path = Path(session_dir)
+        if self.cache_root is None:
+            return []
+        enabled = [i for i in self.list_plugins() if i.id != "noop"]
+        if not enabled:
+            return []
+        versions = {
+            info.id: read_cached_plugin_version(self.cache_root, path, info.id) for info in enabled
+        }
+        any_cache = any(v is not None for v in versions.values())
+        hints: list[str] = []
+        for info in enabled:
+            cached_ver = versions.get(info.id)
+            if cached_ver is None:
+                if any_cache:
+                    hints.append(f"{info.id} v{info.version} (not in cache yet)")
+                continue
+            if cached_ver != info.version:
+                hints.append(f"{info.id} v{cached_ver} → v{info.version}")
+                continue
+            # Version string matches but plugin *file* is newer than cache → stale.
+            src_newer = self._analyzer_source_newer_than_cache(path, info.id)
+            if src_newer:
+                hints.append(f"{info.id} source newer than cache (re-analyze)")
+        return hints
+
+    def _analyzer_source_newer_than_cache(self, session_dir: Path, analyzer_id: str) -> bool:
+        """True when the analyzer module file mtime is newer than its cache file."""
+        if self.cache_root is None:
+            return False
+        cpath = cache_file_path(self.cache_root, session_dir, analyzer_id)
+        if not cpath.is_file():
+            return False
+        try:
+            cache_mtime = cpath.stat().st_mtime
+        except OSError:
+            return False
+        try:
+            analyzer: Analyzer = get_analyzer(analyzer_id)
+        except KeyError:
+            return False
+        # Analyzer class module + LLM base/helpers when subclassed from there.
+        modules: list[type] = [type(analyzer)]
+        for cls in type(analyzer).__mro__:
+            mod = getattr(cls, "__module__", "") or ""
+            if mod.startswith("groket.analysis"):
+                modules.append(cls)
+        newest_src = 0.0
+        seen: set[str] = set()
+        for cls in modules:
+            mod_name = getattr(cls, "__module__", None)
+            if not mod_name or mod_name in seen:
+                continue
+            seen.add(mod_name)
+            try:
+                import importlib
+
+                mod = importlib.import_module(mod_name)
+            except Exception:
+                continue
+            mod_file = getattr(mod, "__file__", None)
+            if not mod_file:
+                continue
+            try:
+                newest_src = max(newest_src, Path(mod_file).stat().st_mtime)
+            except OSError:
+                continue
+        if newest_src <= 0:
+            return False
+        # Small skew tolerance for FS clocks / write order.
+        return newest_src > cache_mtime + 1.0
+
     def analyze_all(
-        self, session_dir: Path | str, **kwargs: Unpack[AnalyzeContext]
+        self,
+        session_dir: Path | str,
+        *,
+        force: bool = False,
+        **kwargs: Unpack[AnalyzeContext],
     ) -> dict[str, AnalysisResult]:
         """Run every **enabled** analyzer on *session_dir*.
 
@@ -142,8 +242,8 @@ class AnalysisService:
 
         Completed sessions have their results cached per-plugin.  The cache
         is keyed by ``(session_id, analyzer_id)`` and invalidated when the
-        trace mtime or plugin version changes.  Cache entries for analyzers
-        **not** in :attr:`enabled_ids` are ignored (not loaded into results).
+        trace mtime or plugin version changes.  Pass ``force=True`` to skip
+        reading the cache (still writes fresh results when cacheable).
 
         Returns results keyed by analyzer ID.  Per-plugin exceptions are
         caught and logged — one broken plugin does not block others.
@@ -163,7 +263,7 @@ class AnalysisService:
             if info.defer:
                 deferred.append(info)
                 continue
-            results[info.id] = self._run_one(info, path, ctx, cacheable=cacheable)
+            results[info.id] = self._run_one(info, path, ctx, cacheable=cacheable, force=force)
 
         # Pass 2: deferred plugins get prior findings + flags
         if deferred:
@@ -180,6 +280,7 @@ class AnalysisService:
                     path,
                     deferred_ctx,
                     cacheable=cacheable,
+                    force=force,
                 )
 
         return results
@@ -191,6 +292,7 @@ class AnalysisService:
         kw: AnalyzeContext,
         *,
         cacheable: bool = False,
+        force: bool = False,
     ) -> AnalysisResult:
         """Run a single analyzer, checking/populating cache when applicable."""
         if info.id not in self._enabled_ids:
@@ -202,7 +304,7 @@ class AnalysisService:
                 error=f"plugin {info.id} is not enabled in analysis config",
             )
 
-        if cacheable and self.cache_root is not None:
+        if cacheable and not force and self.cache_root is not None:
             cached = load_cached_result(
                 self.cache_root,
                 path,

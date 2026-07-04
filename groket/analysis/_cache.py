@@ -75,6 +75,30 @@ def load_cached_result(
     return AnalysisResult.from_dict(result_data)
 
 
+def cache_file_path(cache_root: Path, session_dir: Path, analyzer_id: str) -> Path:
+    """Path to the on-disk cache JSON for *analyzer_id*."""
+    return _cache_path(cache_root, session_dir.name, analyzer_id)
+
+
+def read_cached_plugin_version(
+    cache_root: Path,
+    session_dir: Path,
+    analyzer_id: str,
+) -> str | None:
+    """Return stored ``_plugin_version`` for *analyzer_id*, or ``None`` if absent."""
+    fp = _cache_path(cache_root, session_dir.name, analyzer_id)
+    if not fp.is_file():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    ver = data.get("_plugin_version")
+    return str(ver) if ver is not None else None
+
+
 def save_cached_result(
     cache_root: Path,
     session_dir: Path,

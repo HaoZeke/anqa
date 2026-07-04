@@ -11,7 +11,7 @@ from textual import on, work
 from textual.app import ComposeResult
 
 from ..data_table import style_data_table
-from ..i18n import t
+from ..i18n import join_ui, t
 
 logger = logging.getLogger(__name__)
 from collections import Counter, defaultdict
@@ -32,6 +32,7 @@ from textual.widgets import (
     TabPane,
 )
 
+from ... import event_types as et
 from ...analysis import get_analysis_service
 from ...analysis.base import AnalysisResult, Finding
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
@@ -54,26 +55,42 @@ from ..panel_render import (
     status_chip,
 )
 from ..session_summary import assistant_text_from_timeline, render_session_summary
-from ..styles import SEVERITY_LABEL
+from ..styles import SEVERITY_LABEL, severity_style
+from ..tab_panes import TabPaneNavigation
 from ..threads import call_ui
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.flag_panel import FlagModal
 from ..widgets.timeline import TimelineTable
 
-_BROWSER_TABS: tuple[tuple[str, str], ...] = (
-    ("tab-timeline", "#timeline-list"),
-    ("tab-summary", "#summary-scroll"),
-    ("tab-diff", "#diff-scroll"),
-    ("tab-findings", "#findings-table"),
-    ("tab-reports", "#reports-scroll"),
-)
 
-
-class BrowserScreen(ChromeActions):
+class BrowserScreen(TabPaneNavigation, ChromeActions):
     """Interactive trace browser with timeline, detail view, and findings."""
 
     BINDINGS = list(BROWSER)
+    TAB_CONTENT_ID = "browser-tabs"
+    TAB_PANES = (
+        ("tab-timeline", "#timeline-list"),
+        ("tab-summary", "#summary-scroll"),
+        ("tab-diff", "#diff-scroll"),
+        ("tab-findings", "#findings-table"),
+        ("tab-reports", "#reports-scroll"),
+    )
+
+    def action_tab_timeline(self) -> None:
+        self.activate_tab_pane("tab-timeline")
+
+    def action_tab_summary(self) -> None:
+        self.activate_tab_pane("tab-summary")
+
+    def action_tab_diff(self) -> None:
+        self.activate_tab_pane("tab-diff")
+
+    def action_tab_findings(self) -> None:
+        self.activate_tab_pane("tab-findings")
+
+    def action_tab_report(self) -> None:
+        self.activate_tab_pane("tab-reports")
 
     def __init__(
         self, session_dir: Path, plugin_results: dict[str, AnalysisResult] | None = None, **kwargs
@@ -83,6 +100,8 @@ class BrowserScreen(ChromeActions):
         self.meta: SessionMeta | None = None
         self.timeline: list[TraceEvent] = []
         self.plugin_results: dict[str, AnalysisResult] = plugin_results or {}
+        self._analysis_stale_hints: list[str] = []
+        self._analysis_pending: bool = False
         self._findings: list[Finding] = []
         self._findings_by_call: dict[str, Finding] = {}
         self._errors_only = False
@@ -94,19 +113,26 @@ class BrowserScreen(ChromeActions):
         self._diff_md: str = ""
         self._diff_meta: dict = {}
         self._timeline_filter: str = "all"
+        self._timeline_search: str = ""
         self._report_section_keys: set[str] = set()
         self._report_filter: str = "all"
         self._report_select_options_key: tuple[str, ...] = ()
         self._report_updating: bool = False
         self._live_refresh_timer: Timer | None = None
+        self._analysis_spinner_timer: Timer | None = None
+        self._trace_watch: object | None = None  # fs_watch stop handle
+        self._last_light_fp: tuple[str | int | float | bool | None, ...] | None = None
+        self._last_trace_mtime: float | None = None
         self._delete_pending: bool = False
         self._live_refresh_busy = False
+        self._live_refresh_pending = False
 
     def compose(self) -> ComposeResult:
         yield Header()
         from ..widgets.activity_bar import ActivityBar
 
         yield ActivityBar()
+        yield Static("", id="analysis-stale-banner", classes="tip-surface")
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
             yield Static("", id="session-pending-queue")
@@ -184,6 +210,7 @@ class BrowserScreen(ChromeActions):
                         yield Static("", id="findings-header")
                         yield TipSurface(U.tip_findings_row(), id="findings-tip")
                     with Vertical(classes=t("ui-panel-card-panel-card-grow")):
+                        yield Static("", id="findings-pending-status")
                         yield DataTable(id="findings-table")
             with TabPane(U.tab_report(), id="tab-reports"):
                 with Vertical(id="reports-panel"):
@@ -227,6 +254,7 @@ class BrowserScreen(ChromeActions):
         self._load_data()
 
     def on_unmount(self) -> None:
+        self._stop_analysis_spinner_timer()
         self._stop_live_refresh()
 
     def _stop_live_refresh(self) -> None:
@@ -237,6 +265,14 @@ class BrowserScreen(ChromeActions):
             except Exception:
                 pass
         self._live_refresh_timer = None
+        w = self._trace_watch
+        self._trace_watch = None
+        stop = getattr(w, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
 
     def _session_is_pending(self) -> bool:
         """True only for interactive multi-turn follow-up / Done UI.
@@ -277,6 +313,32 @@ class BrowserScreen(ChromeActions):
 
         return False
 
+    def _session_needs_live_timeline(self) -> bool:
+        """True while the agent may still append traces (not idle follow-up wait).
+
+        Interactive ``awaiting_follow_up`` keeps the pending bar, but does **not**
+        need a full timeline reload every tick — only when files change or the
+        agent is running / finishing Done.
+        """
+        from ...session.turn_gate import host_requested_done, read_turn_gate_status
+
+        meta = self.meta
+        oc = (meta.turn_outcome or "").lower().replace(" ", "_") if meta else ""
+        if oc in ("running", "in_progress", "pending"):
+            return True
+        try:
+            st = read_turn_gate_status(self.session_dir)
+        except Exception:
+            st = {}
+        gstate = str(st.get("state") or "")
+        if gstate == "done":
+            return False
+        if host_requested_done(self.session_dir):
+            return True
+        if gstate == "running":
+            return True
+        return False
+
     def _refresh_session_pending_bar(self) -> None:
         from ...session.turn_gate import (
             drain_queued_follow_up,
@@ -292,7 +354,7 @@ class BrowserScreen(ChromeActions):
                 drained = drain_queued_follow_up(self.session_dir)
                 if drained:
                     preview = drained if len(drained) <= 48 else drained[:48] + "…"
-                    self.notify(f"{t('ui-queued-follow-up-sent')} {preview})")
+                    self.notify(t("notify-queued-follow-up-sent", preview=preview))
             except Exception:
                 pass
 
@@ -335,36 +397,46 @@ class BrowserScreen(ChromeActions):
 
         try:
             status = self.query_one("#session-pending-status", Static)
-            chip = status_chip(label or "idle", kind="unknown" if not label else "ok")
+            chip_label = label or t("browser-status-idle")
+            chip = status_chip(chip_label, kind="unknown" if not label else "ok")
             sid = str(st.get("session_id") or (meta.session_id if meta else ""))
             turn = st.get("turn", "")
             bits: list[str] = []
             if sid:
-                bits.append(t("ui-session-prefix", id=sid).strip())
+                bits.append(t("ui-session-prefix", id=sid))
             if turn != "" and turn is not None:
-                bits.append(t("ui-turn-number", turn=turn).strip())
+                bits.append(t("ui-turn-number", turn=turn))
             if queued:
-                bits.append(t("ui-queued-count", n=len(queued)).strip())
+                bits.append(t("ui-queued-count", n=len(queued)))
             extra = ("  ·  " + "  ·  ".join(bits)) if bits else ""
-            status.update(Text.assemble(chip, Text(extra, style="dim")))
+            status_fp = (chip_label, extra, tuple(queued[:5]), len(queued))
+            if status_fp != getattr(self, "_pending_status_fp", None):
+                self._pending_status_fp = status_fp
+                if not self._widget_has_text_selection(status):
+                    status.update(Text.assemble(chip, Text(extra, style="dim")))
         except Exception:
             pass
         try:
             q_widget = self.query_one("#session-pending-queue", Static)
-            if queued:
-                lines = [f"[bold yellow]{len(queued)} {t('ui-follow-up-s-pending')}"]
-                for i, p in enumerate(queued[:5], start=1):
-                    preview = p.replace("\n", " ")
-                    if len(preview) > 72:
-                        preview = preview[:69] + "…"
-                    lines.append(f"  {i}. {preview}")
-                if len(queued) > 5:
-                    lines.append(f"  … +{len(queued) - 5} {t('ui-more-1')}")
-                q_widget.update("\n".join(lines))
-                q_widget.display = True
-            else:
-                q_widget.update("")
-                q_widget.display = False
+            q_fp = tuple(queued)
+            if q_fp != getattr(self, "_pending_queue_fp", None):
+                self._pending_queue_fp = q_fp
+                if queued:
+                    lines = [t("browser-follow-ups-pending", n=len(queued))]
+                    for i, p in enumerate(queued[:5], start=1):
+                        preview = p.replace("\n", " ")
+                        if len(preview) > 72:
+                            preview = preview[:69] + "…"
+                        lines.append(f"  {i}. {preview}")
+                    if len(queued) > 5:
+                        lines.append(t("browser-more-queued", n=len(queued) - 5))
+                    if not self._widget_has_text_selection(q_widget):
+                        q_widget.update("\n".join(lines))
+                    q_widget.display = True
+                else:
+                    if not self._widget_has_text_selection(q_widget):
+                        q_widget.update("")
+                    q_widget.display = False
         except Exception:
             pass
 
@@ -418,13 +490,9 @@ class BrowserScreen(ChromeActions):
                 self.notify(t("follow-up-queued-final") if final else U.follow_up_queued())
             else:
                 self.notify(t("follow-up-sent-final") if final else U.follow_up_sent())
-            rm = getattr(self.app, "run_manager", None)
-            if rm is not None and hasattr(rm, "submit_follow_up") and (how == "sent"):
-                try:
-                    rid = (self.meta.run_id if self.meta else "") or ""
-                    rm.submit_follow_up(text, run_id=rid, final=final)
-                except Exception:
-                    pass
+            # Session-scoped only: write_follow_up_for_session targets this
+            # session's traces volume. Do not call RunManager.submit_follow_up
+            # (run_id fans out to every container in a multi-model run).
         except Exception as exc:
             self.notify(U.follow_up_failed(exc), severity="error")
         self._refresh_session_pending_bar()
@@ -436,13 +504,14 @@ class BrowserScreen(ChromeActions):
         try:
             write_done_for_session(self.session_dir)
             rm = getattr(self.app, "run_manager", None)
-            if rm is not None and hasattr(rm, "complete_interactive"):
-                rid = (self.meta.run_id if self.meta else "") or ""
+            if rm is not None and hasattr(rm, "stop_session_container"):
                 try:
-                    rm.complete_interactive(rid)
+                    rm.stop_session_container(self.session_dir)
                 except Exception:
                     pass
             # Do not imply the agent finished — only that stop was requested.
+            # Do not complete_interactive(run_id): that stops every sibling
+            # container in a multi-session run.
             self.notify(t("mark-done-requested"))
         except Exception as exc:
             self.notify(U.mark_session_done_failed(exc), severity="error")
@@ -492,62 +561,229 @@ class BrowserScreen(ChromeActions):
         except Exception:
             return False
 
+    def _live_watch_root(self) -> Path:
+        """Directory to watch for live refresh (session tree + turn gates).
+
+        Turn-gate files (``.groket-turn*``) live on the container traces volume,
+        typically a parent of ``session_dir``. Watching only the session dir
+        misses gate-only transitions (e.g. ``awaiting_follow_up``).
+        """
+        from ...session.turn_gate import traces_volume_for_session
+
+        sd = Path(self.session_dir)
+        vol = traces_volume_for_session(sd)
+        if vol is None:
+            return sd
+        try:
+            if any(vol.glob(".groket-turn*")):
+                return vol
+            # Eval layout: ``…/<container>/<cwd-token>/<session_id>`` (uuid-like).
+            if sd.name.startswith("019") and sd.parent.parent.resolve() == vol.resolve():
+                return vol
+        except OSError:
+            pass
+        return sd
+
     def _schedule_live_refresh(self) -> None:
-        """While session is pending (turn or interactive gate), reload timeline."""
-        self._stop_live_refresh()
-        if not self._session_is_pending():
+        """Watch session + turn-gate files while interactive or traces may change.
+
+        Prefer FS events (debounced). If the observer cannot start, use a slow
+        timer so pending-bar / timeline still update (missing root, no watchdog).
+        """
+        pending_ui = self._session_is_pending()
+        live_traces = self._session_needs_live_timeline()
+        if not pending_ui and not live_traces:
+            self._stop_live_refresh()
             self._refresh_session_pending_bar()
             return
-        try:
-            from ...constants import LIVE_REFRESH_INTERVAL
+        self._refresh_session_pending_bar()
+        if self._trace_watch is not None or self._live_refresh_timer is not None:
+            return
+        from ...constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+        from ...fs_watch import TraceTreeWatch
 
-            self._live_refresh_timer = self.set_timer(
-                LIVE_REFRESH_INTERVAL, self._live_refresh_tick
-            )
-        except Exception:
-            pass
+        def _on_fs() -> None:
+            try:
+                if self.app is not None and self.app.is_running:
+                    self.app.call_from_thread(self._live_refresh_from_fs)
+            except Exception:
+                pass
+
+        watch = TraceTreeWatch(self._live_watch_root(), _on_fs, debounce_s=0.35)
+        if watch.start():
+            self._trace_watch = watch
+            return
+        self._live_refresh_timer = self.set_interval(
+            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+            self._live_refresh_from_fs,
+        )
+
+    def _live_refresh_from_fs(self) -> None:
+        """UI thread: react to a debounced FS event (or timer fallback tick)."""
+        if self._live_refresh_busy:
+            self._live_refresh_pending = True
+            return
+        if not self._session_is_pending() and not self._session_needs_live_timeline():
+            self._stop_live_refresh()
+            self._refresh_session_pending_bar()
+            return
+        if self._session_needs_live_timeline():
+            self._live_refresh_busy = True
+            self._submit_load_data_light()
+            return
         self._refresh_session_pending_bar()
 
-    def _live_refresh_tick(self) -> None:
-        if self._live_refresh_busy:
-            self._schedule_live_refresh()
-            return
-        self._live_refresh_busy = True
-        try:
-            self._load_data_light()
-        except Exception:
-            pass
-        finally:
-            self._live_refresh_busy = False
-            self._schedule_live_refresh()
+    def _live_refresh_worker_done(self) -> None:
+        """Clear busy after threaded light reload; run one coalesced refresh if needed."""
+        self._live_refresh_busy = False
+        if self._live_refresh_pending:
+            self._live_refresh_pending = False
+            self._live_refresh_from_fs()
 
-    @work(thread=True)
-    def _load_data_light(self) -> None:
-        """Reload meta + timeline only (no re-run detectors/diff — for live monitor)."""
-        self.meta = load_session_meta(self.session_dir)
-        self.timeline = parse_timeline(self.session_dir)
-        self._rebuild_indices()
-        call_ui(self.app, self._populate_ui_light)
+    def _submit_load_data_light(self) -> None:
+        """Queue a light timeline reload on the serial live-refresh pool."""
+        from ...job_pools import get_live_refresh_pool
+
+        get_live_refresh_pool().submit(
+            f"refresh {self.session_dir.name}",
+            self._load_data_light_job,
+        )
+
+    def _load_data_light_job(self) -> None:
+        """Reload meta + timeline only (no re-run detectors/diff — for live monitor).
+
+        Skips ``parse_timeline`` when trace artifact mtimes are unchanged so
+        mid-turn polls do not re-read multi‑MB ``updates.jsonl``.
+        """
+        from ...parser import session_trace_mtime
+
+        try:
+            mtime = session_trace_mtime(self.session_dir)
+            if (
+                self._last_trace_mtime is not None
+                and mtime == self._last_trace_mtime
+                and self.timeline
+            ):
+                # Traces idle this tick — refresh gate UI only.
+                call_ui(self.app, self._refresh_session_pending_bar)
+                return
+            self._last_trace_mtime = mtime
+            self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
+            self.timeline = parse_timeline(self.session_dir)
+            if self.meta is not None:
+                self.meta.num_events = len(self.timeline or [])
+            self._rebuild_indices()
+            call_ui(self.app, self._populate_ui_light)
+        finally:
+            call_ui(self.app, self._live_refresh_worker_done)
+
+    def _light_refresh_fingerprint(self) -> tuple[str | int | float | bool | None, ...]:
+        """Identity for live poll — skip full timeline rebuild when unchanged."""
+        tl = self.timeline or []
+        last = tl[-1] if tl else None
+        meta = self.meta
+        return (
+            len(tl),
+            last.index if last is not None else None,
+            last.timestamp if last is not None else None,
+            last.event_type if last is not None else None,
+            (last.content or "")[:80] if last is not None else None,
+            meta.turn_outcome if meta else None,
+            meta.turn_in_progress if meta else None,
+            meta.duration_seconds if meta else None,
+        )
+
+    def _reapply_timeline_view_filter(self) -> None:
+        """Re-apply type / turn / search filters after a timeline reload."""
+        self._apply_timeline_filters()
+
+    def _apply_timeline_filters(self) -> None:
+        """Apply View + Turn + search-as-you-type without moving focus."""
+        mode = getattr(self, "_timeline_filter", "all") or "all"
+        self._errors_only = mode == "errors"
+        search = getattr(self, "_timeline_search", "") or ""
+        if mode == "all":
+            self._apply_filter(errors_only=False, search_query=search)
+        elif mode == "tools":
+            self._apply_filter(
+                event_types=set(et.TOOL_TYPES), errors_only=False, search_query=search
+            )
+        elif mode == "user":
+            self._apply_filter(
+                event_types=set(et.USER_TYPES), errors_only=False, search_query=search
+            )
+        elif mode == "asst":
+            self._apply_filter(
+                event_types=set(et.AGENT_TYPES | et.THOUGHT_TYPES),
+                errors_only=False,
+                search_query=search,
+            )
+        elif mode == "sess":
+            self._apply_filter(
+                event_types=set(et.SESSION_CHROME_TYPES),
+                errors_only=False,
+                search_query=search,
+            )
+        elif mode == "errors":
+            self._apply_filter(errors_only=True, search_query=search)
+        else:
+            self._apply_filter(errors_only=False, search_query=search)
 
     def _populate_ui_light(self) -> None:
-        """Update title + timeline + share/stats without rebuilding analysis tabs."""
+        """Update title + timeline + share/stats without rebuilding analysis tabs.
+
+        Skips clearing/rebuilding the timeline table when the light fingerprint
+        is unchanged so live polling does not flicker mid-turn.
+        """
+        fp = self._light_refresh_fingerprint()
+        unchanged = fp == getattr(self, "_last_light_fp", None)
         self._set_title_from_meta()
-        try:
-            timeline_table = self.query_one("#timeline-list", TimelineTable)
-            timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))
-            self._rebuild_turn_select()
-        except Exception:
-            pass
-        try:
-            self._update_stats()
-        except Exception:
-            pass
+        if not unchanged:
+            self._last_light_fp = fp
+            try:
+                timeline_table = self.query_one("#timeline-list", TimelineTable)
+                timeline_table.load_events(
+                    self.timeline, self._findings, list(self._flags.values())
+                )
+                self._rebuild_turn_select()
+                self._reapply_timeline_view_filter()
+            except Exception:
+                pass
+            # Summary + stats tables are on tab-summary — skip when not visible.
+            active = ""
+            with suppress(Exception):
+                active = str(self.query_one("#browser-tabs", TabbedContent).active or "")
+            if active in ("", "tab-summary", "tab-timeline"):
+                # Timeline tab: title only above; summary tab needs full stats/summary.
+                if active == "tab-summary":
+                    try:
+                        self._update_summary_tab()
+                    except Exception:
+                        pass
+                    # Stats rebuild also replaces Static widgets; skip while selecting.
+                    if not getattr(self, "selections", None):
+                        try:
+                            self._update_stats()
+                        except Exception:
+                            pass
         self._refresh_session_pending_bar()
 
     @work(thread=True)
     def _load_data(self) -> None:
-        self.meta = load_session_meta(self.session_dir)
+        from ...parser import session_trace_mtime
+
+        self._last_light_fp = None
+        self._last_trace_mtime = None
+        # One timeline parse only — do not also run parse_timeline inside
+        # load_session_meta (that doubled CPU on 100MB+ updates.jsonl opens).
+        self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
         self.timeline = parse_timeline(self.session_dir)
+        if self.meta is not None:
+            self.meta.num_events = len(self.timeline or [])
+        try:
+            self._last_trace_mtime = session_trace_mtime(self.session_dir)
+        except Exception:
+            self._last_trace_mtime = None
         self._load_flags()
         self._rebuild_indices()
         try:
@@ -557,25 +793,204 @@ class BrowserScreen(ChromeActions):
             self._diff_meta = {}
         call_ui(self.app, self._populate_ui)
         call_ui(self.app, self._schedule_live_refresh)
-        self._run_analysis()
+        # Analysis is async on the fixed analysis pool — never blocks timeline paint.
+        call_ui(self.app, self._schedule_analysis)
 
-    def _run_analysis(self) -> None:
-        """Run analysis plugins (slow path).
-
-        Called from the _load_data worker thread; pushes UI updates back
-        to the main thread when done.
-        """
-        is_live = bool(self.meta and self.meta.turn_in_progress)
+    def _should_auto_analyze(self) -> bool:
+        """Whether policy says to run analyzers for this session now."""
         svc = get_analysis_service()
-        auto = bool(getattr(svc.config, "auto_analyze_on_open", True))
-        if not self.plugin_results and (not is_live) and auto:
+        when = (svc.config.auto_analyze_when or "session_complete").strip().lower()
+        if when == "never":
+            return False
+        is_live = bool(self.meta and self.meta.turn_in_progress)
+        if is_live:
+            return False
+        large = len(self.timeline or []) > 2_500
+        if large:
+            # Explicit palette analyze still works; auto skips mega timelines.
+            return False
+        # session_complete: settled turn outcome (not running / awaiting).
+        if self.meta and (self.meta.turn_outcome or "").strip():
+            oc = (self.meta.turn_outcome or "").lower().replace(" ", "_")
+            if oc in ("running", "in_progress", "pending", "awaiting_follow_up"):
+                return False
+            return True
+        return True
+
+    def _schedule_analysis(self, *, force: bool = False) -> None:
+        """Queue analysis on the serial analysis pool (UI thread)."""
+        from ...analysis.inflight import (
+            analysis_session_key,
+            end_session_analysis,
+            session_analysis_inflight,
+            try_begin_session_analysis,
+        )
+
+        if self.plugin_results and not force:
+            self._collect_findings()
+            self._rebuild_indices()
+            self._populate_analysis_ui()
+            self._apply_stale_analysis_hints()
+            return
+        if self._analysis_pending or session_analysis_inflight(self.session_dir):
+            # Already queued/running for this session — keep spinner, no second job.
+            self._analysis_pending = True
+            self._show_analysis_pending()
+            return
+        if not force and not self._should_auto_analyze():
+            # Show idle findings (empty / cache only) without spinning forever.
             try:
-                self.plugin_results = svc.analyze_all(self.session_dir)
+                cached = get_analysis_service().load_cached_all(self.session_dir)
+            except Exception:
+                cached = {}
+            if cached:
+                self.plugin_results = cached
+                self._collect_findings()
+                self._rebuild_indices()
+            else:
+                self._show_analysis_idle()
+                self._apply_stale_analysis_hints(repaint=False)
+                return
+            self._apply_stale_analysis_hints()
+            return
+
+        if not try_begin_session_analysis(self.session_dir):
+            self._analysis_pending = True
+            self._show_analysis_pending()
+            return
+
+        self._analysis_pending = True
+        self._show_analysis_pending()
+        # Clear stale banner while a fresh run is queued; show progress instead.
+        self._set_analysis_stale_banner([])
+        from ...job_pools import get_activity_log, get_analysis_pool
+        from ..threads import call_ui
+
+        label = self.session_dir.name
+        app = self.app
+        session_dir = self.session_dir
+        force_run = force
+        result_key = analysis_session_key(session_dir)
+        legacy_key = str(session_dir)
+
+        # Bump activity-bar counter on the UI thread so spinner shows immediately.
+        try:
+            app._analysis_jobs_active = (  # type: ignore[attr-defined]
+                int(getattr(app, "_analysis_jobs_active", 0) or 0) + 1
+            )
+        except Exception:
+            pass
+        try:
+            host_results = getattr(app, "_plugin_results", None)
+            if isinstance(host_results, dict):
+                host_results.pop(result_key, None)
+                host_results.pop(legacy_key, None)
+        except Exception:
+            pass
+
+        def _job() -> None:
+            svc = get_analysis_service()
+            results: dict = {}
+            try:
+                results = svc.analyze_all(session_dir, force=force_run)
+            except Exception as exc:
+                get_activity_log().log("analysis", f"failed {label}: {exc}")
+                results = {}
+
+            def _finish() -> None:
+                try:
+                    if self.is_mounted:
+                        self.plugin_results = results
+                        self._analysis_pending = False
+                        self._stop_analysis_spinner_timer()
+                        self._collect_findings()
+                        self._rebuild_indices()
+                        self._apply_stale_analysis_hints()
+                    try:
+                        host_results = getattr(app, "_plugin_results", None)
+                        if isinstance(host_results, dict):
+                            host_results[result_key] = results
+                            if legacy_key != result_key:
+                                host_results[legacy_key] = results
+                    except Exception:
+                        pass
+                finally:
+                    end_session_analysis(session_dir)
+                    try:
+                        n = int(getattr(app, "_analysis_jobs_active", 0) or 0)
+                        app._analysis_jobs_active = max(0, n - 1)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+
+            try:
+                call_ui(app, _finish)
+            except Exception:
+                end_session_analysis(session_dir)
+                try:
+                    n = int(getattr(app, "_analysis_jobs_active", 0) or 0)
+                    app._analysis_jobs_active = max(0, n - 1)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+        get_analysis_pool().submit(f"session {label}", _job)
+
+    def _apply_stale_analysis_hints(self, *, repaint: bool = True) -> None:
+        """Load stale hints, update banner, optionally repaint findings/report."""
+        try:
+            hints = get_analysis_service().stale_analyzer_hints(self.session_dir)
+        except Exception:
+            hints = []
+        self._set_analysis_stale_banner(hints)
+        if repaint and self.is_mounted and not getattr(self, "_analysis_pending", False):
+            try:
+                self._populate_analysis_ui()
             except Exception:
                 pass
-        self._collect_findings()
-        self._rebuild_indices()
-        call_ui(self.app, self._populate_analysis_ui)
+
+    def _stale_detail(self, hints: list[str]) -> str:
+        detail = "; ".join(hints[:6])
+        if len(hints) > 6:
+            detail += "…"
+        return detail
+
+    def _set_analysis_stale_banner(self, hints: list[str]) -> None:
+        self._analysis_stale_hints = list(hints)
+        try:
+            banner = self.query_one("#analysis-stale-banner", Static)
+        except Exception:
+            return
+        if not hints:
+            banner.update("")
+            banner.display = False
+            return
+        banner.update(t("analysis-stale-banner", detail=self._stale_detail(hints)))
+        banner.display = True
+
+    def _show_analysis_idle(self) -> None:
+        """Findings/report idle when auto-analyze is off or deferred."""
+        try:
+            findings_table = self.query_one("#findings-table", DataTable)
+            findings_table.clear(columns=True)
+            findings_table.add_columns("", "")
+            findings_table.add_row("", t("ui-analysis-idle"))
+        except Exception:
+            pass
+        try:
+            self.query_one("#report-overview-content", Static).update(t("ui-analysis-idle-report"))
+        except Exception:
+            pass
+
+    def _run_analysis(self) -> None:
+        """Force analysis for this session (palette / full refresh)."""
+        self.action_analyze()
+
+    def action_analyze(self) -> None:
+        """Command palette: re-run analysis for **this session only** (force)."""
+        # Drop in-memory results so force actually re-runs plugins.
+        self.plugin_results = {}
+        self._findings = []
+        self._schedule_analysis(force=True)
+        self.notify(t("notify-analyzing-this-session"), severity="information", timeout=4)
 
     def _load_flags(self) -> None:
         """Load user flags from disk into a dict keyed by event_index."""
@@ -622,19 +1037,24 @@ class BrowserScreen(ChromeActions):
     def _set_title_from_meta(self) -> None:
         label = self.meta.label if self.meta else self.session_dir.name
         model = self.meta.model_display if self.meta else "unknown"
-        # Explicit leading " · " — Fluent strips edge spaces on fragment messages.
+        # Full Fluent extras (not edge-space fragments). LIVE only while the agent
+        # is writing traces — not for idle awaiting_follow_up or settled outcomes.
         outcome_bit = ""
         if self.meta and self.meta.turn_outcome:
-            oc = self.meta.turn_outcome
-            if self.meta.turn_failed:
-                outcome_bit = f" · turn={oc}"
-            elif self.meta.turn_in_progress:
-                outcome_bit = f" · LIVE turn={oc}"
+            oc = (self.meta.turn_outcome or "").strip()
+            oc_key = oc.lower().replace(" ", "_")
+            if oc_key == "awaiting_follow_up":
+                outcome_bit = t("title-browser-extra-awaiting")
+            elif oc_key in ("running", "in_progress", "pending"):
+                outcome_bit = t("title-browser-extra-live-turn", outcome=oc)
             else:
-                outcome_bit = f" · turn={oc}"
-        elif self.meta:
-            outcome_bit = " · LIVE"
-        self.title = f"{t('ui-browser').strip()} {label} ({model}){outcome_bit}"
+                outcome_bit = t("title-browser-extra-turn", outcome=oc)
+        self.title = t(
+            "title-browser-session",
+            label=label,
+            model=model,
+            extra=outcome_bit or "",
+        )
 
     def _populate_ui(self) -> None:
         """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""
@@ -650,22 +1070,48 @@ class BrowserScreen(ChromeActions):
         timeline_table.focus()
         if self.meta and self.meta.turn_failed:
             self.notify(
-                f"{t('ui-turn-ended-with-outcome')} {self.meta.turn_outcome} {t('ui-see-summary-tab-or-session-session-error-timelin')}",
+                t("notify-turn-ended-outcome", outcome=str(self.meta.turn_outcome)),
                 severity="warning",
                 timeout=8,
             )
 
     def _show_analysis_pending(self) -> None:
-        """Show loading placeholders in tabs that depend on analysis."""
+        """Show loading placeholders; start a cheap spinner timer (no table rebuilds)."""
+        self._paint_analysis_pending_spinner(full=True)
+        if self._analysis_pending:
+            if self._analysis_spinner_timer is None:
+                from ...constants import ANALYSIS_PENDING_SPINNER_INTERVAL
+
+                self._analysis_spinner_timer = self.set_interval(
+                    ANALYSIS_PENDING_SPINNER_INTERVAL,
+                    self._tick_analysis_pending,
+                )
+
+    def _paint_analysis_pending_spinner(self, *, full: bool = False) -> None:
+        """Update spinner text only (full=True also clears tables once)."""
+        from ...job_pools import get_activity_log
+
+        spin = get_activity_log().spinner_frame()
+        pending_markup = t("ui-running-analysis-spinner", spin=spin)
         try:
-            findings_table = self.query_one("#findings-table", DataTable)
-            findings_table.clear(columns=True)
-            findings_table.add_columns("", "")
-            findings_table.add_row("", t("ui-running-analysis"))
+            status = self.query_one("#findings-pending-status", Static)
+            status.update(pending_markup)
+            status.display = True
         except Exception:
             pass
         try:
-            self.query_one("#report-overview-content", Static).update(t("ui-running-analysis-1"))
+            self.query_one("#report-overview-content", Static).update(pending_markup)
+        except Exception:
+            pass
+        if not full:
+            return
+        try:
+            findings_table = self.query_one("#findings-table", DataTable)
+            findings_table.clear(columns=True)
+            style_data_table(findings_table)
+            findings_table.add_columns(
+                U.col_severity(), U.col_plugin(), U.col_category(), U.col_title(), U.col_events()
+            )
         except Exception:
             pass
         for aid in list(getattr(self, "_report_section_keys", ()) or ()):
@@ -673,10 +1119,28 @@ class BrowserScreen(ChromeActions):
                 continue
             try:
                 self.query_one(f"#{self._report_content_dom_id(aid)}", Static).update(
-                    t("ui-running-analysis-1")
+                    pending_markup
                 )
             except Exception:
                 pass
+
+    def _tick_analysis_pending(self) -> None:
+        if not self._analysis_pending or not self.is_mounted:
+            self._stop_analysis_spinner_timer()
+            return
+        self._paint_analysis_pending_spinner(full=False)
+
+    def _stop_analysis_spinner_timer(self) -> None:
+        timer = self._analysis_spinner_timer
+        self._analysis_spinner_timer = None
+        if timer is not None:
+            timer.stop()
+        try:
+            status = self.query_one("#findings-pending-status", Static)
+            status.update("")
+            status.display = False
+        except Exception:
+            pass
 
     def _populate_analysis_ui(self) -> None:
         """Phase 2 UI: findings + reports — after analysis plugins finish."""
@@ -694,9 +1158,26 @@ class BrowserScreen(ChromeActions):
             self._update_findings_header()
         except Exception:
             pass
+        # First row: re-analyze needed (stale plugin cache) — not a Finding entry.
+        stale_hints = getattr(self, "_analysis_stale_hints", None) or []
+        if stale_hints:
+            findings_table.add_row(
+                "!",
+                "stale",
+                "",
+                t("analysis-stale-findings-row", detail=self._stale_detail(stale_hints)),
+                "",
+                key="__analysis_stale__",
+            )
         for row_idx, finding in enumerate(self._findings):
             sev_display = SEVERITY_LABEL.get(finding.severity.value, finding.severity.value)
-            n_events = len(finding.all_tool_call_ids)
+            n_events = len(
+                {
+                    *finding.all_tool_call_ids,
+                    *(f"u{i}" for i in finding.all_update_indices),
+                    *(f"e{i}" for i in finding.all_event_indices),
+                }
+            )
             title = finding.title[:60]
             if finding.children:
                 title = f"{title} (+)"
@@ -756,13 +1237,24 @@ class BrowserScreen(ChromeActions):
         high = sum(1 for f in self._findings if f.severity.value == "high")
         fh.append("\n  ")
         if high:
-            fh.append_text(status_chip(f"{high} {t('ui-high-4')}", kind="bad"))
+            fh.append_text(status_chip(t("browser-high-chip", n=high), kind="bad"))
         elif n:
-            fh.append_text(status_chip(f"{n} {t('ui-findings-2')}", kind="unknown"))
+            fh.append_text(status_chip(t("browser-findings-chip", n=n), kind="unknown"))
         else:
-            fh.append_text(status_chip("none", kind="ok"))
-        fh.append(f"  ·  {n} {t('ui-total')}", style="dim")
-        self.query_one("#findings-header", Static).update(fh)
+            fh.append_text(status_chip(t("browser-status-none"), kind="ok"))
+        fh.append(t("browser-findings-dim", n=n), style="dim")
+        header = self.query_one("#findings-header", Static)
+        if not self._widget_has_text_selection(header):
+            header.update(fh)
+
+    def _widget_has_text_selection(self, widget: object) -> bool:
+        """True when the operator has a mouse/text selection on *widget*.
+
+        Live refresh must not ``update()`` that widget or the selection vanishes
+        before they can copy.
+        """
+        sels = getattr(self, "selections", None)
+        return bool(sels and widget in sels)
 
     def _update_summary_tab(self) -> None:
         if not self.meta:
@@ -771,6 +1263,8 @@ class BrowserScreen(ChromeActions):
         renderable = render_session_summary(self.meta, self.timeline, assistant_text=asst)
         try:
             widget = self.query_one("#summary-content", Static)
+            if self._widget_has_text_selection(widget):
+                return
             widget.update(renderable)
         except Exception:
             pass
@@ -878,14 +1372,14 @@ class BrowserScreen(ChromeActions):
         opts: list[tuple[str, str]] = [(U.all_sections(), "all")]
         n_flags = len(self._flags)
         if n_flags:
-            opts.append((f"{t('ui-flags-1')} {n_flags})", "flags"))
+            opts.append((t("browser-flags-count", n=n_flags), "flags"))
         for aid in self._report_plugin_ids():
             n = sum(1 for f in self._findings if (f.plugin_id or "") == aid)
             label = self._plugin_title(aid)
             if n:
                 label = f"{label} ({n})"
             else:
-                label = f"{label} {t('ui-report')}"
+                label = join_ui(label, t("ui-report"))
             opts.append((label, f"plugin:{aid}"))
         return opts
 
@@ -961,7 +1455,10 @@ class BrowserScreen(ChromeActions):
 
     def _set_static_content(self, widget_id: str, renderable) -> None:
         try:
-            self.query_one(f"#{widget_id}", Static).update(renderable)
+            widget = self.query_one(f"#{widget_id}", Static)
+            if self._widget_has_text_selection(widget):
+                return
+            widget.update(renderable)
         except Exception:
             logger.debug(t("ui-report-static-s-missing"), widget_id, exc_info=True)
 
@@ -991,19 +1488,30 @@ class BrowserScreen(ChromeActions):
         head = Text()
         head.append(t("ui-session-report"), style="bold")
         head.append("\n")
+        stale_hints = getattr(self, "_analysis_stale_hints", None) or []
+        if stale_hints:
+            head.append(
+                t("analysis-stale-report", detail=self._stale_detail(stale_hints)),
+                style="bold yellow",
+            )
+            head.append("\n\n")
+        # Severity chips use the same Rich styles as Findings tab (not status_chip).
         if high:
-            head.append_text(status_chip(f"{high} {t('ui-high-4')}", kind="bad"))
+            head.append(t("browser-high-chip", n=high), style=severity_style("high"))
             head.append("  ")
-        elif total:
-            head.append_text(status_chip(f"{total} {t('ui-findings-2')}", kind="unknown"))
+        if med:
+            head.append(t("browser-medium-chip", n=med), style=severity_style("medium"))
             head.append("  ")
-        else:
-            head.append_text(status_chip("clean", kind="ok"))
+        if total and not high and not med:
+            head.append(t("browser-findings-chip", n=total), style="dim")
             head.append("  ")
-        head.append(f"{len(flags)} {t('ui-flags')}", style="dim")
+        if not total:
+            head.append_text(status_chip(t("browser-status-clean"), kind="ok"))
+            head.append("  ")
+        head.append(t("browser-flags-dim", n=len(flags)), style="dim")
         head.append(" │ ", style="dim")
         head.append(
-            f"{total} {t('ui-findings-3')} {high} {t('ui-high-2')} {med} {t('ui-med-1')}",
+            t("browser-report-counts", total=total, high=high, med=med),
             style="dim",
         )
         head.append("\n")
@@ -1016,8 +1524,10 @@ class BrowserScreen(ChromeActions):
             meta_t.append_text(
                 kv_line(
                     t("ui-last-outcome"),
-                    (self.meta.turn_outcome or "").strip()
-                    + t("ui-session-meta-last-turn-interactive-gate"),
+                    t(
+                        "browser-last-turn-outcome-note",
+                        outcome=(self.meta.turn_outcome or "").strip(),
+                    ),
                 )
             )
         blocks.append(meta_t)
@@ -1032,18 +1542,29 @@ class BrowserScreen(ChromeActions):
                     t("ui-findings-below-are-session-wide-use-event-indice"), style="dim"
                 )
                 for seg in segs:
+                    err_suffix = (
+                        t("browser-report-turn-err", n=seg.tool_error_count)
+                        if seg.tool_error_count
+                        else ""
+                    )
+                    span = (
+                        t(
+                            "browser-report-turn-span",
+                            first=seg.first_index,
+                            last=seg.last_index,
+                        )
+                        if seg.first_index is not None and seg.last_index is not None
+                        else ""
+                    )
                     turns_t.append_text(
                         bullet(
-                            f"{seg.label}: {seg.event_count} {t('ui-events-2')} {seg.tool_call_count} {t('ui-tools-1')}"
-                            + (
-                                f" ({seg.tool_error_count} {t('ui-tool-err-1')}"
-                                if seg.tool_error_count
-                                else ""
-                            )
-                            + (
-                                f"{t('ui-timeline')} {seg.first_index}–#{seg.last_index}"
-                                if seg.first_index is not None
-                                else ""
+                            t(
+                                "browser-report-turn-line",
+                                label=seg.label,
+                                events=seg.event_count,
+                                tools=seg.tool_call_count,
+                                err_suffix=err_suffix,
+                                span=span,
                             )
                         )
                     )
@@ -1058,7 +1579,7 @@ class BrowserScreen(ChromeActions):
                 focus = self._plugin_title(mode[7:])
             else:
                 focus = mode
-            blocks.append(Text(f"{t('ui-viewing')} {focus}\n", style="dim"))
+            blocks.append(Text(t("browser-viewing-focus", focus=focus) + "\n", style="dim"))
         try:
             self._set_static_content("report-overview-content", panel_group(*blocks))
         except Exception:
@@ -1098,16 +1619,25 @@ class BrowserScreen(ChromeActions):
         if result is not None and result.summary:
             title = f"{title}  ({result.summary})"
         blocks.append(section_header(title))
+        report_artifact = None
+        if result is not None and result.ok:
+            report_artifact = (result.artifacts or {}).get("report")
+        # Severity-colored finding lines (same palette as Findings tab), then
+        # optional full markdown report artifact (e.g. feedback).
         if plugin_findings:
             blocks.append(self._findings_report_block(plugin_findings))
-        elif result is not None:
-            report_artifact = result.artifacts.get("report") if result.ok else None
-            if report_artifact and str(report_artifact).strip():
-                blocks.append(content_block(str(report_artifact), max_chars=12000))
-            elif result.summary:
+        if report_artifact and str(report_artifact).strip():
+            blocks.append(content_block(str(report_artifact).strip(), max_chars=12000))
+        elif not plugin_findings and result is not None:
+            if result.summary:
                 blocks.append(Text(f"  {result.summary}\n", style="dim"))
             elif not result.ok and result.error:
-                blocks.append(Text(f"{t('ui-error-2')} {result.error}\n", style="red"))
+                blocks.append(
+                    Text(
+                        t("browser-report-error", msg=result.error) + "\n",
+                        style="red",
+                    )
+                )
             else:
                 blocks.append(Text(t("ui-no-findings"), style="dim"))
         else:
@@ -1137,17 +1667,16 @@ class BrowserScreen(ChromeActions):
 
     @staticmethod
     def _findings_report_block(findings: list) -> Text:
-        """Structured finding list (severity + title + detail) — not raw markdown dump."""
+        """Structured finding list (severity + title + detail) — not raw markdown dump.
+
+        Severity colors use :func:`~groket.ui.styles.severity_style` — same as
+        Findings tab / timeline marks (high=red, medium=dark_orange, low=yellow).
+        """
         out = Text()
         for f in sorted(findings, key=lambda x: (x.severity.value, x.title or "")):
-            sev = (f.severity.value if f.severity else "low").upper()
-            sev_style = (
-                "bold red"
-                if sev == t("ui-high-3")
-                else "bold yellow"
-                if sev == t("ui-medium")
-                else "dim"
-            )
+            sev_key = (f.severity.value if f.severity else "low").lower()
+            sev = sev_key.upper()
+            sev_style = severity_style(sev_key)
             out.append("  ")
             out.append(f"{sev:<7}", style=sev_style)
             out.append("  ")
@@ -1155,22 +1684,38 @@ class BrowserScreen(ChromeActions):
             cat = getattr(f, "category", None) or ""
             if cat:
                 out.append(f"  ·  {cat}", style="dim")
-            n_ev = len(getattr(f, "all_tool_call_ids", None) or [])
+            n_ev = len(
+                {
+                    *(getattr(f, "all_tool_call_ids", None) or []),
+                    *(f"u{i}" for i in (getattr(f, "all_update_indices", None) or [])),
+                    *(f"e{i}" for i in (getattr(f, "all_event_indices", None) or [])),
+                }
+            )
             if n_ev:
-                out.append(f"  ·  {n_ev} {t('ui-events-1')}", style="dim")
+                out.append("  ·  " + t("browser-finding-events", n=n_ev), style="dim")
             out.append("\n")
             detail = (getattr(f, "detail", None) or "").strip()
             if detail:
-                one_line = " ".join(detail.split())
-                if len(one_line) > 220:
-                    one_line = one_line[:217] + "…"
-                out.append(f"           {one_line}\n", style="dim")
+                # Preserve structure for multi-line reviews; only collapse tiny blurbs.
+                if "\n" in detail or len(detail) > 280:
+                    for i, dl in enumerate(detail.splitlines()[:24]):
+                        out.append(f"           {dl}\n", style="dim")
+                    if detail.count("\n") >= 24:
+                        out.append("           …\n", style="dim")
+                else:
+                    one_line = " ".join(detail.split())
+                    if len(one_line) > 220:
+                        one_line = one_line[:217] + "…"
+                    out.append(f"           {one_line}\n", style="dim")
             children = getattr(f, "children", None) or []
             for ch in children[:8]:
                 ch_title = getattr(ch, "title", None) or getattr(ch, "id", "") or ""
                 out.append(f"           - {ch_title}\n", style="dim")
             if len(children) > 8:
-                out.append(f"           … +{len(children) - 8} {t('ui-more')}", style="dim")
+                out.append(
+                    t("browser-more-children", n=len(children) - 8),
+                    style="dim",
+                )
         if not findings:
             out.append(t("ui-none"), style="dim")
         return out
@@ -1313,13 +1858,16 @@ class BrowserScreen(ChromeActions):
             )
         phase_durations: dict[str, float] = defaultdict(float)
         phase_labels = {
-            "thought": t("ui-thinking"),
-            "assistant": t("ui-writing"),
+            "agent_thought_chunk": t("ui-thinking"),
+            "agent_message_chunk": t("ui-writing"),
             "tool_call": t("ui-tool-execution"),
-            "tool_result": t("ui-tool-execution"),
-            "user": t("ui-user-input"),
+            "tool_call_update": t("ui-tool-execution"),
+            "user_message_chunk": t("ui-user-input"),
             "plan": t("ui-planning"),
-            "subagent": t("ui-subagent"),
+            "subagent_spawned": t("ui-subagent"),
+            "subagent_finished": t("ui-subagent"),
+            "task_backgrounded": t("ui-subagent"),
+            "task_completed": t("ui-subagent"),
         }
         for ev in self.timeline:
             dur = durations.get(ev.index)
@@ -1412,9 +1960,9 @@ class BrowserScreen(ChromeActions):
         try:
             tabs = self.query_one("#browser-tabs", TabbedContent)
             if tabs.active != "tab-timeline":
-                self._activate_browser_tab("tab-timeline")
+                self.activate_tab_pane("tab-timeline")
         except Exception:
-            self._activate_browser_tab("tab-timeline")
+            self.activate_tab_pane("tab-timeline")
 
     def _apply_timeline_mode(self, mode: str) -> None:
         """Apply View dropdown mode; keyboard and Select stay aligned."""
@@ -1422,22 +1970,8 @@ class BrowserScreen(ChromeActions):
             mode = "all"
         self._ensure_timeline_tab()
         self._timeline_filter = mode
-        self._errors_only = mode == "errors"
         self._sync_timeline_view_select(mode)
-        if mode == "all":
-            self._apply_filter(errors_only=False)
-        elif mode == "tools":
-            self._apply_filter(event_type="tool_call", errors_only=False)
-        elif mode == "user":
-            self._apply_filter(event_type="user", errors_only=False)
-        elif mode == "asst":
-            self._apply_filter(event_type="assistant", errors_only=False)
-        elif mode == "sess":
-            self._apply_filter(
-                event_types={"session", "session_error", "system"}, errors_only=False
-            )
-        elif mode == "errors":
-            self._apply_filter(errors_only=True)
+        self._apply_timeline_filters()
 
         def _focus_tl() -> None:
             try:
@@ -1468,21 +2002,7 @@ class BrowserScreen(ChromeActions):
         if mode == self._timeline_filter:
             return
         self._timeline_filter = mode
-        self._errors_only = mode == "errors"
-        if mode == "all":
-            self._apply_filter(errors_only=False)
-        elif mode == "tools":
-            self._apply_filter(event_type="tool_call", errors_only=False)
-        elif mode == "user":
-            self._apply_filter(event_type="user", errors_only=False)
-        elif mode == "asst":
-            self._apply_filter(event_type="assistant", errors_only=False)
-        elif mode == "sess":
-            self._apply_filter(
-                event_types={"session", "session_error", "system"}, errors_only=False
-            )
-        elif mode == "errors":
-            self._apply_filter(errors_only=True)
+        self._apply_timeline_filters()
 
     def _finding_row_index(
         self, event: DataTable.RowHighlighted | DataTable.RowSelected
@@ -1535,14 +2055,31 @@ class BrowserScreen(ChromeActions):
         self._selected_finding = finding
         call_ids = set(finding.all_tool_call_ids)
         update_indices = set(finding.all_update_indices)
+        event_indices = set(finding.all_event_indices)
         timeline_table = self.query_one("#timeline-list", TimelineTable)
-        timeline_table.apply_filter(call_ids=call_ids, update_indices=update_indices)
+        timeline_table.apply_filter(
+            call_ids=call_ids or None,
+            update_indices=update_indices or None,
+            event_indices=event_indices or None,
+        )
         tabbed = self.query_one(TabbedContent)
         tabbed.active = "tab-timeline"
 
+    @on(Input.Changed, "#search-input")
+    def _on_search_changed(self, event: Input.Changed) -> None:
+        """Filter timeline as you type (Textual ``Input.Changed`` — no Enter)."""
+        self._timeline_search = event.value or ""
+        self._apply_timeline_filters()
+
     @on(Input.Submitted, "#search-input")
-    def _on_search(self, event: Input.Submitted) -> None:
-        self._apply_filter(search_query=event.value)
+    def _on_search_submitted(self, event: Input.Submitted) -> None:
+        """Enter keeps the filter and moves focus to the timeline list."""
+        self._timeline_search = event.value or ""
+        self._apply_timeline_filters()
+        try:
+            focus_primary_list(self.query_one("#timeline-list", TimelineTable))
+        except Exception:
+            pass
 
     def _turn_event_indices(self) -> set[int] | None:
         """Event indices for the Turn filter, or None for all turns.
@@ -1596,6 +2133,8 @@ class BrowserScreen(ChromeActions):
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         if "event_indices" not in kwargs:
             kwargs["event_indices"] = self._turn_event_indices()
+        if "search_query" not in kwargs:
+            kwargs["search_query"] = getattr(self, "_timeline_search", "") or ""
         timeline_table.apply_filter(**kwargs)
 
     @on(Select.Changed, "#timeline-turn-select")
@@ -1604,10 +2143,7 @@ class BrowserScreen(ChromeActions):
         if val is Select.BLANK or val is None:
             return
         self._turn_filter = str(val)
-        # Re-apply current type filter with new turn slice
-        mode = getattr(self, "_timeline_filter", "all")
-        self._timeline_filter = ""  # force re-apply
-        self._apply_timeline_mode(mode)
+        self._apply_timeline_filters()
 
     def action_search(self) -> None:
         self._ensure_timeline_tab()
@@ -1621,6 +2157,7 @@ class BrowserScreen(ChromeActions):
         self.call_after_refresh(lambda: self.call_after_refresh(_focus_search))
 
     def action_clear_filters(self) -> None:
+        self._timeline_search = ""
         try:
             self.query_one("#search-input", Input).value = ""
         except Exception:
@@ -1629,72 +2166,7 @@ class BrowserScreen(ChromeActions):
 
     def action_show_findings(self) -> None:
         """Jump to Findings (same as tab 4 / ``i``)."""
-        self.action_tab_findings()
-
-    def _browser_tab_index(self) -> int:
-        try:
-            active = self.query_one("#browser-tabs", TabbedContent).active
-        except Exception:
-            return 0
-        for i, (pane_id, _) in enumerate(_BROWSER_TABS):
-            if pane_id == active:
-                return i
-        return 0
-
-    def _activate_browser_tab(self, pane_id: str, *, focus_selector: str | None = None) -> None:
-        """Switch pane, then focus its primary widget after layout."""
-        if focus_selector is None:
-            for pid, sel in _BROWSER_TABS:
-                if pid == pane_id:
-                    focus_selector = sel
-                    break
-        try:
-            tabbed = self.query_one("#browser-tabs", TabbedContent)
-            tabbed.active = pane_id
-        except Exception:
-            try:
-                self.query_one(TabbedContent).active = pane_id
-            except Exception:
-                return
-        if not focus_selector:
-            return
-        sel = focus_selector
-
-        def _focus() -> None:
-            try:
-                w = self.query_one(sel)
-            except Exception:
-                return
-            focus_primary_list(w)
-
-        self.call_after_refresh(lambda: self.call_after_refresh(_focus))
-
-    def action_tab_next(self) -> None:
-        """Cycle to the next session tab (``]``) — primary navigation affordance."""
-        i = (self._browser_tab_index() + 1) % len(_BROWSER_TABS)
-        pane_id, sel = _BROWSER_TABS[i]
-        self._activate_browser_tab(pane_id, focus_selector=sel)
-
-    def action_tab_prev(self) -> None:
-        """Cycle to the previous session tab (``[``)."""
-        i = (self._browser_tab_index() - 1) % len(_BROWSER_TABS)
-        pane_id, sel = _BROWSER_TABS[i]
-        self._activate_browser_tab(pane_id, focus_selector=sel)
-
-    def action_tab_timeline(self) -> None:
-        self._activate_browser_tab("tab-timeline")
-
-    def action_tab_findings(self) -> None:
-        self._activate_browser_tab("tab-findings")
-
-    def action_tab_summary(self) -> None:
-        self._activate_browser_tab("tab-summary")
-
-    def action_tab_diff(self) -> None:
-        self._activate_browser_tab("tab-diff")
-
-    def action_tab_report(self) -> None:
-        self._activate_browser_tab("tab-reports")
+        self.activate_tab_pane("tab-findings")
 
     def _timeline_event_actionable(self) -> bool:
         """True when Flag (etc.) should be enabled: Timeline pane + focused list + event."""
@@ -1722,7 +2194,11 @@ class BrowserScreen(ChromeActions):
             return False
         return False
 
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+    def check_action(
+        self,
+        action: str,
+        parameters: tuple[object, ...],  # Textual Screen.check_action
+    ) -> bool | None:
         """Hide Flag in the footer/bindings unless a timeline event is selected+focused."""
         if action == "flag_event":
             return True if self._timeline_event_actionable() else False
@@ -1788,12 +2264,12 @@ class BrowserScreen(ChromeActions):
         model = self.meta.model_display if self.meta else "unknown"
         session_id = self.meta.session_id if self.meta else "unknown"
         lines = [
-            f"{t('ui-model-1')} {model}`",
-            f"{t('ui-session')} {session_id}`",
-            f"{t('ui-plugin')} {finding.plugin_id}`",
-            f"{t('ui-finding-1')} {finding.id}`",
-            f"{t('ui-severity')} {finding.severity.value.upper()}",
-            f"{t('ui-category')} {finding.category}",
+            t("report-md-model", model=model),
+            t("report-md-session", id=session_id),
+            t("report-md-plugin", id=finding.plugin_id),
+            t("report-md-finding", id=finding.id),
+            t("report-md-severity", sev=finding.severity.value.upper()),
+            t("report-md-category", cat=finding.category),
             "",
             f"**{finding.title}**",
         ]
@@ -1803,7 +2279,7 @@ class BrowserScreen(ChromeActions):
                 lines.append(f"> {dl}")
         if finding.children:
             lines.append("")
-            lines.append(f"*{len(finding.children)} {t('ui-sub-finding-s')}")
+            lines.append(t("report-md-sub-findings", n=len(finding.children)))
             for child in finding.children:
                 lines.append(f"> [{child.severity.value.upper()}] `{child.id}`: {child.title[:80]}")
         if finding.extras.get("should_have"):
@@ -1833,7 +2309,7 @@ class BrowserScreen(ChromeActions):
         if not commit:
             self._delete_pending = True
             self.notify(
-                f"{t('ui-press-again-to-delete')} 1 {t('ui-session-s-from-disk-traces-feedback-cache-run-co')}",
+                t("notify-delete-session-arm"),
                 severity="warning",
                 timeout=10,
             )
@@ -1867,9 +2343,14 @@ class BrowserScreen(ChromeActions):
         errors_raw = stats.get("errors")
         if isinstance(errors_raw, list):
             err_n = len(errors_raw)
+        err_suffix = t("notify-deleted-sessions-errors", n=err_n) if err_n else ""
         self.notify(
-            f"{t('ui-deleted')} {stats.get('deleted', 0)}/{stats.get('requested', 0)} "
-            f"{t('ui-session-s')}" + (f" {t('ui-errors')} {err_n}" if err_n else ""),
+            t(
+                "notify-deleted-sessions",
+                deleted=stats.get("deleted", 0),
+                requested=stats.get("requested", 0),
+                err_suffix=err_suffix,
+            ),
             severity="warning" if err_n else "information",
             timeout=10,
         )

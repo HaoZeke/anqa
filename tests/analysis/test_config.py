@@ -16,17 +16,19 @@ class TestAnalysisPipelineConfig:
     def test_defaults(self):
         cfg = AnalysisPipelineConfig()
         assert cfg.plugins == []
-        assert cfg.auto_analyze_on_open is True
+        assert cfg.auto_analyze_when == "session_complete"
+        assert cfg.analysis_workers == 1
+        assert cfg.live_refresh_workers == 1
 
     def test_from_dict(self):
         cfg = AnalysisPipelineConfig.from_dict(
             {
                 "plugins": ["mod.a", "mod.b"],
-                "auto_analyze_on_open": False,
+                "auto_analyze_when": "never",
             }
         )
         assert len(cfg.plugins) == 2
-        assert cfg.auto_analyze_on_open is False
+        assert cfg.auto_analyze_when == "never"
 
     def test_from_dict_none(self):
         cfg = AnalysisPipelineConfig.from_dict(None)
@@ -57,12 +59,14 @@ class TestAnalysisPipelineConfig:
     def test_to_dict_roundtrip(self):
         cfg = AnalysisPipelineConfig(
             plugins=["a:b"],
-            auto_analyze_on_open=False,
+            auto_analyze_when="never",
+            analysis_workers=2,
         )
         d = cfg.to_dict()
         restored = AnalysisPipelineConfig.from_dict(d)
         assert restored.plugins == cfg.plugins
-        assert restored.auto_analyze_on_open == cfg.auto_analyze_on_open
+        assert restored.auto_analyze_when == "never"
+        assert restored.analysis_workers == 2
 
 
 class TestLoadPipelineConfig:
@@ -109,11 +113,11 @@ class TestLoadPipelineConfig:
     def test_explicit_config_path(self, tmp_path):
         config_file = tmp_path / "custom.json"
         config_file.write_text(
-            json.dumps({"analysis": {"plugins": ["x:y"], "auto_analyze_on_open": False}})
+            json.dumps({"analysis": {"plugins": ["x:y"], "auto_analyze_when": "never"}})
         )
         cfg = load_pipeline_config(config_path=config_file)
         assert cfg.plugins == ["x:y"]
-        assert cfg.auto_analyze_on_open is False
+        assert cfg.auto_analyze_when == "never"
 
     def test_malformed_json(self, tmp_path, monkeypatch):
         monkeypatch.setattr("groket.paths.APP_HOME", tmp_path / "empty")
@@ -159,7 +163,7 @@ class TestSavePipelineConfig:
     def test_save_with_no_existing_config(self, tmp_path: Path, monkeypatch: object) -> None:
         """save creates the file from scratch when nothing exists."""
         monkeypatch.setattr("groket.paths.APP_HOME", tmp_path)  # type: ignore[union-attr]  # monkeypatch string target
-        cfg = AnalysisPipelineConfig(plugins=["a:b"], auto_analyze_on_open=False)
+        cfg = AnalysisPipelineConfig(plugins=["a:b"], auto_analyze_when="never")
         save_pipeline_config(cfg=cfg)
         data = json.loads((tmp_path / "config.json").read_text())
         assert data["analysis"]["plugins"] == ["a:b"]

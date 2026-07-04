@@ -214,6 +214,24 @@ async def test_browser_tabs_and_stats_turns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_browser_idle_awaiting_skips_live_timeline(tmp_path: Path) -> None:
+    """Awaiting follow-up keeps the pending bar but does not need timeline polls."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        assert screen._session_is_pending() is True
+        # Gate idle wait — not agent writing traces.
+        assert screen._session_needs_live_timeline() is False
+        screen._set_title_from_meta()
+        assert "LIVE" not in (screen.title or "")
+        assert "awaiting" in (screen.title or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_browser_follow_up_enter_and_queue(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

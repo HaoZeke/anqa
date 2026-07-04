@@ -84,6 +84,36 @@ class TestFinding:
         )
         assert parent.all_update_indices == [5, 10, 20, 30]
 
+    def test_all_event_indices_sorted(self):
+        child = Finding(
+            id="c",
+            plugin_id="p",
+            severity=Severity.LOW,
+            title="c",
+            event_indices=[30, 10],
+        )
+        parent = Finding(
+            id="p",
+            plugin_id="p",
+            severity=Severity.HIGH,
+            title="p",
+            event_indices=[20, 5],
+            children=[child],
+        )
+        assert parent.all_event_indices == [5, 10, 20, 30]
+
+    def test_event_indices_roundtrip(self):
+        f = Finding(
+            id="f1",
+            plugin_id="eng",
+            severity=Severity.HIGH,
+            title="Title",
+            event_indices=[2, 47],
+        )
+        restored = Finding.from_dict(f.to_dict())
+        assert restored.event_indices == [2, 47]
+        assert restored.all_event_indices == [2, 47]
+
 
 # ── AnalysisResult ────────────────────────────────────────────────────────
 
