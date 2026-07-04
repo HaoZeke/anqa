@@ -2464,8 +2464,8 @@ def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None
     assert list_turn_outcome_for_dir(sess) == ""
 
 
-def test_final_turn_open_events_stay_running(tmp_path: Path) -> None:
-    """Final turn still writing (open turn_started) stays running."""
+def test_final_turn_open_events_show_ending(tmp_path: Path) -> None:
+    """Final turn still writing (open turn_started) shows ending."""
     from groket.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
@@ -2489,12 +2489,13 @@ def test_final_turn_open_events_stay_running(tmp_path: Path) -> None:
     )
     (gate / "final_turn").write_text("1\n", encoding="utf-8")
     meta = load_session_meta(sess, include_timeline_count=False)
-    assert meta.turn_outcome == "running"
-    assert list_turn_outcome_for_dir(sess) == "running"
+    assert meta.turn_outcome == "ending"
+    assert list_turn_outcome_for_dir(sess) == "ending"
+    assert meta.list_status_label() == "ending"
 
 
-def test_host_done_fresh_traces_still_running(tmp_path: Path) -> None:
-    """command=done while traces are fresh keeps finishing/running."""
+def test_host_done_fresh_traces_show_ending(tmp_path: Path) -> None:
+    """command=done while traces are fresh keeps ending status."""
     import json
 
     from groket.parser import list_turn_outcome_for_dir, load_session_meta
@@ -2518,5 +2519,6 @@ def test_host_done_fresh_traces_still_running(tmp_path: Path) -> None:
     )
     (gate / "command").write_text("done\n", encoding="utf-8")
     meta = load_session_meta(sess)
-    assert meta.turn_outcome == "running"
-    assert list_turn_outcome_for_dir(sess) == "running"
+    assert meta.turn_outcome == "ending"
+    assert list_turn_outcome_for_dir(sess) == "ending"
+    assert meta.list_status_label() == "ending"

@@ -290,6 +290,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         follow-ups, or the host has requested Done while the agent finishes.
         """
         from ...session.turn_gate import (
+            final_turn_requested,
             host_requested_done,
             list_queued_follow_ups,
             read_turn_gate_status,
@@ -305,8 +306,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if gstate == "done":
             return False
 
-        # Host asked to stop (interactive Done) while the agent may still be finishing.
-        if host_requested_done(self.session_dir):
+        # Host asked to stop (Done / last turn) while the agent may still finish.
+        if host_requested_done(self.session_dir) or final_turn_requested(self.session_dir):
             return True
 
         if session_awaits_follow_up(self.session_dir):
@@ -327,11 +328,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         need a full timeline reload every tick — only when files change or the
         agent is running / finishing Done.
         """
-        from ...session.turn_gate import host_requested_done, read_turn_gate_status
+        from ...session.turn_gate import (
+            final_turn_requested,
+            host_requested_done,
+            read_turn_gate_status,
+        )
 
         meta = self.meta
         oc = (meta.turn_outcome or "").lower().replace(" ", "_") if meta else ""
-        if oc in ("running", "in_progress", "pending"):
+        if oc in ("running", "in_progress", "pending", "ending", "finishing"):
             return True
         try:
             st = read_turn_gate_status(self.session_dir)
@@ -340,7 +345,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         gstate = str(st.get("state") or "")
         if gstate == "done":
             return False
-        if host_requested_done(self.session_dir):
+        if host_requested_done(self.session_dir) or final_turn_requested(self.session_dir):
             return True
         if gstate == "running":
             return True
@@ -349,11 +354,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _refresh_session_pending_bar(self) -> None:
         from ...session.turn_gate import (
             drain_queued_follow_up,
+            final_turn_requested,
             host_requested_done,
             list_queued_follow_ups,
             read_turn_gate_status,
             session_pending_label,
         )
+        from ..session_status import localize_session_pending_label
 
         show = self._session_is_pending()
         if show:
@@ -376,7 +383,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 label = ""
             if not label and meta and meta.turn_in_progress:
-                label = t("ui-turn-in-progress")
+                oc = (meta.turn_outcome or "").lower().replace(" ", "_")
+                label = "ending_done" if oc in ("ending", "finishing") else "turn in progress"
 
         st: dict = {}
         try:
@@ -404,8 +412,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         try:
             status = self.query_one("#session-pending-status", Static)
-            chip_label = label or t("browser-status-idle")
-            chip = status_chip(chip_label, kind="unknown" if not label else "ok")
+            if label:
+                chip_label, chip_kind = localize_session_pending_label(label)
+            else:
+                chip_label, chip_kind = t("browser-status-idle"), "unknown"
+            chip = status_chip(chip_label, kind=chip_kind)
             sid = str(st.get("session_id") or (meta.session_id if meta else ""))
             turn = st.get("turn", "")
             bits: list[str] = []
@@ -447,9 +458,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             pass
 
-        # Host already requested stop: allow Done is inert; still allow viewing queue
-        # but do not accept new follow-ups.
-        finishing = host_requested_done(self.session_dir)
+        # Host already requested stop / last turn: Done is inert; still allow
+        # viewing queue but do not accept new follow-ups.
+        finishing = host_requested_done(self.session_dir) or final_turn_requested(self.session_dir)
+        meta_ending = bool(
+            meta and (meta.turn_outcome or "").lower().replace(" ", "_") in ("ending", "finishing")
+        )
+        finishing = finishing or meta_ending
         awaiting = str(st.get("state") or "") == "awaiting_follow_up" and not finishing
         can_send = show and not finishing
         try:
@@ -459,7 +474,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             pass
         try:
             hint = self.query_one("#session-follow-input", Input)
-            if awaiting:
+            if finishing:
+                hint.placeholder = t("status-ending")
+            elif awaiting:
                 hint.placeholder = U.follow_up_placeholder_awaiting()
             elif can_send:
                 hint.placeholder = U.follow_up_placeholder_queue()
@@ -922,7 +939,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         # session_complete: settled turn outcome (not running / awaiting).
         if self.meta and (self.meta.turn_outcome or "").strip():
             oc = (self.meta.turn_outcome or "").lower().replace(" ", "_")
-            if oc in ("running", "in_progress", "pending", "awaiting_follow_up"):
+            if oc in (
+                "running",
+                "in_progress",
+                "pending",
+                "awaiting_follow_up",
+                "ending",
+                "finishing",
+            ):
                 return False
             return True
         return True
@@ -1155,6 +1179,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             oc_key = oc.lower().replace(" ", "_")
             if oc_key == "awaiting_follow_up":
                 outcome_bit = t("title-browser-extra-awaiting")
+            elif oc_key in ("ending", "finishing"):
+                outcome_bit = t("title-browser-extra-ending")
             elif oc_key in ("running", "in_progress", "pending"):
                 outcome_bit = t("title-browser-extra-live-turn", outcome=oc)
             else:

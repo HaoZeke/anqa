@@ -33,11 +33,17 @@ logger = logging.getLogger(__name__)
 
 
 def _outcome_kind(outcome: str) -> str:
-    oc = (outcome or "").lower()
+    oc = (outcome or "").lower().replace(" ", "_")
     if oc in ("success", "ok", "completed", "complete"):
         return "ok"
     if oc in ("error", "failed", "failure", "cancelled", "canceled", "timeout"):
         return "bad"
+    if oc in ("ending", "finishing") or oc.startswith("ending_"):
+        return "ending"
+    if oc in ("running", "in_progress", "pending") or oc.startswith("agent_running"):
+        return "running"
+    if oc.startswith("awaiting"):
+        return "awaiting"
     return "unknown"
 
 
@@ -84,8 +90,15 @@ def render_session_summary(
     except Exception:
         pending = ""
     if pending:
-        outcome = pending
-        kind = "unknown"
+        from .session_status import localize_session_pending_label
+
+        outcome, kind = localize_session_pending_label(pending)
+    elif (meta.turn_outcome or "").strip().lower().replace(" ", "_") in (
+        "ending",
+        "finishing",
+    ):
+        outcome = t("status-ending")
+        kind = "ending"
     blocks: list = []
     head = Text()
     head.append(title + "\n", style="bold")

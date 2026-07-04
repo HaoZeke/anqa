@@ -233,6 +233,12 @@ class TestSessionMeta:
         meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="running")
         assert meta.turn_failed is False
 
+    def test_ending_status_is_in_progress_not_failed(self):
+        meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="ending")
+        assert meta.turn_in_progress is True
+        assert meta.turn_failed is False
+        assert meta.list_status_label() == "ending"
+
 
 # ── Flag (Pydantic) ──────────────────────────────────────────────────────
 

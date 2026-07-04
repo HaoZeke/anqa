@@ -125,6 +125,8 @@ def status_chip(label: str, *, kind: str = "unknown") -> Text:
         style = status_rich_style("failed")
     elif kind_l in ("running", "active"):
         style = status_rich_style("running")
+    elif kind_l in ("ending", "finishing"):
+        style = status_rich_style("ending")
     elif kind_l in ("pending", "idle", "unknown"):
         style = status_rich_style("idle")
     else:

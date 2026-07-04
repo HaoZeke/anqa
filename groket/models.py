@@ -557,6 +557,8 @@ class SessionMeta:
             "in_progress",
             "pending",
             "awaiting_follow_up",
+            "ending",
+            "finishing",
         )
 
     @property
@@ -564,17 +566,27 @@ class SessionMeta:
         oc = (self.turn_outcome or "").lower().replace(" ", "_")
         if not oc or oc in ("success", "ok", "completed", "complete"):
             return False
-        # In-progress / interactive wait are not failures
-        if oc in ("running", "in_progress", "pending", "awaiting_follow_up"):
+        # In-progress / interactive wait / shutdown are not failures
+        if oc in (
+            "running",
+            "in_progress",
+            "pending",
+            "awaiting_follow_up",
+            "ending",
+            "finishing",
+        ):
             return False
         return True
 
     def list_status_label(self) -> str:
         """Main session list Turn column (short labels — narrow column).
 
-        Values: ``running`` | ``awaiting`` | ``cancelled`` | ``complete`` | ``—``.
+        Values: ``running`` | ``ending`` | ``awaiting`` | ``cancelled`` |
+        ``complete`` | ``—``.
         """
         oc = (self.turn_outcome or "").strip().lower().replace(" ", "_")
+        if oc in ("ending", "finishing"):
+            return "ending"
         if oc == "awaiting_follow_up":
             return "awaiting"
         if oc in ("running", "in_progress", "pending") or (not oc and self.turn_in_progress):

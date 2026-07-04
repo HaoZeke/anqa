@@ -932,7 +932,9 @@ def session_trace_mtime(session_dir: Path) -> float:
     return newest
 
 
-_LIVE_TURN_OUTCOMES = frozenset({"", "running", "in_progress", "pending", "awaiting_follow_up"})
+_LIVE_TURN_OUTCOMES = frozenset(
+    {"", "running", "in_progress", "pending", "awaiting_follow_up", "ending"}
+)
 _SUCCESS_TURN_OUTCOMES = frozenset({"success", "ok", "completed", "complete"})
 
 
@@ -1034,10 +1036,15 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
     traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
     turns_open = _events_have_open_turn(session_dir)
     final_turn = final_turn_requested(session_dir)
+    host_done = host_requested_done(session_dir)
+    still_working = traces_live or turns_open
 
-    if host_requested_done(session_dir) and gstate != "done":
-        if traces_live or turns_open:
-            return "running"
+    if host_done and gstate != "done":
+        # Operator pressed End (``e``): show ending while the agent may still
+        # write traces or the gate reports running. Idle awaiting + stale
+        # traces settles immediately (nothing left to shut down).
+        if still_working or gstate == "running":
+            return "ending"
         return _settle_idle_gate_outcome(marker_outcome)
 
     if session_awaits_follow_up(session_dir):
@@ -1045,7 +1052,9 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
 
     if gstate == "running":
         if turns_open:
-            return "running" if traces_live else _settle_idle_gate_outcome(marker_outcome)
+            if not traces_live:
+                return _settle_idle_gate_outcome(marker_outcome)
+            return "ending" if final_turn else "running"
         if final_turn:
             # Last turn already wrote turn_ended; entrypoint left final_turn/status
             # behind (crash or kill during share). Do not wait on the stale timer.
@@ -1062,7 +1071,9 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
         return _settle_idle_gate_outcome(marker_outcome)
 
     if turns_open:
-        return "running" if traces_live else None
+        if not traces_live:
+            return None
+        return "ending" if final_turn else "running"
     return None
 
 
@@ -1304,18 +1315,16 @@ def load_session_meta(
 def list_turn_outcome_for_dir(session_dir: Path) -> str:
     """Live-only turn status for the sessions list poll (gate + freshness).
 
-    Returns ``running`` / ``awaiting_follow_up`` / ``""``. Does **not** return
-    ``interrupted`` — that inference is for full :func:`load_session_meta` only
-    (overwriting finished sessions with interrupted made the list show
-    "cancelled" for old successful runs).
+    Returns ``running`` / ``ending`` / ``awaiting_follow_up`` / ``""``. Does
+    **not** return ``interrupted`` — that inference is for full
+    :func:`load_session_meta` only (overwriting finished sessions with
+    interrupted made the list show "cancelled" for old successful runs).
     """
     sd = Path(session_dir)
     try:
         override = _gate_override_turn_outcome(sd, "")
-        if override == "awaiting_follow_up":
-            return "awaiting_follow_up"
-        if override == "running":
-            return "running"
+        if override in ("awaiting_follow_up", "running", "ending"):
+            return override
         if override is not None:
             return ""
     except Exception:

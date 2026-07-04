@@ -1168,6 +1168,8 @@ class TraceEvalApp(App):
             status = meta.list_status_label()
             if status == "awaiting":
                 turn_text = Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
+            elif status == "ending":
+                turn_text = Text(t("status-ending"), style=status_rich_style("ending"))
             elif status == "running":
                 turn_text = Text(t("status-running"), style=status_rich_style("running"))
             elif status == "cancelled":
@@ -1679,6 +1681,12 @@ class TraceEvalApp(App):
                 severity="warning",
                 timeout=3.0,
             )
+        else:
+            self._toast(
+                t("mark-sessions-done-requested", n=len(targets)),
+                severity="information",
+                timeout=3.0,
+            )
 
     def action_follow_up_sessions(self) -> None:
         """``n`` — next prompt for awaiting selection."""
@@ -1700,7 +1708,11 @@ class TraceEvalApp(App):
                     timeout=3.0,
                 )
             elif final:
-                self._toast(t("follow-up-sent-final"), severity="information", timeout=2.5)
+                self._toast(
+                    t("follow-up-sent-final-n", n=len(targets)),
+                    severity="information",
+                    timeout=2.5,
+                )
 
         self.push_screen(InteractiveSessionsModal(n_awaiting=len(targets)), _apply)
 
@@ -2072,7 +2084,13 @@ class TraceEvalApp(App):
         live_rows = [
             (meta, label)
             for meta, label in list(self._meta_only)
-            if meta.turn_in_progress or meta.list_status_label() in ("running", "awaiting")
+            if meta.turn_in_progress
+            or meta.list_status_label()
+            in (
+                "running",
+                "ending",
+                "awaiting",
+            )
         ]
         if not live_rows:
             return
@@ -2124,6 +2142,7 @@ class TraceEvalApp(App):
                     if (
                         fresh.context_usage_compact != meta.context_usage_compact
                         or fresh.turn_outcome != meta.turn_outcome
+                        or fresh.list_status_label() != meta.list_status_label()
                         or fresh.duration_seconds != meta.duration_seconds
                     ):
                         updates.append((key, fresh, label))
@@ -2372,7 +2391,13 @@ class TraceEvalApp(App):
             oc = (outcome or "").strip().lower().replace(" ", "_")
             # Light probe may return interrupted for any old unfinished session;
             # only apply live states from the gate / freshness path.
-            if oc not in ("running", "in_progress", "pending", "awaiting_follow_up"):
+            if oc not in (
+                "running",
+                "ending",
+                "in_progress",
+                "pending",
+                "awaiting_follow_up",
+            ):
                 continue
             if outcome != prev_outcome.get(key):
                 outcome_updates.append((key, outcome))

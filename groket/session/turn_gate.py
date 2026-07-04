@@ -312,23 +312,20 @@ def session_pending_label(session_dir: Path, *, turn_in_progress: bool = False) 
     state = json_as_str(st.get("state"))
     if state == "done":
         return ""
-    if host_requested_done(session_dir) or final_turn_requested(session_dir):
-        # Only "finishing" while traces may still be written; stale → settled.
+    host_done = host_requested_done(session_dir)
+    final_turn = final_turn_requested(session_dir)
+    if host_done or final_turn:
+        # Stable keys for UI i18n: ending while work may still complete.
+        ending_key = "ending_done" if host_done else "ending_last_turn"
+        if state == "running":
+            return ending_key
         try:
             from ..parser import _infer_incomplete_turn_outcome
 
             if _infer_incomplete_turn_outcome(session_dir) == "running":
-                return (
-                    "finishing (done requested)"
-                    if host_requested_done(session_dir)
-                    else "finishing (last turn)"
-                )
+                return ending_key
         except Exception:
-            return (
-                "finishing (done requested)"
-                if host_requested_done(session_dir)
-                else "finishing (last turn)"
-            )
+            return ending_key
         return ""
     turn = json_as_int(st.get("turn"), 0)
     queued = 0

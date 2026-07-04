@@ -68,7 +68,7 @@ def test_write_follow_up_and_done_clears_pending(tmp_path: Path) -> None:
     assert json.loads((gate / "status.json").read_text())["state"] == "running"
     assert session_awaits_follow_up(sess) is False
     (sess / "events.jsonl").write_text("x" * 300, encoding="utf-8")
-    assert "finishing" in session_pending_label(sess)
+    assert session_pending_label(sess).startswith("ending_")
     from groket.session.turn_gate import host_requested_done
 
     assert host_requested_done(sess) is True
@@ -130,7 +130,7 @@ def test_command_done_overrides_stale_awaiting_status(tmp_path: Path) -> None:
     assert session_awaits_follow_up(sess) is False
     assert host_requested_done(sess) is True
     (sess / "events.jsonl").write_text("x" * 300, encoding="utf-8")
-    assert "finishing" in session_pending_label(sess)
+    assert session_pending_label(sess).startswith("ending_")
     assert read_turn_gate_status(sess).get("state") == "awaiting_follow_up"
 
 
@@ -537,7 +537,7 @@ def test_session_pending_label_custom_state(tmp_path: Path) -> None:
 
 
 def test_session_pending_label_done_via_command(tmp_path: Path) -> None:
-    """pending_label shows finishing while command=done and traces still fresh."""
+    """pending_label shows ending while command=done and traces still fresh."""
     vol, sess = _layout(tmp_path)
     (sess / "events.jsonl").write_text("x" * 300, encoding="utf-8")
     gate = vol / ".groket-turn-run1"
@@ -547,7 +547,7 @@ def test_session_pending_label_done_via_command(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     label = session_pending_label(sess)
-    assert "finishing" in label
+    assert label.startswith("ending_")
 
 
 def test_session_pending_label_queued_with_running(tmp_path: Path) -> None:
@@ -976,13 +976,13 @@ def test_write_done_clears_pending(tmp_path: Path) -> None:
 
 
 def test_session_pending_label_done_gate(tmp_path: Path) -> None:
-    """session_pending_label shows finishing when host requested done."""
+    """session_pending_label shows ending when host requested done."""
     vol, sess = _layout(tmp_path)
     gate = vol / ".groket-turn-run1"
     (gate / "command").write_text("done\n", encoding="utf-8")
     (sess / "events.jsonl").write_text("x" * 300, encoding="utf-8")
     label = session_pending_label(sess)
-    assert "finishing" in label
+    assert label.startswith("ending_")
 
 
 def test_session_pending_label_queued_count(tmp_path: Path) -> None:

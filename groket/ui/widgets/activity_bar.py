@@ -22,6 +22,7 @@ _STABLE_COUNT_KEYS = (
     "pending",
     "building",
     "running",
+    "ending",
     "extracting",
     "awaiting",
     "analyze",
@@ -34,6 +35,7 @@ _ACTIVITY_PHASES: tuple[tuple[str, str, bool], ...] = (
     ("pending", "activity-pending", True),
     ("building", "activity-building", True),
     ("running", "activity-running", True),
+    ("ending", "activity-ending", True),
     ("extracting", "activity-extracting", True),
     ("awaiting", "activity-awaiting", False),
 )
@@ -44,6 +46,7 @@ def build_activity_line(
     pending: int = 0,
     building: int = 0,
     running: int = 0,
+    ending: int = 0,
     extracting: int = 0,
     awaiting: int = 0,
     analyze_active: int = 0,
@@ -55,9 +58,10 @@ def build_activity_line(
 
     Phases with count > 0 (same labels as the Jobs status column)::
 
-        Building · Running · Extracting · Awaiting · Analysis · Refresh · Sessions
+        Building · Running · Ending · Extracting · Awaiting · Analysis · Sessions
 
     * **Pending / Building / Running / Extracting** — eval containers in that phase.
+    * **Ending** — interactive sessions shutting down after Done / last turn.
     * **Awaiting** — interactive sessions waiting for a follow-up prompt.
     * **Analysis / Refresh** — background pools (only when inflight > 0).
     * **Sessions** — rows loaded on the home list (always shown; catalog size).
@@ -69,6 +73,7 @@ def build_activity_line(
         "pending": pending,
         "building": building,
         "running": running,
+        "ending": ending,
         "extracting": extracting,
         "awaiting": awaiting,
     }
@@ -179,13 +184,14 @@ def _status_counts_from_run_manager(rm: object) -> dict[str, int]:
 def activity_counters_from_app(app: App) -> dict[str, int]:
     """Lifecycle and catalog counters for the activity bar.
 
-    Keys: ``pending``, ``building``, ``running``, ``extracting``, ``awaiting``,
-    ``analyze``, ``refresh``, ``sessions``.
+    Keys: ``pending``, ``building``, ``running``, ``ending``, ``extracting``,
+    ``awaiting``, ``analyze``, ``refresh``, ``sessions``.
     """
     counts: dict[str, int] = {
         "pending": 0,
         "building": 0,
         "running": 0,
+        "ending": 0,
         "extracting": 0,
         "awaiting": 0,
         "analyze": 0,
@@ -206,10 +212,11 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
                 # yellow/cyan flicker from mis-mapped statuses.
                 counts["pending"] = counts["pending"] + int(n or 0)
 
-    # Sessions home Turn column (running / awaiting) — authoritative for
-    # interactive wait so we do not flash Running from stale launch statuses.
+    # Sessions home Turn column (running / ending / awaiting) — authoritative
+    # for interactive wait so we do not flash Running from stale launch statuses.
     meta_only = getattr(app, "_meta_only", None) or []
     meta_running = 0
+    meta_ending = 0
     meta_awaiting = 0
     for item in meta_only:
         meta = item[0] if isinstance(item, tuple) and item else item
@@ -218,6 +225,8 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
             st = label_fn()
             if st == "running":
                 meta_running += 1
+            elif st == "ending":
+                meta_ending += 1
             elif st == "awaiting":
                 meta_awaiting += 1
         elif getattr(meta, "turn_in_progress", False):
@@ -228,11 +237,13 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
     )
     if meta_awaiting:
         counts["awaiting"] = max(counts["awaiting"], meta_awaiting)
+    if meta_ending:
+        counts["ending"] = max(counts["ending"], meta_ending)
     if launch_active == 0:
         counts["running"] = meta_running
-    elif meta_only and meta_running == 0 and meta_awaiting > 0:
-        # List shows only awaiting/complete: suppress ghost Running from
-        # in-flight statuses while the operator is in follow-up wait.
+    elif meta_only and meta_running == 0 and (meta_awaiting > 0 or meta_ending > 0):
+        # List shows only awaiting/ending/complete: suppress ghost Running from
+        # in-flight statuses while the operator is in follow-up wait or shutdown.
         counts["running"] = 0
 
     from ...job_pools import analysis_inflight
@@ -251,7 +262,7 @@ def activity_is_busy(counts: dict[str, int]) -> bool:
     """True when any spinning phase or pool is active (fast poll + spinner)."""
     return any(
         int(counts.get(k, 0) or 0) > 0
-        for k in ("pending", "building", "running", "extracting", "analyze")
+        for k in ("pending", "building", "running", "ending", "extracting", "analyze")
     )
 
 
@@ -330,6 +341,7 @@ class ActivityBar(Static):
                     pending=counts["pending"],
                     building=counts["building"],
                     running=counts["running"],
+                    ending=counts["ending"],
                     extracting=counts["extracting"],
                     awaiting=counts["awaiting"],
                     analyze_active=counts["analyze"],

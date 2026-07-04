@@ -57,7 +57,30 @@ def test_activity_is_busy():
     assert not activity_is_busy({"sessions": 3, "awaiting": 1})
     assert activity_is_busy({"building": 1, "sessions": 0})
     assert activity_is_busy({"running": 2})
+    assert activity_is_busy({"ending": 1})
     assert activity_is_busy({"analyze": 1})
+
+
+def test_build_activity_line_ending():
+    from groket.ui.styles import status_rich_style
+
+    text = build_activity_line(ending=2, sessions_loaded=4, spinner="⠋")
+    plain = text.plain
+    assert "Ending 2" in plain
+    assert "⠋" in plain
+    assert status_rich_style("ending") == "bold magenta"
+
+
+def test_activity_counters_meta_ending():
+    meta_ending = SimpleNamespace(list_status_label=lambda: "ending")
+    app = SimpleNamespace(
+        run_manager=SimpleNamespace(active_status_counts=lambda: {"running": 1}),
+        _analysis_jobs_active=0,
+        _meta_only=[(meta_ending, "x")],
+    )
+    counts = activity_counters_from_app(app)
+    assert counts["ending"] == 1
+    assert counts["running"] == 0
 
 
 def test_activity_counters_from_app_status_counts():

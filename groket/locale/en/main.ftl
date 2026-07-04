@@ -255,6 +255,10 @@ mark-session-done-ok = Session marked done — stopping eval container
 
 mark-done-requested = Done requested — session stays live until the current turn finishes
 
+mark-sessions-done-requested = Done requested for { $n } session(s) — ending until the current turn finishes
+
+follow-up-sent-final-n = Last-turn follow-up sent for { $n } session(s) — ending after this turn
+
 mark-session-done-failed = Mark done failed: { $exc }
 
 interactive-modal-title = Follow-up ({ $n } awaiting)
@@ -2453,6 +2457,7 @@ ui-status-bracket =   [{ $status }]
 activity-pending = Pending { $n }
 activity-building = Building { $n }
 activity-running = Running { $n }
+activity-ending = Ending { $n }
 activity-extracting = Extracting { $n }
 activity-awaiting = Awaiting { $n }
 activity-analysis = Analysis { $n }
@@ -2461,6 +2466,9 @@ activity-sessions = Sessions { $n }
 
 # Session list turn / status column
 status-running = running
+status-ending = ending
+status-ending-done = ending (stop requested)
+status-ending-last-turn = ending (last turn)
 status-cancelled = cancelled
 status-complete = complete
 status-waiting-prompt = awaiting
@@ -2575,6 +2583,7 @@ browser-last-turn-outcome-note = Last turn outcome={ $outcome } (session meta = 
 title-browser-extra-turn = · turn={ $outcome }
 title-browser-extra-live-turn = · LIVE turn={ $outcome }
 title-browser-extra-live = · LIVE
+title-browser-extra-ending = · ending session
 title-browser-extra-awaiting = · awaiting follow-up
 report-md-model = *Model:* `{ $model }`
 report-md-session = *Session:* `{ $id }`
