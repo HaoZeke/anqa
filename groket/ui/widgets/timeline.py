@@ -6,6 +6,7 @@ from rich.markup import escape as rich_escape
 from textual.message import Message
 from textual.widgets import DataTable
 
+from ... import event_types as et
 from ...analysis.base import Finding
 from ...models import Flag, TraceEvent
 from ...utils import fmt_duration
@@ -71,11 +72,11 @@ class TimelineTable(DataTable):
                 continue
             if ev.event_type == "tool_call":
                 self._call_by_id[ev.tool_call_id] = ev
-            elif ev.event_type == "tool_result":
+            elif ev.event_type in et.TOOL_UPDATE_TYPES:
                 self._result_by_id[ev.tool_call_id] = ev
 
     def get_paired_call(self, ev: TraceEvent) -> TraceEvent | None:
-        if ev.event_type == "tool_result" and ev.tool_call_id:
+        if ev.event_type in et.TOOL_UPDATE_TYPES and ev.tool_call_id:
             return self._call_by_id.get(ev.tool_call_id)
         return None
 
@@ -95,7 +96,7 @@ class TimelineTable(DataTable):
             return
         result_ts: dict[str, int] = {}
         for ev in self.events:
-            if ev.event_type == "tool_result" and ev.tool_call_id and ev.timestamp:
+            if ev.event_type in et.TOOL_UPDATE_TYPES and ev.tool_call_id and ev.timestamp:
                 result_ts[ev.tool_call_id] = ev.timestamp
         for i, ev in enumerate(self.events):
             if ev.timestamp is None:
@@ -104,7 +105,7 @@ class TimelineTable(DataTable):
                 dur = result_ts[ev.tool_call_id] - ev.timestamp
                 if dur >= 0:
                     self._durations[ev.index] = dur
-            elif ev.event_type == "tool_result":
+            elif ev.event_type in et.TOOL_UPDATE_TYPES:
                 continue
             else:
                 ev_ts = ev.timestamp
@@ -122,21 +123,21 @@ class TimelineTable(DataTable):
 
     def _tool_column(self, ev: TraceEvent) -> str:
         """Tool / runtime label — same family palette as ``tool_label`` (not per-tool rainbow)."""
-        if ev.event_type in ("tool_call", "tool_result") and ev.tool_name:
+        if ev.event_type in et.TOOL_TYPES and ev.tool_name:
             return tool_markup(ev.tool_name)
-        if ev.event_type == "session_error":
+        if ev.event_type in et.ERROR_TYPES:
             return t("ui-session-error-1")
-        if ev.event_type == "session":
-            label = "session"
+        if ev.event_type in et.TURN_BOUNDARY_TYPES:
+            label = ev.type_label
             c = (ev.content or "").lower()
             if t("ui-turn-ended") in c:
                 label = t("ui-turn-ended")
             elif t("ui-turn-started") in c:
                 label = t("ui-turn-started")
             return f"[yellow]{label}[/]"
-        if ev.event_type == "subagent":
+        if ev.event_type in et.SUBAGENT_TYPES:
             return "[cyan]subagent[/]"
-        if ev.event_type in ("user", "assistant", "thought", "plan"):
+        if ev.event_type in (et.MESSAGE_TYPES | et.PLAN_TYPES):
             return ""
         return ""
 
@@ -145,10 +146,10 @@ class TimelineTable(DataTable):
             self.clear()
             for ev in self.events:
                 type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
-                tool_err = ev.is_error and ev.event_type not in ("session", "session_error")
+                tool_err = ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES
                 if tool_err:
                     type_style = f"[red bold underline]{ev.type_label}[/]"
-                elif ev.event_type == "session_error":
+                elif ev.event_type in et.ERROR_TYPES:
                     type_style = f"[red bold underline]{ev.type_label}[/]"
                 dur_str = ""
                 if ev.index in self._durations:
@@ -200,7 +201,7 @@ class TimelineTable(DataTable):
         if tool_name:
             filtered = [e for e in filtered if e.tool_name == tool_name]
         if errors_only:
-            filtered = [e for e in filtered if e.is_error or e.event_type == "session_error"]
+            filtered = [e for e in filtered if e.is_error or e.event_type in et.ERROR_TYPES]
         if flagged_only:
             filtered = [e for e in filtered if e.index in self.flags_by_index]
         if search_query:
@@ -212,15 +213,23 @@ class TimelineTable(DataTable):
                 or q in e.tool_name.lower()
                 or q in str(e.raw_input).lower()
             ]
-        if call_ids is not None:
-            filtered = [
-                e
-                for e in filtered
-                if e.tool_call_id in call_ids
-                or (update_indices and e.update_index in update_indices)
-            ]
-        if event_indices is not None:
-            filtered = [e for e in filtered if e.index in event_indices]
+        # Evidence links: OR across tool_call_id, update_index, and event index.
+        if call_ids is not None or update_indices is not None or event_indices is not None:
+            ids = call_ids or set()
+            upds = update_indices or set()
+            eidxs = event_indices or set()
+            if ids or upds or eidxs:
+
+                def _evidence_match(e: TraceEvent) -> bool:
+                    if ids and e.tool_call_id in ids:
+                        return True
+                    if upds and e.update_index in upds:
+                        return True
+                    if eidxs and e.index in eidxs:
+                        return True
+                    return False
+
+                filtered = [e for e in filtered if _evidence_match(e)]
         orig = self.events
         self.events = filtered
         self._refresh_rows()

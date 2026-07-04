@@ -204,3 +204,65 @@ def test_orchestrator_writes_scripted_turns_on_container_volume(tmp_path: Path) 
     # Parent traces must not be the only place (entrypoint would not see it)
     parent_script = tmp_path / "traces" / ".groket-turn-batch1" / "scripted-turns.json"
     assert not parent_script.is_file()
+
+
+def test_stop_session_container_only_that_name(tmp_path: Path) -> None:
+    """stop_session_container targets traces volume basename, not whole run."""
+    from unittest.mock import MagicMock
+
+    from groket.runs.run_manager import RunManager
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    cname = "groket-only-me"
+    sess = traces / cname / "%2Fworkspace" / "sid-1"
+    sess.mkdir(parents=True)
+    (traces / cname / ".groket-turn").mkdir()
+    rm = RunManager(work)
+    docker = MagicMock()
+    rm.orchestrator._docker = docker
+    rm.stop_session_container(sess)
+    docker.stop.assert_called_once_with(cname)
+    docker.remove.assert_called_once_with(cname)
+
+
+def test_stop_session_container_swallows_docker_errors(tmp_path: Path) -> None:
+    """Docker stop/remove failures are best-effort (logged, not raised)."""
+    from unittest.mock import MagicMock
+
+    from groket.runs.run_manager import RunManager
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    cname = "groket-flaky"
+    sess = traces / cname / "%2Fworkspace" / "sid-1"
+    sess.mkdir(parents=True)
+    (traces / cname / ".groket-turn").mkdir()
+    rm = RunManager(work)
+    docker = MagicMock()
+    docker.stop.side_effect = RuntimeError("stop failed")
+    docker.remove.side_effect = RuntimeError("remove failed")
+    rm.orchestrator._docker = docker
+    rm.stop_session_container(sess)  # does not raise
+    docker.stop.assert_called_once_with(cname)
+    docker.remove.assert_called_once_with(cname)
+
+
+def test_stop_session_container_no_volume_is_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No traces volume → no docker calls."""
+    from unittest.mock import MagicMock
+
+    import groket.session.turn_gate as turn_gate
+    from groket.runs.run_manager import RunManager
+
+    monkeypatch.setattr(turn_gate, "traces_volume_for_session", lambda _p: None)
+    work = tmp_path / "work"
+    sess = tmp_path / "orphan" / "sid"
+    sess.mkdir(parents=True)
+    rm = RunManager(work)
+    docker = MagicMock()
+    rm.orchestrator._docker = docker
+    rm.stop_session_container(sess)
+    docker.stop.assert_not_called()

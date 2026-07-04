@@ -11,8 +11,6 @@ appearance in the English catalog (no hard-coded English strings here).
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
-from typing import Any
 
 from .i18n import ngettext, t
 
@@ -78,7 +76,13 @@ def help_markup() -> str:
     return load_text_resource("help.rich.txt")
 
 
-def __getattr__(name: str) -> Callable[..., Any]:
+def __getattr__(name: str):
+    """Dynamic Fluent accessors (``U.flag_saved(n)`` / ``U.cmd_foo()``).
+
+    Return type is intentionally unannotated: ``cmd_*`` returns
+    ``tuple[str, str]`` and other names return ``str``. Annotating a single
+    ``Callable`` return forces a union that breaks every ``notify(U.…())`` call.
+    """
     if name.startswith("_") or name in {"t", "ngettext", "help_markup"}:
         raise AttributeError(name)
 
@@ -87,7 +91,7 @@ def __getattr__(name: str) -> Callable[..., Any]:
     if name.startswith("cmd_"):
 
         def _cmd() -> tuple[str, str]:
-            return (t(fluent_id), t(f"{fluent_id}-help"))
+            return (t(fluent_id), t(fluent_id + "-help"))
 
         _cmd.__name__ = name
         _cmd.__qualname__ = f"text.{name}"
@@ -95,7 +99,7 @@ def __getattr__(name: str) -> Callable[..., Any]:
 
     keys = _positional_keys().get(fluent_id, ())
 
-    def _msg(*args: object, **kwargs: object) -> str:
+    def _msg(*args: str | int | float, **kwargs: str | int | float) -> str:
         if args and keys:
             for key, arg in zip(keys, args, strict=False):
                 kwargs.setdefault(key, arg)

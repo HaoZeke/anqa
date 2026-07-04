@@ -17,7 +17,7 @@ class _TimelineApp(App):
 
 def _basic_events() -> list[TraceEvent]:
     return [
-        make_trace_event(index=0, event_type="user", content="hello", timestamp=1000),
+        make_trace_event(index=0, event_type="user_message_chunk", content="hello", timestamp=1000),
         make_trace_event(
             index=1,
             event_type="tool_call",
@@ -28,7 +28,7 @@ def _basic_events() -> list[TraceEvent]:
         ),
         make_trace_event(
             index=2,
-            event_type="tool_result",
+            event_type="tool_call_update",
             tool_name="read_file",
             content="content",
             tool_call_id="c1",
@@ -36,19 +36,19 @@ def _basic_events() -> list[TraceEvent]:
         ),
         make_trace_event(
             index=3,
-            event_type="assistant",
+            event_type="agent_message_chunk",
             content="done",
             timestamp=1005,
         ),
         make_trace_event(
             index=4,
-            event_type="session",
+            event_type="turn_started",
             content="turn started  turn_number=0",
             timestamp=1006,
         ),
         make_trace_event(
             index=5,
-            event_type="session",
+            event_type="turn_started",
             content="turn ended  outcome=success",
             timestamp=1010,
         ),
@@ -70,13 +70,13 @@ def _basic_events() -> list[TraceEvent]:
         ),
         make_trace_event(
             index=8,
-            event_type="subagent",
+            event_type="subagent_spawned",
             content="spawned",
             timestamp=1013,
         ),
         make_trace_event(
             index=9,
-            event_type="thought",
+            event_type="agent_thought_chunk",
             content="thinking...",
             timestamp=1014,
         ),
@@ -165,7 +165,7 @@ async def test_timeline_filter_by_types_set() -> None:
         tl = app.query_one("#timeline-list", TimelineTable)
         events = _basic_events()
         tl.load_events(events)
-        tl.apply_filter(event_types={"user", "assistant"})
+        tl.apply_filter(event_types={"user_message_chunk", "agent_message_chunk"})
         assert tl.row_count == 2
 
 
@@ -251,7 +251,7 @@ async def test_timeline_long_duration_formatting() -> None:
             ),
             make_trace_event(
                 index=1,
-                event_type="tool_result",
+                event_type="tool_call_update",
                 tool_name="run_terminal_command",
                 tool_call_id="slow",
                 timestamp=1070,  # 70s duration
@@ -268,7 +268,7 @@ async def test_timeline_no_timestamp() -> None:
     async with app.run_test():
         tl = app.query_one("#timeline-list", TimelineTable)
         events = [
-            make_trace_event(index=0, event_type="user", content="x", timestamp=None),
+            make_trace_event(index=0, event_type="user_message_chunk", content="x", timestamp=None),
         ]
         tl.load_events(events)
         assert tl.row_count == 1
@@ -284,7 +284,7 @@ async def test_timeline_tool_result_no_call_id() -> None:
         events = [
             make_trace_event(
                 index=0,
-                event_type="tool_result",
+                event_type="tool_call_update",
                 tool_name="grep",
                 content="result",
                 tool_call_id="",
@@ -302,7 +302,9 @@ async def test_timeline_subagent_tool_column() -> None:
     async with app.run_test():
         tl = app.query_one("#timeline-list", TimelineTable)
         events = [
-            make_trace_event(index=0, event_type="subagent", content="spawned", timestamp=1000),
+            make_trace_event(
+                index=0, event_type="subagent_spawned", content="spawned", timestamp=1000
+            ),
         ]
         tl.load_events(events)
         assert tl.row_count == 1
@@ -324,7 +326,7 @@ async def test_timeline_medium_duration_yellow() -> None:
             ),
             make_trace_event(
                 index=1,
-                event_type="tool_result",
+                event_type="tool_call_update",
                 tool_name="run_terminal_command",
                 tool_call_id="med",
                 timestamp=1045,  # 45s

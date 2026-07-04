@@ -79,7 +79,7 @@ async def test_detail_view_show_event_with_pairs() -> None:
         )
         result = make_trace_event(
             index=1,
-            event_type="tool_result",
+            event_type="tool_call_update",
             tool_name="read_file",
             content="file content",
             tool_call_id="c1",
@@ -98,7 +98,7 @@ async def test_detail_view_clear() -> None:
     app = _DetailApp()
     async with app.run_test():
         dv = app.query_one("#detail", DetailView)
-        ev = make_trace_event(index=0, event_type="user", content="hello")
+        ev = make_trace_event(index=0, event_type="user_message_chunk", content="hello")
         dv.show_event(ev)
         assert dv._current_event is not None
         dv.clear_detail()
