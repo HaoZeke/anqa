@@ -148,8 +148,8 @@ def _check_auth_json() -> CheckResult:
         "token",
         "apiKey",
         "api_key",
-        "session",
-        "user",
+        "turn_started",
+        "user_message_chunk",
         "accounts",
         "credentials",
     }

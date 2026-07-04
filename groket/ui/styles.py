@@ -40,30 +40,40 @@ def finding_mark(severity: str) -> str:
 #   yellow = session runtime
 #   red    = error (also applied as underline in the timeline widget)
 
+# Grok sessionUpdate / events.jsonl type → Rich style (identity keys).
 EVENT_TYPE_STYLE: dict[str, str] = {
+    "user_message_chunk": "bold white",
+    "agent_message_chunk": "cyan",
+    "agent_thought_chunk": "dim cyan italic",
+    "plan": "cyan",
+    "tool_call": "bold cyan",
+    "tool_call_update": "dim cyan",
+    "task_backgrounded": "bold yellow",
+    "task_completed": "yellow",
+    "turn_completed": "yellow",
+    "subagent_spawned": "cyan",
+    "subagent_finished": "cyan",
+    "current_mode_update": "dim yellow",
+    "retry_state": "dim yellow",
+    "turn_started": "yellow",
+    "turn_ended": "yellow",
+    "session_error": "bold red",
+    "error": "bold red",
+    "turn_error": "bold red",
+    "fatal_error": "bold red",
+    "system": "bold magenta",
+    # legacy pre-taxonomy names (cached / old tests)
     "user": "bold white",
     "assistant": "cyan",
     "thought": "dim cyan italic",
-    "plan": "cyan",
-    "tool_call": "bold cyan",
     "tool_result": "dim cyan",
     "subagent": "cyan",
     "session": "yellow",
-    "session_error": "bold red",
-    "system": "bold magenta",
 }
 
+# Type column uses Grok identifiers (spaces from underscores in type_label).
 EVENT_TYPE_LABEL: dict[str, str] = {
-    "user": "[bold white]User[/]",
-    "assistant": "[cyan]Assistant[/]",
-    "thought": "[dim cyan italic]Thought[/]",
-    "tool_call": "[bold cyan]Tool[/]",
-    "tool_result": "[dim cyan]Result[/]",
-    "plan": "[cyan]Plan[/]",
-    "subagent": "[cyan]Subagent[/]",
-    "session": "[yellow]Session[/]",
-    "session_error": "[bold red]Session error[/]",
-    "system": "[bold magenta]System[/]",
+    k: f"[{v}]{k.replace('_', ' ')}[/]" for k, v in EVENT_TYPE_STYLE.items()
 }
 
 # Color by *action family*, not per-tool identity (keeps the column scannable):
@@ -78,7 +88,6 @@ _TOOL_FAMILY_READ = frozenset(
         "grep",
         "list_dir",
         "web_search",
-        "search_tool",
         "read_resource",
         "list_resources",
     }
@@ -115,6 +124,9 @@ _TOOL_FAMILY_AGENT = frozenset(
         "enter_plan_mode",
         "exit_plan_mode",
         "use_tool",
+        "search_tool",
+        "call_mcp",
+        "search_mcp",
     }
 )
 
@@ -123,6 +135,7 @@ TOOL_FAMILY_STYLE: dict[str, str] = {
     "write": "green",
     "shell": "yellow",
     "agent": "white",
+    "mcp": "magenta",
     "other": "dim",
 }
 
@@ -131,8 +144,11 @@ TOOL_STYLE: dict[str, str] = {}
 
 
 def tool_family(name: str) -> str:
-    """Map a tool name to read | write | shell | agent | other."""
+    """Map a tool name to read | write | shell | agent | mcp | other."""
     n = (name or "").strip()
+    # MCP / plugin tools often look like server__method
+    if "__" in n or n.startswith("mcp_"):
+        return "mcp"
     if n in _TOOL_FAMILY_READ:
         return "read"
     if n in _TOOL_FAMILY_WRITE:
@@ -150,6 +166,21 @@ def tool_family(name: str) -> str:
     if any(k in low for k in ("run", "exec", "shell", "terminal", "wait", "kill")):
         return "shell"
     return "other"
+
+
+def format_tool_display(name: str) -> str:
+    """Human tool column text: host ids stay snake_case; MCP as ``server · method``."""
+    n = (name or "").strip()
+    if not n:
+        return "?"
+    if "__" in n:
+        server, method = n.split("__", 1)
+        server, method = server.strip(), method.strip()
+        if server and method:
+            return f"{server} · {method}"
+    if n.startswith("mcp_") and len(n) > 4:
+        return f"mcp · {n[4:]}"
+    return n
 
 
 # Run / container lifecycle — one palette for tables, activity bar, labels.
@@ -208,9 +239,11 @@ def tool_style(name: str) -> str:
     return TOOL_FAMILY_STYLE.get(tool_family(name or ""), TOOL_FAMILY_STYLE["other"])
 
 
-def tool_label(name: str, *, max_len: int = 28) -> str:
-    """Rich markup label for a tool name in tables."""
-    display = (name or "?")[:max_len]
+def tool_label(name: str, *, max_len: int = 32) -> str:
+    """Rich markup label for a tool name in tables (MCP shown as server · method)."""
+    display = format_tool_display(name or "?")
+    if len(display) > max_len:
+        display = display[: max_len - 1] + "…"
     style = tool_style(name)
     safe = display.replace("[", "\\[").replace("]", "\\]")
     return f"[{style}]{safe}[/]"

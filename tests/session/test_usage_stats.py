@@ -280,6 +280,49 @@ class TestCollectSessionUsage:
         # Bridge tools should not appear in host_tools
         assert all(t.name not in ("use_tool", "search_tool") for t in stats.host_tools)
 
+    def test_direct_mcp_qualified_tools_attribute_to_server(self, tmp_path: Path):
+        """Grok often exposes MCP as server__method tool_call ids (not only use_tool)."""
+        sd = tmp_path / "session-direct-mcp"
+        sd.mkdir()
+        (sd / "updates.jsonl").write_text("")
+        (sd / "run.json").write_text(
+            json.dumps({"mcp_servers": ["playwright", "context7"]}),
+            encoding="utf-8",
+        )
+
+        timeline = [
+            TraceEvent(
+                index=0,
+                event_type="tool_call",
+                tool_name="playwright__browser_navigate",
+                is_error=True,
+            ),
+            TraceEvent(
+                index=1,
+                event_type="tool_call",
+                tool_name="context7__query-docs",
+            ),
+            TraceEvent(
+                index=2,
+                event_type="tool_call",
+                tool_name="context7__query-docs",
+            ),
+        ]
+        stats = collect_session_usage(sd, timeline)
+
+        assert stats.mcp_bridge_calls == 0
+        assert all("__" not in t.name for t in stats.host_tools)
+        pw = next(s for s in stats.mcp_servers if s.server_id == "playwright")
+        assert pw.use_tool_calls == 1
+        assert pw.errors == 1
+        assert pw.methods[0].method == "browser_navigate"
+        assert pw.methods[0].errors == 1
+        c7 = next(s for s in stats.mcp_servers if s.server_id == "context7")
+        assert c7.use_tool_calls == 2
+        assert any(m.method == "query-docs" and m.calls == 2 for m in c7.methods)
+        idle = next(s for s in stats.mcp_servers if s.server_id == "playwright")
+        assert idle.methods  # not "no tool hits"
+
     def test_skill_md_read_detected(self, tmp_path: Path):
         sd = tmp_path / "session-skill"
         sd.mkdir()
@@ -868,7 +911,9 @@ def test_collect_session_usage(session_dir: Path):
 
     events = [
         TraceEvent(index=0, event_type="tool_call", tool_name="grep", timestamp=1),
-        TraceEvent(index=1, event_type="tool_result", tool_name="grep", timestamp=2, content="x"),
+        TraceEvent(
+            index=1, event_type="tool_call_update", tool_name="grep", timestamp=2, content="x"
+        ),
     ]
     stats = us.collect_session_usage(session_dir, timeline=events)
     assert stats is not None
@@ -1014,7 +1059,7 @@ class TestCollectSessionUsageDeep:
         events = [
             TraceEvent(
                 index=0,
-                event_type="assistant",
+                event_type="agent_message_chunk",
                 timestamp=1,
                 content="I used the my-skill skill to complete this",
             ),

@@ -6,7 +6,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from ..models import TraceEvent
+from .. import event_types as et
+from ..models import JsonValue, TraceEvent
 
 _TURN_NUM_RE = re.compile(r"turn_number\s*=\s*(\d+)", re.I)
 _OUTCOME_RE = re.compile(r"outcome\s*=\s*(\S+)", re.I)
@@ -28,7 +29,7 @@ class TurnSegment:
 
     @property
     def tool_calls(self) -> list[TraceEvent]:
-        return [e for e in self.events if e.event_type == "tool_call"]
+        return [e for e in self.events if e.event_type in et.TOOL_CALL_TYPES]
 
     @property
     def tool_call_count(self) -> int:
@@ -40,15 +41,15 @@ class TurnSegment:
 
     @property
     def user_count(self) -> int:
-        return sum(1 for e in self.events if e.event_type == "user")
+        return sum(1 for e in self.events if e.event_type in et.USER_TYPES)
 
     @property
     def assistant_count(self) -> int:
-        return sum(1 for e in self.events if e.event_type == "assistant")
+        return sum(1 for e in self.events if e.event_type in et.AGENT_TYPES)
 
     @property
     def error_event_count(self) -> int:
-        return sum(1 for e in self.events if e.is_error or e.event_type == "session_error")
+        return sum(1 for e in self.events if e.is_error or e.event_type in et.ERROR_TYPES)
 
     @property
     def first_index(self) -> int | None:
@@ -89,27 +90,26 @@ class TurnSegment:
 
 
 def _is_turn_started(ev: TraceEvent) -> bool:
-    if ev.event_type != "session":
-        return False
-    c = (ev.content or "").lower()
-    return "turn started" in c
+    if ev.event_type == et.TURN_STARTED:
+        return True
+    if ev.event_type in ("session", "session_error"):
+        return "turn started" in (ev.content or "").lower()
+    return False
 
 
 def _is_turn_ended(ev: TraceEvent) -> bool:
-    if ev.event_type not in ("session", "session_error"):
-        return False
-    c = (ev.content or "").lower()
-    return "turn ended" in c
+    if ev.event_type == et.TURN_ENDED:
+        return True
+    if ev.event_type in ("session", "session_error"):
+        return "turn ended" in (ev.content or "").lower()
+    return False
 
 
 def _turn_number_from_event(ev: TraceEvent) -> int | None:
     m = _TURN_NUM_RE.search(ev.content or "")
     if not m:
         return None
-    try:
-        return int(m.group(1))
-    except ValueError:
-        return None
+    return int(m.group(1))
 
 
 def _outcome_from_event(ev: TraceEvent) -> str:
@@ -125,7 +125,84 @@ def is_session_level_timeline_event(ev: TraceEvent) -> bool:
     per-turn stats use only harness / conversation events; these stay visible
     on the full timeline and when filtering by turn (see browser turn filter).
     """
-    return ev.event_type == "system"
+    return ev.event_type == et.SYSTEM
+
+
+def _user_is_background_task_completion(content: str) -> bool:
+    """True when *content* is Grok chrome for a completed background task/subagent."""
+    c = content or ""
+    cl = c.lower()
+    if "background task" in cl:
+        return True
+    if "task-completed-call-" in cl:
+        return True
+    return False
+
+
+def _segment_has_operator_user(seg: TurnSegment) -> bool:
+    """True when the segment includes a real host/operator user prompt."""
+    for ev in seg.events:
+        if ev.event_type not in et.USER_TYPES:
+            continue
+        text = (ev.content or "").strip()
+        if not text:
+            continue
+        if not _user_is_background_task_completion(text):
+            return True
+    return False
+
+
+def _segment_has_background_completion_user(seg: TurnSegment) -> bool:
+    return any(
+        e.event_type in et.USER_TYPES and _user_is_background_task_completion(e.content or "")
+        for e in seg.events
+    )
+
+
+def _should_merge_background_tail(seg: TurnSegment, prev: TurnSegment) -> bool:
+    """Merge *seg* into *prev* when it is only background-task completion chrome."""
+    if not _segment_has_operator_user(prev):
+        return False
+    if _segment_has_operator_user(seg):
+        return False
+    if _segment_has_background_completion_user(seg):
+        return True
+    # Companion harness turn with no operator user and no tools (e.g. empty
+    # turn_started/ended after a background completion).
+    has_user = any(e.event_type in et.USER_TYPES for e in seg.events)
+    return not has_user and seg.tool_call_count == 0
+
+
+def _renumber_segments(segments: list[TurnSegment]) -> list[TurnSegment]:
+    for i, seg in enumerate(segments):
+        seg.turn_index = i
+        if seg.turn_number is None:
+            seg.turn_number = i
+    return segments
+
+
+def _merge_background_completion_segments(
+    segments: list[TurnSegment],
+) -> list[TurnSegment]:
+    """Fold harness turns that only carry background-task completions into the parent.
+
+    Grok emits extra ``turn_started`` / ``turn_ended`` pairs when backgrounded
+    subagents/tasks finish. Those are not operator interactive turns; attach
+    their events to the previous segment that had a real user prompt.
+    """
+    if len(segments) < 2:
+        return segments
+    out: list[TurnSegment] = []
+    for seg in segments:
+        if out and _should_merge_background_tail(seg, out[-1]):
+            prev = out[-1]
+            prev.events.extend(seg.events)
+            # Keep parent interactive outcome; reflect open state from the tail.
+            if seg.open:
+                prev.open = True
+            continue
+        out.append(seg)
+    return out
 
 
 def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
@@ -138,6 +215,10 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     Remaining events before the first turn_started form turn 0 when present
     (e.g. user messages). Multiple markers produce multiple segments for
     interactive multi-turn.
+
+    Grok background-task completion turns (no operator user prompt) are merged
+    into the preceding interactive segment so the Turn filter matches host
+    follow-ups, not harness bookkeeping for subagents.
     """
     turn_events = [e for e in timeline if not is_session_level_timeline_event(e)]
     if not turn_events:
@@ -166,6 +247,19 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
 
     for ev in turn_events:
         if _is_turn_started(ev):
+            tn = _turn_number_from_event(ev)
+            # Follow-up user message(s) often land *before* the next turn_started.
+            # Keep that open segment and add the harness marker — do not split.
+            if (
+                current is not None
+                and current.events
+                and current.open
+                and not any(_is_turn_started(e) for e in current.events)
+            ):
+                current.events.append(ev)
+                if tn is not None:
+                    current.turn_number = tn
+                continue
             if current is not None and current.events:
                 # Previous turn had no explicit end — close as open=False unknown
                 if current.open and not current.outcome:
@@ -173,7 +267,6 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
                 current.open = False
                 segments.append(current)
             display_i += 1
-            tn = _turn_number_from_event(ev)
             current = TurnSegment(
                 turn_index=display_i,
                 turn_number=tn,
@@ -203,36 +296,51 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
             continue
 
         if current is None:
-            # Preamble before first turn_started
-            display_i = 0
-            current = TurnSegment(
-                turn_index=0,
-                turn_number=None,
-                open=True,
-                events=[ev],
-            )
+            if segments:
+                # Between turns: late *agent* stream chunks belong to the prior
+                # turn; a new *user* message starts the next interactive turn
+                # (often arrives before the next turn_started marker).
+                # Background-task completion chrome is not an operator follow-up —
+                # attach to the previous segment (merged further below as well).
+                if ev.event_type in et.USER_TYPES:
+                    if _user_is_background_task_completion(ev.content or ""):
+                        segments[-1].events.append(ev)
+                    else:
+                        display_i = len(segments)
+                        current = TurnSegment(
+                            turn_index=display_i,
+                            turn_number=None,
+                            open=True,
+                            events=[ev],
+                        )
+                else:
+                    segments[-1].events.append(ev)
+            else:
+                # True preamble before the first turn_started
+                display_i = 0
+                current = TurnSegment(
+                    turn_index=0,
+                    turn_number=None,
+                    open=True,
+                    events=[ev],
+                )
         else:
             current.events.append(ev)
 
     if current is not None and current.events:
         segments.append(current)
 
-    # Re-number turn_index sequentially for display stability (0-based)
-    for i, seg in enumerate(segments):
-        seg.turn_index = i
-        if seg.turn_number is None:
-            seg.turn_number = i
-
-    return segments
+    segments = _merge_background_completion_segments(segments)
+    return _renumber_segments(segments)
 
 
 def turn_summary_rows(
     segments: list[TurnSegment],
     *,
     durations: dict[int, float] | None = None,
-) -> list[dict[str, object]]:
+) -> list[dict[str, JsonValue]]:
     """Tabular rows for stats UI / tests."""
-    rows: list[dict[str, object]] = []
+    rows: list[dict[str, JsonValue]] = []
     for seg in segments:
         dur = seg.duration_seconds(durations)
         tools = Counter(e.tool_name for e in seg.tool_calls if e.tool_name)

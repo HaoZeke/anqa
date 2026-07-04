@@ -39,7 +39,7 @@ class TestFindingMark:
 
 class TestToolFamily:
     def test_read_tools(self) -> None:
-        for name in ("read_file", "grep", "list_dir", "web_search", "search_tool"):
+        for name in ("read_file", "grep", "list_dir", "web_search"):
             assert tool_family(name) == "read"
 
     def test_write_tools(self) -> None:
@@ -51,8 +51,12 @@ class TestToolFamily:
             assert tool_family(name) == "shell"
 
     def test_agent_tools(self) -> None:
-        for name in ("spawn_subagent", "ask_user_question", "use_tool"):
+        for name in ("spawn_subagent", "ask_user_question", "use_tool", "search_tool"):
             assert tool_family(name) == "agent"
+
+    def test_mcp_qualified(self) -> None:
+        assert tool_family("playwright__browser_navigate") == "mcp"
+        assert tool_family("context7__query-docs") == "mcp"
 
     def test_unknown_defaults_other(self) -> None:
         assert tool_family("some_random_tool") == "other"
@@ -107,6 +111,17 @@ class TestToolLabel:
     def test_label_contains_name(self) -> None:
         label = tool_label("read_file")
         assert "read_file" in label
+
+    def test_mcp_uses_middle_dot(self) -> None:
+        from groket.ui.styles import format_tool_display
+
+        assert format_tool_display("playwright__browser_navigate") == (
+            "playwright · browser_navigate"
+        )
+        label = tool_label("playwright__browser_navigate")
+        assert "playwright" in label
+        assert "browser_navigate" in label
+        assert "magenta" in label
 
     def test_truncates_long_names(self) -> None:
         label = tool_label("a" * 50, max_len=10)

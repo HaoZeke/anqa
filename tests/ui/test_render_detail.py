@@ -220,7 +220,7 @@ class TestRenderEventDetail:
     def test_assistant_event(self):
         ev = make_trace_event(
             index=0,
-            event_type="assistant",
+            event_type="agent_message_chunk",
             content="I'll help you fix that bug.",
         )
         result = render_event_detail(ev)
@@ -268,7 +268,7 @@ class TestRenderEventDetail:
     def test_thought_event(self):
         ev = make_trace_event(
             index=0,
-            event_type="thought",
+            event_type="agent_thought_chunk",
             content="I need to think about this...",
         )
         result = render_event_detail(ev)
@@ -286,7 +286,7 @@ class TestRenderEventDetail:
     def test_subagent_event(self):
         ev = make_trace_event(
             index=0,
-            event_type="subagent",
+            event_type="subagent_spawned",
             content="Spawned general-purpose: Investigate the bug",
         )
         result = render_event_detail(ev)
@@ -295,22 +295,22 @@ class TestRenderEventDetail:
     def test_user_event(self):
         ev = make_trace_event(
             index=0,
-            event_type="user",
+            event_type="user_message_chunk",
             content="Do the thing please.",
         )
         result = render_event_detail(ev)
         assert_rich_contains(result, "Do the thing please.")
 
     def test_empty_content_event(self):
-        ev = make_trace_event(index=0, event_type="assistant", content="")
+        ev = make_trace_event(index=0, event_type="agent_message_chunk", content="")
         result = render_event_detail(ev)
         # Empty body still shows an assistant-typed detail frame.
-        assert "assistant" in rich_plain(result).lower()
+        assert "agent message chunk" in rich_plain(result).lower()
 
     def test_session_event(self):
         ev = make_trace_event(
             index=0,
-            event_type="session",
+            event_type="turn_started",
             content="turn started  turn_number=0  model_id=v9",
         )
         result = render_event_detail(ev)
@@ -319,7 +319,7 @@ class TestRenderEventDetail:
     def test_subagent_markdown_content(self):
         ev = make_trace_event(
             index=0,
-            event_type="subagent",
+            event_type="subagent_spawned",
             content="# Summary\n\nMarkdown subagent",
         )
         result = render_event_detail(ev)
@@ -328,7 +328,7 @@ class TestRenderEventDetail:
     def test_tool_result_event(self):
         ev = make_trace_event(
             index=0,
-            event_type="tool_result",
+            event_type="tool_call_update",
             tool_name="read_file",
             content="file contents here",
             tool_call_id="call-99",
@@ -481,7 +481,7 @@ class TestRenderToolDetailFromEvent:
         )
         result_ev = make_trace_event(
             index=1,
-            event_type="tool_result",
+            event_type="tool_call_update",
             tool_name="grep",
             content="match found",
             tool_call_id="c1",
@@ -583,6 +583,21 @@ class TestSetStaticRenderableException:
         widget = SimpleNamespace(update=bad_update)
         set_static_renderable(widget, Group(Text("hello")))
         assert call_count == 2
+
+    def test_skips_update_while_text_selected(self):
+        """Active Textual text selection must not be cleared by live re-render."""
+        from types import SimpleNamespace
+
+        updated: list[object] = []
+
+        class _W:
+            def update(self, content: object) -> None:
+                updated.append(content)
+
+        widget = _W()
+        widget.screen = SimpleNamespace(selections={widget: object()})  # type: ignore[attr-defined]
+        set_static_renderable(widget, "new")
+        assert updated == []
 
 
 class TestLooksDiff:
@@ -781,7 +796,7 @@ class TestRenderToolDetailFromEventExitCode:
         """exit_code is extracted from raw_input when present."""
         ev = make_trace_event(
             index=0,
-            event_type="tool_result",
+            event_type="tool_call_update",
             tool_name="run_terminal_command",
             content="error output",
             raw_input={"exit_code": 1},
@@ -808,7 +823,7 @@ class TestRenderEventDetailMore:
         """Long assistant body is truncated."""
         ev = make_trace_event(
             index=0,
-            event_type="assistant",
+            event_type="agent_message_chunk",
             content="x" * 25000,
         )
         result = render_event_detail(ev)
@@ -820,7 +835,7 @@ class TestRenderEventDetailMore:
         """Finding and flag banners render on non-tool events."""
         ev = make_trace_event(
             index=0,
-            event_type="user",
+            event_type="user_message_chunk",
             content="Do something",
         )
         finding = Finding(
@@ -839,7 +854,7 @@ class TestRenderEventDetailMore:
         """Session event without error renders normally."""
         ev = make_trace_event(
             index=0,
-            event_type="session",
+            event_type="turn_started",
             content="turn started",
             is_error=False,
         )

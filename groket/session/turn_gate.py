@@ -283,7 +283,7 @@ def drain_queued_follow_up(session_dir: Path) -> str | None:
 
 
 def write_done_for_session(session_dir: Path) -> None:
-    """Ask the entrypoint to stop (``command=done`` only — status stays live)."""
+    """Ask the entrypoint to stop (``command=done``; status stays live until it exits)."""
     dirs = _ensure_gate_dirs(session_dir)
     for gate in dirs:
         gate.mkdir(parents=True, exist_ok=True)
@@ -305,7 +305,15 @@ def session_pending_label(session_dir: Path, *, turn_in_progress: bool = False) 
     if state == "done":
         return ""
     if host_requested_done(session_dir):
-        return "finishing (done requested)"
+        # Only "finishing" while traces may still be written; stale + done → settled.
+        try:
+            from ..parser import _infer_incomplete_turn_outcome
+
+            if _infer_incomplete_turn_outcome(session_dir) == "running":
+                return "finishing (done requested)"
+        except Exception:
+            return "finishing (done requested)"
+        return ""
     turn = json_as_int(st.get("turn"), 0)
     queued = 0
     try:

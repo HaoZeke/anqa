@@ -158,7 +158,7 @@ def json_value_from_unknown(value: object) -> JsonValue:
     return str(value)
 
 
-def as_json_object(data: Mapping[str, object]) -> JsonObject:
+def as_json_object(data: Mapping[str, object]) -> JsonObject:  # JSON boundary coerce
     """Build a :data:`JsonObject` from a heterogeneous mapping (audit helpers)."""
     return {str(k): json_value_from_unknown(v) for k, v in data.items()}
 
@@ -356,7 +356,7 @@ class TraceEvent:
     """A single event in the conversation timeline."""
 
     index: int
-    event_type: str  # user, assistant, thought, tool_call, tool_result, plan, subagent, session, session_error, system
+    event_type: str  # Grok sessionUpdate / events.jsonl type (see groket.event_types)
     timestamp: int | None = None
     content: str = ""
     tool_name: str = ""
@@ -382,19 +382,10 @@ class TraceEvent:
 
     @property
     def type_label(self) -> str:
-        """Human-readable event kind for tables (no cryptic abbreviations)."""
-        return {
-            "user": "User",
-            "assistant": "Assistant",
-            "thought": "Thought",
-            "tool_call": "Tool",
-            "tool_result": "Result",
-            "plan": "Plan",
-            "subagent": "Subagent",
-            "session": "Session",
-            "session_error": "Session error",
-            "system": "System",
-        }.get(self.event_type, (self.event_type or "?").replace("_", " ").title())
+        """Grok-aligned event kind for tables (sessionUpdate / events type)."""
+        from .event_types import type_label as grok_type_label
+
+        return grok_type_label(self.event_type)
 
     @property
     def summary_line(self) -> str:
@@ -402,10 +393,12 @@ class TraceEvent:
             text = self.content if isinstance(self.content, str) else str(self.content)
             one = text.replace("\n", " ").strip()
             return (one[:100] + "…") if len(one) > 100 else (one or "system prompt")
-        if self.event_type in ("session", "session_error"):
+        from . import event_types as et
+
+        if self.event_type in et.SESSION_CHROME_TYPES - {et.SYSTEM}:
             text = self.content if isinstance(self.content, str) else str(self.content)
-            return text[:80].replace("\n", " ") or "session runtime"
-        if self.event_type == "tool_call":
+            return text[:80].replace("\n", " ") or self.event_type
+        if self.event_type == et.TOOL_CALL:
             bag = (
                 self.raw_input
                 if isinstance(self.raw_input, ToolInputBag)
@@ -416,6 +409,28 @@ class TraceEvent:
                 text = bag.as_str(key)
                 return text if n is None else text[:n]
 
+            # MCP / meta-tool: prefer structured tool_name + tool_input summary.
+            mcp_name = _s("tool_name") or self.tool_name
+            if bag.has("tool_input") or (
+                self.tool_name in ("use_tool", "use-tool") and bag.has("tool_name")
+            ):
+                ti = bag.raw().get("tool_input")
+                if isinstance(ti, dict) and ti:
+                    for key in (
+                        "query",
+                        "libraryName",
+                        "libraryId",
+                        "url",
+                        "path",
+                        "prompt",
+                        "name",
+                    ):
+                        if key in ti and ti[key] is not None:
+                            val = str(ti[key]).replace("\n", " ").strip()
+                            if len(val) > 48:
+                                val = val[:45] + "…"
+                            return f"{mcp_name} {val}"
+                return mcp_name or self.tool_name
             if bag.has("command"):
                 return f"{self.tool_name} $ {_s('command', 60)}"
             if bag.has("pattern"):
@@ -426,8 +441,10 @@ class TraceEvent:
                 return f"{self.tool_name} {_s('file_path')}"
             if bag.has("prompt"):
                 return f'{self.tool_name} "{_s("prompt", 40)}..."'
+            if bag.has("query"):
+                return f'{self.tool_name} "{_s("query", 40)}..."'
             return self.tool_name
-        elif self.event_type == "tool_result":
+        elif self.event_type == et.TOOL_CALL_UPDATE:
             rlen = len(self.content)
             snippet = strip_control_chars(self.content[:200])[:60].replace("\n", " ")
             return f"{self.tool_name} ({rlen} chars) {snippet}"

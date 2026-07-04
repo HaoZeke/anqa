@@ -15,6 +15,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from textual.app import App
 
+from .. import event_types as et
 from ..analysis.base import Finding
 from ..models import Flag, JsonObject, JsonValue, ToolInputBag, TraceEvent
 from ..utils import fmt_duration
@@ -22,12 +23,13 @@ from .i18n import t
 from .styles import severity_style
 
 logger = logging.getLogger(__name__)
-_RE_ANSI_CSI = re.compile(t("ui-x1b"))
-_RE_ANSI_OSC = re.compile(t("ui-x1b-x07-x1b"))
-_RE_ANSI_ESC = re.compile("\\x1b[@-Z\\\\-_]")
-_RE_C0_NOISE = re.compile("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]")
-_RE_CR = re.compile(t("ui-r-n"))
-_RE_REPEATED_FFFD = re.compile(t("ui-ufffd-2"))
+# Regexes stay in Python (not Fluent — catalogs are for UI copy only).
+_RE_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_RE_ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_RE_ANSI_ESC = re.compile(r"\x1b[@-Z\\-_]")
+_RE_C0_NOISE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_RE_CR = re.compile(r"\r\n?")
+_RE_REPEATED_FFFD = re.compile(r"\ufffd{2,}")
 
 
 def sanitize_console_text(text: str, *, for_display: bool = True) -> str:
@@ -121,7 +123,15 @@ _EXT_LANG = {
 
 
 def set_static_renderable(widget, renderable: RenderableType) -> None:
-    """Update a Static with Markdown/Group/Text safely."""
+    """Update a Static with Markdown/Group/Text safely.
+
+    Skips the update when the operator has an active text selection on *widget*
+    so live refresh / re-render does not clear the selection before copy.
+    """
+    screen = getattr(widget, "screen", None)
+    sels = getattr(screen, "selections", None) if screen is not None else None
+    if sels and widget in sels:
+        return
     try:
         widget.update(renderable)
     except Exception:
@@ -214,7 +224,7 @@ def _content_str(
 def _truncate_mid(s: str, head: int = 7000, tail: int = 5000, limit: int = 14000) -> str:
     if len(s) <= limit:
         return s
-    return s[:head] + t("ui-truncated") + s[-tail:]
+    return s[:head] + t("truncate-marker") + s[-tail:]
 
 
 def _render_tool_input(tname: str, ri: dict) -> list:
@@ -231,14 +241,14 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "search_replace":
         fp = ri.get("file_path") or ri.get("target_file") or ""
         if fp:
-            parts.append(Text(f"{t('ui-file')} {fp}", style="cyan"))
+            parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
         lang = _lang_from_path(str(fp)) or "text"
         old_s, new_s = (str(ri.get("old_string") or ""), str(ri.get("new_string") or ""))
         if old_s:
-            parts.append(Text("old_string:", style="red"))
+            parts.append(Text(t("tool-field-old-string"), style="red"))
             parts.append(_syntax(old_s[:8000], lang, line_numbers=True))
         if new_s:
-            parts.append(Text("new_string:", style="green"))
+            parts.append(Text(t("tool-field-new-string"), style="green"))
             parts.append(_syntax(new_s[:8000], lang, line_numbers=True))
         extra = {
             k: v
@@ -252,7 +262,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "read_file":
         tf = ri.get("target_file") or ri.get("file_path") or path_hint
         if tf:
-            parts.append(Text(f"{t('ui-target-file')} {tf}", style="cyan"))
+            parts.append(Text(t("tool-input-target-file", path=str(tf)), style="cyan"))
         extra = {k: v for k, v in ri.items() if k not in ("target_file", "file_path")}
         if extra:
             with suppress(Exception):
@@ -266,7 +276,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "grep":
         pat = ri.get("pattern")
         if pat is not None:
-            parts.append(Text("pattern:", style="magenta"))
+            parts.append(Text(t("tool-field-pattern"), style="magenta"))
             parts.append(_syntax(str(pat), "text"))
         extra = {k: v for k, v in ri.items() if k != "pattern"}
         if extra:
@@ -276,7 +286,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     if tname == "list_dir":
         td = ri.get("target_directory") or path_hint
         if td:
-            parts.append(Text(f"{t('ui-target-directory')} {td}", style="blue"))
+            parts.append(Text(t("tool-input-target-directory", path=str(td)), style="blue"))
         extra = {k: v for k, v in ri.items() if k != "target_directory"}
         if extra:
             with suppress(Exception):
@@ -287,6 +297,34 @@ def _render_tool_input(tname: str, ri: dict) -> list:
             parts.append(_syntax(json.dumps(ri, indent=2, ensure_ascii=False), "json"))
         except Exception:
             parts.append(Text(str(ri)))
+        return parts
+    # MCP via use_tool (or resolved name with tool_input payload).
+    if tname in ("use_tool", "use-tool") or (
+        isinstance(ri.get("tool_input"), dict) and ri.get("tool_name")
+    ):
+        mcp = str(ri.get("tool_name") or tname)
+        parts.append(Text(t("tool-mcp-label", name=mcp), style="cyan"))
+        ti = ri.get("tool_input")
+        if isinstance(ti, dict):
+            parts.append(Text(t("tool-input-section"), style="bright_blue"))
+            try:
+                parts.append(_syntax(json.dumps(ti, indent=2, ensure_ascii=False), "json"))
+            except Exception:
+                parts.append(Text(str(ti)))
+        extra = {k: v for k, v in ri.items() if k not in ("tool_name", "tool_input")}
+        if extra:
+            with suppress(Exception):
+                parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
+        return parts
+    if tname == "search_tool":
+        q = ri.get("query")
+        if q is not None:
+            parts.append(Text(t("tool-field-query"), style="bright_blue"))
+            parts.append(Text(str(q)))
+        extra = {k: v for k, v in ri.items() if k != "query"}
+        if extra:
+            with suppress(Exception):
+                parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
     if tname in ("web_search", "spawn_subagent", "ask_user_question"):
         for key in ("query", "prompt", "description", "question"):
@@ -331,17 +369,16 @@ def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
     raw_len = len(out or "")
     cleaned = sanitize_console_text(out or "")
     if not cleaned and out:
-        cleaned = sanitize_console_text(out, for_display=False) or t(
-            "ui-binary-control-only-output"
-        )
+        cleaned = sanitize_console_text(out, for_display=False) or t("tool-binary-output")
     n_out = len(cleaned)
     out_disp = _truncate_mid(cleaned)
-    note = ""
     if raw_len and n_out < raw_len * 0.9:
-        note = f"{t('ui-cleaned-from')} {raw_len}"
-    parts.append(Rule(f"{t('ui-output')} {n_out} {t('ui-chars')} {note})", style="bright_black"))
+        out_label = t("tool-output-rule-cleaned", n=n_out, raw=raw_len)
+    else:
+        out_label = t("tool-output-rule", n=n_out)
+    parts.append(Rule(out_label, style="bright_black"))
     if not out_disp.strip():
-        parts.append(Text("(empty)", style="dim italic"))
+        parts.append(Text(t("tool-empty-output"), style="dim italic"))
         return parts
     console_like = _looks_like_console_output(out or "", tname) or tname in (
         "run_terminal_command",
@@ -387,13 +424,16 @@ def render_tool_detail(
     path_hint = _path_hint(ri)
     tname = tool_name or "?"
     style = tool_style(tname)
+    # Heading uses explicit separators (Fluent strips message edge whitespace).
+    # Full-string Fluent variants exist (tool-detail-heading*) for non-Rich contexts.
     head = Text()
     head.append(f"#{index} ", style="dim")
-    head.append(t("ui-tool"), style="dim")
-    head.append(tname, style=style)
+    head.append("tool ", style="dim")
+    head.append(tname, style=style if not is_error else "bold red")
     if is_error:
-        head.append(t("ui-error"), style="bold red")
-    if event_type and event_type != "tool":
+        head.append(" ✗ ERROR", style="bold red")
+    # Avoid redundant "(tool_call)" / "(tool_result)" after the tool name.
+    if event_type and event_type not in ("tool", *et.TOOL_TYPES, ""):
         head.append(f"  ({event_type})", style="dim")
     head.append("\n")
     meta = Text()
@@ -420,7 +460,7 @@ def render_tool_detail(
         parts += [
             Text(""),
             Rule(t("ui-input"), style="bright_black"),
-            Text(t("ui-no-input"), style="dim italic"),
+            Text(t("tool-no-input"), style="dim italic"),
         ]
     parts.append(Text(""))
     parts.extend(_render_tool_output(output, tname, path_hint))
@@ -436,7 +476,7 @@ def render_tool_detail_from_event(
 ) -> Group:
     """Render tool_call / tool_result, merging pair when available (trace_viewer style)."""
     call = ev if ev.event_type == "tool_call" else paired_call
-    result = ev if ev.event_type == "tool_result" else paired_result
+    result = ev if ev.event_type in et.TOOL_UPDATE_TYPES else paired_result
     ri: dict[str, JsonValue] = {}
     src_ev = call if call is not None else ev
     bag = (
@@ -458,7 +498,11 @@ def render_tool_detail_from_event(
         out = _content_str(ev.content, sanitize=True, tool_name=tname)
     else:
         out = _content_str(ev.content, sanitize=True, tool_name=tname)
-    is_err = bool(result and result.is_error or ev.is_error or (call and call.is_error))
+    is_err = bool(
+        (result is not None and result.is_error)
+        or ev.is_error
+        or (call is not None and call.is_error)
+    )
     exit_code = None
     signal = ""
     for src in (result, call, ev):
@@ -515,7 +559,7 @@ def render_event_detail(
         ft = Text()
         ft.append(t("ui-flagged"), style="red bold")
         ft.append(f"[{flag.verdict.value}] {flag.description}\n", style="red")
-        ft.append(f"{t('ui-flagged-at')} {flag.created_at}", style="dim")
+        ft.append(t("flagged-at-when", when=flag.created_at), style="dim")
         banners.append(ft)
     if finding:
         sc = severity_style(finding.severity.value)
@@ -524,7 +568,7 @@ def render_event_detail(
         it.append(f"  [{finding.plugin_id}] {finding.category}: {finding.title}\n", style=sc)
         it.append(f"  {(finding.detail or '')[:400]}", style="dim")
         banners.append(it)
-    if ev.event_type in ("tool_call", "tool_result"):
+    if ev.event_type in et.TOOL_TYPES:
         core = render_tool_detail_from_event(
             ev, paired_call=paired_call, paired_result=paired_result, duration=duration
         )
@@ -532,7 +576,7 @@ def render_event_detail(
             return Group(*banners, Text(""), core)
         return core
     style = KIND_STYLES.get(ev.event_type, "white")
-    if ev.is_error and ev.event_type in ("session", "session_error"):
+    if ev.is_error and ev.event_type in et.SESSION_CHROME_TYPES:
         style = "bold red"
     head = Text()
     head.append(f"#{ev.index} ", style="dim")
@@ -549,13 +593,13 @@ def render_event_detail(
         head.append("  ·  ".join(meta_parts), style="dim")
     body = _content_str(ev.content, sanitize=True, tool_name=ev.tool_name or "")
     if len(body) > 20000:
-        body = body[:10000] + t("ui-truncated") + body[-8000:]
+        body = body[:10000] + t("truncate-marker") + body[-8000:]
     chunks: list = []
     if banners:
         chunks.extend(banners)
         chunks.append(Text(""))
     chunks.append(head)
-    if ev.event_type in ("assistant", "user") and body.strip():
+    if ev.event_type in et.MESSAGE_TYPES and body.strip():
         chunks += [Text(""), Markdown(body)]
     elif ev.event_type == "thought" and body.strip():
         chunks += [
@@ -571,7 +615,7 @@ def render_event_detail(
             Rule(t("ui-subagent"), style="bright_black"),
             Markdown(body) if "#" in body[:200] or "\n" in body else Text(body, style="yellow"),
         ]
-    elif ev.event_type in ("session", "session_error"):
+    elif ev.event_type in et.SESSION_CHROME_TYPES:
         chunks += [
             Text(""),
             Text(body or "(empty)", style="bold red" if ev.is_error else "yellow"),
@@ -587,7 +631,7 @@ def render_markdown_doc(text: str, *, max_chars: int = 120000) -> RenderableType
     """Markdown document for Summary / Feedback tabs."""
     body = text or "_empty_"
     if len(body) > max_chars:
-        body = body[: max_chars // 2] + t("ui-truncated-for-display") + body[-(max_chars // 3) :]
+        body = body[: max_chars // 2] + t("truncate-for-display") + body[-(max_chars // 3) :]
     try:
         return Markdown(body)
     except Exception:

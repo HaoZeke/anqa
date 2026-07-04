@@ -135,9 +135,9 @@ class TestParseTimeline:
         events = parse_timeline(session_dir)
         assert len(events) > 0
         types = [e.event_type for e in events]
-        assert "session" in types  # turn_started marker
+        assert "turn_started" in types  # turn marker
         assert "tool_call" in types
-        assert "tool_result" in types
+        assert "tool_call_update" in types
 
     def test_indices_sequential(self, session_dir):
         events = parse_timeline(session_dir)
@@ -146,13 +146,13 @@ class TestParseTimeline:
 
     def test_user_message_coalescing(self, session_dir):
         events = parse_timeline(session_dir)
-        user_events = [e for e in events if e.event_type == "user"]
+        user_events = [e for e in events if e.event_type == "user_message_chunk"]
         # Multiple user_message_chunk updates should coalesce into one event
         assert len(user_events) >= 1
 
     def test_tool_result_coalescing(self, session_dir):
         events = parse_timeline(session_dir)
-        results = [e for e in events if e.event_type == "tool_result"]
+        results = [e for e in events if e.event_type == "tool_call_update"]
         call_ids = [e.tool_call_id for e in results]
         # Each call_id should appear at most once (coalesced)
         assert len(call_ids) == len(set(call_ids))
@@ -216,7 +216,7 @@ class TestParseTimeline:
         events = parse_timeline(sd)
         # Chronological: start1, assistant@1500, end1, start2, assistant@3500, end2
         types = [e.event_type for e in events]
-        assert types.count("session") >= 4
+        assert types.count("turn_started") + types.count("turn_ended") >= 4
         session_contents = [e.content or "" for e in events if e.event_type == "session"]
         starts = [i for i, e in enumerate(events) if "turn started" in (e.content or "")]
         ends = [
@@ -263,7 +263,7 @@ class TestLoadSessionMeta:
         assert meta.lines_added == 42
         assert meta.turn_outcome == "success"
         assert meta.loop_count == 1
-        # Events column = coalesced timeline (browser), not updates.jsonl byte heuristic
+        # Events column = coalesced timeline (browser), not updates.jsonl size/line heuristics
         assert meta.num_events == len(parse_timeline(session_dir))
         assert meta.num_events > 0
 
@@ -633,6 +633,59 @@ def test_runtime_markers_turn_ended_extra_fields(tmp_path: Path):
 # ── _apply_tool_result_meta edge cases ───────────────────────────────────
 
 
+def test_extract_raw_output_mcp_okay_output() -> None:
+    """MCP tools store body under rawOutput.output.OkayOutput (content is null)."""
+    from groket.parser import _extract_raw_output_text
+
+    text = _extract_raw_output_text(
+        {
+            "type": "MCP",
+            "tool_name": "resolve-library-id",
+            "server_name": "context7",
+            "output": {"OkayOutput": "Available Libraries:\n\n- Title: etcd"},
+        }
+    )
+    assert "Available Libraries" in text
+    assert "etcd" in text
+
+
+def test_coalesce_tool_result_from_mcp_raw_output() -> None:
+    """tool_call_update with only MCP rawOutput still yields a tool_result row."""
+    from groket.models import TraceEvent
+    from groket.parser import _coalesce_tool_result
+
+    pending = {
+        "call-1": TraceEvent(
+            index=0,
+            event_type="tool_call",
+            tool_name="context7__resolve-library-id",
+            tool_call_id="call-1",
+        )
+    }
+    events: list[TraceEvent] = [pending["call-1"]]
+    result_by_call: dict[str, int] = {}
+    idx = _coalesce_tool_result(
+        {
+            "toolCallId": "call-1",
+            "status": "completed",
+            "content": None,
+            "rawOutput": {
+                "type": "MCP",
+                "output": {"OkayOutput": "lib docs here"},
+            },
+        },
+        None,
+        1,
+        events,
+        1,
+        pending,
+        result_by_call,
+    )
+    assert idx == 2
+    assert events[1].event_type == "tool_call_update"
+    assert "lib docs here" in (events[1].content or "")
+
+
 def test_apply_tool_result_meta_output_for_prompt_replacement(tmp_path: Path):
     """rawOutput.output_for_prompt with exit: prefix replaces existing content."""
     from groket.models import ToolCall, ToolInputBag
@@ -731,7 +784,7 @@ def test_timeline_subagent_events(tmp_path: Path):
     ]
     (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     events = parse_timeline(sd)
-    subs = [e for e in events if e.event_type == "subagent"]
+    subs = [e for e in events if e.event_type in ("subagent_spawned", "subagent_finished")]
     assert len(subs) == 2
     assert "coder" in subs[0].content
 
@@ -746,7 +799,7 @@ def test_timeline_only_markers_no_updates(tmp_path: Path):
     )
     events = parse_timeline(sd)
     assert len(events) >= 1
-    assert events[0].event_type == "session"
+    assert events[0].event_type == "turn_started"
 
 
 def test_timeline_drops_trailing_empty_turn_start(tmp_path: Path):
@@ -821,7 +874,7 @@ def test_timeline_tool_result_error_via_iserror(tmp_path: Path):
     ]
     (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     events = parse_timeline(sd)
-    results = [e for e in events if e.event_type == "tool_result"]
+    results = [e for e in events if e.event_type == "tool_call_update"]
     assert results
     assert results[0].is_error is True
 
@@ -872,7 +925,7 @@ def test_timeline_tool_result_coalesced_replaces_longer(tmp_path: Path):
     ]
     (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     events = parse_timeline(sd)
-    results = [e for e in events if e.event_type == "tool_result"]
+    results = [e for e in events if e.event_type == "tool_call_update"]
     assert len(results) == 1
     assert results[0].content == "much longer content here"
 
@@ -1171,7 +1224,7 @@ def test_parse_timeline_prepends_system_prompt(tmp_path: Path) -> None:
     assert events
     assert events[0].event_type == "system"
     assert "You are the system" in events[0].content
-    assert events[0].type_label == "System"
+    assert events[0].type_label == "system"
 
 
 def test_load_session_meta_turn_gate_running(tmp_path: Path):
@@ -1305,7 +1358,7 @@ def test_prune_session_walk_dirs():
 
 
 def test_apply_tool_result_meta_ofp_different_no_exit():
-    """ofp != result_content but neither starts with 'exit:' → no replacement."""
+    """Longer / newer ofp body replaces prior content (MCP + host tools)."""
     from groket.models import ToolCall, ToolInputBag
     from groket.parser import _apply_tool_result_meta
 
@@ -1315,11 +1368,10 @@ def test_apply_tool_result_meta_ofp_different_no_exit():
     _apply_tool_result_meta(
         tc,
         {
-            "rawOutput": {"output_for_prompt": "different"},
+            "rawOutput": {"output_for_prompt": "different longer body"},
         },
     )
-    # No replacement because neither starts with exit:
-    assert tc.result_content == "original"
+    assert tc.result_content == "different longer body"
 
 
 def test_apply_tool_result_meta_exit_code_1_not_error_no_signal():
@@ -1400,7 +1452,7 @@ def test_coalesce_existing_result_error_flag():
     from groket.models import TraceEvent as _TE
     from groket.parser import _coalesce_tool_result
 
-    ev = _TE(index=0, event_type="tool_result", content="output", tool_call_id="t1")
+    ev = _TE(index=0, event_type="tool_call_update", content="output", tool_call_id="t1")
     events: list[_TE] = [ev]
     result_by: dict[str, int] = {"t1": 0}
     pending = {"t1": _TE(index=0, event_type="tool_call", tool_name="grep", tool_call_id="t1")}
@@ -2207,3 +2259,96 @@ def test_infer_incomplete_mtime_zero(tmp_path: Path):
     with patch("groket.parser.session_trace_mtime", return_value=0.0):
         result = _infer_incomplete_turn_outcome(sd)
     assert result == "interrupted"
+
+
+def test_resolve_tool_display_name_use_tool_mcp():
+    from groket.parser import normalize_tool_id, resolve_tool_display_name
+
+    assert (
+        resolve_tool_display_name(
+            "use_tool", {"tool_name": "context7__query-docs", "tool_input": {"query": "x"}}
+        )
+        == "context7__query-docs"
+    )
+    assert resolve_tool_display_name("grep", {"pattern": "a"}) == "grep"
+    assert resolve_tool_display_name("Web search:", {}) == "web_search"
+    assert resolve_tool_display_name("Web search:", {"query": "x"}) == "web_search"
+    assert normalize_tool_id("web search:") == "web_search"
+    assert (
+        resolve_tool_display_name(
+            "playwright__browser_navigate",
+            {"url": "https://example.com"},
+        )
+        == "playwright__browser_navigate"
+    )
+
+
+def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
+    """command=done with idle traces must not stay ``running`` forever."""
+    import json
+    import time
+
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-done-stale"
+    sess.mkdir(parents=True)
+    # Body present but mtime aged (stale).
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (21 * 60)
+    import os
+
+    os.utime(sess / "events.jsonl", (old, old))
+    gate = vol / ".groket-turn-ctr"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "awaiting_follow_up",
+                "session_id": "019f-done-stale",
+                "turn": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (gate / "command").write_text("done\n", encoding="utf-8")
+    meta = load_session_meta(sess)
+    assert meta.turn_outcome == "completed"
+    assert meta.list_status_label() == "complete"
+    assert list_turn_outcome_for_dir(sess) == ""
+
+
+def test_host_done_fresh_traces_still_running(tmp_path: Path) -> None:
+    """command=done while traces are fresh keeps finishing/running."""
+    import json
+
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-done-fresh"
+    sess.mkdir(parents=True)
+    (sess / "events.jsonl").write_text("x" * 300, encoding="utf-8")
+    gate = vol / ".groket-turn-ctr"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "awaiting_follow_up",
+                "session_id": "019f-done-fresh",
+                "turn": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (gate / "command").write_text("done\n", encoding="utf-8")
+    meta = load_session_meta(sess)
+    assert meta.turn_outcome == "running"
+    assert list_turn_outcome_for_dir(sess) == "running"

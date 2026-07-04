@@ -94,29 +94,34 @@ class TestToolCall:
 
 class TestTraceEvent:
     def test_time_str_none(self):
-        ev = TraceEvent(index=0, event_type="user")
+        ev = TraceEvent(index=0, event_type="user_message_chunk")
         assert ev.time_str == ""
 
     def test_time_str_valid(self):
         ts = int(datetime(2026, 6, 25, 12, 30, 45, tzinfo=UTC).timestamp())
-        ev = TraceEvent(index=0, event_type="user", timestamp=ts)
+        ev = TraceEvent(index=0, event_type="user_message_chunk", timestamp=ts)
         assert ev.time_str == "12:30:45"
 
     def test_time_str_bad_value(self):
-        ev = TraceEvent(index=0, event_type="user", timestamp=-9999999999999)
+        ev = TraceEvent(index=0, event_type="user_message_chunk", timestamp=-9999999999999)
         # Should not raise, returns string form
         assert ev.time_str != ""
 
     def test_type_label(self):
-        assert TraceEvent(index=0, event_type="user").type_label == "User"
-        assert TraceEvent(index=0, event_type="assistant").type_label == "Assistant"
-        assert TraceEvent(index=0, event_type="tool_call").type_label == "Tool"
-        assert TraceEvent(index=0, event_type="tool_result").type_label == "Result"
-        assert TraceEvent(index=0, event_type="session_error").type_label == "Session error"
+        assert (
+            TraceEvent(index=0, event_type="user_message_chunk").type_label == "user message chunk"
+        )
+        assert (
+            TraceEvent(index=0, event_type="agent_message_chunk").type_label
+            == "agent message chunk"
+        )
+        assert TraceEvent(index=0, event_type="tool_call").type_label == "tool call"
+        assert TraceEvent(index=0, event_type="tool_call_update").type_label == "tool call update"
+        assert TraceEvent(index=0, event_type="session_error").type_label == "session error"
 
     def test_type_label_unknown(self):
         ev = TraceEvent(index=0, event_type="custom_type")
-        assert ev.type_label == "Custom Type"
+        assert ev.type_label == "custom type"
 
     def test_summary_line_tool_call_command(self):
         ev = TraceEvent(
@@ -150,7 +155,7 @@ class TestTraceEvent:
     def test_summary_line_tool_result(self):
         ev = TraceEvent(
             index=0,
-            event_type="tool_result",
+            event_type="tool_call_update",
             tool_name="grep",
             content="line1\nline2\nline3",
         )
@@ -161,13 +166,15 @@ class TestTraceEvent:
     def test_summary_line_session(self):
         ev = TraceEvent(
             index=0,
-            event_type="session",
+            event_type="turn_started",
             content="turn started  model=v9-dietcoke",
         )
         assert "turn started" in ev.summary_line
 
     def test_summary_line_assistant(self):
-        ev = TraceEvent(index=0, event_type="assistant", content="I'll help you fix that.")
+        ev = TraceEvent(
+            index=0, event_type="agent_message_chunk", content="I'll help you fix that."
+        )
         assert "fix" in ev.summary_line
 
 
@@ -409,7 +416,7 @@ class TestToolCallAndTraceEventEdges:
     def test_trace_event_summary_edges(self):
         ev = TraceEvent(index=0, event_type="tool_call", tool_name="x", raw_input={})
         assert "x" in ev.summary_line
-        ev2 = TraceEvent(index=0, event_type="user", content="hello world")
+        ev2 = TraceEvent(index=0, event_type="user_message_chunk", content="hello world")
         assert "hello" in ev2.summary_line
         ev3 = TraceEvent(index=0, event_type="session_error", content="boom")
         assert ev3.type_label

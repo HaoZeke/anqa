@@ -9,12 +9,13 @@ from contextlib import suppress
 from rich.console import RenderableType
 from rich.text import Text
 
+from .. import event_types as et
 from ..models import SessionMeta, TraceEvent, json_as_str
 from ..parser import extract_prompt
 from ..runs.live_share import get_share_display
 from ..session.usage_stats import SessionUsageStats
 from ..utils import fmt_duration
-from .i18n import t
+from .i18n import join_ui, t
 from .panel_render import (
     bullet,
     content_block,
@@ -65,7 +66,7 @@ def render_session_summary(
     sess_errs = sum(
         1
         for e in timeline
-        if e.event_type == "session_error" or (e.event_type == "session" and e.is_error)
+        if e.event_type in et.ERROR_TYPES or (e.event_type in et.TURN_BOUNDARY_TYPES and e.is_error)
     )
     type_counts = Counter(e.event_type for e in timeline)
     title = (meta.title or meta.session_id or "session").strip()
@@ -102,15 +103,13 @@ def render_session_summary(
     strip_parts = [
         model,
         dur,
-        f"{len(timeline)} {t('ui-events-1')}",
-        f"{len(tool_calls)} {t('ui-tools-1')}",
+        t("count-events", n=len(timeline)),
+        t("count-tools", n=len(tool_calls)),
     ]
     if len(turns) > 1:
-        strip_parts.append(f"{len(turns)} {t('ui-turns')}")
+        strip_parts.append(t("count-turns", n=len(turns)))
     if tool_errs or sess_errs:
-        strip_parts.append(
-            f"{tool_errs} {t('ui-tool-errors')} {sess_errs} {t('ui-session-errors')}"
-        )
+        strip_parts.append(f"{tool_errs} tool errors · {sess_errs} session errors")
     head.append_text(meta_strip(strip_parts))
     blocks.append(head)
     blocks.append(dim_rule())
@@ -169,40 +168,55 @@ def render_session_summary(
         turns_t.append_text(section_header(t("ui-turns-1")))
         if len(turns) == 1 and (
             not any(
-                e.event_type == "session" and "turn" in (e.content or "").lower() for e in timeline
+                e.event_type in et.TURN_BOUNDARY_TYPES
+                or (e.event_type == "session" and "turn" in (e.content or "").lower())
+                for e in timeline
             )
         ):
             turns_t.append(t("ui-single-segment-no-turn-started-markers-in-timeli"), style="dim")
         for seg in turns:
             tools_n = seg.tool_call_count
             terr = seg.tool_error_count
-            span = ""
+            tools_bit = t("ui-turn-stat-tools", n=tools_n)
+            if terr:
+                tools_bit = join_ui(tools_bit, "(" + t("ui-turn-stat-err", n=terr) + ")")
+            parts: list[str] = [
+                f"{seg.label:<22}",
+                t("ui-turn-stat-events", n=seg.event_count),
+                tools_bit,
+                t("ui-turn-stat-user", n=seg.user_count),
+                t("ui-turn-stat-asst", n=seg.assistant_count),
+            ]
             if seg.first_index is not None and seg.last_index is not None:
-                span = f"  #{seg.first_index}–#{seg.last_index}"
-            line = (
-                f"{seg.label:<22} {t('ui-events-3')} {seg.event_count:<4} {t('ui-tools-2')} {tools_n}"
-                + (f" ({terr} {t('ui-err')}" if terr else "")
-                + f"{t('ui-user-1')} {seg.user_count} {t('ui-asst-1')} {seg.assistant_count} {span}"
-            )
-            turns_t.append_text(bullet(line))
+                parts.append(
+                    t(
+                        "ui-turn-stat-span",
+                        first=seg.first_index,
+                        last=seg.last_index,
+                    )
+                )
+            turns_t.append_text(bullet(join_ui(*parts)))
             if len(turns) > 1 and tools_n:
                 mix_t = Counter(e.tool_name for e in seg.tool_calls if e.tool_name)
                 top = ", ".join((f"{n}×{c}" for n, c in mix_t.most_common(4)))
-                turns_t.append(f"{t('ui-tools-3')} {top}\n", style="dim")
+                turns_t.append(
+                    "  " + t("ui-turn-tools-mix", mix=top) + "\n",
+                    style="dim",
+                )
         blocks.append(turns_t)
     if meta.turn_failed or kind == "bad":
         note = Text()
         note.append_text(section_header(t("ui-note-1")))
         note.append(
-            f"{t('ui-last-turn-outcome')} {outcome!r} {t('ui-session-meta-is-last-turn-ended-gate-earlier-tur')}",
+            t("browser-last-turn-outcome-note", outcome=repr(outcome)),
             style="dim",
         )
         blocks.append(note)
     mix = Text()
     mix.append_text(section_header(t("ui-event-mix-session")))
     if type_counts:
-        for et, c in type_counts.most_common():
-            mix.append_text(bullet(f"{et:<16} {c}"))
+        for ev_type, c in type_counts.most_common():
+            mix.append_text(bullet(f"{ev_type:<22} {c}"))
     else:
         mix.append(t("ui-none"), style="dim")
     blocks.append(mix)
@@ -254,6 +268,9 @@ def render_session_summary(
 def append_usage_rich(out: Text, usage: SessionUsageStats) -> None:
     """Append host tools / MCP / skills onto a Rich Text (Summary tab).
 
+    Copy comes from Fluent (``t(...)``); Rich styles are applied around full
+    messages, not f-string fragment glue.
+
     :param out: Rich :class:`~rich.text.Text` instance to append into.
     :param usage: Collected session usage statistics.
     """
@@ -262,41 +279,80 @@ def append_usage_rich(out: Text, usage: SessionUsageStats) -> None:
     out.append_text(section_header(t("ui-host-tools")))
     if usage.host_tools:
         for row in usage.host_tools:
-            err = f"  ({row.errors} {t('ui-errors-3')}" if row.errors else ""
-            out.append_text(list_row(f"{row.name:<24} {row.calls}×{err}"))
-        out.append_text(list_row(f"{'total':<24} {usage.host_tool_call_total}"))
+            err_suffix = t("ui-host-tool-errors", n=row.errors) if row.errors else ""
+            # Pad tool id for alignment only (not user-facing copy).
+            label = f"{row.name:<24}"
+            out.append_text(
+                list_row(join_ui(label, t("ui-host-tool-calls", n=row.calls), err_suffix))
+            )
+        out.append_text(list_row(t("ui-host-tool-total", n=usage.host_tool_call_total)))
     else:
-        out.append(t("ui-none"), style="dim")
+        out.append(t("ui-none") + "\n", style="dim")
     if usage.mcp_bridge_calls:
-        out.append_text(list_row(f"{t('ui-mcp-bridge-calls'):<24} {usage.mcp_bridge_calls}"))
+        out.append_text(kv_line(t("ui-mcp-bridge-calls"), str(usage.mcp_bridge_calls)))
     out.append_text(section_header(t("ui-mcp")))
     if not usage.mcp_servers and (not usage.mcp_configured):
-        out.append(t("ui-none"), style="dim")
+        out.append(t("ui-none") + "\n", style="dim")
     else:
+        # Idle = dim name only; used = magenta name + indented methods.
+        # Do not dump search_tool query text (noisy); optional search count only.
         for srv in usage.mcp_servers:
-            cfg = "configured" if srv.configured else t("ui-from-calls")
-            out.append_text(list_row(f"{srv.server_id}  ({cfg})"))
-            if not srv.methods and (not srv.search_queries) and (not srv.use_tool_calls):
-                out.append(t("ui-enabled-no-tool-hits"), style="dim")
+            used = bool(srv.methods or srv.search_queries or srv.use_tool_calls)
+            name_style = "bold magenta" if used else "dim"
+            mcp_line = Text()
+            mcp_line.append("  ")
+            mcp_line.append(srv.server_id, style=name_style)
+            if srv.errors:
+                mcp_line.append(" ")
+                mcp_line.append(t("ui-err-count", n=srv.errors), style="red")
+            mcp_line.append("\n")
+            out.append_text(mcp_line)
+            if not used:
                 continue
-            if srv.use_tool_calls:
-                out.append(f"{t('ui-use-tool')} {srv.use_tool_calls}×\n", style="dim")
             for m in srv.methods:
-                out.append(f"    .{m.method}  {m.calls}×\n", style="dim")
+                line = Text()
+                line.append("    ")
+                line.append(
+                    t("ui-mcp-method-line", method=m.method, calls=m.calls),
+                    style="magenta",
+                )
+                if m.errors:
+                    line.append(" ")
+                    line.append(t("ui-err-count-paren", n=m.errors), style="red")
+                line.append("\n")
+                out.append_text(line)
+            n_search = len(srv.search_queries)
+            if n_search and not srv.methods:
+                # Searched the catalog but never invoked a method on this server.
+                out.append(
+                    "    " + t("ui-mcp-search-count", n=n_search) + "\n",
+                    style="dim",
+                )
     out.append_text(section_header(t("ui-skills-1")))
     if not usage.skills and (not usage.skills_configured):
-        out.append(t("ui-none"), style="dim")
+        out.append(t("ui-none") + "\n", style="dim")
     else:
         for sk in usage.skills:
-            bits = []
+            bits: list[str] = []
             if sk.configured:
-                bits.append("mounted")
+                bits.append(t("browser-skill-mounted"))
             if sk.skill_md_reads:
-                bits.append(f"{t('ui-loaded-1')} {sk.skill_md_reads}×")
-            out.append_text(list_row(f"{sk.skill_id}  — {', '.join(bits) or 'seen'}"))
+                bits.append(t("ui-skill-loaded", n=sk.skill_md_reads))
+            out.append_text(
+                list_row(
+                    t(
+                        "ui-skill-line",
+                        id=sk.skill_id,
+                        bits=", ".join(bits) or t("browser-skill-seen"),
+                    )
+                )
+            )
     if usage.source_notes:
-        out.append(f"{t('ui-sources')} {', '.join(usage.source_notes)}\n", style="dim")
+        out.append(
+            t("ui-sources-line", notes=", ".join(usage.source_notes)) + "\n",
+            style="dim",
+        )
 
 
 def assistant_text_from_timeline(timeline: list[TraceEvent]) -> str:
-    return "".join(e.content for e in timeline if e.event_type == "assistant" and e.content)
+    return "".join(e.content for e in timeline if e.event_type in et.AGENT_TYPES and e.content)

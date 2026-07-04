@@ -16,6 +16,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import event_types as et
 from ..models import (
     JsonObject,
     ToolInput,
@@ -227,20 +228,56 @@ def _split_mcp_qualified(name: str) -> tuple[str, str]:
     return "", s
 
 
+@dataclass
+class _McpCallAcc:
+    """Mutable counters while scanning the timeline for MCP activity."""
+
+    method_counts: dict[str, Counter[str]] = field(default_factory=lambda: defaultdict(Counter))
+    method_errors: dict[str, Counter[str]] = field(default_factory=lambda: defaultdict(Counter))
+    method_qualified: dict[str, dict[str, str]] = field(default_factory=lambda: defaultdict(dict))
+    server_use_calls: Counter[str] = field(default_factory=Counter)
+    server_errors: Counter[str] = field(default_factory=Counter)
+    server_searches: dict[str, list[str]] = field(default_factory=lambda: defaultdict(list))
+    flat_targets: Counter[str] = field(default_factory=Counter)
+
+    def record_method(self, server: str, method: str, *, is_error: bool, qualified: str) -> None:
+        """Attribute one MCP method invocation (bridge or direct ``server__method``)."""
+        srv = server or "?"
+        self.server_use_calls[srv] += 1
+        self.method_counts[srv][method] += 1
+        if is_error:
+            self.method_errors[srv][method] += 1
+            self.server_errors[srv] += 1
+        qname = qualified or (f"{srv}__{method}" if srv != "?" else method)
+        if srv != "?":
+            self.method_qualified[srv][method] = qname
+        self.flat_targets[qname] += 1
+
+    def record_search(self, server: str, query: str) -> None:
+        srv = server if server and server != "?" else "_search"
+        self.server_searches[srv].append(query)
+        self.flat_targets[f"search:{query[:60]}"] += 1
+
+
 def _mcp_target_from_input(tool_name: str, raw_input: ToolInput) -> tuple[str, str, str]:
-    """Return ``(server_id, method_or_label, kind)`` with kind in use|search|unknown."""
+    """Return ``(server_id, method_or_label, kind)`` with kind in use|search|unknown.
+
+    Only for MCP **bridge** tools (``use_tool`` / ``call_mcp`` / ``search_tool``).
+    Direct ``server__method`` tool ids use :func:`_split_mcp_qualified` instead.
+    """
     ri = ToolInputBag.ensure(raw_input)
-    if tool_name in ("use_tool", "call_mcp"):
-        for key in ("tool_name", "name", "tool", "id"):
-            q = ri.as_str(key).strip()
-            if q:
-                server, method = _split_mcp_qualified(q)
-                if server:
-                    return server, method, "use"
-                return "?", q, "use"
-    if tool_name == "search_tool":
+    key = (tool_name or "").strip().lower().replace("-", "_")
+    if key in ("use_tool", "call_mcp", "call_mcp_tool", "mcp_tool"):
+        q = (ri.as_str("tool_name") or ri.as_str("name")).strip()
+        if q:
+            server, method = _split_mcp_qualified(q)
+            if server:
+                return server, method, "use"
+            return "?", q, "use"
+    if key in ("search_tool", "search_mcp"):
         qs = (ri.as_str("query") or ri.as_str("q")).strip()
         if qs:
+            # First token is often the server id the agent is searching for.
             first = qs.split()[0].strip(".,;:") if qs.split() else ""
             server = first if first and re.match(r"^[a-z0-9][\w.-]*$", first, re.I) else "?"
             return server, qs[:80], "search"
@@ -366,20 +403,13 @@ def collect_session_usage(
             events = []
 
     tool_rows: dict[str, ToolUsageRow] = {}
-    # server_id -> method -> (calls, errors)
-    mcp_method_counts: dict[str, Counter[str]] = defaultdict(Counter)
-    mcp_method_errors: dict[str, Counter[str]] = defaultdict(Counter)
-    mcp_method_qualified: dict[str, dict[str, str]] = defaultdict(dict)
-    mcp_server_searches: dict[str, list[str]] = defaultdict(list)
-    mcp_server_use_calls: Counter[str] = Counter()
-    mcp_server_errors: Counter[str] = Counter()
+    mcp_acc = _McpCallAcc()
     skill_md_reads: Counter[str] = Counter()
-    flat_targets: Counter[str] = Counter()
 
     text_chunks: list[str] = []
 
     for e in events or []:
-        if e.event_type in ("assistant", "user", "thought") and e.content:
+        if e.event_type in et.MESSAGE_TYPES and e.content:
             text_chunks.append(e.content)
 
         if e.event_type != "tool_call" or not e.tool_name:
@@ -419,43 +449,49 @@ def collect_session_usage(
             stats.mcp_bridge_calls += 1
             server, method, kind = _mcp_target_from_input(name, ri)
             if kind == "search" and method:
-                srv = server if server and server != "?" else "_search"
-                mcp_server_searches[srv].append(method)
-                flat_targets[f"search:{method[:60]}"] += 1
+                mcp_acc.record_search(server, method)
             elif kind == "use" and method:
-                srv = server or "?"
-                mcp_server_use_calls[srv] += 1
-                mcp_method_counts[srv][method] += 1
-                if e.is_error:
-                    mcp_method_errors[srv][method] += 1
-                    mcp_server_errors[srv] += 1
-                if server and server != "?":
-                    mcp_method_qualified[srv][method] = f"{server}__{method}"
-                flat_targets[f"{srv}__{method}" if srv != "?" else method] += 1
+                mcp_acc.record_method(
+                    server or "?",
+                    method,
+                    is_error=e.is_error,
+                    qualified=(f"{server}__{method}" if server and server != "?" else method),
+                )
+        elif "__" in name or name.startswith("mcp_"):
+            # Direct MCP tool id in the tool set (not only via use_tool).
+            server, method = _split_mcp_qualified(name)
+            if server and method:
+                mcp_acc.record_method(
+                    server,
+                    method,
+                    is_error=e.is_error,
+                    qualified=name if "__" in name else f"{server}__{method}",
+                )
 
     stats.tools = sorted(tool_rows.values(), key=lambda r: (-r.calls, r.name))
+    # Host table: built-ins only (exclude MCP bridge *and* direct server__method rows).
     stats.host_tools = [t for t in stats.tools if t.category == "builtin"]
-    stats.mcp_tools_invoked = [n for n, _ in flat_targets.most_common()]
+    stats.mcp_tools_invoked = [n for n, _ in mcp_acc.flat_targets.most_common()]
 
     # Build mcp_servers list (configured first, then discovered from calls)
     all_servers: set[str] = set(stats.mcp_configured)
-    all_servers |= set(mcp_method_counts.keys())
-    all_servers |= set(mcp_server_searches.keys())
-    all_servers |= set(mcp_server_use_calls.keys())
+    all_servers |= set(mcp_acc.method_counts.keys())
+    all_servers |= set(mcp_acc.server_searches.keys())
+    all_servers |= set(mcp_acc.server_use_calls.keys())
     all_servers.discard("_search")
 
     server_rows: list[McpServerUsage] = []
-    for srv in sorted(all_servers, key=lambda s: (-mcp_server_use_calls.get(s, 0), s)):
+    for srv in sorted(all_servers, key=lambda s: (-mcp_acc.server_use_calls.get(s, 0), s)):
         methods = [
             McpMethodUsage(
                 method=meth,
                 calls=cnt,
-                errors=mcp_method_errors[srv].get(meth, 0),
-                qualified_name=mcp_method_qualified[srv].get(meth, f"{srv}__{meth}"),
+                errors=mcp_acc.method_errors[srv].get(meth, 0),
+                qualified_name=mcp_acc.method_qualified[srv].get(meth, f"{srv}__{meth}"),
             )
-            for meth, cnt in mcp_method_counts[srv].most_common()
+            for meth, cnt in mcp_acc.method_counts[srv].most_common()
         ]
-        searches = list(mcp_server_searches.get(srv, []))
+        searches = list(mcp_acc.server_searches.get(srv, []))
         # Orphan searches tagged under _search with first-token guess elsewhere
         if srv == "?":
             continue
@@ -463,14 +499,16 @@ def collect_session_usage(
             McpServerUsage(
                 server_id=srv,
                 configured=srv in stats.mcp_configured,
-                use_tool_calls=mcp_server_use_calls.get(srv, 0),
+                use_tool_calls=mcp_acc.server_use_calls.get(srv, 0),
                 search_queries=searches,
                 methods=methods,
-                errors=mcp_server_errors.get(srv, 0),
+                errors=mcp_acc.server_errors.get(srv, 0),
             )
         )
     # Searches without a clear server
-    orphan_searches = mcp_server_searches.get("?", []) + mcp_server_searches.get("_search", [])
+    orphan_searches = mcp_acc.server_searches.get("?", []) + mcp_acc.server_searches.get(
+        "_search", []
+    )
     if orphan_searches and not any(s.server_id == "?" for s in server_rows):
         # Attach to configured servers if only one, else a pseudo bucket
         if len(stats.mcp_configured) == 1:
