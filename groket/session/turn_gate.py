@@ -108,6 +108,14 @@ def host_requested_done(session_dir: Path) -> bool:
     return False
 
 
+def final_turn_requested(session_dir: Path) -> bool:
+    """True when the host staged a last-turn follow-up (``final_turn`` on a gate)."""
+    for gate in turn_gate_dirs_for_session(session_dir):
+        if (gate / "final_turn").is_file():
+            return True
+    return False
+
+
 def session_awaits_follow_up(session_dir: Path) -> bool:
     """True only when the gate is waiting and the host has not sent done."""
     for gate in turn_gate_dirs_for_session(session_dir):
@@ -304,15 +312,23 @@ def session_pending_label(session_dir: Path, *, turn_in_progress: bool = False) 
     state = json_as_str(st.get("state"))
     if state == "done":
         return ""
-    if host_requested_done(session_dir):
-        # Only "finishing" while traces may still be written; stale + done → settled.
+    if host_requested_done(session_dir) or final_turn_requested(session_dir):
+        # Only "finishing" while traces may still be written; stale → settled.
         try:
             from ..parser import _infer_incomplete_turn_outcome
 
             if _infer_incomplete_turn_outcome(session_dir) == "running":
-                return "finishing (done requested)"
+                return (
+                    "finishing (done requested)"
+                    if host_requested_done(session_dir)
+                    else "finishing (last turn)"
+                )
         except Exception:
-            return "finishing (done requested)"
+            return (
+                "finishing (done requested)"
+                if host_requested_done(session_dir)
+                else "finishing (last turn)"
+            )
         return ""
     turn = json_as_int(st.get("turn"), 0)
     queued = 0

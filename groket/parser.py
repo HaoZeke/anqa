@@ -932,6 +932,20 @@ def session_trace_mtime(session_dir: Path) -> float:
     return newest
 
 
+_LIVE_TURN_OUTCOMES = frozenset({"", "running", "in_progress", "pending", "awaiting_follow_up"})
+_SUCCESS_TURN_OUTCOMES = frozenset({"success", "ok", "completed", "complete"})
+
+
+def _normalize_terminal_turn_outcome(outcome: str) -> str:
+    """Map a harness outcome to a stable terminal label, or ``""`` if still live."""
+    oc = (outcome or "").strip().lower().replace(" ", "_")
+    if not oc or oc in _LIVE_TURN_OUTCOMES:
+        return ""
+    if oc in _SUCCESS_TURN_OUTCOMES:
+        return "completed"
+    return oc
+
+
 def _events_open_turn_after_completed(session_dir: Path) -> bool:
     """True when a later turn has started after at least one turn completed.
 
@@ -958,6 +972,98 @@ def _events_open_turn_after_completed(session_dir: Path) -> bool:
     except OSError:
         return False
     return ended > 0 and open_starts > 0
+
+
+def _events_turn_balance(session_dir: Path) -> tuple[int, str]:
+    """Return ``(open_starts, last_turn_event_type)`` from ``events.jsonl``."""
+    events_file = session_dir / "events.jsonl"
+    if not events_file.is_file():
+        return 0, ""
+    open_starts = 0
+    last_turn = ""
+    try:
+        with events_file.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    et = (json_object_line(line) or {}).get("type")
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    continue
+                if et == "turn_started":
+                    open_starts += 1
+                    last_turn = "turn_started"
+                elif et == "turn_ended":
+                    open_starts = max(0, open_starts - 1)
+                    last_turn = "turn_ended"
+    except OSError:
+        return 0, ""
+    return open_starts, last_turn
+
+
+def _events_have_open_turn(session_dir: Path) -> bool:
+    """True when the agent is mid-turn according to ``events.jsonl``.
+
+    Requires an unmatched ``turn_started`` whose latest turn event is not
+    ``turn_ended`` (harness files sometimes leave an older start unbalanced
+    even after a later ``turn_ended``).
+    """
+    open_starts, last_turn = _events_turn_balance(session_dir)
+    return open_starts > 0 and last_turn == "turn_started"
+
+
+def _settle_idle_gate_outcome(marker_outcome: str) -> str:
+    """Outcome when the gate looks live but the container is idle."""
+    terminal = _normalize_terminal_turn_outcome(marker_outcome)
+    return terminal or "completed"
+
+
+def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str | None:
+    """Interactive-gate outcome override, or ``None`` to keep marker/inference.
+
+    Handles stuck ``state=running`` after a completed last turn (``final_turn``
+    left on disk because the entrypoint exited before rewriting ``status.json``).
+    """
+    from .session.turn_gate import (
+        final_turn_requested,
+        host_requested_done,
+        read_turn_gate_status,
+        session_awaits_follow_up,
+    )
+
+    gst = read_turn_gate_status(session_dir)
+    gstate = str(gst.get("state") or "")
+    traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
+    turns_open = _events_have_open_turn(session_dir)
+    final_turn = final_turn_requested(session_dir)
+
+    if host_requested_done(session_dir) and gstate != "done":
+        if traces_live or turns_open:
+            return "running"
+        return _settle_idle_gate_outcome(marker_outcome)
+
+    if session_awaits_follow_up(session_dir):
+        return "awaiting_follow_up"
+
+    if gstate == "running":
+        if turns_open:
+            return "running" if traces_live else _settle_idle_gate_outcome(marker_outcome)
+        if final_turn:
+            # Last turn already wrote turn_ended; entrypoint left final_turn/status
+            # behind (crash or kill during share). Do not wait on the stale timer.
+            return _settle_idle_gate_outcome(marker_outcome)
+        if traces_live:
+            return "running"
+        terminal = _normalize_terminal_turn_outcome(marker_outcome)
+        if terminal:
+            # Entrypoint died with status=running after the last turn_ended.
+            return terminal
+        return "running"
+
+    if gstate == "done":
+        return _settle_idle_gate_outcome(marker_outcome)
+
+    if turns_open:
+        return "running" if traces_live else None
+    return None
 
 
 def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
@@ -1126,40 +1232,20 @@ def load_session_meta(
             meta.turn_outcome = inferred
 
     # Interactive gate overrides while the eval is open. Awaiting only when the
-    # gate is awaiting_follow_up. Host ``command=done`` means *finishing* only
-    # while traces are still fresh; if the container never rewrote ``state=done``
-    # (removed / crashed), settle to completed rather than leave ``running``.
+    # gate is awaiting_follow_up. Host ``command=done`` / stuck ``final_turn``
+    # mean *finishing* only while traces are still fresh; if the container never
+    # rewrote ``state=done``, settle to the harness outcome rather than ``running``.
     try:
-        from .session.turn_gate import (
-            host_requested_done,
-            read_turn_gate_status,
-            session_awaits_follow_up,
-        )
-
-        gst = read_turn_gate_status(session_dir)
-        gstate = str(gst.get("state") or "")
-        marker_outcome = (meta.turn_outcome or "").strip()
-        live_outcomes = frozenset({"", "running", "in_progress", "pending", "awaiting_follow_up"})
-        if host_requested_done(session_dir) and gstate != "done":
-            if _infer_incomplete_turn_outcome(session_dir) == "running":
-                meta.turn_outcome = "running"
-            elif marker_outcome and marker_outcome not in live_outcomes:
-                meta.turn_outcome = marker_outcome
-            else:
-                meta.turn_outcome = "completed"
-        elif session_awaits_follow_up(session_dir):
-            meta.turn_outcome = "awaiting_follow_up"
-        elif gstate == "running":
-            meta.turn_outcome = "running"
-        elif gstate == "done":
-            if not marker_outcome or marker_outcome in live_outcomes:
-                meta.turn_outcome = "completed"
+        override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
+        if override is not None:
+            meta.turn_outcome = override
         elif _events_open_turn_after_completed(session_dir):
             meta.turn_outcome = "running"
     except Exception:
         logger.debug("turn gate status for %s", session_dir, exc_info=True)
-        if _events_open_turn_after_completed(session_dir):
-            meta.turn_outcome = "running"
+        if _events_have_open_turn(session_dir):
+            if _infer_incomplete_turn_outcome(session_dir) == "running":
+                meta.turn_outcome = "running"
 
     if meta.turn_failed and not meta.error_count:
         # Surface harness failure even when signals.json tool errors are zero
@@ -1194,24 +1280,12 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
     """
     sd = Path(session_dir)
     try:
-        from .session.turn_gate import (
-            host_requested_done,
-            read_turn_gate_status,
-            session_awaits_follow_up,
-        )
-
-        gst = read_turn_gate_status(sd)
-        gstate = str(gst.get("state") or "")
-        if host_requested_done(sd) and gstate != "done":
-            # Finishing only while traces are fresh; else container is gone.
-            if _infer_incomplete_turn_outcome(sd) == "running":
-                return "running"
-            return ""
-        if session_awaits_follow_up(sd):
+        override = _gate_override_turn_outcome(sd, "")
+        if override == "awaiting_follow_up":
             return "awaiting_follow_up"
-        if gstate == "running":
+        if override == "running":
             return "running"
-        if gstate == "done":
+        if override is not None:
             return ""
     except Exception:
         logger.debug("list turn outcome gate for %s", sd, exc_info=True)

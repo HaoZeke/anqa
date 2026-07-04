@@ -2380,6 +2380,115 @@ def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
     assert list_turn_outcome_for_dir(sess) == ""
 
 
+def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
+    """Last-turn follow-up left ``state=running`` after turn_ended must show complete."""
+    import os
+    import time
+
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-final-stale"
+    sess.mkdir(parents=True)
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n"
+        + json.dumps({"type": "turn_started", "turn_number": 1})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
+    old = time.time() - (21 * 60)
+    os.utime(sess / "events.jsonl", (old, old))
+    os.utime(sess / "updates.jsonl", (old, old))
+    gate = vol / ".groket-turn"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "session_id": "019f-final-stale",
+                "turn": 2,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (gate / "command").write_text("follow_up\n", encoding="utf-8")
+    (gate / "final_turn").write_text("1\n", encoding="utf-8")
+    (gate / "next-prompt.txt").write_text("last prompt\n", encoding="utf-8")
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "completed"
+    assert meta.list_status_label() == "complete"
+    assert list_turn_outcome_for_dir(sess) == ""
+
+
+def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None:
+    """Closed last turn + final_turn settles without waiting for stale mtimes."""
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-final-fresh"
+    sess.mkdir(parents=True)
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n"
+        + json.dumps({"type": "turn_started", "turn_number": 1})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
+    gate = vol / ".groket-turn"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps({"state": "running", "session_id": "019f-final-fresh", "turn": 2}) + "\n",
+        encoding="utf-8",
+    )
+    (gate / "final_turn").write_text("1\n", encoding="utf-8")
+    (gate / "command").write_text("follow_up\n", encoding="utf-8")
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "completed"
+    assert meta.list_status_label() == "complete"
+    assert list_turn_outcome_for_dir(sess) == ""
+
+
+def test_final_turn_open_events_stay_running(tmp_path: Path) -> None:
+    """Final turn still writing (open turn_started) stays running."""
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-final-open"
+    sess.mkdir(parents=True)
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n"
+        + json.dumps({"type": "turn_started", "turn_number": 1})
+        + "\n",
+        encoding="utf-8",
+    )
+    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
+    gate = vol / ".groket-turn"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps({"state": "running", "session_id": "019f-final-open", "turn": 2}) + "\n",
+        encoding="utf-8",
+    )
+    (gate / "final_turn").write_text("1\n", encoding="utf-8")
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "running"
+    assert list_turn_outcome_for_dir(sess) == "running"
+
+
 def test_host_done_fresh_traces_still_running(tmp_path: Path) -> None:
     """command=done while traces are fresh keeps finishing/running."""
     import json
