@@ -89,6 +89,11 @@ SAMPLE_SIGNALS = {
     "sessionDurationSeconds": 155,
     "agentLinesAdded": 42,
     "agentLinesRemoved": 10,
+    "contextWindowUsage": 35,
+    "contextTokensUsed": 178996,
+    "contextWindowTokens": 500000,
+    "compactionCount": 0,
+    "totalTokensBeforeCompaction": 0,
 }
 
 SAMPLE_RUN = {

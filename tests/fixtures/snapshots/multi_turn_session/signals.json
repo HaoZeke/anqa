@@ -5,5 +5,10 @@
   "doomLoopWarnings": 0,
   "sessionDurationSeconds": 16,
   "agentLinesAdded": 5,
-  "agentLinesRemoved": 1
+  "agentLinesRemoved": 1,
+  "contextWindowUsage": 12,
+  "contextTokensUsed": 60000,
+  "contextWindowTokens": 500000,
+  "compactionCount": 0,
+  "totalTokensBeforeCompaction": 0
 }

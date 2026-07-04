@@ -35,6 +35,61 @@ def fmt_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m"
 
 
+def fmt_token_count(tokens: int) -> str:
+    """Compact token count for narrow UI columns (``179k``, ``1.2M``)."""
+    n = max(0, int(tokens))
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        k = n / 1000.0
+        text = f"{k:.0f}k" if k >= 10 or abs(k - round(k)) < 0.05 else f"{k:.1f}k"
+        return text.replace(".0k", "k")
+    m = n / 1_000_000.0
+    text = f"{m:.1f}M"
+    return text.replace(".0M", "M")
+
+
+def fmt_context_usage(
+    usage_pct: int | None,
+    tokens_used: int | None = None,
+    window_tokens: int | None = None,
+    *,
+    compact: bool = False,
+) -> str:
+    """Format session context fill from ``signals.json`` fields.
+
+    :param usage_pct: ``contextWindowUsage`` percent, or ``None`` when unknown.
+    :param tokens_used: ``contextTokensUsed``.
+    :param window_tokens: ``contextWindowTokens``.
+    :param compact: When true, prefer ``35%`` / ``179k/500k`` for narrow columns.
+    :returns: Display string, or empty when no context telemetry is present.
+    """
+    pct = usage_pct if usage_pct is not None and usage_pct >= 0 else None
+    used = tokens_used if tokens_used is not None and tokens_used >= 0 else None
+    window = window_tokens if window_tokens is not None and window_tokens > 0 else None
+    if pct is None and used is None:
+        return ""
+    if compact:
+        if pct is not None and used is not None and window is not None:
+            return f"{pct}% {fmt_token_count(used)}/{fmt_token_count(window)}"
+        if pct is not None:
+            return f"{pct}%"
+        if used is not None and window is not None:
+            return f"{fmt_token_count(used)}/{fmt_token_count(window)}"
+        if used is not None:
+            return fmt_token_count(used)
+        return ""
+    if pct is not None and used is not None and window is not None:
+        return f"{pct}% ({used:,} / {window:,})"
+    if pct is not None:
+        return f"{pct}%"
+    if used is not None and window is not None:
+        return f"{used:,} / {window:,}"
+    if used is not None:
+        return f"{used:,}"
+    return ""
+
+
 def collapse_blank_lines(text: str) -> str:
     """Collapse runs of three or more blank lines to a double blank line.
 

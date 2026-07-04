@@ -194,6 +194,23 @@ class TestSessionMeta:
         meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), duration_seconds=155)
         assert meta.duration_str == "2m35s"
 
+    def test_context_usage_str(self):
+        meta = SessionMeta(
+            session_id="x",
+            session_dir=Path("/tmp"),
+            context_window_usage_pct=35,
+            context_tokens_used=178996,
+            context_window_tokens=500000,
+        )
+        assert meta.has_context_usage is True
+        assert meta.context_usage_str == "35% (178,996 / 500,000)"
+        assert "35%" in meta.context_usage_compact
+        assert "500k" in meta.context_usage_compact
+        empty = SessionMeta(session_id="y", session_dir=Path("/tmp"))
+        assert empty.has_context_usage is False
+        assert empty.context_usage_str == ""
+        assert empty.context_usage_compact == ""
+
     def test_turn_in_progress(self):
         meta = SessionMeta(session_id="x", session_dir=Path("/tmp"), turn_outcome="running")
         assert meta.turn_in_progress is True

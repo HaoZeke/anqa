@@ -261,6 +261,10 @@ class TestLoadSessionMeta:
         assert meta.tool_failure_count == 1
         assert meta.duration_seconds == 155
         assert meta.lines_added == 42
+        assert meta.context_window_usage_pct == 35
+        assert meta.context_tokens_used == 178996
+        assert meta.context_window_tokens == 500000
+        assert "35%" in meta.context_usage_compact
         assert meta.turn_outcome == "success"
         assert meta.loop_count == 1
         # Events column = coalesced timeline (browser), not updates.jsonl size/line heuristics

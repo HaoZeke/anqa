@@ -19,7 +19,7 @@ from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
-from .utils import fmt_duration, strip_control_chars
+from .utils import fmt_context_usage, fmt_duration, strip_control_chars
 
 #
 # Recursive JSON types use PEP 695 ``type`` statements (Python 3.12+), same
@@ -489,6 +489,12 @@ class SessionMeta:
     doom_loop_warnings: int = 0
     lines_added: int = 0
     lines_removed: int = 0
+    # From signals.json context meter (session snapshot, not per-turn series).
+    context_window_usage_pct: int | None = None
+    context_tokens_used: int | None = None
+    context_window_tokens: int | None = None
+    compaction_count: int = 0
+    total_tokens_before_compaction: int = 0
     git_repo: str = ""
     git_branch: str = ""
     task_id: str = ""
@@ -514,6 +520,34 @@ class SessionMeta:
     @property
     def duration_str(self) -> str:
         return fmt_duration(self.duration_seconds)
+
+    @property
+    def has_context_usage(self) -> bool:
+        """True when signals.json provided context window telemetry."""
+        return (
+            self.context_window_usage_pct is not None
+            or self.context_tokens_used is not None
+            or (self.context_window_tokens is not None and self.context_window_tokens > 0)
+        )
+
+    @property
+    def context_usage_str(self) -> str:
+        """Full context fill label, e.g. ``35% (178,996 / 500,000)``."""
+        return fmt_context_usage(
+            self.context_window_usage_pct,
+            self.context_tokens_used,
+            self.context_window_tokens,
+        )
+
+    @property
+    def context_usage_compact(self) -> str:
+        """Narrow list/table label, e.g. ``35% 179k/500k``."""
+        return fmt_context_usage(
+            self.context_window_usage_pct,
+            self.context_tokens_used,
+            self.context_window_tokens,
+            compact=True,
+        )
 
     @property
     def turn_in_progress(self) -> bool:

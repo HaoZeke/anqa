@@ -43,6 +43,9 @@ class TestBuildSessionSummary:
             turn_outcome="success",
             duration_seconds=120,
             tool_call_count=5,
+            context_window_usage_pct=35,
+            context_tokens_used=178996,
+            context_window_tokens=500000,
         )
         timeline = [
             make_trace_event(index=0, event_type="user_message_chunk", content="Fix tests"),
@@ -68,6 +71,9 @@ class TestBuildSessionSummary:
         rich = render_session_summary(meta, timeline)
         assert_rich_contains(rich, "Fix auth tests")
         assert "Fix auth tests" in summary
+        plain = rich_plain(rich)
+        assert "35%" in plain
+        assert "178,996" in plain or "179k" in plain
 
     def test_turn_failure_warning(self, session_dir):
         meta = SessionMeta(

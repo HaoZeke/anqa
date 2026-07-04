@@ -1783,7 +1783,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             from ...session.turns import segment_timeline_turns, turn_summary_rows
 
             turn_segments = segment_timeline_turns(self.timeline)
-            turn_rows = turn_summary_rows(turn_segments, durations=durations)
+            turn_rows = turn_summary_rows(
+                turn_segments,
+                durations=durations,
+                session_context_compact=m.context_usage_compact,
+            )
         except Exception:
             turn_rows = []
         try:
@@ -1800,6 +1804,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 t("ui-user"),
                 t("ui-asst"),
                 t("ui-dur"),
+                t("ui-context"),
                 t("ui-top-tools"),
                 t("ui-span"),
             )
@@ -1811,6 +1816,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     )
                     fi, li = (row.get("first_index"), row.get("last_index"))
                     span = f"#{fi}–#{li}" if fi is not None and li is not None else "—"
+                    ctx = str(row.get("context") or "").strip() or "—"
                     turns_table.add_row(
                         str(row.get("turn", "")),
                         str(row.get("label", "")),
@@ -1821,13 +1827,25 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         str(row.get("users", 0)),
                         str(row.get("assistants", 0)),
                         dur_s,
+                        ctx[:28],
                         str(row.get("top_tools", "—"))[:40],
                         span,
                         key=f"turn-{row.get('turn')}",
                     )
             else:
                 turns_table.add_row(
-                    "—", t("ui-no-timeline"), "—", "0", "0", "—", "0", "0", "—", "—", "—"
+                    "—",
+                    t("ui-no-timeline"),
+                    "—",
+                    "0",
+                    "0",
+                    "—",
+                    "0",
+                    "0",
+                    "—",
+                    "—",
+                    "—",
+                    "—",
                 )
         except Exception:
             pass

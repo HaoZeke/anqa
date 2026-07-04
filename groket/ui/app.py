@@ -550,6 +550,7 @@ class TraceEvalApp(App):
             t("ui-title"),
             t("ui-turn"),
             t("ui-duration"),
+            t("ui-context"),
             t("ui-events"),
             t("ui-findings-1"),
             t("ui-high-1"),
@@ -625,6 +626,11 @@ class TraceEvalApp(App):
                 "num_events": meta.num_events,
                 "trace_mtime": tm,
                 "duration_seconds": meta.duration_seconds,
+                "context_window_usage_pct": meta.context_window_usage_pct,
+                "context_tokens_used": meta.context_tokens_used,
+                "context_window_tokens": meta.context_window_tokens,
+                "compaction_count": meta.compaction_count,
+                "total_tokens_before_compaction": meta.total_tokens_before_compaction,
                 "task_id": meta.task_id,
                 "run_id": meta.run_id,
                 "git_repo": meta.git_repo,
@@ -1172,6 +1178,7 @@ class TraceEvalApp(App):
                     style=status_rich_style("idle"),
                 )
             try:
+                ctx = meta.context_usage_compact or "—"
                 table.add_row(
                     sel,
                     meta.session_id[:20],
@@ -1180,6 +1187,7 @@ class TraceEvalApp(App):
                     meta.label[:40],
                     turn_text,
                     meta.duration_str,
+                    ctx[:24],
                     str(meta.num_events),
                     str(finding_count),
                     high_text,

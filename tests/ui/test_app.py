@@ -133,8 +133,9 @@ def test_populate_session_table_shows_unanalyzed_rows(tmp_path: Path):
     host._populate_session_table_inner()
     assert len(rows_added) == 1
     cells, key = rows_added[0]
-    # findings column is index 8 (after sel, id, model, task, title, turn, dur, events)
-    assert str(cells[8]) == "--"
+    # findings column is index 9 (after sel, id, model, task, title, turn, dur, context, events)
+    assert str(cells[9]) == "--"
+    assert str(cells[7]) == "—"  # no context telemetry on this stub meta
     assert key == str(meta.session_dir)
 
 

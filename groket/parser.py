@@ -1131,6 +1131,37 @@ def _load_signals(meta: SessionMeta, session_dir: Path) -> None:
         meta.duration_seconds = sig.get("sessionDurationSeconds", 0)
         meta.lines_added = sig.get("agentLinesAdded", 0)
         meta.lines_removed = sig.get("agentLinesRemoved", 0)
+        usage = sig.get("contextWindowUsage")
+        if isinstance(usage, bool):
+            pass
+        elif isinstance(usage, int):
+            meta.context_window_usage_pct = max(0, usage)
+        elif isinstance(usage, float):
+            meta.context_window_usage_pct = max(0, int(usage))
+        used = sig.get("contextTokensUsed")
+        if isinstance(used, bool):
+            pass
+        elif isinstance(used, int):
+            meta.context_tokens_used = max(0, used)
+        elif isinstance(used, float):
+            meta.context_tokens_used = max(0, int(used))
+        window = sig.get("contextWindowTokens")
+        if isinstance(window, bool):
+            pass
+        elif isinstance(window, int) and window > 0:
+            meta.context_window_tokens = window
+        elif isinstance(window, float) and window > 0:
+            meta.context_window_tokens = int(window)
+        compactions = sig.get("compactionCount")
+        if isinstance(compactions, int) and compactions >= 0:
+            meta.compaction_count = compactions
+        elif isinstance(compactions, float) and compactions >= 0:
+            meta.compaction_count = int(compactions)
+        before = sig.get("totalTokensBeforeCompaction")
+        if isinstance(before, int) and before >= 0:
+            meta.total_tokens_before_compaction = before
+        elif isinstance(before, float) and before >= 0:
+            meta.total_tokens_before_compaction = int(before)
     except (json.JSONDecodeError, KeyError):
         pass
 

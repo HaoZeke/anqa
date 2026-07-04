@@ -1206,6 +1206,24 @@ ui-dur = Dur
 
 ui-duration = Duration
 
+ui-context = Context
+
+ui-context-usage = Context usage
+
+ui-context-tokens = Context tokens
+
+ui-context-window = Context window
+
+ui-compactions = Compactions
+
+ui-context-session-snapshot-note = Session snapshot from signals.json (Grok does not export per-turn context series)
+
+ui-context-session-end = session end
+
+ui-context-session-end-paren = (session end)
+
+ui-context-on-last-turn = {$usage} (session end)
+
 ui-duration-1 = Duration:
 
 ui-edit = Edit…

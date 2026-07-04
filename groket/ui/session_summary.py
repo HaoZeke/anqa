@@ -106,6 +106,8 @@ def render_session_summary(
         t("count-events", n=len(timeline)),
         t("count-tools", n=len(tool_calls)),
     ]
+    if meta.has_context_usage:
+        strip_parts.append(meta.context_usage_compact or meta.context_usage_str)
     if len(turns) > 1:
         strip_parts.append(t("count-turns", n=len(turns)))
     if tool_errs or sess_errs:
@@ -115,6 +117,14 @@ def render_session_summary(
     blocks.append(dim_rule())
     meta_t = Text()
     meta_t.append_text(kv_line(t("ui-session-2"), meta.session_id or "—"))
+    if meta.has_context_usage:
+        meta_t.append_text(kv_line(t("ui-context-usage"), meta.context_usage_str or "—"))
+        if meta.context_tokens_used is not None:
+            meta_t.append_text(kv_line(t("ui-context-tokens"), f"{meta.context_tokens_used:,}"))
+        if meta.context_window_tokens is not None:
+            meta_t.append_text(kv_line(t("ui-context-window"), f"{meta.context_window_tokens:,}"))
+        if meta.compaction_count:
+            meta_t.append_text(kv_line(t("ui-compactions"), str(meta.compaction_count)))
     if meta.session_dir:
         path_s = str(meta.session_dir)
         if len(path_s) > 72:
@@ -166,6 +176,11 @@ def render_session_summary(
     if turns:
         turns_t = Text()
         turns_t.append_text(section_header(t("ui-turns-1")))
+        if meta.has_context_usage:
+            turns_t.append(
+                t("ui-context-session-snapshot-note") + "\n",
+                style="dim",
+            )
         if len(turns) == 1 and (
             not any(
                 e.event_type in et.TURN_BOUNDARY_TYPES
@@ -174,7 +189,8 @@ def render_session_summary(
             )
         ):
             turns_t.append(t("ui-single-segment-no-turn-started-markers-in-timeli"), style="dim")
-        for seg in turns:
+        last_i = len(turns) - 1
+        for i, seg in enumerate(turns):
             tools_n = seg.tool_call_count
             terr = seg.tool_error_count
             tools_bit = t("ui-turn-stat-tools", n=tools_n)
@@ -195,6 +211,10 @@ def render_session_summary(
                         last=seg.last_index,
                     )
                 )
+            if meta.has_context_usage and i == last_i:
+                ctx_label = meta.context_usage_compact or meta.context_usage_str
+                parts.append(t("ui-context-on-last-turn", usage=ctx_label))
+
             turns_t.append_text(bullet(join_ui(*parts)))
             if len(turns) > 1 and tools_n:
                 mix_t = Counter(e.tool_name for e in seg.tool_calls if e.tool_name)
@@ -223,9 +243,9 @@ def render_session_summary(
     try:
         from ..session.usage_stats import collect_session_usage
 
-        usage = collect_session_usage(meta.session_dir, timeline)
+        tool_usage = collect_session_usage(meta.session_dir, timeline)
         usage_t = Text()
-        append_usage_rich(usage_t, usage)
+        append_usage_rich(usage_t, tool_usage)
         if usage_t.plain.strip():
             blocks.append(usage_t)
     except Exception:

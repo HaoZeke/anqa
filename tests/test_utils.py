@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from groket.utils import collapse_blank_lines, fmt_duration, widget_id
+from groket.utils import (
+    collapse_blank_lines,
+    fmt_context_usage,
+    fmt_duration,
+    fmt_token_count,
+    widget_id,
+)
 
 
 class TestFmtDuration:
@@ -23,6 +29,18 @@ class TestFmtDuration:
         assert fmt_duration(3600) == "1h00m"
         assert fmt_duration(3661) == "1h01m"
         assert fmt_duration(7200) == "2h00m"
+
+    def test_fmt_token_count(self):
+        assert fmt_token_count(500) == "500"
+        assert fmt_token_count(178996) == "179k"
+        assert fmt_token_count(500000) == "500k"
+        assert fmt_token_count(1_200_000) == "1.2M"
+
+    def test_fmt_context_usage(self):
+        assert fmt_context_usage(35, 178996, 500000) == "35% (178,996 / 500,000)"
+        assert "35%" in fmt_context_usage(35, 178996, 500000, compact=True)
+        assert fmt_context_usage(None, None, None) == ""
+        assert fmt_context_usage(12) == "12%"
 
 
 class TestCollapseBlankLines:
