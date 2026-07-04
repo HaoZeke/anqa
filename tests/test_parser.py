@@ -1354,6 +1354,28 @@ def test_find_sessions_skips_stage_dirs(tmp_path: Path):
     assert not any(".stage" in str(p) for p in sessions)
 
 
+def test_find_sessions_skips_subagent_mirrors(tmp_path: Path) -> None:
+    """Subagent trees and workspace sibling mirrors are not list rows."""
+    ws = tmp_path / "traces" / "groket-run-tomato-xhigh" / "%2Fworkspace"
+    parent = ws / "019f-parent"
+    parent.mkdir(parents=True)
+    (parent / "summary.json").write_text("{}", encoding="utf-8")
+    (parent / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    sub_id = "019f-subagent-1"
+    nested = parent / "subagents" / sub_id
+    nested.mkdir(parents=True)
+    (nested / "summary.json").write_text("{}", encoding="utf-8")
+    mirror = ws / sub_id
+    mirror.mkdir()
+    (mirror / "summary.json").write_text("{}", encoding="utf-8")
+    (mirror / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    found = find_sessions(tmp_path / "traces")
+    assert parent in found
+    assert nested not in found
+    assert mirror not in found
+    assert len(found) == 1
+
+
 def test_find_sessions_events_empty_file(tmp_path: Path):
     """Empty events.jsonl (0 bytes) does not count as session."""
     root = tmp_path / "traces"
@@ -1370,8 +1392,16 @@ def test_find_sessions_events_empty_file(tmp_path: Path):
 def test_prune_session_walk_dirs():
     from groket.parser import _prune_session_walk_dirs
 
-    dirs = ["groket-abc-model", ".git", "node_modules", "groket-x.stage", "real-dir"]
+    dirs = [
+        "groket-abc-model",
+        ".git",
+        "node_modules",
+        "groket-x.stage",
+        "subagents",
+        "real-dir",
+    ]
     _prune_session_walk_dirs(dirs)
+    assert "subagents" not in dirs
     assert ".git" not in dirs
     assert "node_modules" not in dirs
     assert "groket-x.stage" not in dirs

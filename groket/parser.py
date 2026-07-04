@@ -1440,6 +1440,7 @@ _SKIP_SESSION_WALK_DIRS = frozenset(
     {
         "groket-plugins",
         "groket-skills",
+        "subagents",
         ".git",
         "node_modules",
         "__pycache__",
@@ -1450,7 +1451,7 @@ _SKIP_SESSION_WALK_DIRS = frozenset(
 
 
 def _prune_session_walk_dirs(dirnames: list[str]) -> None:
-    """In-place: do not descend into eval staging or VCS noise.
+    """In-place: do not descend into eval staging, subagent trees, or VCS noise.
 
     Container dirs are named ``groket-<id>-<model>`` and **must** be walked;
     only explicit staging folder names are skipped.
@@ -1466,28 +1467,61 @@ def _prune_session_walk_dirs(dirnames: list[str]) -> None:
     dirnames[:] = kept
 
 
+def _is_subagent_session_dir(path: Path) -> bool:
+    """True for Grok subagent traces (not operator-facing list rows).
+
+    Subagents appear as ``<parent>/subagents/<id>`` and are often mirrored as
+    sibling dirs under the same workspace token with full session artifacts.
+    """
+    parts = path.parts
+    if "subagents" in parts:
+        return True
+    parent = path.parent
+    name = path.name
+    if not name or not parent.is_dir():
+        return False
+    try:
+        for sib in parent.iterdir():
+            if not sib.is_dir() or sib.name == name:
+                continue
+            marker = sib / "subagents" / name
+            if marker.exists():
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _looks_like_session_dir(path: Path, filenames: set[str]) -> bool:
+    """Whether *path* has session artifacts worth listing."""
+    if filenames & {"updates.jsonl", "summary.json"}:
+        return True
+    if "events.jsonl" in filenames:
+        try:
+            return (path / "events.jsonl").stat().st_size > 0
+        except OSError:
+            return False
+    return False
+
+
 def find_sessions(root: Path) -> list[Path]:
-    """Recursively find session directories.
+    """Recursively find operator-facing session directories.
 
     A session directory is identified by updates.jsonl / summary.json (stable)
     or a non-empty events.jsonl (live mid-run).
 
     Skips eval staging trees (``groket-plugins``, ``groket-skills``, ``*.stage``)
-    so large marketplace checkouts do not stall the session list.
+    and Grok subagent sessions (``subagents/`` trees and workspace mirrors) so
+    the sessions list shows one row per interactive eval, not per subagent.
     """
     sessions: list[Path] = []
     if not root.exists():
         return sessions
     for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
         _prune_session_walk_dirs(dirnames)
-        names = set(filenames)
         path = Path(dirpath)
-        if names & {"updates.jsonl", "summary.json"}:
+        if _is_subagent_session_dir(path):
+            continue
+        if _looks_like_session_dir(path, set(filenames)):
             sessions.append(path)
-        elif "events.jsonl" in names:
-            try:
-                if (path / "events.jsonl").stat().st_size > 0:
-                    sessions.append(path)
-            except OSError:
-                pass
     return sessions
