@@ -14,6 +14,7 @@ from textual.widget import Widget
 
 from . import text as U
 from .i18n import t
+from .tab_panes import tab_nav_bindings
 from .widgets.help_modal import notify_help
 
 
@@ -41,10 +42,12 @@ APP_GLOBAL_PRIORITY: tuple[Binding, ...] = (
 )
 
 # Footer layout (left → right; command palette is always on the far right):
-#   Help · Back (pushed screens) · context actions · Jobs · Quit (sessions home only)
+#   Help · Back (pushed screens) · context actions · Jobs · Quit
 # F5 / Ctrl+R still refresh; they stay out of the footer to keep it lean.
 # App session-home bindings are gated in TraceEvalApp.check_action so they do
 # not leak into Runner / Browser / etc. footers via binding inheritance.
+# Quit is global (not priority): works on every screen, but Input/TextArea still
+# consume ``q`` while editing (same convention as other letter shortcuts).
 
 GLOBAL_ALWAYS: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
@@ -52,6 +55,7 @@ GLOBAL_ALWAYS: tuple[Binding, ...] = (
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
     _b("j", "open_jobs", U.bind_jobs(), show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
+    _b("q", "quit", U.bind_quit(), show=True),
 )
 LIST_SELECT: tuple[Binding, ...] = (
     _b("s", "toggle_select", U.bind_select(), show=True),
@@ -80,9 +84,8 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     # Multi-turn: n = next prompt, e = end session (not Ctrl+Enter).
     _b("n", "follow_up_sessions", U.bind_next_prompt(), show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), show=True),
-    _b("q", "quit", U.bind_quit(), show=True),
 )
-# Pushed screens: Help then Back in stable slots; Jobs; no Quit (home only).
+# Pushed screens: Help · Back · Jobs · Quit (letter shortcuts still yield to Input/TextArea).
 SCREEN_CHROME: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
     _b("escape", "go_back", U.bind_back(), show=True),
@@ -90,11 +93,12 @@ SCREEN_CHROME: tuple[Binding, ...] = (
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
     _b("j", "open_jobs", U.bind_jobs(), show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
+    _b("q", "quit", U.bind_quit(), show=True),
 )
 # App-level actions that only apply on the sessions home screen (not inherited UI).
+# Quit is intentionally *not* here — it must work from Browser / Runner / etc.
 SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
     {
-        "quit",
         "open_runner",
         "open_run_configs",
         "open_personas",
@@ -112,39 +116,36 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "mark_sessions_done",
     }
 )
-BROWSER: tuple[Binding, ...] = SCREEN_CHROME + (
-    _b("left_square_bracket", "tab_prev", U.bind_prev_tab(), show=True),
-    _b("right_square_bracket", "tab_next", U.bind_next_tab(), show=True),
-    _b("1", "tab_timeline", U.bind_timeline(), show=False),
-    _b("2", "tab_summary", U.bind_summary(), show=False),
-    _b("3", "tab_diff", U.bind_diff(), show=False),
-    _b("4", "tab_findings", U.bind_findings(), show=False),
-    _b("5", "tab_report", U.bind_report(), show=False),
-    _b("v", "focus_timeline_filter", U.bind_view(), show=False),
-    _b("f", "flag_event", U.bind_flag(), show=True),
-    _b("slash", "search", U.bind_search(), show=False),
-    _b("c", "clear_filters", U.bind_clear_view(), show=False),
-    _b("i", "tab_findings", U.bind_findings(), show=False),
-    _b("x", "delete_session", U.bind_delete(), show=True),
-    _b("delete", "delete_session", U.bind_delete(), show=False),
-    _b("s", "open_share", U.bind_share(), show=False),
-    # n = type next prompt (focus input); Enter in input sends; e = end session.
-    _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),
-    _b("e", "mark_session_done", U.bind_end_session(), show=True),
+# Pane counts must match TabPaneNavigation.TAB_PANES on each screen/modal.
+BROWSER: tuple[Binding, ...] = (
+    SCREEN_CHROME
+    + tab_nav_bindings(5)
+    + (
+        _b("v", "focus_timeline_filter", U.bind_view(), show=False),
+        _b("f", "flag_event", U.bind_flag(), show=True),
+        _b("slash", "search", U.bind_search(), show=False),
+        _b("c", "clear_filters", U.bind_clear_view(), show=False),
+        _b("i", "tab_pane_4", U.bind_findings(), show=False),  # Findings = pane 4
+        _b("x", "delete_session", U.bind_delete(), show=True),
+        _b("delete", "delete_session", U.bind_delete(), show=False),
+        _b("s", "open_share", U.bind_share(), show=False),
+        # n = type next prompt (focus input); Enter in input sends; e = end session.
+        _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),
+        _b("e", "mark_session_done", U.bind_end_session(), show=True),
+    )
 )
-RUNNER: tuple[Binding, ...] = SCREEN_CHROME + (
-    # Priority + ctrl+j: many terminals map Ctrl+Enter to ctrl+j (or plain enter).
-    # App also binds launch_from_runner with priority so TextArea cannot swallow it.
-    _b("ctrl+enter,ctrl+j", "run_evaluation", U.bind_launch(), show=True, priority=True),
-    _ctrl_s("save_config_only", U.bind_save(), show=True),
-    _b("n", "new_persona_from_runner", U.bind_new_persona(), show=False),
-    _b("p", "open_persona_builder", U.bind_personas(), show=False),
-    _b("d", "check_docker", U.bind_docker(), show=False),
-    _b("left_square_bracket", "tab_prev", U.bind_prev_pane(), show=True),
-    _b("right_square_bracket", "tab_next", U.bind_next_pane(), show=True),
-    _b("1", "tab_recipe", U.bind_recipe(), show=False),
-    _b("2", "tab_runtime", U.bind_runtime(), show=False),
-    _b("3", "tab_extras", U.bind_extras(), show=False),
+RUNNER: tuple[Binding, ...] = (
+    SCREEN_CHROME
+    + (
+        # Priority + ctrl+j: many terminals map Ctrl+Enter to ctrl+j (or plain enter).
+        # App also binds launch_from_runner with priority so TextArea cannot swallow it.
+        _b("ctrl+enter,ctrl+j", "run_evaluation", U.bind_launch(), show=True, priority=True),
+        _ctrl_s("save_config_only", U.bind_save(), show=True),
+        _b("n", "new_persona_from_runner", U.bind_new_persona(), show=False),
+        _b("p", "open_persona_builder", U.bind_personas(), show=False),
+        _b("d", "check_docker", U.bind_docker(), show=False),
+    )
+    + tab_nav_bindings(3)
 )
 RUN_CONFIGS: tuple[Binding, ...] = (
     SCREEN_CHROME
@@ -162,6 +163,7 @@ RUN_CONFIGS: tuple[Binding, ...] = (
 )
 CAPABILITY_PICKER: tuple[Binding, ...] = (
     _b("escape", "cancel", U.bind_cancel(), show=True),
+    _b("q", "quit", U.bind_quit(), show=True),
     _b("s", "toggle_select", U.bind_select(), show=True),
     _b("space", "toggle_select", U.bind_select(), show=False),
     _ctrl_s("done", U.bind_done(), show=True),
@@ -175,18 +177,12 @@ PERSONAS: tuple[Binding, ...] = SCREEN_CHROME + (
 )
 PERSONA_EDITOR: tuple[Binding, ...] = (
     _b("escape", "cancel", U.bind_cancel(), show=True),
+    _b("q", "quit", U.bind_quit(), show=True),
     _ctrl_s("save", U.bind_save(), show=True),
-    _b("left_square_bracket", "tab_prev", U.bind_prev_tab(), show=True),
-    _b("right_square_bracket", "tab_next", U.bind_next_tab(), show=True),
-    _b("1", "tab_identity", U.bind_identity(), show=False),
-    _b("2", "tab_github", U.bind_github(), show=False),
-    _b("3", "tab_env", U.bind_environment(), show=False),
-    _b("4", "tab_mcp", U.bind_mcp(), show=False),
-    _b("5", "tab_skills", U.bind_skills(), show=False),
-    _b("6", "tab_plugins", U.bind_plugins(), show=False),
-)
+) + tab_nav_bindings(6)
 FORM_SAVE: tuple[Binding, ...] = (
     _b("escape", "cancel", U.bind_cancel(), show=True),
+    _b("q", "quit", U.bind_quit(), show=True),
     _ctrl_s("save", U.bind_save(), show=True),
 )
 RULES: tuple[Binding, ...] = SCREEN_CHROME + (
@@ -194,23 +190,22 @@ RULES: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("a", "enable_all", U.bind_enable_all(), show=False),
     _b("A", "disable_all", U.bind_disable_all(), show=False),
 )
-MODAL_DISMISS: tuple[Binding, ...] = (_b("escape", "dismiss", U.bind_cancel(), show=True),)
+MODAL_DISMISS: tuple[Binding, ...] = (
+    _b("escape", "dismiss", U.bind_cancel(), show=True),
+    _b("q", "quit", U.bind_quit(), show=True),
+)
 JOBS_MODAL: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
     _b("escape", "dismiss_modal", U.bind_close(), show=True),
     _b("j", "dismiss_modal", U.bind_close(), show=False),
+    _b("q", "quit", U.bind_quit(), show=True),
     _b("f5", "refresh", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh", U.bind_refresh(), show=False),
     _b("enter", "open_session", U.bind_open(), show=True),
     _b("o", "open_session", U.bind_open(), show=False),
     _b("s", "open_share", U.bind_share(), show=True),
     _b("c", "clear_logs", U.bind_clear_logs(), show=False),
-)
-SESSION_SEARCH_MODAL: tuple[Binding, ...] = (
-    _b("escape", "dismiss", U.bind_cancel(), show=True),
-    _b("up", "cursor_up", t("ui-up"), show=False),
-    _b("down", "cursor_down", t("ui-down"), show=False),
-)
+) + tab_nav_bindings(3)
 
 
 def blur_focused_edit(screen: Screen) -> bool:
@@ -236,8 +231,11 @@ def blur_focused_edit(screen: Screen) -> bool:
     return True
 
 
-class ChromeActions(Screen):
-    """Base for screens using SCREEN_CHROME (Esc / help / refresh / jobs).
+from .quit_actions import QuitActions
+
+
+class ChromeActions(QuitActions, Screen):
+    """Base for screens using SCREEN_CHROME (Esc / help / refresh / jobs / quit).
 
     **Esc** blurs a focused Input / TextArea / Select first; then, if
     :meth:`form_is_dirty` is true, asks to discard edits; otherwise leaves.

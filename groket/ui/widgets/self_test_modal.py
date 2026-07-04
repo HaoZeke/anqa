@@ -15,13 +15,14 @@ from textual.widgets import Button, Static
 
 from .. import text as U
 from ..bindings import FORM_SAVE
-from ..i18n import t
+from ..i18n import join_ui, t
+from ..quit_actions import QuitActions
 from .activity_bar import ActivityBar
 
 logger = logging.getLogger(__name__)
 
 
-class SelfTestModal(ModalScreen[bool]):
+class SelfTestModal(QuitActions, ModalScreen[bool]):
     """Run Docker / Grok auth / path checks."""
 
     BINDINGS = list(FORM_SAVE)
@@ -34,7 +35,7 @@ class SelfTestModal(ModalScreen[bool]):
         with Container(id="self-test-modal"):
             yield Static(t("ui-self-test-external-dependencies"), id="self-test-title")
             yield Static(t("ui-running-checks"), id="self-test-body")
-            with Horizontal(id="self-test-actions"):
+            with Horizontal(id="self-test-actions", classes="modal-footer"):
                 yield Button(U.self_test_rerun(), id="self-test-rerun", variant="primary")
                 yield Button(U.self_test_close(), id="self-test-close")
 
@@ -71,7 +72,13 @@ class SelfTestModal(ModalScreen[bool]):
             body.append(t("ui-overall-pass-required-checks-ok"), style="bold green")
         else:
             body.append(
-                f"{t('ui-overall-fail')} {report.fail_count} {t('ui-required')} {report.warn_count} {t('ui-warnings')}",
+                join_ui(
+                    t("ui-overall-fail"),
+                    report.fail_count,
+                    t("ui-required"),
+                    report.warn_count,
+                    t("ui-warnings"),
+                ),
                 style="bold red",
             )
         with suppress(Exception):
@@ -80,7 +87,7 @@ class SelfTestModal(ModalScreen[bool]):
             summary = (
                 t("ui-self-test-pass")
                 if report.ok
-                else f"{t('ui-self-test-fail')} {report.fail_count}"
+                else join_ui(t("ui-self-test-fail"), report.fail_count)
             )
             if report.warn_count and report.ok:
                 summary = t(

@@ -12,6 +12,7 @@ from textual.widgets import Button, Static
 
 from .. import text as U
 from ..i18n import t
+from ..quit_actions import QuitActions
 from ..text import help_markup as _help_markup
 
 
@@ -28,16 +29,16 @@ def notify_help(screen: Screen) -> None:
     screen.app.push_screen(HelpModal())
 
 
-class HelpModal(ModalScreen[None]):
+class HelpModal(QuitActions, ModalScreen[None]):
     """Full help text in a centered panel (Esc, ?, Enter, or Close).
 
     Sized with % / 1fr so the panel tracks terminal resize fluidly.
     """
 
     DEFAULT_CSS = """
+    /* Backdrop translucency comes from app.tcss ModalScreen; keep panel solid. */
     HelpModal {
         align: center middle;
-        background: $background 55%;
     }
 
     #help-modal {
@@ -77,11 +78,13 @@ class HelpModal(ModalScreen[None]):
 
     #help-modal-actions {
         height: auto;
+        min-height: 3;
         dock: bottom;
         width: 100%;
         align: right middle;
-        margin-top: 1;
-        padding-top: 0;
+        margin: 0;
+        padding: 1 0 0 0;
+        background: $panel;
     }
 
     #help-modal-actions Button {

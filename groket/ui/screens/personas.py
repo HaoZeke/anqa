@@ -49,34 +49,17 @@ from ..data_table import (
     style_data_table,
 )
 from ..forms import PERSONA_NONE, docker_select_options, docker_select_value_or_default
-from ..i18n import t
+from ..i18n import join_ui, t
 from ..panel_render import TipSurface
+from ..quit_actions import QuitActions
+from ..tab_panes import TabPaneNavigation
+from ..widgets.key_value_editor import KeyValueEditor
 
 
 def _slug_id(text: str) -> str:
     s = re.sub("[^a-zA-Z0-9._-]+", "-", (text or "").strip().lower())
     s = s.strip("-")[:48].strip("-")
     return s or "persona"
-
-
-def _env_vars_to_text(env: dict[str, str]) -> str:
-    lines = [f"{k}={v}" for k, v in sorted((env or {}).items())]
-    return "\n".join(lines)
-
-
-def _env_vars_from_text(raw: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for line in (raw or "").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        k = k.strip()
-        if k:
-            out[k] = v.strip()
-    return out
 
 
 _PERSONA_DOCKER_OPTIONS: list[tuple[str, str]] = [
@@ -121,11 +104,12 @@ def _ids_from_text(raw: str) -> list[str]:
 McpPickerResult = tuple[list[str], list[dict], dict[str, str], list[str]]
 
 
-class McpConfigureModal(ModalScreen[dict | None]):
+class McpConfigureModal(QuitActions, ModalScreen[dict | None]):
     """Interactive configure for one MCP server (registry/catalog hit) before adding to persona."""
 
     BINDINGS = [
         Binding("escape", "cancel", t("ui-cancel")),
+        Binding("q", "quit", t("bind-quit"), show=True),
         Binding("ctrl+s", "save", t("ui-save"), priority=True, show=True),
     ]
 
@@ -152,109 +136,68 @@ class McpConfigureModal(ModalScreen[dict | None]):
         repo = str(d.get("repository_url") or "").strip()
         reg_url = str(d.get("registry_url") or "").strip()
         docs_links = d.get("docs_links") or []
-        with VerticalScroll(id="mcp-cfg-modal"):
-            yield Static(f"[bold]{self._title}[/bold]")
-            if reg:
-                meta_bits = [reg]
-                if ver:
-                    meta_bits.append(f"v{ver}")
-                if status:
-                    meta_bits.append(f"[{status}]")
-                yield Static(f"{t('ui-registry-3').strip()} {' '.join(meta_bits)}")
-            if desc:
-                yield Static(f"{desc}")
-            link_lines: list[str] = []
-            if repo:
-                link_lines.append(f"{t('ui-repository')} {repo}")
-            if reg_url:
-                link_lines.append(f"{t('ui-registry-2')} {reg_url}")
-            if isinstance(docs_links, list):
-                for item in docs_links:
-                    if not isinstance(item, dict):
-                        continue
-                    lab = str(item.get("label") or "link").strip()
-                    u = str(item.get("url") or "").strip()
-                    if not u:
-                        continue
-                    if repo and u == repo:
-                        continue
-                    if reg_url and u == reg_url:
-                        continue
-                    link_lines.append(f"[cyan]{lab}[/cyan]  {u}")
-            if link_lines:
+        with Vertical(id="mcp-cfg-modal"):
+            with VerticalScroll(id="mcp-cfg-body"):
+                yield Static(f"[bold]{self._title}[/bold]")
+                if reg:
+                    meta_bits = [reg]
+                    if ver:
+                        meta_bits.append(f"v{ver}")
+                    if status:
+                        meta_bits.append(f"[{status}]")
+                    yield Static(join_ui(t("ui-registry-3").strip(), " ".join(meta_bits)))
+                if desc:
+                    yield Static(f"{desc}")
+                link_lines: list[str] = []
+                if repo:
+                    link_lines.append(join_ui(t("ui-repository"), repo))
+                if reg_url:
+                    link_lines.append(join_ui(t("ui-registry-2"), reg_url))
+                if isinstance(docs_links, list):
+                    for item in docs_links:
+                        if not isinstance(item, dict):
+                            continue
+                        lab = str(item.get("label") or "link").strip()
+                        u = str(item.get("url") or "").strip()
+                        if not u:
+                            continue
+                        if repo and u == repo:
+                            continue
+                        if reg_url and u == reg_url:
+                            continue
+                        link_lines.append(f"[cyan]{lab}[/cyan]  {u}")
+                if link_lines:
+                    yield Static(
+                        t("ui-docs-source-copy-url-open-on-host-browser") + "\n".join(link_lines)
+                    )
+                else:
+                    yield Static(t("ui-no-docs-repo-url-from-registry-search-the-server"))
+                yield Label(U.server_id_hint())
+                yield Input(value=str(d.get("id") or "mcp"), id="mcp-cfg-id")
+                yield Label(U.transport_endpoint())
                 yield Static(
-                    t("ui-docs-source-copy-url-open-on-host-browser") + "\n".join(link_lines)
+                    "\n".join(
+                        (
+                            join_ui("transport=", transport),
+                            join_ui("url=", url or "—"),
+                            join_ui(
+                                "command=",
+                                command or "—",
+                                t("ui-args"),
+                                d.get("args") or [],
+                            ),
+                        )
+                    )
                 )
-            else:
-                yield Static(t("ui-no-docs-repo-url-from-registry-search-the-server"))
-            yield Label(U.server_id_hint())
-            yield Input(value=str(d.get("id") or "mcp"), id="mcp-cfg-id")
-            yield Label(U.transport_endpoint())
-            yield Static(
-                f"[dim]transport={transport}[/dim]\n[dim]url={url or '—'}[/dim]\n[dim]command={command or '—'} {t('ui-args')} {d.get('args') or []}[/dim]"
-            )
-            yield Label(U.headers_hint())
-            yield TextArea(hdr_lines, id="mcp-cfg-headers")
-            yield Label(U.env_vars_on_persona())
-            yield TextArea(env_hint_lines, id="mcp-cfg-env")
-            yield Checkbox(t("ui-create-companion-skill"), value=True, id="mcp-cfg-make-skill")
-            yield Static(t("ui-stdio-needs-tools-in-image"), classes="pe-field-hint")
-            with Horizontal():
+                yield Label(U.headers_hint())
+                yield TextArea(hdr_lines, id="mcp-cfg-headers")
+                yield Label(U.env_vars_on_persona())
+                yield TextArea(env_hint_lines, id="mcp-cfg-env")
+                yield Checkbox(t("ui-create-companion-skill"), value=True, id="mcp-cfg-make-skill")
+                yield Static(t("ui-stdio-needs-tools-in-image"), classes="pe-field-hint")
+            with Horizontal(id="mcp-cfg-footer", classes="modal-footer"):
                 yield Button(U.save(), variant="primary", id="mcp-cfg-save")
                 yield Button(U.cancel(), id="mcp-cfg-cancel")
-
-    def _pe_tab_index(self) -> int:
-        try:
-            active = self.query_one("#pe-tabs", TabbedContent).active
-        except Exception:
-            return 0
-        try:
-            return _PE_TABS.index(active)
-        except ValueError:
-            return 0
-
-    def _activate_pe_tab(self, pane_id: str) -> None:
-        try:
-            tabs = self.query_one("#pe-tabs", TabbedContent)
-            tabs.active = pane_id
-        except Exception:
-            return
-
-        def _focus_pane() -> None:
-            with suppress(Exception):
-                pane = self.query_one(f"#{pane_id}")
-                for w in pane.query(t("ui-input-select-textarea-checkbox-button")):
-                    if getattr(w, "can_focus", False) and (not getattr(w, "disabled", False)):
-                        w.focus()
-                        return
-
-        self.call_after_refresh(lambda: self.call_after_refresh(_focus_pane))
-
-    def action_tab_next(self) -> None:
-        i = (self._pe_tab_index() + 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_prev(self) -> None:
-        i = (self._pe_tab_index() - 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_identity(self) -> None:
-        self._activate_pe_tab("pe-tab-identity")
-
-    def action_tab_github(self) -> None:
-        self._activate_pe_tab("pe-tab-github")
-
-    def action_tab_env(self) -> None:
-        self._activate_pe_tab("pe-tab-env")
-
-    def action_tab_mcp(self) -> None:
-        self._activate_pe_tab("pe-tab-mcp")
-
-    def action_tab_skills(self) -> None:
-        self._activate_pe_tab("pe-tab-skills")
-
-    def action_tab_plugins(self) -> None:
-        self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
         from ..bindings import dismiss_after_blur
@@ -308,7 +251,7 @@ class McpConfigureModal(ModalScreen[dict | None]):
         self.dismiss(out)
 
 
-class McpPickerModal(ModalScreen[McpPickerResult | None]):
+class McpPickerModal(QuitActions, ModalScreen[McpPickerResult | None]):
     """Browse local catalog + live MCP registry; configure interactively before add."""
 
     BINDINGS = [
@@ -337,7 +280,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                 self._definitions[str(d["id"]).strip()] = dict(d)
         self._env_add: dict[str, str] = {}
         self._skills_add: list[str] = []
-        self._row_meta: dict[str, tuple[str, object]] = {}
+        self._row_meta: dict[str, tuple[str, object]] = {}  # Textual-free; catalog/registry row
         self._registry_hits: list = []
         self._status = ""
         self._initial_query = (initial_query or "").strip()
@@ -394,7 +337,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     return str(summary())
                 return str(hit)
             except Exception as exc:
-                return f"{t('ui-could-not-render-details')} {exc}[/red]"
+                return join_ui(t("ui-could-not-render-details"), exc)
         from ...capabilities.catalog import McpCatalogEntry
 
         if not isinstance(payload, McpCatalogEntry):
@@ -402,7 +345,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
         e = payload
         lines = [
             f"[bold]{e.title or e.id}[/bold]",
-            f"[dim]id={e.id} {t('ui-source-1')} {e.source} {t('ui-transport')} {e.transport}[/dim]",
+            join_ui("id=", e.id, t("ui-source-1"), e.source, t("ui-transport"), e.transport),
         ]
         if e.description:
             lines.append((e.description or "")[:500])
@@ -412,7 +355,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
             args = " ".join(str(a) for a in e.args or [])
             lines.append(f"[dim]command=[/dim]{e.command} {args}".rstrip())
         if e.needs_env:
-            lines.append(f"{t('ui-needs-env')} {', '.join(e.needs_env)}")
+            lines.append(join_ui(t("ui-needs-env"), ", ".join(e.needs_env)))
         if e.source == "host":
             lines.append(
                 t("ui-host-pass-through-uses-mcp-servers")
@@ -469,7 +412,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     key=key,
                 )
                 self._row_meta[key] = ("local", e)
-        self._set_status(f"{t('ui-local-1')} {len(self._row_meta)} {t('ui-r-registry')}")
+        self._set_status(t("persona-local-count", n=len(self._row_meta)))
         self.call_after_refresh(self._update_detail_from_cursor)
 
     @work(thread=True, exclusive=True, group="mcp-registry")
@@ -494,7 +437,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
 
         def _searching() -> None:
             self._mode = "registry"
-            self._set_status(f"{t('ui-registry-searching')} {q!r}…")
+            self._set_status(t("persona-registry-searching", query=repr(q)))
 
         call_ui(self.app, _searching)
         hits, err = search_registry(q, limit=40)
@@ -507,7 +450,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                 self._row_meta.clear()
                 self._registry_hits = list(hits or [])
                 if err and (not hits):
-                    self._set_status(f"{t('ui-registry-error')} {err}")
+                    self._set_status(t("persona-registry-error", error=str(err)))
                     return
                 for i, hit in enumerate(hits or []):
                     entry = hit.to_catalog_entry()
@@ -523,7 +466,14 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     )
                     self._row_meta[key] = ("registry", hit)
             extra = f" · {err}" if err else ""
-            self._set_status(f"{t('ui-registry-1')} {len(hits or [])} {t('ui-for')} {q!r} {extra}")
+            self._set_status(
+                t(
+                    "persona-registry-hits",
+                    n=len(hits or []),
+                    query=repr(q),
+                    extra=extra or "",
+                )
+            )
             self.call_after_refresh(self._update_detail_from_cursor)
 
         call_ui(self.app, _apply_results)
@@ -533,8 +483,12 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
         n_def = len(self._definitions)
         with suppress(Exception):
             self.query_one("#mcp-pick-sel", Static).update(
-                f"[dim]{len(ids)} {t('ui-selected-1')} {n_def} {t('ui-configured')}"
-                + (", ".join(ids[:10]) + ("…" if len(ids) > 10 else "") if ids else "—")
+                t(
+                    "ui-mcp-pick-sel",
+                    n=len(ids),
+                    configured=n_def,
+                    ids=(", ".join(ids[:10]) + ("…" if len(ids) > 10 else "") if ids else "—"),
+                )
             )
 
     def _schedule_search(self) -> None:
@@ -573,59 +527,6 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
 
     def action_registry_search(self) -> None:
         self.action_registry_mode()
-
-    def _pe_tab_index(self) -> int:
-        try:
-            active = self.query_one("#pe-tabs", TabbedContent).active
-        except Exception:
-            return 0
-        try:
-            return _PE_TABS.index(active)
-        except ValueError:
-            return 0
-
-    def _activate_pe_tab(self, pane_id: str) -> None:
-        try:
-            tabs = self.query_one("#pe-tabs", TabbedContent)
-            tabs.active = pane_id
-        except Exception:
-            return
-
-        def _focus_pane() -> None:
-            with suppress(Exception):
-                pane = self.query_one(f"#{pane_id}")
-                for w in pane.query(t("ui-input-select-textarea-checkbox-button")):
-                    if getattr(w, "can_focus", False) and (not getattr(w, "disabled", False)):
-                        w.focus()
-                        return
-
-        self.call_after_refresh(lambda: self.call_after_refresh(_focus_pane))
-
-    def action_tab_next(self) -> None:
-        i = (self._pe_tab_index() + 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_prev(self) -> None:
-        i = (self._pe_tab_index() - 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_identity(self) -> None:
-        self._activate_pe_tab("pe-tab-identity")
-
-    def action_tab_github(self) -> None:
-        self._activate_pe_tab("pe-tab-github")
-
-    def action_tab_env(self) -> None:
-        self._activate_pe_tab("pe-tab-env")
-
-    def action_tab_mcp(self) -> None:
-        self._activate_pe_tab("pe-tab-mcp")
-
-    def action_tab_skills(self) -> None:
-        self._activate_pe_tab("pe-tab-skills")
-
-    def action_tab_plugins(self) -> None:
-        self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
         from ..bindings import dismiss_after_blur
@@ -684,14 +585,22 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                     if skill_name not in self._skills_add:
                         self._skills_add.append(skill_name)
                     self._set_status(
-                        f"{t('ui-added-mcp')} {rid} {t('ui-skill')} {skill_name}` ({self._keep_hint})."
+                        join_ui(
+                            t("ui-added-mcp"),
+                            rid,
+                            t("ui-skill"),
+                            skill_name,
+                            "` (",
+                            self._keep_hint,
+                            ").",
+                        )
                     )
                 else:
-                    self._set_status(f"{t('ui-added-mcp')} {rid} {t('ui-skill-not-written')}")
+                    self._set_status(join_ui(t("ui-added-mcp"), rid, t("ui-skill-not-written")))
             except Exception as exc:
-                self._set_status(f"{t('ui-added-mcp')} {rid} {t('ui-skill-write-failed')} {exc}")
+                self._set_status(join_ui(t("ui-added-mcp"), rid, t("ui-skill-write-failed"), exc))
         else:
-            self._set_status(f"{t('ui-added-mcp')} {rid} {t('ui-no-companion-skill')}")
+            self._set_status(join_ui(t("ui-added-mcp"), rid, t("ui-no-companion-skill")))
         self._rerender_selection_marks()
         self._update_sel_label()
 
@@ -744,7 +653,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
                 self._update_sel_label()
                 return
             self.app.push_screen(
-                McpConfigureModal(defn, title=f"{t('ui-configure')} {sid}"),
+                McpConfigureModal(defn, title=t("persona-configure-title", name=sid)),
                 lambda r: self._apply_configure_result(r, default_sid=sid),
             )
             return
@@ -758,7 +667,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
             reg_defn: dict = {str(k): v for k, v in defn_obj.items()}
             hit_name = str(hit.name or reg_defn.get("id") or "mcp")
             self.app.push_screen(
-                McpConfigureModal(reg_defn, title=f"{t('ui-configure')} {hit_name}"),
+                McpConfigureModal(reg_defn, title=t("persona-configure-title", name=hit_name)),
                 lambda r: self._apply_configure_result(
                     r, default_sid=str(reg_defn.get("id") or "mcp")
                 ),
@@ -779,7 +688,7 @@ class McpPickerModal(ModalScreen[McpPickerResult | None]):
             set_selection_marker(table, key, bool(sid and sid in self._selected))
 
 
-class PluginPickerModal(ModalScreen[list[str] | None]):
+class PluginPickerModal(QuitActions, ModalScreen[list[str] | None]):
     """Pick marketplace plugins for the persona (names stored on the persona)."""
 
     BINDINGS = list(CAPABILITY_PICKER)
@@ -788,7 +697,9 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
         super().__init__()
         self.work_dir = Path(work_dir)
         self._selected: set[str] = set(selected or [])
-        self._rows_by_name: dict[str, object] = {}
+        from ...capabilities.marketplace import PluginPickRow
+
+        self._rows_by_name: dict[str, PluginPickRow] = {}
 
     def compose(self) -> ComposeResult:
         with Vertical(id="plugins-picker-modal"):
@@ -798,7 +709,7 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
             yield DataTable(id="plugins-pick-table", cursor_type="row")
             yield Static("", id="plugins-pick-detail")
             yield Static("", id="plugins-pick-sel")
-            with Horizontal():
+            with Horizontal(id="plugins-pick-footer"):
                 yield Button(U.done(), variant="primary", id="plugins-pick-done")
                 yield Button(U.cancel(), id="plugins-pick-cancel")
 
@@ -861,8 +772,11 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
         ids = sorted(self._selected)
         with suppress(Exception):
             self.query_one("#plugins-pick-sel", Static).update(
-                f"{t('ui-selected-2')} {len(ids)} {t('ui-msg-3')}"
-                + (", ".join(ids) if ids else "(none)")
+                t(
+                    "ui-plugins-pick-sel",
+                    n=len(ids),
+                    ids=", ".join(ids) if ids else "—",
+                )
             )
 
     @on(Input.Changed, "#plugins-pick-search")
@@ -893,7 +807,7 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
             row = self._rows_by_name.get(name)
             if row is not None and getattr(row, "status", "") == "fetch":
                 self.notify(
-                    f"`{name} {t('ui-will-be-git-fetched-into-the-container-volume-at')}",
+                    join_ui("`", name, t("ui-will-be-git-fetched-into-the-container-volume-at")),
                     severity="information",
                     timeout=5,
                 )
@@ -916,7 +830,7 @@ class PluginPickerModal(ModalScreen[list[str] | None]):
         self.action_toggle_select()
 
 
-class SkillsPickerModal(ModalScreen[list[str] | None]):
+class SkillsPickerModal(QuitActions, ModalScreen[list[str] | None]):
     """Search/add skills from host/work_dir/bundled (separate from MCP)."""
 
     BINDINGS = list(CAPABILITY_PICKER)
@@ -933,7 +847,7 @@ class SkillsPickerModal(ModalScreen[list[str] | None]):
             yield Input(placeholder=U.skills_search_placeholder(), id="skills-pick-search")
             yield DataTable(id="skills-pick-table", cursor_type="row")
             yield Static("", id="skills-pick-sel")
-            with Horizontal():
+            with Horizontal(id="skills-pick-footer"):
                 yield Button(U.done(), variant="primary", id="skills-pick-done")
                 yield Button(U.cancel(), id="skills-pick-cancel")
 
@@ -964,66 +878,16 @@ class SkillsPickerModal(ModalScreen[list[str] | None]):
         ids = sorted(self._selected)
         with suppress(Exception):
             self.query_one("#skills-pick-sel", Static).update(
-                f"[dim]{len(ids)} {t('ui-selected-3')}"
-                + (", ".join(ids[:8]) + ("…" if len(ids) > 8 else "") if ids else "—")
+                t(
+                    "ui-skills-pick-sel",
+                    n=len(ids),
+                    ids=(", ".join(ids[:8]) + ("…" if len(ids) > 8 else "") if ids else "—"),
+                )
             )
 
     @on(Input.Changed, "#skills-pick-search")
     def _search_changed(self, _event: Input.Changed) -> None:
         self._refresh_table()
-
-    def _pe_tab_index(self) -> int:
-        try:
-            active = self.query_one("#pe-tabs", TabbedContent).active
-        except Exception:
-            return 0
-        try:
-            return _PE_TABS.index(active)
-        except ValueError:
-            return 0
-
-    def _activate_pe_tab(self, pane_id: str) -> None:
-        try:
-            tabs = self.query_one("#pe-tabs", TabbedContent)
-            tabs.active = pane_id
-        except Exception:
-            return
-
-        def _focus_pane() -> None:
-            with suppress(Exception):
-                pane = self.query_one(f"#{pane_id}")
-                for w in pane.query(t("ui-input-select-textarea-checkbox-button")):
-                    if getattr(w, "can_focus", False) and (not getattr(w, "disabled", False)):
-                        w.focus()
-                        return
-
-        self.call_after_refresh(lambda: self.call_after_refresh(_focus_pane))
-
-    def action_tab_next(self) -> None:
-        i = (self._pe_tab_index() + 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_prev(self) -> None:
-        i = (self._pe_tab_index() - 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_identity(self) -> None:
-        self._activate_pe_tab("pe-tab-identity")
-
-    def action_tab_github(self) -> None:
-        self._activate_pe_tab("pe-tab-github")
-
-    def action_tab_env(self) -> None:
-        self._activate_pe_tab("pe-tab-env")
-
-    def action_tab_mcp(self) -> None:
-        self._activate_pe_tab("pe-tab-mcp")
-
-    def action_tab_skills(self) -> None:
-        self._activate_pe_tab("pe-tab-skills")
-
-    def action_tab_plugins(self) -> None:
-        self._activate_pe_tab("pe-tab-plugins")
 
     def action_cancel(self) -> None:
         from ..bindings import dismiss_after_blur
@@ -1060,17 +924,35 @@ class SkillsPickerModal(ModalScreen[list[str] | None]):
         self.action_toggle_select()
 
 
-_PE_TABS: tuple[str, ...] = (
-    "pe-tab-identity",
-    "pe-tab-github",
-    "pe-tab-env",
-    "pe-tab-mcp",
-    "pe-tab-skills",
-    "pe-tab-plugins",
-)
+class PersonaEditorModal(TabPaneNavigation, QuitActions, ModalScreen[Persona | None]):
+    TAB_CONTENT_ID = "pe-tabs"
+    TAB_PANES = (
+        "pe-tab-identity",
+        "pe-tab-github",
+        "pe-tab-env",
+        "pe-tab-mcp",
+        "pe-tab-skills",
+        "pe-tab-plugins",
+    )
 
+    def action_tab_identity(self) -> None:
+        self.activate_tab_pane("pe-tab-identity")
 
-class PersonaEditorModal(ModalScreen[Persona | None]):
+    def action_tab_github(self) -> None:
+        self.activate_tab_pane("pe-tab-github")
+
+    def action_tab_env(self) -> None:
+        self.activate_tab_pane("pe-tab-env")
+
+    def action_tab_mcp(self) -> None:
+        self.activate_tab_pane("pe-tab-mcp")
+
+    def action_tab_skills(self) -> None:
+        self.activate_tab_pane("pe-tab-skills")
+
+    def action_tab_plugins(self) -> None:
+        self.activate_tab_pane("pe-tab-plugins")
+
     """Create or edit one persona — tabbed sections, app-standard pane keys."""
 
     BINDINGS = list(PERSONA_EDITOR)
@@ -1085,7 +967,7 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
         self._is_new = is_new or persona is None
         self._persona = persona or Persona(persona_id="", name="")
         self._mcp_definitions: list[dict] = list(self._persona.mcp_definitions or [])
-        self._clean_snapshot: tuple[object, ...] | None = None
+        self._clean_snapshot: tuple[str, ...] | None = None
 
     def compose(self) -> ComposeResult:
         p = self._persona
@@ -1096,7 +978,11 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
             else t("ui-github-pat-stored-on-this-persona")
         )
         tok_status = (
-            f"{t('ui-token-on-file-yes')} {len(p.github_token.strip())} {t('ui-chars-blank-keeps-current-enter-a-value-to-repla')}"
+            join_ui(
+                t("ui-token-on-file-yes"),
+                len(p.github_token.strip()),
+                t("ui-chars-blank-keeps-current-enter-a-value-to-repla"),
+            )
             if not self._is_new and (p.github_token or "").strip()
             else t("ui-no-token-stored-yet")
         )
@@ -1170,12 +1056,7 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                 with TabPane(U.pe_tab_env_title(), id="pe-tab-env"):
                     with VerticalScroll(classes="pe-pane"):
                         yield Label(U.extra_env_vars_label())
-                        yield TextArea(
-                            _env_vars_to_text(p.env_vars),
-                            id="pe-env",
-                            language="bash",
-                            classes="pe-tall",
-                        )
+                        yield KeyValueEditor(p.env_vars or {}, id="pe-env")
                 with TabPane(U.pe_tab_mcp_title(), id="pe-tab-mcp"):
                     with VerticalScroll(classes="pe-pane"):
                         yield Checkbox(
@@ -1225,63 +1106,10 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                 yield Button(U.save(), variant="primary", id="pe-save")
                 yield Button(U.cancel(), id="pe-cancel")
 
-    def _pe_tab_index(self) -> int:
-        try:
-            active = self.query_one("#pe-tabs", TabbedContent).active
-        except Exception:
-            return 0
-        try:
-            return _PE_TABS.index(active)
-        except ValueError:
-            return 0
-
-    def _activate_pe_tab(self, pane_id: str) -> None:
-        try:
-            tabs = self.query_one("#pe-tabs", TabbedContent)
-            tabs.active = pane_id
-        except Exception:
-            return
-
-        def _focus_pane() -> None:
-            with suppress(Exception):
-                pane = self.query_one(f"#{pane_id}")
-                for w in pane.query(t("ui-input-select-textarea-checkbox-button")):
-                    if getattr(w, "can_focus", False) and (not getattr(w, "disabled", False)):
-                        w.focus()
-                        return
-
-        self.call_after_refresh(lambda: self.call_after_refresh(_focus_pane))
-
-    def action_tab_next(self) -> None:
-        i = (self._pe_tab_index() + 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_prev(self) -> None:
-        i = (self._pe_tab_index() - 1) % len(_PE_TABS)
-        self._activate_pe_tab(_PE_TABS[i])
-
-    def action_tab_identity(self) -> None:
-        self._activate_pe_tab("pe-tab-identity")
-
-    def action_tab_github(self) -> None:
-        self._activate_pe_tab("pe-tab-github")
-
-    def action_tab_env(self) -> None:
-        self._activate_pe_tab("pe-tab-env")
-
-    def action_tab_mcp(self) -> None:
-        self._activate_pe_tab("pe-tab-mcp")
-
-    def action_tab_skills(self) -> None:
-        self._activate_pe_tab("pe-tab-skills")
-
-    def action_tab_plugins(self) -> None:
-        self._activate_pe_tab("pe-tab-plugins")
-
     def on_mount(self) -> None:
         self.call_after_refresh(self._capture_clean_snapshot)
 
-    def _pe_form_snapshot(self) -> tuple[object, ...]:
+    def _pe_form_snapshot(self) -> tuple[str, ...]:
         with suppress(Exception):
             pid = self.query_one("#pe-id", Input).value
             name = self.query_one("#pe-name", Input).value
@@ -1299,7 +1127,12 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
             gh_env = self.query_one("#pe-gh-token-env", Input).value
             git_name = self.query_one("#pe-git-name", Input).value
             git_email = self.query_one("#pe-git-email", Input).value
-            env_text = self.query_one("#pe-env", TextArea).text
+            try:
+                env_snap = tuple(
+                    sorted(self.query_one("#pe-env", KeyValueEditor).get_values().items())
+                )
+            except Exception:
+                env_snap = ()
             try:
                 mcp_replace = bool(self.query_one("#pe-mcp-replace", Checkbox).value)
             except Exception:
@@ -1316,25 +1149,28 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                     if isinstance(d, dict)
                 )
             )
-            return (
-                pid,
-                name,
-                desc,
-                notes,
-                docker,
-                gh_write,
-                gh_token,
-                gh_env,
-                git_name,
-                git_email,
-                env_text,
-                mcp_replace,
-                mcp_ids,
-                mcp_extra,
-                skills,
-                skills_dis,
-                plugins,
-                mcp_defs,
+            return tuple(
+                str(x)
+                for x in (
+                    pid,
+                    name,
+                    desc,
+                    notes,
+                    docker,
+                    gh_write,
+                    gh_token,
+                    gh_env,
+                    git_name,
+                    git_email,
+                    env_snap,
+                    mcp_replace,
+                    mcp_ids,
+                    mcp_extra,
+                    skills,
+                    skills_dis,
+                    plugins,
+                    mcp_defs,
+                )
             )
         return ()
 
@@ -1377,14 +1213,14 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
                 self.query_one("#pe-mcp-ids", TextArea).load_text(_ids_to_text(ids))
             if env_add:
                 with suppress(Exception):
-                    env_area = self.query_one("#pe-env", TextArea)
-                    existing = _env_vars_from_text(env_area.text)
+                    env_ed = self.query_one("#pe-env", KeyValueEditor)
+                    existing = env_ed.get_values()
                     for k, v in env_add.items():
                         if not k:
                             continue
                         if k not in existing or not (existing.get(k) or "").strip():
                             existing[k] = v
-                    env_area.load_text(_env_vars_to_text(existing))
+                    env_ed.set_values(existing)
             if skills_add:
                 with suppress(Exception):
                     sk_area = self.query_one("#pe-skills-ids", TextArea)
@@ -1470,7 +1306,7 @@ class PersonaEditorModal(ModalScreen[Persona | None]):
         docker_image = _persona_docker_stored(docker_sel)
         git_name = self.query_one("#pe-git-name", Input).value.strip()
         git_email = self.query_one("#pe-git-email", Input).value.strip()
-        env_vars = _env_vars_from_text(self.query_one("#pe-env", TextArea).text)
+        env_vars = self.query_one("#pe-env", KeyValueEditor).get_values()
         notes = self.query_one("#pe-notes", TextArea).text.strip()
         try:
             mcp_replace = bool(self.query_one("#pe-mcp-replace", Checkbox).value)
@@ -1536,7 +1372,7 @@ class PersonasScreen(ChromeActions):
         yield ActivityBar()
         with Vertical(id="personas-screen"):
             yield Static(
-                f"{t('ui-persona-builder')} {root} {t('ui-github-mcp-skills-footer-for-keys')}",
+                join_ui(t("ui-persona-builder"), root, t("ui-github-mcp-skills-footer-for-keys")),
                 id="pb-banner",
             )
             yield DataTable(id="pb-table")
@@ -1627,24 +1463,45 @@ class PersonasScreen(ChromeActions):
         if len(p.env_vars or {}) > 8:
             env_preview += "…"
         if (p.github_token or "").strip():
-            tok_info = f"{t('ui-stored')} {len(p.github_token.strip())} {t('ui-chars-1')}"
+            tok_info = t(
+                "ui-persona-token-stored",
+                n=len(p.github_token.strip()),
+            )
         elif (p.github_token_env or "").strip():
-            tok_info = f"{t('ui-host-env')} {p.github_token_env}"
+            tok_info = t("ui-persona-token-host-env", name=p.github_token_env)
         else:
             tok_info = t("ui-none-host-groket-gh-token-gh-token-only-if-orche")
         mcp_ids = getattr(p, "mcp_servers", None) or []
         skill_ids = getattr(p, "skills", None) or []
         lines = [
             f"[bold]{p.name}[/bold]  [dim]{p.persona_id}[/dim]",
-            f"[dim]{p.description or t('ui-no-description')}[/dim]",
-            f"github_write=[b]{('on' if p.github_write else 'off')} {t('ui-token')} {tok_info} {t('ui-docker')} {p.docker_image or 'inherit'}[/b]",
-            f"{t('ui-git')} {p.git_user_name or '—'} <{p.git_user_email or '—'}>",
-            f"{t('ui-env-keys')} {env_preview}",
-            f"{t('ui-mcp-servers')} {len(mcp_ids)}): {', '.join(mcp_ids[:12]) or '—'} {t('ui-replace-host')} {getattr(p, 'mcp_replace_host', True)}[/dim]",
-            f"{t('ui-skills')} {len(skill_ids)}): {', '.join(skill_ids[:12]) or '—'}",
+            p.description or t("ui-no-description"),
+            t(
+                "ui-persona-github-line",
+                write=("on" if p.github_write else "off"),
+                token=tok_info,
+                docker=p.docker_image or "inherit",
+            ),
+            t(
+                "ui-persona-git-line",
+                name=p.git_user_name or "—",
+                email=p.git_user_email or "—",
+            ),
+            t("ui-persona-env-line", keys=env_preview),
+            t(
+                "ui-persona-mcp-line",
+                n=len(mcp_ids),
+                ids=", ".join(mcp_ids) or "—",
+                replace=getattr(p, "mcp_replace_host", True),
+            ),
+            t(
+                "ui-persona-skills-line",
+                n=len(skill_ids),
+                ids=", ".join(skill_ids) or "—",
+            ),
         ]
         if p.notes:
-            lines.append(f"{t('ui-notes')} {p.notes[:200]}")
+            lines.append(t("ui-persona-notes-line", notes=p.notes[:200]))
         self.query_one("#pb-detail", Static).update("\n".join(lines))
 
     @on(DataTable.RowHighlighted, "#pb-table")
@@ -1703,7 +1560,7 @@ class PersonasScreen(ChromeActions):
             if result is None:
                 return
             self.notify(
-                f"{t('ui-saved-persona')} {result.persona_id}", severity="information", timeout=5
+                t("persona-saved", pid=result.persona_id), severity="information", timeout=5
             )
             self._selected_id = result.persona_id
             self.post_message(self.PersonasChanged())

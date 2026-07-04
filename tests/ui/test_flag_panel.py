@@ -77,7 +77,7 @@ async def test_flag_modal_edit_existing() -> None:
 async def test_flag_modal_cancel() -> None:
     app = _FlagApp()
     async with app.run_test(size=(100, 40)) as pilot:
-        ev = make_trace_event(index=0, event_type="user", content="hi")
+        ev = make_trace_event(index=0, event_type="user_message_chunk", content="hi")
         modal = FlagModal(ev)
         app.push_screen(modal)
         await wait_until(
@@ -114,7 +114,7 @@ async def test_flag_modal_save_action() -> None:
 async def test_flag_modal_button_cancel() -> None:
     app = _FlagApp()
     async with app.run_test(size=(100, 40)) as pilot:
-        ev = make_trace_event(index=0, event_type="user", content="x")
+        ev = make_trace_event(index=0, event_type="user_message_chunk", content="x")
         modal = FlagModal(ev)
         app.push_screen(modal)
         await wait_until(
@@ -224,7 +224,7 @@ async def test_flag_modal_button_pressed_cancel() -> None:
 
     app = _FlagApp()
     async with app.run_test(size=(100, 40)) as pilot:
-        ev = make_trace_event(index=0, event_type="user", content="hi")
+        ev = make_trace_event(index=0, event_type="user_message_chunk", content="hi")
         modal = FlagModal(ev)
         app.push_screen(modal)
         await wait_until(

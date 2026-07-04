@@ -22,11 +22,20 @@ from ...utils import widget_id
 from .. import text as U
 from ..bindings import JOBS_MODAL, focus_primary_list, notify_help
 from ..data_table import style_data_table
-from ..i18n import t
+from ..i18n import join_ui, t
+from ..quit_actions import QuitActions
+from ..tab_panes import TabPaneNavigation
 
 
-class JobsModal(ModalScreen[None]):
-    """Modal: Jobs (runs / analysis / feedback) + Logs (All + per-container)."""
+class JobsModal(TabPaneNavigation, QuitActions, ModalScreen[None]):
+    TAB_CONTENT_ID = "jobs-tabs"
+    TAB_PANES = (
+        ("jobs-tab-status", "#jobs-status-table"),
+        ("jobs-tab-activity", "#jobs-activity-log"),
+        ("jobs-tab-logs", "#jobs-logs-all"),
+    )
+
+    """Modal: Jobs, Activity (heavy pools), and Logs."""
 
     BINDINGS = list(JOBS_MODAL)
     _CONTAINER_COLORS = ["cyan", "green", "yellow", "magenta", "blue", "red"]
@@ -73,11 +82,14 @@ class JobsModal(ModalScreen[None]):
                         t("ui-interactive-follow-ups-open-the-session-in-the-b"),
                         id="jobs-follow-hint",
                     )
+                with TabPane(t("jobs-activity-tab"), id="jobs-tab-activity"):
+                    yield Static(t("jobs-activity-help"), id="jobs-activity-help")
+                    yield RichLog(id="jobs-activity-log", wrap=True, max_lines=500)
                 with TabPane(U.logs_tab(), id="jobs-tab-logs"):
                     with TabbedContent(id="jobs-logs-tabs"):
                         with TabPane(U.all_tab(), id="jobs-log-tab-all"):
                             yield RichLog(id="jobs-logs-all", wrap=True, max_lines=4000)
-            with Horizontal(id="jobs-modal-actions"):
+            with Horizontal(id="jobs-modal-actions", classes="modal-footer"):
                 yield Button(U.refresh_btn(), id="jobs-refresh-btn")
                 yield Button(U.clear_logs_btn(), id="jobs-clear-btn")
                 yield Button(U.close_btn(), variant="primary", id="jobs-close-btn")
@@ -100,13 +112,64 @@ class JobsModal(ModalScreen[None]):
         ht.add_columns(
             t("ui-run-1"), t("ui-status"), t("ui-containers"), t("ui-elapsed"), t("ui-error-3")
         )
+        self._activity_seq = -1
         self._subscribe()
         self._hydrate_from_manager()
         self._refresh_app_jobs()
+        self._refresh_activity_log()
+        self.set_interval(0.1, self._refresh_activity_log)
         focus_primary_list(st)
 
     def on_unmount(self) -> None:
         self._unsubscribe()
+
+    def _refresh_activity_log(self) -> None:
+        """Paint analysis/refresh pool ActivityLog into the Activity tab."""
+        from ...job_pools import (
+            analysis_inflight,
+            get_activity_log,
+            get_analysis_pool,
+            get_live_refresh_pool,
+            refresh_inflight,
+        )
+
+        log = get_activity_log()
+        seq = log.seq
+        if seq == getattr(self, "_activity_seq", -1):
+            # Still refresh header line for inflight counts
+            pass
+        self._activity_seq = seq
+        try:
+            help_w = self.query_one("#jobs-activity-help", Static)
+            help_w.update(
+                t(
+                    "jobs-activity-status",
+                    analysis=analysis_inflight(),
+                    analysis_workers=get_analysis_pool().max_workers,
+                    refresh=refresh_inflight(),
+                    refresh_workers=get_live_refresh_pool().max_workers,
+                    spin=log.spinner_frame() if (analysis_inflight() or refresh_inflight()) else "",
+                )
+            )
+            rich = self.query_one("#jobs-activity-log", RichLog)
+        except Exception:
+            return
+        rich.clear()
+        from datetime import datetime
+
+        for entry in log.snapshot(limit=200):
+            ts = datetime.fromtimestamp(entry.ts).strftime("%H:%M:%S")
+            kind = entry.kind
+            style = {
+                "analysis": "cyan",
+                "refresh": "yellow",
+                "system": "dim",
+            }.get(kind, "")
+            line = Text()
+            line.append(f"{ts} ", style="dim")
+            line.append(f"[{kind}] ", style=style or "bold")
+            line.append(entry.message)
+            rich.write(line)
 
     def action_show_help(self) -> None:
         notify_help(self)
@@ -142,6 +205,8 @@ class JobsModal(ModalScreen[None]):
             pass
         self._refresh_app_jobs()
         self._hydrate_history_table()
+        self._activity_seq = -1
+        self._refresh_activity_log()
 
     def action_open_session(self) -> None:
         """Open the highlighted container's session in the trace browser (live ok)."""
@@ -175,7 +240,7 @@ class JobsModal(ModalScreen[None]):
                     session_dir = Path(sd)
         if session_dir is None or not session_dir.is_dir():
             self.notify(
-                f"{t('ui-no-session-yet-for')} {cname} {t('ui-wait-for-traces-to-appear')}",
+                t("notify-no-session-yet", container=cname),
                 severity="warning",
                 timeout=5,
             )
@@ -192,7 +257,7 @@ class JobsModal(ModalScreen[None]):
                 app.push_screen(BrowserScreen(session_dir))
         except Exception as exc:
             with suppress(Exception):
-                app.notify(f"{t('ui-open-session-failed')} {exc}", severity="error")
+                app.notify(t("notify-open-session-failed", exc=str(exc)), severity="error")
 
     def action_clear_logs(self) -> None:
         with suppress(Exception):
@@ -330,10 +395,13 @@ class JobsModal(ModalScreen[None]):
         latest = self.run_manager.latest()
         rid = latest.run_id if latest else "—"
         batches = self.run_manager.active_batch_ids
-        batch_bit = f"{t('ui-batch')} {batches[0][:14]}" if batches else ""
+        batch_bit = f"batch={batches[0][:14]}" if batches else ""
         lines.append(
-            f"{t('ui-docker-eval-runs')} {n_runs} {t('ui-active')}"
-            + (f"{t('ui-latest')} {rid}" if n_runs else "")
+            t(
+                "jobs-banner-runs",
+                n=n_runs,
+                latest=(f" · latest {rid}" if n_runs and rid else ""),
+            )
             + batch_bit
         )
         if batches:
@@ -349,17 +417,15 @@ class JobsModal(ModalScreen[None]):
             done = len(analyzed)
             pend = max(0, total - done)
             if pend and total:
-                lines.append(
-                    f"{t('ui-detector-analysis')} {done}/{total}[/yellow] ({pend} {t('ui-pending-in-background')}"
-                )
+                lines.append(t("jobs-detector-progress", done=done, total=total, pend=pend))
             elif total:
-                lines.append(f"{t('ui-detector-analysis-1')} {done}/{total} {t('ui-done')}")
+                lines.append(t("jobs-detector-done", done=done, total=total))
             else:
                 lines.append(t("ui-detector-analysis-no-sessions-loaded"))
         with suppress(Exception):
             wd = getattr(app, "work_dir", None) or self.work_dir
             if wd:
-                lines.append(f"{t('ui-work-dir')} {wd}[/dim]")
+                lines.append(t("jobs-work-dir", path=wd))
         self.query_one("#jobs-app-status", Static).update("\n".join(lines))
 
     @staticmethod
@@ -408,7 +474,7 @@ class JobsModal(ModalScreen[None]):
                 tail = url.rstrip("/").split("/")[-1][:8]
             except Exception:
                 tail = "ok"
-            return f"{t('ui-ok-2')} {tail}"
+            return join_ui(t("ui-ok-2"), tail)
         if sd is not None:
             return "…"
         return "—"
@@ -461,7 +527,9 @@ class JobsModal(ModalScreen[None]):
             webbrowser.open(url)
         except Exception as exc:
             self.notify(
-                f"{t('ui-could-not-open-share-for')} {cname}: {exc}", severity="error", timeout=10
+                t("notify-share-open-failed", name=cname, exc=str(exc)),
+                severity="error",
+                timeout=10,
             )
 
     def _update_status_row(self, status: ContainerStatus, *, run_id: str = "") -> None:

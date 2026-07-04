@@ -10,9 +10,10 @@ from textual.widgets import Button, Static
 
 from . import text as U
 from .i18n import t
+from .quit_actions import QuitActions
 
 
-class DiscardConfirmModal(ModalScreen[bool]):
+class DiscardConfirmModal(QuitActions, ModalScreen[bool]):
     """Ask whether to discard edits. Result ``True`` = discard and leave."""
 
     BINDINGS = [
@@ -24,9 +25,9 @@ class DiscardConfirmModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="discard-confirm-modal"):
-            yield Static(f"[bold]{t('discard-unsaved-title')}[/bold]", id="discard-confirm-title")
+            yield Static(t("discard-unsaved-title"), id="discard-confirm-title")
             yield Static(t("discard-unsaved-body"), id="discard-confirm-body")
-            with Horizontal(id="discard-confirm-actions"):
+            with Horizontal(id="discard-confirm-actions", classes="modal-footer"):
                 yield Button(t("ui-discard"), variant="error", id="discard-confirm-yes")
                 yield Button(t("ui-keep-editing"), variant="primary", id="discard-confirm-no")
 

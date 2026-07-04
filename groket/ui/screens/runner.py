@@ -50,11 +50,11 @@ from ..forms import (
     select_value_str,
     selection_list_selected_ids,
 )
-from ..i18n import t
+from ..i18n import join_ui, t
 from ..panel_render import TipSurface
+from ..tab_panes import TabPaneNavigation
 
 logger = logging.getLogger(__name__)
-_RUNNER_TABS = ("runner-tab-recipe", "runner-tab-runtime", "runner-tab-extras")
 
 
 @dataclass
@@ -73,10 +73,29 @@ class RunnerPrefill:
     run_skills: list[str] = field(default_factory=list)
     run_plugins: list[str] = field(default_factory=list)
     run_env_vars: dict = field(default_factory=dict)
+    # Run-only inline skills: (id, SKILL.md body)
+    run_inline_skills: list[tuple[str, str]] = field(default_factory=list)
 
 
-class RunnerScreen(ChromeActions):
+class RunnerScreen(TabPaneNavigation, ChromeActions):
     """Screen for configuring and launching evaluation runs."""
+
+    BINDINGS = list(RUNNER)
+    TAB_CONTENT_ID = "runner-tabs"
+    TAB_PANES = (
+        "runner-tab-recipe",
+        "runner-tab-runtime",
+        "runner-tab-extras",
+    )
+
+    def action_tab_recipe(self) -> None:
+        self.activate_tab_pane("runner-tab-recipe")
+
+    def action_tab_runtime(self) -> None:
+        self.activate_tab_pane("runner-tab-runtime")
+
+    def action_tab_extras(self) -> None:
+        self.activate_tab_pane("runner-tab-extras")
 
     class StatusUpdate(Message):
         """A container status change."""
@@ -91,8 +110,6 @@ class RunnerScreen(ChromeActions):
         def __init__(self, run: BackgroundRun) -> None:
             super().__init__()
             self.run = run
-
-    BINDINGS = list(RUNNER)
 
     def __init__(
         self,
@@ -124,14 +141,20 @@ class RunnerScreen(ChromeActions):
             self._run_env_vars: dict[str, str] = {
                 str(k): str(v) for k, v in (prefill.run_env_vars or {}).items() if k
             }
+            self._run_inline_skills: list[tuple[str, str]] = [
+                (str(n), str(b))
+                for n, b in (getattr(prefill, "run_inline_skills", None) or [])
+                if (n or "").strip()
+            ]
         else:
             self._run_mcp_ids = []
             self._run_mcp_definitions = []
             self._run_skills_ids = []
             self._run_plugins_ids = []
             self._run_env_vars = {}
+            self._run_inline_skills = []
         self._pending_model_skips: list[str] | None = None
-        self._clean_snapshot: tuple[object, ...] | None = None
+        self._clean_snapshot: tuple[str, ...] | None = None
 
     @property
     def run_manager(self) -> RunManager:
@@ -238,6 +261,8 @@ class RunnerScreen(ChromeActions):
                                 yield Button(U.mcp_btn(), id="run-mcp-pick-btn", variant="primary")
                                 yield Button(U.skills_btn(), id="run-skills-pick-btn")
                                 yield Button(U.plugins_btn(), id="run-plugins-pick-btn")
+                                yield Button(U.env_btn(), id="run-env-edit-btn")
+                                yield Button(U.inline_skill_btn(), id="run-inline-skill-btn")
                                 yield Button(
                                     U.clear_btn(),
                                     id="run-caps-clear-btn",
@@ -253,50 +278,6 @@ class RunnerScreen(ChromeActions):
                     yield Button(U.save_config(), id="save-config-btn")
                 yield TipSurface(U.tip_runner_toolbar(), id="runner-toolbar-hint")
         yield Footer()
-
-    def _runner_tab_index(self) -> int:
-        try:
-            active = self.query_one("#runner-tabs", TabbedContent).active
-        except Exception:
-            return 0
-        try:
-            return _RUNNER_TABS.index(active)
-        except ValueError:
-            return 0
-
-    def _activate_runner_tab(self, pane_id: str) -> None:
-        try:
-            tabs = self.query_one("#runner-tabs", TabbedContent)
-            tabs.active = pane_id
-        except Exception:
-            return
-
-        def _focus_pane() -> None:
-            with suppress(Exception):
-                pane = self.query_one(f"#{pane_id}")
-                for w in pane.query(t("ui-input-select-textarea-selectionlist-switch-butto")):
-                    if getattr(w, "can_focus", False) and (not getattr(w, "disabled", False)):
-                        w.focus()
-                        return
-
-        self.call_after_refresh(lambda: self.call_after_refresh(_focus_pane))
-
-    def action_tab_next(self) -> None:
-        i = (self._runner_tab_index() + 1) % len(_RUNNER_TABS)
-        self._activate_runner_tab(_RUNNER_TABS[i])
-
-    def action_tab_prev(self) -> None:
-        i = (self._runner_tab_index() - 1) % len(_RUNNER_TABS)
-        self._activate_runner_tab(_RUNNER_TABS[i])
-
-    def action_tab_recipe(self) -> None:
-        self._activate_runner_tab("runner-tab-recipe")
-
-    def action_tab_runtime(self) -> None:
-        self._activate_runner_tab("runner-tab-runtime")
-
-    def action_tab_extras(self) -> None:
-        self._activate_runner_tab("runner-tab-extras")
 
     def on_mount(self) -> None:
         if self.prefill:
@@ -337,7 +318,7 @@ class RunnerScreen(ChromeActions):
         self.call_after_refresh(self._rebuild_run_capability_lists)
         self.call_after_refresh(self._restore_run_state)
         self.call_after_refresh(
-            lambda: self.call_after_refresh(lambda: self._activate_runner_tab("runner-tab-recipe"))
+            lambda: self.call_after_refresh(lambda: self.activate_tab_pane("runner-tab-recipe"))
         )
         # After models / persona widgets settle — baseline for Esc discard.
         self.call_after_refresh(lambda: self.call_after_refresh(self._capture_clean_snapshot))
@@ -379,7 +360,7 @@ class RunnerScreen(ChromeActions):
         if p and (p.github_token or "").strip():
             tok_src = t("ui-stored-on-persona")
         elif p and (p.github_token_env or "").strip():
-            tok_src = f"{t('ui-host-env')} {p.github_token_env}"
+            tok_src = join_ui(t("ui-host-env"), p.github_token_env)
         elif tok:
             tok_src = "resolved"
         else:
@@ -392,11 +373,11 @@ class RunnerScreen(ChromeActions):
             tok_status = t("ui-token-status-unknown")
         mcp_n = len(p.mcp_servers or []) if p else 0
         sk_n = len(p.skills or []) if p else 0
-        caps = f"mcp={mcp_n} {t('ui-skills-2')} {sk_n}"
+        caps = join_ui("mcp=", mcp_n, t("ui-skills-2"), sk_n)
         if gh:
-            persona_line = f"[yellow]{pid} {t('ui-gh-on')} {tok_src} · {caps}"
+            persona_line = join_ui(pid, t("ui-gh-on"), tok_src, caps)
         else:
-            persona_line = f"[dim]{pid} {t('ui-gh-off')} {caps}[/dim]"
+            persona_line = join_ui(pid, t("ui-gh-off"), caps)
         self._set_status_line("persona-gh-hint", persona_line)
         self._set_status_line("github-write-hint", "")
 
@@ -561,12 +542,13 @@ class RunnerScreen(ChromeActions):
         skills = [s for s in self._run_skills_ids or [] if (s or "").strip()]
         plugins = [s for s in self._run_plugins_ids or [] if (s or "").strip()]
         env_keys = sorted(k for k in self._run_env_vars or {} if k)
-        if not mcp_rows and (not skills) and (not plugins):
-            w.update("[dim]—[/dim]")
+        inline = [(n, b) for n, b in (self._run_inline_skills or []) if (n or "").strip()]
+        if not mcp_rows and (not skills) and (not plugins) and (not env_keys) and (not inline):
+            w.update(U.em_dash_dim())
             return
         lines: list[str] = []
         if mcp_rows:
-            lines.append(f"{t('ui-mcp-1')} {len(mcp_rows)} {t('ui-this-run-only')}")
+            lines.append(join_ui(t("ui-mcp-1"), len(mcp_rows), t("ui-this-run-only")))
             for mid, title, transport in mcp_rows:
                 extra = []
                 if title and title.lower() != mid.lower():
@@ -574,27 +556,35 @@ class RunnerScreen(ChromeActions):
                 if transport:
                     extra.append(transport)
                 suffix = f"  [dim]({' · '.join(extra)})[/dim]" if extra else ""
-                lines.append(f"{t('ui-msg-4')} {mid}[/bold]{suffix}")
+                lines.append(join_ui(t("ui-msg-4"), mid, suffix))
         else:
             lines.append(t("ui-mcp-0-none-added-for-this-run"))
         if skills:
-            lines.append(f"{t('ui-skills-3')} {len(skills)} {t('ui-this-run-only')}")
+            lines.append(join_ui(t("ui-skills-3"), len(skills), t("ui-this-run-only")))
             for sk in skills:
-                lines.append(f"{t('ui-msg-5')} {sk}")
+                lines.append(join_ui(t("ui-msg-5"), sk))
         else:
             lines.append(t("ui-skills-0-none-added-for-this-run"))
         if plugins:
             lines.append(
-                f"{t('ui-plugins-2')} {len(plugins)} {t('ui-grok-packages-this-run-only')}"
+                join_ui(t("ui-plugins-2"), len(plugins), t("ui-grok-packages-this-run-only"))
             )
             for name in plugins:
-                lines.append(f"{t('ui-msg-5')} {name}")
+                lines.append(join_ui(t("ui-msg-5"), name))
         else:
             lines.append(t("ui-plugins-0-none-added-for-this-run"))
         if env_keys:
             shown = ", ".join(env_keys[:12])
             more = f" +{len(env_keys) - 12}" if len(env_keys) > 12 else ""
-            lines.append(f"{t('ui-run-env-keys-from-mcp-configure')} {shown} {more}[/dim]")
+            lines.append(join_ui(t("ui-run-env-keys"), shown, more))
+        else:
+            lines.append(t("ui-run-env-0-none"))
+        if inline:
+            lines.append(join_ui(t("ui-inline-skills"), len(inline), t("ui-this-run-only")))
+            for name, _body in inline:
+                lines.append(join_ui(t("ui-msg-5"), name))
+        else:
+            lines.append(t("ui-inline-skills-0-none"))
         lines.append("")
         w.update("\n".join(lines))
 
@@ -639,7 +629,15 @@ class RunnerScreen(ChromeActions):
                         self._run_skills_ids.append(ss)
             self._update_run_caps_summary()
             self.notify(
-                f"{t('ui-run-extras')} {len(self._run_mcp_ids)} {t('ui-mcp-2')} {len(self._run_skills_ids)} {t('ui-skills-4')} {len(self._run_plugins_ids)} {t('ui-plugins-persona-unchanged')}",
+                join_ui(
+                    t("ui-run-extras"),
+                    len(self._run_mcp_ids),
+                    t("ui-mcp-2"),
+                    len(self._run_skills_ids),
+                    t("ui-skills-4"),
+                    len(self._run_plugins_ids),
+                    t("ui-plugins-persona-unchanged"),
+                ),
                 severity="information",
                 timeout=6,
             )
@@ -695,6 +693,54 @@ class RunnerScreen(ChromeActions):
 
         self.app.push_screen(PluginPickerModal(self.work_dir, current), _done)
 
+    @on(Button.Pressed, "#run-env-edit-btn")
+    def _run_env_edit_btn(self) -> None:
+        from ..env_modals import EnvEditorModal
+
+        def _done(result: dict[str, str] | None) -> None:
+            if result is None:
+                return
+            self._run_env_vars = dict(result)
+            self._update_run_caps_summary()
+            self.notify(
+                t("ui-run-env-saved", count=len(self._run_env_vars)),
+                severity="information",
+                timeout=4,
+            )
+
+        self.app.push_screen(
+            EnvEditorModal(self._run_env_vars, title=t("env-editor-run-title")),
+            _done,
+        )
+
+    @on(Button.Pressed, "#run-inline-skill-btn")
+    def _run_inline_skill_btn(self) -> None:
+        from ..env_modals import InlineSkillModal
+
+        def _done(result: tuple[str, str] | None) -> None:
+            if result is None:
+                return
+            name, body = result
+            updated: list[tuple[str, str]] = []
+            replaced = False
+            for n, b in self._run_inline_skills or []:
+                if n == name:
+                    updated.append((name, body))
+                    replaced = True
+                else:
+                    updated.append((n, b))
+            if not replaced:
+                updated.append((name, body))
+            self._run_inline_skills = updated
+            self._update_run_caps_summary()
+            self.notify(
+                t("ui-inline-skill-saved", name=name),
+                severity="information",
+                timeout=4,
+            )
+
+        self.app.push_screen(InlineSkillModal(), _done)
+
     @on(Button.Pressed, "#run-caps-clear-btn")
     def _run_caps_clear_btn(self) -> None:
         self._run_mcp_ids = []
@@ -702,6 +748,7 @@ class RunnerScreen(ChromeActions):
         self._run_skills_ids = []
         self._run_plugins_ids = []
         self._run_env_vars = {}
+        self._run_inline_skills = []
         self._update_run_caps_summary()
         self.notify(
             t("ui-cleared-run-only-mcp-skills-plugins-extras"), severity="information", timeout=4
@@ -711,11 +758,13 @@ class RunnerScreen(ChromeActions):
         p_mcp, p_skills = self._persona_capability_snapshot()
         pid = self._persona_id_from_form() or "(none)"
         if not p_mcp and (not p_skills):
-            body = f"{t('ui-persona')} {pid} {t('ui-no-base-mcp-skills')}"
+            body = join_ui(t("ui-persona"), pid, t("ui-no-base-mcp-skills"))
         else:
             m = ", ".join(p_mcp[:8]) + ("…" if len(p_mcp) > 8 else "")
             s = ", ".join(p_skills[:8]) + ("…" if len(p_skills) > 8 else "")
-            body = f"{t('ui-persona')} {pid} {t('ui-mcp-3')} {m or '—'} {t('ui-skills-2')} {s or '—'}[/dim]"
+            body = join_ui(
+                t("ui-persona"), pid, t("ui-mcp-3"), m or "—", t("ui-skills-2"), s or "—"
+            )
         self._set_status_line("run-caps-persona-hint", body)
 
     def _run_mcp_from_form(self) -> list[str]:
@@ -732,6 +781,9 @@ class RunnerScreen(ChromeActions):
 
     def _run_env_from_form(self) -> dict[str, str]:
         return dict(self._run_env_vars or {})
+
+    def _run_inline_skills_from_form(self) -> list[tuple[str, str]]:
+        return [(n, b) for n, b in (self._run_inline_skills or []) if (n or "").strip()]
 
     def refresh_tip_surfaces(self) -> None:
         """Re-apply all ``TipSurface`` widgets after global show_tips toggle."""
@@ -790,7 +842,7 @@ class RunnerScreen(ChromeActions):
             self._refresh_persona_select(select_id=str(pid) if pid else None)
             if pid:
                 self.notify(
-                    f"{t('ui-persona-ready')} {pid} {t('ui-selected-5')}",
+                    join_ui(t("ui-persona-ready"), pid, t("ui-selected-5")),
                     severity="information",
                     timeout=6,
                 )
@@ -869,8 +921,8 @@ class RunnerScreen(ChromeActions):
             n = len(active)
             if n:
                 ids = ", ".join(r.run_id for r in active[-4:])
-                more = f" (+{n - 4} {t('ui-more-2')}" if n > 4 else ""
-                self._set_banner("running", f"[bold]{n} {t('ui-run-s-active-1')} {ids} {more}")
+                more = join_ui(" (+", n - 4, t("ui-more-2")) if n > 4 else ""
+                self._set_banner("running", join_ui(n, t("ui-run-s-active-1"), ids, more))
             else:
                 self._set_banner("idle", t("ui-no-active-runs-fill-the-form-and-press-launch"))
 
@@ -896,14 +948,17 @@ class RunnerScreen(ChromeActions):
             run_skills,
             run_plugins,
             run_env,
+            run_inline,
         ) = fields
         if not prompt:
             self.notify(U.prompt_required_save(), severity="error")
             return
         try:
-            from ...runs.run_configs import RunConfigStore
+            from ...runs.run_configs import RunConfigStore, normalize_run_inline_skills
 
             store = RunConfigStore(self.work_dir)
+            # Same normalization as launch autosave (tuples or maps → {id, content}).
+            inline_dicts = normalize_run_inline_skills(run_inline)
             if self._config_id:
                 existing = store.get(self._config_id)
                 if existing:
@@ -919,6 +974,7 @@ class RunnerScreen(ChromeActions):
                     existing.run_skills = list(run_skills)
                     existing.run_plugins = list(run_plugins)
                     existing.run_env_vars = dict(run_env)
+                    existing.run_inline_skills = list(inline_dicts)
                     if models:
                         existing.models = models
                     existing.parallelism = 1
@@ -926,11 +982,24 @@ class RunnerScreen(ChromeActions):
                         existing.name = name
                     store.save(existing)
                     extra = ""
-                    if run_mcp or run_skills or run_plugins:
-                        extra = f"{t('ui-run-mcp')} {len(run_mcp)} {t('ui-skills-2')} {len(run_skills)} {t('ui-plugins-3')} {len(run_plugins)}"
+                    if run_mcp or run_skills or run_plugins or run_env or run_inline:
+                        extra = join_ui(
+                            t("ui-run-mcp"),
+                            len(run_mcp),
+                            t("ui-skills-2"),
+                            len(run_skills),
+                            t("ui-plugins-3"),
+                            len(run_plugins),
+                        )
                     self.notify(
-                        f"{t('ui-updated-config')} {existing.config_id} ({existing.display_name()})"
-                        + (f"{t('ui-persona-1')} {persona_id}" if persona_id else "")
+                        join_ui(
+                            t("ui-updated-config"),
+                            existing.config_id,
+                            " (",
+                            existing.display_name(),
+                            ")",
+                        )
+                        + (join_ui(t("ui-persona-1"), persona_id) if persona_id else "")
                         + extra,
                         severity="information",
                     )
@@ -947,23 +1016,23 @@ class RunnerScreen(ChromeActions):
                 name=name,
                 github_write=False,
             )
-            if persona_id:
-                cfg.persona_id = persona_id
+            cfg.persona_id = persona_id or ""
             cfg.run_mcp_servers = list(run_mcp)
             cfg.run_mcp_definitions = list(run_mcp_defs)
             cfg.run_skills = list(run_skills)
             cfg.run_plugins = list(run_plugins)
             cfg.run_env_vars = dict(run_env)
+            cfg.run_inline_skills = list(inline_dicts)
             store.save(cfg)
             self._config_id = cfg.config_id
             self.notify(
-                f"{t('ui-saved-config')} {cfg.config_id} → {store.root}",
+                join_ui(t("ui-saved-config"), cfg.config_id, " → ", store.root),
                 severity="information",
                 timeout=8,
             )
             self._mark_form_clean()
         except Exception as exc:
-            self.notify(f"{t('ui-save-failed')} {exc}", severity="error")
+            self.notify(join_ui(t("ui-save-failed"), exc), severity="error")
 
     def _read_form(
         self, *, require_models: bool = True
@@ -982,6 +1051,7 @@ class RunnerScreen(ChromeActions):
             list[str],
             list[str],
             dict[str, str],
+            list[tuple[str, str]],
         ]
         | None
     ):
@@ -1039,6 +1109,7 @@ class RunnerScreen(ChromeActions):
         run_skills = self._run_skills_from_form()
         run_plugins = self._run_plugins_from_form()
         run_env = self._run_env_from_form()
+        run_inline = self._run_inline_skills_from_form()
         if require_models and (not models):
             self.notify(U.select_at_least_one_model(), severity="error")
             return None
@@ -1056,6 +1127,7 @@ class RunnerScreen(ChromeActions):
             run_skills,
             run_plugins,
             run_env,
+            run_inline,
         )
 
     def _do_launch(self) -> None:
@@ -1091,6 +1163,7 @@ class RunnerScreen(ChromeActions):
             run_skills,
             run_plugins,
             run_env,
+            run_inline,
         ) = fields
         if not prompt:
             self.notify(U.prompt_required(), severity="error")
@@ -1100,7 +1173,12 @@ class RunnerScreen(ChromeActions):
         skips = self._pending_model_skips or []
         if skips:
             self.notify(
-                f"{t('ui-skipping')} {len(skips)} {t('ui-inactive-model-s-not-in-grok-models-models-cache')} {', '.join(models) or '(none)'}",
+                join_ui(
+                    t("ui-skipping"),
+                    len(skips),
+                    t("ui-inactive-model-s-not-in-grok-models-models-cache"),
+                    ", ".join(models) or "(none)",
+                ),
                 severity="warning",
                 timeout=12,
             )
@@ -1136,7 +1214,7 @@ class RunnerScreen(ChromeActions):
         auth_json = Path.home() / ".grok" / "auth.json"
         grok_config = Path.home() / ".grok" / "config.toml"
         if not auth_json.exists():
-            self._set_banner("error", f"{t('ui-auth-file-not-found')} {auth_json}")
+            self._set_banner("error", join_ui(t("ui-auth-file-not-found"), auth_json))
             return
         already = self.run_manager.active_count
         interactive = False
@@ -1167,6 +1245,7 @@ class RunnerScreen(ChromeActions):
                 run_skills=run_skills,
                 run_plugins=run_plugins,
                 run_env_vars=run_env,
+                run_inline_skills=run_inline,
             )
         except RuntimeError as exc:
             self.notify(str(exc), severity="warning")
@@ -1183,9 +1262,9 @@ class RunnerScreen(ChromeActions):
         self._last_run_id = bg.run_id
         n = len(models)
         rid = (bg.run_id or "")[:12]
-        more = f" (+{already} {t('ui-already-running')}" if already else ""
+        more = join_ui(" (+", already, t("ui-already-running")) if already else ""
         self.notify(
-            f"{t('ui-launched')} {n} {t('ui-model-s')} {more}"
+            join_ui(t("ui-launched"), n, t("ui-model-s"), more)
             + (f" · {rid}" if rid else "")
             + t("ui-jobs-for-logs-esc-closes-jobs-run-keeps-going"),
             severity="information",
@@ -1209,7 +1288,7 @@ class RunnerScreen(ChromeActions):
     def _apply_finished_banner(self, run: BackgroundRun) -> None:
         elapsed_str = _format_duration(run.elapsed_s)
         if run.error:
-            self._set_banner("error", f"{t('ui-run-crashed')} {rich_escape(run.error)}")
+            self._set_banner("error", join_ui(t("ui-run-crashed"), rich_escape(run.error)))
             return
         completed = sum(1 for r in run.results if r.status == "completed")
         failed_count = sum(1 for r in run.results if r.status == "failed")
@@ -1220,12 +1299,32 @@ class RunnerScreen(ChromeActions):
             )
             self._set_banner(
                 "error",
-                f"{t('ui-run-2')} {run.run_id} {t('ui-finished-in-1')} {elapsed_str} — [green]{completed} {t('ui-succeeded')} {failed_count} {t('ui-failed-2')} {rich_escape(error_summary)}[/dim]",
+                join_ui(
+                    t("ui-run-2"),
+                    run.run_id,
+                    t("ui-finished-in-1"),
+                    elapsed_str,
+                    " — ",
+                    completed,
+                    t("ui-succeeded"),
+                    failed_count,
+                    t("ui-failed-2"),
+                    rich_escape(error_summary),
+                ),
             )
         else:
             self._set_banner(
                 "success",
-                f"{t('ui-run-2')} {run.run_id} {t('ui-completed-in')} {elapsed_str} — [green]{completed}/{len(run.results)} {t('ui-succeeded-1')}",
+                join_ui(
+                    t("ui-run-2"),
+                    run.run_id,
+                    t("ui-completed-in"),
+                    elapsed_str,
+                    " — ",
+                    completed,
+                    len(run.results),
+                    t("ui-succeeded-1"),
+                ),
             )
 
     def _set_banner(self, level: str, text: str) -> None:
@@ -1261,7 +1360,7 @@ class RunnerScreen(ChromeActions):
     def _upsert_status_row(self, table: DataTable, status: ContainerStatus) -> None:
         _ = table, status
 
-    def _form_snapshot(self) -> tuple[object, ...]:
+    def _form_snapshot(self) -> tuple[str, ...]:
         """Serializable form fields for dirty detection (no model validation)."""
         with suppress(Exception):
             prompt = self.query_one("#prompt-input", TextArea).text
@@ -1291,20 +1390,27 @@ class RunnerScreen(ChromeActions):
             run_skills = tuple(self._run_skills_ids or [])
             run_plugins = tuple(self._run_plugins_ids or [])
             run_env = tuple(sorted((self._run_env_vars or {}).items()))
-            return (
-                name,
-                prompt,
-                setup,
-                docker,
-                repo_url,
-                repo_branch,
-                models,
-                interactive,
-                persona,
-                run_mcp,
-                run_skills,
-                run_plugins,
-                run_env,
+            run_inline = tuple(
+                (n, b) for n, b in (self._run_inline_skills or []) if (n or "").strip()
+            )
+            return tuple(
+                str(x)
+                for x in (
+                    name,
+                    prompt,
+                    setup,
+                    docker,
+                    repo_url,
+                    repo_branch,
+                    models,
+                    interactive,
+                    persona,
+                    run_mcp,
+                    run_skills,
+                    run_plugins,
+                    run_env,
+                    run_inline,
+                )
             )
         return ()
 
@@ -1323,7 +1429,7 @@ class RunnerScreen(ChromeActions):
         n = self.run_manager.active_count
         if n:
             self.notify(
-                f"{n} {t('ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt')}",
+                join_ui(n, t("ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt")),
                 severity="information",
                 timeout=6,
             )

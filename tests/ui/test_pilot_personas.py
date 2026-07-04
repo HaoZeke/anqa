@@ -17,8 +17,6 @@ from groket.ui.screens.personas import (
     PersonasScreen,
     PluginPickerModal,
     SkillsPickerModal,
-    _env_vars_from_text,
-    _env_vars_to_text,
     _ids_from_text,
     _ids_to_text,
     _slug_id,
@@ -61,13 +59,6 @@ def test_slug_id() -> None:
     assert _slug_id("Hello World!") == "hello-world"
     assert _slug_id("") == "persona"
     assert _slug_id("x" * 100) == "x" * 48
-
-
-def test_env_vars_roundtrip() -> None:
-    env = {"KEY_A": "val1", "KEY_B": "val2"}
-    text = _env_vars_to_text(env)
-    parsed = _env_vars_from_text(text)
-    assert parsed == env
 
 
 def test_ids_roundtrip() -> None:
@@ -434,10 +425,8 @@ async def test_skills_picker_tab_actions(tmp_path: Path) -> None:
         )
         modal = app.screen
         assert isinstance(modal, SkillsPickerModal)
-        modal.action_tab_next()
-        await pilot.pause()
-        modal.action_tab_prev()
-        await pilot.pause()
+        # Pickers are not tabbed panes (TabPaneNavigation is only on PersonaEditorModal).
+        assert not hasattr(modal, "TAB_PANES") or not getattr(modal, "TAB_PANES", ())
 
 
 # ── PluginPickerModal ────────────────────────────────────────────────────
@@ -550,10 +539,7 @@ async def test_mcp_picker_tab_actions(tmp_path: Path) -> None:
         )
         modal = app.screen
         assert isinstance(modal, McpPickerModal)
-        modal.action_tab_next()
-        await pilot.pause()
-        modal.action_tab_prev()
-        await pilot.pause()
+        assert not getattr(modal, "TAB_PANES", ())
         modal.action_registry_search()
         await pilot.pause()
 
