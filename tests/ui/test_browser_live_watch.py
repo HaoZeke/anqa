@@ -1,10 +1,19 @@
-"""Browser live-refresh watch root and busy-flag contracts."""
+"""Browser live-refresh watch root and inflight contracts."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from groket.session_inflight import KIND_REFRESH, clear, try_begin
 from groket.ui.screens.browser import BrowserScreen
+
+
+def setup_function() -> None:
+    clear(KIND_REFRESH)
+
+
+def teardown_function() -> None:
+    clear(KIND_REFRESH)
 
 
 def test_live_watch_root_uses_traces_volume(tmp_path: Path) -> None:
@@ -29,10 +38,17 @@ def test_live_watch_root_falls_back_to_session_dir(tmp_path: Path) -> None:
     assert root == sess or root == sess.resolve()
 
 
-def test_live_refresh_worker_done_clears_busy_and_runs_pending() -> None:
+def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -> None:
+    sd = tmp_path / "s"
+    sd.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_busy = True
     screen._live_refresh_pending = True
+    from groket.session_inflight import request_rerun
+
+    request_rerun(KIND_REFRESH, sd)
     calls: list[str] = []
     screen._live_refresh_from_fs = lambda: calls.append("tick")  # type: ignore[method-assign]
     screen._live_refresh_worker_done()
@@ -41,10 +57,18 @@ def test_live_refresh_worker_done_clears_busy_and_runs_pending() -> None:
     assert calls == ["tick"]
 
 
-def test_live_refresh_from_fs_sets_pending_when_busy() -> None:
+def test_live_refresh_from_fs_sets_pending_when_busy(tmp_path: Path) -> None:
+    sd = tmp_path / "s"
+    sd.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
-    screen._live_refresh_busy = True
+    screen.session_dir = sd
+    screen.timeline = []
+    screen.meta = None
+    screen._live_refresh_busy = False
     screen._live_refresh_pending = False
+    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+    screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
+    assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_from_fs()
     assert screen._live_refresh_pending is True
 

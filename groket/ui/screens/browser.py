@@ -620,28 +620,46 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _live_refresh_from_fs(self) -> None:
         """UI thread: react to a debounced FS event (or timer fallback tick)."""
-        if self._live_refresh_busy:
-            self._live_refresh_pending = True
-            return
         if not self._session_is_pending() and not self._session_needs_live_timeline():
             self._stop_live_refresh()
             self._refresh_session_pending_bar()
             return
-        if self._session_needs_live_timeline():
-            self._live_refresh_busy = True
-            self._submit_load_data_light()
+        if not self._session_needs_live_timeline():
+            self._refresh_session_pending_bar()
             return
-        self._refresh_session_pending_bar()
+        from ...session_inflight import KIND_REFRESH, request_rerun, try_begin
+
+        if not try_begin(KIND_REFRESH, self.session_dir):
+            request_rerun(KIND_REFRESH, self.session_dir)
+            self._live_refresh_pending = True
+            return
+        self._live_refresh_busy = True
+        self._live_refresh_pending = False
+        try:
+            self._submit_load_data_light()
+        except Exception:
+            from ...session_inflight import end
+
+            end(KIND_REFRESH, self.session_dir)
+            self._live_refresh_busy = False
+            raise
 
     def _live_refresh_worker_done(self) -> None:
-        """Clear busy after threaded light reload; run one coalesced refresh if needed."""
+        """Release refresh inflight; run one coalesced follow-up if requested."""
+        from ...session_inflight import KIND_REFRESH, end
+
+        again = end(KIND_REFRESH, self.session_dir)
         self._live_refresh_busy = False
-        if self._live_refresh_pending:
-            self._live_refresh_pending = False
+        self._live_refresh_pending = False
+        if again:
             self._live_refresh_from_fs()
 
     def _submit_load_data_light(self) -> None:
-        """Queue a light timeline reload on the serial live-refresh pool."""
+        """Queue a light timeline reload on the serial live-refresh pool.
+
+        Caller must hold the :data:`~groket.session_inflight.KIND_REFRESH` lock
+        via :func:`~groket.session_inflight.try_begin`.
+        """
         from ...job_pools import get_live_refresh_pool
 
         get_live_refresh_pool().submit(
@@ -675,7 +693,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._rebuild_indices()
             call_ui(self.app, self._populate_ui_light)
         finally:
-            call_ui(self.app, self._live_refresh_worker_done)
+            try:
+                call_ui(self.app, self._live_refresh_worker_done)
+            except Exception:
+                from ...session_inflight import KIND_REFRESH, end
+
+                end(KIND_REFRESH, self.session_dir)
 
     def _light_refresh_fingerprint(self) -> tuple[str | int | float | bool | None, ...]:
         """Identity for live poll — skip full timeline rebuild when unchanged."""
@@ -771,30 +794,50 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     @work(thread=True)
     def _load_data(self) -> None:
         from ...parser import session_trace_mtime
+        from ...session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
-        self._last_light_fp = None
-        self._last_trace_mtime = None
-        # One timeline parse only — do not also run parse_timeline inside
-        # load_session_meta (that doubled CPU on 100MB+ updates.jsonl opens).
-        self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
-        self.timeline = parse_timeline(self.session_dir)
-        if self.meta is not None:
-            self.meta.num_events = len(self.timeline or [])
+        if not try_begin(KIND_REFRESH, self.session_dir):
+            # Light refresh (or another full load) owns the session; coalesce.
+            request_rerun(KIND_REFRESH, self.session_dir)
+            return
+
         try:
-            self._last_trace_mtime = session_trace_mtime(self.session_dir)
-        except Exception:
+            self._last_light_fp = None
             self._last_trace_mtime = None
-        self._load_flags()
-        self._rebuild_indices()
-        try:
-            self._diff_md, self._diff_meta = load_workspace_diff(self.session_dir)
-        except Exception:
-            self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
-            self._diff_meta = {}
-        call_ui(self.app, self._populate_ui)
-        call_ui(self.app, self._schedule_live_refresh)
-        # Analysis is async on the fixed analysis pool — never blocks timeline paint.
-        call_ui(self.app, self._schedule_analysis)
+            # One timeline parse only — do not also run parse_timeline inside
+            # load_session_meta (that doubled CPU on 100MB+ updates.jsonl opens).
+            self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
+            self.timeline = parse_timeline(self.session_dir)
+            if self.meta is not None:
+                self.meta.num_events = len(self.timeline or [])
+            try:
+                self._last_trace_mtime = session_trace_mtime(self.session_dir)
+            except Exception:
+                self._last_trace_mtime = None
+            self._load_flags()
+            self._rebuild_indices()
+            try:
+                self._diff_md, self._diff_meta = load_workspace_diff(self.session_dir)
+            except Exception:
+                self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
+                self._diff_meta = {}
+            call_ui(self.app, self._populate_ui)
+            call_ui(self.app, self._schedule_live_refresh)
+            # Analysis is async on the fixed analysis pool — never blocks timeline paint.
+            call_ui(self.app, self._schedule_analysis)
+        finally:
+
+            def _release_refresh_lock() -> None:
+                again = end(KIND_REFRESH, self.session_dir)
+                self._live_refresh_busy = False
+                self._live_refresh_pending = False
+                if again:
+                    self._live_refresh_from_fs()
+
+            try:
+                call_ui(self.app, _release_refresh_lock)
+            except Exception:
+                end(KIND_REFRESH, self.session_dir)
 
     def _should_auto_analyze(self) -> bool:
         """Whether policy says to run analyzers for this session now."""
