@@ -356,8 +356,10 @@ class TraceEvalApp(App):
         self.run_manager.add_status_listener(self._on_background_run_status)
         self._run_status_timer: Timer | None = None
         self._live_sessions_timer: Timer | None = None
+        self._live_sessions_heartbeat_timer: Timer | None = None
         self._traces_watch: object | None = None
         self._live_sessions_busy = False
+        self._live_meta_heartbeat_busy = False
         self._live_sessions_last_scan: float = 0.0
         # session_dir key → last session_trace_mtime seen on a live poll.
         self._session_mtimes: dict[str, float] = {}
@@ -2014,39 +2016,47 @@ class TraceEvalApp(App):
         return self.work_dir / "runs" / "traces"
 
     def _schedule_live_sessions_poll(self) -> None:
-        """Watch ``runs/traces`` for create/modify (inotify).
+        """Watch ``runs/traces`` and arm a read-only 60s meta heartbeat.
 
-        Idempotent. Debounced FS events schedule at most one background scan.
-        If the observer cannot start (missing root race, no watchdog), arm a
-        slow timer so idle session discovery still works.
+        FS events discover sessions / turn status. The heartbeat reloads
+        ``signals.json`` context fields for in-progress rows without writing
+        the meta cache or traces tree.
         """
-        if self._traces_watch is not None or self._live_sessions_timer is not None:
-            return
         root = self._runner_traces_root()
         try:
             root.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
-        from ..constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+        from ..constants import (
+            LIVE_POLL_HEARTBEAT_INTERVAL,
+            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+        )
         from ..fs_watch import TraceTreeWatch
 
-        def _on_fs() -> None:
-            if self._exiting:
-                return
-            try:
-                if self.is_running:
-                    self.call_from_thread(self._live_sessions_tick)
-            except Exception:
-                pass
+        if self._traces_watch is None and self._live_sessions_timer is None:
 
-        watch = TraceTreeWatch(root, _on_fs, debounce_s=0.5)
-        if watch.start():
-            self._traces_watch = watch
-            return
-        self._live_sessions_timer = self.set_interval(
-            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
-            self._live_sessions_tick,
-        )
+            def _on_fs() -> None:
+                if self._exiting:
+                    return
+                try:
+                    if self.is_running:
+                        self.call_from_thread(self._live_sessions_tick)
+                except Exception:
+                    pass
+
+            watch = TraceTreeWatch(root, _on_fs, debounce_s=0.5)
+            if watch.start():
+                self._traces_watch = watch
+            else:
+                self._live_sessions_timer = self.set_interval(
+                    LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+                    self._live_sessions_tick,
+                )
+        if self._live_sessions_heartbeat_timer is None:
+            self._live_sessions_heartbeat_timer = self.set_interval(
+                LIVE_POLL_HEARTBEAT_INTERVAL,
+                self._live_sessions_heartbeat,
+            )
 
     def _live_sessions_tick(self) -> None:
         """UI thread: at most one background scan at a time (from FS events)."""
@@ -2054,6 +2064,102 @@ class TraceEvalApp(App):
             return
         self._live_sessions_busy = True
         self._scan_live_sessions_worker()
+
+    def _live_sessions_heartbeat(self) -> None:
+        """UI thread: periodic read-only reload of live row metas (context meter)."""
+        if self._exiting or self._live_meta_heartbeat_busy:
+            return
+        live_rows = [
+            (meta, label)
+            for meta, label in list(self._meta_only)
+            if meta.turn_in_progress or meta.list_status_label() in ("running", "awaiting")
+        ]
+        if not live_rows:
+            return
+        self._live_meta_heartbeat_busy = True
+        self._live_meta_heartbeat_worker(live_rows)
+
+    def _dispatch_refresh_rerun(self, session_dir: Path) -> None:
+        """UI thread: hand a coalesced refresh back to an open browser, if any."""
+        from ..session_inflight import session_dir_key
+
+        target = session_dir_key(session_dir)
+        try:
+            stack = list(self.screen_stack)
+        except Exception:
+            stack = []
+        for screen in stack:
+            browser_sd = getattr(screen, "session_dir", None)
+            refresh = getattr(screen, "_live_refresh_from_fs", None)
+            if browser_sd is None or not callable(refresh):
+                continue
+            if session_dir_key(browser_sd) == target:
+                refresh(heartbeat=True)
+                return
+
+    @work(thread=True)
+    def _live_meta_heartbeat_worker(self, live_rows: list[tuple[SessionMeta, str]]) -> None:
+        """Read-only ``load_session_meta`` for in-progress sessions.
+
+        Uses per-session inflight locks so browser light reloads coalesce safely.
+        Never writes ``_meta_cache.json`` or session artifacts.
+        """
+        from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
+
+        updates: list[tuple[str, SessionMeta, str]] = []
+        pending_reruns: list[Path] = []
+        try:
+            for meta, label in live_rows:
+                sd = Path(meta.session_dir)
+                if not try_begin(KIND_REFRESH, sd):
+                    request_rerun(KIND_REFRESH, sd)
+                    continue
+                try:
+                    fresh = load_session_meta(sd, include_timeline_count=False)
+                    fresh.num_events = meta.num_events
+                    try:
+                        key = str(sd.resolve())
+                    except OSError:
+                        key = str(sd)
+                    if (
+                        fresh.context_usage_compact != meta.context_usage_compact
+                        or fresh.turn_outcome != meta.turn_outcome
+                        or fresh.duration_seconds != meta.duration_seconds
+                    ):
+                        updates.append((key, fresh, label))
+                finally:
+                    if end(KIND_REFRESH, sd):
+                        pending_reruns.append(sd)
+        finally:
+
+            def _apply() -> None:
+                self._live_meta_heartbeat_busy = False
+                if self._exiting:
+                    return
+                if updates:
+                    by_key: dict[str, int] = {}
+                    for idx, (m, _lab) in enumerate(self._meta_only):
+                        try:
+                            by_key[str(Path(m.session_dir).resolve())] = idx
+                        except OSError:
+                            by_key[str(m.session_dir)] = idx
+                    changed = False
+                    for key, fresh, label in updates:
+                        row_idx = by_key.get(key)
+                        if row_idx is None:
+                            continue
+                        self._meta_only[row_idx] = (fresh, label)
+                        changed = True
+                    if changed:
+                        with suppress(Exception):
+                            self._populate_session_table()
+                for sd in pending_reruns:
+                    self._dispatch_refresh_rerun(sd)
+
+            try:
+                call_ui(self, _apply)
+            except Exception:
+                self._live_meta_heartbeat_busy = False
 
     @work(thread=True)
     def _scan_live_sessions_worker(self) -> None:
@@ -2372,7 +2478,11 @@ class TraceEvalApp(App):
         UI callbacks that would block Textual shutdown via ``call_from_thread``.
         """
         self._exiting = True
-        for attr in ("_run_status_timer", "_live_sessions_timer"):
+        for attr in (
+            "_run_status_timer",
+            "_live_sessions_timer",
+            "_live_sessions_heartbeat_timer",
+        ):
             timer = getattr(self, attr, None)
             if timer is not None:
                 try:

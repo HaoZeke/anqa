@@ -13,13 +13,29 @@ from contextlib import suppress
 from textual.app import App
 
 
-def call_ui[R](app: App, callback: Callable[..., R], *args: object, **kwargs: object) -> R | None:
+def resolve_ui_app(owner: object) -> App | None:
+    """Return ``owner.app`` when the widget is mounted; else ``None``."""
+    with suppress(Exception):
+        app = getattr(owner, "app", None)
+        if isinstance(app, App):
+            return app
+    return None
+
+
+def call_ui[R](
+    app: App | None, callback: Callable[..., R], *args: object, **kwargs: object
+) -> R | None:
     """Run *callback* on the app thread and return its result.
 
     From a worker: blocking ``App.call_from_thread`` (waits for the result).
     Already on the app thread: call *callback* directly (``call_from_thread``
-    raises ``RuntimeError`` on the UI thread).
+    raises ``RuntimeError`` on the UI thread). When *app* is missing (screen
+    torn down mid-refresh), invoke *callback* inline if possible.
     """
+    if app is None:
+        with suppress(Exception):
+            return callback(*args, **kwargs)
+        return None
     try:
         return app.call_from_thread(callback, *args, **kwargs)
     except RuntimeError:

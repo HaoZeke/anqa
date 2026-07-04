@@ -57,7 +57,7 @@ from ..panel_render import (
 from ..session_summary import assistant_text_from_timeline, render_session_summary
 from ..styles import SEVERITY_LABEL, severity_style
 from ..tab_panes import TabPaneNavigation
-from ..threads import call_ui
+from ..threads import call_ui, resolve_ui_app
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.flag_panel import FlagModal
@@ -119,13 +119,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._report_select_options_key: tuple[str, ...] = ()
         self._report_updating: bool = False
         self._live_refresh_timer: Timer | None = None
+        self._live_heartbeat_timer: Timer | None = None
         self._analysis_spinner_timer: Timer | None = None
         self._trace_watch: object | None = None  # fs_watch stop handle
         self._last_light_fp: tuple[str | int | float | bool | None, ...] | None = None
         self._last_trace_mtime: float | None = None
+        self._last_signals_mtime: float | None = None
         self._delete_pending: bool = False
         self._live_refresh_busy = False
         self._live_refresh_pending = False
+        self._light_refresh_heartbeat = False
+        from ...session.context_samples import ContextSampleStore
+
+        self._context_samples = ContextSampleStore()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -258,13 +264,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._stop_live_refresh()
 
     def _stop_live_refresh(self) -> None:
-        t = self._live_refresh_timer
-        if t is not None:
-            try:
-                t.stop()
-            except Exception:
-                pass
-        self._live_refresh_timer = None
+        for attr in ("_live_refresh_timer", "_live_heartbeat_timer"):
+            t = getattr(self, attr, None)
+            if t is not None:
+                try:
+                    t.stop()
+                except Exception:
+                    pass
+            setattr(self, attr, None)
         w = self._trace_watch
         self._trace_watch = None
         stop = getattr(w, "stop", None)
@@ -585,10 +592,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return sd
 
     def _schedule_live_refresh(self) -> None:
-        """Watch session + turn-gate files while interactive or traces may change.
+        """Watch session files and arm a read-only 60s heartbeat while live.
 
-        Prefer FS events (debounced). If the observer cannot start, use a slow
-        timer so pending-bar / timeline still update (missing root, no watchdog).
+        FS events drive timeline reloads. The heartbeat re-reads ``signals.json``
+        (context meter) even when no write events fired. Neither path writes
+        into the traces tree.
         """
         pending_ui = self._session_is_pending()
         live_traces = self._session_needs_live_timeline()
@@ -597,34 +605,46 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._refresh_session_pending_bar()
             return
         self._refresh_session_pending_bar()
-        if self._trace_watch is not None or self._live_refresh_timer is not None:
-            return
-        from ...constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+        from ...constants import (
+            LIVE_POLL_HEARTBEAT_INTERVAL,
+            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+        )
         from ...fs_watch import TraceTreeWatch
 
-        def _on_fs() -> None:
-            try:
-                if self.app is not None and self.app.is_running:
-                    self.app.call_from_thread(self._live_refresh_from_fs)
-            except Exception:
-                pass
+        if self._trace_watch is None and self._live_refresh_timer is None:
 
-        watch = TraceTreeWatch(self._live_watch_root(), _on_fs, debounce_s=0.35)
-        if watch.start():
-            self._trace_watch = watch
-            return
-        self._live_refresh_timer = self.set_interval(
-            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
-            self._live_refresh_from_fs,
-        )
+            def _on_fs() -> None:
+                try:
+                    if self.app is not None and self.app.is_running:
+                        self.app.call_from_thread(self._live_refresh_from_fs)
+                except Exception:
+                    pass
 
-    def _live_refresh_from_fs(self) -> None:
-        """UI thread: react to a debounced FS event (or timer fallback tick)."""
+            watch = TraceTreeWatch(self._live_watch_root(), _on_fs, debounce_s=0.35)
+            if watch.start():
+                self._trace_watch = watch
+            else:
+                self._live_refresh_timer = self.set_interval(
+                    LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+                    self._live_refresh_from_fs,
+                )
+        if self._live_heartbeat_timer is None:
+            self._live_heartbeat_timer = self.set_interval(
+                LIVE_POLL_HEARTBEAT_INTERVAL,
+                self._live_refresh_heartbeat,
+            )
+
+    def _live_refresh_heartbeat(self) -> None:
+        """UI thread: periodic read-only refresh (context meter / gate status)."""
+        self._live_refresh_from_fs(heartbeat=True)
+
+    def _live_refresh_from_fs(self, *, heartbeat: bool = False) -> None:
+        """UI thread: react to a debounced FS event, fallback timer, or heartbeat."""
         if not self._session_is_pending() and not self._session_needs_live_timeline():
             self._stop_live_refresh()
             self._refresh_session_pending_bar()
             return
-        if not self._session_needs_live_timeline():
+        if not self._session_needs_live_timeline() and not heartbeat:
             self._refresh_session_pending_bar()
             return
         from ...session_inflight import KIND_REFRESH, request_rerun, try_begin
@@ -632,14 +652,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if not try_begin(KIND_REFRESH, self.session_dir):
             request_rerun(KIND_REFRESH, self.session_dir)
             self._live_refresh_pending = True
+            if heartbeat:
+                self._light_refresh_heartbeat = True
             return
         self._live_refresh_busy = True
         self._live_refresh_pending = False
+        if heartbeat:
+            self._light_refresh_heartbeat = True
         try:
             self._submit_load_data_light()
         except Exception:
             from ...session_inflight import end
 
+            self._light_refresh_heartbeat = False
             end(KIND_REFRESH, self.session_dir)
             self._live_refresh_busy = False
             raise
@@ -651,14 +676,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         again = end(KIND_REFRESH, self.session_dir)
         self._live_refresh_busy = False
         self._live_refresh_pending = False
+        pending_heartbeat = self._light_refresh_heartbeat
+        self._light_refresh_heartbeat = False
         if again:
-            self._live_refresh_from_fs()
+            self._live_refresh_from_fs(heartbeat=pending_heartbeat)
 
     def _submit_load_data_light(self) -> None:
-        """Queue a light timeline reload on the serial live-refresh pool.
+        """Queue a read-only light reload on the serial live-refresh pool.
 
         Caller must hold the :data:`~groket.session_inflight.KIND_REFRESH` lock
-        via :func:`~groket.session_inflight.try_begin`.
+        via :func:`~groket.session_inflight.try_begin`. Does not write traces.
         """
         from ...job_pools import get_live_refresh_pool
 
@@ -667,37 +694,59 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._load_data_light_job,
         )
 
-    def _load_data_light_job(self) -> None:
-        """Reload meta + timeline only (no re-run detectors/diff — for live monitor).
+    def _current_turn_index(self) -> int:
+        try:
+            from ...session.turns import segment_timeline_turns
 
-        Skips ``parse_timeline`` when trace artifact mtimes are unchanged so
-        mid-turn polls do not re-read multi‑MB ``updates.jsonl``.
+            segs = segment_timeline_turns(self.timeline or [])
+            if segs:
+                return int(segs[-1].turn_index)
+        except Exception:
+            pass
+        return 0
+
+    def _signals_mtime(self) -> float:
+        fp = Path(self.session_dir) / "signals.json"
+        try:
+            return float(fp.stat().st_mtime) if fp.is_file() else 0.0
+        except OSError:
+            return 0.0
+
+    def _load_data_light_job(self) -> None:
+        """Reload meta (+ timeline when artifacts changed). Read-only on disk.
+
+        Always re-reads ``signals.json`` via :func:`load_session_meta` so context
+        usage updates even when no write events fired (60s heartbeat). Skips
+        ``parse_timeline`` when trace mtimes match to avoid multi‑MB re-reads.
         """
         from ...parser import session_trace_mtime
 
         try:
             mtime = session_trace_mtime(self.session_dir)
-            if (
+            signals_mtime = self._signals_mtime()
+            timeline_unchanged = (
                 self._last_trace_mtime is not None
                 and mtime == self._last_trace_mtime
-                and self.timeline
-            ):
-                # Traces idle this tick — refresh gate UI only.
-                call_ui(self.app, self._refresh_session_pending_bar)
-                return
-            self._last_trace_mtime = mtime
-            self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
-            self.timeline = parse_timeline(self.session_dir)
+                and bool(self.timeline)
+            )
+            meta = load_session_meta(self.session_dir, include_timeline_count=False)
+            if not timeline_unchanged:
+                self.timeline = parse_timeline(self.session_dir)
+                self._last_trace_mtime = mtime
+                self._rebuild_indices()
+            self.meta = meta
             if self.meta is not None:
                 self.meta.num_events = len(self.timeline or [])
-            self._rebuild_indices()
-            call_ui(self.app, self._populate_ui_light)
+            self._last_signals_mtime = signals_mtime
+            app = resolve_ui_app(self)
+            call_ui(app, self._populate_ui_light)
         finally:
             try:
-                call_ui(self.app, self._live_refresh_worker_done)
+                call_ui(resolve_ui_app(self), self._live_refresh_worker_done)
             except Exception:
                 from ...session_inflight import KIND_REFRESH, end
 
+                self._light_refresh_heartbeat = False
                 end(KIND_REFRESH, self.session_dir)
 
     def _light_refresh_fingerprint(self) -> tuple[str | int | float | bool | None, ...]:
@@ -714,6 +763,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             meta.turn_outcome if meta else None,
             meta.turn_in_progress if meta else None,
             meta.duration_seconds if meta else None,
+            meta.context_usage_compact if meta else None,
+            meta.context_tokens_used if meta else None,
         )
 
     def _reapply_timeline_view_filter(self) -> None:
@@ -752,15 +803,27 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         else:
             self._apply_filter(errors_only=False, search_query=search)
 
+    def _record_context_sample(self) -> bool:
+        """Record read-only context snapshot against the current turn index."""
+        store = getattr(self, "_context_samples", None)
+        if store is None:
+            return False
+        return bool(store.record(self._current_turn_index(), self.meta))
+
     def _populate_ui_light(self) -> None:
         """Update title + timeline + share/stats without rebuilding analysis tabs.
 
         Skips clearing/rebuilding the timeline table when the light fingerprint
-        is unchanged so live polling does not flicker mid-turn.
+        is unchanged so live polling does not flicker mid-turn. Context-only
+        changes still refresh Summary stats (read-only signals heartbeat).
         """
+        sampled = self._record_context_sample()
         fp = self._light_refresh_fingerprint()
         unchanged = fp == getattr(self, "_last_light_fp", None)
         self._set_title_from_meta()
+        active = ""
+        with suppress(Exception):
+            active = str(self.query_one("#browser-tabs", TabbedContent).active or "")
         if not unchanged:
             self._last_light_fp = fp
             try:
@@ -772,23 +835,17 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._reapply_timeline_view_filter()
             except Exception:
                 pass
-            # Summary + stats tables are on tab-summary — skip when not visible.
-            active = ""
-            with suppress(Exception):
-                active = str(self.query_one("#browser-tabs", TabbedContent).active or "")
-            if active in ("", "tab-summary", "tab-timeline"):
-                # Timeline tab: title only above; summary tab needs full stats/summary.
-                if active == "tab-summary":
+        if (not unchanged or sampled) and active in ("", "tab-summary", "tab-timeline"):
+            if active == "tab-summary":
+                try:
+                    self._update_summary_tab()
+                except Exception:
+                    pass
+                if not getattr(self, "selections", None):
                     try:
-                        self._update_summary_tab()
+                        self._update_stats()
                     except Exception:
                         pass
-                    # Stats rebuild also replaces Static widgets; skip while selecting.
-                    if not getattr(self, "selections", None):
-                        try:
-                            self._update_stats()
-                        except Exception:
-                            pass
         self._refresh_session_pending_bar()
 
     @work(thread=True)
@@ -804,6 +861,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         try:
             self._last_light_fp = None
             self._last_trace_mtime = None
+            self._last_signals_mtime = None
+            store = getattr(self, "_context_samples", None)
+            if store is not None:
+                store.clear()
             # One timeline parse only — do not also run parse_timeline inside
             # load_session_meta (that doubled CPU on 100MB+ updates.jsonl opens).
             self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
@@ -814,6 +875,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._last_trace_mtime = session_trace_mtime(self.session_dir)
             except Exception:
                 self._last_trace_mtime = None
+            self._last_signals_mtime = self._signals_mtime()
+            self._record_context_sample()
             self._load_flags()
             self._rebuild_indices()
             try:
@@ -821,22 +884,26 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
                 self._diff_meta = {}
-            call_ui(self.app, self._populate_ui)
-            call_ui(self.app, self._schedule_live_refresh)
+            app = resolve_ui_app(self)
+            call_ui(app, self._populate_ui)
+            call_ui(app, self._schedule_live_refresh)
             # Analysis is async on the fixed analysis pool — never blocks timeline paint.
-            call_ui(self.app, self._schedule_analysis)
+            call_ui(app, self._schedule_analysis)
         finally:
 
             def _release_refresh_lock() -> None:
                 again = end(KIND_REFRESH, self.session_dir)
                 self._live_refresh_busy = False
                 self._live_refresh_pending = False
+                pending_heartbeat = self._light_refresh_heartbeat
+                self._light_refresh_heartbeat = False
                 if again:
-                    self._live_refresh_from_fs()
+                    self._live_refresh_from_fs(heartbeat=pending_heartbeat)
 
             try:
-                call_ui(self.app, _release_refresh_lock)
+                call_ui(resolve_ui_app(self), _release_refresh_lock)
             except Exception:
+                self._light_refresh_heartbeat = False
                 end(KIND_REFRESH, self.session_dir)
 
     def _should_auto_analyze(self) -> bool:
@@ -1783,10 +1850,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             from ...session.turns import segment_timeline_turns, turn_summary_rows
 
             turn_segments = segment_timeline_turns(self.timeline)
+            samples = {}
+            store = getattr(self, "_context_samples", None)
+            if store is not None:
+                samples = store.compact_by_turn()
             turn_rows = turn_summary_rows(
                 turn_segments,
                 durations=durations,
                 session_context_compact=m.context_usage_compact,
+                context_by_turn=samples,
             )
         except Exception:
             turn_rows = []

@@ -24,6 +24,8 @@ LIVE_POLL_FULL_WALK_INTERVAL = 60.0
 LIVE_POLL_ACTIVE_INTERVAL = 1.0
 # Timer interval when TraceTreeWatch cannot start (no inotify / missing root).
 LIVE_POLL_WATCH_FALLBACK_INTERVAL = 5.0
+# Read-only heartbeat while live (signals.json / context meter); no trace writes.
+LIVE_POLL_HEARTBEAT_INTERVAL = 60.0
 
 DIFF_TRUNCATE_THRESHOLD = 120_000
 DIFF_TRUNCATE_HEAD = 60_000

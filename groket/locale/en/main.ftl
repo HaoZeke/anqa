@@ -1216,7 +1216,7 @@ ui-context-window = Context window
 
 ui-compactions = Compactions
 
-ui-context-session-snapshot-note = Session snapshot from signals.json (Grok does not export per-turn context series)
+ui-context-session-snapshot-note = From signals.json snapshots (read-only live samples every 60s; Grok does not export a per-turn series)
 
 ui-context-session-end = session end
 

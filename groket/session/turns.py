@@ -339,20 +339,25 @@ def turn_summary_rows(
     *,
     durations: dict[int, float] | None = None,
     session_context_compact: str = "",
+    context_by_turn: dict[int, str] | None = None,
 ) -> list[dict[str, JsonValue]]:
     """Tabular rows for stats UI / tests.
 
-    Grok writes context fill only as a session snapshot in ``signals.json``,
-    not per turn. When *session_context_compact* is set, attach it to the
-    latest segment row; earlier turns use an empty context cell.
+    Grok writes context fill only as a session snapshot in ``signals.json``.
+    *context_by_turn* holds read-only samples observed during live refresh.
+    When absent, *session_context_compact* is shown on the latest segment only.
     """
     rows: list[dict[str, JsonValue]] = []
     last_idx = len(segments) - 1
-    ctx = (session_context_compact or "").strip()
+    fallback = (session_context_compact or "").strip()
+    samples = context_by_turn or {}
     for i, seg in enumerate(segments):
         dur = seg.duration_seconds(durations)
         tools = Counter(e.tool_name for e in seg.tool_calls if e.tool_name)
         top_tools = ", ".join(f"{n}×{c}" for n, c in tools.most_common(3)) or "—"
+        ctx = (samples.get(seg.turn_index) or "").strip()
+        if not ctx and fallback and i == last_idx:
+            ctx = fallback
         rows.append(
             {
                 "turn": seg.turn_index,
@@ -366,7 +371,7 @@ def turn_summary_rows(
                 "assistants": seg.assistant_count,
                 "errors": seg.error_event_count,
                 "duration_s": dur,
-                "context": ctx if ctx and i == last_idx else "",
+                "context": ctx,
                 "top_tools": top_tools,
                 "first_index": seg.first_index,
                 "last_index": seg.last_index,

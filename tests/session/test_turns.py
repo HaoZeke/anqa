@@ -280,6 +280,25 @@ def test_turn_summary_rows_session_context_on_last_only():
     assert rows[-1]["context"] == "35% 179k/500k"
 
 
+def test_turn_summary_rows_context_by_turn_samples():
+    tl = [
+        _ev(0, "turn_started", "Turn started turn_number=0"),
+        _ev(1, "user_message_chunk", "a"),
+        _ev(2, "turn_ended", "Turn ended outcome=completed"),
+        _ev(3, "turn_started", "Turn started turn_number=1"),
+        _ev(4, "user_message_chunk", "b"),
+        _ev(5, "turn_ended", "Turn ended outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    rows = turn_summary_rows(
+        segs,
+        session_context_compact="99% 1/1",
+        context_by_turn={segs[0].turn_index: "10% 50k/500k", segs[-1].turn_index: "35% 179k/500k"},
+    )
+    assert rows[0]["context"] == "10% 50k/500k"
+    assert rows[-1]["context"] == "35% 179k/500k"
+
+
 def test_first_last_index_empty():
     from groket.session.turns import TurnSegment
 

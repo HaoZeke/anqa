@@ -1225,12 +1225,14 @@ async def test_auto_load_default_traces_under_work_dir(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_schedule_live_sessions_poll(tmp_path: Path) -> None:
-    """_schedule_live_sessions_poll arms FS watch or timer fallback."""
+    """_schedule_live_sessions_poll arms FS watch or timer fallback plus heartbeat."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
+        app._live_sessions_heartbeat_timer = None
         app._schedule_live_sessions_poll()
         assert app._traces_watch is not None or app._live_sessions_timer is not None
+        assert app._live_sessions_heartbeat_timer is not None
 
 
 @pytest.mark.asyncio
@@ -1246,9 +1248,156 @@ async def test_schedule_live_sessions_poll_timer_when_watch_fails(
         await pilot.pause()
         app._traces_watch = None
         app._live_sessions_timer = None
+        app._live_sessions_heartbeat_timer = None
         app._schedule_live_sessions_poll()
         assert app._traces_watch is None
         assert app._live_sessions_timer is not None
+        assert app._live_sessions_heartbeat_timer is not None
+
+
+def test_dispatch_refresh_rerun_calls_open_browser(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from groket.ui.app import TraceEvalApp
+    from groket.ui.screens.browser import BrowserScreen
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    calls: list[bool] = []
+    screen._live_refresh_from_fs = (  # type: ignore[method-assign]
+        lambda **kwargs: calls.append(bool(kwargs.get("heartbeat")))
+    )
+    host = SimpleNamespace(screen_stack=[screen])
+    TraceEvalApp._dispatch_refresh_rerun(host, sd)  # type: ignore[arg-type]
+    assert calls == [True]
+
+
+def test_dispatch_refresh_rerun_ignores_unrelated_screens(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from groket.ui.app import TraceEvalApp
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    calls: list[str] = []
+    screen = SimpleNamespace(
+        session_dir=other,
+        _live_refresh_from_fs=lambda **kwargs: calls.append("hit"),
+    )
+    host = SimpleNamespace(screen_stack=[screen, SimpleNamespace()])
+    TraceEvalApp._dispatch_refresh_rerun(host, sd)  # type: ignore[arg-type]
+    assert calls == []
+
+
+def test_live_sessions_heartbeat_skips_when_busy_or_idle(tmp_path: Path) -> None:
+    from groket.models import SessionMeta
+    from groket.ui.app import TraceEvalApp
+
+    app = TraceEvalApp.__new__(TraceEvalApp)
+    app._exiting = False
+    app._live_meta_heartbeat_busy = True
+    app._meta_only = []
+    called: list[str] = []
+    app._live_meta_heartbeat_worker = lambda rows: called.append("work")  # type: ignore[method-assign]
+    app._live_sessions_heartbeat()
+    assert called == []
+
+    app._live_meta_heartbeat_busy = False
+    app._meta_only = [
+        (
+            SessionMeta(session_id="s", session_dir=tmp_path / "s", turn_outcome="completed"),
+            "done",
+        )
+    ]
+    app._live_sessions_heartbeat()
+    assert called == []
+
+    live_sd = tmp_path / "live"
+    live_sd.mkdir()
+    app._meta_only = [
+        (
+            SessionMeta(
+                session_id="live",
+                session_dir=live_sd,
+                turn_outcome="running",
+                context_window_usage_pct=10,
+                context_tokens_used=1000,
+                context_window_tokens=500000,
+            ),
+            "run",
+        )
+    ]
+    app._live_sessions_heartbeat()
+    assert called == ["work"]
+    assert app._live_meta_heartbeat_busy is True
+
+
+def test_live_meta_heartbeat_worker_updates_and_dispatches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from groket.models import SessionMeta
+    from groket.session_inflight import KIND_REFRESH, clear, is_inflight, request_rerun, try_begin
+    from groket.ui import app as app_mod
+    from groket.ui.app import TraceEvalApp
+
+    clear(KIND_REFRESH)
+    sd = tmp_path / "019f-live"
+    sd.mkdir()
+    locked = tmp_path / "019f-locked"
+    locked.mkdir()
+    meta = SessionMeta(
+        session_id="live",
+        session_dir=sd,
+        turn_outcome="running",
+        context_window_usage_pct=10,
+        context_tokens_used=1000,
+        context_window_tokens=500000,
+        num_events=3,
+    )
+    locked_meta = SessionMeta(
+        session_id="locked",
+        session_dir=locked,
+        turn_outcome="running",
+        num_events=1,
+    )
+    app = TraceEvalApp.__new__(TraceEvalApp)
+    app._exiting = False
+    app._live_meta_heartbeat_busy = True
+    app._meta_only = [(meta, "run"), (locked_meta, "L")]
+    dispatched: list[Path] = []
+    populated: list[str] = []
+    app._dispatch_refresh_rerun = lambda p: dispatched.append(p)  # type: ignore[method-assign]
+    app._populate_session_table = lambda: populated.append("table")  # type: ignore[method-assign]
+
+    def _load(path, include_timeline_count=False):
+        request_rerun(KIND_REFRESH, path)
+        return SessionMeta(
+            session_id="live",
+            session_dir=path,
+            turn_outcome="running",
+            context_window_usage_pct=35,
+            context_tokens_used=178996,
+            context_window_tokens=500000,
+        )
+
+    monkeypatch.setattr(app_mod, "load_session_meta", _load)
+    monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
+    assert try_begin(KIND_REFRESH, locked) is True
+    # Run the underlying function body synchronously (skip @work decorator scheduling).
+    TraceEvalApp._live_meta_heartbeat_worker.__wrapped__(  # type: ignore[attr-defined]
+        app, [(meta, "run"), (locked_meta, "L")]
+    )
+    assert app._live_meta_heartbeat_busy is False
+    assert app._meta_only[0][0].context_window_usage_pct == 35
+    assert app._meta_only[0][0].num_events == 3
+    assert populated == ["table"]
+    assert dispatched == [sd]
+    assert is_inflight(KIND_REFRESH, locked) is True
+    clear(KIND_REFRESH)
 
 
 @pytest.mark.asyncio
