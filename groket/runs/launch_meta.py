@@ -38,6 +38,9 @@ class LaunchMeta:
     run_id: str = ""
     task_id: str = ""
     created_at: str = ""
+    # Fork-resume: parent history id on the volume is substrate, not the eval row.
+    resume_parent_session_id: str = ""
+    resume_fork_session_id: str = ""
 
     @property
     def display_token(self) -> str:
@@ -47,6 +50,14 @@ class LaunchMeta:
             return token
         return join_model_effort(self.model, self.reasoning_effort)
 
+    @property
+    def is_fork_resume(self) -> bool:
+        """True when this launch seeds a parent and forks a new Grok session id."""
+        return bool(
+            (self.resume_parent_session_id or "").strip()
+            and (self.resume_fork_session_id or "").strip()
+        )
+
 
 def build_launch_meta(
     *,
@@ -55,6 +66,8 @@ def build_launch_meta(
     container_name: str = "",
     run_id: str = "",
     task_id: str = "",
+    resume_parent_session_id: str = "",
+    resume_fork_session_id: str = "",
 ) -> LaunchMeta:
     """Normalize launch fields from a container config or explicit values."""
     mid, eff_tok = split_model_effort(model)
@@ -71,6 +84,8 @@ def build_launch_meta(
         run_id=(run_id or "").strip(),
         task_id=(task_id or "").strip(),
         created_at=datetime.now(UTC).isoformat(),
+        resume_parent_session_id=(resume_parent_session_id or "").strip(),
+        resume_fork_session_id=(resume_fork_session_id or "").strip(),
     )
 
 
@@ -82,6 +97,8 @@ def launch_meta_from_config(config: ContainerConfig, *, task_id: str = "") -> La
         container_name=config.container_name,
         run_id=config.run_id,
         task_id=task_id,
+        resume_parent_session_id=config.resume_session_id,
+        resume_fork_session_id=config.resume_fork_session_id,
     )
 
 
@@ -98,6 +115,8 @@ def write_launch_meta(traces_vol: Path, meta: LaunchMeta) -> Path:
         "run_id": meta.run_id,
         "task_id": meta.task_id,
         "created_at": meta.created_at,
+        "resume_parent_session_id": meta.resume_parent_session_id,
+        "resume_fork_session_id": meta.resume_fork_session_id,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
@@ -108,6 +127,19 @@ def write_launch_meta_for_config(
 ) -> Path:
     """Serialize *config* launch fields into *traces_vol*."""
     return write_launch_meta(traces_vol, launch_meta_from_config(config, task_id=task_id))
+
+
+def is_fork_resume_parent_session(session_dir: Path) -> bool:
+    """True when *session_dir* is the seeded parent for a fork-resume launch.
+
+    Launch meta on the traces volume records the parent id as history substrate
+    for ``grok --resume --fork-session``. That directory is not the operator
+    eval row (the forked child id is).
+    """
+    launch = read_launch_meta(session_dir)
+    if launch is None or not launch.is_fork_resume:
+        return False
+    return Path(session_dir).name == launch.resume_parent_session_id
 
 
 def _parse_launch_payload(data: object) -> LaunchMeta | None:
@@ -137,6 +169,8 @@ def _parse_launch_payload(data: object) -> LaunchMeta | None:
         run_id=str(data.get("run_id") or "").strip(),
         task_id=str(data.get("task_id") or "").strip(),
         created_at=str(data.get("created_at") or "").strip(),
+        resume_parent_session_id=str(data.get("resume_parent_session_id") or "").strip(),
+        resume_fork_session_id=str(data.get("resume_fork_session_id") or "").strip(),
     )
 
 

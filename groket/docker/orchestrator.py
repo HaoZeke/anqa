@@ -658,6 +658,7 @@ class DockerOrchestrator:
 
         resume_sid = (config.resume_session_id or "").strip()
         resume_src = (config.resume_source_dir or "").strip()
+        fork_sid = (config.resume_fork_session_id or "").strip()
         if resume_src:
             from ..session.resume import seed_resume_into_traces_vol
 
@@ -667,6 +668,10 @@ class DockerOrchestrator:
             except (OSError, ValueError, FileNotFoundError) as exc:
                 logger.warning("Failed to seed resume session from %s: %s", resume_src, exc)
                 raise
+        if resume_sid and not fork_sid:
+            fork_sid = str(uuid.uuid4())
+            config.resume_session_id = resume_sid
+            config.resume_fork_session_id = fork_sid
 
         from ..runs.launch_meta import write_launch_meta_for_config
 
@@ -732,10 +737,8 @@ class DockerOrchestrator:
             # Seeded parent history + first-turn fork so each resume branch gets a new Grok id.
             envs["RESUME_SESSION_ID"] = resume_sid
             envs["RESUME_FORK"] = "1"
-            fork_sid = (config.resume_fork_session_id or "").strip()
-            if not fork_sid:
-                fork_sid = str(uuid.uuid4())
-            envs["FORK_SESSION_ID"] = fork_sid
+            if fork_sid:
+                envs["FORK_SESSION_ID"] = fork_sid
         rid = (config.run_id or "").strip()
         if rid:
             envs["TURN_DIR"] = f"/root/.grok/sessions/.groket-turn-{rid}"

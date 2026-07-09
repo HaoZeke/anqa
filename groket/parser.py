@@ -1560,6 +1560,8 @@ _SKIP_SESSION_WALK_DIRS = frozenset(
         "__pycache__",
         ".venv",
         "venv",
+        # Resume history substrate (see :mod:`groket.session.resume`).
+        ".groket-resume-seed",
     }
 )
 
@@ -1624,10 +1626,12 @@ def find_sessions(root: Path) -> list[Path]:
     A session directory is identified by updates.jsonl / summary.json (stable)
     or a non-empty events.jsonl (live mid-run).
 
-    Skips eval staging trees (``groket-plugins``, ``groket-skills``, ``*.stage``)
-    and Grok subagent sessions (``subagents/`` trees and workspace mirrors) so
-    the sessions list shows one row per interactive eval, not per subagent.
+    Skips eval staging trees (``groket-plugins``, ``groket-skills``, ``*.stage``,
+    ``.groket-resume-seed``), Grok subagent sessions, and live paths that are
+    only symlinks into resume substrate (see :mod:`groket.session.resume`).
     """
+    from .session.resume import is_resume_seed_path
+
     sessions: list[Path] = []
     if not root.exists():
         return sessions
@@ -1635,6 +1639,9 @@ def find_sessions(root: Path) -> list[Path]:
         _prune_session_walk_dirs(dirnames)
         path = Path(dirpath)
         if _is_subagent_session_dir(path):
+            continue
+        # Resume substrate (.groket-resume-seed/…) or live symlink into it.
+        if is_resume_seed_path(path):
             continue
         if _looks_like_session_dir(path, set(filenames)):
             sessions.append(path)

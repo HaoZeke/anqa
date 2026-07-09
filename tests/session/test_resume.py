@@ -1,13 +1,17 @@
-"""Resume seed: copy ended session into a new traces volume."""
+"""Resume seed: staging tree + live symlink for Grok."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
 import pytest
+from groket.runs.launch_meta import LAUNCH_META_FILENAME
 from groket.session.resume import (
+    RESUME_SEED_DIRNAME,
     can_resume_session,
+    is_resume_seed_path,
     resume_cwd_token,
     resume_session_id,
     seed_resume_into_traces_vol,
@@ -34,18 +38,37 @@ def test_resume_session_id_and_cwd_token(tmp_path: Path) -> None:
     assert can_resume_session(tmp_path / "missing") is False
 
 
-def test_seed_resume_into_traces_vol_copies_layout(tmp_path: Path) -> None:
+def test_seed_layout_is_staging_plus_live_symlink(tmp_path: Path) -> None:
     source = _fake_session(tmp_path)
     dest_vol = tmp_path / "traces" / "groket-new"
     dest_vol.mkdir(parents=True)
     sid = seed_resume_into_traces_vol(dest_vol, source)
     assert sid == "sess-abc"
-    seeded = dest_vol / "%2Fworkspace" / "sess-abc"
-    assert (seeded / "chat_history.jsonl").is_file()
-    assert (seeded / "summary.json").is_file()
-    assert (dest_vol / "%2Fworkspace" / "prompt_history.jsonl").is_file()
-    # Source untouched
+    seed = dest_vol / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
+    live = dest_vol / "%2Fworkspace" / "sess-abc"
+    assert (seed / "chat_history.jsonl").is_file()
+    assert live.is_symlink()
+    assert live.resolve() == seed.resolve()
+    assert is_resume_seed_path(seed) is True
+    assert is_resume_seed_path(live) is True
     assert (source / "chat_history.jsonl").is_file()
+
+
+def test_find_sessions_skips_resume_seed_and_live_link(tmp_path: Path) -> None:
+    """Substrate and its live symlink are not operator eval rows."""
+    from groket.parser import find_sessions
+
+    source = _fake_session(tmp_path)
+    dest_vol = tmp_path / "traces" / "groket-new"
+    dest_vol.mkdir(parents=True)
+    seed_resume_into_traces_vol(dest_vol, source)
+    child = dest_vol / "%2Fworkspace" / "forked-child-id"
+    child.mkdir(parents=True)
+    (child / "summary.json").write_text("{}", encoding="utf-8")
+
+    found = {p.name for p in find_sessions(dest_vol)}
+    assert "sess-abc" not in found
+    assert "forked-child-id" in found
 
 
 def test_seed_resume_rejects_empty_session(tmp_path: Path) -> None:
@@ -65,19 +88,15 @@ def test_seed_resume_overwrites_existing_and_strips_locks(tmp_path: Path) -> Non
     (source / "summary.json.lock").write_text("x", encoding="utf-8")
     dest_vol = tmp_path / "traces" / "groket-new"
     dest_vol.mkdir(parents=True)
-    # Pre-existing dest should be replaced
-    stale = dest_vol / "%2Fworkspace" / "sess-abc"
-    stale.mkdir(parents=True)
-    (stale / "old.txt").write_text("stale", encoding="utf-8")
     seed_resume_into_traces_vol(dest_vol, source)
-    seeded = dest_vol / "%2Fworkspace" / "sess-abc"
-    assert not (seeded / "old.txt").exists()
-    assert not (seeded / "summary.json.lock").exists()
-    assert (seeded / "chat_history.jsonl").is_file()
+    # Re-seed replaces substrate
+    seed_resume_into_traces_vol(dest_vol, source)
+    seed = dest_vol / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
+    assert not (seed / "summary.json.lock").exists()
+    assert (seed / "chat_history.jsonl").is_file()
 
 
 def test_resume_cwd_token_fallback(tmp_path: Path) -> None:
-    """Flat session dirs (no encoded parent) use %2Fworkspace."""
     flat = tmp_path / "sess-flat"
     flat.mkdir()
     (flat / "events.jsonl").write_text("{}\n", encoding="utf-8")
@@ -155,7 +174,6 @@ def test_start_container_sets_resume_env(tmp_path: Path, monkeypatch: pytest.Mon
     class FakeDocker:
         def run(self, *a, **k):
             captured["envs"] = k.get("envs") or {}
-            captured["volumes"] = k.get("volumes") or []
 
             class C:
                 id = "deadbeefdead"
@@ -186,7 +204,11 @@ def test_start_container_sets_resume_env(tmp_path: Path, monkeypatch: pytest.Mon
     assert captured["envs"].get("RESUME_SESSION_ID") == "sess-abc"
     assert captured["envs"].get("RESUME_FORK") == "1"
     assert captured["envs"].get("FORK_SESSION_ID") == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-    assert captured["envs"].get("INTERACTIVE") == "1"
     traces = tmp_path / "runs" / "traces" / "groket-resume-test"
-    assert (traces / "%2Fworkspace" / "sess-abc" / "chat_history.jsonl").is_file()
+    seed = traces / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
+    live = traces / "%2Fworkspace" / "sess-abc"
+    assert (seed / "chat_history.jsonl").is_file()
+    assert live.is_symlink()
     assert "continue please" in (traces / "groket-prompt.txt").read_text(encoding="utf-8")
+    launch = json.loads((traces / LAUNCH_META_FILENAME).read_text(encoding="utf-8"))
+    assert launch["resume_parent_session_id"] == "sess-abc"

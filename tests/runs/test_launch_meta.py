@@ -57,6 +57,29 @@ def test_write_from_container_config(tmp_path: Path) -> None:
     assert find_launch_meta_file(tmp_path / "s") == tmp_path / LAUNCH_META_FILENAME
 
 
+def test_fork_resume_fields_in_launch_meta(tmp_path: Path) -> None:
+    from groket.runs.launch_meta import is_fork_resume_parent_session
+
+    cfg = ContainerConfig(
+        model="v9",
+        prompt="continue",
+        container_name="groket-fork",
+        resume_session_id="parent-id",
+        resume_fork_session_id="child-id",
+        resume_source_dir="/tmp/unused",
+    )
+    write_launch_meta_for_config(tmp_path, cfg)
+    data = json.loads((tmp_path / LAUNCH_META_FILENAME).read_text(encoding="utf-8"))
+    assert data["resume_parent_session_id"] == "parent-id"
+    assert data["resume_fork_session_id"] == "child-id"
+    parent = tmp_path / "%2Fworkspace" / "parent-id"
+    child = tmp_path / "%2Fworkspace" / "child-id"
+    parent.mkdir(parents=True)
+    child.mkdir(parents=True)
+    assert is_fork_resume_parent_session(parent) is True
+    assert is_fork_resume_parent_session(child) is False
+
+
 def test_load_session_meta_prefers_launch_over_summary_and_slug(tmp_path: Path) -> None:
     vol = tmp_path / "traces" / "groket-deadbeef-xhighx2"
     sess = vol / "%2Fworkspace" / "019f-sess"
