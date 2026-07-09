@@ -687,6 +687,14 @@ SelectOverlay:focus > .option-list--option-highlighted {
 }
 
 /* Status lines take no space until shown (display toggled in code). */
+#runner-main .runner-launch-panel {
+    width: 100%;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    color: $text-muted;
+    border-left: wide $primary;
+}
+
 #runner-main .runner-status-line {
     height: auto;
     margin: 0;

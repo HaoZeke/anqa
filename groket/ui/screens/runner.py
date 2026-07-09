@@ -32,8 +32,10 @@ from textual.widgets import (
     TextArea,
 )
 
+from ...capabilities.merge import merge_capabilities
 from ...docker.base_profiles import DEFAULT_DOCKER_IMAGE
 from ...docker.orchestrator import ContainerStatus
+from ...models import json_as_str_list
 from ...runs.run_manager import BackgroundRun, RunManager
 from ...utils import fmt_duration as _format_duration
 from .. import text as U
@@ -239,7 +241,11 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                                             classes="runner-inline-btn",
                                         )
                             yield Static("", id="docker-profile-hint", classes="runner-status-line")
-                            yield Static("", id="persona-gh-hint", classes="runner-status-line")
+                            yield Static(
+                                "",
+                                id="runtime-launch-panel",
+                                classes="runner-launch-panel",
+                            )
                             yield Label(U.models_heading())
                             yield TipSurface(
                                 U.tip_runner_models(),
@@ -307,14 +313,16 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     )
                 except Exception:
                     logger.debug(t("ui-failed-to-set-persona-prefill"), exc_info=True)
-        self._sync_persona_github_hint()
         for wid in (
-            "github-write-hint",
             "docker-profile-hint",
             "models-catalog-hint",
             "run-caps-help",
         ):
             self._set_status_line(wid, "")
+        # Refresh persona options after mount (compose may have raced empty store).
+        self.call_after_refresh(
+            lambda: self._refresh_persona_select(select_id=self._persona_id or None)
+        )
         self.call_after_refresh(self._rebuild_run_capability_lists)
         self.call_after_refresh(self._restore_run_state)
         self.call_after_refresh(
@@ -351,20 +359,20 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             return ""
 
-    def _sync_persona_github_hint(self) -> None:
-        """Show persona GitHub write + token status (configured on persona, not the run)."""
+    def _persona_status_line(self) -> tuple[str, bool, str]:
+        """Persona id line for Runtime panel + whether GH write is on and token label."""
         p = self._persona_obj()
-        pid = self._persona_id_from_form() or "(none)"
-        gh = bool(p and p.github_write)
+        pid = (self._persona_id_from_form() or self._persona_id or "").strip() or "(none)"
+        gh = bool(p is not None and p.github_write)
         tok = self._persona_github_token()
         if p and (p.github_token or "").strip():
             tok_src = t("ui-stored-on-persona")
         elif p and (p.github_token_env or "").strip():
             tok_src = join_ui(t("ui-host-env"), p.github_token_env)
         elif tok:
-            tok_src = "resolved"
+            tok_src = t("runner-token-resolved")
         else:
-            tok_src = "none"
+            tok_src = t("runner-token-none")
         try:
             from ...docker.orchestrator import describe_github_write_token_status
 
@@ -373,13 +381,37 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             tok_status = t("ui-token-status-unknown")
         mcp_n = len(p.mcp_servers or []) if p else 0
         sk_n = len(p.skills or []) if p else 0
-        caps = join_ui("mcp=", mcp_n, t("ui-skills-2"), sk_n)
+        pl_n = len(p.plugins or []) if p else 0
+        caps = t(
+            "runner-persona-caps-counts",
+            mcp=mcp_n,
+            skills=sk_n,
+            plugins=pl_n,
+        )
         if gh:
-            persona_line = join_ui(pid, t("ui-gh-on"), tok_src, caps)
+            line = t(
+                "runner-persona-status-gh-on",
+                pid=pid,
+                token=tok_src,
+                caps=caps,
+            )
+            if tok_status:
+                line = join_ui(line, "·", tok_status)
         else:
-            persona_line = join_ui(pid, t("ui-gh-off"), caps)
-        self._set_status_line("persona-gh-hint", persona_line)
-        self._set_status_line("github-write-hint", "")
+            line = t("runner-persona-status-gh-off", pid=pid, caps=caps)
+        return line, gh, tok_src
+
+    def _sync_persona_github_hint(self) -> None:
+        """Refresh persona/GH chrome on Recipe + Runtime tabs."""
+        persona_line, gh, tok_src = self._persona_status_line()
+        if gh:
+            self._set_status_line(
+                "github-write-hint",
+                t("runner-github-write-hint-on", token=tok_src),
+            )
+        else:
+            self._set_status_line("github-write-hint", "")
+        self._update_runtime_launch_panel(persona_line=persona_line)
 
     def _rebuild_models_selection(
         self, selected: list[str] | None = None, *, default_select_all: bool = False
@@ -470,37 +502,50 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
     def _persona_id_from_form(self) -> str:
         try:
             sel = self.query_one("#persona-select", Select)
-            return normalize_persona_id(sel.value)
+            pid = normalize_persona_id(sel.value)
+            if pid:
+                self._persona_id = pid
+            return pid or (self._persona_id or "")
         except Exception:
             return self._persona_id or ""
 
     @on(Select.Changed, "#persona-select")
-    def _persona_changed(self, _event: Select.Changed) -> None:
-        self._persona_id = self._persona_id_from_form()
+    def _persona_changed(self, event: Select.Changed) -> None:
+        # Prefer the event value — more reliable than re-query mid-update.
+        self._persona_id = normalize_persona_id(event.value) or self._persona_id_from_form()
         self._sync_persona_github_hint()
         self._update_run_caps_persona_hint()
+        self._update_run_caps_summary()
 
     def on_unmount(self) -> None:
         pass
 
-    def _persona_capability_snapshot(self) -> tuple[list[str], list[str]]:
-        """Return (mcp_server_ids, skill_names) from the selected persona."""
+    def _persona_capability_snapshot(
+        self,
+    ) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+        """Persona base: MCP ids, skills, plugins, env vars."""
         pid = self._persona_id_from_form()
         if not pid:
-            return ([], [])
+            return ([], [], [], {})
         try:
             from ...runs.personas import PersonaStore
 
             p = PersonaStore(self.work_dir).get(pid)
             if not p:
-                return ([], [])
-            return (list(p.mcp_servers or []), list(p.skills or []))
+                return ([], [], [], {})
+            return (
+                list(p.mcp_servers or []),
+                list(p.skills or []),
+                list(p.plugins or []),
+                dict(p.env_vars or {}),
+            )
         except Exception:
             logger.debug(t("ui-failed-to-load-persona-capabilities-for-s"), pid, exc_info=True)
-            return ([], [])
+            return ([], [], [], {})
 
     def _rebuild_run_capability_lists(self) -> None:
-        """Refresh persona hint + summary (pickers own the actual selection state)."""
+        """Refresh persona hint + effective launch summary (+ Runtime compact line)."""
+        self._sync_persona_github_hint()
         self._update_run_caps_persona_hint()
         self._update_run_caps_summary()
 
@@ -532,61 +577,150 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             rows.append((did, title, transport))
         return rows
 
+    def _effective_launch_caps(
+        self,
+    ) -> tuple[list[str], list[str], list[str], dict[str, str], list[str]]:
+        """Merged MCP / skills / plugins / env keys + inline skill ids for this launch."""
+        p_mcp, p_skills, p_plugins, p_env = self._persona_capability_snapshot()
+        run_mcp = [mid for mid, _t, _tr in self._run_mcp_display_rows() if (mid or "").strip()]
+        run_skills = [s for s in self._run_skills_ids or [] if (s or "").strip()]
+        run_plugins = [s for s in self._run_plugins_ids or [] if (s or "").strip()]
+        run_env = dict(self._run_env_vars or {})
+        inline_ids = [
+            str(n).strip() for n, _b in (self._run_inline_skills or []) if (n or "").strip()
+        ]
+        p_defs = []
+        try:
+            p = self._persona_obj()
+            if p is not None:
+                p_defs = list(p.mcp_definitions or [])
+        except Exception:
+            p_defs = []
+        merged = merge_capabilities(
+            persona_mcp_servers=p_mcp,
+            persona_mcp_definitions=p_defs,
+            persona_skills=p_skills,
+            persona_plugins=p_plugins,
+            run_mcp_servers=run_mcp,
+            run_mcp_definitions=list(self._run_mcp_definitions or []),
+            run_skills=run_skills,
+            run_plugins=run_plugins,
+        )
+        eff_mcp = [rich_escape(x) for x in json_as_str_list(merged.get("mcp_servers"))]
+        eff_skills = [rich_escape(x) for x in json_as_str_list(merged.get("skills"))]
+        eff_plugins = [rich_escape(x) for x in json_as_str_list(merged.get("plugins"))]
+        eff_env = {**p_env, **run_env}
+        return (
+            eff_mcp,
+            eff_skills,
+            eff_plugins,
+            eff_env,
+            [rich_escape(x) for x in inline_ids],
+        )
+
+    def _update_runtime_launch_panel(self, *, persona_line: str | None = None) -> None:
+        """Unified Runtime panel: persona/GH + effective plugins/skills/MCP/inline/env."""
+        try:
+            w = self.query_one("#runtime-launch-panel", Static)
+        except Exception:
+            return
+        if persona_line is None:
+            persona_line, _gh, _tok = self._persona_status_line()
+
+        eff_mcp, eff_skills, eff_plugins, eff_env, inline = self._effective_launch_caps()
+
+        def _bullets(items: list[str]) -> list[str]:
+            if not items:
+                return [t("runner-caps-none")]
+            return [t("runner-caps-item", name=name) for name in items]
+
+        def _env_keys(env: dict[str, str]) -> str:
+            if not env:
+                return "—"
+            keys = sorted(env)
+            body = ", ".join(keys[:12])
+            return body + ("…" if len(keys) > 12 else "")
+
+        lines = [
+            t("runner-runtime-panel-heading"),
+            persona_line,
+            "",
+            t("runner-caps-section-plugins", n=len(eff_plugins)),
+            *_bullets(eff_plugins),
+            t("runner-caps-section-skills", n=len(eff_skills)),
+            *_bullets(eff_skills),
+            t("runner-caps-section-inline", n=len(inline)),
+            *_bullets(inline),
+            t("runner-caps-section-mcp", n=len(eff_mcp)),
+            *_bullets(eff_mcp),
+            t("runner-caps-section-env", n=len(eff_env), keys=_env_keys(eff_env)),
+        ]
+        w.update("\n".join(lines))
+        w.display = True
+
     def _update_run_caps_summary(self) -> None:
-        """Show an explicit list of run-only MCP/skills so selection is obvious after the picker."""
+        """Show persona base + this-run extras + effective (merged) launch config."""
         try:
             w = self.query_one("#run-caps-summary", Static)
         except Exception:
             return
-        mcp_rows = self._run_mcp_display_rows()
-        skills = [s for s in self._run_skills_ids or [] if (s or "").strip()]
-        plugins = [s for s in self._run_plugins_ids or [] if (s or "").strip()]
-        env_keys = sorted(k for k in self._run_env_vars or {} if k)
-        inline = [(n, b) for n, b in (self._run_inline_skills or []) if (n or "").strip()]
-        if not mcp_rows and (not skills) and (not plugins) and (not env_keys) and (not inline):
-            w.update(U.em_dash_dim())
-            return
-        lines: list[str] = []
-        if mcp_rows:
-            lines.append(join_ui(t("ui-mcp-1"), len(mcp_rows), t("ui-this-run-only")))
-            for mid, title, transport in mcp_rows:
-                extra = []
-                if title and title.lower() != mid.lower():
-                    extra.append(title[:48])
-                if transport:
-                    extra.append(transport)
-                suffix = f"  [dim]({' · '.join(extra)})[/dim]" if extra else ""
-                lines.append(join_ui(t("ui-msg-4"), mid, suffix))
-        else:
-            lines.append(t("ui-mcp-0-none-added-for-this-run"))
-        if skills:
-            lines.append(join_ui(t("ui-skills-3"), len(skills), t("ui-this-run-only")))
-            for sk in skills:
-                lines.append(join_ui(t("ui-msg-5"), sk))
-        else:
-            lines.append(t("ui-skills-0-none-added-for-this-run"))
-        if plugins:
-            lines.append(
-                join_ui(t("ui-plugins-2"), len(plugins), t("ui-grok-packages-this-run-only"))
-            )
-            for name in plugins:
-                lines.append(join_ui(t("ui-msg-5"), name))
-        else:
-            lines.append(t("ui-plugins-0-none-added-for-this-run"))
-        if env_keys:
-            shown = ", ".join(env_keys[:12])
-            more = f" +{len(env_keys) - 12}" if len(env_keys) > 12 else ""
-            lines.append(join_ui(t("ui-run-env-keys"), shown, more))
-        else:
-            lines.append(t("ui-run-env-0-none"))
-        if inline:
-            lines.append(join_ui(t("ui-inline-skills"), len(inline), t("ui-this-run-only")))
-            for name, _body in inline:
-                lines.append(join_ui(t("ui-msg-5"), name))
-        else:
-            lines.append(t("ui-inline-skills-0-none"))
-        lines.append("")
+        p_mcp, p_skills, p_plugins, p_env = self._persona_capability_snapshot()
+        run_mcp = [mid for mid, _t, _tr in self._run_mcp_display_rows() if (mid or "").strip()]
+        run_skills = [s for s in self._run_skills_ids or [] if (s or "").strip()]
+        run_plugins = [s for s in self._run_plugins_ids or [] if (s or "").strip()]
+        run_env = dict(self._run_env_vars or {})
+        inline = [str(n).strip() for n, _b in (self._run_inline_skills or []) if (n or "").strip()]
+        eff_mcp, eff_skills, eff_plugins, eff_env, eff_inline = self._effective_launch_caps()
+
+        def _bullet_list(items: list[str], *, empty: str) -> list[str]:
+            if not items:
+                return [empty]
+            return [t("runner-caps-item", name=name) for name in items]
+
+        def _esc_list(items: list[str]) -> list[str]:
+            return [rich_escape(x) for x in items]
+
+        def _env_keys(env: dict[str, str]) -> str:
+            if not env:
+                return "—"
+            keys = sorted(env)
+            body = ", ".join(keys[:12])
+            return body + ("…" if len(keys) > 12 else "")
+
+        lines: list[str] = [
+            t("runner-caps-effective-heading"),
+            t("runner-caps-section-plugins", n=len(eff_plugins)),
+            *_bullet_list(eff_plugins, empty=t("runner-caps-none")),
+            t("runner-caps-section-skills", n=len(eff_skills)),
+            *_bullet_list(eff_skills, empty=t("runner-caps-none")),
+            t("runner-caps-section-inline", n=len(eff_inline)),
+            *_bullet_list(eff_inline, empty=t("runner-caps-none")),
+            t("runner-caps-section-mcp", n=len(eff_mcp)),
+            *_bullet_list(eff_mcp, empty=t("runner-caps-none")),
+            t("runner-caps-section-env", n=len(eff_env), keys=_env_keys(eff_env)),
+            "",
+            t("runner-caps-persona-heading"),
+            t("runner-caps-section-plugins", n=len(p_plugins)),
+            *_bullet_list(_esc_list(p_plugins), empty=t("runner-caps-none")),
+            t("runner-caps-section-skills", n=len(p_skills)),
+            *_bullet_list(_esc_list(p_skills), empty=t("runner-caps-none")),
+            t("runner-caps-section-mcp", n=len(p_mcp)),
+            *_bullet_list(_esc_list(p_mcp), empty=t("runner-caps-none")),
+            t("runner-caps-section-env", n=len(p_env), keys=_env_keys(p_env)),
+            "",
+            t("runner-caps-run-heading"),
+            t("runner-caps-section-plugins", n=len(run_plugins)),
+            *_bullet_list(_esc_list(run_plugins), empty=t("runner-caps-none")),
+            t("runner-caps-section-skills", n=len(run_skills)),
+            *_bullet_list(_esc_list(run_skills), empty=t("runner-caps-none")),
+            t("runner-caps-section-inline", n=len(inline)),
+            *_bullet_list(_esc_list(inline), empty=t("runner-caps-none")),
+            t("runner-caps-section-mcp", n=len(run_mcp)),
+            *_bullet_list(_esc_list(run_mcp), empty=t("runner-caps-none")),
+            t("runner-caps-section-env", n=len(run_env), keys=_env_keys(run_env)),
+        ]
         w.update("\n".join(lines))
+        self._update_runtime_launch_panel()
 
     def _run_mcp_query_from_form(self) -> str:
         try:
@@ -755,16 +889,15 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
         )
 
     def _update_run_caps_persona_hint(self) -> None:
-        p_mcp, p_skills = self._persona_capability_snapshot()
+        p_mcp, p_skills, p_plugins, _p_env = self._persona_capability_snapshot()
         pid = self._persona_id_from_form() or "(none)"
-        if not p_mcp and (not p_skills):
-            body = join_ui(t("ui-persona"), pid, t("ui-no-base-mcp-skills"))
-        else:
-            m = ", ".join(p_mcp[:8]) + ("…" if len(p_mcp) > 8 else "")
-            s = ", ".join(p_skills[:8]) + ("…" if len(p_skills) > 8 else "")
-            body = join_ui(
-                t("ui-persona"), pid, t("ui-mcp-3"), m or "—", t("ui-skills-2"), s or "—"
-            )
+        body = t(
+            "runner-caps-persona-hint",
+            pid=pid,
+            mcp=", ".join(p_mcp[:6]) + ("…" if len(p_mcp) > 6 else "") or "—",
+            skills=", ".join(p_skills[:6]) + ("…" if len(p_skills) > 6 else "") or "—",
+            plugins=", ".join(p_plugins[:6]) + ("…" if len(p_plugins) > 6 else "") or "—",
+        )
         self._set_status_line("run-caps-persona-hint", body)
 
     def _run_mcp_from_form(self) -> list[str]:
@@ -983,13 +1116,13 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     store.save(existing)
                     extra = ""
                     if run_mcp or run_skills or run_plugins or run_env or run_inline:
-                        extra = join_ui(
-                            t("ui-run-mcp"),
-                            len(run_mcp),
-                            t("ui-skills-2"),
-                            len(run_skills),
-                            t("ui-plugins-3"),
-                            len(run_plugins),
+                        extra = t(
+                            "runner-save-extras-summary",
+                            mcp=len(run_mcp),
+                            skills=len(run_skills),
+                            plugins=len(run_plugins),
+                            inline=len(run_inline),
+                            env=len(run_env),
                         )
                     self.notify(
                         join_ui(

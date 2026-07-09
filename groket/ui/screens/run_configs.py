@@ -416,6 +416,21 @@ class RunConfigsScreen(ChromeActions):
             lines.append(join_ui(t("ui-source-session"), cfg.source_session_id))
         if cfg.source_run_id:
             lines.append(join_ui(t("ui-source-run-id"), cfg.source_run_id))
+        if (cfg.persona_id or "").strip():
+            lines.append(join_ui(t("ui-persona-2"), cfg.persona_id))
+        if cfg.run_plugins:
+            lines.append(t("run-config-plugins", list=", ".join(cfg.run_plugins) or "—"))
+        if cfg.run_skills:
+            lines.append(t("run-config-skills", list=", ".join(cfg.run_skills) or "—"))
+        if cfg.run_mcp_servers:
+            lines.append(t("run-config-mcp", list=", ".join(cfg.run_mcp_servers) or "—"))
+        inline_ids = [
+            str(x.get("id") or "").strip()
+            for x in (cfg.run_inline_skills or [])
+            if isinstance(x, dict) and str(x.get("id") or "").strip()
+        ]
+        if inline_ids:
+            lines.append(t("run-config-inline-skills", list=", ".join(inline_ids)))
         lines.append(join_ui(t("ui-prompt"), cfg.prompt_preview(120)))
         if cfg.setup_instructions:
             su = cfg.setup_instructions.replace("\n", " ")[:100]

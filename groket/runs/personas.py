@@ -121,11 +121,25 @@ class Persona:
                 if isinstance(item, dict) and str(item.get("id") or "").strip():
                     mcp_definitions.append(dict(item))
 
+        def _as_bool(raw: object, *, default: bool = False) -> bool:
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, (int, float)):
+                return bool(raw)
+            if raw is None:
+                return default
+            s = str(raw).strip().lower()
+            if s in ("1", "true", "yes", "on"):
+                return True
+            if s in ("0", "false", "no", "off", ""):
+                return False
+            return default
+
         return cls(
             persona_id=str(data.get("persona_id") or ""),
             name=str(data.get("name") or ""),
             description=str(data.get("description") or ""),
-            github_write=bool(data.get("github_write", False)),
+            github_write=_as_bool(data.get("github_write"), default=False),
             github_token=str(data.get("github_token") or ""),
             github_token_env=str(data.get("github_token_env") or "").strip(),
             env_vars={str(k): str(v) for k, v in env.items()},
@@ -134,7 +148,7 @@ class Persona:
             git_user_email=str(data.get("git_user_email") or ""),
             mcp_servers=_str_list("mcp_servers"),
             mcp_definitions=mcp_definitions,
-            mcp_replace_host=bool(data.get("mcp_replace_host", True)),
+            mcp_replace_host=_as_bool(data.get("mcp_replace_host"), default=True),
             mcp_extra_toml=str(data.get("mcp_extra_toml") or ""),
             skills=_str_list("skills"),
             skills_disabled=_str_list("skills_disabled"),

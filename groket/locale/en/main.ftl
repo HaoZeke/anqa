@@ -1397,11 +1397,57 @@ ui-full-refresh-from = Full refresh from
 
 ui-fully-loaded-full-tools-share-loop = fully-loaded (full tools + share loop)
 
-ui-gh-off = · gh off ·
+ui-gh-off = gh off
 
-ui-gh-on = [/yellow] gh on ·
+ui-gh-on = [yellow]gh on[/]
 
 ui-gh-write = GH Write
+
+runner-persona-status-gh-on = {$pid} · [yellow]gh on[/] · {$token} · {$caps}
+
+runner-persona-status-gh-off = {$pid} · gh off · {$caps}
+
+runner-persona-caps-counts = mcp={$mcp} · skills={$skills} · plugins={$plugins}
+
+runner-github-write-hint-on = [yellow]GitHub write ON[/] (persona) · token={$token}
+
+runner-caps-effective-heading = [bold]Effective launch config[/] [dim](persona + this run)[/]
+
+runner-caps-section-mcp = [bold]MCP[/] ({$n})
+
+runner-caps-section-skills = [bold]Skills[/] ({$n})
+
+runner-caps-section-plugins = [bold]Plugins[/] ({$n})
+
+runner-caps-section-inline = [bold]Inline skills[/] ({$n})
+
+runner-caps-section-env = [bold]Env[/] ({$n}): {$keys}
+
+runner-caps-item = [green]•[/] {$name}
+
+runner-caps-none = [dim]—[/]
+
+runner-caps-persona-heading = [bold]Persona base[/]
+
+runner-caps-run-heading = [bold]This run only[/]
+
+runner-caps-persona-hint = persona={$pid} · mcp={$mcp} · skills={$skills} · plugins={$plugins}
+
+runner-runtime-panel-heading = [bold]This launch[/] [dim](persona + extras, effective)[/]
+
+run-config-plugins = Plugins: {$list}
+
+run-config-inline-skills = Inline skills: {$list}
+
+run-config-mcp = MCP: {$list}
+
+run-config-skills = Skills: {$list}
+
+runner-save-extras-summary = · mcp={$mcp} skills={$skills} plugins={$plugins} inline={$inline} env={$env}
+
+runner-token-resolved = resolved
+
+runner-token-none = none
 
 ui-git = git:
 
