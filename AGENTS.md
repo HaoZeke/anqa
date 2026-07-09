@@ -78,6 +78,53 @@ config source). No secondary branches “just in case.”
 Fallbacks only when platforms truly diverge (e.g. Windows vs POSIX), with a
 short positive comment on each path. If a single path is wrong, fix that path.
 
+### Feature delivery (mandatory for product changes)
+
+A “feature” is any operator-visible capability or launch behaviour (keys,
+runner options, batch task fields, Docker entrypoint env, analysis surfaces).
+**Do not ship half-finished surfaces.** Implement and document the full path
+in the same unit of work (or a tight stack of commits), not “code now, docs
+later.”
+
+| Surface | When it must be updated |
+|---------|-------------------------|
+| **Domain / orchestrator** | Shared path under ``runs/``, ``session/``, ``docker/`` — not a TUI-only fork of the logic |
+| **TUI** | Bindings, palette, Fluent, ``help.rich.txt``; keyboard path for every new action |
+| **Batch / task YAML** | If the feature applies to headless launches: ``task_schema``, ``schemas/tasks.schema.json`` (``make schema``), ``examples/tasks/``, ``batch`` wiring to the **same** domain APIs |
+| **README.md** | Operator-facing: keys, CLI flags, task fields, what TUI vs batch can do |
+| **AGENTS.md** | Only when the *contract* for agents changes (architecture, gates, layouts) |
+| **Tests** | Domain unit tests + TUI Pilot where UI is involved; batch/schema tests when YAML fields change; no live Docker in default suite |
+| **examples/** | New task/rule/plugin packs when the feature is meant to be copied; keep ``make examples-check`` green |
+
+**Parity rules**
+
+1. **One implementation, many front doors.** Runner, run configs, and
+   ``groket batch`` call the same launch/merge/orchestrator code. Do not
+   reimplement resume, caps, or Docker env in a screen only.
+2. **If a surface intentionally cannot do X**, say so in **README** (and
+   Fluent help if it is a TUI action). Example: TUI **fork** continues an
+   *ended* session; batch multi-turn uses scripted ``turns`` on a *new*
+   session — different product paths, both documented.
+3. **New launch knobs** (env vars, ``ContainerConfig`` fields, entrypoint
+   flags) land with: orchestrator + entrypoint (and embedded assets), tests,
+   and every caller that should set them (runner, batch, configs).
+4. **Operator docs are part of done.** README key tables / CLI sections and
+   in-app help must match bindings. Leaving “only Fluent” or “only code”
+   incomplete is a process failure.
+5. **Schemas and examples stay honest.** Task/rule schema fields without
+   examples or validation are incomplete; examples without CI linkage are
+   incomplete (``make examples-check``).
+
+**Definition of done (agent checklist)**
+
+- [ ] Domain API used by all launch paths that need the behaviour
+- [ ] TUI: binding + palette + Fluent + ``help.rich.txt`` (if user-facing)
+- [ ] Batch/schema/examples updated **or** README states TUI-only / batch-only
+- [ ] README updated for operators
+- [ ] Tests for domain + UI (and batch if applicable)
+- [ ] ``make lint`` and ``uv run pytest tests/ -q`` green; prefer ``make ci``
+      for multi-surface work
+
 ---
 
 ## 3. Architecture
@@ -284,10 +331,12 @@ modules and ``TYPE_CHECKING``. Rare exceptions (CLI defers TUI for light
 
 Before claiming work done:
 
-1. ``make lint`` (or mypy + fluent + typing policy + ruff) green.
-2. ``uv run pytest tests/ -q`` green.
-3. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.
-4. Prefer delete/merge duplicates over parallel JSON/UI helpers.
+1. **Feature delivery** checklist in §2 (docs, parity, schemas/examples) complete
+   for the change — not only the code path you touched first.
+2. ``make lint`` (or mypy + fluent + typing policy + ruff) green.
+3. ``uv run pytest tests/ -q`` green.
+4. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.
+5. Prefer delete/merge duplicates over parallel JSON/UI helpers.
 
 ### 4.5b UI and Docker test drivers
 

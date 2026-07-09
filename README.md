@@ -51,6 +51,8 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `/` | Search sessions |
 | `s` / `Space` | Select row (multi-select); `S` select all / clear |
 | `r` | New run (runner) |
+| `R` | Re-run recipe from the highlighted session (fresh session, same launch fields) |
+| `f` | **Fork** an *ended* session into a new interactive multi-turn (see below) |
 | `C` | Run configs (recipes) |
 | `P` | Personas |
 | `d` | Rules (enable/disable detectors) |
@@ -81,6 +83,23 @@ Panes (`[` / `]` or digits **1–5**):
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.
 
+### Multi-turn and forking
+
+| Path | When | What happens |
+|------|------|----------------|
+| **Live follow-up** (`n` / browser bar) | Session container still running and awaiting | Same Grok session; host writes the next prompt on the turn gate |
+| **End** (`e`) | Awaiting | Mark done; status may show **ending** until the container finishes |
+| **Fork** (`f` / palette **Fork session**) | Session has *ended* (chat/events present) | New Docker launch: history seeded from the parent; first turn is `grok --resume <parent> --fork-session` so the branch gets a **new Grok session id**. Type the continuation as the runner prompt; multi-turn is on. Workspace is a fresh clone/setup (conversation only is resumed). |
+| **Re-run** (`R`) | Any listed session | New launch from the same recipe fields — **not** a conversation continue |
+
+While a session is still live, use follow-up (`n`), not fork. Each fork is an
+independent branch of the parent snapshot (parent files are not overwritten).
+
+**Batch / task YAML:** scripted multi-turn is the `turns:` list on a task (extra
+user messages after the primary `prompt` on a *new* session). There is no
+batch field yet for forking an *ended* on-disk session — use the TUI **Fork**
+flow for that operator path.
+
 ### Runner
 
 Docker evals from a recipe (prompt, models, persona, repo, extras).
@@ -89,6 +108,10 @@ Docker evals from a recipe (prompt, models, persona, repo, extras).
 
 Pick reasoning effort with the model token (`model:effort`, e.g. `…:xhigh` or
 `…:max`) when selecting models for a run.
+
+Runtime shows **persona + effective** plugins / skills / MCP / inline skills /
+env (persona base merged with this-run extras). Extras pane still has the full
+breakdown.
 
 ### Personas & configs
 
