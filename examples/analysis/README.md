@@ -19,11 +19,11 @@ config). Directory on `sys.path` → module stem = filename without `.py`.
 
 1. Subclass / implement `Analyzer` (`analyze` + `info`).
 2. For structured LLM reviews, subclass `LlmReviewAnalyzer` and implement
-   `build_instructions(pack)` only (see `llm_instruction_check.py`).
+   `build_instructions(pack)` only (see `llm_instruction_check.py`). The host
+   attaches operator turns, timeline digest, and runtime fairness; your method
+   returns the rubric string (use `pack` fields such as `pack.turn_count` for
+   dynamic text).
 3. Register via `analysis.plugins` in `~/.groket/config.json`.
-
-Do not embed magic tags like `<runtime_context>` in instructions — use `pack`
-fields when you need dynamic text.
 
 ## Install
 
