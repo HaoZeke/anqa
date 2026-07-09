@@ -17,6 +17,10 @@ def test_assets_root_and_docker_entrypoint():
     ).is_file()
     text = entrypoint_sh()
     assert "GROKET" in text or "entrypoint" in text.lower() or len(text) > 100
+    assert "RESUME_SESSION_ID" in text
+    assert "--resume" in text
+    assert "--fork-session" in text
+    assert "FORK_SESSION_ID" in text
     share = share_once_py()
     assert "grok" in share.lower()
     assert "share" in share.lower()

@@ -376,6 +376,8 @@ class RunManager:
         run_inline_skills: list[tuple[str, str]] | None = None,
         interactive: bool = False,
         follow_up_prompts: list[str] | None = None,
+        resume_session_id: str = "",
+        resume_source_dir: str = "",
     ) -> BackgroundRun:
         # github_write arg is deprecated: effective write comes only from the persona.
         """Start a background evaluation. Multiple runs may execute concurrently.
@@ -487,6 +489,11 @@ class RunManager:
         except Exception:
             logger.debug("Failed to merge capabilities; using persona-only lists", exc_info=True)
 
+        resume_sid = (resume_session_id or "").strip()
+        resume_src = (resume_source_dir or "").strip()
+        if resume_sid or resume_src:
+            interactive = True
+
         pending_skip_logs = [f">>> SKIP model: {msg}" for msg in skip_msgs]
 
         if not models:
@@ -551,6 +558,8 @@ class RunManager:
                         interactive=bool(interactive),
                         follow_up_prompts=list(follow_up_prompts or []),
                         run_id=run_id,
+                        resume_session_id=resume_sid,
+                        resume_source_dir=resume_src,
                     )
                 )
 

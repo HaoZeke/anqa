@@ -122,6 +122,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_toggle_select", U.cmd_toggle_select()),
                 ("action_select_all", U.cmd_select_all_none()),
                 ("action_rerun_session", U.cmd_rerun_session()),
+                ("action_resume_session", U.cmd_resume_session()),
                 ("action_save_session_config", U.cmd_save_session_config()),
                 ("action_delete_sessions", U.cmd_delete_sessions()),
                 ("action_follow_up_sessions", U.cmd_next_prompt()),

@@ -57,6 +57,9 @@ class FakeContainerConfig:
     follow_up_prompts: list = field(default_factory=list)
     run_id: str = ""
     reasoning_effort: str = ""
+    resume_session_id: str = ""
+    resume_source_dir: str = ""
+    resume_fork_session_id: str = ""
 
 
 @dataclass
@@ -2309,3 +2312,46 @@ class TestCompleteInteractiveOSError:
         monkeypatch.setattr(Path, "write_text", bad_write)
         # Should not raise
         manager.complete_interactive(run_id="r1")
+
+
+def test_start_run_resume_forces_interactive(
+    rm: RunManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resume kwargs force interactive and land on ContainerConfig."""
+    import groket.runs.run_manager as rm_mod
+
+    def immediate_thread(target=None, args=(), kwargs=None, daemon=None, name=None):
+        class T:
+            def start(self_inner):
+                return None
+
+            def is_alive(self_inner):
+                return False
+
+        return T()
+
+    monkeypatch.setattr(rm_mod.threading, "Thread", immediate_thread)
+    monkeypatch.setattr(rm_mod, "validate_models_for_launch", lambda models: (list(models), []))
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    grok = tmp_path / "config.toml"
+    grok.write_text("", encoding="utf-8")
+    bg = rm.start_run(
+        prompt="continue",
+        setup_instructions="",
+        docker_image="fully-loaded",
+        models=["m1"],
+        parallelism=1,
+        repo_url="",
+        repo_branch="",
+        auth_json=auth,
+        grok_config=grok,
+        save_config=False,
+        interactive=False,
+        resume_session_id="sess-xyz",
+        resume_source_dir=str(tmp_path / "old-sess"),
+    )
+    assert bg.interactive is True
+    assert bg.configs[0].interactive is True
+    assert bg.configs[0].resume_session_id == "sess-xyz"
+    assert bg.configs[0].resume_source_dir == str(tmp_path / "old-sess")

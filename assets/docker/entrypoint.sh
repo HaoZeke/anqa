@@ -379,6 +379,10 @@ _gte_latest_session_id() {
 _gte_run_grok_turn() {
     local prompt_file="$1"
     local resume_id="${2:-}"
+    # Optional 3rd arg: "fork" → --fork-session (new Grok session id from parent history).
+    local resume_mode="${3:-}"
+    # Optional 4th arg: UUID for --session-id when forking (names the new session).
+    local fork_sid="${4:-}"
     # Strip optional model:effort if MODEL was passed as a compound token.
     local model_id="${MODEL%%:*}"
     local -a cmd=(grok -m "$model_id" --always-approve --output-format streaming-json --prompt-file "$prompt_file")
@@ -399,8 +403,22 @@ _gte_run_grok_turn() {
         # Prefer explicit resume so follow-ups stay on the same Grok session.
         if grok --help 2>&1 | grep -qE -- '--resume'; then
             cmd+=(--resume "$resume_id")
+            # Branch into a new session id (resume from parent history without mutating parent id).
+            if [ "$resume_mode" = "fork" ] || [ "$resume_mode" = "1" ]; then
+                if grok --help 2>&1 | grep -qE -- '--fork-session'; then
+                    cmd+=(--fork-session)
+                    if [ -n "$fork_sid" ] && grok --help 2>&1 | grep -qE -- '--session-id'; then
+                        cmd+=(--session-id "$fork_sid")
+                    fi
+                fi
+            fi
         elif grok --help 2>&1 | grep -qE -- '--continue|-c'; then
             cmd+=(--continue)
+            if [ "$resume_mode" = "fork" ] || [ "$resume_mode" = "1" ]; then
+                if grok --help 2>&1 | grep -qE -- '--fork-session'; then
+                    cmd+=(--fork-session)
+                fi
+            fi
         fi
     fi
     echo ">>> Launching: ${cmd[*]}"
@@ -435,19 +453,43 @@ AGENT_EXIT=0
 SESSION_ID=""
 TURN_INDEX=0
 INTERACTIVE="${INTERACTIVE:-0}"
+# Host-seeded ended session: first turn uses grok --resume --fork-session (new branch id).
+RESUME_SESSION_ID="${RESUME_SESSION_ID:-}"
+# Optional host-chosen UUID for the forked session (--session-id with --fork-session).
+FORK_SESSION_ID="${FORK_SESSION_ID:-}"
+RESUME_FORK="${RESUME_FORK:-1}"
 
 # Do NOT exec: we need a final share after the agent exits (exec would kill this shell
 # and the share loop, leaving the share page mid-turn without the last assistant msg).
 while true; do
     TURN_INDEX=$((TURN_INDEX + 1))
     if [ "$TURN_INDEX" -eq 1 ]; then
-        _gte_run_grok_turn "$PROMPT_FILE" ""
+        if [ -n "$RESUME_SESSION_ID" ]; then
+            if [ "$RESUME_FORK" = "0" ] || [ "$RESUME_FORK" = "false" ]; then
+                echo ">>> Resuming Grok session id=$RESUME_SESSION_ID (same id, no fork)"
+                SESSION_ID="$RESUME_SESSION_ID"
+                _gte_run_grok_turn "$PROMPT_FILE" "$RESUME_SESSION_ID" ""
+            else
+                echo ">>> Fork-resume from parent=$RESUME_SESSION_ID fork=${FORK_SESSION_ID:-auto}"
+                _gte_run_grok_turn "$PROMPT_FILE" "$RESUME_SESSION_ID" "fork" "${FORK_SESSION_ID:-}"
+            fi
+        else
+            _gte_run_grok_turn "$PROMPT_FILE" ""
+        fi
         AGENT_EXIT=$?
     else
+        # Later turns continue the *forked* (or resumed) session id, no second fork.
         _gte_run_grok_turn "$PROMPT_FILE" "$SESSION_ID"
         AGENT_EXIT=$?
     fi
     SESSION_ID="$(_gte_latest_session_id || true)"
+    # Prefer host-named fork, then parent seed, when discovery is empty.
+    if [ -z "$SESSION_ID" ] && [ -n "$FORK_SESSION_ID" ]; then
+        SESSION_ID="$FORK_SESSION_ID"
+    fi
+    if [ -z "$SESSION_ID" ] && [ -n "$RESUME_SESSION_ID" ]; then
+        SESSION_ID="$RESUME_SESSION_ID"
+    fi
     echo ">>> Agent turn $TURN_INDEX exited with code $AGENT_EXIT (session=${SESSION_ID:-unknown})"
     # Mid-run chown so live TUI / host tools see non-root prompt_history.jsonl etc.
     _gte_fix_sessions_ownership

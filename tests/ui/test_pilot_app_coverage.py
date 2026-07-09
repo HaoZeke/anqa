@@ -756,6 +756,80 @@ async def test_rerun_session_pushes_runner(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_resume_session_no_cursor(tmp_path: Path) -> None:
+    """Resume with empty table notifies warning."""
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.action_resume_session()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_resume_session_pushes_runner_with_resume_prefill(tmp_path: Path) -> None:
+    """Resume opens Runner with empty prompt, interactive, and resume ids."""
+    from groket.ui.screens.runner import RunnerScreen
+    from textual.widgets import Checkbox, TextArea
+
+    app, _, _ = _make_app(tmp_path, n_sessions=1)
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        table = app.query_one("#session-table", DataTable)
+        await wait_until(pilot, lambda: table.row_count >= 1, description="table populated")
+
+        app.action_resume_session()
+        await wait_until(
+            pilot,
+            lambda: any(isinstance(s, RunnerScreen) for s in app.screen_stack),
+            description="RunnerScreen pushed for resume",
+            attempts=120,
+        )
+        scr = app.screen
+        assert isinstance(scr, RunnerScreen)
+        assert scr._resume_session_id == "sess-000"
+        assert "sess-000" in scr._resume_source_dir
+        assert scr.query_one("#interactive-multi-turn", Checkbox).value is True
+        # Continuation prompt starts empty (not a replay of original).
+        assert scr.query_one("#prompt-input", TextArea).text.strip() == ""
+        await pilot.press("escape")
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_resume_session_still_live_notifies(tmp_path: Path) -> None:
+    """Live awaiting sessions should use follow-up, not resume."""
+    app, work, traces = _make_app(tmp_path, n_sessions=1)
+    gate = traces / ".groket-turn"
+    gate.mkdir(parents=True, exist_ok=True)
+    (gate / "status.json").write_text(
+        json.dumps({"state": "awaiting_follow_up", "session_id": "sess-000", "turn": 1}) + "\n",
+        encoding="utf-8",
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        app.action_resume_session()
+        await pilot.pause()
+        # Must not open runner
+        from groket.ui.screens.runner import RunnerScreen
+
+        assert not any(isinstance(s, RunnerScreen) for s in app.screen_stack)
+
+
+@pytest.mark.asyncio
+async def test_resume_session_no_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sessions that fail can_resume_session do not open the runner."""
+    from groket.ui.screens.runner import RunnerScreen
+
+    app, _, _ = _make_app(tmp_path, n_sessions=1)
+    monkeypatch.setattr("groket.session.resume.can_resume_session", lambda _p: False)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        app.action_resume_session()
+        await pilot.pause()
+        assert not any(isinstance(s, RunnerScreen) for s in app.screen_stack)
+
+
+@pytest.mark.asyncio
 async def test_search_sessions_focuses_input(tmp_path: Path) -> None:
     """``/`` focuses the inline session search field (no modal)."""
     app, _, _ = _make_app(tmp_path, n_sessions=3)

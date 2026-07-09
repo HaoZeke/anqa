@@ -77,6 +77,10 @@ class RunnerPrefill:
     run_env_vars: dict = field(default_factory=dict)
     # Run-only inline skills: (id, SKILL.md body)
     run_inline_skills: list[tuple[str, str]] = field(default_factory=list)
+    # Resume ended session as a new interactive multi-turn launch.
+    interactive: bool = False
+    resume_session_id: str = ""
+    resume_source_dir: str = ""
 
 
 class RunnerScreen(TabPaneNavigation, ChromeActions):
@@ -148,6 +152,9 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 for n, b in (getattr(prefill, "run_inline_skills", None) or [])
                 if (n or "").strip()
             ]
+            self._resume_session_id = (prefill.resume_session_id or "").strip()
+            self._resume_source_dir = (prefill.resume_source_dir or "").strip()
+            self._prefill_interactive = bool(prefill.interactive)
         else:
             self._run_mcp_ids = []
             self._run_mcp_definitions = []
@@ -155,6 +162,9 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             self._run_plugins_ids = []
             self._run_env_vars = {}
             self._run_inline_skills = []
+            self._resume_session_id = ""
+            self._resume_source_dir = ""
+            self._prefill_interactive = False
         self._pending_model_skips: list[str] | None = None
         self._clean_snapshot: tuple[str, ...] | None = None
 
@@ -194,6 +204,11 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                             yield Checkbox(
                                 t("ui-interactive-multi-turn-follow-ups-until-done"),
                                 id="interactive-multi-turn",
+                            )
+                            yield Static(
+                                "",
+                                id="resume-session-hint",
+                                classes="runner-status-line",
                             )
                             yield Label(U.repository_label())
                             with Horizontal(id="repo-row", classes="runner-inline-row"):
@@ -313,6 +328,21 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     )
                 except Exception:
                     logger.debug(t("ui-failed-to-set-persona-prefill"), exc_info=True)
+            if self._prefill_interactive or self._resume_session_id:
+                try:
+                    self.query_one("#interactive-multi-turn", Checkbox).value = True
+                except Exception:
+                    logger.debug("failed to set interactive prefill", exc_info=True)
+            if self._resume_session_id:
+                self._set_status_line(
+                    "resume-session-hint",
+                    t(
+                        "runner-resume-session-hint",
+                        sid=self._resume_session_id,
+                    ),
+                )
+            else:
+                self._set_status_line("resume-session-hint", "")
         for wid in (
             "docker-profile-hint",
             "models-catalog-hint",
@@ -1355,6 +1385,11 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             interactive = bool(self.query_one("#interactive-multi-turn", Checkbox).value)
         except Exception:
             interactive = False
+        resume_sid = (self._resume_session_id or "").strip()
+        resume_src = (self._resume_source_dir or "").strip()
+        if resume_sid or resume_src:
+            # Resume launches continue as multi-turn so further follow-ups work.
+            interactive = True
         try:
             bg = self.run_manager.start_run(
                 prompt=prompt,
@@ -1379,6 +1414,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 run_plugins=run_plugins,
                 run_env_vars=run_env,
                 run_inline_skills=run_inline,
+                resume_session_id=resume_sid,
+                resume_source_dir=resume_src,
             )
         except RuntimeError as exc:
             self.notify(str(exc), severity="warning")

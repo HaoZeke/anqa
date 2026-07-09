@@ -129,6 +129,8 @@ bind-report = 5 Report
 
 bind-rerun = Re-run
 
+bind-resume = Fork
+
 bind-rules = Rules
 
 bind-runner = Runner
@@ -390,6 +392,16 @@ cmd-reload-traces-help = Re-load from traces input path
 cmd-rerun-session = Re-run session
 
 cmd-rerun-session-help = Open runner prefilled from session
+
+cmd-resume-session = Fork session
+
+cmd-resume-session-help = New interactive multi-turn forked from this ended session (f · grok --resume --fork-session)
+
+resume-session-no-artifacts = Session has no chat/events to resume
+
+resume-session-still-live = Session is still live — use follow-up (n) instead of resume
+
+runner-resume-session-hint = [bold]Resume (fork)[/] from [cyan]{$sid}[/] — write the next user message as the prompt. History is seeded; Grok gets a [bold]new session id[/] via --fork-session. Multi-turn stays on. Workspace starts fresh (clone/setup).
 
 cmd-save-config-only = Save config only
 

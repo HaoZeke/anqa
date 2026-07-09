@@ -62,6 +62,7 @@ class TestYieldAppCommands:
             action_toggle_select=MagicMock(),
             action_select_all=MagicMock(),
             action_rerun_session=MagicMock(),
+            action_resume_session=MagicMock(),
             action_save_session_config=MagicMock(),
             action_delete_sessions=MagicMock(),
             action_analyze=MagicMock(),

@@ -1357,32 +1357,57 @@ class TraceEvalApp(App):
         with suppress(Exception):
             focus_primary_list(self.query_one("#session-table", DataTable))
 
-    def action_rerun_session(self) -> None:
-        """Open the runner pre-filled with the current session's details."""
+    def _cursor_session_meta(self) -> SessionMeta | None:
+        """SessionMeta for the sessions-home table cursor, or None."""
         table = self.query_one("#session-table", DataTable)
         if table.cursor_row is None:
-            self.notify(U.select_session_first(), severity="warning")
-            return
+            return None
         try:
             row_key = list(table.rows.keys())[table.cursor_row]
             cursor_key = row_key.value
         except (IndexError, KeyError):
-            return
-        meta = None
+            return None
         for m, _label in self._meta_only:
             if str(m.session_dir) == cursor_key:
-                meta = m
-                break
+                return m
+        return None
+
+    def action_rerun_session(self) -> None:
+        """Open the runner pre-filled with the current session's details."""
+        meta = self._cursor_session_meta()
         if meta is None:
-            self.notify(U.session_not_found(), severity="error")
+            self.notify(U.select_session_first(), severity="warning")
             return
         self._do_rerun(meta)
+
+    def action_resume_session(self) -> None:
+        """Open runner to continue an ended session as a new interactive multi-turn."""
+        meta = self._cursor_session_meta()
+        if meta is None:
+            self.notify(U.select_session_first(), severity="warning")
+            return
+        from ..session.resume import can_resume_session
+        from ..session.turn_gate import read_turn_gate_status
+
+        if not can_resume_session(meta.session_dir):
+            self.notify(t("resume-session-no-artifacts"), severity="warning")
+            return
+        try:
+            st = read_turn_gate_status(meta.session_dir)
+            state = str(st.get("state") or "").strip().lower()
+        except Exception:
+            state = ""
+        if state in ("awaiting_follow_up", "running"):
+            self.notify(t("resume-session-still-live"), severity="warning")
+            return
+        self._do_resume(meta)
 
     def _extract_session_launch_params(self, meta: SessionMeta) -> dict:
         """Extract launch parameters from a session's run.json and task catalog.
 
         Returns dict with keys: prompt, setup_instructions, docker_image,
-        repo_url, repo_branch, models.
+        repo_url, repo_branch, models, persona_id, run_plugins, run_skills,
+        run_mcp_servers.
         """
         from ..constants import DEFAULT_DOCKER_IMAGE, DEFAULT_MODEL_ID
         from ..paths import RUN_PREFIX as RUN_DIR_PREFIX
@@ -1392,20 +1417,49 @@ class TraceEvalApp(App):
         docker_image = DEFAULT_DOCKER_IMAGE
         repo_url = meta.git_repo
         repo_branch = meta.git_branch
+        persona_id = ""
+        run_plugins: list[str] = []
+        run_skills: list[str] = []
+        run_mcp: list[str] = []
         run_json = meta.session_dir / "run.json"
         if not run_json.exists():
-            parent = meta.session_dir.parent
-            if parent.name.startswith(RUN_DIR_PREFIX):
-                run_json = parent / "run.json"
+            # Container traces root often holds run.json one level up from cwd token.
+            for parent in meta.session_dir.parents:
+                candidate = parent / "run.json"
+                if candidate.is_file():
+                    run_json = candidate
+                    break
+                if parent.name.startswith(RUN_DIR_PREFIX):
+                    break
         if run_json.exists():
             try:
                 run_data = json.loads(run_json.read_text())
-                repo_url = repo_url or run_data.get("repo_url", "")
-                repo_branch = repo_branch or run_data.get("repo_branch", "")
-                setup = run_data.get("setup_instructions", "")
-                docker_image = run_data.get("docker_image", docker_image)
-            except (json.JSONDecodeError, KeyError):
-                pass
+                if isinstance(run_data, dict):
+                    repo_url = repo_url or str(run_data.get("repo_url") or "")
+                    repo_branch = repo_branch or str(run_data.get("repo_branch") or "")
+                    setup = str(run_data.get("setup_instructions") or setup or "")
+                    docker_image = str(run_data.get("docker_image") or docker_image)
+                    persona_id = str(run_data.get("persona_id") or "").strip()
+                    plugins = run_data.get("plugins") or []
+                    if isinstance(plugins, list):
+                        run_plugins = [str(x) for x in plugins if str(x).strip()]
+                    skills = run_data.get("skills") or []
+                    if isinstance(skills, list):
+                        run_skills = [str(x) for x in skills if str(x).strip()]
+                    mcps = run_data.get("mcp_servers") or []
+                    if isinstance(mcps, list):
+                        run_mcp = [str(x) for x in mcps if str(x).strip()]
+                    models_from_run = run_data.get("models") or []
+                    if isinstance(models_from_run, list) and models_from_run:
+                        models_list = [str(x) for x in models_from_run if str(x).strip()]
+                    else:
+                        models_list = []
+                else:
+                    models_list = []
+            except (json.JSONDecodeError, KeyError, TypeError, OSError):
+                models_list = []
+        else:
+            models_list = []
         if not repo_url:
             trace_dir = meta.session_dir
             for parent in [meta.session_dir] + list(meta.session_dir.parents):
@@ -1424,14 +1478,30 @@ class TraceEvalApp(App):
                     docker_image = task.docker_image
             except Exception:
                 logger.debug(t("ui-task-catalog-lookup-failed-for-s"), task_id, exc_info=True)
-        models = [meta.model_id] if meta.model_id and meta.model_id != DEFAULT_MODEL_ID else []
+        if not models_list:
+            models_list = (
+                [meta.model_id] if meta.model_id and meta.model_id != DEFAULT_MODEL_ID else []
+            )
+        # Prefer launch meta model:effort when present on the traces volume.
+        try:
+            from ..runs.launch_meta import read_launch_meta
+
+            lm = read_launch_meta(meta.session_dir)
+            if lm is not None and (lm.display_token or "").strip():
+                models_list = [lm.display_token]
+        except Exception:
+            logger.debug("launch meta lookup failed for resume/rerun", exc_info=True)
         return {
             "prompt": prompt,
             "setup_instructions": setup,
             "docker_image": docker_image,
             "repo_url": repo_url,
             "repo_branch": repo_branch,
-            "models": models,
+            "models": models_list,
+            "persona_id": persona_id,
+            "run_plugins": run_plugins,
+            "run_skills": run_skills,
+            "run_mcp_servers": run_mcp,
         }
 
     @work(thread=True)
@@ -1441,6 +1511,25 @@ class TraceEvalApp(App):
             return
         params = self._extract_session_launch_params(meta)
         prefill = RunnerPrefill(**params)
+        call_ui(self, self._push_runner_with_prefill, prefill)
+
+    @work(thread=True)
+    def _do_resume(self, meta: SessionMeta | None = None) -> None:
+        """Open runner to continue *meta* via grok --resume in a new interactive run."""
+        if not isinstance(meta, SessionMeta):
+            return
+        from ..session.resume import resume_session_id
+
+        params = self._extract_session_launch_params(meta)
+        # First message is the continuation, not a replay of the original prompt.
+        params["prompt"] = ""
+        sid = resume_session_id(meta.session_dir)
+        prefill = RunnerPrefill(
+            **params,
+            interactive=True,
+            resume_session_id=sid,
+            resume_source_dir=str(meta.session_dir),
+        )
         call_ui(self, self._push_runner_with_prefill, prefill)
 
     def action_save_session_config(self) -> None:

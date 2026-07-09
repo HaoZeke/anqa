@@ -87,6 +87,11 @@ class ContainerConfig:
     run_id: str = ""
     # Grok reasoning effort (low|medium|high|xhigh|max); empty uses host/default.
     reasoning_effort: str = ""
+    # Resume an ended session: host path to seed + parent Grok session id for turn 1.
+    resume_source_dir: str = ""
+    resume_session_id: str = ""
+    # Optional UUID for ``grok --fork-session --session-id`` (host-generated if empty).
+    resume_fork_session_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.container_name:
@@ -651,6 +656,18 @@ class DockerOrchestrator:
         traces_vol = self.work_dir / "traces" / config.container_name
         traces_vol.mkdir(parents=True, exist_ok=True)
 
+        resume_sid = (config.resume_session_id or "").strip()
+        resume_src = (config.resume_source_dir or "").strip()
+        if resume_src:
+            from ..session.resume import seed_resume_into_traces_vol
+
+            try:
+                seeded_id = seed_resume_into_traces_vol(traces_vol, Path(resume_src))
+                resume_sid = resume_sid or seeded_id
+            except (OSError, ValueError, FileNotFoundError) as exc:
+                logger.warning("Failed to seed resume session from %s: %s", resume_src, exc)
+                raise
+
         from ..runs.launch_meta import write_launch_meta_for_config
 
         try:
@@ -711,6 +728,14 @@ class DockerOrchestrator:
             envs["REASONING_EFFORT"] = effort
         if config.interactive:
             envs["INTERACTIVE"] = "1"
+        if resume_sid:
+            # Seeded parent history + first-turn fork so each resume branch gets a new Grok id.
+            envs["RESUME_SESSION_ID"] = resume_sid
+            envs["RESUME_FORK"] = "1"
+            fork_sid = (config.resume_fork_session_id or "").strip()
+            if not fork_sid:
+                fork_sid = str(uuid.uuid4())
+            envs["FORK_SESSION_ID"] = fork_sid
         rid = (config.run_id or "").strip()
         if rid:
             envs["TURN_DIR"] = f"/root/.grok/sessions/.groket-turn-{rid}"
