@@ -7,210 +7,191 @@ Grok Build sessions (Python 3.13+). Similar in spirit to
 [toolong](https://github.com/Textualize/toolong).
 
 This file is the contract for humans and coding agents working in the repo.
+Describe **current** product behaviour only — no migration history or
+rejected-design narration.
 
 ---
 
 ## 1. Quick start
 
 ```bash
-make install        # .venv (test+dev) + ``groket`` on PATH via ``uv tool install -e .``
+make install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
 groket              # interactive TUI (or: uv run groket)
-make test           # pytest
-make lint           # ruff + mypy
+make test           # pytest (default unit suite; no Docker daemon)
+make lint           # ruff + mypy + fluent/typing policy scripts
+make ci             # lint + schema-check + test  (matches GitHub Actions)
 ```
 
-Non-TUI CLI: ``groket gen …`` scaffolds extensions; ``groket self-test`` runs
-host checks without the TUI; ``groket batch run|validate|schema`` runs task
-YAML catalogs through Docker (see ``examples/tasks/``). Default ``groket`` /
-``groket PATH`` is the interactive TUI.
+| CLI | Role |
+|-----|------|
+| ``groket`` / ``groket PATH`` | Interactive TUI |
+| ``groket self-test`` | Host checks (Docker, Grok auth, paths) — no TUI |
+| ``groket gen …`` | Scaffold under ``~/.groket/`` (detector, rule, plugin, tasks) |
+| ``groket batch …`` | Headless Docker from task YAML (``examples/tasks/``) |
+| ``groket rules …`` | Validate rules / composites YAML |
 
-Prefer **`uv run …`** for project tools (`pytest`, `ruff`, `groket`) so the
-environment matches the lockfile.
+Prefer **`uv run …`** so tools match the lockfile.
 
 ### Dependencies
 
-**Heavy deps are fine.** Prefer mature libraries over hand-rolled minimal
-alternatives when they improve DX or correctness:
+**Heavy deps are fine** when they improve DX or correctness. Do not add a
+second library that duplicates an existing choice.
 
 | Area | Library | Role |
 |------|---------|------|
 | TUI | **Textual** (+ **Rich**) | Screens, widgets, themes |
-| CLI | **Typer** (+ **Click**, **shellingham**) | Subcommands, Rich help, shell completion (`groket --install-completion`) |
-| i18n | **fluent.runtime** | `locale/<lang>/main.ftl` + `ui_text` |
-| Data | **Pydantic v2**, **PyYAML** | Config / serialised models; rule & task YAML |
+| CLI | **Typer** (+ Click, shellingham) | Subcommands, help, completion |
+| i18n | **fluent.runtime** | ``locale/<lang>/main.ftl`` |
+| Data | **Pydantic v2**, **PyYAML** | Config / models; rule & task YAML |
 | Docker | **python-on-whales** | Container orchestration |
-
-Do not avoid a dependency only to “stay lean.” Avoid new deps that duplicate
-an existing choice (e.g. don’t add argparse helpers alongside Typer).
 
 ---
 
 ## 2. Agent / commit hygiene
 
-**Commit each finished unit of work in the same turn** — do not batch an
-entire conversation into one mega-commit at the end. A “unit” is one coherent
-change the user could revert alone (one feature slice, one rename, one test
-layout move). After that unit is verified, **commit before starting the next**.
-Leaving a green, multi-theme working tree uncommitted is a process failure.
+**Commit each finished unit of work in the same turn.** A unit is one coherent
+change the user could revert alone. Verify, then commit before starting the next.
 
-Before **any** commit from an agent session:
+Before **any** agent commit:
 
-1. **`uv run pytest tests/ -q`** passes (or the owning subset, then full suite).
-   Do not commit on red tests.
-2. **`git status`** — stage intended files only; no secrets.
-3. **Commit** with a clear imperative message (why, not only what). Prefer one
-   logical change per commit when practical.
-4. If GPG signing fails in a non-TTY environment:
-   `git -c commit.gpgsign=false commit …` and note it (re-sign locally if
-   required).
+1. **`make lint`** (or equivalent ruff/mypy/fluent/typing checks) green.
+2. **`uv run pytest tests/ -q`** green (owning subset first is fine, then full).
+3. **`git status`** — stage intended files only; no secrets.
+4. Commit with a clear imperative message (why, not only what).
+5. If GPG signing fails non-interactively:
+   ``git -c commit.gpgsign=false commit …`` and note it.
 
-Do not leave related edits unstaged after claiming work is done. Re-run tests
-after the final diff for that commit — not only “earlier in the session.”
+Re-run tests after the final diff for that commit. Prefer
+``make ci`` before claiming a larger slice done.
+
+Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
+(``make test-cov`` or ``pytest --cov=groket``). Default ``make test`` / CI do
+**not** pass ``--cov``. Prefer closing gaps with domain tests or deleting dead
+code when you touch a module; do not lower ``fail_under`` or omit package
+source to hide debt.
 
 ### No speculative fallbacks
 
-**Implement one clear path** for a behaviour (one install method, one I/O
-client, one ownership fix, one config source of truth). Do **not** add
-secondary branches “just in case” (e.g. copy trees if CLI install fails,
-``subprocess`` Docker beside python-on-whales, write effort both in TOML and
-on the CLI, chown on every peek *and* at exit).
+**One clear path** per behaviour (one install method, one Docker client, one
+config source). No secondary branches “just in case.”
 
-**Fallbacks are allowed only when environments truly diverge** and the product
-must run on more than one concrete platform or tool surface — for example
-``os.getuid()`` missing on Windows, or two documented install sources (PyPI vs
-git) that the user chooses explicitly. State the divergence in a short positive
-comment (what each path is for), not “fallback if X fails.”
-
-If a single path is wrong, **fix that path** (as with marketplace plugin
-install: clone + ``grok plugin install --trust <local-dir>``) rather than
-stacking alternatives.
+Fallbacks only when platforms truly diverge (e.g. Windows vs POSIX), with a
+short positive comment on each path. If a single path is wrong, fix that path.
 
 ---
 
 ## 3. Architecture
 
-Root modules are **foundational concepts** only. Domain logic lives in packages.
+Root modules are **foundational**. Domain logic lives in packages.
 
 ```
 groket/
   cli.py, models.py, parser.py, paths.py, constants.py, utils.py, flags.py
-  runs/                  # personas, run_configs, run_manager, batch, live_share, services
-  session/               # usage_stats, workspace_diff, turns, turn_gate
-  diagnostics/           # host self-test (Docker, Grok auth, paths)
-  analysis/              # Analyzer protocol, service, registry
-  engine/                # detectors, rules loader, runner
-  capabilities/          # MCP / skills / Grok Build plugins
-  docker/                # orchestration (orchestrator.py, base_profiles.py, resources.py loader)
-  extensions/            # scaffold for groket gen (detectors, rules, plugins, tasks)
-  locale/                # Fluent .ftl (+ help.rich.txt) — UI strings
-  ui/                    # Textual UI (app, screens, widgets, helpers, app.tcss)
+  event_types.py         # event type sets for filters / segmentation
+  fs_watch.py            # TraceTreeWatch (live session / trace FS events)
+  job_pools.py           # serial analysis + live-refresh worker pools
+  session_inflight.py    # per-session inflight locks (analysis, refresh)
+  assets_loader.py       # repo assets/ or wheel-embedded templates
+  runs/                  # personas, run_configs, run_manager, batch, live_share,
+                         #   launch_meta, services, task_schema
+  session/               # turns, turn_gate, usage_stats, workspace_diff,
+                         #   context_samples, models_catalog
+  diagnostics/           # host self-test
+  analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
+  engine/                # detectors, rules loader, runner, rule_schema
+  capabilities/          # MCP / skills / Grok Build marketplace plugins
+  docker/                # orchestrator, base_profiles, resources
+  extensions/            # groket gen scaffolds
+  locale/                # Fluent .ftl + help.rich.txt
+  ui/                    # Textual UI
     app.py               # TraceEvalApp — sessions home
     screens/             # browser, runner, jobs, personas, rules, run_configs
-    widgets/             # timeline, detail, help_modal, controls, activity_bar
-    forms.py, fuzzy.py, session_summary.py   # presentation helpers (not domain)
-    panel_render.py, data_table.py, render_detail.py
-    prefs.py, styles.py, i18n.py, text.py, bindings.py, commands.py
-  assets_loader.py       # resolve non-Python assets (repo assets/ or embedded)
+    widgets/             # timeline, detail, help_modal, controls, activity_bar, …
+    bindings.py, commands.py, i18n.py, text.py, styles.py, prefs.py
+    data_table.py, panel_render.py, render_detail.py, forms.py, fuzzy.py
+    session_summary.py, session_status.py, tab_panes.py, threads.py
+    delete_confirm.py, env_modals.py, confirm_modal.py, quit_actions.py
+    app.tcss
 
-assets/                  # **non-Python assets** (not importable modules; not coverage source)
-  docker/                # entrypoint.sh, Dockerfile.*, groket-share-once.py, setup-empty.sh
-  config/                # empty rules.yaml / composites.yaml stubs (rules live under ~/.groket)
+assets/                  # non-Python templates (not coverage source)
+  docker/                # entrypoint, Dockerfiles, share helpers
+  config/                # empty rules.yaml / composites.yaml stubs
 
-examples/                # copy-in reference packs (detection, analysis, tasks) — not auto-loaded
-Optional wheel mirror: ``groket/_embedded_assets/`` (copy of ``assets/`` for installs).
-Do **not** put executable/product templates back under ``groket/**/*.py`` modules.
+examples/                # copy-in packs (detection, analysis, tasks) — not auto-loaded
+schemas/                 # committed JSON Schema (tasks, rules)
+Optional wheel mirror: groket/_embedded_assets/
 ```
 
-**Data flow:** `models/parser → runs|session|analysis|engine → ui`. Screens
-delegate; no file I/O or JSON parsing in screen code. Static Docker/YAML
-templates are read via :mod:`groket.assets_loader`, not embedded in Python strings.
+**Data flow:** ``parser`` / ``models`` → ``runs`` | ``session`` | ``analysis`` |
+``engine`` → ``ui``. Prefer domain modules for parse and Docker orchestration.
+UI may schedule **read-only** live reloads (meta / signals / light timeline) on
+worker pools; it must not start eval containers from widgets.
+
+Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 ### 3.0 Path layout (product contract)
 
-Two roots — do not write app identity into the process cwd by default.
-
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, exported reports, flag fallbacks, optional ``models.yaml`` |
-| **Work dir** | ``~/.groket/work`` (CLI path overrides) | Session/run data only: ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, optional ``models.yaml`` |
+| **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
-- TUI **Traces** banner label reflects the active traces root; it does not invent a second work tree under the git checkout.
-- Pass a path to ``groket`` to choose what is loaded and, when that path is a work root, where new runs go (:func:`groket.paths.resolve_work_and_traces`).
-- Gitignored trees under a developer checkout (``/runs/``, ``/flags/``, ``/config.json``, ``/_meta_cache.json``) are **local runtime leftovers**, not the install layout. Prefer ``~/.groket`` + ``~/.groket/work`` for day-to-day use.
+- TUI **Traces** banner = active traces root (not a second tree under the git checkout).
+- CLI path chooses what to load and, for a work root, where new runs go
+  (:func:`groket.paths.resolve_work_and_traces`).
+- Gitignored trees under a checkout (``/runs/``, ``/flags/``, ``/config.json``,
+  ``/_meta_cache.json``) are **local leftovers**, not the install layout.
 
-**Localization (mandatory for UI copy):** Project Fluent under
-`groket/locale/<lang>/`.
+### 3.1 Live sessions (product behaviour)
+
+- **FS watch** (``fs_watch.TraceTreeWatch``) discovers / reloads live sessions;
+  fallback timer when inotify is unavailable.
+- **60s read-only heartbeat** re-reads ``signals.json`` (context meter) without
+  writing the traces tree or meta cache.
+- **Single-flight refresh** per session via ``session_inflight.KIND_REFRESH`` +
+  the live-refresh pool; coalesced reruns when events stack.
+- **Turn status** on the home list: ``running`` | ``awaiting`` | ``ending`` |
+  ``complete`` | ``cancelled`` | ``—`` (:meth:`~groket.models.SessionMeta.list_status_label`).
+  **ending** = Done (``e``) or last-turn follow-up still finishing.
+- **Context** columns / Summary use session snapshot fields from signals;
+  optional in-memory per-turn samples while a browser is open
+  (``session.context_samples``). Grok does not export a full per-turn series.
+- **Subagent** session directories are excluded from the sessions list.
+
+### 3.2 Localization (mandatory for UI copy)
 
 | Source | Role |
 |--------|------|
-| `locale/<lang>/main.ftl` | **All** user-visible UI strings (labels, buttons, toasts, table headers, placeholders, status chips, binding descriptions used in the Footer, palette titles/help via `cmd-*`, etc.) |
-| `locale/<lang>/help.rich.txt` | Long Rich help for `?` only (Fluent cannot treat `[bold]` as plain text) |
-| `ui/text.py` | Dynamic accessors: `text.foo_bar()` → Fluent id `foo-bar`; `text.cmd_x()` → `(cmd-x, cmd-x-help)`. Prefer this or `i18n.t("message-id")` |
-| `ui/i18n.py` | `setup_i18n` / `t` / `ngettext` |
+| ``locale/<lang>/main.ftl`` | All operator-facing UI strings |
+| ``locale/<lang>/help.rich.txt`` | Long Rich help for ``?`` only |
+| ``ui/text.py`` | ``text.foo_bar()`` → Fluent id ``foo-bar``; ``cmd_*`` palette pairs |
+| ``ui/i18n.py`` | ``setup_i18n`` / ``t`` / ``ngettext`` / ``join_ui`` |
 
-Language: default `en` (pass a language to ``setup_i18n`` when adding a locale).
+Default language: ``en``.
 
-### 3.1 Zero hardcoded user-facing UI strings (hard rule)
+### 3.3 Zero hardcoded user-facing UI strings
 
-**Requirement:** Under `groket/ui/`, there must be **no hardcoded user-facing
-English (or other language) copy** in Python. Agents and humans **must** add or
-reuse Fluent message IDs and call them via `t("…")` or `ui.text` / `U.*`.
+Under ``groket/ui/``: **no** hardcoded operator-facing English (or other
+language) in Python. Add/reuse Fluent ids; call via ``t("…")`` or ``ui.text`` /
+``U.*``.
 
-**User-facing** includes anything the operator reads in the TUI: notifications,
-button labels, `Static`/`Label` text, input placeholders, DataTable column
-titles, select options shown to the user, modal titles, activity-bar wording,
-follow-up / mark-done prompts, and Footer/palette human descriptions.
+**User-facing** includes notifications, button labels, placeholders, table
+headers, select labels, modal titles, activity bar, follow-up / Done prompts,
+Footer and palette descriptions.
 
-**Do:**
+**Do not** put TCSS/Rich style tokens, widget ids, logger formats, or docstrings
+in FTL. Do not use FTL edge spaces for concatenation (Fluent strips them).
 
-1. Add the string to `groket/locale/en/main.ftl` (kebab-case id, e.g.
-   `follow-up-sent = Follow-up sent to eval container`).
-2. Use placeholders for variables: `flag-saved = Flag saved on event #{$index}`
-   and call `t("flag-saved", index=n)` or `U.flag_saved(n)` (positional args
-   bind to `{$var}` in definition order from `en/main.ftl`).
-3. Prefer `from .. import text as U` then `U.some_label()`, or
-   `from ..i18n import t` then `t("some-label")`.
-4. For Ctrl+P entries, define `cmd-foo` + `cmd-foo-help` in Fluent and use
-   `U.cmd_foo()` / the existing commands wiring.
+### 3.3a Fluent construction gate
 
-**Do not:**
+``make lint`` → ``scripts/check_fluent.py`` (exit 1 on violations):
 
-- Embed operator-facing prose in `notify(...)`, `Button(...)`, `Label(...)`,
-  `Static(...)`, `placeholder=...`, `add_columns(...)`, or Footer binding
-  descriptions as Python string literals.
-- Keep parallel English tables in Python (`_PLAIN = {"bind_foo": "Foo"}`,
-  message catalogs in `.py`).
-- Put **TCSS / `DEFAULT_CSS`** or Rich **style tokens** (`"bold red"`,
-  `"dim"`) in Fluent — those are not copy. Leave them as CSS/style constants.
-- Treat **widget ids**, **log format strings for `logger.*`**, or **docstrings**
-  as UI copy (they stay in Python).
-- Rely on **leading/trailing spaces** in FTL values for concatenation — Fluent
-  strips them (see ``join_ui``). Prefer one full message with ``{$vars}``, not
-  fragment glue.
-- Store **regexes / binary constants** in FTL (e.g. ANSI patterns). Keep those
-  in Python.
+- No f-string embedding ``t(...)``.
+- No ``re.compile(t(...))`` / regex message ids in FTL.
+- No leading/trailing space on single-line FTL values (except multi-line / placeable-only).
 
-### 3.1a Fluent construction gate (machine-enforced)
-
-``make lint`` runs ``scripts/check_fluent.py`` (**exit 1** on violations).
-
-| Rule | Enforced how |
-|------|----------------|
-| **No f-string embedding ``t(...)``** | Hard error anywhere under ``groket/``: ``f"…{t('id')}…"`` / ``f'…{t("id")}…'``. Build copy with ``t("id", var=…)``, ``join_ui(...)``, or ``t(...) + "\\n"`` (newline is structure, not locale). |
-| **No ``re.compile(t(...))``** | Hard error — regexes stay in Python. |
-| **No regex / binary message ids in FTL** | Hard error for known bad ids. |
-| **No leading/trailing space on FTL values** that are not multi-line / placeable-only | Hard error on single-line values with edge spaces (Fluent strips them; they are not a glue strategy). |
-
-**Preferred construction (in order):**
-
-1. **One Fluent message** with ``{$placeholders}`` for the whole operator-facing phrase.
-2. **``join_ui(t("a"), value, t("b"))``** when joining already-complete pieces (ids, numbers, paths) — never rely on FTL edge whitespace.
-3. **Rich styles** applied to a full ``t(...)`` result (``Text.append(t("…"), style="dim")``), not by wrapping ``t`` inside an f-string with ``[dim]…[/dim]`` unless the FTL value itself owns the markup (rare; prefer Python styles).
-
-**Agent checklist before claiming UI work done:** no new/changed user-facing
-literals under `groket/ui/`; new phrases exist in `en/main.ftl`; call sites use
-`t` / `U` / `join_ui`; ``scripts/check_fluent.py`` is green. When unsure, put
-it in Fluent.
+Prefer one Fluent message with ``{$placeholders}``, then ``join_ui``, then
+Python Rich styles on a full ``t(...)`` result.
 
 ---
 
@@ -218,764 +199,356 @@ it in Fluent.
 
 ### 4.1 Style
 
-- `snake_case` functions/variables, `PascalCase` classes, `UPPER_SNAKE` constants.
-- `from __future__ import annotations` in every module (ruff enforces this).
-- Type-annotate all public signatures. Use `X | None`, lowercase generics.
-- **Typed values only (hard rule + gate):** do **not** use `Any` or `object` as
-  *value bags* for our data (JSON, tool inputs, UI state, configs). Both mean
-  “unknown” and defeat the type system. Use `JsonValue` / `JsonObject` at
-  JSON/YAML boundaries, `ChatMessage` / `ChatHistory`, `RuleParams`
-  (`Mapping[str, JsonValue]`), `ToolInput` / `ToolInputBag`, concrete classes,
-  `Protocol`s, or `TypedDict` + `Unpack[...]` for open kwargs.
+- ``snake_case`` / ``PascalCase`` / ``UPPER_SNAKE``.
+- ``from __future__ import annotations`` in every module (ruff).
+- Annotate public signatures; ``X | None``, lowercase generics.
+- **No ``Any`` / ``object`` value bags** for our JSON, tools, UI state, configs.
+  Use ``JsonValue`` / ``JsonObject``, ``ParamBag`` / ``ToolInputBag``,
+  concrete types, ``Protocol``, ``TypedDict`` + ``Unpack``.
+  Gates: ``mypy groket`` + ``scripts/check_typing_policy.py``.
+  Forced third-party signatures: one-line library comment (e.g. ``# Textual``).
+- Recursive JSON: PEP 695 ``type`` aliases (3.13+). Prefer
+  :func:`~groket.models.as_json_object` when building mappings.
+- Detectors:
+  ``(tool_calls, messages, params: RuleParams) -> list[Match]``.
+- Analyzers:
+  ``analyze(self, session_dir: Path, **kwargs: Unpack[AnalyzeContext]) -> AnalysisResult``.
+- ``logger = logging.getLogger(__name__)``. ``print`` / ``typer.echo`` only in
+  ``cli.py``.
+- Init all instance attrs in ``__init__``. Delete dead code.
 
-  **Machine gate** (``make lint``):
+### 4.2 Comments and prose
 
-  1. **``uv run mypy groket``** — zero errors on the package (no
-     ``disable_error_code`` / module ``ignore_errors`` to hide debt).
-  2. **``scripts/check_typing_policy.py``** — fails on explicit ``Any`` in our
-     source and on ``object`` used as a **container/value bag**
-     (``dict[…, object]``, ``list[object]``, …). Single ``value: object`` at a
-     coerce boundary (Pydantic ``v: object``, ``json_value_from_unknown``,
-     dunders, JSON boundary helpers) is allowed; document forced third-party
-     signatures with a one-line library name comment (e.g. ``# Textual``).
+Ship the product as it exists. Document invariants, ownership, and non-obvious
+why. Omit design process, agent self-talk, and “vs old layout” stories.
+Rationale belongs in the **git commit message**.
 
-  Note: mypy ``disallow_any_explicit`` is **not** enabled because it
-  false-positives on Pydantic ``BaseModel`` classes; the script is the source
-  of truth for the no-``Any``-in-our-code rule.
+### 4.2a Sphinx-style docstrings
 
-  Exception for **forced third-party signatures** you cannot wrap: one-line
-  comment naming the library (e.g. Textual ``Select.value``). Prefer importing
-  Textual’s `App` / `Widget` / `SelectionList[...]` over a loose annotation.
-- Detectors: `(tool_calls: list[ToolCall], messages: Sequence[ChatMessage], params: RuleParams) -> list[Match]`.
-- Analyzers: `analyze(self, session_dir: Path, **kwargs: Unpack[AnalyzeContext]) -> AnalysisResult`.
-- `logger = logging.getLogger(__name__)`. No `print()` except in `cli.py`.
-- Initialise all instance attributes in `__init__`.
-- Remove dead code; prefer delete over “for later” stubs.
+Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
+``:raises:``). Private helpers may be one line.
 
-### 4.2 Comments and prose (present product only)
-
-**Ship only the product as it exists.** Comments, docstrings, module banners,
-commit messages that land in the tree, CLI ``--help`` text, UI strings, and
-``AGENTS.md`` describe **current behaviour and contracts** — where data lives,
-who writes it, who reads it, failure modes, ordering guarantees.
-
-There is **no published version line** to migrate from: do not document
-alternate historical layouts, rename stories, or “until release” scaffolding in
-sources or agent docs. Put change rationale in the **git commit message** only.
-
-**Write** (when a comment earns its lines):
-
-- Invariants: input shape, outputs, errors callers rely on.
-- Non-obvious *why* tied to behaviour — e.g. “Persona stores marketplace plugin
-  **names**; launch writes ``plugins-manifest.json`` (URL + SHA); the eval
-  entrypoint clones into ``/root/.grok/plugins``.”
-- Owning module for cross-layer calls: “Screens delegate to
-  ``runs.run_manager``; do not start Docker from widgets.”
-
-**Omit** from in-tree prose: design-process narration, agent self-talk, rejected
-alternatives, and any framing that defines behaviour only by contrasting a
-prior revision. Delete comments that only applied to removed code.
-
-
-### 4.2a Sphinx documentation in code
-
-Docstrings and module documentation use **Sphinx / reStructuredText field
-lists**, in the spirit of [coredis](https://github.com/alisaifee/coredis)
-(not Google/NumPy napoleon style as the primary form).
-
-**Module** docstrings: one short paragraph on responsibility; optional
-``.. note::`` / ``.. warning::`` for behavioural contracts.
-
-**Callables** (public functions and methods):
-
-.. code-block:: text
-
-    """One-line summary.
-
-    Longer explanation of behaviour and invariants when needed.
-
-    :param name: Description of ``name``.
-    :param other: Description; mention defaults only when non-obvious.
-    :returns: What the caller receives.
-    :raises KeyError: When the detector name is unknown.
-    """
-
-**Classes**: class docstring describes the type; important attributes may use
-``:ivar:`` / ``:cvar:`` or be documented on the attribute. Prefer linking types
-with intersphinx-friendly names (``:class:`~groket.models.ToolCall```) in
-longer docs.
-
-**Do not** put process narration in docstrings (see §4.2). **Do** document
-parameters, returns, and exceptions that callers rely on. Private helpers may
-use a single-line summary without full field lists.
-
-
-
-### 4.2b Local tooling (Makefile)
-
-``make lint`` / CI run **mypy on the entire ``groket`` package** (not a subset of modules). Do **not** use ``disable_error_code`` (or per-module ``ignore_errors``) to silence real issues — narrow types with :class:`~groket.models.ParamBag`, :class:`~groket.models.ToolInputBag`, and :func:`~groket.models.json_as_str` / friends instead.
-
-
-Mirror of coredis-style targets — always via ``uv run`` / ``make``:
+### 4.2b Makefile
 
 | Target | Action |
 |--------|--------|
-| ``make install`` | ``uv sync --group test --group dev`` then ``uv tool install --force --editable .`` (``groket`` on PATH) |
-| ``make lint`` | ruff check + format --check + **mypy on all of ``groket/``** |
+| ``make install`` | ``uv sync --group test --group dev`` + editable uv tool |
+| ``make lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
 | ``make lint-fix`` | ruff autofix + format + mypy |
-| ``make test`` | pytest |
-| ``make test-cov`` | pytest + coverage |
-| ``make schema`` | Regenerate ``schemas/*.schema.json`` from Pydantic |
-| ``make schema-check`` | Fail if committed schemas drift |
-| ``make ci`` | ``lint`` + ``schema-check`` + ``test`` (default PR gate) |
+| ``make test`` | pytest (no coverage flag) |
+| ``make test-cov`` | pytest + coverage report (``fail_under`` applies) |
+| ``make schema`` | Regenerate ``schemas/*.schema.json`` |
+| ``make schema-check`` | Fail if schemas drift |
+| ``make ci`` | ``lint`` + ``schema-check`` + ``test`` |
+| ``make clean`` | caches / build artefacts |
 
-**Published schemas** (also under ``schemas/`` for offline editors; GitHub Pages
-from ``main`` / ``master`` via ``.github/workflows/pages.yml``):
+Published schemas (also under ``schemas/``; GitHub Pages via
+``.github/workflows/pages.yml``):
 
-- Tasks: ``https://indynull.github.io/groket/schemas/tasks.schema.json``
-  (``groket.runs.task_schema``; ``groket batch validate``)
-- Rules / composites: ``https://indynull.github.io/groket/schemas/rules.schema.json``
-  (``groket.engine.rule_schema``; ``groket rules validate``)
+- https://indynull.github.io/groket/schemas/tasks.schema.json  
+- https://indynull.github.io/groket/schemas/rules.schema.json  
 
-Point YAML at the URL with ``# yaml-language-server: $schema=…`` or your
-editor's schema mapping. Enable **Settings → Pages → Source: GitHub Actions**
-once.
-| ``make clean`` | caches and build artefacts |
+### 4.3 Module purity
 
-GitHub Actions (``.github/workflows/ci.yml``) runs the same lint/test path.
-Prefer ``make ci`` before claiming work complete.
+Keep type/model modules limited to types and type-adjacent members. Move
+helpers to ``utils``, a focused module, or the caller layer.
 
-### 4.3 Module purity (no junk in type / domain modules)
-
-**A module’s top-level contents must match its job.** Do not park helpers in
-the nearest open file. If you need a private `_foo` that is not a type,
-factory on that type, or the module’s single responsibility, **move it** to
-`utils.py`, a dedicated `*_helpers.py` / package submodule, or the caller’s
-layer (UI vs domain).
-
-| Module / package | Allowed at module level | **Forbidden** (examples) |
-|------------------|-------------------------|---------------------------|
-| `models.py`, `engine/models.py`, `analysis/base.py` | Types, enums, type aliases, TypedDicts, dataclasses/Pydantic models, trivial `@property` / dunders on those types | Standalone `_strip_*`, regex caches, I/O, loggers used only by helpers, presentation/formatting that is not a field property |
-| `parser.py` | Parse/load functions + private parse helpers **used only by this module’s public API** | UI chrome, run orchestration, detectors |
-| `paths.py`, `constants.py` | Path resolution, named constants | Business logic, Textual widgets |
-| `utils.py` | Pure cross-cutting helpers (duration, text cleanup) | Domain models, imports from `ui` / `runs` |
-| `runs/*`, `session/*` | Domain types + stores + orchestration for that concern | Textual screens, form widgets |
-| `ui/*` | Screens, widgets, presentation helpers (`forms`, `fuzzy`, `session_summary`) | Trace JSON parsing, Docker orchestration (delegate to domain) |
-
-**Hard rules for agents:**
-
-1. **No module-level `_private_helper` in model/type files** unless it is only
-   referenced by methods on types defined in that same file *and* cannot live
-   in `utils` without a circular import. Prefer public names in `utils`
-   (`strip_control_chars`, not `_strip_control_chars` in `models.py`).
-2. **No “I’ll add a helper here because the method needs it.”** If a type
-   method needs non-trivial logic, either (a) keep it as a method body, (b)
-   import from `utils` / the correct package, or (c) introduce a focused
-   module — keep `models.py` limited to types and type-adjacent members.
-3. **No unused `logger = logging.getLogger(__name__)`** (or other imports)
-   left behind after moving helpers.
-4. **Before finishing a change that touches `models.py` / `*/models.py` /
-   `analysis/base.py`**, re-read the file: if anything is not a type or a
-   one-liner property on a type, move it out in the same PR.
-5. Prefer **public** helpers in `utils` over private `_` copies scattered in
-   domain modules — one implementation, many callers.
+| Module | Allowed | Forbidden |
+|--------|---------|-----------|
+| ``models.py``, ``*/models.py``, ``analysis/base.py`` | Types, enums, aliases, trivial properties | Standalone strip/regex/I/O helpers |
+| ``parser.py`` | Parse/load + private parse helpers for this API | UI, Docker orchestration |
+| ``paths.py``, ``constants.py`` | Paths / constants | Business logic, widgets |
+| ``utils.py`` | Pure cross-cutting helpers | Domain models, ``ui`` imports |
+| ``runs/*``, ``session/*`` | Domain for that concern | Textual screens |
+| ``ui/*`` | Screens, widgets, presentation | Docker launch; prefer domain for parse |
 
 ### 4.4 Imports
 
-Module-level imports at the top (stdlib → third party → local), after
-`from __future__ import annotations`.
+Module-level imports at top (stdlib → third party → local) after
+``from __future__ import annotations``.
 
-- Do **not** use function-level imports to hide circular dependencies. Break
-  cycles with leaf modules, `TYPE_CHECKING` for types only, and
-  screens → services/models (not screens importing `app` at module load).
-- Rare exceptions (one factual line: e.g. dynamic plugin `importlib`; CLI
-  defers TUI import so `--help` stays light) — still no process narrative.
-- Help markup is loaded via `ui_text.help_markup()` / locale files so
-  `bindings` can import help helpers without cycles.
+Do not use function-level imports to hide cycles — break cycles with leaf
+modules and ``TYPE_CHECKING``. Rare exceptions (CLI defers TUI for light
+``--help``; dynamic plugin ``importlib``) need one factual comment.
 
 ### 4.5 Error handling
 
-- Catch the **narrowest** exception type that the code actually handles.
-- **Never** `except Exception: pass` or `except Exception: logger.debug(...)` around
-  logic that must succeed for the product to work (table population, session
-  load results, core render paths). Prefer **no try** so bugs fail loudly in
-  tests and at the terminal.
-- TUI **event handlers** (`on_*`, key actions) may catch broadly so one bad
-  keypress does not kill the process — but must **`logger.exception` / `warning`**
-  with context, and must **not** invent an empty UI state that looks successful.
-- Optional I/O and best-effort chrome (banner text, “last directory” prefs,
-  cache write) may use a narrow try; still log at least `warning` if user-visible.
-- Fail early in constructors — do not silently swallow init errors.
-- Worker threads (`@work`) that update the UI: on failure, notify the user or
-  set an explicit error state; do not return as if zero items were found when
-  the failure was an exception mid-loop.
+- Narrowest exception that is actually handled.
+- Never ``except Exception: pass`` on core success paths.
+- TUI handlers may catch broadly with ``logger.exception`` / ``warning`` — do
+  not fake a successful empty UI.
+- Workers that update UI must surface failure to the operator.
 
-### 4.5a Quality gates (non-negotiable)
+### 4.5a Agent quality checklist
 
-Before claiming work complete (and before every agent commit):
+Before claiming work done:
 
-1. **`uv run mypy groket`** — **zero errors** on the entire package (all modules
-   under ``groket/``). Do **not** use ``disable_error_code``, module-level
-   ``ignore_errors = true``, or blanket ``# type: ignore`` to hide debt.
-2. **`uv run python scripts/check_typing_policy.py`** — **zero** disallowed
-   ``object`` / ``Any`` value annotations (see §4.1).
-3. **`uv run python scripts/check_fluent.py`** — **zero** f-string+``t()`` glue,
-   regex-in-FTL, edge-space FTL values (see §3.1a).
-4. **`uv run pytest tests/ --cov=groket --cov-fail-under=100`** — **100% line
-   coverage of every line in ``groket/``**. This is **non-negotiable**. Do not
-   lower ``[tool.coverage.report] fail_under``, do not add ``omit`` / ``exclude``
-   for our package, and do not use ``pragma: no cover`` except for the rare
-   forced third-party trap door already allowed for typing (document why).
-   Work is **not done** while coverage is below 100%, even if tests “pass”
-   without ``--cov-fail-under=100``.
-5. **`uv run ruff check groket tests`** and format check — clean.
-6. Prefer **delete / merge duplicates** over new abstractions: unused modules,
-   copy-pasted UI helpers, and parallel “almost the same” JSON accessors are
-   why type errors and coverage holes multiply. Refactor toward one path
-   (e.g. ``ParamBag`` / ``ToolInputBag`` / ``json_as_*``) instead of N variants.
-
-``make lint`` runs ruff, mypy, ``check_fluent.py``, and ``check_typing_policy.py``.
+1. ``make lint`` (or mypy + fluent + typing policy + ruff) green.
+2. ``uv run pytest tests/ -q`` green.
+3. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.
+4. Prefer delete/merge duplicates over parallel JSON/UI helpers.
 
 ### 4.5b UI and Docker test drivers
 
-- **Textual:** use ``App.run_test()`` + Pilot (async pytest + ``pytest-asyncio``).
-  That mounts the app, runs bindings, and queries widgets. Prefer Pilot over
-  constructing ``TraceEvalApp`` and only asserting attributes. Optional visual
-  gate: ``pytest-textual-snapshot`` (SVG). Shared wait helpers live in
-  ``tests/ui/pilot_helpers.py`` (condition-based; see §4.5c).
-- **Docker:** default unit suite **must not** require a live daemon. Fake
-  ``python_on_whales`` at the orchestrator boundary (as in
-  ``tests/docker/test_orchestrator.py``). Optional integration job (CI label /
-  ``DOCKER_IT=1``) may use real Docker — keep it out of ``make test``.
-- **CLI progress:** domain code uses ``logging``; only ``cli.py`` may ``print`` /
-  ``typer.echo``. Pytest default capture keeps the suite quiet; use ``capsys`` /
-  ``capfd`` when asserting CLI output. Never set ``--capture=no`` in default
-  ``addopts`` (it dumps logger noise into the suite stream).
+- Textual: ``App.run_test()`` + Pilot; wait helpers in
+  ``tests/ui/pilot_helpers.py`` (condition-based, not fixed sleeps).
+- Docker: fake ``python_on_whales`` at the orchestrator boundary. No live
+  daemon in default ``make test``.
+- Domain uses ``logging``; only ``cli.py`` may print.
 
-### 4.5c Test code quality (same bar as ``groket/``)
+### 4.5c Test quality
 
-**``tests/`` is product code for agents.** The conventions in §4.1–4.5 apply to
-tests with the same force as to ``groket/``: typing, no process leakage in
-comments, no silent broad ``except``, no ``Any``/``object`` convenience bags,
-Sphinx-style docstrings on shared helpers, ruff on ``tests/`` in the gate
-(``uv run ruff check groket tests``). Flaky or “sleep until green” tests are a
-**quality failure**, not an acceptable shortcut to coverage.
+Same bar as product code. Domain-shaped names and paths (no ``smoke`` /
+``extra_cov`` / ``full`` in file names). Fake only Docker / network /
+interactive git. Assert outcomes and what the user reads in the UI.
 
-**Synchronisation (Textual Pilot and other async UI):**
+### 4.6 Size limits (ruff)
 
-- **Do** wait on an **observable condition** (timeline non-empty, tab id,
-  widget mounted, gate file written, counter advanced). Prefer a small shared
-  helper (e.g. ``wait_until(pilot, pred)`` in ``tests/ui/pilot_helpers.py``)
-  that drains the message loop with ``await pilot.pause()`` (no delay argument)
-  between attempts and fails with a clear ``AssertionError`` after a **bounded
-  attempt count** (safety timeout, not the primary signal).
-- **Do not** use fixed wall-clock sleeps as the strategy: ``time.sleep(0.2)``,
-  ``await pilot.pause(0.2)`` once then assert, or ``for _ in range(N):
-  pause(0.15)`` without checking state each turn. Those races under load (CI,
-  busy hosts) and encode hope instead of a contract.
-- **Do** stop irrelevant timers in tests when they fight assertions (e.g.
-  ``BrowserScreen._stop_live_refresh()`` after the screen is ready) so
-  background ticks are not part of the scenario.
-- **Do** prefer setting authoritative widget state and then waiting
-  (``tabs.active = "tab-summary"`` + ``wait_until``) when actions only schedule
-  work; still call the real action/binding so the path is covered.
-- **Unit-test pure domain** (parser, turn gate, activity line builder) without
-  Pilot when no widget tree is required — zero event-loop waits.
+| Rule | Limit |
+|------|-------|
+| PLR0913 | 5 args |
+| PLR0911 | 5 returns |
+| PLR0912 | 12 branches |
+| PLR0915 | 50 statements |
+| PLR0904 | 20 public methods / class |
 
-**Structure and naming:**
-
-- Mirror ``groket/`` under ``tests/`` (``tests/ui/…`` for ``groket/ui/…``).
-- Domain-shaped names (``test_browser_follow_up_enter_and_queue``), not
-  wave / smoke / extra_cov suffixes.
-- Shared fixtures and Pilot helpers in ``tests/conftest.py`` or
-  ``tests/ui/pilot_helpers.py`` — not copy-pasted sleep loops in every file.
-- Parametrize variants; one behaviour per test where practical.
-- Fake **only** external boundaries (Docker API, network, interactive git). Do
-  not mock ``groket`` modules against each other to invent coverage.
-
-**Stdout / logging in tests:**
-
-- Domain under test must not ``print`` (see §4.5b). Assert CLI output with
-  ``capsys`` / ``capfd`` or Typer’s runner; do not rely on suite capture being
-  off.
-- Prefer asserting return values and filesystem/domain state over scraping logs.
-- **UI display:** assert what the user reads — ``Static.content`` / Rich plain
-  text / table cell values — not merely that a widget exists or a renderable
-  is non-``None``. Shared helpers: ``tests/ui/pilot_helpers.assert_rich_contains``
-  / ``assert_static_contains`` / ``rich_plain``. Do not ship “pause then pass”
-  or ``assert x is not None`` as the only check for a user-visible surface.
-
-**How to reach 100% without cheating (see also §11):** domain-named tests under
-``tests/`` mirroring ``groket/``; assert real outcomes; fake only Docker /
-network / interactive git; delete dead code; extract pure functions when a
-branch is hard to hit from the TUI. **Not allowed as a path to 100%:** silent
-broad ``except`` loops, mocking internal ``groket`` modules against each other,
-fixed-sleep “eventually green” UI tests, or running a live Docker daemon in the
-default unit suite.
-
-**Only allowed typing escape:** a **forced third-party signature** that
-exposes ``Any`` (or an untyped C extension) where we cannot wrap it. Document
-with a **one-line** comment naming the library (e.g. ``# Textual Select.value``).
-Never use ``object`` or ``Any`` as a convenience for our own JSON/YAML/tool bags —
-use ``JsonValue`` / ``JsonObject`` / ``ParamBag`` / concrete models.
-
-Recursive JSON (and similar tree types) **must** use PEP 695 ``type`` aliases on
-3.12+ (we require 3.13+), following the pattern in
-`coredis <https://github.com/alisaifee/coredis>`_ ``coredis/_py_312_typing.py``::
-
-    type JsonValue = str | int | float | bool | dict[str, JsonValue] | list[JsonValue] | None
-
-Do **not** fall back to ``dict[str, Any] | list[Any]`` (the 3.11 workaround in
-coredis ``_py_311_typing.py``) unless we drop below 3.12. Prefer
-:func:`~groket.models.as_json_object` when building mappings so mypy accepts
-them despite dict invariance.
-
-``make lint`` must run ruff **and** mypy; ``make test`` / CI must enforce
-**coverage 100%**. Do not split the gate to “look green” while mypy or coverage
-is red. Agents **push back** only on *method* (bad tests), never on *whether*
-100% applies.
-
-### 4.6 Size limits (ruff / `pyproject.toml`)
-
-| Rule | Limit | What |
-|------|-------|------|
-| PLR0913 | 5 | max function arguments |
-| PLR0911 | 5 | max return statements |
-| PLR0912 | 12 | max branches |
-| PLR0915 | 50 | max statements per function |
-| PLR0904 | 20 | max public methods per class |
-
-Split code when limits are exceeded. Optional follow-ups may be listed in
-[TODO.md](TODO.md).
+Split when exceeded. Optional debt: [TODO.md](TODO.md).
 
 ### 4.7 Models
 
-- **Pydantic v2** for serialised models (Flag, EvalRun).
-- **Plain dataclasses** for hot-path models (TraceEvent, ToolCall, Issue).
-- Model modules are **types only** — see §4.3. Formatting helpers belong in
-  `utils` (e.g. `strip_control_chars`), not private helpers next to `ToolCall`.
+- **Pydantic v2** for serialised models (Flag, EvalRun, …).
+- **Dataclasses** for hot-path trace types (TraceEvent, ToolCall, …).
+- Model modules are types only (§4.3).
 
-### 4.8 Naming (functions, privates, tests) — coredis-inspired
+### 4.8 Naming
 
-Name things after **behaviour and domain**. Prefer the style of
-[coredis](https://github.com/alisaifee/coredis): short, readable identifiers
-(`_parse_url`, `_reset`, `test_hget_and_hset`, `tests/commands/test_hash.py`).
-
-#### Production code
-
-- Prefer **verb + object** public names: `prepare_persona_plugins_dir`,
-  `list_marketplace_catalog`, `plugin_install_specs`.
-- **Class methods** may use a leading underscore for real encapsulation
-  (`_apply_persona_capabilities_config`, `_git_clone_plugin`) — still
-  **descriptive**. Avoid vague privates: `_helper`, `_fix`, `_go`, `_do2`,
-  `_x`, `_process`, `_handle` with no object.
-- **Do not** sprinkle module-level `_helper()` functions merely to split a
-  file — and **never** in `models.py` / type modules (see §4.3). Prefer a
-  clear public name in `utils` or a small dedicated module, or a method on a
-  cohesive class.
-- Leading-underscore **modules** (e.g. `analysis/_cache.py`) are fine for
-  non-API packages; public import paths should still read cleanly.
-- Rename when a private grew past its original meaning — do not pile version
-  suffixes (`_v2`, `_new`, `_alt`).
-
-#### Tests (files and cases)
-
-Mirror the package (see §11.1), as coredis mirrors Redis surfaces.
-
-1. **File name** = unit under test (`test_<module>.py`) under the matching
-   domain folder (`tests/engine/`, `tests/ui/`, `tests/runs/`, …), or at
-   `tests/` root for foundational modules (`test_parser.py`).
-2. **Test / class name** = behaviour or scenario (`test_empty_manifest_returns_none`,
-   `TestClient`, `test_hget_and_hset`) — not how the suite was built or how much
-   of the module it covers.
-3. **File paths are domain names only** — not suite intensity (`full`, `smoke`,
-   `extra`, `unit`, `real`, `helpers`, `_all`). Put cases in the domain file or
-   a second **domain** name (`ui/test_text.py` for `ui/text.py`). Pytest marks
-   may note intent; the path should not.
-4. Prefer **`Test…` classes** when grouping scenarios for one type.
-5. Use **`@pytest.mark.parametrize`** for variants instead of numbered copies.
-6. One test (or class) should fail for **one conceptual reason**.
+Domain-shaped, coredis-style: verb+object publics; descriptive privates; no
+``_helper`` / ``_v2`` piles. Tests: ``test_<behaviour>`` under the matching
+domain folder.
 
 ---
 
 ## 5. Linting and dead code
 
-Ruff is the source of truth for mechanical cleanup. Run on `groket/` before
-claiming a cleanup is done.
-
 | What | How |
 |------|-----|
-| Unused imports | `uv run ruff check groket/ --select F401` (`--fix` when safe) |
-| Unused locals | `uv run ruff check groket/ --select F841` |
-| Complexity | PLR limits (table above) |
-| Missing `from __future__ import annotations` | isort `required-imports` |
-| `print()` outside CLI | T20 (allowed only in `cli.py`) |
+| Unused imports / locals | ruff F401 / F841 |
+| Complexity | PLR table above |
+| ``from __future__ import annotations`` | isort required-imports |
+| ``print`` outside CLI | T20 (``cli.py`` only) |
 
-Keep `groket/` F401/F841-clean.
-
-**Not dead without checking call paths:**
-
-- Textual hooks: `compose`, `action_*`, `on_*`, `_on_*`, `BINDINGS`, `CSS_PATH`, `TITLE`.
-- `@detector("rule_id")` functions — driven from `config/rules.yaml`.
-- Analysis plugins listed in `config.json` `analysis.plugins` as `module:ClassName`.
-- Public model fields / enums populated from traces or tests even if the TUI
-  does not display them yet.
-
-**Manual passes:** unreferenced helpers, unused constants/facades, stale
-`__pycache__` for deleted modules.
+**Not dead without checking call paths:** Textual hooks (``compose``,
+``action_*``, ``on_*``, ``BINDINGS``, …); ``@detector`` modules loaded from
+``~/.groket/detectors`` and user rules YAML; analysis plugins listed in
+``config.json`` ``analysis.plugins``; model fields filled from traces.
 
 ---
 
 ## 6. TUI and keyboard UX
 
-Groket is **keyboard-first**. Mouse is optional acceleration — every feature
-must be reachable with keys and/or **Ctrl+P**. Prefer patterns from mature
-TUIs and WAI-ARIA “tab between / arrows within”.
-
-**Sources of truth for keys**
+Keyboard-first. Mouse is optional acceleration. Every feature reachable by
+keys and/or **Ctrl+P**.
 
 | File | Role |
 |------|------|
-| [`ui/bindings.py`](groket/ui/bindings.py) | Bindings; shared `LIST_SELECT`, `CAPABILITY_PICKER`, `FORM_SAVE`, … |
-| [`commands.py`](groket/commands.py) | Ctrl+P palette (contextual) |
-| Fluent / `ui_text` / `help.rich.txt` | User-visible help and labels |
+| [`ui/bindings.py`](groket/ui/bindings.py) | Bindings |
+| [`ui/commands.py`](groket/ui/commands.py) | Ctrl+P palette |
+| Fluent / ``ui/text`` / ``help.rich.txt`` | Labels and help |
 
-Do **not** invent ad-hoc key legends in banners or button labels
-(`"save [ctrl+s]"`).
+No ad-hoc key legends in banners (``"save [ctrl+s]"``).
 
-### 6.1 Focus model
+### 6.1 Focus
 
 | Input | Role |
 |-------|------|
-| **Tab / Shift+Tab** | Focus **between** widgets |
-| **↑ ↓ ← →**, Home/End, PgUp/PgDn | Move **inside** focused widgets |
-| **Enter / Space** | Activate control or selected row |
-| **Esc** | Back (pushed screen) or dismiss modal |
-| **Mouse** | Optional; never the only path |
+| Tab / Shift+Tab | Between widgets |
+| Arrows, Home/End, PgUp/PgDn | Inside focused widget |
+| Enter / Space | Activate |
+| Esc | Back / dismiss |
+| Mouse | Optional |
 
-- Focus order follows `compose()` DOM order.
-- Visible **`:focus`** styles in `app.tcss`.
-- After filling a primary list, call `focus_primary_list(widget)`. Prefer the
-  list over path inputs or inert chrome. Do not steal focus on incidental
-  re-renders or from a search field the user just opened (`/`).
-- Bindings that need selection+focus (e.g. **Flag**) use `check_action` and
-  `refresh_bindings()` — hide from Footer when inert.
+After filling a primary list: ``focus_primary_list``. Use ``check_action`` +
+``refresh_bindings`` for selection-gated keys (e.g. Flag).
 
-### 6.2 Two layers of “tabs” (do not conflate)
+### 6.2 Two layers of tabs
 
-1. **App / session panes** (Timeline, Findings, …; persona Identity / GitHub / …).
-   Switch with **`[` / `]`** and **digits `1`–`N`**. Pane titles include the
-   digit (`1 Timeline`). After switch, defer focus into the pane
-   (`call_after_refresh` — inactive panes are hidden).
-2. **In-pane filters / views** (timeline **Filter** Select: All / Tools / …).
-   Prefer one visible **Select** + a focus key (`v`). No silent cycle keys
-   without UI feedback.
+1. **App panes** — ``[`` / ``]`` and digits ``1``–``N`` (titles include the digit).
+2. **In-pane filters** — visible ``Select`` + focus key (e.g. timeline ``v``).
 
-| Layer | Example | Keys | Feedback |
-|-------|---------|------|----------|
-| Session panes | Browser Timeline / Summary / Diff / Findings / Report | `[` `]` , `1`–`5` | Tab strip + titles |
-| Editor panes | Persona Identity … Plugins | `[` `]` , `1`–`6` | Tab strip + titles |
-| Runner panes | Recipe / Runtime / Extras | `[` `]` , `1`–`3` | Tab strip + titles |
-| In-pane view | Timeline event filter | `v` → Select | Dropdown label |
-| Row actions | Flag event | `f` when actionable | Footer via `check_action` |
-| Multi-select | Sessions, configs, capability pickers | **`s` / `space`** | Green `*` column 0 |
+| Layer | Example | Keys |
+|-------|---------|------|
+| Browser panes | Timeline … Report | ``[`` ``]`` ``1``–``5`` |
+| Persona / runner panes | Identity … / Recipe … | ``[`` ``]`` + digits |
+| Timeline filter | All / Tools / … | ``v`` → Select |
+| Multi-select | Sessions, configs, pickers | ``s`` / ``space`` → green ``*`` col 0 |
 
-### 6.3 Multi-select lists (mandatory consistency)
+### 6.3 Multi-select
 
-| Key | Action | Where |
-|-----|--------|--------|
-| **`s`** | Toggle row selected (Footer: **Select**) | Sessions, run configs, MCP / plugins / skills pickers |
-| **`space`** | Same as `s` (hidden binding) | Same |
-| **`S`** | Select all / clear all (where implemented) | Sessions, run configs |
+``LIST_SELECT`` / ``LIST_SELECT_ALL`` / ``CAPABILITY_PICKER``; marker via
+``data_table.selection_mark`` / ``set_selection_marker``.
 
-- Implement `action_toggle_select` (or delegate). Use `LIST_SELECT`,
-  `LIST_SELECT_ALL`, `CAPABILITY_PICKER` from `bindings.py`.
-- **Marker:** bold green `*` in **column 0** via `data_table.selection_mark` /
-  `set_selection_marker`. Not a trailing `yes` / `on` text column.
-- Do not invent alternate toggle keys on pickers; Footer must say **Select** for `s`.
+### 6.3a Destructive delete (``x``)
 
-### 6.3a Destructive delete (``x`` / Delete)
+Double-press ``x`` (and Delete where bound) on sessions, run configs, personas.
+First press arms; second with the **same** target set commits. Shared helper:
+:func:`groket.ui.delete_confirm.second_press_armed`.
 
-List deletes that remove user data from disk use **double-press ``x``**
-(binding may also map Delete):
+### 6.4 DataTable
 
-| Screen | Action | Pending state |
-|--------|--------|---------------|
-| Sessions home | `action_delete_sessions` | `_delete_pending_paths` |
-| Run configs | `action_delete_config` | `_delete_pending_ids` |
-| Personas | `action_delete_persona` | `_delete_pending_ids` |
+``style_data_table``, ``preserving_cursor``, ``cursor_row_key``,
+``set_selection_marker`` / ``update_row_cell`` — do not reimplement.
 
-- First ``x``: arm via :func:`groket.ui.delete_confirm.second_press_armed` and
-  toast “press [x] again …”; do **not** delete.
-- Second ``x`` with the **same** target set: commit delete; clear pending.
-- Changing selection / cursor between presses re-arms (new pending set).
-- Explicit **Delete** buttons on the same screens call the same ``action_*``
-  (also double-press). Modals with an in-form Delete control (e.g. flag modal)
-  keep a single confirm button — that is modal UX, not list ``x``.
+### 6.5 Tips
 
-Do **not** implement single-press list delete for one screen while others use
-double-press.
-
-### 6.4 DataTable UX (`data_table.py`)
-
-Do not reimplement these patterns in screens.
-
-| Practice | API |
-|----------|-----|
-| Row cursor + zebra | `style_data_table(table)` on mount |
-| Preserve highlight across `clear()` + rebuild | `preserving_cursor(table)` |
-| Read stable row key | `cursor_row_key(table)` |
-| Restore without context manager | `restore_cursor(table, key)` |
-| Toggle selection without cursor jump | `set_selection_marker` / `update_row_cell` — never `clear()` only to flip a mark |
-| First populate focus | `focus_primary_list(table)` once; not after every in-place toggle |
-
-Optional subclass: `ListDataTable` (helpers on the widget).
-
-### 6.5 Tips and callouts (`ui/panel_render.py`)
-
-- **UI callouts:** always **`TipSurface`** (CSS class `tip-surface`) so
-  `show_tips` can refresh by widget type / class. Prefer one TipSurface per
-  guidance role (do not duplicate the same shortcuts on title and action bar).
-- Kinds: `tip`, `info`, `note`, `warning`, `danger`, `success` via `kind=`.
-- Frame is **CSS border** (width-adaptive). Content uses key chips for
-  `` `backticks` `` (Footer-like styling).
-- **`admonition()` / `tip_line()`** remain Rich helpers for geometry tests /
-  rare `append_text` — not for embedding inside other `Static` trees.
-- **Hide tips globally:** `show_tips` in `~/.groket/config.json`, Analysis
-  settings, or Ctrl+P → **Toggle tips / callouts**.
+``TipSurface`` (class ``tip-surface``); kinds via ``kind=``. Global hide:
+``show_tips`` in config / Analysis / Ctrl+P.
 
 ### 6.6 Context-sensitive shortcuts
 
-Bindings are screen- or modal-scoped (widget → screen → app).
+Stable globals: ``?``, ``F5``/``Ctrl+R``, ``j``, ``Esc``, ``Ctrl+P``, ``q``
+(any screen; inputs still receive ``q`` while editing). Screen owns the rest.
 
-- Give each major screen/modal keys for *its* job.
-- Keep a **stable global** set: `?`, `F5`/`Ctrl+R`, `j` (jobs), `Esc`, `Ctrl+P`;
-  `q` only on sessions home.
-- Do not make the same key mean different things based on *which cell* is
-  focused unless the widget owns it (arrows in a table). Prefer pane digits
-  over “if focus is in X then Y means …”.
-- Prefer distinct symbols for different concepts (⚑ human flag vs ⚠ automated
-  finding). Prefer **full words** in Type/Tool columns (`Session` not `SESS`).
+### 6.7 Discovery
 
-### 6.7 Shortcut discovery (three layers only)
+1. Footer (few primary keys)  
+2. ``?`` help  
+3. Ctrl+P palette  
 
-1. **Footer** — few primary keys (`show=True`). Lean.
-2. **`?`** — unified help (`notify_help` / Fluent `help.rich.txt` via `ui_text`).
-3. **Ctrl+P** — every action for the current screen (`ui/commands.py`).
+Add a key: ``bindings.py`` → ``action_*`` → palette if useful → help if major.
 
-Adding a key: update `bindings.py` → implement `action_*` → palette line if
-non-obvious → help text if major workflow.
+### 6.8 Keyboard checklist
 
-### 6.8 Keyboard-only checklist (new UI / modals)
-
-- [ ] Primary list gets focus when populated (`focus_primary_list`).
-- [ ] Multi-section UI uses **tabbed panes** with **`[` `]`** + **digit titles**.
-- [ ] In-pane filters use a **visible** control, not silent key cycles.
-- [ ] Multi-select uses **`s` / `space`** + green `*` (`data_table`).
-- [ ] Table rebuilds use **`preserving_cursor`** or in-place cell updates.
-- [ ] Tips use **`TipSurface`** with `` `keys` `` in backticks.
-- [ ] Contextual actions use **`check_action`** where needed.
-- [ ] Every button is Tab-reachable with Enter/Space **or** has a binding / palette entry.
-- [ ] Modals: Esc cancels; Save uses **Ctrl+S** (`FORM_SAVE` / priority binding);
-      do not embed key names in button labels.
-- [ ] No mouse-only feature; no conflicting legends (banner vs Footer).
+Primary list focus; pane digits; visible filters; ``s``/``space`` multi-select;
+preserving cursor; ``TipSurface``; ``check_action``; Tab-reachable buttons;
+modals Esc + Ctrl+S save; no mouse-only features.
 
 ### 6.9 Global key reference
 
 | Key | Action |
 |-----|--------|
-| `?` | Help modal |
-| `F5` / `Ctrl+R` | Refresh current context |
-| `j` | Jobs / logs |
-| `Esc` | Back / dismiss |
-| `q` | Quit (any screen; Input/TextArea still receive ``q`` while editing) |
-| `Ctrl+P` | Command palette |
-| `Ctrl+S` | Save (forms) or Done (multi-pickers) — priority binding |
-| `[` / `]` | Previous / next **pane** (where panes exist) |
-| `1`…`N` | Jump to pane N (titles show the digit) |
-| `s` / `space` | **Select** (multi-select lists / capability pickers) |
+| ``?`` | Help |
+| ``F5`` / ``Ctrl+R`` | Refresh |
+| ``j`` | Jobs / logs |
+| ``Esc`` | Back / dismiss |
+| ``q`` | Quit |
+| ``Ctrl+P`` | Command palette |
+| ``Ctrl+S`` | Save / Done (forms, multi-pickers) |
+| ``[`` / ``]`` | Previous / next pane |
+| ``1``…``N`` | Jump to pane N |
+| ``s`` / ``space`` | Select (multi-select lists) |
+
+Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
+(double-press); ``a`` analyze; ``d`` rules; ``r``/``C``/``P`` runner/configs/personas.
 
 ---
 
 ## 7. Styling
 
-**User theme owns aesthetics.** Prefer Textual design tokens (`$primary`,
-`$surface`, `$text`, `$text-muted`, `$success`, `$warning`, `$error`) so themes
-stay coherent. Do not invent a parallel palette of hardcoded Rich colours for
-chrome.
+Prefer Textual design tokens (``$primary``, ``$surface``, ``$text``, …).
 
-| Layer | File | Role |
-|-------|------|------|
-| Layout / borders / focus | `app.tcss` | `$` tokens; `.panel-card`, filter bars |
-| Table semantics | `_styles.py` | Severity, timeline type/tool colours |
-| Callout widgets | `TipSurface` / `.tip-surface` | Adaptive CSS border |
+| Layer | File |
+|-------|------|
+| Layout / focus | ``app.tcss`` |
+| Semantic Rich colours | ``ui/styles.py`` (status, severity, timeline) |
+| Callouts | ``TipSurface`` / ``.tip-surface`` |
 
-### UI chrome vs Markdown payloads
-
-| Kind | Examples | How |
-|------|----------|-----|
-| **UI structure** | Titles, keys, sections, status, tips | `panel_render` / `TipSurface`; full words; no `#` / `**` as chrome |
-| **Panel frames** | Summary / Report | TCSS **`.panel-card`** — prefer `Vertical(classes="panel-card")` |
-| **Markdown content** | Assistant text, plugin reports, MD diffs | `md_content()` / `content_block()` only |
-
-Active tab uses `$primary` tint. New panels: `panel_group(...)`; do not
-`widget.update("# Report\n**x**")`.
+UI chrome via ``panel_render`` / panel-card; Markdown **content** only through
+``md_content()`` / ``content_block()``.
 
 ---
 
 ## 8. Filter bars
 
-**One pattern** for exclusive filters (Timeline **and** Report **and** sessions):
-
-| Piece | What |
-|-------|------|
-| Bar | `Horizontal` + `FILTER_BAR_CLASS` (`filter-bar`) |
-| Label | Bold `FILTER_LABEL_CLASS` — e.g. **Filter** |
-| Control | **`Select`** (exclusive mode) |
-| Optional | Search `Input` (Timeline only) |
-
-Constants: `widgets/controls.py`. Do **not** use Button chips or checkbox rows
-for exclusive “which section to show.”
-
-| Need | Control | Where |
-|------|---------|--------|
-| Exclusive view / section | **`Select`** in filter bar | Sessions model/task, Timeline, Report |
-| Form field boolean | Full-width **`Checkbox`** | Persona editor, analysis settings |
-| Read-only status | Dim text / `Static` | Selection counts (not selection *marks*) |
+Exclusive filters: ``Horizontal`` + ``FILTER_BAR_CLASS`` + bold label +
+**``Select``** (+ optional search ``Input``). Constants in
+``widgets/controls.py``. No button chips for exclusive mode.
 
 ---
 
 ## 9. Browser Report tab
 
-- One scroll with **inline** `panel-card` sections (Overview; Flags; per-analyzer
-  panels). Not nested TabbedContent for sources.
-- **Filter** dropdown (same UX as Timeline) sets exclusive visibility via
-  `display` only.
+One scroll of inline ``panel-card`` sections; **Filter** ``Select`` toggles
+``display`` only (not nested source tabs).
 
 ---
 
 ## 10. Plugins and capabilities
 
-Users extend groket **without editing package source** via ``~/.groket/`` and
-``uv run groket gen …``.
-
-### 10.1 User extension layout
+Extend without editing package source: ``~/.groket/`` + ``groket gen …``.
 
 | Path | Purpose |
 |------|---------|
-| ``~/.groket/detectors/*.py`` | Detector modules (``@detector("name")``). Loaded by the engine rule loader. |
-| ``~/.groket/rules/*.yaml`` | Rule YAML overrides (same schema as package ``config/rules.yaml``; same ``id`` replaces bundled). |
-| ``~/.groket/plugins/*.py`` | Analysis ``Analyzer`` classes; also scanned for ``@detector`` if present. On ``sys.path`` for ``module:ClassName`` config entries. |
-| ``~/.groket/tasks/*.yaml`` | Optional task lists (scaffold via ``groket gen tasks``; never auto-loaded). |
-| ``~/.groket/config.json`` | App prefs + ``analysis.plugins`` list. |
-
-Worked examples (copy into `~/.groket/`): [`examples/`](examples/README.md)
-(detection packs, analysis plugins, tasks).
-
-Scaffold:
+| ``~/.groket/detectors/*.py`` | ``@detector`` modules |
+| ``~/.groket/rules/*.yaml`` | Rule YAML (same schema as ``assets/config`` stubs / published schema) |
+| ``~/.groket/plugins/*.py`` | Analysis ``Analyzer`` classes (+ optional detectors) |
+| ``~/.groket/tasks/*.yaml`` | Optional task lists (never auto-loaded) |
+| ``~/.groket/config.json`` | Prefs + ``analysis.plugins`` |
 
 ```bash
 uv run groket gen detector my_check
 uv run groket gen rule my-rule --detector my_check
-uv run groket gen plugin my_stats --register   # writes plugin + config entry
-uv run groket gen tasks                         # ~/.groket/tasks/example_tasks.yaml
+uv run groket gen plugin my_stats --register
+uv run groket gen tasks
+uv run groket rules validate
 ```
 
-Rules and detectors are **user-installed**: the engine loads
-``~/.groket/detectors/*.py`` and ``~/.groket/rules/*.yaml`` (and detectors
-declared in ``~/.groket/plugins/*.py``). Package ``assets/config/rules.yaml`` and
-``composites.yaml`` are empty stubs so the loader has a stable asset path.
-Reference packs live under ``examples/detection/`` (``minimal/``, ``starters/``,
-``catalog/``) — copy into ``~/.groket`` to enable. Analysis output type is
-:class:`~groket.analysis.base.Finding` (rules, composites, and plugins).
+Package ``assets/config/rules.yaml`` and ``composites.yaml`` are **empty stubs**.
+Copy packs from ``examples/detection/`` (``minimal/``, ``starters/``,
+``catalog/``) into ``~/.groket`` to enable. Findings type:
+:class:`~groket.analysis.base.Finding`.
 
-### 10.2 Three “plugin” concepts (do not conflate)
+### Three “plugin” concepts
 
-| Kind | Config / field | Notes |
-|------|----------------|--------|
-| **Analysis plugins** | `analysis.plugins` | `module:AnalyzerClass` implementing `Analyzer`. User: `~/.groket/plugins/`; examples in `examples/analysis/plugins/`. |
-| **Detectors + rules** | `@detector` + rule YAML | Engine findings. User detectors + `~/.groket/rules/`; examples in `examples/detection/`. |
-| **Grok Build plugins** | `Persona.plugins` / `RunConfig.run_plugins` | Marketplace **names** on the persona/run; launch writes `plugins-manifest.json` (catalog URL + SHA); eval entrypoint installs under ``/root/.grok/plugins`` and enables via ``[plugins]`` (`capabilities/marketplace.py`, `apply.prepare_persona_plugins_dir`). UI: persona tab **Plugins**, runner pick plugins. |
+| Kind | Config | Notes |
+|------|--------|--------|
+| Analysis plugins | ``analysis.plugins`` | ``module:Class``; ``~/.groket/plugins/`` |
+| Detectors + rules | ``@detector`` + YAML | Engine findings; user detectors/rules |
+| Grok Build plugins | persona / run ``plugins`` | Marketplace names → ``plugins-manifest.json`` at launch |
 
-**MCP** and **standalone skills** are separate persona fields (`mcp_servers` /
-`skills`). MCP configure may create an implicit companion skill
-(`use-<server>-mcp`, frontmatter `x-groket: groket-mcp-companion`). Those are
-**hidden from skill pickers** by default but still resolvable for apply.
+**MCP** and **skills** are separate persona fields. MCP may create a hidden
+companion skill (``use-<server>-mcp``, ``x-groket: groket-mcp-companion``).
 
 ---
 
 ## 11. Testing
 
-Inspired by [coredis](https://github.com/alisaifee/coredis/tree/master/tests):
-domain-shaped layout, behavioural names, fixtures at **system boundaries**.
+Domain-shaped layout, behavioural names, fakes only at **system boundaries**.
 
-### 11.1 Layout and naming
-
-**Mirror `groket/`** (foundational modules may live at `tests/` root):
+### 11.1 Layout
 
 ```
 tests/
   conftest.py
   test_models.py, test_parser.py, test_paths.py, test_flags.py, test_utils.py
-  analysis/     engine/     capabilities/     runs/     session/     docker/     ui/
+  test_event_types.py, test_fs_watch.py, test_job_pools.py, test_session_inflight.py
+  test_assets_loader.py
+  analysis/  capabilities/  cli/  diagnostics/  docker/  engine/
+  runs/  session/  ui/  fixtures/
 ```
 
-Examples: `tests/engine/test_loader.py`, `tests/capabilities/test_marketplace.py`,
-`tests/ui/test_data_table.py` (for `groket/ui/data_table.py`). Prefer
-`ui/test_text.py` over a redundant `test_ui_text.py` at the root.
+Isolate ``APP_HOME`` in tests so developer ``~/.groket`` never leaks in.
 
-- Shared fixtures live in `tests/conftest.py` (and optional per-package
-  `conftest.py`). Use **`tmp_path`** for filesystem I/O; isolate `APP_HOME` so
-  developer `~/.groket` never leaks into tests.
-- **Naming:** §4.8 — behavioural test names; domain file paths only.
+### 11.2 Mock boundaries only
 
-### 11.2 What to mock (boundaries only)
+- Fake Docker / python-on-whales, network, interactive git, wall-clock when needed.
+- Do **not** mock internal ``groket`` modules against each other for coverage.
+- Default suite: **no** live Docker daemon or network ``git clone``.
 
-- **Do not mock internal groket modules** against each other.
-- **Do mock external boundaries:** Docker daemon / **python-on-whales**
-  (`DockerClient`), network (`urllib`, HTTP), interactive `git` credential
-  prompts, wall-clock where determinism matters.
-- **Default unit suite is daemon-free:** no real `docker run` / image build.
-  Orchestrator and run-manager tests inject a **fake client** (stubs for `run` /
-  `wait` / `logs` / `build`). A full container lifecycle is integration /
-  manual work, not the default `pytest` path.
-- **No real network `git clone` in unit tests.** Patch `subprocess.run` or
-  inject a fake at the orchestrator boundary.
-- Textual: **`app.run_test()`** for one screen or action with fixtures on disk —
-  not eval launches that need Docker.
+### 11.3 Style
 
-If a test needs a live daemon, gate it explicitly (e.g. `@pytest.mark.integration`
-+ opt-in in CI). Default `uv run pytest tests/` must stay fast on a laptop.
+Parametrize variants; async TUI with ``run_test()``; assert outcomes and
+user-visible text; small focused tests.
 
-### 11.3 Style of cases
+### 11.4 Coverage
 
-- `@pytest.mark.parametrize` for multi-variant inputs.
-- Async TUI: `@pytest.mark.asyncio` + `run_test()` (`pytest-asyncio`).
-- Assert **outcomes** (return values, files written, messages, raised types).
-- Prefer **small focused tests** over suites that import half the package only
-  to raise line counts.
+When measuring (``make test-cov`` / ``--cov=groket``), ``fail_under = 100``
+applies. Meet it with real domain tests; delete dead code rather than
+pragma/omit. Default CI/``make test`` do not fail on coverage percentage.
 
-### 11.4 Coverage (100% is mandatory)
+### 11.5 New test checklist
 
-- **`fail_under = 100`** on ``groket`` is a **product gate**, not a stretch goal
-  (§4.5a). Closing a PR or agent turn with partial coverage is incomplete work.
-- Meet 100% with **domain-named** tests and real assertions (files written,
-  return values, UI state, raised types). Prefer **deleting dead code** or
-  extracting a small pure function over untestable TUI-only branches.
-- **Refuse** (and say so) tactics that only inflate the meter: silent
-  ``except Exception: pass`` sweeps, internal mocks of ``groket`` modules,
-  live Docker in the default suite, lowering ``fail_under``, or package
-  ``omit`` lists. Offer a **legitimate** path instead (fixture + fake client,
-  pilot one action, delete unused code).
-- After structural test moves or large deletes, **re-run**
-  ``pytest tests/ --cov=groket --cov-fail-under=100`` before claiming done —
-  suite green without coverage is not enough.
-
-### 11.5 Quick checklist (new test)
-
-1. File path reflects the module under test (domain folder)?
-2. Function/class name states behaviour?
-3. External I/O (Docker, network, git) faked at the boundary?
-4. Fails for one conceptual reason?
-5. Runs without a Docker daemon and without network?
-6. Leaves the package on track for **100%** line coverage (§4.5a / §11.4)?
+1. Domain path and behavioural name?  
+2. External I/O faked at the boundary?  
+3. One conceptual failure reason?  
+4. No Docker daemon / no network?  
+5. Asserts real outcomes (not pause-and-pass)?  
