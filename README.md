@@ -87,9 +87,8 @@ Docker evals from a recipe (prompt, models, persona, repo, extras).
 **Ctrl+Enter** / **Ctrl+J** launch, **Ctrl+S** save, `[` / `]` panes.
 `Esc` back (discard prompt if dirty).
 
-Reasoning effort (`model:effort`, including **xhigh** / **max**) is passed on the
-agent CLI, not written into the eval `config.toml`. Launch model/effort is
-recorded for the sessions list.
+Pick reasoning effort with the model token (`model:effort`, e.g. `…:xhigh` or
+`…:max`) when selecting models for a run.
 
 ### Personas & configs
 
