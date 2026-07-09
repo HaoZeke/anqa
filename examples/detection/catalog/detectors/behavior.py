@@ -10,7 +10,7 @@ from groket.engine.detectors import detector
 from groket.engine.models import Match
 from groket.models import ChatMessage, RuleParams, Severity, ToolCall, as_json_object
 
-from .patterns import (
+from patterns import (
     BUILD_OR_TEST_RE,
     ENV_FAILURE_RE,
     HEREDOC_WRITE_RE,

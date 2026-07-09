@@ -10,7 +10,7 @@ from groket.engine.detectors import detector
 from groket.engine.models import Match
 from groket.models import ChatMessage, RuleParams, Severity, ToolCall, as_json_object
 
-from .patterns import (
+from patterns import (
     BUILD_OR_TEST_RE,
     ENV_FAILURE_RE,
     SERVER_CMD_RE,
@@ -81,7 +81,7 @@ def detect_tool_call_failures(
             out = tc.result_content or ""
             if is_env_failure(out) or is_infra_error(out):
                 return True
-            from .patterns import is_build_progress_only
+            from patterns import is_build_progress_only
 
             if is_build_progress_only(out):
                 return True
@@ -282,7 +282,7 @@ def _should_skip_error(tc: ToolCall, skip_tools: set[str]) -> bool:
         ):
             return True
 
-        from .patterns import is_build_progress_only
+        from patterns import is_build_progress_only
 
         if is_build_progress_only(output):
             return True
@@ -292,7 +292,7 @@ def _should_skip_error(tc: ToolCall, skip_tools: set[str]) -> bool:
             r"error(?:\[E\d+\])?:\s", output, re.IGNORECASE
         ):
             return True
-        from .patterns import is_truncated_only_output
+        from patterns import is_truncated_only_output
 
         if is_truncated_only_output(output):
             return True

@@ -10,6 +10,7 @@ Loads:
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import logging
 import sys
@@ -230,20 +231,48 @@ def _load_override_file(path: Path, config: LoadedConfig) -> None:
 
 
 def _load_detector_modules(plugin_dir: Path) -> None:
-    """Import ``*.py`` files that register detectors via ``@detector``."""
-    for py_file in sorted(plugin_dir.glob("*.py")):
-        if py_file.name.startswith("_"):
-            continue
-        module_name = f"groket_user_detector_{plugin_dir.name}_{py_file.stem}"
-        try:
-            spec = importlib.util.spec_from_file_location(module_name, py_file)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
+    """Import ``*.py`` files that register detectors via ``@detector``.
+
+    Puts *plugin_dir* on ``sys.path`` so multi-file packs can use sibling
+    imports (e.g. ``from patterns import …``), matching a flat copy into
+    ``~/.groket/detectors/``.
+    """
+    root = plugin_dir.resolve()
+    path_s = str(root)
+    inserted = path_s not in sys.path
+    if inserted:
+        sys.path.insert(0, path_s)
+    try:
+        for py_file in sorted(root.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            stem = py_file.stem
+            # Prefer ordinary import so sibling modules resolve by stem.
+            try:
+                if stem in sys.modules:
+                    importlib.reload(sys.modules[stem])
+                else:
+                    importlib.import_module(stem)
                 logger.info("Loaded detector module: %s", py_file)
-        except Exception as e:
-            logger.warning("Failed to load detector module %s: %s", py_file, e)
+                continue
+            except Exception:
+                logger.debug("stem import failed for %s, trying file load", py_file, exc_info=True)
+            module_name = f"groket_user_detector_{root.name}_{stem}"
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, py_file)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                    logger.info("Loaded detector module: %s", py_file)
+            except Exception as e:
+                logger.warning("Failed to load detector module %s: %s", py_file, e)
+    finally:
+        if inserted:
+            try:
+                sys.path.remove(path_s)
+            except ValueError:
+                pass
 
 
 def _parse_rule(entry: JsonObject) -> RuleConfig:

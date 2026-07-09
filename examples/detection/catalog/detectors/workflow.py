@@ -13,7 +13,7 @@ from groket.engine.detectors import detector
 from groket.engine.models import Match
 from groket.models import ChatMessage, RuleParams, Severity, ToolCall
 
-from .patterns import (
+from patterns import (
     BUILD_CMD_RE,
     EXPLORATORY_CMD_RE,
     HEREDOC_SCRIPT_RE,

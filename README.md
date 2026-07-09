@@ -107,7 +107,7 @@ Env key/value editing and Grok marketplace plugins/skills/MCP are supported.
 ```bash
 groket self-test
 groket gen detector my_check
-groket rules validate
+groket rules validate examples/detection/minimal/rules/demo_rule.yaml
 groket batch validate examples/tasks/demo_tasks.yaml
 groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
 ```
@@ -117,17 +117,34 @@ Schemas (editors / Pages):
 - Tasks: https://indynull.github.io/groket/schemas/tasks.schema.json  
 - Rules: https://indynull.github.io/groket/schemas/rules.schema.json  
 
-Reference packs: [`examples/`](examples/README.md). Prefer the TUI runner for
-interactive work.
+Prefer the TUI runner for interactive work.
+
+## Examples (reference packs)
+
+Supported, CI-gated packs under [`examples/`](examples/README.md) — copy into
+`~/.groket/` or pass paths. **Not** auto-loaded.
+
+| Goal | Start here |
+|------|------------|
+| Smallest detector + rule | [`examples/detection/minimal/`](examples/detection/minimal/) |
+| Full detector catalog | [`examples/detection/catalog/`](examples/detection/catalog/) |
+| Analysis plugin | [`examples/analysis/plugins/session_event_count.py`](examples/analysis/plugins/session_event_count.py) |
+| LLM analysis plugin | [`examples/analysis/plugins/llm_instruction_check.py`](examples/analysis/plugins/llm_instruction_check.py) |
+| Batch tasks | [`examples/tasks/demo_tasks.yaml`](examples/tasks/demo_tasks.yaml) |
+
+```bash
+make examples-check   # hard gate: schemas, imports, rule↔detector links
+```
 
 ## Development
 
 ```bash
 make install
-make lint       # ruff, mypy, fluent + typing policy scripts
-make test       # pytest (daemon-free)
-make test-cov   # pytest + coverage report
-make ci         # lint + schema-check + test  (PR gate)
+make lint            # ruff, mypy, fluent + typing policy scripts
+make test            # pytest (daemon-free)
+make examples-check  # examples/ contract
+make test-cov        # pytest + coverage report
+make ci              # lint + schema-check + examples-check + test
 ```
 
 Conventions, architecture, and agent rules: [AGENTS.md](AGENTS.md).

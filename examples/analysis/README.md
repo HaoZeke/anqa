@@ -1,70 +1,58 @@
 # Analysis plugin examples
 
-Each ``plugins/*.py`` file defines an ``Analyzer`` class. Config entries are
-always ``module_stem:ClassName`` (filename without ``.py`` = module stem when
-the directory is on ``sys.path``).
+Each `plugins/*.py` defines an analysis class (`module_stem:ClassName` in
+config). Directory on `sys.path` → module stem = filename without `.py`.
 
-| File | Config entry |
-|------|----------------|
-| `token_tracker.py` | `token_tracker:TokenTrackerAnalyzer` |
-| `security_scanner.py` | `security_scanner:SecurityScannerAnalyzer` |
-| `latency_profiler.py` | `latency_profiler:LatencyProfilerAnalyzer` |
-| `diff_reviewer.py` | `diff_reviewer:DiffReviewerAnalyzer` |
-| `conversation_flow.py` | `conversation_flow:ConversationFlowAnalyzer` |
-| `session_health.py` | `session_health:SessionHealthAnalyzer` |
-| `session_event_count.py` | `session_event_count:SessionEventCountAnalyzer` |
-| `gte_feedback_grok.py` | `gte_feedback_grok:FeedbackReportAnalyzer` |
-| `llm_instruction_check.py` | `llm_instruction_check:InstructionCheckAnalyzer` |
+| File | Config entry | Notes |
+|------|----------------|-------|
+| `session_event_count.py` | `session_event_count:SessionEventCountAnalyzer` | Smallest pure example |
+| `token_tracker.py` | `token_tracker:TokenTrackerAnalyzer` | |
+| `security_scanner.py` | `security_scanner:SecurityScannerAnalyzer` | |
+| `latency_profiler.py` | `latency_profiler:LatencyProfilerAnalyzer` | |
+| `diff_reviewer.py` | `diff_reviewer:DiffReviewerAnalyzer` | |
+| `conversation_flow.py` | `conversation_flow:ConversationFlowAnalyzer` | |
+| `session_health.py` | `session_health:SessionHealthAnalyzer` | |
+| `llm_instruction_check.py` | `llm_instruction_check:InstructionCheckAnalyzer` | Minimal LLM review |
+| `gte_feedback_grok.py` | `gte_feedback_grok:FeedbackReportAnalyzer` | Full multi-turn LLM review |
 
-## LLM review plugins
+## Implement a plugin
 
-Use :class:`~groket.analysis.llm.LlmReviewAnalyzer` for structured Grok reviews:
+1. Subclass / implement `Analyzer` (`analyze` + `info`).
+2. For structured LLM reviews, subclass `LlmReviewAnalyzer` and implement
+   `build_instructions(pack)` only (see `llm_instruction_check.py`).
+3. Register via `analysis.plugins` in `~/.groket/config.json`.
 
-1. Subclass and implement ``build_instructions(pack)`` with your rubric only.
-2. Core attaches operator turns, timeline digest, and runtime fairness
-   (permission mode, sandbox, non-interactive, …).
-3. Results: **Findings tab** rows with timeline links, and **Report tab**
-   via ``artifacts["report"]`` (full did / should / why).
+Do not embed magic tags like `<runtime_context>` in instructions — use `pack`
+fields when you need dynamic text.
 
-See ``gte_feedback_grok.py`` (full multi-turn feedback) and
-``llm_instruction_check.py`` (minimal example).
-
-Do **not** embed magic tags like ``<runtime_context>`` in instructions — use
-``pack`` fields if you need dynamic text (e.g. ``pack.turn_count``).
-
-## Install into your profile
+## Install
 
 ```bash
 mkdir -p ~/.groket/plugins
-cp examples/analysis/plugins/gte_feedback_grok.py ~/.groket/plugins/
-# optional minimal example:
-cp examples/analysis/plugins/llm_instruction_check.py ~/.groket/plugins/
+cp examples/analysis/plugins/session_event_count.py ~/.groket/plugins/
 ```
-
-Enable in ``~/.groket/config.json`` (merge with your existing file):
 
 ```json
 {
   "analysis": {
-    "plugins": ["gte_feedback_grok:FeedbackReportAnalyzer"]
+    "plugins": ["session_event_count:SessionEventCountAnalyzer"]
   }
 }
 ```
 
-Or scaffold + register:
+Or:
 
 ```bash
 uv run groket gen plugin session_event_count --register
 ```
 
-## Run sample configs from the repo
+## Sample configs (no copy)
 
-``configs/`` point at the plugins in ``plugins/`` via the config directory
-search path (no copy required):
+`configs/` point at `plugins/` via the config search path:
 
 ```bash
 uv run groket --config examples/analysis/configs/all-plugins.json
-uv run groket runs/traces --config examples/analysis/configs/security-only.json
+uv run groket --config examples/analysis/configs/security-only.json
 ```
 
-Re-run analysis (``a``) after switching configs.
+Then re-analyze (`a` on the sessions list). Contract: `make examples-check`.

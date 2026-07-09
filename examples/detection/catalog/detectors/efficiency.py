@@ -11,7 +11,7 @@ from groket.engine.detectors import detector
 from groket.engine.models import Match
 from groket.models import ChatMessage, RuleParams, Severity, ToolCall
 
-from .patterns import (
+from patterns import (
     GIT_CMD_RE,
     TEMP_PREFIXES,
 )

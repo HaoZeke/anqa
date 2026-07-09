@@ -117,7 +117,7 @@ assets/                  # non-Python templates (not coverage source)
   docker/                # entrypoint, Dockerfiles, share helpers
   config/                # empty rules.yaml / composites.yaml stubs
 
-examples/                # copy-in packs (detection, analysis, tasks) — not auto-loaded
+examples/                # supported reference packs (CI: make examples-check) — not auto-loaded
 schemas/                 # committed JSON Schema (tasks, rules)
 Optional wheel mirror: groket/_embedded_assets/
 ```
@@ -239,7 +239,8 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``make test-cov`` | pytest + coverage report (``fail_under`` applies) |
 | ``make schema`` | Regenerate ``schemas/*.schema.json`` |
 | ``make schema-check`` | Fail if schemas drift |
-| ``make ci`` | ``lint`` + ``schema-check`` + ``test`` |
+| ``make examples-check`` | Validate ``examples/`` packs (hard contract) |
+| ``make ci`` | ``lint`` + ``schema-check`` + ``examples-check`` + ``test`` |
 | ``make clean`` | caches / build artefacts |
 
 Published schemas (also under ``schemas/``; GitHub Pages via
@@ -496,6 +497,11 @@ Package ``assets/config/rules.yaml`` and ``composites.yaml`` are **empty stubs**
 Copy packs from ``examples/detection/`` (``minimal/``, ``starters/``,
 ``catalog/``) into ``~/.groket`` to enable. Findings type:
 :class:`~groket.analysis.base.Finding`.
+
+**``examples/`` is a hard contract** (``make examples-check`` / CI): rule and
+task YAML schemas, detector registration vs rule ``detector:`` fields, analysis
+plugin import/instantiate, sample configs, personas, pack READMEs. Prefer those
+packs as the implementation reference when adding detectors, plugins, or tasks.
 
 ### Three “plugin” concepts
 

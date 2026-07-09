@@ -81,6 +81,7 @@ ignore = [
 "groket/ui/**" = ["E402", "E741", "F841"]
 "tests/**" = ["E402", "T20", "F841"]
 "examples/**" = ["T20"]
+"scripts/**" = ["T20"]
 "plugins/**" = ["T20"]
 
 [tool.ruff.lint.isort]

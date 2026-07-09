@@ -1,6 +1,6 @@
 # Local development targets (uv-first), shaped after alisaifee/coredis.
 
-.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check
+.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check examples-check
 
 help:
 	@echo "groket development targets"
@@ -10,9 +10,10 @@ help:
 	@echo "  lint-complexity  ruff PLR on groket (informational / debt)"
 	@echo "  schema           regenerate schemas/*.schema.json from Pydantic"
 	@echo "  schema-check     fail if committed schemas are out of date"
+	@echo "  examples-check   validate examples/ packs (schema + import contract)"
 	@echo "  test             pytest"
 	@echo "  test-cov         pytest with coverage report"
-	@echo "  ci               lint + schema-check + test"
+	@echo "  ci               lint + schema-check + examples-check + test"
 	@echo "  clean            caches and build artefacts"
 
 install:
@@ -58,13 +59,16 @@ schema-check:
 	  (echo "schemas/rules.schema.json is stale — run make schema and commit" >&2; rm -f "$$tmp"; exit 1) && \
 	  rm -f "$$tmp"
 
+examples-check:
+	uv run python scripts/check_examples.py
+
 test:
 	uv run pytest tests/ -q --tb=short
 
 test-cov:
 	uv run pytest tests/ --cov=groket --cov-report=term-missing --cov-report=html
 
-ci: lint schema-check test
+ci: lint schema-check examples-check test
 
 clean:
 	rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ \

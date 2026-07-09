@@ -1,35 +1,48 @@
-# Detection examples (engine)
+# Detection examples
 
-Detectors are Python (``@detector``); rules are YAML. Install under
-``~/.groket/detectors/`` and ``~/.groket/rules/``. The engine merges user YAML
-and imports detectors from those directories (and ``~/.groket/plugins/*.py``).
+Engine reference: Python detectors (`@detector`) + YAML rules. Install under
+`~/.groket/detectors/` and `~/.groket/rules/`.
 
-| Pack | Purpose |
-|------|---------|
-| [`minimal/`](minimal/) | One detector + one rule — onboarding and tests |
-| [`starters/`](starters/) | Small worked examples (e.g. repeated shell ``cd``) |
-| [`catalog/`](catalog/) | Full reference catalog |
+| Pack | Use when |
+|------|----------|
+| [`minimal/`](minimal/) | Onboarding — one detector, one rule |
+| [`starters/`](starters/) | Small worked examples (e.g. repeated `cd`) |
+| [`catalog/`](catalog/) | Full reference rule set |
 
-Each pack has the same shape as the install layout:
+Each pack layout:
 
 ```text
 <pack>/
-  detectors/*.py
-  rules/*.yaml
+  detectors/*.py    # @detector("name") — sibling imports OK (e.g. patterns.py)
+  rules/*.yaml      # rules: / composites:
 ```
 
-## Install a pack
+## Install
 
 ```bash
 mkdir -p ~/.groket/detectors ~/.groket/rules
 cp examples/detection/minimal/detectors/*.py ~/.groket/detectors/
 cp examples/detection/minimal/rules/*.yaml ~/.groket/rules/
-# or starters / catalog the same way
+# same pattern for starters/ or catalog/
 ```
+
+Copy **all** `detectors/*.py` from a pack together (catalog shares helpers such
+as `patterns.py`).
 
 ## Concepts
 
-- **Detector** — returns ``list[Match]``
-- **Rule** — binds detector + severity / templates
-- **Finding** — analysis output (runner applies rules)
-- **Composite** (optional YAML) — groups child findings
+| Term | Meaning |
+|------|---------|
+| Detector | `(tool_calls, messages, params) -> list[Match]` |
+| Rule | YAML binding: detector id, severity, title templates |
+| Finding | Runner output shown in Findings / Report |
+| Composite | Optional YAML grouping of child findings |
+
+Validate a pack’s YAML:
+
+```bash
+uv run groket rules validate examples/detection/minimal/rules/demo_rule.yaml
+make examples-check
+```
+
+Schema: https://indynull.github.io/groket/schemas/rules.schema.json
