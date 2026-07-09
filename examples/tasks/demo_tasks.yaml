@@ -32,3 +32,15 @@ tasks:
       Create a file named hello.txt in /workspace containing the word hello.
     turns:
       - Print the contents of hello.txt and confirm it exists.
+
+  # Fork an *ended* on-disk session (same path as TUI `f`):
+  # resume_session_dir: /path/to/runs/traces/<container>/%2Fworkspace/<session_id>
+  # prompt: is the first message on the new branch (grok --resume --fork-session).
+  # turns: optional further scripted user messages after that first forked turn.
+  # - task_id: demo-fork-resume
+  #   description: Continue an ended session as a new forked Grok session id.
+  #   resume_session_dir: /home/you/.groket/work/runs/traces/groket-…/%2Fworkspace/019f…
+  #   prompt: >
+  #     Continue from where you left off: implement the next phase.
+  #   turns:
+  #     - Summarize what you just changed.

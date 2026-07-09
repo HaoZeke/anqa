@@ -255,3 +255,39 @@ def test_turns_accept_string_list_and_legacy_maps(tmp_path: Path) -> None:
         prompt="p",
         turns=[{"prompt": "legacy"}, {"text": "also"}],
     ).turns == ["legacy", "also"]
+
+
+def test_resume_fields_on_task_and_eval_task(tmp_path: Path) -> None:
+    from groket.runs.task_schema import TaskDefinition, task_definition_to_eval_task
+
+    sess = tmp_path / "ended-sess"
+    sess.mkdir()
+    (sess / "chat_history.jsonl").write_text("{}\n", encoding="utf-8")
+    td = TaskDefinition(
+        task_id="fork-me",
+        prompt="continue the design",
+        resume_session_dir=str(sess),
+        turns=["and then verify"],
+    )
+    assert td.resolved_resume_session_dir() == sess.resolve()
+    et = task_definition_to_eval_task(td)
+    assert et.resume_session_dir == str(sess.resolve())
+    assert et.resume_session_id == "ended-sess"
+    assert et.has_resume is True
+    assert et.turns == ["and then verify"]
+
+
+def test_resume_session_id_override(tmp_path: Path) -> None:
+    from groket.runs.task_schema import TaskDefinition, task_definition_to_eval_task
+
+    sess = tmp_path / "folder-name"
+    sess.mkdir()
+    (sess / "summary.json").write_text("{}", encoding="utf-8")
+    td = TaskDefinition(
+        task_id="t",
+        prompt="p",
+        resume_session_dir=str(sess),
+        resume_session_id="019f-parent-id",
+    )
+    et = task_definition_to_eval_task(td)
+    assert et.resume_session_id == "019f-parent-id"

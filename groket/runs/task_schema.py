@@ -59,8 +59,31 @@ class TaskDefinition(BaseModel):
     # Also accepts legacy ``[{prompt: "…"}]`` maps for older catalogs.
     turns: list[str] = Field(default_factory=list)
     success_hints: list[str] = Field(default_factory=list)
+    # Fork an ended on-disk Grok session (same as TUI f): seed + --resume --fork-session.
+    # ``prompt`` is the first message on the new branch; ``turns`` are further scripted turns.
+    resume_session_dir: str = Field(
+        default="",
+        description=(
+            "Host path to an ended session directory (…/%2Fworkspace/<session_id>/). "
+            "Launches fork from that history; new Grok session id per run."
+        ),
+    )
+    resume_session_id: str = Field(
+        default="",
+        description=(
+            "Optional parent Grok session id when resuming. Defaults to the "
+            "basename of resume_session_dir when empty."
+        ),
+    )
 
-    @field_validator("repo_url", "repo_branch", "persona_id", mode="before")
+    @field_validator(
+        "repo_url",
+        "repo_branch",
+        "persona_id",
+        "resume_session_dir",
+        "resume_session_id",
+        mode="before",
+    )
     @classmethod
     def _none_to_empty(cls, v: str | None) -> str:
         return "" if v is None else v
@@ -102,6 +125,13 @@ class TaskDefinition(BaseModel):
         if url and not branch:
             return "main"
         return branch
+
+    def resolved_resume_session_dir(self) -> Path | None:
+        """Absolute path to the resume seed dir, or None when not set."""
+        raw = (self.resume_session_dir or "").strip()
+        if not raw:
+            return None
+        return Path(raw).expanduser().resolve()
 
 
 class TaskFile(BaseModel):
@@ -203,6 +233,10 @@ def task_definition_to_eval_task(task: TaskDefinition) -> EvalTask:
     """Build an :class:`~groket.runs.batch.EvalTask` from a validated task definition."""
     from .batch import EvalTask
 
+    resume_dir = task.resolved_resume_session_dir()
+    resume_sid = (task.resume_session_id or "").strip()
+    if resume_dir is not None and not resume_sid:
+        resume_sid = resume_dir.name
     return EvalTask(
         task_id=task.task_id,
         prompt=task.prompt,
@@ -220,6 +254,8 @@ def task_definition_to_eval_task(task: TaskDefinition) -> EvalTask:
         env=dict(task.env or {}) or None,
         turns=list(task.turns) or None,
         success_hints=list(task.success_hints or []) or None,
+        resume_session_dir=str(resume_dir) if resume_dir is not None else "",
+        resume_session_id=resume_sid,
     )
 
 

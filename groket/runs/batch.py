@@ -380,10 +380,17 @@ class EvalTask:
     env: dict[str, str] | None = None
     turns: list[str] | None = None
     success_hints: list[str] | None = None
+    # Fork from ended session (TUI f parity): host path + parent Grok session id.
+    resume_session_dir: str = ""
+    resume_session_id: str = ""
 
     @property
     def has_repo(self) -> bool:
         return bool((self.repo_url or "").strip())
+
+    @property
+    def has_resume(self) -> bool:
+        return bool((self.resume_session_dir or "").strip())
 
 
 # Task loading
@@ -501,6 +508,25 @@ def _run_single_task(
     configs = []
     follow_ups = [str(t).strip() for t in (task.turns or []) if str(t).strip()]
     task_env = dict(task.env or {})
+    resume_src = (task.resume_session_dir or "").strip()
+    resume_sid = (task.resume_session_id or "").strip()
+    if resume_src:
+        from ..session.resume import can_resume_session, resume_session_id
+
+        resume_path = Path(resume_src).expanduser().resolve()
+        if not resume_path.is_dir():
+            raise FileNotFoundError(
+                f"task {task.task_id!r}: resume_session_dir not found: {resume_path}"
+            )
+        if not can_resume_session(resume_path):
+            raise ValueError(
+                f"task {task.task_id!r}: resume_session_dir has no chat/events/summary: "
+                f"{resume_path}"
+            )
+        if not resume_sid:
+            resume_sid = resume_session_id(resume_path)
+        resume_src = str(resume_path)
+        logger.info(f"{tag} Fork-resume from {resume_src} (parent id={resume_sid})")
     for model in models:
         suffix = model_suffix(model)
         name = f"groket-{task.task_id}-{suffix}"
@@ -517,6 +543,8 @@ def _run_single_task(
             persona_id=(task.persona_id or "").strip(),
             env_vars=task_env,
             follow_up_prompts=follow_ups,
+            resume_source_dir=resume_src,
+            resume_session_id=resume_sid,
         )
         configs.append(cfg)
 

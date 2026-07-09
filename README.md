@@ -95,10 +95,15 @@ Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Don
 While a session is still live, use follow-up (`n`), not fork. Each fork is an
 independent branch of the parent snapshot (parent files are not overwritten).
 
-**Batch / task YAML:** scripted multi-turn is the `turns:` list on a task (extra
-user messages after the primary `prompt` on a *new* session). There is no
-batch field yet for forking an *ended* on-disk session — use the TUI **Fork**
-flow for that operator path.
+**Batch / task YAML:**
+
+| Field | Role |
+|-------|------|
+| `turns:` | Scripted follow-ups after the primary `prompt` on a **new** session |
+| `resume_session_dir:` | Host path to an *ended* session dir — **fork** (same as TUI `f`): seed history, first turn `grok --resume --fork-session`; `prompt` is the continuation; optional `turns` after that |
+| `resume_session_id:` | Optional parent id (defaults to the directory basename) |
+
+Example: see commented `demo-fork-resume` in [`examples/tasks/demo_tasks.yaml`](examples/tasks/demo_tasks.yaml).
 
 ### Runner
 

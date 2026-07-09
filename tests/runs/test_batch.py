@@ -169,11 +169,13 @@ def test_run_single_task_and_run_batch_mocked(tmp_path: Path, monkeypatch: pytes
     class FakeOrch:
         def __init__(self, work_dir):
             self.work_dir = work_dir
+            self.last_configs: list = []
 
         def check_docker_available(self):
             return True
 
         def run_parallel_evaluations(self, configs, auth, grok, on_status=None, on_log=None):
+            self.last_configs = list(configs)
             out = []
             for c in configs:
                 st = FakeStatus(c.model, c.container_name)
@@ -190,7 +192,17 @@ def test_run_single_task_and_run_batch_mocked(tmp_path: Path, monkeypatch: pytes
             for k, v in kw.items():
                 setattr(self, k, v)
 
-    monkeypatch.setattr(batch, "_docker_types", lambda: (FakeCfg, FakeOrch))
+    orch_holder: list = []
+
+    def _types():
+        class TrackingOrch(FakeOrch):
+            def __init__(self, work_dir):
+                super().__init__(work_dir)
+                orch_holder.append(self)
+
+        return FakeCfg, TrackingOrch
+
+    monkeypatch.setattr(batch, "_docker_types", _types)
     task = batch.EvalTask(
         task_id="t1",
         prompt="p",
@@ -227,6 +239,69 @@ def test_run_single_task_and_run_batch_mocked(tmp_path: Path, monkeypatch: pytes
 
     monkeypatch.setattr(batch, "resolve_model_ids", lambda ms: [])
     assert batch.run_batch([task], work_dir=tmp_path, models=["m1"]) == []
+
+
+def test_run_single_task_fork_resume_sets_container_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Batch resume_session_dir seeds ContainerConfig like TUI fork."""
+    sess = tmp_path / "%2Fworkspace" / "parent-sess"
+    sess.mkdir(parents=True)
+    (sess / "chat_history.jsonl").write_text('{"role":"user"}\n', encoding="utf-8")
+    captured: list = []
+
+    class FakeOrch:
+        def __init__(self, work_dir):
+            self.work_dir = work_dir
+
+        def run_parallel_evaluations(self, configs, auth, grok, on_status=None, on_log=None):
+            captured.extend(configs)
+            return []
+
+    class FakeCfg:
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    monkeypatch.setattr(batch, "_docker_types", lambda: (FakeCfg, FakeOrch))
+    task = batch.EvalTask(
+        task_id="fork-task",
+        prompt="continue please",
+        resume_session_dir=str(sess),
+        resume_session_id="parent-sess",
+        turns=["second scripted turn"],
+    )
+    batch._run_single_task(task, ["m1"], tmp_path, 1, 1)
+    assert len(captured) == 1
+    cfg = captured[0]
+    assert cfg.resume_source_dir == str(sess.resolve())
+    assert cfg.resume_session_id == "parent-sess"
+    assert cfg.prompt == "continue please"
+    assert cfg.follow_up_prompts == ["second scripted turn"]
+
+
+def test_run_single_task_resume_missing_dir_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeOrch:
+        def __init__(self, work_dir):
+            self.work_dir = work_dir
+
+        def run_parallel_evaluations(self, *a, **k):
+            raise AssertionError("should not run")
+
+    class FakeCfg:
+        def __init__(self, **kw):
+            pass
+
+    monkeypatch.setattr(batch, "_docker_types", lambda: (FakeCfg, FakeOrch))
+    task = batch.EvalTask(
+        task_id="bad",
+        prompt="p",
+        resume_session_dir=str(tmp_path / "no-such-session"),
+    )
+    with pytest.raises(FileNotFoundError, match="resume_session_dir"):
+        batch._run_single_task(task, ["m1"], tmp_path, 1, 1)
 
 
 def test_model_suffix_short_name():

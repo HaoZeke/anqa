@@ -251,6 +251,18 @@
           },
           "title": "Success Hints",
           "type": "array"
+        },
+        "resume_session_dir": {
+          "default": "",
+          "description": "Host path to an ended session directory (\u2026/%2Fworkspace/<session_id>/). Launches fork from that history; new Grok session id per run.",
+          "title": "Resume Session Dir",
+          "type": "string"
+        },
+        "resume_session_id": {
+          "default": "",
+          "description": "Optional parent Grok session id when resuming. Defaults to the basename of resume_session_dir when empty.",
+          "title": "Resume Session Id",
+          "type": "string"
         }
       },
       "required": [
