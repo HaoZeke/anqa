@@ -109,6 +109,8 @@ bind-new-persona = New persona
 
 bind-note = Note
 
+bind-edit-note = Edit note
+
 bind-next-pane = Next pane
 
 bind-next-tab = Next tab
@@ -300,7 +302,11 @@ cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis
 
 cmd-operator-note = Operator note
 
-cmd-operator-note-help = Add a turn-linked operator note (configurable fields; create-only)
+cmd-operator-note-help = Add a turn-linked operator note (configurable fields)
+
+cmd-edit-operator-note = Edit operator note
+
+cmd-edit-operator-note-help = Edit or delete an existing turn-linked operator note
 
 cmd-copy-detail = Copy detail / selection
 cmd-copy-detail-help = Browser: yank mouse selection (word/line/region) or the full detail pane — y / Ctrl+Shift+C
@@ -647,13 +653,21 @@ flags-only = Flags only
 
 new-note-title = New operator note
 
+edit-note-title = Edit operator note
+
 note-saved = Operator note saved (turn { $turn })
+
+note-updated = Operator note updated (turn { $turn })
+
+note-deleted = Operator note deleted
+
+note-none-to-edit = No operator notes to edit — press N to add one
 
 note-save-failed = Could not save operator note: { $msg }
 
 note-turn-invalid = Choose a valid turn before saving
 
-notes-blurb = Turn-linked operator notes (create with N). Field layout comes from ~/.groket/notes_schema.toml (not hardcoded). Authoring is TUI-only; batch does not write notes.
+notes-blurb = Turn-linked operator notes (N to create; palette or O to edit/delete). Field layout comes from ~/.groket/notes_schema.toml (not hardcoded). Authoring is TUI-only; batch does not write notes.
 
 notes-empty-preview = (empty)
 
@@ -664,6 +678,8 @@ notes-heading = Operator notes
 notes-only = Notes only
 
 notes-schema-hint = Schema: { $id }
+
+pick-note-title = Choose a note to edit
 
 tip-no-notes = No operator notes yet — press `N` to add a turn-linked note
 

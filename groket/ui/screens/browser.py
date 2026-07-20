@@ -62,7 +62,7 @@ from ..threads import call_ui, resolve_ui_app
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.flag_panel import FlagModal
-from ..widgets.notes_modal import NotesModal
+from ..widgets.notes_modal import NotesModal, NotesPickModal
 from ..widgets.timeline import TimelineTable
 
 
@@ -2719,6 +2719,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if action == "operator_note":
             # Always available once the browser is open (turn defaults to 0).
             return True
+        if action == "edit_operator_note":
+            if not self._notes_loaded:
+                return True
+            return bool(self._notes_doc.notes)
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
             # O(1) cache; refreshed by pending bar / live poll / gate writes.
             if not self._pending_cache_valid:
@@ -2765,7 +2769,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         )
 
     def action_operator_note(self) -> None:
-        """Open modal to add a turn-linked operator note (schema-driven fields)."""
+        """Open modal to add a turn-linked operator note (create-only; schema fields)."""
         # Ensure disk notes are loaded before the modal (avoid empty-doc wipe).
         if not self._notes_loaded:
             self._load_notes()
@@ -2785,6 +2789,42 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             callback=self._on_note_result,
         )
 
+    def action_edit_operator_note(self) -> None:
+        """Edit or delete an existing turn-linked operator note."""
+        if not self._notes_loaded:
+            self._load_notes()
+        notes = list(self._notes_doc.notes)
+        if not notes:
+            self.notify(U.note_none_to_edit())
+            return
+        if len(notes) == 1:
+            self._open_edit_note_modal(notes[0])
+            return
+        self.app.push_screen(
+            NotesPickModal(notes=notes),
+            callback=self._on_note_pick_for_edit,
+        )
+
+    def _on_note_pick_for_edit(self, note: NoteEntry | None) -> None:
+        """Open the edit modal after :class:`NotesPickModal` selection."""
+        if note is None:
+            return
+        self._open_edit_note_modal(note)
+
+    def _open_edit_note_modal(self, note: NoteEntry) -> None:
+        """Push :class:`NotesModal` for an existing note."""
+        schema = load_schema()
+        self.app.push_screen(
+            NotesModal(
+                schema=schema,
+                turn_options=self._note_turn_options(),
+                default_turn=note.turn_index,
+                event_indices=list(note.event_indices),
+                existing=note,
+            ),
+            callback=self._on_note_result,
+        )
+
     def _note_turn_options(self) -> list[tuple[str, str]]:
         """Turn select options for the notes modal."""
         segs = getattr(self, "_turn_segments", None) or []
@@ -2793,22 +2833,47 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return [(t("turn-filter-n", n=ti), str(ti))]
         return [(t("turn-filter-n", n=seg.turn_index), str(seg.turn_index)) for seg in segs]
 
-    def _on_note_result(self, result: NoteEntry | None) -> None:
-        """Merge a new note from :class:`NotesModal` and persist (reload-first)."""
+    def _on_note_result(
+        self,
+        result: tuple[str, NoteEntry | str] | None,
+    ) -> None:
+        """Handle save/delete from :class:`NotesModal` (reload-from-disk first)."""
         if result is None:
             return
+        action, payload = result
         # Re-load from disk so concurrent/external edits and late load are not wiped.
         disk = load_notes(self.session_dir)
-        disk.upsert(result)
-        try:
-            save_notes(self.session_dir, disk)
-        except OSError as exc:
-            self.notify(U.note_save_failed(str(exc)), severity="error")
+        if action == "save":
+            if not isinstance(payload, NoteEntry):
+                return
+            entry = payload
+            was_update = any(n.id == entry.id for n in disk.notes)
+            disk.upsert(entry)
+            try:
+                save_notes(self.session_dir, disk)
+            except OSError as exc:
+                self.notify(U.note_save_failed(str(exc)), severity="error")
+                return
+            self._notes_doc = disk
+            self._notes_loaded = True
+            if was_update:
+                self.notify(U.note_updated(entry.turn_index))
+            else:
+                self.notify(U.note_saved(entry.turn_index))
+            self._update_reports_tab()
             return
-        self._notes_doc = disk
-        self._notes_loaded = True
-        self.notify(U.note_saved(result.turn_index))
-        self._update_reports_tab()
+        if action == "delete":
+            note_id = str(payload)
+            disk.remove(note_id)
+            try:
+                save_notes(self.session_dir, disk)
+            except OSError as exc:
+                self.notify(U.note_save_failed(str(exc)), severity="error")
+                return
+            self._notes_doc = disk
+            self._notes_loaded = True
+            self.notify(U.note_deleted())
+            self._update_reports_tab()
 
     def _refresh_event_chrome(self) -> None:
         """Re-paint timeline Flags column + detail for the current event."""

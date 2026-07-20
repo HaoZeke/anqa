@@ -18,9 +18,13 @@ Notes are stored as `<session_dir>/operator_notes.toml` (fallback:
 
 ## TUI
 
-In the session browser, press **`N`** to **add** a note (create-only; linked to
-the current turn and optional selected event). Report tab lists notes. Export
-(`E`) includes `notes/operator_notes.toml` when notes exist.
+In the session browser:
+
+- **`N`** — create a note (linked to the current turn and optional selected event)
+- **`O`** / command palette — edit or delete an existing note (Delete button in the edit modal)
+
+Report tab lists notes. Export (`E`) includes `notes/operator_notes.toml` when
+notes exist.
 
 **Authoring is TUI-only** — batch does not write notes.
 

@@ -124,6 +124,21 @@ def test_upsert_and_remove(tmp_path: Path) -> None:
     assert doc.notes == []
 
 
+def test_remove_and_save_roundtrip(tmp_path: Path) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    doc = NotesDoc(session_id="sess")
+    doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "keep"}, note_id="n-keep"))
+    doc.upsert(NoteEntry.new(turn_index=1, fields={"summary": "drop"}, note_id="n-drop"))
+    save_notes(sd, doc)
+    loaded = load_notes(sd)
+    assert loaded.remove("n-drop") is True
+    save_notes(sd, loaded)
+    again = load_notes(sd)
+    assert [n.id for n in again.notes] == ["n-keep"]
+    assert again.notes[0].fields["summary"] == "keep"
+
+
 def test_fallback_on_permission_error(tmp_path: Path, monkeypatch) -> None:
     sd = tmp_path / "readonly-sess"
     sd.mkdir()
