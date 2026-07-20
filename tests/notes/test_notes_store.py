@@ -196,3 +196,36 @@ def test_collect_notes_for_export_copies_file(tmp_path: Path) -> None:
     assert (staging / NOTES_FILENAME).is_file()
     assert "hi" in (staging / NOTES_FILENAME).read_text(encoding="utf-8")
     assert not (staging / "schema.toml").exists()
+
+
+def test_multiline_field_roundtrip_byte_identical(tmp_path: Path) -> None:
+    """Multiline values must not gain a trailing newline on dump/load."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    no_trailing = "line1\nline2"
+    with_trailing = "line1\nline2\n"
+    with_escapes = 'said "hello" and path C:\\tmp\\n\nsecond'
+    doc = NotesDoc(session_id="sess")
+    doc.upsert(
+        NoteEntry.new(
+            turn_index=0,
+            fields={
+                "summary": no_trailing,
+                "detail": with_trailing,
+                "extra": with_escapes,
+            },
+            note_id="n-ml",
+        )
+    )
+    save_notes(sd, doc)
+    loaded = load_notes(sd)
+    fields = loaded.notes[0].fields
+    assert fields["summary"] == no_trailing
+    assert fields["detail"] == with_trailing
+    assert fields["extra"] == with_escapes
+    # Double dump/load must stay stable (no progressive trailing NL growth).
+    save_notes(sd, loaded)
+    again = load_notes(sd).notes[0].fields
+    assert again["summary"] == no_trailing
+    assert again["detail"] == with_trailing
+    assert again["extra"] == with_escapes

@@ -248,7 +248,8 @@ def dump_schema_toml(schema: NotesSchema) -> str:
 def _format_string(s: str) -> str:
     if "\n" in s or "\r" in s:
         escaped = s.replace("\\", "\\\\").replace('"""', '\\"""')
-        return f'"""\n{escaped}\n"""'
+        # Opening """\n is trimmed by TOML; do not force a trailing NL before """.
+        return f'"""\n{escaped}"""'
     escaped = s.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
