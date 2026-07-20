@@ -22,13 +22,14 @@ I              import native Grok session from ~/.grok/sessions
 [ ] or 1–5     panes (timeline, summary, diff, findings, report)
 v              timeline view filter
 f              flag event
+N              operator note (turn-linked; schema from ~/.groket/notes_schema.toml)
 n              follow-up prompt · e done (multi-turn)
 x              delete this session (twice)
 s              open share link
 y              copy mouse selection, or whole detail if nothing selected
 Ctrl+Shift+C   same as y
 Ctrl+C         copy mouse selection when text is selected (otherwise quit hint)
-E              export session tarball (~/.groket/reports; embeds grok-trace.tar.gz)
+E              export session tarball (~/.groket/reports; embeds grok-trace.tar.gz + notes/)
 
 [dim]Partial copy: in the detail pane (right side, not the timeline table), drag
 to highlight a word, line, or region, then y / Ctrl+C / Ctrl+Shift+C.

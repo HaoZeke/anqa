@@ -38,6 +38,7 @@ from ...analysis.base import AnalysisResult, Finding
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
 from ...models import Flag, SessionMeta, TraceEvent
+from ...notes import NoteEntry, NotesDoc, load_notes, load_schema, save_notes
 from ...parser import load_session_meta, parse_timeline
 from ...session.workspace_diff import format_diff_meta_line, load_workspace_diff
 from ...utils import fmt_duration
@@ -61,6 +62,7 @@ from ..threads import call_ui, resolve_ui_app
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.flag_panel import FlagModal
+from ..widgets.notes_modal import NotesModal
 from ..widgets.timeline import TimelineTable
 
 
@@ -109,6 +111,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._findings_table_entries: list[Finding] = []
         self._selected_finding: Finding | None = None
         self._flags: dict[int, Flag] = {}
+        self._notes_doc: NotesDoc = NotesDoc()
         self._load_started = False
         self._diff_md: str = ""
         self._diff_meta: dict = {}
@@ -235,7 +238,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     with Horizontal(id="report-filter-bar", classes=FILTER_BAR_CLASS):
                         yield Static(U.filter_label(), classes=FILTER_LABEL_CLASS)
                         yield Select(
-                            [(U.all_sections(), "all"), (U.flags_only(), "flags")],
+                            [
+                                (U.all_sections(), "all"),
+                                (U.flags_only(), "flags"),
+                                (U.notes_only(), "notes"),
+                            ],
                             value="all",
                             id="report-view-select",
                             allow_blank=False,
@@ -251,6 +258,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         ):
                             yield Static(id="report-flags-content")
                             yield TipSurface(U.tip_no_flags(), id="report-flags-tip")
+                        with Vertical(
+                            classes=t("ui-panel-card-report-section"), id="report-section-notes"
+                        ):
+                            yield Static(id="report-notes-content")
+                            yield TipSurface(U.tip_no_notes(), id="report-notes-tip")
                         yield Vertical(id="report-sections-host")
         yield Footer()
 
@@ -1079,6 +1091,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._last_signals_mtime = self._signals_mtime()
             self._record_context_sample()
             self._load_flags()
+            self._load_notes()
             self._rebuild_indices()
             try:
                 self._diff_md, self._diff_meta = load_workspace_diff(self.session_dir)
@@ -1353,6 +1366,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Load user flags from disk into a dict keyed by event_index."""
         self._flags = {fl.event_index: fl for fl in load_flags(self.session_dir)}
 
+    def _load_notes(self) -> None:
+        """Load turn-linked operator notes for this session."""
+        self._notes_doc = load_notes(self.session_dir)
+
     def _enabled_analyzer_ids(self) -> set[str] | None:
         """Ids enabled in the process analysis service (None if unavailable)."""
         try:
@@ -1587,6 +1604,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 flags_tip.set_tip(U.tip_no_flags())
         except Exception:
             pass
+        try:
+            notes_tip = self.query_one("#report-notes-tip", TipSurface)
+            if self._notes_doc.notes:
+                notes_tip.clear_message()
+            else:
+                notes_tip.set_tip(U.tip_no_notes())
+        except Exception:
+            pass
 
     def _update_findings_header(self) -> None:
         """Findings tab counts only — tip lives in #findings-tip TipSurface."""
@@ -1719,19 +1744,26 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _report_section_dom_id(self, key: str) -> str:
         if key == "flags":
             return "report-section-flags"
+        if key == "notes":
+            return "report-section-notes"
         return f"report-section-plugin-{self._report_plugin_slug(key)}"
 
     def _report_content_dom_id(self, key: str) -> str:
         if key == "flags":
             return "report-flags-content"
+        if key == "notes":
+            return "report-notes-content"
         return f"report-content-plugin-{self._report_plugin_slug(key)}"
 
     def _report_filter_options(self) -> list[tuple[str, str]]:
-        """Select options: All, Flags (if any), then plugins that have content."""
+        """Select options: All, Flags/Notes (if any), then plugins that have content."""
         opts: list[tuple[str, str]] = [(U.all_sections(), "all")]
         n_flags = len(self._flags)
         if n_flags:
             opts.append((t("browser-flags-count", n=n_flags), "flags"))
+        n_notes = len(self._notes_doc.notes)
+        if n_notes:
+            opts.append((t("browser-notes-count", n=n_notes), "notes"))
         for aid in self._report_plugin_ids():
             n = sum(1 for f in self._findings if (f.plugin_id or "") == aid)
             label = self._plugin_title(aid)
@@ -1776,6 +1808,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             return
         self._report_section_keys.add("flags")
+        self._report_section_keys.add("notes")
         for aid in self._report_plugin_ids():
             if aid in self._report_section_keys:
                 continue
@@ -1792,12 +1825,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._apply_report_visibility()
 
     def _section_visible(self, key: str) -> bool:
-        """Whether section *key* (flags | plugin id) is shown for current filter."""
+        """Whether section *key* (flags | notes | plugin id) is shown for current filter."""
         mode = self._report_filter or "all"
         if mode == "all":
             return True
         if mode == "flags":
             return key == "flags"
+        if mode == "notes":
+            return key == "notes"
         if mode.startswith("plugin:"):
             return key == mode[7:]
         return True
@@ -1830,6 +1865,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._ensure_report_sections()
             self._render_report_overview()
             self._render_report_flags()
+            self._render_report_notes()
             for aid in self._report_plugin_ids():
                 if aid in self._report_section_keys:
                     self._render_report_plugin(aid)
@@ -1962,6 +1998,40 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 if fl.created_at:
                     fl_t.append(f"      {fl.created_at}\n", style="dim")
         self._set_static_content("report-flags-content", fl_t)
+        try:
+            self._sync_browser_tip_messages()
+        except Exception:
+            pass
+
+    def _render_report_notes(self) -> None:
+        notes = self._notes_doc.sorted_notes()
+        nt = Text()
+        nt.append_text(section_header(U.notes_heading()))
+        nt.append(f"  {U.notes_blurb()}\n", style="dim")
+        if notes:
+            for note in notes:
+                summary = (note.fields.get("summary") or "").strip()
+                if not summary:
+                    # First non-empty field value as a one-line preview.
+                    for val in note.fields.values():
+                        if str(val).strip():
+                            summary = str(val).strip()
+                            break
+                if not summary:
+                    summary = t("ui-no-note")
+                preview = summary.replace("\n", " ")
+                if len(preview) > 100:
+                    preview = preview[:97] + "…"
+                ev = ""
+                if note.event_indices:
+                    ev = "  ·  #" + ",".join(str(i) for i in note.event_indices)
+                nt.append_text(bullet(f"turn {note.turn_index}{ev}  — {preview}"))
+                if note.updated_at or note.created_at:
+                    nt.append(
+                        f"      {note.updated_at or note.created_at}\n",
+                        style="dim",
+                    )
+        self._set_static_content("report-notes-content", nt)
         try:
             self._sync_browser_tip_messages()
         except Exception:
@@ -2637,6 +2707,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """
         if action == "flag_event":
             return True if self._timeline_event_actionable() else False
+        if action == "operator_note":
+            return True
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
             # O(1) cache; refreshed by pending bar / live poll / gate writes.
             if not self._pending_cache_valid:
@@ -2681,6 +2753,50 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self.app.push_screen(
             FlagModal(self._current_event, existing_flag=existing), callback=self._on_flag_result
         )
+
+    def action_operator_note(self) -> None:
+        """Open modal to add a turn-linked operator note (schema-driven fields)."""
+        schema = load_schema()
+        turn_options = self._note_turn_options()
+        default_turn = self._current_turn_index()
+        event_indices: list[int] = []
+        if self._current_event is not None:
+            event_indices = [self._current_event.index]
+        self.app.push_screen(
+            NotesModal(
+                schema=schema,
+                turn_options=turn_options,
+                default_turn=default_turn,
+                event_indices=event_indices,
+                existing=None,
+            ),
+            callback=self._on_note_result,
+        )
+
+    def _note_turn_options(self) -> list[tuple[str, str]]:
+        """Turn select options for the notes modal."""
+        segs = getattr(self, "_turn_segments", None) or []
+        if not segs:
+            ti = self._current_turn_index()
+            return [(t("turn-filter-n", n=ti), str(ti))]
+        return [(t("turn-filter-n", n=seg.turn_index), str(seg.turn_index)) for seg in segs]
+
+    def _on_note_result(self, result: tuple | None) -> None:
+        """Handle save/delete from :class:`NotesModal`."""
+        if result is None:
+            return
+        action, payload = result
+        if action == "save":
+            entry = payload
+            assert isinstance(entry, NoteEntry)
+            self._notes_doc.upsert(entry)
+            self.notify(U.note_saved(entry.turn_index))
+        elif action == "delete":
+            note_id = str(payload)
+            self._notes_doc.remove(note_id)
+            self.notify(U.note_removed())
+        save_notes(self.session_dir, self._notes_doc)
+        self._update_reports_tab()
 
     def _refresh_event_chrome(self) -> None:
         """Re-paint timeline Flags column + detail for the current event."""

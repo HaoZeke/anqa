@@ -107,6 +107,8 @@ bind-new = New
 
 bind-new-persona = New persona
 
+bind-note = Note
+
 bind-next-pane = Next pane
 
 bind-next-tab = Next tab
@@ -294,7 +296,11 @@ cmd-export-finding-help = Export selected finding
 
 cmd-export-bundle = Export session tarball
 
-cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) into ~/.groket/reports
+cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) + operator notes into ~/.groket/reports
+
+cmd-operator-note = Operator note
+
+cmd-operator-note-help = Add or edit a turn-linked operator note (configurable fields)
 
 cmd-copy-detail = Copy detail / selection
 cmd-copy-detail-help = Browser: yank mouse selection (word/line/region) or the full detail pane — y / Ctrl+Shift+C
@@ -638,6 +644,28 @@ flags-blurb = Your annotations on timeline events (verdict + note). Not detector
 flags-heading = Flags
 
 flags-only = Flags only
+
+edit-note-title = Edit operator note
+
+new-note-title = New operator note
+
+note-removed = Operator note removed
+
+note-saved = Operator note saved (turn { $turn })
+
+notes-blurb = Turn-linked operator notes. Field layout comes from ~/.groket/notes_schema.toml (not hardcoded).
+
+notes-events-hint = Linked events: { $indices }
+
+notes-heading = Operator notes
+
+notes-only = Notes only
+
+notes-schema-hint = Schema: { $id }
+
+tip-no-notes = No operator notes yet — press `N` to add a turn-linked note
+
+turn-label = Turn:
 
 friendly-name-placeholder = Friendly name
 
@@ -2663,6 +2691,8 @@ browser-findings-chip = { $n } findings
 browser-high-chip = { $n } high
 browser-medium-chip = { $n } medium
 browser-flags-count = Flags ({ $n })
+
+browser-notes-count = Notes ({ $n })
 browser-findings-dim = · { $n } findings
 browser-status-none = none
 browser-status-clean = clean
