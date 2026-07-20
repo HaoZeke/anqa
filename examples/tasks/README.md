@@ -12,10 +12,14 @@ covers interactive launches.
 
 | File | Purpose |
 |------|---------|
-| [`demo_tasks.yaml`](demo_tasks.yaml) | Small smoke tasks (empty workspace unless you set `repo_url`) |
+| [`demo_tasks.yaml`](demo_tasks.yaml) | Small smoke tasks (empty workspace; optional `repo_url` / `repo_path`) |
 | [`superpowers_tasks.yaml`](superpowers_tasks.yaml) | Marketplace **superpowers** plugin exercises |
 
-For superpowers, also install the persona:
+`repo_path` bind-mounts a host directory as `/workspace` (live edits; single
+model). Prefer `repo_url` when you want an isolated clone under `runs/checkouts/`.
+Tasks that set `models:` use that list even when batch is run without `-m`.
+
+### Superpowers-only persona
 
 ```bash
 mkdir -p ~/.groket/personas

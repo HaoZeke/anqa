@@ -33,6 +33,15 @@ tasks:
     turns:
       - Print the contents of hello.txt and confirm it exists.
 
+  # Live host directory as /workspace (no git clone, no CoW into checkouts/).
+  # Agent edits land in that path. Single model only.
+  # - task_id: demo-local-path
+  #   description: Work in an existing checkout on the host.
+  #   repo_path: ~/src/my-project
+  #   # yolo: true   # optional: grok --yolo instead of --always-approve
+  #   prompt: >
+  #     List top-level files and summarize the README if present.
+
   # Fork an *ended* on-disk session (same path as TUI `f`):
   # resume_session_dir: /path/to/runs/traces/<container>/%2Fworkspace/<session_id>
   # prompt: is the first message on the new branch (grok --resume --fork-session).
