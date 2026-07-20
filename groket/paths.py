@@ -75,6 +75,13 @@ def flags_fallback_dir(session_id: str) -> Path:
     return d
 
 
+def notes_fallback_dir(session_id: str) -> Path:
+    """``~/.groket/notes/<session_id>`` — operator notes when session dir is not writable."""
+    d = APP_HOME / "notes" / session_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def user_rules_dir() -> Path:
     """``~/.groket/rules`` — user rule YAML."""
     d = APP_HOME / "rules"
