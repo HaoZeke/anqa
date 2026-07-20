@@ -10,6 +10,7 @@ them. Copy into `~/.groket/` or pass paths explicitly. Nothing under
 | [`analysis/`](analysis/) | Analysis `Analyzer` plugins + sample configs | `~/.groket/plugins/` + `config.json` |
 | [`tasks/`](tasks/) | Batch task catalogs | `groket batch -t <file>` |
 | [`personas/`](personas/) | Persona JSON (e.g. marketplace plugins) | `~/.groket/personas/` |
+| [`notes/`](notes/) | Operator notes schema TOML (field list) | `~/.groket/notes_schema.toml` |
 
 ## Start here
 

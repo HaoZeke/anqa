@@ -7,7 +7,7 @@ Outer archive layout (under ``~/.groket/reports/`` by default)::
     analysis/               # cached analysis plugin JSON + markdown reports
     flags.json              # operator flags when present outside the session tree
     feedback/               # optional feedback_cache copy for this session id
-    notes/                  # operator_notes.toml + schema.toml when notes exist
+    notes/                  # operator_notes.toml when notes exist (file copy)
     README.txt
     manifest.json
 
@@ -430,8 +430,8 @@ def _collect_feedback(session_id: str, work_dir: Path | None, staging: Path) -> 
 
 
 def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
-    """Embed turn-linked operator notes + schema snapshot under ``notes/``."""
-    from ..notes.store import collect_notes_for_export
+    """Embed turn-linked operator notes under ``notes/`` (copy on-disk file)."""
+    from ..notes import collect_notes_for_export
 
     collect_notes_for_export(session_dir, staging / "notes")
 
@@ -455,9 +455,9 @@ def _write_readme(staging: Path, *, sid: str) -> None:
         f"analysis/        Cached analysis plugin results (*.json) plus a markdown\n"
         f'                 report for each (*.md). Prefer artifacts["report"] when\n'
         f"                 the analyzer produced one; otherwise summary + findings.\n"
-        f"notes/           Operator notes (operator_notes.toml) plus schema.toml\n"
-        f"                 when turn-level notes exist. Field layout is configurable\n"
-        f"                 via ~/.groket/notes_schema.toml (not hardcoded).\n"
+        f"notes/           Operator notes file (operator_notes.toml) when present.\n"
+        f"                 Field layout is configurable via\n"
+        f"                 ~/.groket/notes_schema.toml (not hardcoded).\n"
         f"manifest.json    Machine-readable inventory of this bundle.\n\n"
         f"To recover the pure grok-trace archive::\n"
         f"  tar -xzf <this-bundle>.tar.gz {GROK_TRACE_ARCHIVE_NAME}\n"

@@ -1,17 +1,13 @@
 # Copy to ~/.groket/notes_schema.toml and edit field ids/labels for your workflow.
+# Field ids must match ^[A-Za-z_][A-Za-z0-9_-]*$
 # Groket does not hardcode review-program form fields — this file owns the layout.
 
 schema_id = "default"
-schema_version = 1
 
 [[fields]]
 id = "summary"
 label = "Summary"
-multiline = true
-required = false
 
 [[fields]]
 id = "detail"
 label = "Detail"
-multiline = true
-required = false

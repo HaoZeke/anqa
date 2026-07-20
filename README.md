@@ -80,7 +80,7 @@ Panes (`[` / `]` or digits **1–5**):
 2. **Summary** — overview, usage, turns (context samples when live)  
 3. **Diff** — workspace changes  
 4. **Findings** — detector / analyzer hits (`i` jumps here)  
-5. **Report** — analysis panels and flags  
+5. **Report** — analysis panels, flags, and operator notes  
 
 **Copy from the detail pane:** the TUI owns the mouse, so OS highlight-to-copy
 does not work. In the **detail** body (not the timeline table), drag to
@@ -115,10 +115,10 @@ tarball under `~/.groket/reports/` containing:
 - **`analysis/`** — cached analysis results when present (``*.json``) plus a
   markdown report per analyzer (``*.md``): uses each plugin’s
   ``artifacts["report"]`` when available, otherwise summary + findings)
-- **`notes/`** — operator notes when present (`operator_notes.toml` +
-  `schema.toml` snapshot). Field layout is configured via
-  `~/.groket/notes_schema.toml` (see `examples/notes/`); not hardcoded to any
-  review form. TUI: **`N`** in the session browser.
+- **`notes/`** — `operator_notes.toml` when present (on-disk copy). Field layout
+  is configured via `~/.groket/notes_schema.toml` (see `examples/notes/`); not
+  hardcoded to any review form. **Authoring is TUI-only** (`N` in the session
+  browser); batch does not write notes. Export includes them when present.
 
 ### Multi-turn and forking
 

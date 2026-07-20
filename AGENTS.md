@@ -143,7 +143,7 @@ groket/
                          #   launch_meta, services, task_schema
   session/               # turns, turn_gate, usage_stats, workspace_diff,
                          #   context_samples, models_catalog, export_bundle
-  notes/                 # configurable operator notes (TOML schema + session store)
+  notes.py               # configurable operator notes (TOML schema + session store)
   diagnostics/           # host self-test
   analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
   engine/                # detectors, rules loader, runner, rule_schema

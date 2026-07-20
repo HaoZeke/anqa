@@ -112,6 +112,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._selected_finding: Finding | None = None
         self._flags: dict[int, Flag] = {}
         self._notes_doc: NotesDoc = NotesDoc()
+        self._notes_loaded: bool = False
         self._load_started = False
         self._diff_md: str = ""
         self._diff_meta: dict = {}
@@ -1369,6 +1370,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _load_notes(self) -> None:
         """Load turn-linked operator notes for this session."""
         self._notes_doc = load_notes(self.session_dir)
+        self._notes_loaded = True
 
     def _enabled_analyzer_ids(self) -> set[str] | None:
         """Ids enabled in the process analysis service (None if unavailable)."""
@@ -2005,27 +2007,34 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _render_report_notes(self) -> None:
         notes = self._notes_doc.sorted_notes()
+        schema = load_schema()
+        preferred_ids = [f.id for f in schema.fields]
         nt = Text()
         nt.append_text(section_header(U.notes_heading()))
         nt.append(f"  {U.notes_blurb()}\n", style="dim")
         if notes:
             for note in notes:
-                summary = (note.fields.get("summary") or "").strip()
+                summary = ""
+                for fid in preferred_ids:
+                    val = (note.fields.get(fid) or "").strip()
+                    if val:
+                        summary = val
+                        break
                 if not summary:
-                    # First non-empty field value as a one-line preview.
                     for val in note.fields.values():
                         if str(val).strip():
                             summary = str(val).strip()
                             break
                 if not summary:
-                    summary = t("ui-no-note")
+                    summary = U.notes_empty_preview()
                 preview = summary.replace("\n", " ")
                 if len(preview) > 100:
                     preview = preview[:97] + "…"
                 ev = ""
                 if note.event_indices:
                     ev = "  ·  #" + ",".join(str(i) for i in note.event_indices)
-                nt.append_text(bullet(f"turn {note.turn_index}{ev}  — {preview}"))
+                turn_lab = t("turn-filter-n", n=note.turn_index)
+                nt.append_text(bullet(f"{turn_lab}{ev}  — {preview}"))
                 if note.updated_at or note.created_at:
                     nt.append(
                         f"      {note.updated_at or note.created_at}\n",
@@ -2708,6 +2717,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if action == "flag_event":
             return True if self._timeline_event_actionable() else False
         if action == "operator_note":
+            # Always available once the browser is open (turn defaults to 0).
             return True
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
             # O(1) cache; refreshed by pending bar / live poll / gate writes.
@@ -2756,6 +2766,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def action_operator_note(self) -> None:
         """Open modal to add a turn-linked operator note (schema-driven fields)."""
+        # Ensure disk notes are loaded before the modal (avoid empty-doc wipe).
+        if not self._notes_loaded:
+            self._load_notes()
         schema = load_schema()
         turn_options = self._note_turn_options()
         default_turn = self._current_turn_index()
@@ -2768,7 +2781,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 turn_options=turn_options,
                 default_turn=default_turn,
                 event_indices=event_indices,
-                existing=None,
             ),
             callback=self._on_note_result,
         )
@@ -2781,21 +2793,21 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return [(t("turn-filter-n", n=ti), str(ti))]
         return [(t("turn-filter-n", n=seg.turn_index), str(seg.turn_index)) for seg in segs]
 
-    def _on_note_result(self, result: tuple | None) -> None:
-        """Handle save/delete from :class:`NotesModal`."""
+    def _on_note_result(self, result: NoteEntry | None) -> None:
+        """Merge a new note from :class:`NotesModal` and persist (reload-first)."""
         if result is None:
             return
-        action, payload = result
-        if action == "save":
-            entry = payload
-            assert isinstance(entry, NoteEntry)
-            self._notes_doc.upsert(entry)
-            self.notify(U.note_saved(entry.turn_index))
-        elif action == "delete":
-            note_id = str(payload)
-            self._notes_doc.remove(note_id)
-            self.notify(U.note_removed())
-        save_notes(self.session_dir, self._notes_doc)
+        # Re-load from disk so concurrent/external edits and late load are not wiped.
+        disk = load_notes(self.session_dir)
+        disk.upsert(result)
+        try:
+            save_notes(self.session_dir, disk)
+        except OSError as exc:
+            self.notify(U.note_save_failed(str(exc)), severity="error")
+            return
+        self._notes_doc = disk
+        self._notes_loaded = True
+        self.notify(U.note_saved(result.turn_index))
         self._update_reports_tab()
 
     def _refresh_event_chrome(self) -> None:

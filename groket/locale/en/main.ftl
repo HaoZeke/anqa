@@ -300,7 +300,7 @@ cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis
 
 cmd-operator-note = Operator note
 
-cmd-operator-note-help = Add or edit a turn-linked operator note (configurable fields)
+cmd-operator-note-help = Add a turn-linked operator note (configurable fields; create-only)
 
 cmd-copy-detail = Copy detail / selection
 cmd-copy-detail-help = Browser: yank mouse selection (word/line/region) or the full detail pane — y / Ctrl+Shift+C
@@ -645,15 +645,17 @@ flags-heading = Flags
 
 flags-only = Flags only
 
-edit-note-title = Edit operator note
-
 new-note-title = New operator note
-
-note-removed = Operator note removed
 
 note-saved = Operator note saved (turn { $turn })
 
-notes-blurb = Turn-linked operator notes. Field layout comes from ~/.groket/notes_schema.toml (not hardcoded).
+note-save-failed = Could not save operator note: { $msg }
+
+note-turn-invalid = Choose a valid turn before saving
+
+notes-blurb = Turn-linked operator notes (create with N). Field layout comes from ~/.groket/notes_schema.toml (not hardcoded). Authoring is TUI-only; batch does not write notes.
+
+notes-empty-preview = (empty)
 
 notes-events-hint = Linked events: { $indices }
 

@@ -176,10 +176,9 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         encoding="utf-8",
     )
 
-    from groket.notes.models import NoteEntry, NotesDoc
-    from groket.notes.store import save_notes
+    from groket.notes import NoteEntry, NotesDoc, save_notes
 
-    notes_doc = NotesDoc(schema_id="default", schema_version=1, session_id=SID)
+    notes_doc = NotesDoc(schema_id="default", session_id=SID)
     notes_doc.upsert(
         NoteEntry.new(
             turn_index=0,
@@ -241,7 +240,7 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "analysis/feedback.json" in names
     assert "analysis/feedback.md" in names
     assert "notes/operator_notes.toml" in names
-    assert "notes/schema.toml" in names
+    assert "notes/schema.toml" not in names
     assert "export me" in notes_text
     assert "n-export" in notes_text
     assert "Demo issue" in demo_text
