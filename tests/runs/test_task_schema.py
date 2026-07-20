@@ -147,8 +147,13 @@ def test_task_definition_setup_shell_empty():
 def test_task_definition_effective_repo_branch_default():
     from groket.runs.task_schema import TaskDefinition
 
+    # Empty branch → remote default HEAD (do not invent "main").
     t = TaskDefinition(task_id="t", prompt="p", repo_url="https://github.com/x/y")
-    assert t.effective_repo_branch() == "main"
+    assert t.effective_repo_branch() == ""
+    t2 = TaskDefinition(
+        task_id="t", prompt="p", repo_url="https://github.com/x/y", repo_branch="master"
+    )
+    assert t2.effective_repo_branch() == "master"
 
 
 def test_task_definition_effective_repo_branch_no_url():
@@ -219,7 +224,7 @@ def test_task_definition_to_eval_task():
     et = task_definition_to_eval_task(td)
     assert et.task_id == "t1"
     assert et.prompt == "do stuff"
-    assert et.repo_branch == "main"
+    assert et.repo_branch == ""
     assert et.turns == ["follow up"]
     assert et.tags == ["a"]
     assert et.success_hints == ["check output"]

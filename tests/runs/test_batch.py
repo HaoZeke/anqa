@@ -147,7 +147,7 @@ def test_eval_task_and_load_tasks(tmp_path: Path):
     )
     tasks = batch.load_tasks(tasks_yml)
     assert len(tasks) == 2
-    assert tasks[0].repo_branch == "main"
+    assert tasks[0].repo_branch == ""
     assert tasks[0].setup_instructions == "echo hi"
     assert tasks[1].repo_url == ""
     filtered = batch.load_tasks(tasks_yml, category="special")

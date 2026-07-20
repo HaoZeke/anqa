@@ -153,11 +153,13 @@ class TaskDefinition(BaseModel):
         return ""
 
     def effective_repo_branch(self) -> str:
-        url = (self.repo_url or "").strip()
-        branch = (self.repo_branch or "").strip()
-        if url and not branch:
-            return "main"
-        return branch
+        """Branch for clone, or empty to use the remote default HEAD.
+
+        Do not invent ``main`` — many repos still use ``master`` (e.g. coredis).
+        Empty string lets :func:`~groket.session.workspace._git_clone` omit
+        ``--branch`` so git follows the remote's default.
+        """
+        return (self.repo_branch or "").strip()
 
     def resolved_resume_session_dir(self) -> Path | None:
         """Absolute path to the resume seed dir, or None when not set."""
