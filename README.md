@@ -76,7 +76,7 @@ hidden so each eval is one row. Prefs live in `~/.groket/config.json`.
 
 Panes (`[` / `]` or digits **1–5**):
 
-1. **Timeline** — events + detail; `v` filter, `f` flag, `/` search  
+1. **Timeline** — events + detail; `v` filter, `f` flag, `N` operator note, `/` search  
 2. **Summary** — overview, usage, turns (context samples when live)  
 3. **Diff** — workspace changes  
 4. **Findings** — detector / analyzer hits (`i` jumps here)  
@@ -115,6 +115,10 @@ tarball under `~/.groket/reports/` containing:
 - **`analysis/`** — cached analysis results when present (``*.json``) plus a
   markdown report per analyzer (``*.md``): uses each plugin’s
   ``artifacts["report"]`` when available, otherwise summary + findings)
+- **`notes/`** — operator notes when present (`operator_notes.toml` +
+  `schema.toml` snapshot). Field layout is configured via
+  `~/.groket/notes_schema.toml` (see `examples/notes/`); not hardcoded to any
+  review form. TUI: **`N`** in the session browser.
 
 ### Multi-turn and forking
 
