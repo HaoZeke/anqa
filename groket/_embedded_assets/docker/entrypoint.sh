@@ -20,15 +20,29 @@ _gte_fix_bind_ownership() {
             echo ">>> Sessions volume ownership → ${uid}:${gid} (host user)"
         fi
     fi
-    # External operator path (repo_path): do not chown their real tree.
-    if [ "${WORKSPACE_EXTERNAL:-0}" = "1" ] || [ "${WORKSPACE_EXTERNAL:-}" = "true" ]; then
-        echo ">>> Workspace is external mount — skip chown of /workspace"
+    if [ ! -d /workspace ]; then
         return 0
     fi
-    if [ -d /workspace ]; then
-        if chown -R "${uid}:${gid}" /workspace 2>/dev/null; then
-            echo ">>> Workspace ownership → ${uid}:${gid} (host user)"
+    # External operator path (repo_path): do *not* recursive-chown the whole tree
+    # (may be huge / mixed ownership). Only reclaim paths the agent created as
+    # root so host edits stay host-owned.
+    if [ "${WORKSPACE_EXTERNAL:-0}" = "1" ] || [ "${WORKSPACE_EXTERNAL:-}" = "true" ]; then
+        local n=0
+        # -user 0: root-owned files/dirs written by the container process.
+        while IFS= read -r -d '' path; do
+            if chown "${uid}:${gid}" "$path" 2>/dev/null; then
+                n=$((n + 1))
+            fi
+        done < <(find /workspace -user 0 -print0 2>/dev/null)
+        if [ "$n" -gt 0 ]; then
+            echo ">>> External workspace: reclaimed ${n} root-owned path(s) → ${uid}:${gid}"
+        else
+            echo ">>> External workspace: no root-owned paths to reclaim"
         fi
+        return 0
+    fi
+    if chown -R "${uid}:${gid}" /workspace 2>/dev/null; then
+        echo ">>> Workspace ownership → ${uid}:${gid} (host user)"
     fi
 }
 

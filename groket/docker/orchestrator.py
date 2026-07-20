@@ -821,7 +821,8 @@ class DockerOrchestrator:
             **config.env_vars,
         }
         if external_ws:
-            # Skip recursive chown of the operator's real tree on EXIT.
+            # Entrypoint reclaims only root-owned paths under /workspace (not
+            # a full recursive chown of the operator's tree).
             envs["WORKSPACE_EXTERNAL"] = "1"
         # So entrypoint can chown bind-mounted sessions (prompt_history.jsonl, …)
         # back to the host user (containers write as root otherwise).

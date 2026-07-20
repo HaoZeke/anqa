@@ -132,7 +132,7 @@ independent branch of the parent snapshot (parent files are not overwritten).
 | Field | Role |
 |-------|------|
 | `repo_url` / `repo_branch` | Git clone into a managed checkout under `runs/checkouts/` |
-| `repo_path:` | Host directory bind-mounted as `/workspace` (live tree; **no** clone/CoW). Single model only. Agent edits that directory |
+| `repo_path:` | Host directory bind-mounted as `/workspace` (live tree; **no** clone/CoW). Single model only. Agent edits that directory; root-owned new files are reclaimed for the host user on exit |
 | `yolo:` | When true, launch with `grok --yolo` (default false → `--always-approve`) |
 | `turns:` | Scripted follow-ups after the primary `prompt` on a **new** session |
 | `resume_session_dir:` | Host path to an *ended* session dir — **fork** (same as TUI `f`): seed history, first turn `grok --resume --fork-session`; `prompt` is the continuation; optional `turns` after that |
@@ -149,7 +149,9 @@ Docker evals from a recipe (prompt, models, persona, repo, extras).
 
 **Workspace:** optional git **Repository** URL (cloned into `runs/checkouts/`),
 or **Local path** (bind-mount that host directory as `/workspace` — edits are
-permanent; one model only).
+permanent; one model only). Managed checkouts are chowned to the host user on
+exit; **local path** only reclaims **root-owned** paths the agent created (so
+your existing tree is not fully re-chowned).
 
 **Permissions:** by default the agent runs with ``--always-approve``. Check
 **YOLO mode** on the runner (or set task YAML ``yolo: true``) to use
