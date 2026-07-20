@@ -69,6 +69,15 @@ class TestSaveAndLoad:
         save_cached_result(cache, sd, "engine", "1.0", result)
         assert load_cached_result(cache, sd, "engine", "2.0") is None
 
+    def test_allow_stale_returns_version_mismatch(self, tmp_path):
+        cache = tmp_path / "cache"
+        sd = _make_session(tmp_path)
+        result = _make_result(sd)
+        save_cached_result(cache, sd, "engine", "1.0", result)
+        loaded = load_cached_result(cache, sd, "engine", "2.0", allow_stale=True)
+        assert loaded is not None
+        assert loaded.finding_count == 1
+
     def test_miss_on_trace_mtime_change(self, tmp_path):
         cache = tmp_path / "cache"
         sd = _make_session(tmp_path)

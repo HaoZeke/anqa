@@ -234,7 +234,8 @@ def test_meta_format_branches(tmp_path: Path) -> None:
     )
     m = pack.format_meta()
     assert "Title: T" in m
-    assert "truncated" in m
+    assert "condensed" in m
+    assert "complete evidence" in m
     assert pack.format_prior_findings() == ""
     from groket.analysis.base import Finding
     from groket.models import Severity

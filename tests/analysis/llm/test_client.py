@@ -54,6 +54,33 @@ def test_complete_structured_success() -> None:
             r = GrokCliClient().complete_structured("prompt", effort="low")
     assert r.payload is not None
     assert r.payload["summary"] == "s"
+    # Isolated HOME so user chrome-devtools / firecrawl plugins never load.
+    assert mock_run.call_args is not None
+    kwargs = mock_run.call_args.kwargs
+    env = kwargs.get("env") or {}
+    assert "HOME" in env
+    assert env["HOME"] != str(__import__("pathlib").Path.home())
+    cmd = mock_run.call_args.args[0]
+    assert "--disable-web-search" in cmd
+    assert "--no-subagents" in cmd
+    assert "--yolo" not in cmd  # prefer always-approve without tool zoo
+    # Large prompt-files are offloaded; allow a short tool loop to read + answer.
+    mt = cmd.index("--max-turns")
+    assert int(cmd[mt + 1]) >= 2
+
+
+def test_build_isolated_review_home_disables_plugins() -> None:
+    import shutil
+
+    from groket.analysis.llm.client import build_isolated_review_home
+
+    home = build_isolated_review_home()
+    try:
+        cfg = (home / ".grok" / "config.toml").read_text(encoding="utf-8")
+        assert "enabled = []" in cfg
+        assert "chrome" not in cfg.lower()
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
 
 
 def test_complete_structured_nonzero_with_payload() -> None:

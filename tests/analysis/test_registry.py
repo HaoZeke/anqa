@@ -253,3 +253,44 @@ class TestLoadConfigPluginsEdge:
         loaded, failed, registered = load_config_plugins(["some.module:"])
         assert loaded == []
         assert len(failed) == 1
+
+    def test_user_plugins_win_over_examples(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``~/.groket/plugins`` must shadow repo ``examples/analysis/plugins``."""
+        import sys
+
+        import groket.paths as paths
+
+        user = tmp_path / "user_plugins"
+        examples = tmp_path / "examples" / "analysis" / "plugins"
+        user.mkdir()
+        examples.mkdir(parents=True)
+        stub = (
+            "from groket.analysis.base import AnalyzerInfo, AnalysisResult\n"
+            "class A:\n"
+            "    @property\n"
+            "    def info(self):\n"
+            "        return AnalyzerInfo(id='shadow', name={name!r}, version={name!r})\n"
+            "    def analyze(self, session_dir, context=None):\n"
+            "        return AnalysisResult(session_id='x', session_dir=str(session_dir),\n"
+            "                              analyzer_id='shadow')\n"
+        )
+        (user / "shadow_mod.py").write_text(stub.format(name="user"), encoding="utf-8")
+        (examples / "shadow_mod.py").write_text(stub.format(name="examples"), encoding="utf-8")
+
+        monkeypatch.setattr(paths, "user_analysis_plugins_dir", lambda: user)
+        monkeypatch.chdir(tmp_path)
+        sys.modules.pop("shadow_mod", None)
+
+        loaded, failed, registered = load_config_plugins(
+            ["shadow_mod:A"],
+            config_dir=tmp_path,
+        )
+        assert failed == []
+        assert loaded == ["shadow_mod:A"]
+        assert registered == ["shadow"]
+        a = get_analyzer("shadow")
+        assert a.info.version == "user"
+        assert a.info.name == "user"
+        sys.modules.pop("shadow_mod", None)

@@ -24,6 +24,19 @@ def test_incomplete_offloaded_summary() -> None:
     )
 
 
+def test_incomplete_drafting_placeholder() -> None:
+    assert is_incomplete_review(
+        {
+            "summary": (
+                "Full timeline was truncated in the chat; reading the offloaded "
+                "prompt so the review can cite complete turn evidence."
+            ),
+            "all_clear": False,
+            "findings": [],
+        }
+    )
+
+
 def test_incomplete_empty_findings_not_all_clear() -> None:
     assert is_incomplete_review(
         {

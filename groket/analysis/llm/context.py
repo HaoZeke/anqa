@@ -218,7 +218,11 @@ class SessionContextPack:
         if self.files_edited:
             lines.append(f"Files edited: {', '.join(self.files_edited[:30])}")
         if self.digest_truncated:
-            lines.append("Note: timeline digest was truncated for length.")
+            lines.append(
+                "Timeline digest is intentionally condensed. The digest below is "
+                "the complete evidence set for this review — do not request files, "
+                "offloaded prompts, or events that are not shown."
+            )
         return "\n".join(lines)
 
     def format_runtime(self) -> str:

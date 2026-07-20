@@ -71,6 +71,33 @@ def test_analyze_unavailable(tmp_path: Path) -> None:
     assert "report" in r.artifacts
 
 
+def test_analyze_unavailable_surfaces_stop_reason(tmp_path: Path) -> None:
+    (tmp_path / "summary.json").write_text("{}", encoding="utf-8")
+    import json
+
+    raw = json.dumps(
+        {
+            "stopReason": "Cancelled",
+            "structuredOutputError": "model did not produce structured output",
+            "structuredOutput": None,
+            "text": '{"summary":"Reading the full offloaded prompt.","all_clear":false,"findings":[]}',
+        }
+    )
+    bad = {
+        "summary": "Reading the full offloaded prompt.",
+        "all_clear": False,
+        "findings": [],
+    }
+    with patch(
+        "groket.analysis.llm.base.GrokCliClient.complete_structured",
+        return_value=GrokStructuredResult(payload=bad, raw=raw),
+    ):
+        r = _Tiny().analyze(tmp_path)
+    detail = r.findings[0].detail
+    assert "stopReason=Cancelled" in detail
+    assert "structured" in detail.lower()
+
+
 def test_analyze_incomplete_then_retry(tmp_path: Path) -> None:
     (tmp_path / "summary.json").write_text("{}", encoding="utf-8")
     bad = {

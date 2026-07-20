@@ -25,6 +25,31 @@ _DEFAULT_DIGEST_CHARS = 24_000
 _RETRY_DIGEST_CHARS = 12_000
 
 
+def _raw_failure_hint(raw: str | None) -> str:
+    """Extract stopReason / structuredOutputError from grok JSON stdout."""
+    if not raw:
+        return ""
+    text = raw.strip()
+    if not text.startswith("{"):
+        # stderr-only failures (e.g. "Error: max turns reached")
+        one = " ".join(text.split())
+        return one[:160] if one else ""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    bits: list[str] = []
+    stop = data.get("stopReason")
+    if stop:
+        bits.append(f"stopReason={stop}")
+    so_err = data.get("structuredOutputError")
+    if so_err:
+        bits.append(str(so_err)[:120])
+    return "; ".join(bits)
+
+
 class LlmReviewAnalyzer:
     """Analyzer base: implement :meth:`build_instructions`; plumbing is shared.
 
@@ -151,11 +176,14 @@ class LlmReviewAnalyzer:
         else:
             detail = (
                 "LLM structured review did not return a usable result "
-                "(missing grok binary, auth failure, timeout, or incomplete "
-                "offloaded-prompt response)."
+                "(missing grok binary, auth failure, timeout, max-turns, or "
+                "incomplete offloaded-prompt shell)."
             )
             if payload is not None:
                 detail += f" Last summary: {str(payload.get('summary') or '')[:240]}"
+            hint = _raw_failure_hint(raw)
+            if hint:
+                detail += f" ({hint})"
             findings.append(
                 Finding(
                     id=f"{plugin_id}-no-review",

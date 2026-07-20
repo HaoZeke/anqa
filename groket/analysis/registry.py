@@ -154,6 +154,36 @@ def _plugin_search_dirs(config_dir: Path | None) -> list[str]:
     return search_dirs
 
 
+def _import_plugin_module(module_path: str, search_dirs: list[str]) -> ModuleType:
+    """Import *module_path*, preferring the first matching ``.py`` on *search_dirs*.
+
+    Uses :func:`importlib.util.spec_from_file_location` so a stale
+    ``sys.modules`` entry (or a lower-priority ``examples/`` copy of the same
+    module name) cannot shadow ``~/.groket/plugins``.
+    """
+    import importlib
+    import importlib.util
+    import sys
+
+    # Bare module names only (``gte_feedback_grok``); dotted paths fall through.
+    if module_path.isidentifier():
+        for d in search_dirs:
+            candidate = Path(d) / f"{module_path}.py"
+            if not candidate.is_file():
+                continue
+            # Drop any previously imported shadow (examples vs user).
+            sys.modules.pop(module_path, None)
+            spec = importlib.util.spec_from_file_location(module_path, candidate)
+            if spec is None or spec.loader is None:
+                continue
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[module_path] = mod
+            spec.loader.exec_module(mod)
+            logger.info("Loaded analysis plugin module from %s", candidate)
+            return mod
+    return importlib.import_module(module_path)
+
+
 def load_config_plugins(
     specs: list[str],
     *,
@@ -163,13 +193,15 @@ def load_config_plugins(
 
     Returns ``(loaded, failed, registered_ids)``.
     """
-    import importlib
     import sys
 
     global _registration_sink
 
+    search_dirs = _plugin_search_dirs(config_dir)
+    # High-priority first (``~/.groket/plugins`` before repo ``examples/``).
+    # Insert in reverse so the first search dir ends up at sys.path[0].
     restore_paths: list[str] = []
-    for d in _plugin_search_dirs(config_dir):
+    for d in reversed(search_dirs):
         if d not in sys.path:
             sys.path.insert(0, d)
             restore_paths.append(d)
@@ -193,7 +225,7 @@ def load_config_plugins(
                 module_path, class_name = spec.rsplit(":", 1)
                 if not module_path or not class_name:
                     raise ValueError(f"invalid plugin spec {spec!r}")
-                mod = importlib.import_module(module_path)
+                mod = _import_plugin_module(module_path, search_dirs)
                 analyzer = analyzer_from_module_attr(mod, class_name)
                 register_analyzer(analyzer)
                 loaded.append(spec)

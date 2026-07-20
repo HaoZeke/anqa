@@ -186,7 +186,8 @@ class TestAnalysisService:
             config=AnalysisPipelineConfig(),
             enabled_ids={"basic", "engine", "deferred-ext"},
         )
-        results = svc.analyze_all(session_dir)
+        # Deferred plugins only execute on force (auto path is cache-only).
+        results = svc.analyze_all(session_dir, force=True)
         assert "deferred-ext" in results
         assert plugin.seen_prior is not None
 
@@ -210,6 +211,103 @@ class TestAnalysisService:
         # Second call — should hit cache (same version, same mtime)
         r2 = svc.analyze_all(session_dir)
         assert r2["cache-test"].finding_count == 1
+
+    def test_deferred_stale_cache_not_auto_rerun(self, work_dir, session_dir):
+        """Version-bumped deferred plugins keep disk results until force."""
+        from groket.analysis._cache import save_cached_result
+
+        cache_root = work_dir / "cache"
+        runs = {"n": 0}
+
+        class _DeferredV2:
+            @property
+            def info(self) -> AnalyzerInfo:
+                return AnalyzerInfo(
+                    id="deferred-llm",
+                    name="LLM",
+                    version="2",
+                    defer=True,
+                    optional=True,
+                )
+
+            def analyze(
+                self, session_dir: Path, **kwargs: Unpack[AnalyzeContext]
+            ) -> AnalysisResult:
+                runs["n"] += 1
+                return AnalysisResult(
+                    session_id=session_dir.name,
+                    session_dir=str(session_dir),
+                    analyzer_id="deferred-llm",
+                    ok=True,
+                    summary="fresh-v2",
+                )
+
+        register_analyzer(_DeferredV2())
+        save_cached_result(
+            cache_root,
+            session_dir,
+            "deferred-llm",
+            "1",  # older plugin version on disk
+            AnalysisResult(
+                session_id=session_dir.name,
+                session_dir=str(session_dir),
+                analyzer_id="deferred-llm",
+                ok=True,
+                summary="stale-v1",
+            ),
+        )
+        svc = AnalysisService(
+            work_dir,
+            config=AnalysisPipelineConfig(),
+            cache_root=cache_root,
+            enabled_ids={"basic", "engine", "deferred-llm"},
+        )
+        r1 = svc.analyze_all(session_dir, force=False)
+        assert r1["deferred-llm"].summary == "stale-v1"
+        assert runs["n"] == 0
+        r2 = svc.analyze_all(session_dir, force=True)
+        assert r2["deferred-llm"].summary == "fresh-v2"
+        assert runs["n"] == 1
+
+    def test_deferred_never_auto_runs_without_cache(self, work_dir, session_dir):
+        """Missing deferred cache must not invoke LLM on auto path."""
+        runs = {"n": 0}
+
+        class _DeferredCold:
+            @property
+            def info(self) -> AnalyzerInfo:
+                return AnalyzerInfo(
+                    id="deferred-cold",
+                    name="LLM",
+                    version="1",
+                    defer=True,
+                    optional=True,
+                )
+
+            def analyze(
+                self, session_dir: Path, **kwargs: Unpack[AnalyzeContext]
+            ) -> AnalysisResult:
+                runs["n"] += 1
+                return AnalysisResult(
+                    session_id=session_dir.name,
+                    analyzer_id="deferred-cold",
+                    ok=True,
+                    summary="ran",
+                )
+
+        register_analyzer(_DeferredCold())
+        svc = AnalysisService(
+            work_dir,
+            config=AnalysisPipelineConfig(),
+            cache_root=work_dir / "cache",
+            enabled_ids={"basic", "engine", "deferred-cold"},
+        )
+        r = svc.analyze_all(session_dir, force=False)
+        assert runs["n"] == 0
+        assert r["deferred-cold"].extras.get("skipped_deferred") is True
+        r2 = svc.analyze_all(session_dir, force=True)
+        assert runs["n"] == 1
+        assert r2["deferred-cold"].summary == "ran"
 
     def test_load_cached_all_without_running(self, work_dir, session_dir):
         """load_cached_all returns disk cache only and never invokes analyzers."""

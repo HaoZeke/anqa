@@ -48,8 +48,19 @@ def load_cached_result(
     session_dir: Path,
     analyzer_id: str,
     plugin_version: str,
+    *,
+    allow_stale: bool = False,
+    ignore_trace_mtime: bool = False,
 ) -> AnalysisResult | None:
-    """Return cached result if valid, else ``None``."""
+    """Return cached result if valid, else ``None``.
+
+    :param allow_stale: When True, accept a cache entry whose
+        ``_plugin_version`` differs from *plugin_version* (still requires
+        matching schema). Used to paint deferred LLM results after a plugin
+        bump without auto-re-running the model.
+    :param ignore_trace_mtime: When True, skip the trace mtime check (serve
+        last known review even if the trace was touched).
+    """
     fp = _cache_path(cache_root, session_dir.name, analyzer_id)
     if not fp.is_file():
         return None
@@ -63,12 +74,21 @@ def load_cached_result(
     if data.get("_schema") != _CACHE_SCHEMA_VERSION:
         return None
     if data.get("_plugin_version") != plugin_version:
-        logger.debug("Cache version mismatch for %s/%s", session_dir.name, analyzer_id)
-        return None
-    cached_mtime = data.get("_trace_mtime", 0.0)
-    if abs(_trace_mtime(session_dir) - cached_mtime) > 0.5:
-        logger.debug("Trace mtime changed for %s/%s", session_dir.name, analyzer_id)
-        return None
+        if not allow_stale:
+            logger.debug("Cache version mismatch for %s/%s", session_dir.name, analyzer_id)
+            return None
+        logger.debug(
+            "Serving stale cache for %s/%s (disk v%s, want v%s)",
+            session_dir.name,
+            analyzer_id,
+            data.get("_plugin_version"),
+            plugin_version,
+        )
+    if not ignore_trace_mtime:
+        cached_mtime = data.get("_trace_mtime", 0.0)
+        if abs(_trace_mtime(session_dir) - cached_mtime) > 0.5:
+            logger.debug("Trace mtime changed for %s/%s", session_dir.name, analyzer_id)
+            return None
     result_data = data.get("result")
     if not isinstance(result_data, dict):
         return None

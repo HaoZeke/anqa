@@ -20,7 +20,9 @@ _INCOMPLETE_SUMMARY_RE = re.compile(
     r"\b("
     r"offloaded\s+prompt|reading\s+the\s+full|before\s+producing|"
     r"let\s+me\s+read|i\s+will\s+review|inspecting\s+the|"
-    r"need\s+to\s+read|loading\s+the\s+timeline|cannot\s+access"
+    r"need\s+to\s+read|loading\s+the\s+timeline|cannot\s+access|"
+    r"drafting\s+ranked\s+findings|complete\s+timeline\s+evidence|"
+    r"truncated\s+in\s+the\s+chat"
     r")\b",
     re.I,
 )
@@ -251,9 +253,12 @@ def render_prompt_envelope(
     """Assemble the default review prompt from pack formatters + instructions."""
     lines = [
         "You are reviewing a coding-agent evaluation TRACE (multi-turn session).",
-        "CRITICAL: All evidence is INLINE in this message. Do NOT read files, call",
-        "tools, search the web, or wait for more context. Do NOT reply with plans",
-        "like 'reading the prompt'. Output the structured review JSON immediately.",
+        "CRITICAL: All evidence for the review is in this prompt (or the single",
+        "offloaded prompt file Grok may attach for length). Do NOT open the host",
+        "workspace, search the web, spawn subagents, or wait for more context.",
+        "If you must open the offloaded prompt file, read it once, then immediately",
+        "emit the structured review JSON. Never reply with only a plan like",
+        "'reading the prompt' or all_clear=false with findings=[].",
         "",
         "RUNTIME / FAIRNESS: Respect the runtime and constraints blocks below.",
         "MULTI-TURN: Later operator instructions change scope; work requested in a",

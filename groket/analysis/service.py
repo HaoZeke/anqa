@@ -124,11 +124,20 @@ class AnalysisService:
             return [NoopAnalyzer().info]
         return infos
 
-    def load_cached_all(self, session_dir: Path | str) -> dict[str, AnalysisResult]:
+    def load_cached_all(
+        self,
+        session_dir: Path | str,
+        *,
+        allow_stale: bool = False,
+    ) -> dict[str, AnalysisResult]:
         """Return enabled analyzer results present in the on-disk cache only.
 
         Does not run analyzers. Empty mapping when there is no cache root or
         no valid entries for this session.
+
+        :param allow_stale: Include entries whose plugin version no longer
+            matches (for UI paint + stale banner; not a freshness claim).
+            Also ignores trace mtime skew so open always paints last review.
         """
         path = Path(session_dir)
         if self.cache_root is None:
@@ -142,6 +151,8 @@ class AnalysisService:
                 path,
                 info.id,
                 info.version,
+                allow_stale=allow_stale,
+                ignore_trace_mtime=allow_stale,
             )
             if cached is not None:
                 results[info.id] = cached
@@ -150,11 +161,22 @@ class AnalysisService:
     def stale_analyzer_hints(self, session_dir: Path | str) -> list[str]:
         """Human-readable reasons force re-analyze is useful (empty if none).
 
-        Detects enabled plugins whose on-disk cache was written with a different
-        ``AnalyzerInfo.version``, whose **source file is newer than the cache**
-        (version forgotten), or a newly enabled plugin when this session already
-        has other analysis cache. Does **not** run analyzers.
+        Nags only for **actionable, recent** drift:
+
+        * deferred plugin missing from cache when other analysis exists
+        * version mismatch / source newer than cache — only while the
+          analyzer's **own** source file was edited within
+          :data:`~groket.constants.ANALYSIS_STALE_HINT_WINDOW_S`
+
+        Does **not** permanently banner every historical session after a
+        one-time version bump (e.g. feedback v11→v13 months ago). Package
+        infrastructure mtimes (``groket.analysis.*`` bases) are ignored —
+        only the analyzer class module counts. Does **not** run analyzers.
         """
+        import time
+
+        from ..constants import ANALYSIS_STALE_HINT_WINDOW_S
+
         path = Path(session_dir)
         if self.cache_root is None:
             return []
@@ -165,24 +187,58 @@ class AnalysisService:
             info.id: read_cached_plugin_version(self.cache_root, path, info.id) for info in enabled
         }
         any_cache = any(v is not None for v in versions.values())
+        now = time.time()
         hints: list[str] = []
         for info in enabled:
             cached_ver = versions.get(info.id)
             if cached_ver is None:
-                if any_cache:
+                # Cheap builtins often skip cache; only missing deferred LLM
+                # reviews are worth a banner when other analysis is present.
+                if any_cache and info.defer:
                     hints.append(f"{info.id} v{info.version} (not in cache yet)")
+                continue
+            src_mtime = self._analyzer_own_source_mtime(info.id)
+            recent_edit = src_mtime > 0 and (now - src_mtime) < float(ANALYSIS_STALE_HINT_WINDOW_S)
+            if not recent_edit:
+                # Plugin has been stable — leave historical caches quiet.
                 continue
             if cached_ver != info.version:
                 hints.append(f"{info.id} v{cached_ver} → v{info.version}")
                 continue
-            # Version string matches but plugin *file* is newer than cache → stale.
-            src_newer = self._analyzer_source_newer_than_cache(path, info.id)
-            if src_newer:
+            # Version string matches but plugin *file* is newer than cache.
+            if self._analyzer_source_newer_than_cache(path, info.id):
                 hints.append(f"{info.id} source newer than cache (re-analyze)")
         return hints
 
+    def _analyzer_own_source_mtime(self, analyzer_id: str) -> float:
+        """Mtime of the analyzer class's defining module file (0 if unknown)."""
+        try:
+            analyzer: Analyzer = get_analyzer(analyzer_id)
+        except KeyError:
+            return 0.0
+        mod_name = getattr(type(analyzer), "__module__", None)
+        if not mod_name:
+            return 0.0
+        try:
+            import importlib
+
+            mod = importlib.import_module(mod_name)
+        except Exception:
+            return 0.0
+        mod_file = getattr(mod, "__file__", None)
+        if not mod_file:
+            return 0.0
+        try:
+            return float(Path(mod_file).stat().st_mtime)
+        except OSError:
+            return 0.0
+
     def _analyzer_source_newer_than_cache(self, session_dir: Path, analyzer_id: str) -> bool:
-        """True when the analyzer module file mtime is newer than its cache file."""
+        """True when the analyzer's **own** module file is newer than its cache.
+
+        Intentionally ignores ``groket.analysis`` base/helper mtimes — package
+        installs and infra edits must not mark every user plugin stale.
+        """
         if self.cache_root is None:
             return False
         cpath = cache_file_path(self.cache_root, session_dir, analyzer_id)
@@ -192,36 +248,7 @@ class AnalysisService:
             cache_mtime = cpath.stat().st_mtime
         except OSError:
             return False
-        try:
-            analyzer: Analyzer = get_analyzer(analyzer_id)
-        except KeyError:
-            return False
-        # Analyzer class module + LLM base/helpers when subclassed from there.
-        modules: list[type] = [type(analyzer)]
-        for cls in type(analyzer).__mro__:
-            mod = getattr(cls, "__module__", "") or ""
-            if mod.startswith("groket.analysis"):
-                modules.append(cls)
-        newest_src = 0.0
-        seen: set[str] = set()
-        for cls in modules:
-            mod_name = getattr(cls, "__module__", None)
-            if not mod_name or mod_name in seen:
-                continue
-            seen.add(mod_name)
-            try:
-                import importlib
-
-                mod = importlib.import_module(mod_name)
-            except Exception:
-                continue
-            mod_file = getattr(mod, "__file__", None)
-            if not mod_file:
-                continue
-            try:
-                newest_src = max(newest_src, Path(mod_file).stat().st_mtime)
-            except OSError:
-                continue
+        newest_src = self._analyzer_own_source_mtime(analyzer_id)
         if newest_src <= 0:
             return False
         # Small skew tolerance for FS clocks / write order.
@@ -302,6 +329,36 @@ class AnalysisService:
                 analyzer_id=info.id,
                 ok=False,
                 error=f"plugin {info.id} is not enabled in analysis config",
+            )
+
+        # Deferred LLM plugins never auto-execute. Cache only (any version /
+        # mtime) unless the caller passed force=True. Opening the TUI or
+        # auto-analyze must not spawn multi-minute ``grok`` subprocesses that
+        # freeze the UI via the GIL.
+        if info.defer and not force:
+            if self.cache_root is not None:
+                stale = load_cached_result(
+                    self.cache_root,
+                    path,
+                    info.id,
+                    info.version,
+                    allow_stale=True,
+                    ignore_trace_mtime=True,
+                )
+                if stale is not None:
+                    logger.debug(
+                        "Deferred cache for %s/%s (force=false) — not re-running",
+                        path.name,
+                        info.id,
+                    )
+                    return stale
+            return AnalysisResult(
+                session_id=path.name,
+                session_dir=str(path),
+                analyzer_id=info.id,
+                ok=True,
+                summary="skipped (deferred LLM; use Analyze to run)",
+                extras={"skipped_deferred": True},
             )
 
         if cacheable and not force and self.cache_root is not None:
