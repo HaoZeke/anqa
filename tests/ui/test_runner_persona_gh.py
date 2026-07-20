@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from groket.runs.personas import Persona, PersonaStore
 from groket.runs.run_manager import RunManager
-from groket.ui.forms import persona_select_value
+from groket.ui.forms import PERSONA_NONE, persona_select_value
 from groket.ui.screens.runner import RunnerScreen
 from textual.app import App
 from textual.widgets import Select, Static, TabbedContent
@@ -70,6 +70,27 @@ async def test_selecting_gh_persona_via_widget_shows_gh_on(tmp_path: Path) -> No
         panel = scr.query_one("#runtime-launch-panel", Static)
         text = assert_static_contains(panel, "gh on", msg="runtime-launch-panel after select")
         assert "gh off" not in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_selecting_none_clears_previous_persona(tmp_path: Path) -> None:
+    """None must not fall back to a stale persona_id (tree-sitter MCP leak)."""
+    work = tmp_path / "work"
+    (work / "runs" / "traces").mkdir(parents=True)
+    _save_gh_persona(work)
+    app = _Harness(work)
+    async with app.run_test(size=(140, 50)) as pilot:
+        scr = await _runner(pilot, app)
+        scr._refresh_persona_select(select_id="gh-p")
+        await pilot.pause()
+        assert scr._persona_id_from_form() == "gh-p"
+        sel = scr.query_one("#persona-select", Select)
+        sel.value = PERSONA_NONE
+        await pilot.pause()
+        assert scr._persona_id == ""
+        assert scr._persona_id_from_form() == ""
+        caps = scr._persona_capability_snapshot()
+        assert caps == ([], [], [], {})
 
 
 @pytest.mark.asyncio

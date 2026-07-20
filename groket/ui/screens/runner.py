@@ -579,19 +579,24 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 sl.select(tok)
 
     def _persona_id_from_form(self) -> str:
+        """Persona id from the form Select (empty string = None / no persona).
+
+        Empty selection must clear a previous persona — do not fall back to a
+        stale ``_persona_id`` (that ignored the "None" option).
+        """
         try:
             sel = self.query_one("#persona-select", Select)
             pid = normalize_persona_id(sel.value)
-            if pid:
-                self._persona_id = pid
-            return pid or (self._persona_id or "")
+            self._persona_id = pid
+            return pid
         except Exception:
             return self._persona_id or ""
 
     @on(Select.Changed, "#persona-select")
     def _persona_changed(self, event: Select.Changed) -> None:
         # Prefer the event value — more reliable than re-query mid-update.
-        self._persona_id = normalize_persona_id(event.value) or self._persona_id_from_form()
+        # Empty string is intentional (None persona); do not restore the prior id.
+        self._persona_id = normalize_persona_id(event.value)
         self._sync_persona_github_hint()
         self._update_run_caps_persona_hint()
         self._update_run_caps_summary()
