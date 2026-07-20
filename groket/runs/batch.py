@@ -510,6 +510,19 @@ def eval_container_model_tag(model: str) -> str:
 # Batch runner
 
 
+def models_for_task(task: EvalTask, batch_models: list[str]) -> list[str]:
+    """Resolve models for one task: task YAML list wins when non-empty.
+
+    :param task: Task that may set ``models:``.
+    :param batch_models: Already-resolved CLI / catalog default list.
+    :returns: Resolved model ids for this task only.
+    """
+    own = [str(m).strip() for m in (task.models or []) if str(m).strip()]
+    if own:
+        return resolve_model_ids(own)
+    return list(batch_models)
+
+
 def _run_single_task(
     task: EvalTask,
     models: list[str],
@@ -523,9 +536,13 @@ def _run_single_task(
     # Orchestrator roots at ``<work>/runs`` so traces land in ``runs/traces/``.
     orch = DockerOrchestrator(Path(work_dir) / "runs")
     results: list[dict] = []
+    models = models_for_task(task, models)
+    if not models:
+        raise RuntimeError(f"task {task.task_id!r}: no models after resolve")
 
     tag = f"[{task_num}/{total_tasks} {task.task_id}]"
     logger.info(f"\n{tag} START — {task.description}")
+    logger.info(f"{tag} Models: {models}")
     if task.has_local_path:
         logger.info(f"{tag} Workspace: local path {task.repo_path}")
     elif task.has_repo:
@@ -705,21 +722,29 @@ def run_batch(
         return []
 
     total_tasks = len(tasks)
-    total_containers = total_tasks * len(models)
+    per_task_counts = [len(models_for_task(t, models)) for t in tasks]
+    total_containers = sum(per_task_counts)
 
     logger.info(f"\n{'=' * 70}")
     logger.info("  Batch Evaluation Runner")
-    logger.info(f"  {total_tasks} tasks x {len(models)} models = {total_containers} containers")
+    logger.info(
+        f"  {total_tasks} task(s), {total_containers} container(s) "
+        f"(batch default models × tasks that omit models:)"
+    )
     logger.info(f"  Parallelism: {parallelism} concurrent tasks")
     if models_in != models:
-        logger.info("  Model ids (resolved for grok -m):")
+        logger.info("  Batch default model ids (resolved for grok -m):")
         for a, b in zip(models_in, models):
             if a != b:
                 logger.info(f"    {a!r}  →  {b!r}")
             else:
                 logger.info(f"    {b!r}")
     else:
-        logger.info(f"  Model ids (grok -m / config default): {models}")
+        logger.info(f"  Batch default model ids: {models}")
+    for t in tasks:
+        tm = models_for_task(t, models)
+        if t.models:
+            logger.info(f"  task {t.task_id}: models from YAML → {tm}")
     logger.info(f"{'=' * 70}")
 
     all_results: list[dict] = []

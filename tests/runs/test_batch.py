@@ -267,6 +267,54 @@ def test_run_single_task_max_turns_on_container_config(
     assert captured[0].max_turns == 80
 
 
+def test_models_for_task_prefers_task_yaml_list() -> None:
+    """Task ``models:`` overrides the batch catalog list."""
+    task = batch.EvalTask(
+        task_id="t",
+        prompt="p",
+        models=["grok-4.5:high"],
+    )
+    got = batch.models_for_task(task, ["a", "b", "c"])
+    # resolve_model_ids may rewrite tokens; still a single model when YAML has one.
+    assert len(got) == 1
+
+
+def test_run_single_task_repo_path_uses_task_models_not_batch_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """repo_path + multi-model batch catalog must not fail when task sets one model."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    captured: list = []
+
+    class FakeOrch:
+        def __init__(self, work_dir):
+            self.work_dir = work_dir
+
+        def run_parallel_evaluations(self, configs, auth, grok, on_status=None, on_log=None):
+            captured.extend(configs)
+            return []
+
+    class FakeCfg:
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    monkeypatch.setattr(batch, "_docker_types", lambda: (FakeCfg, FakeOrch))
+    monkeypatch.setattr(batch, "resolve_model_ids", lambda ms: list(ms))
+    task = batch.EvalTask(
+        task_id="local",
+        prompt="p",
+        repo_path=str(ws),
+        models=["only-one"],
+    )
+    # Batch would have passed 3 catalog models — task YAML must win.
+    batch._run_single_task(task, ["a", "b", "c"], tmp_path, 1, 1)
+    assert len(captured) == 1
+    assert captured[0].model == "only-one"
+    assert captured[0].repo_path == str(ws.resolve())
+
+
 def test_run_single_task_fork_resume_sets_container_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

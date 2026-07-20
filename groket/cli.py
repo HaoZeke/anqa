@@ -163,7 +163,10 @@ def cmd_batch_run(
         typer.Option(
             "-m",
             "--models",
-            help="Model ids (default: host Grok models catalog).",
+            help=(
+                "Model ids (default: host Grok models catalog). "
+                "Tasks that set models: in YAML use that list instead."
+            ),
         ),
     ] = None,
     parallelism: Annotated[
@@ -196,11 +199,16 @@ def cmd_batch_run(
 
     wd, _tr = resolve_work_and_traces(path)
     typer.echo(f"batch: work_dir={wd}", err=True)
-    typer.echo(f"  tasks={len(loaded)}  models={models or load_models()}", err=True)
+    batch_models = models or load_models()
+    typer.echo(
+        f"  tasks={len(loaded)}  batch_models={batch_models} "
+        f"(per-task models: in YAML override when set)",
+        err=True,
+    )
     results = run_batch(
         loaded,
         work_dir=wd,
-        models=models or load_models(),
+        models=batch_models,
         parallelism=parallelism,
     )
     failed = sum(1 for r in results if (r.get("status") or "") != "completed")
