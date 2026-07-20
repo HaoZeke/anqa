@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml
 
+from ..constants import DEFAULT_MAX_TURNS, normalize_max_turns
 from ..models import JsonObject
 from ..paths import default_work_dir, eval_results_path, user_models_path
 
@@ -50,6 +51,8 @@ _GROK_MODELS_CACHE = Path.home() / ".grok" / "models_cache.json"
 
 REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_REASONING_EFFORT = "xhigh"
+# Grok CLI ``--effort`` / ``--reasoning-effort`` (0.2.x) accepts only these.
+CLI_REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high")
 
 
 def split_model_effort(token: str) -> tuple[str, str]:
@@ -74,12 +77,29 @@ def join_model_effort(model: str, effort: str = "") -> str:
 
 
 def normalize_reasoning_effort(effort: str | None, *, default: str = "") -> str:
-    """Return a known effort level, or *default* (may be empty)."""
+    """Return a known product effort level, or *default* (may be empty)."""
     eff = (effort or "").strip().lower()
     if eff in REASONING_EFFORTS:
         return eff
     d = (default or "").strip().lower()
     return d if d in REASONING_EFFORTS else (default or "")
+
+
+def cli_reasoning_effort(effort: str | None) -> str:
+    """Map product effort to a value accepted by Grok CLI ``--effort``.
+
+    Product tokens include ``xhigh`` / ``max`` (model:effort UI). Current Grok
+    Build CLI only accepts ``low`` | ``medium`` | ``high``; higher product
+    levels map to ``high``. Empty / unknown → ``""`` (omit the flag).
+    """
+    eff = normalize_reasoning_effort(effort)
+    if not eff:
+        return ""
+    if eff in CLI_REASONING_EFFORTS:
+        return eff
+    if eff in ("xhigh", "max"):
+        return "high"
+    return ""
 
 
 def _read_models_cache() -> dict:
@@ -358,6 +378,7 @@ class EvalTask:
     """A single evaluation task: prompt + optional repo + optional initial commands.
 
     ``repo_url`` may be empty for no-repo jobs (scratch workspace + initial commands only).
+    ``repo_path`` bind-mounts a host directory as ``/workspace`` (live tree; no clone).
     ``setup_instructions`` / ``initial_commands`` are multiline shell run *before* grok
     starts (after an optional git clone into /workspace).
     Extra authoring fields (``turns``, ``persona_id``, ``models``, …) come from the
@@ -368,6 +389,7 @@ class EvalTask:
     prompt: str
     repo_url: str = ""
     repo_branch: str = ""
+    repo_path: str = ""
     setup_instructions: str = ""
     docker_image: str = "fully-loaded"
     description: str = ""
@@ -383,10 +405,18 @@ class EvalTask:
     # Fork from ended session (TUI f parity): host path + parent Grok session id.
     resume_session_dir: str = ""
     resume_session_id: str = ""
+    # Grok agent steps per prompt (``--max-turns``); default :data:`~groket.constants.DEFAULT_MAX_TURNS`.
+    max_turns: int = DEFAULT_MAX_TURNS
+    # Opt-in: ``grok --yolo`` (default false → --always-approve).
+    yolo: bool = False
 
     @property
     def has_repo(self) -> bool:
-        return bool((self.repo_url or "").strip())
+        return bool((self.repo_url or "").strip() or (self.repo_path or "").strip())
+
+    @property
+    def has_local_path(self) -> bool:
+        return bool((self.repo_path or "").strip())
 
     @property
     def has_resume(self) -> bool:
@@ -496,7 +526,9 @@ def _run_single_task(
 
     tag = f"[{task_num}/{total_tasks} {task.task_id}]"
     logger.info(f"\n{tag} START — {task.description}")
-    if task.has_repo:
+    if task.has_local_path:
+        logger.info(f"{tag} Workspace: local path {task.repo_path}")
+    elif task.has_repo:
         logger.info(f"{tag} Repo: {task.repo_url} ({task.repo_branch or 'default branch'})")
     else:
         logger.info(f"{tag} Repo: (none — no-repo job)")
@@ -527,6 +559,19 @@ def _run_single_task(
             resume_sid = resume_session_id(resume_path)
         resume_src = str(resume_path)
         logger.info(f"{tag} Fork-resume from {resume_src} (parent id={resume_sid})")
+    effective_repo_path = (task.repo_path or "").strip()
+    if effective_repo_path:
+        from ..session.workspace import resolve_repo_path
+
+        try:
+            effective_repo_path = str(resolve_repo_path(effective_repo_path))
+        except (OSError, ValueError, FileNotFoundError) as exc:
+            raise RuntimeError(f"task {task.task_id!r}: repo_path invalid: {exc}") from exc
+        if len(models) > 1:
+            raise RuntimeError(
+                f"task {task.task_id!r}: repo_path mounts a live host directory — "
+                f"use a single model (got {len(models)})"
+            )
     for model in models:
         suffix = model_suffix(model)
         name = f"groket-{task.task_id}-{suffix}"
@@ -539,12 +584,15 @@ def _run_single_task(
             docker_image=task.docker_image,
             repo_url=task.repo_url,
             repo_branch=task.repo_branch,
+            repo_path=effective_repo_path,
             setup_instructions=task.setup_instructions,
             persona_id=(task.persona_id or "").strip(),
             env_vars=task_env,
             follow_up_prompts=follow_ups,
             resume_source_dir=resume_src,
             resume_session_id=resume_sid,
+            max_turns=normalize_max_turns(task.max_turns, default=DEFAULT_MAX_TURNS),
+            yolo=bool(task.yolo),
         )
         configs.append(cfg)
 
@@ -573,6 +621,7 @@ def _run_single_task(
             "prompt": task.prompt,
             "repo_url": task.repo_url,
             "repo_branch": task.repo_branch,
+            "repo_path": effective_repo_path or task.repo_path or "",
             "docker_image": task.docker_image,
             "setup_instructions": task.setup_instructions,
             "domain": task.domain,

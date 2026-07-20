@@ -62,7 +62,7 @@ def user_models_path() -> Path:
 
 
 def reports_dir() -> Path:
-    """``~/.groket/reports`` — exported finding report Markdown."""
+    """``~/.groket/reports`` — finding Markdown and session export tarballs."""
     d = APP_HOME / "reports"
     d.mkdir(parents=True, exist_ok=True)
     return d

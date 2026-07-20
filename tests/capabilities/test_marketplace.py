@@ -140,6 +140,15 @@ def test_prepare_persona_plugins_dir_and_config(tmp_path: Path, monkeypatch) -> 
         encoding="utf-8",
     )
 
+    def _fake_materialize(name: str, dest_dir: Path, **kw):
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        (dest_dir / "plugin.json").write_text("{}", encoding="utf-8")
+        return dest_dir
+
+    import groket.capabilities.marketplace as mp
+
+    monkeypatch.setattr(mp, "materialize_plugin", _fake_materialize)
+
     persona = Persona(persona_id="t", plugins=["cool-plug"])
     dest = tmp_path / "stage"
     out = prepare_persona_plugins_dir(dest, persona)
@@ -148,7 +157,8 @@ def test_prepare_persona_plugins_dir_and_config(tmp_path: Path, monkeypatch) -> 
     assert manifest.is_file()
     data = json.loads(manifest.read_text(encoding="utf-8"))
     assert data[0]["name"] == "cool-plug"
-    assert data[0]["source_url"] == "https://example.com/cool.git"
+    assert data[0]["checkout"] == "checkouts/cool-plug"
+    assert (dest / "checkouts" / "cool-plug").is_dir()
 
     toml = apply_persona_plugins_to_config_toml("", persona)
     assert "[plugins]" in toml
@@ -401,3 +411,54 @@ class TestPluginSkillsDirsDedup:
         (skills_dir / "sk1").mkdir()
         result = _plugin_skills_dirs(plugin_dir)
         assert isinstance(result, list)
+
+
+def test_prepare_persona_plugins_stages_checkouts_and_skills(tmp_path: Path, monkeypatch) -> None:
+    """One host path: checkouts + plugin skills staged for the container."""
+    from groket.capabilities import marketplace as mp
+    from groket.capabilities.apply import prepare_persona_plugins_dir
+    from groket.runs.personas import Persona
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    plug = home / ".grok" / "installed-plugins" / "superpowers-x"
+    skill = plug / "skills" / "using-superpowers"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# using-superpowers\n", encoding="utf-8")
+    tdd = plug / "skills" / "test-driven-development"
+    tdd.mkdir(parents=True)
+    (tdd / "SKILL.md").write_text("# tdd\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        mp,
+        "list_installed_plugins_for_work",
+        lambda *a, **k: [
+            mp.InstalledPlugin(
+                name="superpowers",
+                path=plug,
+                marketplace_plugin="superpowers",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        mp,
+        "plugin_install_specs",
+        lambda *a, **k: [
+            {
+                "name": "superpowers",
+                "source_url": "https://example.com/superpowers.git",
+                "sha": "abc",
+            }
+        ],
+    )
+
+    persona = Persona(persona_id="p", plugins=["superpowers"])
+    plugins_dest = tmp_path / "plugins"
+    skills_dest = tmp_path / "skills"
+    assert prepare_persona_plugins_dir(plugins_dest, persona, skills_dest=skills_dest) is not None
+    manifest = json.loads((plugins_dest / "plugins-manifest.json").read_text(encoding="utf-8"))
+    assert manifest[0].get("checkout") == "checkouts/superpowers"
+    assert (plugins_dest / "checkouts" / "superpowers" / "skills" / "using-superpowers").is_dir()
+    assert (skills_dest / "using-superpowers" / "SKILL.md").is_file()
+    assert (skills_dest / "test-driven-development" / "SKILL.md").is_file()

@@ -86,20 +86,27 @@ class TestRunConfigModel:
             "run_plugins": ["pl"],
             "run_inline_skills": [{"id": "hint", "content": "---\nname: hint\n---\n"}],
             "parallelism": "2",
+            "max_turns": "120",
             "github_write": "yes",
         }
         cfg = rc.RunConfig.from_dict(data)
         assert cfg.config_id == "c1"
         assert cfg.parallelism == 2
+        assert cfg.max_turns == 120
         assert cfg.run_env_vars["A"] == "1"
         assert cfg.run_mcp_definitions[0]["id"] == "srv"
         assert cfg.run_inline_skills[0]["id"] == "hint"
         d = cfg.to_dict()
         assert d["config_id"] == "c1"
+        assert d["max_turns"] == 120
         pre = cfg.to_runner_prefill(models_override=["m2"])
         assert pre.models == ["m2"]
         assert pre.prompt == "do it"
+        assert pre.max_turns == 120
         assert pre.run_inline_skills == [("hint", "---\nname: hint\n---\n")]
+        # Missing max_turns defaults to 50
+        bare = rc.RunConfig.from_dict({"config_id": "c2", "prompt": "x"})
+        assert bare.max_turns == 50
 
 
 class TestRunConfigStore:
@@ -146,9 +153,11 @@ class TestRunConfigStore:
             run_plugins=["pl"],
             run_env_vars={"K": "V"},
             run_inline_skills=[{"id": "in1", "content": "body1"}],
+            max_turns=80,
         )
         assert created.launch_count == 1
         assert created.persona_id == "per"
+        assert created.max_turns == 80
         assert created.run_inline_skills[0]["id"] == "in1"
         updated = store.save_from_launch(
             prompt="p2",
@@ -167,10 +176,12 @@ class TestRunConfigStore:
             run_plugins=["pl2"],
             run_env_vars={"K2": "V2"},
             run_inline_skills=[{"id": "in2", "content": "body2"}],
+            max_turns=150,
         )
         assert updated.config_id == created.config_id
         assert updated.prompt == "p2"
         assert updated.launch_count == 2
+        assert updated.max_turns == 150
         assert updated.run_skills == ["sk2"]
         assert updated.run_inline_skills[0]["id"] == "in2"
 

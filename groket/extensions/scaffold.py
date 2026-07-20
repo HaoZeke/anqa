@@ -214,6 +214,8 @@ tasks:
     category: regular
     # repo_url: https://github.com/org/repo.git
     # repo_branch: main
+    # Or live host tree (bind-mounted as /workspace; single model only):
+    # repo_path: ~/src/my-project
     prompt: >
       Say hello from the workspace and list the top-level files.
     # initial_commands: |

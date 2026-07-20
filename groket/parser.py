@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -57,8 +58,48 @@ def json_object_line(line: str | bytes) -> JsonObject | None:
     return as_json_object(val)
 
 
-# session_dir resolve key -> (trace mtime, timeline)
-_timeline_cache: dict[str, tuple[float, list[TraceEvent]]] = {}
+# Live timeline cache: session key -> (stamp, finalized events, updates scan).
+# Stamp excludes signals.json so context-meter heartbeats do not force a
+# multi‑MB re-read of updates.jsonl; sizes catch growth within one mtime tick.
+type TimelineStamp = tuple[float, int, int, int]
+
+
+class _UpdatesScanState:
+    """Incremental cursor over ``updates.jsonl`` (pre-marker, pre-finalize)."""
+
+    __slots__ = (
+        "byte_pos",
+        "events",
+        "idx",
+        "line_no",
+        "pending_tools",
+        "result_by_call",
+        "size",
+    )
+
+    def __init__(
+        self,
+        *,
+        size: int = 0,
+        byte_pos: int = 0,
+        line_no: int = 0,
+        events: list[TraceEvent] | None = None,
+        idx: int = 0,
+        pending_tools: dict[str, TraceEvent] | None = None,
+        result_by_call: dict[str, int] | None = None,
+    ) -> None:
+        self.size = size
+        self.byte_pos = byte_pos
+        self.line_no = line_no
+        self.events = events if events is not None else []
+        self.idx = idx
+        self.pending_tools = pending_tools if pending_tools is not None else {}
+        self.result_by_call = result_by_call if result_by_call is not None else {}
+
+
+_timeline_cache: dict[str, tuple[TimelineStamp, list[TraceEvent], _UpdatesScanState | None]] = {}
+# events.jsonl path -> (mtime_ns, size, markers, turn_outcome, loop_count)
+_runtime_markers_cache: dict[str, tuple[int, int, list[TraceEvent], str, int]] = {}
 
 # Wrapper tool ids whose real target lives in ``rawInput.tool_name`` (MCP bridge).
 # Compare with :func:`_tool_id_key` so ``use-tool`` / ``UseTool`` match ``use_tool``.
@@ -159,10 +200,25 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
 
     Returns (marker_events_without_index, turn_outcome, loop_count).
     Marker events are not yet indexed; caller assigns indices.
+
+    Cached by ``events.jsonl`` ``(mtime_ns, size)`` so live light refresh does
+    not re-scan multi‑100KB events files on every tick when only updates.jsonl
+    changed (or when meta is re-probed with an unchanged events file).
     """
     events_file = session_dir / "events.jsonl"
-    if not events_file.exists():
+    try:
+        if not events_file.is_file():
+            return [], "", 0
+        st = events_file.stat()
+        mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+        size = int(st.st_size)
+        cache_key = str(events_file.resolve())
+    except OSError:
         return [], "", 0
+
+    cached = _runtime_markers_cache.get(cache_key)
+    if cached is not None and cached[0] == mtime_ns and cached[1] == size:
+        return cached[2], cached[3], cached[4]
 
     markers: list[TraceEvent] = []
     turn_outcome = ""
@@ -254,6 +310,7 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
         return [], "", 0
 
     markers = started + ended
+    _runtime_markers_cache[cache_key] = (mtime_ns, size, markers, turn_outcome, loop_count)
     return markers, turn_outcome, loop_count
 
 
@@ -524,6 +581,103 @@ def _coalesce_tool_result(
     return idx
 
 
+def _fork_event_signature(ev: TraceEvent) -> tuple[str, str, str, str]:
+    """Stable identity for matching re-stamped parent replay in a fork child."""
+    return (
+        ev.event_type,
+        ev.tool_name or "",
+        ev.tool_call_id or "",
+        (ev.content or "")[:240],
+    )
+
+
+def _fork_is_lifecycle_chrome(ev: TraceEvent) -> bool:
+    """Turn lifecycle rows that sit between matched parent work in a replay."""
+    return ev.event_type in ("turn_started", "turn_ended", "turn_completed") or (
+        ev.event_type in ("session", "session_error")
+        and (
+            "turn started" in (ev.content or "").lower()
+            or "turn ended" in (ev.content or "").lower()
+        )
+    )
+
+
+def _fork_child_timeline_suffix(
+    parent_tl: list[TraceEvent],
+    child_tl: list[TraceEvent],
+) -> list[TraceEvent]:
+    """Select child events that continue after inherited parent history.
+
+    Grok ``--fork-session`` often writes the child ``updates.jsonl`` as a
+    **re-timestamped full replay** of the parent conversation plus the new
+    continuation, with a single ``turn_number=N`` marker wrapping all of it.
+    The seeded parent timeline is authoritative for history; only the child's
+    **new** work (after the parent content prefix) is appended.
+    """
+    child = [e for e in child_tl if e.event_type != "system"]
+    if not child:
+        return []
+
+    parent_work = [
+        _fork_event_signature(e)
+        for e in parent_tl
+        if e.event_type != "system" and not _fork_is_lifecycle_chrome(e)
+    ]
+    if not parent_work:
+        return child
+
+    # Walk the child in order: consume a sequential match of parent work,
+    # skipping lifecycle chrome that Grok injects around the restamped block.
+    pi = 0
+    split_at = 0
+    for i, ev in enumerate(child):
+        if _fork_is_lifecycle_chrome(ev):
+            if pi < len(parent_work):
+                split_at = i + 1
+            continue
+        if pi < len(parent_work) and _fork_event_signature(ev) == parent_work[pi]:
+            pi += 1
+            split_at = i + 1
+            continue
+        # First non-matching substantive event — start of the fork continuation.
+        split_at = i
+        break
+    else:
+        # Exhausted child while still matching (or only chrome after match).
+        if pi >= len(parent_work):
+            return child[split_at:] if split_at < len(child) else []
+        return []
+
+    if pi == 0:
+        # No parent prefix — child is only the new branch (or unrelated).
+        return child
+
+    return child[split_at:]
+
+
+def _merge_fork_parent_timeline(
+    session_dir: Path,
+    local: list[TraceEvent],
+) -> list[TraceEvent]:
+    """Prepend seeded parent timeline for forked child sessions."""
+    from .session.resume import fork_parent_session_dir
+
+    parent = fork_parent_session_dir(session_dir)
+    if parent is None:
+        return local
+    parent_tl = parse_timeline(parent)
+    if not parent_tl:
+        return local
+    suffix = _fork_child_timeline_suffix(parent_tl, local)
+    if not suffix:
+        # Parent-only: reindex copies so cache entries stay independent.
+        return [replace(e, index=i) for i, e in enumerate(parent_tl)]
+    # Parent then continuation in order — do not re-sort by timestamp, or a
+    # restamped child prefix (if any slips through) could interleave wrongly.
+    merged = [replace(e, index=i) for i, e in enumerate([*parent_tl, *suffix])]
+    return merged
+
+
 def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     """Parse updates.jsonl (+ events.jsonl turn markers) into a linear timeline.
 
@@ -537,198 +691,261 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     original index) so multi-turn sessions do not pile all starts at the top
     and all ends at the bottom.
 
-    Results are cached by :func:`session_trace_mtime` so live refresh that calls
-    :func:`load_session_meta` (which needs ``num_events``) then ``parse_timeline``
-    again does not re-read multi‑MB ``updates.jsonl`` twice per tick.
+    Fork-resume children also inherit the seeded parent timeline (see
+    :func:`~groket.session.resume.fork_parent_session_dir`): Grok often writes
+    only the new turn into the child session dir.
+
+    Results are cached by :func:`session_timeline_stamp` (not signals.json) so
+    live context heartbeats do not re-read multi‑MB ``updates.jsonl``. When the
+    file only grows, new lines are scanned incrementally.
     """
     sd = Path(session_dir)
     cache_key = str(sd.resolve()) if sd.exists() else str(sd)
-    mtime = session_trace_mtime(sd)
+    from .session.resume import fork_parent_session_dir
+
+    parent = fork_parent_session_dir(sd)
+    stamp = session_timeline_stamp(sd)
+    if parent is not None:
+        parent_stamp = session_timeline_stamp(parent)
+        stamp = (
+            max(stamp[0], parent_stamp[0]),
+            stamp[1],
+            stamp[2],
+            stamp[3],
+        )
     cached = _timeline_cache.get(cache_key)
-    if cached is not None and cached[0] == mtime:
+    if cached is not None and cached[0] == stamp:
         return cached[1]
 
+    prev_scan = cached[2] if cached is not None else None
+    scan = _scan_updates_jsonl(sd, prev_scan)
     runtime_markers, _outcome, _loops = parse_runtime_markers(session_dir)
 
-    updates_file = session_dir / "updates.jsonl"
-    events: list[TraceEvent] = []
-    idx = 0
-    pending_tools: dict[str, TraceEvent] = {}
-    # call_id -> position in `events` of the coalesced tool_result row
-    result_by_call: dict[str, int] = {}
-
-    if not updates_file.exists():
-        for m in runtime_markers:
-            m.index = idx
-            events.append(m)
-            idx += 1
-        return _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
-
-    # Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative
-    # shell output). Skip full JSON parse unless the line looks terminal — the
-    # completed/failed update carries the body we coalesce into one row.
-    _TU = b"tool_call_update"
-    _TERM = (
-        b'"status":"completed"',
-        b'"status": "completed"',
-        b'"status":"failed"',
-        b'"status": "failed"',
-        b'"isError":true',
-        b'"isError": true',
-    )
-
-    with open(updates_file, "rb") as f:
-        for line_no, line in enumerate(f):
-            if _TU in line and not any(m in line for m in _TERM):
-                continue
-
-            raw = json_object_line(line)
-
-            if raw is None:
-                continue
-
-            params = raw.get("params")
-            update_raw = params.get("update") if isinstance(params, dict) else None
-            update: JsonObject = as_json_object(update_raw) if isinstance(update_raw, dict) else {}
-            etype = str(update.get("sessionUpdate") or "")
-            ts_raw = raw.get("timestamp")
-            if ts_raw is None:
-                ts_raw = raw.get("ts")
-            ts = _as_epoch_ts(ts_raw if isinstance(ts_raw, (str, int, float)) else None)
-
-            if etype in _MESSAGE_TYPE_MAP:
-                content = _extract_message_text(update.get("content", ""))
-                mapped = _MESSAGE_TYPE_MAP[etype]
-                if events and events[-1].event_type == mapped:
-                    events[-1].content += content
-                else:
-                    events.append(
-                        TraceEvent(
-                            index=idx,
-                            event_type=mapped,
-                            timestamp=ts,
-                            content=content,
-                            update_index=line_no,
-                        )
-                    )
-                    idx += 1
-
-            elif etype == "tool_call":
-                call_id = json_as_str(update.get("toolCallId"))
-                raw_input = update.get("rawInput", {})
-                tool_name = resolve_tool_display_name(
-                    json_as_str(update.get("title")) or "unknown",
-                    ToolInputBag(raw_input) if isinstance(raw_input, dict) else None,
-                )
-                ev = TraceEvent(
-                    index=idx,
-                    event_type="tool_call",
-                    timestamp=ts,
-                    tool_name=tool_name,
-                    tool_call_id=call_id,
-                    raw_input=ToolInputBag(raw_input)
-                    if isinstance(raw_input, dict)
-                    else ToolInputBag(),
-                    update_index=line_no,
-                )
-                events.append(ev)
-                pending_tools[call_id] = ev
-                idx += 1
-
-            elif etype == "tool_call_update":
-                idx = _coalesce_tool_result(
-                    update,
-                    ts,
-                    line_no,
-                    events,
-                    idx,
-                    pending_tools,
-                    result_by_call,
-                )
-
-            elif etype == "plan":
-                content = json.dumps(update.get("todos", update), indent=2)[:500]
-                events.append(
-                    TraceEvent(
-                        index=idx,
-                        event_type="plan",
-                        timestamp=ts,
-                        content=content,
-                        update_index=line_no,
-                    )
-                )
-                idx += 1
-
-            elif etype in (
-                "task_backgrounded",
-                "task_completed",
-                "turn_completed",
-                "current_mode_update",
-                "retry_state",
-            ):
-                # 1:1 Grok sessionUpdate → timeline row
-                bits: list[str] = [etype]
-                for key in (
-                    "tool_call_id",
-                    "task_id",
-                    "command",
-                    "cwd",
-                    "prompt_id",
-                    "mode",
-                    "state",
-                ):
-                    val = update.get(key)
-                    if val is not None and str(val).strip():
-                        bits.append(f"{key}={val}")
-                snap = update.get("task_snapshot")
-                if isinstance(snap, dict) and snap:
-                    bits.append(json.dumps(snap)[:400])
-                events.append(
-                    TraceEvent(
-                        index=idx,
-                        event_type=etype,
-                        timestamp=ts,
-                        content="  ".join(str(b) for b in bits),
-                        tool_call_id=json_as_str(update.get("tool_call_id")),
-                        update_index=line_no,
-                    )
-                )
-                idx += 1
-
-            elif etype == "subagent_spawned":
-                desc = update.get("description", "")
-                agent_type = update.get("subagentType", "")
-                events.append(
-                    TraceEvent(
-                        index=idx,
-                        event_type="subagent_spawned",
-                        timestamp=ts,
-                        update_index=line_no,
-                        content=f"Spawned {agent_type}: {desc}",
-                    )
-                )
-                idx += 1
-
-            elif etype == "subagent_finished":
-                events.append(
-                    TraceEvent(
-                        index=idx,
-                        event_type="subagent_finished",
-                        timestamp=ts,
-                        update_index=line_no,
-                        content="Subagent finished",
-                    )
-                )
-                idx += 1
-
+    events = list(scan.events)
+    idx = scan.idx
     for m in runtime_markers:
         m.index = idx
         events.append(m)
         idx += 1
 
     out = _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
-    _timeline_cache[cache_key] = (mtime, out)
+    out = _merge_fork_parent_timeline(sd, out)
+    _timeline_cache[cache_key] = (stamp, out, scan)
     return out
+
+
+# Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative
+# shell output). Skip full JSON parse unless the line looks terminal.
+_TU_BYTES = b"tool_call_update"
+_TERM_BYTES = (
+    b'"status":"completed"',
+    b'"status": "completed"',
+    b'"status":"failed"',
+    b'"status": "failed"',
+    b'"isError":true',
+    b'"isError": true',
+)
+
+
+def _scan_updates_jsonl(session_dir: Path, previous: _UpdatesScanState | None) -> _UpdatesScanState:
+    """Parse ``updates.jsonl`` into pre-marker events, resuming when the file grows.
+
+    :param session_dir: Session directory.
+    :param previous: Prior scan cursor (mutated in place on growth).
+    :returns: Scan state (may be *previous* when only appending).
+    """
+    updates_file = session_dir / "updates.jsonl"
+    if not updates_file.is_file():
+        return _UpdatesScanState()
+
+    try:
+        size = int(updates_file.stat().st_size)
+    except OSError:
+        return _UpdatesScanState()
+
+    # Truncation / rewrite — full rescan.
+    if previous is None or size < previous.byte_pos:
+        state = _UpdatesScanState()
+        start_pos = 0
+    elif size == previous.byte_pos:
+        return previous
+    else:
+        state = previous
+        start_pos = previous.byte_pos
+
+    try:
+        with open(updates_file, "rb") as f:
+            if start_pos:
+                f.seek(start_pos)
+            line_no = state.line_no
+            while True:
+                pos = f.tell()
+                line = f.readline()
+                if not line:
+                    break
+                # Incomplete trailing line: leave for the next growth tick.
+                if not line.endswith(b"\n") and f.tell() >= size:
+                    f.seek(pos)
+                    break
+                _consume_updates_line(line, line_no, state)
+                line_no += 1
+            state.byte_pos = f.tell()
+            state.line_no = line_no
+            state.size = size
+    except OSError:
+        return _UpdatesScanState()
+    return state
+
+
+def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -> None:
+    """Apply one complete ``updates.jsonl`` line into *state*."""
+    if _TU_BYTES in line and not any(m in line for m in _TERM_BYTES):
+        return
+
+    raw = json_object_line(line)
+    if raw is None:
+        return
+
+    params = raw.get("params")
+    update_raw = params.get("update") if isinstance(params, dict) else None
+    update: JsonObject = as_json_object(update_raw) if isinstance(update_raw, dict) else {}
+    etype = str(update.get("sessionUpdate") or "")
+    ts_raw = raw.get("timestamp")
+    if ts_raw is None:
+        ts_raw = raw.get("ts")
+    ts = _as_epoch_ts(ts_raw if isinstance(ts_raw, (str, int, float)) else None)
+
+    events = state.events
+    idx = state.idx
+    pending_tools = state.pending_tools
+    result_by_call = state.result_by_call
+
+    if etype in _MESSAGE_TYPE_MAP:
+        content = _extract_message_text(update.get("content", ""))
+        mapped = _MESSAGE_TYPE_MAP[etype]
+        # Stream agent thought/message chunks into one row. Never glue
+        # ``user_message_chunk`` rows: Grok injects background-task chrome as a
+        # separate user chunk immediately before the next operator prompt, and
+        # coalescing those hid the real prompt from the turn filter (turn N
+        # looked user-less).
+        if events and events[-1].event_type == mapped and mapped != "user_message_chunk":
+            events[-1].content += content
+        else:
+            events.append(
+                TraceEvent(
+                    index=idx,
+                    event_type=mapped,
+                    timestamp=ts,
+                    content=content,
+                    update_index=line_no,
+                )
+            )
+            state.idx = idx + 1
+
+    elif etype == "tool_call":
+        call_id = json_as_str(update.get("toolCallId"))
+        raw_input = update.get("rawInput", {})
+        tool_name = resolve_tool_display_name(
+            json_as_str(update.get("title")) or "unknown",
+            ToolInputBag(raw_input) if isinstance(raw_input, dict) else None,
+        )
+        ev = TraceEvent(
+            index=idx,
+            event_type="tool_call",
+            timestamp=ts,
+            tool_name=tool_name,
+            tool_call_id=call_id,
+            raw_input=ToolInputBag(raw_input) if isinstance(raw_input, dict) else ToolInputBag(),
+            update_index=line_no,
+        )
+        events.append(ev)
+        pending_tools[call_id] = ev
+        state.idx = idx + 1
+
+    elif etype == "tool_call_update":
+        state.idx = _coalesce_tool_result(
+            update,
+            ts,
+            line_no,
+            events,
+            idx,
+            pending_tools,
+            result_by_call,
+        )
+
+    elif etype == "plan":
+        content = json.dumps(update.get("todos", update), indent=2)[:500]
+        events.append(
+            TraceEvent(
+                index=idx,
+                event_type="plan",
+                timestamp=ts,
+                content=content,
+                update_index=line_no,
+            )
+        )
+        state.idx = idx + 1
+
+    elif etype in (
+        "task_backgrounded",
+        "task_completed",
+        "turn_completed",
+        "current_mode_update",
+        "retry_state",
+    ):
+        bits: list[str] = [etype]
+        for key in (
+            "tool_call_id",
+            "task_id",
+            "command",
+            "cwd",
+            "prompt_id",
+            "mode",
+            "state",
+        ):
+            val = update.get(key)
+            if val is not None and str(val).strip():
+                bits.append(f"{key}={val}")
+        snap = update.get("task_snapshot")
+        if isinstance(snap, dict) and snap:
+            bits.append(json.dumps(snap)[:400])
+        events.append(
+            TraceEvent(
+                index=idx,
+                event_type=etype,
+                timestamp=ts,
+                content="  ".join(str(b) for b in bits),
+                tool_call_id=json_as_str(update.get("tool_call_id")),
+                update_index=line_no,
+            )
+        )
+        state.idx = idx + 1
+
+    elif etype == "subagent_spawned":
+        desc = update.get("description", "")
+        agent_type = update.get("subagentType", "")
+        events.append(
+            TraceEvent(
+                index=idx,
+                event_type="subagent_spawned",
+                timestamp=ts,
+                update_index=line_no,
+                content=f"Spawned {agent_type}: {desc}",
+            )
+        )
+        state.idx = idx + 1
+
+    elif etype == "subagent_finished":
+        events.append(
+            TraceEvent(
+                index=idx,
+                event_type="subagent_finished",
+                timestamp=ts,
+                update_index=line_no,
+                content="Subagent finished",
+            )
+        )
+        state.idx = idx + 1
 
 
 def _is_turn_started_marker(ev: TraceEvent) -> bool:
@@ -908,28 +1125,96 @@ def extract_prompt(session_dir: Path) -> str:
     return ""
 
 
-def session_trace_mtime(session_dir: Path) -> float:
-    """Newest mtime among trace artifacts (0 if none)."""
+def _newest_mtime(session_dir: Path, names: tuple[str, ...]) -> float:
+    """Newest mtime among named files under *session_dir* (0 if none)."""
     newest = 0.0
-    for name in (
-        "events.jsonl",
-        "chat_history.jsonl",
-        "updates.jsonl",
-        "summary.json",
-        "signals.json",
-    ):
+    for name in names:
         fp = session_dir / name
         try:
             if fp.is_file():
                 newest = max(newest, fp.stat().st_mtime)
         except OSError:
             continue
+    return newest
+
+
+def session_timeline_mtime(session_dir: Path) -> float:
+    """Newest mtime of artifacts that affect :func:`parse_timeline` output.
+
+    Excludes ``signals.json`` / ``summary.json`` so live context-meter updates
+    do not invalidate the timeline cache or force multi‑MB re-parses.
+    """
+    newest = _newest_mtime(
+        session_dir,
+        (
+            "events.jsonl",
+            "chat_history.jsonl",
+            "updates.jsonl",
+            "system_prompt.txt",
+        ),
+    )
     if newest <= 0:
         try:
             newest = session_dir.stat().st_mtime
         except OSError:
             pass
     return newest
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return int(path.stat().st_size) if path.is_file() else 0
+    except OSError:
+        return 0
+
+
+def session_timeline_stamp(session_dir: Path) -> TimelineStamp:
+    """Identity for timeline cache / live refresh (mtime + sizes).
+
+    Sizes catch ``updates.jsonl`` growth when mtime resolution is coarse
+    (same second). Signals/summary are intentionally omitted.
+    """
+    sd = Path(session_dir)
+    return (
+        session_timeline_mtime(sd),
+        _file_size(sd / "updates.jsonl"),
+        _file_size(sd / "events.jsonl"),
+        _file_size(sd / "chat_history.jsonl") + _file_size(sd / "system_prompt.txt"),
+    )
+
+
+def session_trace_mtime(session_dir: Path) -> float:
+    """Newest mtime among trace artifacts (0 if none).
+
+    Includes ``signals.json`` / ``summary.json`` for session-list freshness.
+    Prefer :func:`session_timeline_mtime` when deciding whether to re-parse
+    the timeline.
+    """
+    newest = _newest_mtime(
+        session_dir,
+        (
+            "events.jsonl",
+            "chat_history.jsonl",
+            "updates.jsonl",
+            "summary.json",
+            "signals.json",
+        ),
+    )
+    if newest <= 0:
+        try:
+            newest = session_dir.stat().st_mtime
+        except OSError:
+            pass
+    return newest
+
+
+def updates_jsonl_size(session_dir: Path) -> int:
+    """Byte size of ``updates.jsonl`` (0 if missing)."""
+    fp = Path(session_dir) / "updates.jsonl"
+    try:
+        return int(fp.stat().st_size) if fp.is_file() else 0
+    except OSError:
+        return 0
 
 
 _LIVE_TURN_OUTCOMES = frozenset(
@@ -1004,12 +1289,12 @@ def _events_turn_balance(session_dir: Path) -> tuple[int, str]:
 def _events_have_open_turn(session_dir: Path) -> bool:
     """True when the agent is mid-turn according to ``events.jsonl``.
 
-    Requires an unmatched ``turn_started`` whose latest turn event is not
-    ``turn_ended`` (harness files sometimes leave an older start unbalanced
-    even after a later ``turn_ended``).
+    Delegates to :func:`~groket.session.turn_gate.events_have_open_turn` so
+    gate lifecycle and parser share one harness-turn definition.
     """
-    open_starts, last_turn = _events_turn_balance(session_dir)
-    return open_starts > 0 and last_turn == "turn_started"
+    from .session.turn_gate import events_have_open_turn
+
+    return events_have_open_turn(session_dir)
 
 
 def _settle_idle_gate_outcome(marker_outcome: str) -> str:
@@ -1019,61 +1304,51 @@ def _settle_idle_gate_outcome(marker_outcome: str) -> str:
 
 
 def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str | None:
-    """Interactive-gate outcome override, or ``None`` to keep marker/inference.
+    """Map interactive gate lifecycle onto turn_outcome, or ``None``.
 
-    Handles stuck ``state=running`` after a completed last turn (``final_turn``
-    left on disk because the entrypoint exited before rewriting ``status.json``).
+    Gate ownership: :mod:`groket.session.turn_gate` (see
+    :func:`~groket.session.turn_gate.lifecycle_state`). This only translates
+    that lifecycle into list/browser outcomes.
     """
-    from .session.turn_gate import (
-        final_turn_requested,
-        host_requested_done,
-        read_turn_gate_status,
-        session_awaits_follow_up,
-    )
+    from .session.turn_gate import lifecycle_state
 
-    gst = read_turn_gate_status(session_dir)
-    gstate = str(gst.get("state") or "")
-    traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
-    turns_open = _events_have_open_turn(session_dir)
-    final_turn = final_turn_requested(session_dir)
-    host_done = host_requested_done(session_dir)
-    still_working = traces_live or turns_open
-
-    if host_done and gstate != "done":
-        # Operator pressed End (``e``): show ending while the agent may still
-        # write traces or the gate reports running. Idle awaiting + stale
-        # traces settles immediately (nothing left to shut down).
-        if still_working or gstate == "running":
-            return "ending"
+    life = lifecycle_state(session_dir)
+    if life == "done":
         return _settle_idle_gate_outcome(marker_outcome)
-
-    if session_awaits_follow_up(session_dir):
+    if life == "ending":
+        return "ending"
+    if life == "awaiting_follow_up":
         return "awaiting_follow_up"
-
-    if gstate == "running":
+    if life == "running":
+        traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
+        turns_open = _events_have_open_turn(session_dir)
         if turns_open:
             if not traces_live:
                 return _settle_idle_gate_outcome(marker_outcome)
-            return "ending" if final_turn else "running"
-        if final_turn:
-            # Last turn already wrote turn_ended; entrypoint left final_turn/status
-            # behind (crash or kill during share). Do not wait on the stale timer.
-            return _settle_idle_gate_outcome(marker_outcome)
+            return "running"
         if traces_live:
             return "running"
         terminal = _normalize_terminal_turn_outcome(marker_outcome)
         if terminal:
-            # Entrypoint died with status=running after the last turn_ended.
+            # Entrypoint left status=running after the last turn_ended.
             return terminal
+        # Leftover last-turn flag with idle/closed harness: settle so the list
+        # is not stuck on "running". Plain state=running with no markers is
+        # still "about to start".
+        from .session.turn_gate import final_turn_requested
+
+        if final_turn_requested(session_dir):
+            return _settle_idle_gate_outcome(marker_outcome)
         return "running"
-
-    if gstate == "done":
-        return _settle_idle_gate_outcome(marker_outcome)
-
-    if turns_open:
-        if not traces_live:
-            return None
-        return "ending" if final_turn else "running"
+    if life == "timeout":
+        return "timeout"
+    if life:
+        # Unknown gate state: only force when a turn is actively open and live.
+        traces_live = _infer_incomplete_turn_outcome(session_dir) == "running"
+        turns_open = _events_have_open_turn(session_dir)
+        if turns_open and traces_live:
+            return "running"
+        return None
     return None
 
 
@@ -1105,6 +1380,18 @@ def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
     return "interrupted"
 
 
+def _git_remote_url(raw: object) -> str:
+    """Normalize a ``git_remotes`` entry to an HTTPS/SSH clone URL string."""
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, dict):
+        for key in ("url", "fetch", "push", "origin"):
+            val = raw.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return ""
+
+
 def _load_summary(meta: SessionMeta, session_dir: Path) -> None:
     """Populate meta from summary.json."""
     summary_file = session_dir / "summary.json"
@@ -1120,10 +1407,23 @@ def _load_summary(meta: SessionMeta, session_dir: Path) -> None:
         meta.updated_at = data.get("updated_at", "")
         meta.num_messages = data.get("num_messages", 0)
         info = data.get("info", {})
-        if info:
-            meta.git_repo = info.get("git_repo_url", "")
-            meta.git_branch = info.get("git_branch", "")
-    except (json.JSONDecodeError, KeyError):
+        if isinstance(info, dict):
+            meta.git_repo = str(info.get("git_repo_url") or meta.git_repo or "").strip()
+            meta.git_branch = str(info.get("git_branch") or meta.git_branch or "").strip()
+        # Top-level Grok fields (often present when info.* is empty).
+        if not meta.git_branch:
+            meta.git_branch = str(data.get("head_branch") or "").strip()
+        if not meta.git_commit:
+            meta.git_commit = str(data.get("head_commit") or "").strip()
+        if not meta.git_repo:
+            remotes = data.get("git_remotes")
+            if isinstance(remotes, list):
+                for item in remotes:
+                    url = _git_remote_url(item)
+                    if url:
+                        meta.git_repo = url
+                        break
+    except (json.JSONDecodeError, KeyError, TypeError, OSError):
         pass
 
 
@@ -1319,6 +1619,9 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
     **not** return ``interrupted`` — that inference is for full
     :func:`load_session_meta` only (overwriting finished sessions with
     interrupted made the list show "cancelled" for old successful runs).
+
+    Fresh file mtimes alone must not override a finished harness turn: a
+    completed session stays "complete" even within the incomplete-stale window.
     """
     sd = Path(session_dir)
     try:
@@ -1329,7 +1632,19 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
             return ""
     except Exception:
         logger.debug("list turn outcome gate for %s", sd, exc_info=True)
-    # Only report running while traces are still fresh; never interrupted here.
+
+    # Terminal turn_ended (and no open turn) → settled, even if traces are young.
+    open_turn = _events_have_open_turn(sd)
+    if not open_turn:
+        try:
+            _markers, marker_outcome, _loop = parse_runtime_markers(sd)
+        except Exception:
+            marker_outcome = ""
+        if _normalize_terminal_turn_outcome(marker_outcome):
+            return ""
+
+    # Live only while an open turn is still being written, or no terminal
+    # marker yet but traces are still fresh (session just starting).
     inferred = _infer_incomplete_turn_outcome(sd)
     if inferred == "running":
         return "running"
@@ -1562,6 +1877,8 @@ _SKIP_SESSION_WALK_DIRS = frozenset(
         "venv",
         # Resume history substrate (see :mod:`groket.session.resume`).
         ".groket-resume-seed",
+        # Parent /workspace tree for fork restore.
+        ".groket-workspace-seed",
     }
 )
 

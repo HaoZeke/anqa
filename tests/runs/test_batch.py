@@ -241,6 +241,32 @@ def test_run_single_task_and_run_batch_mocked(tmp_path: Path, monkeypatch: pytes
     assert batch.run_batch([task], work_dir=tmp_path, models=["m1"]) == []
 
 
+def test_run_single_task_max_turns_on_container_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Batch EvalTask.max_turns is forwarded to ContainerConfig."""
+    captured: list = []
+
+    class FakeOrch:
+        def __init__(self, work_dir):
+            self.work_dir = work_dir
+
+        def run_parallel_evaluations(self, configs, auth, grok, on_status=None, on_log=None):
+            captured.extend(configs)
+            return []
+
+    class FakeCfg:
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+    monkeypatch.setattr(batch, "_docker_types", lambda: (FakeCfg, FakeOrch))
+    task = batch.EvalTask(task_id="t-max", prompt="p", max_turns=80)
+    batch._run_single_task(task, ["m1"], tmp_path, 1, 1)
+    assert len(captured) == 1
+    assert captured[0].max_turns == 80
+
+
 def test_run_single_task_fork_resume_sets_container_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1081,3 +1107,16 @@ def test_validate_models_preserves_effort(monkeypatch):
     active2, skips2 = b.validate_models_for_launch(["nope:xhigh"])
     assert active2 == []
     assert skips2
+
+
+def test_cli_reasoning_effort_maps_product_levels() -> None:
+    """Grok CLI --effort only accepts low|medium|high; xhigh/max map to high."""
+    from groket.runs.batch import cli_reasoning_effort
+
+    assert cli_reasoning_effort("low") == "low"
+    assert cli_reasoning_effort("medium") == "medium"
+    assert cli_reasoning_effort("high") == "high"
+    assert cli_reasoning_effort("xhigh") == "high"
+    assert cli_reasoning_effort("max") == "high"
+    assert cli_reasoning_effort("") == ""
+    assert cli_reasoning_effort("nope") == ""

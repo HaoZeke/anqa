@@ -229,18 +229,26 @@ def test_apply_mcp_and_skills(tmp_path: Path):
     (plug_src / "plugin.json").write_text("{}", encoding="utf-8")
     (plug_src / "skills").mkdir()
 
-    orig2 = apply_mod.resolve_plugin_path
+    import groket.capabilities.marketplace as mp
 
-    def fake_plugin(name, *, work_dir=None):
-        return plug_src if name == "plug" else None
-
-    apply_mod.resolve_plugin_path = fake_plugin  # type: ignore[assignment]  # deliberate override for test
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        mp,
+        "list_installed_plugins_for_work",
+        lambda *a, **kw: [InstalledPlugin(name="plug", path=plug_src, marketplace_plugin="plug")],
+    )
+    monkeypatch.setattr(
+        mp,
+        "plugin_install_specs",
+        lambda *a, **kw: [{"name": "plug", "source_url": "https://x/y.git", "sha": ""}],
+    )
     try:
         pd = apply.prepare_persona_plugins_dir(tmp_path / "out_plugins", p, work_dir=tmp_path)
-        # may be None if plugin not fully installed; still exercised the path
-        assert pd is None or pd.exists()
+        assert pd is not None and pd.exists()
+        assert (pd / "plugins-manifest.json").is_file()
+        assert (pd / "checkouts" / "plug").is_dir()
     finally:
-        apply_mod.resolve_plugin_path = orig2
+        monkeypatch.undo()
 
     assert apply.resolve_plugin_path("missing", work_dir=tmp_path) is None
     cfg = apply.apply_persona_mcp_to_config_toml("[base]\n", None)
@@ -376,9 +384,12 @@ def test_apply_skills_adds_newline():
 
 
 def test_plugins_config_toml_empty():
-    """Empty plugins list returns empty string (line 259)."""
-    assert apply.plugins_config_toml_fragment(plugins_enabled=[]) == ""
-    assert apply.plugins_config_toml_fragment(plugins_enabled=["", " "]) == ""
+    """Empty plugins list still emits enabled = [] (clears host marketplace)."""
+    frag = apply.plugins_config_toml_fragment(plugins_enabled=[])
+    assert "[plugins]" in frag
+    assert "enabled = []" in frag
+    frag2 = apply.plugins_config_toml_fragment(plugins_enabled=["", " "])
+    assert "enabled = []" in frag2
 
 
 def test_resolve_plugin_path_empty_name():
@@ -409,25 +420,47 @@ def test_prepare_plugins_none_persona():
 
 
 def test_prepare_plugins_manifest_write_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """OSError writing manifest returns None (lines 310-312)."""
+    """OSError writing manifest raises RuntimeError (launch must not enable unstaged plugins)."""
     import groket.capabilities.marketplace as mp
 
     p = Persona(persona_id="t", plugins=["cool"])
     monkeypatch.setattr(mp, "plugin_install_specs", lambda *a, **kw: [{"name": "cool"}])
-    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
-        result = apply.prepare_persona_plugins_dir(tmp_path / "out", p)
-    assert result is None
+    monkeypatch.setattr(mp, "list_installed_plugins_for_work", lambda *a, **kw: [])
+
+    def _mat(name, dest, **kw):
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "plugin.json").write_text("{}", encoding="utf-8")
+        return dest
+
+    monkeypatch.setattr(mp, "materialize_plugin", _mat)
+    out = tmp_path / "out"
+    real_write = Path.write_text
+
+    def _write(self, *a, **kw):
+        if self.name == "plugins-manifest.json":
+            raise OSError("disk full")
+        return real_write(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "write_text", _write)
+    with pytest.raises(apply.PluginStageError, match="plugins manifest"):
+        apply.prepare_persona_plugins_dir(out, p)
 
 
 def test_apply_plugins_no_plugins():
-    """No plugins returns base unchanged (lines 321, 326)."""
+    """Empty persona plugins strips host [plugins] and writes enabled = []."""
     p = Persona(persona_id="t")
-    assert apply.apply_persona_plugins_to_config_toml("base", p) == "base"
+    host = '[cli]\nx=1\n\n[plugins]\nenabled = ["superpowers"]\ndisabled = []\n'
+    text = apply.apply_persona_plugins_to_config_toml(host, p)
+    assert "superpowers" not in text
+    assert "[plugins]" in text
+    assert "enabled = []" in text
 
-    text = apply.apply_persona_plugins_to_config_toml(
+    text2 = apply.apply_persona_plugins_to_config_toml(
         "base", Persona(persona_id="t", plugins=["x"])
     )
-    assert "[plugins]" in text
+    assert "[plugins]" in text2
+    assert '"x"' in text2
 
 
 def test_strip_plugins_sections():
@@ -1728,25 +1761,36 @@ def test_apply_resolve_plugin_path_match_by_name(tmp_path: Path, monkeypatch: py
 
 
 def test_apply_prepare_plugins_no_specs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Empty specs returns None."""
+    """Requested plugin that cannot be staged fails the launch path."""
     import groket.capabilities.marketplace as mp
 
     p = Persona(persona_id="t", plugins=["x"])
     monkeypatch.setattr(mp, "plugin_install_specs", lambda *a, **kw: [])
-    result = apply.prepare_persona_plugins_dir(tmp_path / "out", p)
-    assert result is None
+    monkeypatch.setattr(mp, "list_installed_plugins_for_work", lambda *a, **kw: [])
+    monkeypatch.setattr(mp, "materialize_plugin", lambda *a, **kw: None)
+    with pytest.raises(apply.PluginStageError, match="Could not stage plugin"):
+        apply.prepare_persona_plugins_dir(tmp_path / "out", p)
 
 
 def test_apply_plugins_strips_existing_section():
     """apply_persona_plugins_to_config_toml strips existing [plugins] section."""
     p = Persona(persona_id="t", plugins=["cool"])
     text = apply.apply_persona_plugins_to_config_toml(
-        "[other]\nx=1\n\n[plugins]\nenabled = []\n\n[next]\ny=1\n",
+        '[other]\nx=1\n\n[plugins]\nenabled = ["host-only"]\n\n[next]\ny=1\n',
         p,
     )
     # Only one [plugins] section in result
     assert text.count("[plugins]") == 1
     assert "cool" in text
+    assert "host-only" not in text
+
+
+def test_apply_plugins_none_persona_strips_host():
+    """No persona still clears host marketplace plugins from eval config."""
+    host = '[plugins]\nenabled = ["superpowers"]\n'
+    text = apply.apply_persona_plugins_to_config_toml(host, None)
+    assert "superpowers" not in text
+    assert "enabled = []" in text
 
 
 def test_apply_prepare_skills_no_resolve(tmp_path: Path):
@@ -2439,14 +2483,16 @@ class TestApplySkillsNoTrailingNewline:
 
 
 class TestApplyPluginsEmptyNames:
-    """Plugins with empty names return base config unchanged."""
+    """Blank plugin names are ignored; host [plugins] still stripped."""
 
-    def test_empty_plugin_names_returns_base(self) -> None:
+    def test_empty_plugin_names_clears_host(self) -> None:
         from groket.runs.personas import Persona
 
         p = Persona(persona_id="test-id", name="test", plugins=["", " "])
-        result = apply.apply_persona_plugins_to_config_toml("base-config", p)
-        assert result == "base-config"
+        host = 'base-config\n[plugins]\nenabled = ["host-plug"]\n'
+        result = apply.apply_persona_plugins_to_config_toml(host, p)
+        assert "host-plug" not in result
+        assert "enabled = []" in result
 
     def test_plugins_with_names_appended(self) -> None:
         from groket.runs.personas import Persona

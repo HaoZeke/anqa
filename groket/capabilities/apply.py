@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..models import JsonObject
 from .catalog import get_mcp_entry, resolve_skill_path
 from .registry import definition_to_toml_block
 
@@ -16,6 +17,11 @@ if TYPE_CHECKING:
     from ..runs.personas import Persona
 
 logger = logging.getLogger(__name__)
+
+
+class PluginStageError(RuntimeError):
+    """Selected plugin(s) could not be staged for the eval container."""
+
 
 _MCP_SECTION_RE = re.compile(r"(?im)^\s*\[mcp_servers\.[^\]]+\]\s*$")
 
@@ -290,10 +296,12 @@ def _strip_plugins_sections(config_text: str) -> str:
 
 
 def plugins_config_toml_fragment(*, plugins_enabled: list[str]) -> str:
-    """``[plugins] enabled = [...]`` for Grok inside the eval container."""
+    """``[plugins] enabled = [...]`` for Grok inside the eval container.
+
+    Always emits a table (including ``enabled = []``) so host marketplace
+    plugins cannot remain enabled without a staged install.
+    """
     names = [n.strip() for n in (plugins_enabled or []) if (n or "").strip()]
-    if not names:
-        return ""
     lit = ", ".join(f'"{_toml_escape(n)}"' for n in names)
     return f"\n# --- persona Grok plugins ---\n[plugins]\nenabled = [{lit}]\ndisabled = []\n"
 
@@ -313,16 +321,50 @@ def resolve_plugin_path(name: str, *, work_dir: Path | None = None) -> Path | No
     return None
 
 
+def _copy_plugin_skills(skills_root: Path, skills_dest: Path) -> int:
+    """Copy ``skills_root/<id>/SKILL.md`` packs into *skills_dest*. Returns count."""
+    if not skills_root.is_dir():
+        return 0
+    dest = Path(skills_dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    n = 0
+    try:
+        for child in sorted(skills_root.iterdir()):
+            if not child.is_dir() or not (child / "SKILL.md").is_file():
+                continue
+            target = dest / child.name
+            try:
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(child, target)
+                n += 1
+            except OSError:
+                logger.debug("could not stage skill %s", child.name, exc_info=True)
+    except OSError:
+        return n
+    return n
+
+
 def prepare_persona_plugins_dir(
     dest: Path,
     persona: Persona | None,
     *,
     work_dir: Path | None = None,
+    skills_dest: Path | None = None,
 ) -> Path | None:
-    """Write ``dest/plugins-manifest.json`` for selected persona plugin names.
+    """Stage plugin checkouts + manifest for the eval container (one host path).
 
-    Each entry is resolved from the marketplace catalog (name, source URL, SHA).
-    Returns *dest* when at least one entry was written.
+    **Contract:** every plugin on the persona/run list is materialized under
+    ``dest/checkouts/<name>/`` on the **host** (copy of host install, else git
+    clone from the marketplace catalog). The container entrypoint only runs
+    ``grok plugin install --trust`` on those trees — no git inside the image.
+
+    Plugin skill packs are also copied into *skills_dest* (stable
+    ``~/.grok/skills/<id>/`` surface after the entrypoint seeds the stage).
+
+    :returns: *dest* when every requested plugin was staged.
+    :raises RuntimeError: When any requested plugin cannot be staged (so the
+        launch does not enable plugins that will not install).
     """
     if persona is None:
         return None
@@ -330,34 +372,108 @@ def prepare_persona_plugins_dir(
     if not names:
         return None
 
-    from .marketplace import plugin_install_specs
+    from .marketplace import (
+        list_installed_plugins_for_work,
+        materialize_plugin,
+        plugin_install_specs,
+    )
 
     specs = plugin_install_specs(names, work_dir=work_dir)
-    if not specs:
-        return None
+    specs_by_name = {
+        str(s.get("name") or "").strip().lower(): s
+        for s in specs
+        if isinstance(s, dict) and str(s.get("name") or "").strip()
+    }
 
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
+    checkouts = dest / "checkouts"
+    checkouts.mkdir(parents=True, exist_ok=True)
+
+    by_name: dict[str, Path] = {}
+    for plugin in list_installed_plugins_for_work(work_dir):
+        if plugin.path.is_dir():
+            by_name[plugin.name.lower()] = plugin.path
+            if plugin.marketplace_plugin:
+                by_name[plugin.marketplace_plugin.lower()] = plugin.path
+
+    staged: list[JsonObject] = []
+    failed: list[str] = []
+    skills_copied = 0
+    for name in names:
+        target = checkouts / name
+        src = by_name.get(name.lower())
+        ok = False
+        if src is not None and src.is_dir():
+            try:
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(
+                    src,
+                    target,
+                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+                )
+                ok = True
+            except OSError as exc:
+                logger.warning("plugin checkout copy failed for %s: %s", name, exc)
+        if not ok:
+            # Host-side catalog clone — still one path: materialize on host.
+            got = materialize_plugin(name, target, work_dir=work_dir)
+            ok = got is not None and target.is_dir()
+        if not ok:
+            failed.append(name)
+            logger.warning("plugin %r not staged", name)
+            continue
+        row: JsonObject = {
+            "name": name,
+            "checkout": f"checkouts/{name}",
+        }
+        # Keep source_url/sha so the container can fall back to git clone
+        # (origin/main behaviour) if the staged checkout is missing.
+        spec = specs_by_name.get(name.lower())
+        if isinstance(spec, dict):
+            if spec.get("source_url"):
+                row["source_url"] = str(spec["source_url"])
+            if spec.get("sha"):
+                row["sha"] = str(spec["sha"])
+        staged.append(row)
+        if skills_dest is not None:
+            skills_copied += _copy_plugin_skills(target / "skills", skills_dest)
+
+    if failed:
+        raise PluginStageError(
+            "Could not stage plugin(s) for install: "
+            + ", ".join(failed)
+            + ". Install on the host (grok plugin install) or ensure the "
+            "marketplace catalog has a clone URL."
+        )
+    if not staged:
+        return None
+
     manifest = dest / "plugins-manifest.json"
     try:
-        manifest.write_text(
-            json.dumps(specs, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        manifest.write_text(json.dumps(staged, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
-        logger.warning("failed to write plugins manifest %s: %s", manifest, exc)
-        return None
+        raise PluginStageError(f"failed to write plugins manifest {manifest}: {exc}") from exc
+    if skills_copied:
+        logger.info("staged %d skill pack(s) from plugins into %s", skills_copied, skills_dest)
     return dest
 
 
 def apply_persona_plugins_to_config_toml(base_config: str, persona: Persona | None) -> str:
-    if persona is None:
-        return base_config
-    names = [s.strip() for s in (getattr(persona, "plugins", None) or []) if (s or "").strip()]
-    if not names:
-        return base_config
-    # Host config often has [plugins] enabled = [...] — drop it so we don't
-    # append a second [plugins] table (duplicate keys confuse Grok).
+    """Apply persona/run plugin enablement for an eval container.
+
+    Always strips host ``[plugins]`` tables. Eval containers only get plugins
+    that were staged for install; leaving host ``enabled = ["superpowers", …]``
+    made Grok report plugins as enabled without ``grok plugin install``.
+    """
+    names = [
+        s.strip()
+        for s in ((getattr(persona, "plugins", None) or []) if persona is not None else [])
+        if (s or "").strip()
+    ]
+    # Host config often has [plugins] enabled = [...] from interactive use —
+    # never leave that list in the eval config without a matching staged install.
     text = _strip_plugins_sections(base_config or "")
     if text and not text.endswith("\n"):
         text += "\n"

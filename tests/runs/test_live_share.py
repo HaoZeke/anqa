@@ -207,6 +207,30 @@ class TestGetShareDisplay:
         assert d["share_url"] == "https://share.example/ready"
         assert d["snapshot_n"] == 5
 
+    def test_error_with_url_not_ready(self, tmp_path: Path):
+        """Ready only when last write has a URL and empty error."""
+        sd = tmp_path / "denied"
+        sd.mkdir()
+        err = 'Error: Invalid params: "Session sharing is not available for your account."'
+        _write_share(
+            sd,
+            {
+                "session_id": "denied",
+                "share_url": "https://share.example/stale",
+                "error": err,
+                "snapshot_n": 52,
+            },
+        )
+        assert load_cached_share(sd) is None
+        assert get_share_url(sd) == ""
+        d = get_share_display(sd)
+        assert d["ready"] is False
+        assert d["share_url"] == ""
+        assert "not available" in str(d["error"]).lower()
+        md = format_share_summary_markdown(sd)
+        assert "not available" in md.lower() or "error" in md.lower()
+        assert "share.example/stale" not in md
+
 
 # ── format_share_summary_markdown ─────────────────────────────────────────
 
@@ -439,10 +463,10 @@ class TestGetShareDisplaySnapshotNError:
         assert d["snapshot_n"] == 0
 
 
-class TestFormatShareSummaryNonFatalError:
-    """Non-fatal error displayed when share URL is present."""
+class TestFormatShareSummaryErrorWithStaleUrl:
+    """URL + error is not ready; summary shows the error, not the URL."""
 
-    def test_url_with_non_fatal_error(self, tmp_path: Path):
+    def test_url_with_error_not_ready(self, tmp_path: Path):
         sd = tmp_path / "nf"
         sd.mkdir()
         _write_share(
@@ -453,8 +477,12 @@ class TestFormatShareSummaryNonFatalError:
                 "error": "connection reset temporarily",
             },
         )
+        d = get_share_display(sd)
+        assert d["ready"] is False
+        assert d["share_url"] == ""
         md = format_share_summary_markdown(sd)
-        assert "non-fatal" in md.lower() or "Note" in md
+        assert "connection reset" in md.lower()
+        assert "https://share/nf" not in md
 
 
 class TestRefreshShareFromDiskResolveFallback:

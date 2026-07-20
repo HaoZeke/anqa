@@ -38,6 +38,7 @@ class FakeContainerConfig:
     docker_image: str = "fully-loaded"
     repo_url: str = ""
     repo_branch: str = ""
+    repo_path: str = ""
     setup_instructions: str = ""
     env_vars: dict = field(default_factory=dict)
     github_write: bool = False
@@ -51,6 +52,9 @@ class FakeContainerConfig:
     skills_disabled: list = field(default_factory=list)
     inline_skills: list = field(default_factory=list)
     plugins: list = field(default_factory=list)
+    run_plugins: list = field(default_factory=list)
+    run_skills: list = field(default_factory=list)
+    run_mcp_servers: list = field(default_factory=list)
     persona_skills_dir: Path | None = None
     persona_plugins_dir: Path | None = None
     interactive: bool = False
@@ -60,6 +64,10 @@ class FakeContainerConfig:
     resume_session_id: str = ""
     resume_source_dir: str = ""
     resume_fork_session_id: str = ""
+    repo_commit: str = ""
+    restore_code: bool = False
+    max_turns: int = 50
+    yolo: bool = False
 
 
 @dataclass
@@ -293,6 +301,179 @@ def test_start_run_sync_worker(rm: RunManager, tmp_path: Path, monkeypatch: pyte
     )
     assert bg.run_id
     assert bg.eval_run.status in ("completed", "failed", "running")
+
+
+def test_start_batch_forwards_run_plugins(
+    rm: RunManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """start_batch must pass run_plugins into start_run (recipe re-launch)."""
+    import groket.runs.run_manager as rm_mod
+
+    seen: list[dict] = []
+
+    def capture_start(**kwargs):
+        seen.append(kwargs)
+
+        class _BG:
+            run_id = "x"
+            is_running = False
+
+        return _BG()
+
+    monkeypatch.setattr(rm, "start_run", capture_start)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    grok_cfg = tmp_path / "config.toml"
+    grok_cfg.write_text("", encoding="utf-8")
+
+    # run batch worker inline
+    def immediate_thread(target=None, args=(), kwargs=None, daemon=None, name=None):
+        class T:
+            def start(self_inner):
+                target(*args, **(kwargs or {}))
+
+            def is_alive(self_inner):
+                return False
+
+            def join(self_inner, timeout=None):
+                return None
+
+        return T()
+
+    monkeypatch.setattr(rm_mod.threading, "Thread", immediate_thread)
+    rm.start_batch(
+        [
+            {
+                "prompt": "p",
+                "models": ["m1"],
+                "run_plugins": ["superpowers"],
+                "run_skills": ["sk"],
+                "persona_id": "tree-sitter-analyzer",
+            }
+        ],
+        auth_json=auth,
+        grok_config=grok_cfg,
+        max_parallel=1,
+    )
+    assert seen
+    assert seen[0].get("run_plugins") == ["superpowers"]
+    assert seen[0].get("run_skills") == ["sk"]
+    assert seen[0].get("persona_id") == "tree-sitter-analyzer"
+
+
+def test_start_run_rejects_repo_path_with_multi_model(
+    rm: RunManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import groket.runs.run_manager as rm_mod
+
+    monkeypatch.setattr(rm_mod, "validate_models_for_launch", lambda models: (list(models), []))
+    local = tmp_path / "proj"
+    local.mkdir()
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    grok_cfg = tmp_path / "config.toml"
+    grok_cfg.write_text("", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="repo_path"):
+        rm.start_run(
+            prompt="p",
+            setup_instructions="",
+            docker_image="fully-loaded",
+            models=["m1", "m2"],
+            parallelism=1,
+            repo_url="",
+            repo_branch="",
+            repo_path=str(local),
+            auth_json=auth,
+            grok_config=grok_cfg,
+            save_config=False,
+        )
+
+
+def test_start_run_accepts_repo_path_single_model(
+    rm: RunManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import groket.runs.run_manager as rm_mod
+
+    def immediate_thread(target=None, args=(), kwargs=None, daemon=None, name=None):
+        class T:
+            def start(self_inner):
+                target(*args, **(kwargs or {}))
+
+            def is_alive(self_inner):
+                return False
+
+        return T()
+
+    monkeypatch.setattr(rm_mod.threading, "Thread", immediate_thread)
+    monkeypatch.setattr(rm_mod, "validate_models_for_launch", lambda models: (list(models), []))
+    local = tmp_path / "proj"
+    local.mkdir()
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    grok_cfg = tmp_path / "config.toml"
+    grok_cfg.write_text("", encoding="utf-8")
+    bg = rm.start_run(
+        prompt="p",
+        setup_instructions="",
+        docker_image="fully-loaded",
+        models=["m1"],
+        parallelism=1,
+        repo_url="",
+        repo_branch="",
+        repo_path=str(local),
+        auth_json=auth,
+        grok_config=grok_cfg,
+        save_config=True,
+        quiet=True,
+    )
+    assert bg.configs[0].repo_path == str(local.resolve())
+    assert bg.eval_run.repo_path == str(local.resolve())
+
+
+def test_start_run_passes_max_turns(
+    rm: RunManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """start_run forwards max_turns onto each ContainerConfig (default 50)."""
+    import groket.runs.run_manager as rm_mod
+
+    monkeypatch.setattr(rm_mod, "ContainerConfig", FakeContainerConfig)
+    monkeypatch.setattr(rm_mod, "DockerOrchestrator", FakeOrchestrator)
+    monkeypatch.setattr(rm_mod, "validate_models_for_launch", lambda models: (list(models), []))
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    grok_cfg = tmp_path / "config.toml"
+    grok_cfg.write_text("", encoding="utf-8")
+
+    bg_default = rm.start_run(
+        prompt="hello",
+        setup_instructions="",
+        docker_image="fully-loaded",
+        models=["m1"],
+        parallelism=1,
+        repo_url="",
+        repo_branch="",
+        auth_json=auth,
+        grok_config=grok_cfg,
+        save_config=False,
+        quiet=True,
+    )
+    assert bg_default.configs[0].max_turns == 50
+
+    bg = rm.start_run(
+        prompt="hello",
+        setup_instructions="",
+        docker_image="fully-loaded",
+        models=["m1"],
+        parallelism=1,
+        repo_url="",
+        repo_branch="",
+        auth_json=auth,
+        grok_config=grok_cfg,
+        save_config=False,
+        quiet=True,
+        max_turns=99,
+    )
+    assert bg.configs[0].max_turns == 99
 
 
 def test_start_run_model_effort_container_names_have_no_colon(
@@ -719,10 +900,14 @@ def test_complete_interactive_writes_done(rm: RunManager, tmp_path: Path):
     with rm._lock:
         rm._active["r1"] = bg
     rm.complete_interactive("r1")
+    # Host finalizes gates: state=done and control files (command) cleared.
     found = False
     for d in rm.turn_gate_dirs("r1"):
-        if (d / "command").is_file():
-            assert "done" in (d / "command").read_text(encoding="utf-8")
+        status = d / "status.json"
+        if status.is_file():
+            data = json.loads(status.read_text(encoding="utf-8"))
+            assert data.get("state") == "done"
+            assert not (d / "command").is_file()
             found = True
     assert found
 
@@ -742,7 +927,7 @@ def test_is_awaiting_follow_up(rm: RunManager, tmp_path: Path):
     assert rm.is_awaiting_follow_up("r1") is False
 
     # Write gate status
-    gate_dir = traces_vol / ".groket-turn-r1"
+    gate_dir = traces_vol / ".groket-turn"
     gate_dir.mkdir(parents=True)
     import json
 
@@ -1093,7 +1278,7 @@ def test_interactive_status_reads_valid_gate(rm: RunManager, tmp_path: Path):
 
     import json
 
-    gate = traces_vol / ".groket-turn-r1"
+    gate = traces_vol / ".groket-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(json.dumps({"state": "running", "turn": 2}), encoding="utf-8")
     st = rm.interactive_status("r1")
@@ -1326,17 +1511,14 @@ def test_complete_interactive_via_traces_root(rm: RunManager, tmp_path: Path):
     with rm._lock:
         rm._active["r1"] = bg
     rm.complete_interactive("r1")
-    # Should have written command=done to at least one turn gate dir
+    # Host finalizes gates to state=done (command control file is cleared).
     found_done = False
-    for gate in (traces_root / "groket-r1-m").glob(".groket-turn*"):
-        cmd_file = gate / "command"
-        if cmd_file.is_file() and "done" in cmd_file.read_text():
-            found_done = True
-    # Also check fallback paths
-    for gate in traces_root.glob(".groket-turn*"):
-        cmd_file = gate / "command"
-        if cmd_file.is_file() and "done" in cmd_file.read_text():
-            found_done = True
+    for base in (traces_root / "groket-r1-m", traces_root):
+        for gate in base.glob(".groket-turn*"):
+            status = gate / "status.json"
+            if status.is_file():
+                assert json.loads(status.read_text()).get("state") == "done"
+                found_done = True
     assert found_done
 
 
@@ -1470,15 +1652,32 @@ def test_interactive_status_unknown(rm: RunManager) -> None:
     assert result.get("state") == "unknown"
 
 
-def test_interactive_status_reads_gate(rm: RunManager, tmp_path: Path) -> None:
-    """interactive_status reads status.json from turn gate dir."""
-    traces = tmp_path / "traces"
-    gate = traces / ".groket-turn"
+def _active_with_gate(rm: RunManager, tmp_path: Path) -> Path:
+    """Register a run whose turn gate is traces/<container>/.groket-turn."""
+    cname = "groket-r1-m"
+    vol = tmp_path / "traces" / cname
+    gate = vol / ".groket-turn"
     gate.mkdir(parents=True)
+    ev = EvalRun(run_id="r1", prompt="p", status="running")
+    bg = BackgroundRun(
+        run_id="r1",
+        eval_run=ev,
+        configs=[FakeContainerConfig(container_name=cname, run_id="r1")],
+        traces_vol=vol,
+        interactive=True,
+    )
+    with rm._lock:
+        rm._active["r1"] = bg
+    return gate
+
+
+def test_interactive_status_reads_gate(rm: RunManager, tmp_path: Path) -> None:
+    """interactive_status reads status.json from the container turn gate."""
+    gate = _active_with_gate(rm, tmp_path)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "turn": 1}), encoding="utf-8"
     )
-    result = rm.interactive_status()
+    result = rm.interactive_status("r1")
     assert result.get("state") == "awaiting_follow_up"
 
 
@@ -1490,10 +1689,8 @@ def test_submit_follow_up_blank_raises(rm: RunManager) -> None:
 
 def test_submit_follow_up_writes(rm: RunManager, tmp_path: Path) -> None:
     """submit_follow_up writes next-prompt.txt and command file."""
-    traces = tmp_path / "traces"
-    gate = traces / ".groket-turn"
-    gate.mkdir(parents=True)
-    rm.submit_follow_up("do more work")
+    gate = _active_with_gate(rm, tmp_path)
+    rm.submit_follow_up("do more work", run_id="r1")
     assert (gate / "next-prompt.txt").read_text(encoding="utf-8").strip() == "do more work"
     assert (gate / "command").read_text(encoding="utf-8").strip() == "follow_up"
     assert not (gate / "final_turn").exists()
@@ -1501,12 +1698,10 @@ def test_submit_follow_up_writes(rm: RunManager, tmp_path: Path) -> None:
 
 def test_submit_follow_up_final_turn(rm: RunManager, tmp_path: Path) -> None:
     """final=True writes final_turn marker on the gate."""
-    traces = tmp_path / "traces"
-    gate = traces / ".groket-turn"
-    gate.mkdir(parents=True)
-    rm.submit_follow_up("last one", final=True)
+    gate = _active_with_gate(rm, tmp_path)
+    rm.submit_follow_up("last one", run_id="r1", final=True)
     assert (gate / "final_turn").read_text(encoding="utf-8").strip() == "1"
-    rm.submit_follow_up("not last", final=False)
+    rm.submit_follow_up("not last", run_id="r1", final=False)
     assert not (gate / "final_turn").exists()
 
 
@@ -1519,13 +1714,12 @@ def test_submit_follow_up_all_fail_raises(rm: RunManager) -> None:
 
 
 def test_complete_interactive_gate_dir(rm: RunManager, tmp_path: Path) -> None:
-    """complete_interactive writes done command to gate dirs."""
-    traces = tmp_path / "traces"
-    gate = traces / ".groket-turn"
-    gate.mkdir(parents=True)
+    """complete_interactive finalizes gate dirs to state=done."""
+    gate = _active_with_gate(rm, tmp_path)
     rm.orchestrator._docker = Mock()
-    rm.complete_interactive()
-    assert (gate / "command").read_text(encoding="utf-8").strip() == "done"
+    rm.complete_interactive("r1")
+    assert json.loads((gate / "status.json").read_text()).get("state") == "done"
+    assert not (gate / "command").is_file()
 
 
 def test_save_run_manifest_writes_json(tmp_path: Path) -> None:
@@ -1737,7 +1931,8 @@ def test_complete_interactive_docker_stop_fails(rm: RunManager, tmp_path: Path) 
     rm.orchestrator._docker.stop = Mock(side_effect=RuntimeError("no stop"))
     rm.orchestrator._docker.remove = Mock(side_effect=RuntimeError("no remove"))
     rm.complete_interactive("r1")
-    assert (gate / "command").read_text(encoding="utf-8").strip() == "done"
+    assert json.loads((gate / "status.json").read_text()).get("state") == "done"
+    assert not (gate / "command").is_file()
 
 
 class TestWorkerStatusCallback:
@@ -2265,7 +2460,7 @@ class TestInteractiveStatus:
             manager._active["r1"] = bg
 
         # Create turn gate dirs with status.json — traces_vol based
-        turn_dir = traces_vol / ".groket-turn-r1"
+        turn_dir = traces_vol / ".groket-turn"
         turn_dir.mkdir(parents=True)
         (turn_dir / "status.json").write_text(
             json.dumps({"state": "waiting_for_input"}), encoding="utf-8"

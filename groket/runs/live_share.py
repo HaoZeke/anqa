@@ -101,13 +101,13 @@ def is_share_not_ready_error(err: str) -> bool:
 
 
 def load_cached_share(session_dir: Path | str) -> ShareResult | None:
-    """Return share only when a real URL is present in groket-share.json."""
+    """Return share when last write has a URL and no error (usable snapshot)."""
     sd = Path(session_dir)
     data = _read_share_file(sd)
     if not data:
         return None
     res = ShareResult.from_dict(data, session_dir=sd)
-    if not res.share_url:
+    if not res.share_url or res.error:
         return None
     try:
         key = str(sd.resolve())
@@ -130,13 +130,16 @@ def get_share_url(session_dir: Path | str) -> str:
         key = str(sd)
     with _LOCK:
         reg = _REGISTRY.get(key)
-        if reg and reg.share_url:
+        if reg and reg.share_url and not reg.error:
             return reg.share_url
     return ""
 
 
 def get_share_display(session_dir: Path | str) -> JsonObject:
-    """Fields for Summary / Stats (always re-reads groket-share.json)."""
+    """Fields for Summary / Stats (always re-reads groket-share.json).
+
+    Ready means the last share write recorded a URL with an empty error.
+    """
     out: JsonObject = {
         "share_url": "",
         "error": "",
@@ -162,13 +165,15 @@ def get_share_display(session_dir: Path | str) -> JsonObject:
     err = str(data.get("error") or "")
     url = str(data.get("share_url") or "")
     src = str(data.get("source") or "")
-    pending = not url and (src == "pending" or is_share_not_ready_error(err) or not err)
-    if not url and err and not is_share_not_ready_error(err):
+    # One rule: ready ⇔ non-empty URL and no error field.
+    ready = bool(url) and not err
+    pending = not ready and (src == "pending" or is_share_not_ready_error(err) or not err)
+    if not ready and err and not is_share_not_ready_error(err):
         pending = False
 
     out.update(
         {
-            "share_url": url,
+            "share_url": url if ready else "",
             "error": err,
             "source": src,
             "method": str(data.get("method") or ""),
@@ -176,8 +181,8 @@ def get_share_display(session_dir: Path | str) -> JsonObject:
             "snapshot_at": str(data.get("snapshot_at") or ""),
             "updated_at": str(data.get("updated_at") or ""),
             "note": str(data.get("note") or ""),
-            "pending": pending and not url,
-            "ready": bool(url),
+            "pending": pending,
+            "ready": ready,
         }
     )
     return out
@@ -210,10 +215,8 @@ def format_share_summary_markdown(session_dir: Path | str) -> str:
         lines.append(f"- **Method:** `{info['method']}`")
     if info.get("source"):
         lines.append(f"- **Source:** `{info['source']}`")
-    if info.get("error") and not url:
+    if info.get("error"):
         lines.append(f"- **Error:** {str(info['error'])[:500]}")
-    elif info.get("error") and url and not is_share_not_ready_error(str(info["error"])):
-        lines.append(f"- **Note (last non-fatal):** {str(info['error'])[:200]}")
 
     lines.append(
         "- **Tip:** Share is created in the container only. Reload the share page "

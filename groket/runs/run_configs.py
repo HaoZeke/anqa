@@ -22,6 +22,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..constants import DEFAULT_MAX_TURNS, normalize_max_turns
 from ..models import (
     JsonObject,
     as_json_object,
@@ -86,6 +87,8 @@ class RunConfig:
     docker_image: str = "fully-loaded"
     repo_url: str = ""
     repo_branch: str = ""
+    # Host directory bind-mounted as /workspace (live tree; no CoW/clone).
+    repo_path: str = ""
     # Serialised field; persona controls GitHub write access at launch.
     github_write: bool = False
     # Persona id (see ``personas`` package); env + github_write applied at launch from persona only.
@@ -101,6 +104,10 @@ class RunConfig:
     run_inline_skills: list[JsonObject] = field(default_factory=list)
     models: list[str] = field(default_factory=list)
     parallelism: int = 1
+    # Grok agent steps per prompt (``--max-turns``).
+    max_turns: int = DEFAULT_MAX_TURNS
+    # Opt-in: launch with ``grok --yolo`` (default false → --always-approve).
+    yolo: bool = False
     notes: str = ""
     # Catalog metadata (task_id / category / label from imported tasks or user)
     wave: int = 0
@@ -118,6 +125,10 @@ class RunConfig:
     def display_name(self) -> str:
         if self.name.strip():
             return self.name.strip()
+        if (self.repo_path or "").strip():
+            base = Path(self.repo_path).expanduser().name
+            if base:
+                return base
         if self.repo_url:
             repo = self.repo_url.rstrip("/").split("/")[-1]
             if repo:
@@ -184,6 +195,7 @@ class RunConfig:
             persona_id=json_as_str(data.get("persona_id")),
             repo_url=json_as_str(data.get("repo_url")),
             repo_branch=json_as_str(data.get("repo_branch")),
+            repo_path=json_as_str(data.get("repo_path")),
             github_write=json_as_bool(data.get("github_write"), False),
             run_mcp_servers=json_as_str_list(data.get("run_mcp_servers")),
             run_mcp_definitions=defs,
@@ -192,6 +204,11 @@ class RunConfig:
             run_env_vars=env_vars,
             run_inline_skills=inline,
             parallelism=json_as_int(data.get("parallelism"), 1),
+            max_turns=normalize_max_turns(
+                data.get("max_turns"),
+                default=DEFAULT_MAX_TURNS,
+            ),
+            yolo=json_as_bool(data.get("yolo"), False),
             notes=json_as_str(data.get("notes")),
             wave=json_as_int(data.get("wave"), 0),
             task_id=json_as_str(data.get("task_id")),
@@ -216,6 +233,7 @@ class RunConfig:
             docker_image=self.docker_image or "fully-loaded",
             repo_url=self.repo_url,
             repo_branch=self.repo_branch,
+            repo_path=self.repo_path,
             models=list(models_override if models_override is not None else self.models),
             persona_id=self.persona_id or "",
             run_mcp_servers=list(self.run_mcp_servers),
@@ -224,6 +242,8 @@ class RunConfig:
             run_plugins=list(self.run_plugins),
             run_env_vars=dict(self.run_env_vars),
             run_inline_skills=[(str(x["id"]), str(x.get("content") or "")) for x in inline],
+            max_turns=normalize_max_turns(self.max_turns, default=DEFAULT_MAX_TURNS),
+            yolo=bool(self.yolo),
         )
 
 
@@ -352,6 +372,7 @@ class RunConfigStore:
         docker_image: str = "fully-loaded",
         repo_url: str = "",
         repo_branch: str = "",
+        repo_path: str = "",
         models: list[str] | None = None,
         parallelism: int = 1,
         name: str = "",
@@ -365,10 +386,15 @@ class RunConfigStore:
         source_session_dir: str = "",
         config_id: str | None = None,
         github_write: bool = False,
+        max_turns: object | None = None,
+        yolo: bool = False,
     ) -> RunConfig:
         cid = config_id or uuid.uuid4().hex[:12]
         if not name:
-            base = _slug(repo_url.split("/")[-1] if repo_url else prompt[:30])
+            if (repo_path or "").strip():
+                base = _slug(Path(repo_path).expanduser().name or "local")
+            else:
+                base = _slug(repo_url.split("/")[-1] if repo_url else prompt[:30])
             name = f"{base}-{cid[:6]}"
         cfg = RunConfig(
             config_id=cid,
@@ -378,9 +404,12 @@ class RunConfigStore:
             docker_image=docker_image or "fully-loaded",
             repo_url=repo_url,
             repo_branch=repo_branch,
+            repo_path=repo_path or "",
             github_write=bool(github_write),
             models=list(models or []),
             parallelism=max(1, int(parallelism or 1)),
+            max_turns=normalize_max_turns(max_turns, default=DEFAULT_MAX_TURNS),
+            yolo=bool(yolo),
             notes=notes,
             wave=int(wave or 0),
             task_id=task_id or "",
@@ -413,6 +442,9 @@ class RunConfigStore:
         run_plugins: list[str] | None = None,
         run_env_vars: dict | None = None,
         run_inline_skills: list | None = None,
+        max_turns: object | None = None,
+        repo_path: str = "",
+        yolo: bool = False,
     ) -> RunConfig:
         """Upsert a config when launching an eval (auto-save recipe).
 
@@ -433,6 +465,7 @@ class RunConfigStore:
                 existing.docker_image = docker_image
                 existing.repo_url = repo_url
                 existing.repo_branch = repo_branch
+                existing.repo_path = repo_path or ""
                 existing.github_write = bool(github_write)
                 existing.persona_id = persona_id if persona_id else existing.persona_id
                 if run_mcp_servers is not None:
@@ -451,6 +484,9 @@ class RunConfigStore:
                     existing.run_inline_skills = list(inline)
                 existing.models = list(models)
                 existing.parallelism = parallelism
+                if max_turns is not None:
+                    existing.max_turns = normalize_max_turns(max_turns, default=DEFAULT_MAX_TURNS)
+                existing.yolo = bool(yolo)
                 existing.source_run_id = run_id or existing.source_run_id
                 existing.last_launched_at = _utc_now_iso()
                 existing.launch_count = int(existing.launch_count or 0) + 1
@@ -461,11 +497,14 @@ class RunConfigStore:
             docker_image=docker_image,
             repo_url=repo_url,
             repo_branch=repo_branch,
+            repo_path=repo_path,
             models=models,
             parallelism=parallelism,
             name=name,
             source_run_id=run_id,
             github_write=bool(github_write),
+            max_turns=max_turns,
+            yolo=yolo,
         )
         cfg.persona_id = persona_id or ""
         cfg.run_mcp_servers = list(run_mcp_servers or [])
@@ -476,6 +515,7 @@ class RunConfigStore:
         cfg.run_plugins = list(run_plugins or [])
         cfg.run_env_vars = {str(k): str(v) for k, v in dict(run_env_vars or {}).items()}
         cfg.run_inline_skills = list(inline or [])
+        cfg.yolo = bool(yolo)
         cfg.last_launched_at = _utc_now_iso()
         cfg.launch_count = 1
         return self.save(cfg)
@@ -492,6 +532,7 @@ class RunConfigStore:
         session_id: str = "",
         session_dir: str = "",
         name: str = "",
+        repo_path: str = "",
     ) -> RunConfig:
         return self.create(
             prompt=prompt,
@@ -499,6 +540,7 @@ class RunConfigStore:
             docker_image=docker_image,
             repo_url=repo_url,
             repo_branch=repo_branch,
+            repo_path=repo_path,
             models=models,
             name=name,
             source_session_id=session_id,

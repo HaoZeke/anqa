@@ -95,3 +95,25 @@ class TestStripControlChars:
     def test_mixed_escapes(self):
         result = strip_control_chars("\x1b[1;32mOK\x1b[0m\x00\x01done")
         assert result == "OKdone"
+
+
+class TestNormalizeMaxTurns:
+    def test_default(self) -> None:
+        from groket.constants import DEFAULT_MAX_TURNS, normalize_max_turns
+
+        assert DEFAULT_MAX_TURNS == 50
+        assert normalize_max_turns(None) == 50
+        assert normalize_max_turns(True) == 50  # bool is not an int count
+        assert normalize_max_turns("") == 50
+        assert normalize_max_turns("nope") == 50
+        assert normalize_max_turns(0) == 50
+        assert normalize_max_turns(-1) == 50
+        assert normalize_max_turns([]) == 50  # unsupported type
+
+    def test_valid(self) -> None:
+        from groket.constants import normalize_max_turns
+
+        assert normalize_max_turns(1) == 1
+        assert normalize_max_turns("75") == 75
+        assert normalize_max_turns(200) == 200
+        assert normalize_max_turns(12.9) == 12

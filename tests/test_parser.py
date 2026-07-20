@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 from groket.models import JsonValue
@@ -126,6 +127,32 @@ class TestParseRuntimeMarkers:
         markers, outcome, loops = parse_runtime_markers(sd)
         assert markers == []
 
+    def test_runtime_markers_cache_by_mtime(self, tmp_path):
+        """Live light refresh must not re-read events.jsonl when unchanged."""
+        from groket import parser as parser_mod
+
+        sd = tmp_path / "cached-events"
+        sd.mkdir()
+        events = sd / "events.jsonl"
+        events.write_text(
+            '{"type":"turn_started"}\n{"type":"turn_ended","outcome":"success"}\n',
+            encoding="utf-8",
+        )
+        parser_mod._runtime_markers_cache.clear()
+        m1, o1, _ = parse_runtime_markers(sd)
+        assert o1 == "success"
+        assert len(m1) >= 2
+        # Same mtime/size → cache hit (return same marker list object).
+        m2, o2, _ = parse_runtime_markers(sd)
+        assert o2 == "success"
+        assert m2 is m1
+        # Growth busts the cache.
+        with events.open("a", encoding="utf-8") as fh:
+            fh.write('{"type":"turn_started"}\n')
+        m3, o3, _ = parse_runtime_markers(sd)
+        assert m3 is not m1
+        assert sum(1 for m in m3 if m.event_type == "turn_started") >= 2
+
 
 # ── parse_timeline ────────────────────────────────────────────────────────
 
@@ -144,10 +171,9 @@ class TestParseTimeline:
         for i, ev in enumerate(events):
             assert ev.index == i
 
-    def test_user_message_coalescing(self, session_dir):
+    def test_user_message_present(self, session_dir):
         events = parse_timeline(session_dir)
         user_events = [e for e in events if e.event_type == "user_message_chunk"]
-        # Multiple user_message_chunk updates should coalesce into one event
         assert len(user_events) >= 1
 
     def test_tool_result_coalescing(self, session_dir):
@@ -367,8 +393,6 @@ class TestParseChatHistory:
         messages = parse_chat_history(empty_session_dir)
         assert messages == []
 
-
-from pathlib import Path
 
 from groket.parser import (
     _as_epoch_ts,
@@ -1262,7 +1286,7 @@ def test_load_session_meta_turn_gate_running(tmp_path: Path):
     sess = vol / "%2F" / "sess-gate"
     sess.mkdir(parents=True)
     (sess / "summary.json").write_text("{}", encoding="utf-8")
-    gate = vol / ".groket-turn-r"
+    gate = vol / ".groket-turn"
     gate.mkdir()
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "sess-gate"}) + "\n",
@@ -1770,12 +1794,12 @@ def test_load_session_meta_turn_gate_awaiting(tmp_path: Path):
 
 def test_load_session_meta_gate_running_with_summary(tmp_path: Path):
     """load_session_meta picks up 'running' from turn gate status with summary."""
-    parent = tmp_path / "groket-run" / "traces"
-    sd = parent / "sess"
+    vol = tmp_path / "traces" / "groket-run"
+    sd = vol / "%2Fworkspace" / "sess"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text(json.dumps({"info": {"id": "sess"}}), encoding="utf-8")
     (sd / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    gate = parent / ".groket-turn"
+    gate = vol / ".groket-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "sess"}) + "\n",
@@ -2364,7 +2388,7 @@ def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
     import os
 
     os.utime(sess / "events.jsonl", (old, old))
-    gate = vol / ".groket-turn-ctr"
+    gate = vol / ".groket-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps(
@@ -2382,6 +2406,74 @@ def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
     assert meta.turn_outcome == "completed"
     assert meta.list_status_label() == "complete"
     assert list_turn_outcome_for_dir(sess) == ""
+
+
+def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
+    """command=done after turn_ended is lifecycle done (no open harness turn).
+
+    Host docker-stop after End often leaves status=running; lifecycle uses the
+    events contract, not mtimes.
+    """
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from groket.session.turn_gate import lifecycle_state, session_pending_label
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-done-running"
+    sess.mkdir(parents=True)
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    gate = vol / ".groket-turn"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "session_id": "019f-done-running",
+                "turn": 8,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (gate / "command").write_text("done\n", encoding="utf-8")
+    assert lifecycle_state(sess) == "done"
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "completed"
+    assert meta.list_status_label() == "complete"
+    assert list_turn_outcome_for_dir(sess) == ""
+    assert session_pending_label(sess) == ""
+
+
+def test_host_done_open_turn_is_ending(tmp_path: Path) -> None:
+    """command=done while turn_started is still open → ending (agent finishing)."""
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from groket.session.turn_gate import lifecycle_state, session_pending_label
+
+    vol = tmp_path / "ctr"
+    sess = vol / "%2Fworkspace" / "019f-done-open"
+    sess.mkdir(parents=True)
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0}) + "\n",
+        encoding="utf-8",
+    )
+    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
+    gate = vol / ".groket-turn"
+    gate.mkdir(parents=True)
+    (gate / "status.json").write_text(
+        json.dumps({"state": "running", "session_id": "019f-done-open", "turn": 1}) + "\n",
+        encoding="utf-8",
+    )
+    (gate / "command").write_text("done\n", encoding="utf-8")
+    assert lifecycle_state(sess) == "ending"
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "ending"
+    assert list_turn_outcome_for_dir(sess) == "ending"
+    assert session_pending_label(sess) == "ending_done"
 
 
 def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
@@ -2494,23 +2586,29 @@ def test_final_turn_open_events_show_ending(tmp_path: Path) -> None:
     assert meta.list_status_label() == "ending"
 
 
-def test_host_done_fresh_traces_show_ending(tmp_path: Path) -> None:
-    """command=done while traces are fresh keeps ending status."""
+def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
+    """command=done while gate was awaiting (no open turn) settles to complete."""
     import json
 
     from groket.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
-    sess = vol / "%2Fworkspace" / "019f-done-fresh"
+    sess = vol / "%2Fworkspace" / "019f-done-await"
     sess.mkdir(parents=True)
-    (sess / "events.jsonl").write_text("x" * 300, encoding="utf-8")
-    gate = vol / ".groket-turn-ctr"
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    gate = vol / ".groket-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps(
             {
                 "state": "awaiting_follow_up",
-                "session_id": "019f-done-fresh",
+                "session_id": "019f-done-await",
                 "turn": 1,
             }
         )
@@ -2518,7 +2616,241 @@ def test_host_done_fresh_traces_show_ending(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (gate / "command").write_text("done\n", encoding="utf-8")
-    meta = load_session_meta(sess)
-    assert meta.turn_outcome == "ending"
-    assert list_turn_outcome_for_dir(sess) == "ending"
-    assert meta.list_status_label() == "ending"
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "completed"
+    assert list_turn_outcome_for_dir(sess) == ""
+    assert meta.list_status_label() == "complete"
+
+
+def test_load_summary_git_remotes_and_head(tmp_path: Path) -> None:
+    """summary.json git_remotes / head_* populate SessionMeta for fork prefill."""
+    from groket.parser import load_session_meta
+
+    sess = tmp_path / "sid"
+    sess.mkdir()
+    (sess / "summary.json").write_text(
+        json.dumps(
+            {
+                "current_model_id": "v9",
+                "session_summary": "s",
+                "git_remotes": ["https://github.com/torvalds/linux"],
+                "head_branch": "master",
+                "head_commit": "abc123def",
+                "info": {"id": "sid", "cwd": "/workspace"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.git_repo == "https://github.com/torvalds/linux"
+    assert meta.git_branch == "master"
+    assert meta.git_commit == "abc123def"
+
+
+def test_list_turn_outcome_completed_not_running_when_fresh(tmp_path: Path) -> None:
+    """Completed harness turn must not show running just because mtimes are young."""
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+
+    sess = tmp_path / "fresh-done"
+    sess.mkdir()
+    (sess / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
+    (sess / "summary.json").write_text(
+        json.dumps({"info": {"id": "fresh-done"}, "session_summary": "s"}),
+        encoding="utf-8",
+    )
+    meta = load_session_meta(sess, include_timeline_count=False)
+    assert meta.turn_outcome == "completed"
+    assert list_turn_outcome_for_dir(sess) == ""
+    assert meta.list_status_label() == "complete"
+
+
+# ── session_timeline_mtime / incremental parse ───────────────────────────
+
+
+def test_session_timeline_mtime_ignores_signals(tmp_path: Path) -> None:
+    """signals.json must not change the timeline cache key."""
+    import time
+
+    from groket.parser import session_timeline_mtime, session_trace_mtime
+
+    sd = tmp_path / "s"
+    sd.mkdir()
+    updates = sd / "updates.jsonl"
+    updates.write_text("{}\n", encoding="utf-8")
+    base_tl = session_timeline_mtime(sd)
+    base_tr = session_trace_mtime(sd)
+    time.sleep(0.02)
+    (sd / "signals.json").write_text('{"x":1}', encoding="utf-8")
+    assert session_timeline_mtime(sd) == base_tl
+    assert session_trace_mtime(sd) >= base_tr
+    assert session_trace_mtime(sd) >= session_timeline_mtime(sd)
+
+
+def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
+    """Growing updates.jsonl reuses the scan cursor (same event identities)."""
+    import json
+
+    import groket.parser as parser_mod
+    from groket.parser import parse_timeline
+
+    sd = tmp_path / "s"
+    sd.mkdir()
+    (sd / "events.jsonl").write_text(
+        json.dumps({"ts": 1000, "type": "turn_started", "turn_number": 0}) + "\n",
+        encoding="utf-8",
+    )
+
+    def _msg(text: str, ts: int) -> str:
+        return json.dumps(
+            {
+                "timestamp": ts,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    }
+                },
+            }
+        )
+
+    updates = sd / "updates.jsonl"
+    updates.write_text(_msg("hello", 1001) + "\n", encoding="utf-8")
+    parser_mod._timeline_cache.clear()
+    first = parse_timeline(sd)
+    msgs = [e for e in first if e.event_type == "agent_message_chunk"]
+    assert len(msgs) == 1
+    assert msgs[0].content == "hello"
+    first_id = id(msgs[0])
+
+    # Append another chunk — coalesces onto the same event object via scan state.
+    with updates.open("a", encoding="utf-8") as f:
+        f.write(_msg(" world", 1002) + "\n")
+    second = parse_timeline(sd)
+    msgs2 = [e for e in second if e.event_type == "agent_message_chunk"]
+    assert len(msgs2) == 1
+    assert msgs2[0].content == "hello world"
+    # Incremental path mutates the scan-state event in place.
+    assert id(msgs2[0]) == first_id
+
+
+def test_live_browser_timeline_min_interval_scales() -> None:
+    from groket.constants import (
+        LIVE_BROWSER_TIMELINE_MIN_INTERVAL,
+        LIVE_BROWSER_TIMELINE_MIN_INTERVAL_HUGE,
+        LIVE_BROWSER_TIMELINE_MIN_INTERVAL_LARGE,
+        live_browser_timeline_min_interval,
+    )
+
+    assert live_browser_timeline_min_interval(0) == LIVE_BROWSER_TIMELINE_MIN_INTERVAL
+    assert live_browser_timeline_min_interval(100) == LIVE_BROWSER_TIMELINE_MIN_INTERVAL
+    assert (
+        live_browser_timeline_min_interval(5 * 1024 * 1024)
+        == LIVE_BROWSER_TIMELINE_MIN_INTERVAL_LARGE
+    )
+    assert (
+        live_browser_timeline_min_interval(20 * 1024 * 1024)
+        == LIVE_BROWSER_TIMELINE_MIN_INTERVAL_HUGE
+    )
+
+
+def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None:
+    """Background-task chrome + next operator prompt must stay separate rows.
+
+    Grok writes them as adjacent user_message_chunk lines; gluing them made
+    turn segmentation treat the operator prompt as background chrome and drop
+    it from the following turn.
+    """
+    import json
+
+    import groket.parser as parser_mod
+    from groket.parser import parse_timeline
+    from groket.session.turns import segment_timeline_turns
+
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    (sd / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"ts": 1000, "type": "turn_started", "turn_number": 0}),
+                json.dumps({"ts": 2000, "type": "turn_ended", "outcome": "completed"}),
+                json.dumps({"ts": 3000, "type": "turn_started", "turn_number": 1}),
+                json.dumps({"ts": 4000, "type": "turn_ended", "outcome": "completed"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def _user(text: str, ts: int, prompt_index: int) -> str:
+        return json.dumps(
+            {
+                "timestamp": ts,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": text},
+                        "_meta": {"promptIndex": prompt_index},
+                    }
+                },
+            }
+        )
+
+    def _agent(text: str, ts: int) -> str:
+        return json.dumps(
+            {
+                "timestamp": ts,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    }
+                },
+            }
+        )
+
+    bg = (
+        '<system-reminder>\nBackground task "call-abc" completed (exit code: 0).\n'
+        "Command: uv sync\n</system-reminder>"
+    )
+    (sd / "updates.jsonl").write_text(
+        "\n".join(
+            [
+                _user("setup the repo", 1001, 0),
+                _agent("done setup", 1500),
+                # Adjacent user chunks: bg chrome then real follow-up (bug case).
+                _user(bg, 2001, 1),
+                _user("run redis before/after benchmarks", 2002, 2),
+                _agent("running redis tests", 2500),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    parser_mod._timeline_cache.clear()
+    tl = parse_timeline(sd)
+    users = [e for e in tl if e.event_type == "user_message_chunk"]
+    assert len(users) == 3, [u.content[:40] for u in users]
+    assert "setup the repo" in users[0].content
+    assert "Background task" in users[1].content
+    assert "redis before/after" in users[2].content
+    assert "Background task" not in users[2].content
+
+    segs = segment_timeline_turns(tl)
+    # Last interactive turn must include the redis operator prompt.
+    last_with_redis = None
+    for seg in segs:
+        for e in seg.events:
+            if e.event_type == "user_message_chunk" and "redis before/after" in (e.content or ""):
+                last_with_redis = seg
+    assert last_with_redis is not None
+    assert any(
+        e.event_type == "user_message_chunk" and "redis before/after" in (e.content or "")
+        for e in last_with_redis.events
+    )

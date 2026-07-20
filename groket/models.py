@@ -497,6 +497,8 @@ class SessionMeta:
     total_tokens_before_compaction: int = 0
     git_repo: str = ""
     git_branch: str = ""
+    # From summary ``head_commit`` (for fork restore / checkout after clone).
+    git_commit: str = ""
     task_id: str = ""
     run_id: str = ""
     # From events.jsonl runtime telemetry
@@ -614,5 +616,7 @@ class EvalRun(BaseModel):
     parallelism: int = 1
     repo_url: str = ""
     repo_branch: str = ""
+    # Host directory bind-mounted as /workspace (no clone); empty when unused.
+    repo_path: str = ""
     status: str = "pending"  # pending, running, completed, failed
     created_at: str = ""

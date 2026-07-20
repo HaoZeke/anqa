@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -104,13 +105,10 @@ def test_run_manager_turn_gate(tmp_path: Path):
         rm._active["abc"] = bg
 
     rm.submit_follow_up("next please", run_id="abc")
-    gate = traces_vol / ".groket-turn-abc"
+    gate = traces_vol / ".groket-turn"
     assert gate.is_dir()
     assert (gate / "next-prompt.txt").read_text(encoding="utf-8") == "next please"
     assert "follow_up" in (gate / "command").read_text(encoding="utf-8")
-    # Turn gate also under work_dir/traces when that layout is used
-    also = tmp_path / "traces" / ".groket-turn-abc"
-    assert also.is_dir()
 
     (gate / "status.json").write_text(
         '{"state": "awaiting_follow_up", "session_id": "s1", "turn": 1}\n',
@@ -121,7 +119,8 @@ def test_run_manager_turn_gate(tmp_path: Path):
     assert st.get("state") == "awaiting_follow_up"
 
     rm.complete_interactive("abc")
-    assert "done" in (gate / "command").read_text(encoding="utf-8")
+    assert json.loads((gate / "status.json").read_text(encoding="utf-8")).get("state") == "done"
+    assert not (gate / "command").is_file()
 
 
 def test_task_definition_setup_shell_list():
@@ -239,6 +238,22 @@ def test_none_repo_url_coerced():
     assert td.repo_url == ""
 
 
+def test_repo_path_on_task_and_eval():
+    from groket.runs.task_schema import TaskDefinition, task_definition_to_eval_task
+
+    td = TaskDefinition(
+        task_id="t",
+        prompt="p",
+        repo_path="~/src/proj",
+        repo_url=None,  # type: ignore[arg-type]
+    )
+    assert td.repo_path == "~/src/proj"
+    et = task_definition_to_eval_task(td)
+    assert et.repo_path == "~/src/proj"
+    assert et.has_local_path is True
+    assert et.has_repo is True
+
+
 def test_batch_task_turns_on_eval_task():
     from groket.runs.batch import EvalTask
 
@@ -291,3 +306,38 @@ def test_resume_session_id_override(tmp_path: Path) -> None:
     )
     et = task_definition_to_eval_task(td)
     assert et.resume_session_id == "019f-parent-id"
+
+
+def test_max_turns_default_and_override(tmp_path: Path) -> None:
+    from groket.constants import DEFAULT_MAX_TURNS
+    from groket.runs.task_schema import TaskDefinition, load_task_file, task_definition_to_eval_task
+
+    td = TaskDefinition(task_id="t", prompt="p")
+    assert td.max_turns == DEFAULT_MAX_TURNS
+    assert task_definition_to_eval_task(td).max_turns == DEFAULT_MAX_TURNS
+
+    td2 = TaskDefinition(task_id="t2", prompt="p", max_turns=200)
+    assert task_definition_to_eval_task(td2).max_turns == 200
+
+    path = tmp_path / "tasks.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "defaults:",
+                "  max_turns: 75",
+                "tasks:",
+                "  - task_id: a",
+                "    prompt: hi",
+                "  - task_id: b",
+                "    prompt: hi",
+                "    max_turns: 10",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    doc = load_task_file(path)
+    resolved = doc.resolved_tasks()
+    by_id = {t.task_id: t for t in resolved}
+    assert by_id["a"].max_turns == 75
+    assert by_id["b"].max_turns == 10

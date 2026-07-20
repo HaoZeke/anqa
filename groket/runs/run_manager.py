@@ -378,6 +378,12 @@ class RunManager:
         follow_up_prompts: list[str] | None = None,
         resume_session_id: str = "",
         resume_source_dir: str = "",
+        max_turns: object | None = None,
+        repo_commit: str = "",
+        restore_code: bool = False,
+        # Host directory bind-mounted as /workspace (no CoW); empty = clone/empty.
+        repo_path: str = "",
+        yolo: bool = False,
     ) -> BackgroundRun:
         # github_write arg is deprecated: effective write comes only from the persona.
         """Start a background evaluation. Multiple runs may execute concurrently.
@@ -493,6 +499,42 @@ class RunManager:
         resume_src = (resume_source_dir or "").strip()
         if resume_sid or resume_src:
             interactive = True
+        # Fork/resume: restore parent workspace commit when known.
+        effective_commit = (repo_commit or "").strip()
+        effective_restore = bool(restore_code) or bool(resume_sid or resume_src)
+        if (resume_sid or resume_src) and (not effective_commit) and resume_src:
+            try:
+                from ..parser import load_session_meta
+
+                parent_meta = load_session_meta(Path(resume_src), include_timeline_count=False)
+                effective_commit = (parent_meta.git_commit or "").strip()
+                if not (repo_url or "").strip() and (parent_meta.git_repo or "").strip():
+                    repo_url = parent_meta.git_repo.strip()
+                if not (repo_branch or "").strip() and (parent_meta.git_branch or "").strip():
+                    repo_branch = parent_meta.git_branch.strip()
+            except Exception:
+                logger.debug("parent session git meta for resume failed", exc_info=True)
+
+        effective_repo_path = (repo_path or "").strip()
+        if effective_repo_path:
+            from ..session.workspace import resolve_repo_path
+
+            try:
+                effective_repo_path = str(resolve_repo_path(effective_repo_path))
+            except (OSError, ValueError, FileNotFoundError) as exc:
+                raise RuntimeError(f"repo_path invalid: {exc}") from exc
+            # Live mount: one container only (no concurrent writers on one tree).
+            n_containers = len(models) * max(1, int(parallelism or 1))
+            if n_containers > 1:
+                raise RuntimeError(
+                    "repo_path mounts a live host directory — use a single model "
+                    "and parallelism=1 (got "
+                    f"{len(models)} model(s) × parallelism={parallelism})"
+                )
+            # External tree is as-is; do not force commit restore onto it.
+            if not (repo_commit or "").strip():
+                effective_commit = ""
+                effective_restore = bool(resume_sid or resume_src)
 
         pending_skip_logs = [f">>> SKIP model: {msg}" for msg in skip_msgs]
 
@@ -512,11 +554,18 @@ class RunManager:
             parallelism=parallelism,
             repo_url=repo_url,
             repo_branch=repo_branch,
+            repo_path=effective_repo_path,
             status="running",
             created_at=datetime.now(UTC).isoformat(),
         )
 
+        from ..constants import DEFAULT_MAX_TURNS, normalize_max_turns
         from .batch import eval_container_model_tag
+
+        effective_max_turns = normalize_max_turns(
+            DEFAULT_MAX_TURNS if max_turns is None else max_turns,
+            default=DEFAULT_MAX_TURNS,
+        )
 
         configs: list[ContainerConfig] = []
         used_names: set[str] = set()
@@ -541,6 +590,7 @@ class RunManager:
                         docker_image=effective_docker,
                         repo_url=repo_url,
                         repo_branch=repo_branch,
+                        repo_path=effective_repo_path,
                         setup_instructions=setup_instructions,
                         container_name=name,
                         github_write=bool(effective_github_write),
@@ -553,6 +603,9 @@ class RunManager:
                         skills=list(persona_skills),
                         skills_disabled=list(persona_skills_disabled),
                         plugins=list(persona_plugins),
+                        run_plugins=[s for s in (run_plugins or []) if str(s).strip()],
+                        run_skills=[s for s in (run_skills or []) if str(s).strip()],
+                        run_mcp_servers=[s for s in (run_mcp_servers or []) if str(s).strip()],
                         inline_skills=list(run_inline_skills or []),
                         env_vars=dict(merged_env),
                         interactive=bool(interactive),
@@ -560,6 +613,10 @@ class RunManager:
                         run_id=run_id,
                         resume_session_id=resume_sid,
                         resume_source_dir=resume_src,
+                        repo_commit=effective_commit,
+                        restore_code=effective_restore,
+                        max_turns=effective_max_turns,
+                        yolo=bool(yolo),
                     )
                 )
 
@@ -601,6 +658,7 @@ class RunManager:
                     docker_image=effective_docker,
                     repo_url=repo_url,
                     repo_branch=repo_branch,
+                    repo_path=effective_repo_path,
                     models=models,
                     parallelism=parallelism,
                     run_id=run_id,
@@ -615,6 +673,8 @@ class RunManager:
                     run_env_vars=dict(run_env_vars or {}),
                     # Tuples from runner or maps — RunConfigStore normalizes.
                     run_inline_skills=list(run_inline_skills or []),
+                    max_turns=effective_max_turns,
+                    yolo=bool(yolo),
                 )
             except Exception:
                 logger.warning("Failed to save run config", exc_info=True)
@@ -699,8 +759,15 @@ class RunManager:
                         parallelism=max(1, int(item.get("parallelism") or 1)),
                         repo_url=str(item.get("repo_url") or ""),
                         repo_branch=str(item.get("repo_branch") or ""),
+                        repo_path=str(item.get("repo_path") or ""),
                         github_token=str(item.get("github_token") or ""),
                         persona_id=str(item.get("persona_id") or ""),
+                        run_mcp_servers=list(item.get("run_mcp_servers") or []),
+                        run_mcp_definitions=list(item.get("run_mcp_definitions") or []),
+                        run_skills=list(item.get("run_skills") or []),
+                        run_plugins=list(item.get("run_plugins") or []),
+                        run_env_vars=dict(item.get("run_env_vars") or {}),
+                        run_inline_skills=list(item.get("run_inline_skills") or []),
                         auth_json=auth_json,
                         grok_config=grok_config,
                         prune_exited=prune_exited and idx == 0,
@@ -709,6 +776,8 @@ class RunManager:
                         existing_config_id=item.get("existing_config_id"),
                         quiet=True,
                         batch_id=batch_id,
+                        max_turns=item.get("max_turns"),
+                        yolo=bool(item.get("yolo")),
                     )
                     with lock:
                         started.append(bg)
@@ -805,6 +874,8 @@ class RunManager:
             bg.eval_run.status = "failed"
             bg.results = []
         finally:
+            if bg.interactive:
+                self._finalize_interactive_gates(bg)
             bg.finished_at = datetime.now(UTC)
             bg.elapsed_s = (bg.finished_at - start).total_seconds()
             with self._lock:
@@ -821,35 +892,57 @@ class RunManager:
                 except Exception:
                     logger.debug("Finished listener callback failed", exc_info=True)
 
+    def _finalize_interactive_gates(self, bg: BackgroundRun) -> None:
+        """Write ``state=done`` on turn gates after interactive containers exit."""
+        from ..session.turn_gate import finalize_gate_dir, finalize_session_gate
+
+        for cfg in bg.configs:
+            base = self.work_dir / "traces" / cfg.container_name
+            if not base.is_dir():
+                continue
+            for gate in base.glob(".groket-turn*"):
+                if gate.is_dir():
+                    try:
+                        finalize_gate_dir(gate)
+                    except Exception:
+                        logger.debug("finalize gate failed under %s", gate, exc_info=True)
+        for r in bg.results or []:
+            if r.session_dir is not None:
+                try:
+                    finalize_session_gate(r.session_dir)
+                except Exception:
+                    logger.debug(
+                        "finalize session gate failed for %s", r.session_dir, exc_info=True
+                    )
+
     @staticmethod
     def _save_run_manifest(bg: BackgroundRun, results: list[ContainerStatus]) -> None:
+        from .run_recipe import recipe_from_background, write_run_recipe
+
         ev = bg.eval_run
-        sessions = {}
+        sessions: dict[str, str] = {}
         for r in results:
             if r.session_dir:
                 sessions[r.container_name] = str(r.session_dir)
         # Capabilities from first container config (same persona/MCP/skills for all models).
         cfg0 = bg.configs[0] if bg.configs else None
-        manifest = {
-            "run_id": bg.run_id,
-            "created_at": datetime.now(UTC).isoformat(),
-            "prompt": ev.prompt,
-            "repo_url": ev.repo_url,
-            "repo_branch": ev.repo_branch,
-            "docker_image": ev.docker_image,
-            "setup_instructions": ev.setup_instructions,
-            "models": ev.models,
-            "sessions": sessions,
-            "persona_id": (bg.persona_id or (cfg0.persona_id if cfg0 else "") or "").strip(),
-            "mcp_servers": list(cfg0.mcp_servers or []) if cfg0 else [],
-            "skills": list(cfg0.skills or []) if cfg0 else [],
-            "skills_disabled": list(cfg0.skills_disabled or []) if cfg0 else [],
-            "plugins": list(cfg0.plugins or []) if cfg0 else [],
-        }
+        manifest = recipe_from_background(
+            run_id=bg.run_id,
+            eval_run=ev,
+            config=cfg0,
+            persona_id=bg.persona_id,
+            sessions=sessions,
+        )
+        # Keep traces-volume recipe current (written at start; refresh sessions map).
+        if bg.traces_vol is not None:
+            try:
+                write_run_recipe(bg.traces_vol, manifest)
+            except OSError:
+                logger.debug("Failed to write run.json to %s", bg.traces_vol, exc_info=True)
         for r in results:
             if r.session_dir and r.session_dir.is_dir():
                 try:
-                    (r.session_dir / "run.json").write_text(json.dumps(manifest, indent=2))
+                    write_run_recipe(r.session_dir, manifest)
                 except OSError:
                     logger.debug("Failed to write run.json to %s", r.session_dir, exc_info=True)
 
@@ -867,11 +960,10 @@ class RunManager:
         return None
 
     def turn_gate_dirs(self, run_id: str = "") -> list[Path]:
-        """Host dirs the entrypoint may poll (must be on the **container traces volume**).
+        """Host dirs the entrypoint polls (one ``.groket-turn`` per container volume).
 
         Containers mount ``work_dir/traces/<container_name>`` at
-        ``/root/.grok/sessions``, so gates live under that path — not under
-        ``work_dir/traces/.groket-turn`` alone.
+        ``/root/.grok/sessions``.
         """
         dirs: list[Path] = []
         seen: set[Path] = set()
@@ -883,7 +975,6 @@ class RunManager:
                 dirs.append(p)
 
         bg = self._active_run(run_id)
-        rid = (run_id or (bg.run_id if bg else "") or "").strip()
         traces_root = self.work_dir / "traces"
         if not traces_root.is_dir():
             traces_root = self.work_dir / "runs" / "traces"
@@ -892,21 +983,10 @@ class RunManager:
         if bg is not None:
             container_names = [c.container_name for c in bg.configs if c.container_name]
             if bg.traces_vol is not None:
-                base = Path(bg.traces_vol)
-                if rid:
-                    _add(base / f".groket-turn-{rid}")
-                _add(base / ".groket-turn")
+                _add(Path(bg.traces_vol) / ".groket-turn")
 
         for cname in container_names:
-            base = traces_root / cname
-            if rid:
-                _add(base / f".groket-turn-{rid}")
-            _add(base / ".groket-turn")
-
-        # Also poll traces root (entrypoint may place the gate beside sessions).
-        if rid:
-            _add(traces_root / f".groket-turn-{rid}")
-        _add(traces_root / ".groket-turn")
+            _add(traces_root / cname / ".groket-turn")
         return dirs
 
     def interactive_status(self, run_id: str = "") -> dict[str, JsonValue]:
@@ -960,9 +1040,10 @@ class RunManager:
         """Best-effort docker stop/remove for the container that owns *session_dir*.
 
         Used after session-scoped ``command=done`` so a multi-model run does not
-        stop sibling containers.
+        stop sibling containers. Finalizes the turn gate to ``state=done`` so
+        the list does not stay on ending after the host kills the entrypoint.
         """
-        from ..session.turn_gate import traces_volume_for_session
+        from ..session.turn_gate import finalize_session_gate, traces_volume_for_session
 
         base = traces_volume_for_session(session_dir)
         if base is None:
@@ -978,14 +1059,21 @@ class RunManager:
             self.orchestrator._docker.remove(name)
         except Exception:
             logger.debug("docker remove failed for %s", name, exc_info=True)
+        try:
+            finalize_session_gate(session_dir)
+        except Exception:
+            logger.debug("finalize gate failed for %s", session_dir, exc_info=True)
 
     def complete_interactive(self, run_id: str = "") -> None:
-        """Signal **all** containers for *run_id* to exit and stop them.
+        """Signal **all** containers for *run_id* to exit, stop them, finalize gates.
 
         Prefer session-scoped :func:`~groket.session.turn_gate.write_done_for_session`
         plus :meth:`stop_session_container` for one session in a multi-model run.
         """
-        for turn_dir in self.turn_gate_dirs(run_id):
+        from ..session.turn_gate import finalize_gate_dir
+
+        turn_dirs = self.turn_gate_dirs(run_id)
+        for turn_dir in turn_dirs:
             try:
                 turn_dir.mkdir(parents=True, exist_ok=True)
                 (turn_dir / "command").write_text("done\n", encoding="utf-8")
@@ -1006,6 +1094,13 @@ class RunManager:
                 self.orchestrator._docker.remove(name)
             except Exception:
                 logger.debug("docker remove failed for %s", name, exc_info=True)
+        # Host owns terminal status when it kills the container (entrypoint
+        # cannot rewrite status after docker stop).
+        for turn_dir in turn_dirs:
+            try:
+                finalize_gate_dir(turn_dir)
+            except Exception:
+                logger.debug("finalize gate failed under %s", turn_dir, exc_info=True)
 
     def is_awaiting_follow_up(self, run_id: str = "") -> bool:
         st = self.interactive_status(run_id)
