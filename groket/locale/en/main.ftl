@@ -2692,5 +2692,16 @@ ui-mcp-pick-sel = {$n} selected · {$configured} configured · {$ids}
 ui-plugins-pick-sel = Selected ({$n}): {$ids}
 ui-skills-pick-sel = {$n} selected · {$ids}
 
+bind-export-task = Export task
 
+cmd-export-task = Export as task YAML
+cmd-export-task-help = Write a batch tasks YAML from this recipe or form (choose path)
 
+export-task-title = Export as task YAML
+export-task-hint = Path for the tasks catalog file (default under ~/.groket/tasks/).
+export-task-placeholder = ~/.groket/tasks/my-task.yaml
+export-task-saved = Task YAML saved: { $path }
+export-task-failed = Export task failed: { $exc }
+export-task-no-prompt = Prompt is required to export a task
+export-task-no-config = No recipe selected to export
+path-input-empty = Enter a file path

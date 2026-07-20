@@ -83,6 +83,12 @@ Panes (`[` / `]` or digits **1–5**):
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.
 
+**Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
+(prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks
+for the file path (default `~/.groket/tasks/<task_id>.yaml`). Run extras
+(plugins/skills/MCP) are noted in comments — put those on the persona for
+batch, or re-apply as runner extras.
+
 **Export** (`E` in the browser or on the sessions list): writes **one** outer
 tarball under `~/.groket/reports/` containing:
 

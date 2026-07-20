@@ -96,6 +96,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_select_all_toggle", U.cmd_select_all_configs()),
                 ("action_launch_config", U.cmd_launch_config()),
                 ("action_launch_selected", U.cmd_launch_selected()),
+                ("action_export_task_yaml", U.cmd_export_task()),
                 ("action_new_blank", U.cmd_new_blank_runner()),
                 ("action_delete_config", U.cmd_delete_config()),
                 ("action_go_back", U.cmd_back()),
@@ -105,6 +106,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
             for method, th in (
                 ("action_run_evaluation", U.cmd_launch_evaluation()),
                 ("action_save_config_only", U.cmd_save_config_only()),
+                ("action_export_task_yaml", U.cmd_export_task()),
                 ("action_new_persona_from_runner", U.cmd_new_persona_runner()),
                 ("action_open_persona_builder", U.cmd_persona_manager()),
                 ("action_go_back", U.cmd_back()),

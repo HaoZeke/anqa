@@ -487,6 +487,45 @@ class RunConfigsScreen(ChromeActions):
         self._update_selection_bar()
         self._show_detail_for_cursor()
 
+    def action_export_task_yaml(self) -> None:
+        """Export the highlighted recipe as a batch tasks YAML (choose path)."""
+        cfg = self._current_config()
+        if cfg is None:
+            self.notify(t("export-task-no-config"), severity="warning")
+            return
+        if not (cfg.prompt or "").strip():
+            self.notify(t("export-task-no-prompt"), severity="error")
+            return
+        from ...runs.task_export import (
+            default_task_export_path,
+            source_from_run_config,
+            write_task_export,
+        )
+        from ..path_input_modal import PathInputModal
+
+        src = source_from_run_config(cfg)
+        initial = str(default_task_export_path(src.task_id))
+
+        def _done(path_raw: str | None) -> None:
+            if not path_raw:
+                return
+            try:
+                written = write_task_export(Path(path_raw), src)
+            except Exception as exc:
+                self.notify(t("export-task-failed", exc=str(exc)), severity="error")
+                return
+            self.notify(t("export-task-saved", path=str(written)), severity="information")
+
+        self.app.push_screen(
+            PathInputModal(
+                title=t("export-task-title"),
+                initial=initial,
+                placeholder=t("export-task-placeholder"),
+                hint=t("export-task-hint"),
+            ),
+            _done,
+        )
+
     def action_new_blank(self) -> None:
         self.app.pop_screen()
         self.app.push_screen(RunnerScreen(self.work_dir, run_manager=self.run_manager))

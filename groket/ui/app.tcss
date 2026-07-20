@@ -627,6 +627,39 @@ SelectOverlay:focus > .option-list--option-highlighted {
     padding: 0 2 0 2;
 }
 
+#path-input-modal {
+    width: 70;
+    max-width: 90%;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: tall $primary;
+}
+
+#path-input-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#path-input-hint {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#path-input-field {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#path-input-actions {
+    height: auto;
+    align-horizontal: right;
+}
+
+#path-input-actions Button {
+    margin-left: 1;
+}
+
 #discard-confirm-modal {
     width: 56;
     height: auto;

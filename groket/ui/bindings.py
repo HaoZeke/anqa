@@ -146,6 +146,7 @@ RUNNER: tuple[Binding, ...] = (
         # App also binds launch_from_runner with priority so TextArea cannot swallow it.
         _b("ctrl+enter,ctrl+j", "run_evaluation", U.bind_launch(), show=True, priority=True),
         _ctrl_s("save_config_only", U.bind_save(), show=True),
+        _b("T", "export_task_yaml", U.bind_export_task(), show=True),
         _b("n", "new_persona_from_runner", U.bind_new_persona(), show=False),
         _b("p", "open_persona_builder", U.bind_personas(), show=False),
         _b("d", "check_docker", U.bind_docker(), show=False),
@@ -158,6 +159,7 @@ RUN_CONFIGS: tuple[Binding, ...] = (
         _b("enter", "open_in_runner", U.bind_open(), show=True),
         _b("l", "launch_config", U.bind_launch(), show=True),
         _b("w", "launch_selected", U.bind_launch_selected(), show=True),
+        _b("T", "export_task_yaml", U.bind_export_task(), show=True),
     )
     + LIST_SELECT
     + LIST_SELECT_ALL

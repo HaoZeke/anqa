@@ -1146,6 +1146,82 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
     def action_run_evaluation(self) -> None:
         self._do_launch()
 
+    def action_export_task_yaml(self) -> None:
+        """Export the current runner form as a batch tasks YAML (choose path)."""
+        fields = self._read_form(require_models=False)
+        if fields is None:
+            return
+        (
+            prompt,
+            setup,
+            docker_image,
+            repo_url,
+            repo_branch,
+            repo_path,
+            models,
+            name,
+            persona_id,
+            _run_mcp,
+            _run_mcp_defs,
+            run_skills,
+            run_plugins,
+            run_env,
+            _run_inline,
+            max_turns,
+            yolo,
+        ) = fields
+        if not (prompt or "").strip():
+            self.notify(t("export-task-no-prompt"), severity="error")
+            return
+        from ...runs.task_export import (
+            TaskExportSource,
+            default_task_export_path,
+            slug_task_id,
+            write_task_export,
+        )
+        from ..path_input_modal import PathInputModal
+
+        tid = slug_task_id(name or prompt[:40] or "exported-task")
+        initial = str(default_task_export_path(tid))
+        src = TaskExportSource(
+            prompt=prompt.strip(),
+            task_id=tid,
+            description=(name or "").strip(),
+            docker_image=docker_image or "fully-loaded",
+            repo_url=repo_url or "",
+            repo_branch=repo_branch or "",
+            repo_path=repo_path or "",
+            setup_instructions=setup or "",
+            persona_id=persona_id or "",
+            models=tuple(models or ()),
+            max_turns=max_turns,
+            yolo=bool(yolo),
+            env=dict(run_env or {}),
+            run_plugins=tuple(run_plugins or ()),
+            run_skills=tuple(run_skills or ()),
+            run_mcp_servers=tuple(_run_mcp or ()),
+        )
+
+        def _done(path_raw: str | None) -> None:
+            if not path_raw:
+                return
+            try:
+                written = write_task_export(Path(path_raw), src)
+            except Exception as exc:
+                self.notify(t("export-task-failed", exc=str(exc)), severity="error")
+                return
+            self.notify(t("export-task-saved", path=str(written)), severity="information")
+
+        self.app.push_screen(
+            PathInputModal(
+                title=t("export-task-title"),
+                initial=initial,
+                placeholder=t("export-task-placeholder"),
+                hint=t("export-task-hint"),
+            ),
+            _done,
+        )
+
     def action_save_config_only(self) -> None:
         """Persist the form as a run config without launching Docker."""
         fields = self._read_form(require_models=False)

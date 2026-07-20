@@ -27,12 +27,12 @@ s              open share link
 E              export session tarball (~/.groket/reports; embeds grok-trace.tar.gz)
 
 [bold]Runner[/bold]
-Ctrl+Enter (or Ctrl+J) launch · Ctrl+S save recipe · [ ] panes
+Ctrl+Enter (or Ctrl+J) launch · Ctrl+S save recipe · T export as task YAML · [ ] panes
 Repository URL clones into runs/checkouts/; [bold]Local path[/bold] bind-mounts that host directory as /workspace (live edits, single model).
 YOLO checkbox → ``grok --yolo`` (default is ``--always-approve`` only).
 
 [bold]Recipes & personas[/bold]
-Enter open · l launch · s select · n new · x delete
+Enter open · l launch · s select · n new · x delete · T export as task YAML
 Editor: [ ] panes · Ctrl+S save
 
 [bold]Pickers[/bold]
