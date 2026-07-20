@@ -149,21 +149,10 @@ def _find_run_parent(session_dir: Path) -> Path | None:
 
 
 def _load_run_manifest(session_dir: Path) -> JsonObject:
-    run_json = session_dir / "run.json"
-    if run_json.is_file():
-        return _load_json(run_json)
-    parent = _find_run_parent(session_dir)
-    if parent:
-        rj = parent / "run.json"
-        if rj.is_file():
-            return _load_json(rj)
-    for anc in session_dir.parents:
-        rj = anc / "run.json"
-        if rj.is_file():
-            return _load_json(rj)
-        if anc.name == "traces":
-            break
-    return {}
+    """Load launch recipe (session, traces volume, or fork parent seed)."""
+    from ..runs.run_recipe import load_run_recipe
+
+    return load_run_recipe(session_dir)
 
 
 def _skills_from_skills_dir(session_dir: Path) -> list[str]:
@@ -359,17 +348,17 @@ def collect_session_usage(
     manifest = _load_run_manifest(sd)
     stats.persona_id = str(manifest.get("persona_id") or "").strip()
 
-    for key in ("skills", "run_skills"):
+    for key in ("run_skills", "skills"):
         for s in json_as_list(manifest.get(key)):
             ss = json_as_str(s).strip()
             if ss and ss not in stats.skills_configured:
                 stats.skills_configured.append(ss)
-    for key in ("skills_disabled", "run_skills_disabled"):
+    for key in ("run_skills_disabled", "skills_disabled"):
         for s in json_as_list(manifest.get(key)):
             ss = json_as_str(s).strip()
             if ss and ss not in stats.skills_disabled:
                 stats.skills_disabled.append(ss)
-    for key in ("mcp_servers", "run_mcp_servers"):
+    for key in ("run_mcp_servers", "mcp_servers"):
         for s in json_as_list(manifest.get(key)):
             ss = json_as_str(s).strip()
             if ss and ss not in stats.mcp_configured:
@@ -390,7 +379,13 @@ def collect_session_usage(
             stats.skills_disabled.append(s)
 
     if stats.skills_configured or stats.mcp_configured:
-        if manifest.get("skills") or manifest.get("mcp_servers"):
+        if (
+            manifest.get("run_skills")
+            or manifest.get("run_mcp_servers")
+            or manifest.get("run_plugins")
+            or manifest.get("skills")
+            or manifest.get("mcp_servers")
+        ):
             stats.source_notes.append("capabilities from run.json")
         elif toml_mcp:
             stats.source_notes.append("MCP from groket-config.toml")

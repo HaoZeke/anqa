@@ -341,11 +341,14 @@ def turn_summary_rows(
     session_context_compact: str = "",
     context_by_turn: dict[int, str] | None = None,
 ) -> list[dict[str, JsonValue]]:
-    """Tabular rows for stats UI / tests.
+    """Tabular rows for the Summary turns table (newest first).
 
     Grok writes context fill only as a session snapshot in ``signals.json``.
     *context_by_turn* holds read-only samples observed during live refresh.
     When absent, *session_context_compact* is shown on the latest segment only.
+
+    Row order is reverse chronological so the open / most recent turn is first;
+    ``turn`` indices stay chronological (0…N−1).
     """
     rows: list[dict[str, JsonValue]] = []
     last_idx = len(segments) - 1
@@ -377,6 +380,7 @@ def turn_summary_rows(
                 "last_index": seg.last_index,
             }
         )
+    rows.reverse()
     return rows
 
 

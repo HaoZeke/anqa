@@ -6,6 +6,11 @@ aggregates used by the session Summary pane — still UI-agnostic.
 
 from __future__ import annotations
 
+from .export_bundle import (
+    ExportBundleResult,
+    export_session_bundle,
+    run_volume_for_session,
+)
 from .usage_stats import (
     McpServerUsage,
     SessionUsageStats,
@@ -19,14 +24,17 @@ from .usage_stats import (
 from .workspace_diff import format_diff_meta_line, load_workspace_diff
 
 __all__ = [
+    "ExportBundleResult",
     "McpServerUsage",
     "SessionUsageStats",
     "SkillUsageRow",
     "ToolUsageRow",
     "collect_session_usage",
+    "export_session_bundle",
     "format_diff_meta_line",
     "format_usage_markdown",
     "format_usage_plain",
     "format_usage_stats_text",
     "load_workspace_diff",
+    "run_volume_for_session",
 ]

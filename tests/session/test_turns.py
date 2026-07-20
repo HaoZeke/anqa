@@ -55,8 +55,11 @@ def test_two_turns_with_markers():
     assert segs[1].tool_error_count == 1
     assert segs[1].user_count == 1
     rows = turn_summary_rows(segs)
-    assert rows[0]["tools"] == 1
-    assert rows[0]["turn"] == 0
+    # Newest first: turn 1 is top, turn 0 below.
+    assert rows[0]["turn"] == 1
+    assert rows[0]["tool_errors"] == 1
+    assert rows[-1]["turn"] == 0
+    assert rows[-1]["tools"] == 1
     assert "turn" in format_turns_plain(segs).lower()
 
 
@@ -264,7 +267,7 @@ def test_turn_summary_rows_structure():
     assert row["context"] == ""
 
 
-def test_turn_summary_rows_session_context_on_last_only():
+def test_turn_summary_rows_session_context_on_latest_only():
     tl = [
         _ev(0, "turn_started", "Turn started turn_number=0"),
         _ev(1, "user_message_chunk", "a"),
@@ -276,8 +279,11 @@ def test_turn_summary_rows_session_context_on_last_only():
     segs = segment_timeline_turns(tl)
     rows = turn_summary_rows(segs, session_context_compact="35% 179k/500k")
     assert len(rows) >= 2
-    assert rows[0]["context"] == ""
-    assert rows[-1]["context"] == "35% 179k/500k"
+    # Newest first: session-level context attaches to the latest turn only.
+    assert rows[0]["context"] == "35% 179k/500k"
+    assert rows[0]["turn"] == segs[-1].turn_index
+    assert rows[-1]["context"] == ""
+    assert rows[-1]["turn"] == segs[0].turn_index
 
 
 def test_turn_summary_rows_context_by_turn_samples():
@@ -295,8 +301,9 @@ def test_turn_summary_rows_context_by_turn_samples():
         session_context_compact="99% 1/1",
         context_by_turn={segs[0].turn_index: "10% 50k/500k", segs[-1].turn_index: "35% 179k/500k"},
     )
-    assert rows[0]["context"] == "10% 50k/500k"
-    assert rows[-1]["context"] == "35% 179k/500k"
+    # Newest first.
+    assert rows[0]["context"] == "35% 179k/500k"
+    assert rows[-1]["context"] == "10% 50k/500k"
 
 
 def test_first_last_index_empty():
