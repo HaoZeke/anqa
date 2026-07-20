@@ -154,6 +154,145 @@ def test_lock_and_container_config():
     c = ContainerConfig(model="m/x:1", prompt="hi")
     assert c.container_name.startswith("groket-")
     assert c.resolved_base().profile_id
+    assert c.max_turns == 50
+
+
+def test_container_config_max_turns_clamped():
+    from groket.constants import DEFAULT_MAX_TURNS
+
+    assert ContainerConfig(model="m", prompt="p", max_turns=0).max_turns == DEFAULT_MAX_TURNS
+    assert ContainerConfig(model="m", prompt="p", max_turns=-3).max_turns == DEFAULT_MAX_TURNS
+    assert ContainerConfig(model="m", prompt="p", max_turns=200).max_turns == 200
+
+
+def test_start_container_maps_xhigh_effort_for_cli(tmp_path: Path):
+    """Product xhigh must become CLI high (Grok rejects --effort xhigh)."""
+    client = FakeDocker(image_exists=True)
+    o = _orch(tmp_path, client)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    qcfg = tmp_path / "c.toml"
+    qcfg.write_text("[cli]\n", encoding="utf-8")
+    cfg = ContainerConfig(
+        model="v9-stickynote",
+        reasoning_effort="xhigh",
+        prompt="p",
+        container_name="groket-effort-map",
+    )
+    o.start_container(cfg, "img:tag", auth, qcfg)
+    found = None
+    for _a, kw in client.ran:
+        env = kw.get("envs") or kw.get("environment")
+        if isinstance(env, dict) and "REASONING_EFFORT" in env:
+            found = env["REASONING_EFFORT"]
+            break
+    assert found == "high"
+
+
+def test_force_ui_yolo_rewrites_config():
+    from groket.docker.orchestrator import _force_ui_yolo
+
+    base = '[ui]\nyolo = false\nfork_secondary_model = "m"\n'
+    assert "yolo = true" in _force_ui_yolo(base, yolo=True)
+    assert "yolo = false" in _force_ui_yolo(base, yolo=False)
+    assert "yolo = true" in _force_ui_yolo("[cli]\nx=1\n", yolo=True)
+
+
+def test_start_container_yolo_env(tmp_path: Path):
+    """yolo=True sets YOLO=1 for the entrypoint."""
+    client = FakeDocker(image_exists=True)
+    o = _orch(tmp_path, client)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    qcfg = tmp_path / "c.toml"
+    qcfg.write_text("[ui]\nyolo = false\n", encoding="utf-8")
+    cfg = ContainerConfig(
+        model="v9",
+        prompt="p",
+        container_name="groket-yolo",
+        yolo=True,
+    )
+    o.start_container(cfg, "img:tag", auth, qcfg)
+    found = None
+    cfg_text = (tmp_path / "runs" / "traces" / "groket-yolo" / "groket-config.toml").read_text(
+        encoding="utf-8"
+    )
+    assert "yolo = true" in cfg_text
+    for _a, kw in client.ran:
+        env = kw.get("envs") or kw.get("environment")
+        if isinstance(env, dict) and "YOLO" in env:
+            found = env["YOLO"]
+            break
+    assert found == "1"
+
+
+def test_start_container_sets_max_turns_env(tmp_path: Path):
+    """ContainerConfig.max_turns is passed as MAX_TURNS env for the entrypoint."""
+    client = FakeDocker(image_exists=True)
+    o = _orch(tmp_path, client)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    qcfg = tmp_path / "c.toml"
+    qcfg.write_text("[cli]\n", encoding="utf-8")
+    cfg = ContainerConfig(
+        model="v9",
+        prompt="p",
+        container_name="groket-maxturns",
+        max_turns=120,
+    )
+    cid = o.start_container(cfg, "img:tag", auth, qcfg)
+    assert len(cid) == 12
+    assert client.ran
+    _args, kwargs = client.ran[0]
+    envs = kwargs.get("envs") or kwargs.get("environment") or {}
+    if not envs and len(_args) > 1:
+        # python-on-whales may pass envs positionally depending on call shape
+        envs = {}
+    # start_container uses envs= keyword on client.run
+    found = None
+    for _a, kw in client.ran:
+        env = kw.get("envs") or kw.get("environment")
+        if isinstance(env, dict) and "MAX_TURNS" in env:
+            found = env["MAX_TURNS"]
+            break
+    assert found == "120"
+
+
+def test_start_container_mounts_repo_path_externally(tmp_path: Path):
+    """repo_path bind-mounts the host dir as /workspace with WORKSPACE_EXTERNAL=1."""
+    client = FakeDocker(image_exists=True)
+    o = _orch(tmp_path, client)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}", encoding="utf-8")
+    qcfg = tmp_path / "c.toml"
+    qcfg.write_text("[cli]\n", encoding="utf-8")
+    external = tmp_path / "my-project"
+    external.mkdir()
+    (external / "README").write_text("hi\n", encoding="utf-8")
+    cfg = ContainerConfig(
+        model="v9",
+        prompt="p",
+        container_name="groket-localpath",
+        repo_path=str(external),
+    )
+    o.start_container(cfg, "img:tag", auth, qcfg)
+    assert client.ran
+    volumes = None
+    envs = None
+    for _a, kw in client.ran:
+        if "volumes" in kw:
+            volumes = kw["volumes"]
+            envs = kw.get("envs") or kw.get("environment")
+            break
+    assert volumes is not None
+    ws_mounts = [v for v in volumes if len(v) >= 2 and v[1] == "/workspace"]
+    assert len(ws_mounts) == 1
+    assert Path(ws_mounts[0][0]).resolve() == external.resolve()
+    assert isinstance(envs, dict)
+    assert envs.get("WORKSPACE_EXTERNAL") == "1"
+    # Must not create a managed checkout when using external path.
+    checkouts = o.work_dir / "checkouts" / "groket-localpath"
+    assert not checkouts.exists()
 
 
 def test_eval_config_toml_branches(tmp_path: Path):
@@ -333,6 +472,11 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     traces_vol.mkdir(parents=True)
     grok_cfg = tmp_path / "gc.toml"
     grok_cfg.write_text("[cli]\n", encoding="utf-8")
+    # Stage is a real filesystem path; stub so the test does not require marketplace.
+    monkeypatch.setattr(
+        "groket.capabilities.prepare_persona_plugins_dir",
+        lambda *a, **k: traces_vol.parent / f"{cfg2.container_name}.stage" / "plugins",
+    )
     text = o._apply_persona_capabilities_config(
         "base=1\n", cfg2, grok_config=grok_cfg, traces_vol=traces_vol
     )
@@ -354,6 +498,10 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     )
     tv3 = runs / "traces" / cfg3.container_name
     tv3.mkdir(parents=True)
+    monkeypatch.setattr(
+        "groket.capabilities.prepare_persona_plugins_dir",
+        lambda *a, **k: tv3.parent / f"{cfg3.container_name}.stage" / "plugins",
+    )
     o._apply_persona_capabilities_config("t\n", cfg3, grok_config=grok_cfg, traces_vol=tv3)
 
     # image exists / inspect fallback
@@ -623,7 +771,7 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_start_container_interactive_and_run_id(tmp_path: Path):
-    """Interactive mode + run_id sets INTERACTIVE and TURN_DIR (lines 709-727)."""
+    """Interactive mode sets INTERACTIVE and writes .groket-turn (lines 709-727)."""
     client = FakeDocker(image_exists=True)
     o = _orch(tmp_path, client)
     auth = tmp_path / "auth.json"
@@ -642,37 +790,11 @@ def test_start_container_interactive_and_run_id(tmp_path: Path):
     assert len(cid) == 12
     # Verify run produced volumes with scripted turns
     traces_dir = o.work_dir / "traces" / cfg.container_name
-    turn_dir = traces_dir / ".groket-turn-run-abc"
+    turn_dir = traces_dir / ".groket-turn"
     scripted = turn_dir / "scripted-turns.json"
     assert scripted.is_file()
     data = json.loads(scripted.read_text(encoding="utf-8"))
     assert "follow up 1" in data
-
-
-def test_start_container_plugins_manifest_alt_path(tmp_path: Path):
-    """Alternative plugins manifest path under groket-plugins/ (lines 747-751)."""
-    client = FakeDocker(image_exists=True)
-    o = _orch(tmp_path, client)
-    auth = tmp_path / "auth.json"
-    auth.write_text("{}", encoding="utf-8")
-    qcfg = tmp_path / "c.toml"
-    qcfg.write_text("[cli]\n", encoding="utf-8")
-    cfg = ContainerConfig(
-        model="v9",
-        prompt="p",
-        container_name="groket-plugalt",
-    )
-    traces_dir = o.work_dir / "traces" / cfg.container_name
-    alt_plugins = traces_dir / "groket-plugins"
-    alt_plugins.mkdir(parents=True)
-    (alt_plugins / "plugins-manifest.json").write_text('[{"name":"x"}]', encoding="utf-8")
-    # Also alt skills path
-    alt_skills = traces_dir / "groket-skills"
-    alt_skills.mkdir(parents=True)
-    (alt_skills / "sk1").mkdir()
-    (alt_skills / "sk1" / "SKILL.md").write_text("x", encoding="utf-8")
-    cid = o.start_container(cfg, "img:tag", auth, qcfg)
-    assert len(cid) == 12
 
 
 def test_stream_container_logs_stop_event(tmp_path: Path):
@@ -685,6 +807,41 @@ def test_stream_container_logs_stop_event(tmp_path: Path):
     o.stream_container_logs("c", lambda n, ln: lines.append(ln), stop_event=stop)
     # stop was set, so may get 0 or some lines (stops checking per iteration)
     assert isinstance(lines, list)
+
+
+def test_extract_traces_prefers_primary_not_subagent(tmp_path: Path):
+    """extract_traces skips mirrored subagents (same as find_sessions)."""
+    client = FakeDocker(image_exists=True)
+    o = _orch(tmp_path, client)
+    traces = o.work_dir / "traces" / "groket-multi"
+    token = traces / "%2Fworkspace"
+    parent = token / "019f-parent"
+    sub = token / "019f-subagent"
+    parent.mkdir(parents=True)
+    sub.mkdir(parents=True)
+    (parent / "subagents" / sub.name).mkdir(parents=True)
+    for d, kind in ((parent, ""), (sub, "subagent")):
+        (d / "summary.json").write_text(
+            json.dumps(
+                {
+                    "info": {"id": d.name, "cwd": "/w"},
+                    "session_summary": kind or "main",
+                    "session_kind": kind,
+                    "created_at": "2026-06-25T00:00:00Z",
+                    "updated_at": "2026-06-25T00:01:00Z",
+                    "num_messages": 2,
+                    "current_model_id": "m",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (d / "events.jsonl").write_text("{}\n", encoding="utf-8")
+        (d / "chat_history.jsonl").write_text("{}\n", encoding="utf-8")
+    # Subagent looks newer
+    (sub / "chat_history.jsonl").write_text("{}\n" * 20, encoding="utf-8")
+    got = o.extract_traces("groket-multi")
+    assert got is not None
+    assert got.name == parent.name
 
 
 def test_peek_session_dir_with_exception(tmp_path: Path):

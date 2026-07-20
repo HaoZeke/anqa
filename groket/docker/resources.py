@@ -20,6 +20,11 @@ def share_once_py() -> str:
     return read_text("groket-share-once.py")
 
 
+def find_primary_session_py() -> str:
+    """In-container multi-turn primary session picker (never returns subagents)."""
+    return read_text("groket_find_primary_session.py")
+
+
 def empty_setup_sh() -> str:
     """Placeholder ``setup.sh`` when the task has no initial commands."""
     return read_text("setup-empty.sh")

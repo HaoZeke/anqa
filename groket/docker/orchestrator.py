@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 from python_on_whales import Container, DockerClient
 
+from ..constants import DEFAULT_MAX_TURNS, normalize_max_turns
 from ..utils import slug_text
 from .base_profiles import (
     DEFAULT_DOCKER_IMAGE,
@@ -35,7 +36,7 @@ from .base_profiles import (
     shared_base_build_dirname,
     shared_base_image_tag,
 )
-from .resources import empty_setup_sh, entrypoint_sh, share_once_py
+from .resources import empty_setup_sh, entrypoint_sh, find_primary_session_py, share_once_py
 
 # Serialize builds of the same shared base tag (parallel batch members share one base).
 _SHARED_BASE_LOCKS: dict[str, threading.Lock] = {}
@@ -60,6 +61,9 @@ class ContainerConfig:
     docker_image: str = DEFAULT_DOCKER_IMAGE
     repo_url: str = ""
     repo_branch: str = ""
+    # Host directory bind-mounted as /workspace (no CoW/clone). Empty = use
+    # repo_url clone or empty under runs/checkouts/<container>/.
+    repo_path: str = ""
     setup_instructions: str = ""
     # Opt-in: inject host GH_TOKEN and wire git→gh credentials for push.
     github_write: bool = False
@@ -77,13 +81,17 @@ class ContainerConfig:
     # Run-only SKILL.md packs: (skill_id, body text)
     inline_skills: list[tuple[str, str]] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)
+    # Run-only capability extras (not persona); stored in run.json for fork prefill.
+    run_plugins: list[str] = field(default_factory=list)
+    run_skills: list[str] = field(default_factory=list)
+    run_mcp_servers: list[str] = field(default_factory=list)
     env_vars: dict[str, str] = field(default_factory=dict)
     volumes: dict[str, str] = field(default_factory=dict)
     # Multi-turn: entrypoint waits for host follow-ups on the sessions volume.
     interactive: bool = False
     # Extra prompts after the primary ``prompt`` (batch scripted turns).
     follow_up_prompts: list[str] = field(default_factory=list)
-    # Optional run id for per-run turn gate directory name on the host traces volume.
+    # Optional run id (logging / launch meta); turn gate is always ``.groket-turn``.
     run_id: str = ""
     # Grok reasoning effort (low|medium|high|xhigh|max); empty uses host/default.
     reasoning_effort: str = ""
@@ -92,8 +100,17 @@ class ContainerConfig:
     resume_session_id: str = ""
     # Optional UUID for ``grok --fork-session --session-id`` (host-generated if empty).
     resume_fork_session_id: str = ""
+    # After clone, best-effort ``git checkout`` this SHA (from parent ``head_commit``).
+    repo_commit: str = ""
+    # Pass Grok ``--restore-code`` on resume/fork (checkout session commit when possible).
+    restore_code: bool = False
+    # Grok agent steps per prompt (``--max-turns``); default 50.
+    max_turns: int = DEFAULT_MAX_TURNS
+    # Opt-in: pass ``grok --yolo`` (aggressive auto-approve; default is --always-approve only).
+    yolo: bool = False
 
     def __post_init__(self) -> None:
+        self.max_turns = normalize_max_turns(self.max_turns)
         if not self.container_name:
             short_id = uuid.uuid4().hex[:8]
             mid = self.model.split(":")[0] if ":" in self.model else self.model
@@ -124,10 +141,27 @@ class ContainerStatus:
     finished_at: str = ""
 
 
+def _force_ui_yolo(text: str, *, yolo: bool) -> str:
+    """Ensure ``[ui] yolo = true|false`` matches the launch option."""
+    body = text or ""
+    val = "true" if yolo else "false"
+    if re.search(r"(?im)^\s*yolo\s*=", body):
+        return re.sub(r"(?im)^(\s*yolo\s*=\s*)\S+", rf"\g<1>{val}", body, count=1)
+    if re.search(r"(?im)^\s*\[ui\]\s*$", body):
+        return re.sub(
+            r"(?im)^(\s*\[ui\]\s*)$",
+            rf"\1\nyolo = {val}",
+            body,
+            count=1,
+        )
+    return body.rstrip() + f"\n\n[ui]\nyolo = {val}\n"
+
+
 def _eval_config_toml(
     host_config: Path,
     *,
     primary_model: str,
+    yolo: bool = False,
 ) -> str:
     """Build config.toml for an eval container.
 
@@ -135,7 +169,7 @@ def _eval_config_toml(
     host prefs do not call ``grok-build``. Reasoning effort is not written here;
     the entrypoint passes ``--effort`` from ``REASONING_EFFORT`` / the launch
     token. Host ``default_reasoning_effort`` lines are omitted so they cannot
-    override the CLI flag.
+    override the CLI flag. ``yolo`` is forced from the launch option.
     """
     from ..runs.batch import split_model_effort
 
@@ -158,7 +192,7 @@ def _eval_config_toml(
             "\n"
             "[ui]\n"
             f'fork_secondary_model = "{secondary}"\n'
-            "yolo = false\n"
+            f"yolo = {'true' if yolo else 'false'}\n"
             'permission_mode = "always-approve"\n'
             "\n"
             "[models]\n"
@@ -242,7 +276,7 @@ def _eval_config_toml(
             text,
             count=1,
         )
-    return text
+    return _force_ui_yolo(text, yolo=yolo)
 
 
 def _build_setup_script(setup_instructions: str) -> str:
@@ -409,6 +443,7 @@ class DockerOrchestrator:
     ) -> str:
         """Apply persona MCP, standalone skills, and Grok plugins separately."""
         persona = self._persona_for_config(config)
+        pid = (config.persona_id or "").strip()
         # Prefer fields copied onto ContainerConfig at launch (works even if persona file changes).
         if persona is None and (
             config.mcp_servers or config.skills or config.mcp_extra_toml or config.plugins
@@ -416,7 +451,7 @@ class DockerOrchestrator:
             from ..runs.personas import Persona
 
             persona = Persona(
-                persona_id=config.persona_id or "inline",
+                persona_id=pid or "inline",
                 mcp_servers=list(config.mcp_servers or []),
                 mcp_definitions=list(config.mcp_definitions or []),
                 mcp_replace_host=bool(config.mcp_replace_host),
@@ -424,6 +459,14 @@ class DockerOrchestrator:
                 skills=list(config.skills or []),
                 skills_disabled=list(config.skills_disabled or []),
                 plugins=list(config.plugins or []),
+            )
+        elif persona is None and pid:
+            # Fail loud: task/runner asked for a persona that is not installed under
+            # ~/.groket/personas — silent skip left agents claiming "no MCP".
+            raise FileNotFoundError(
+                f"persona {pid!r} not found under ~/.groket/personas "
+                f"(install with: cp examples/personas/{pid}.json ~/.groket/personas/ "
+                "or create it in the Personas screen)"
             )
         elif persona is not None:
             # Overlay launch-time lists from config when set (run_manager copies persona onto config).
@@ -468,20 +511,32 @@ class DockerOrchestrator:
             # - session discovery does not walk huge plugin trees (superpowers, …)
             # - bind-mount of sessions stays session-only on the host path
             stage_root = traces_vol.parent / f"{traces_vol.name}.stage"
+            skills_stage = stage_root / "skills"
             prepare_persona_skills_dir(
-                stage_root / "skills",
+                skills_stage,
                 persona,
                 work_dir=work,
                 inline_skills=list(config.inline_skills or []),
             )
             cfg_text = apply_persona_skills_to_config_toml(cfg_text, persona)
+            # Host materializes checkouts + plugin skills once; container only installs.
+            # Fail the launch if a selected plugin cannot be staged (do not enable
+            # plugins that will not install).
             prepare_persona_plugins_dir(
                 stage_root / "plugins",
                 persona,
                 work_dir=work,
+                skills_dest=skills_stage,
             )
             cfg_text = apply_persona_plugins_to_config_toml(cfg_text, persona)
-        except Exception:
+        except FileNotFoundError:
+            # Persona id set but not installed — fail the container start.
+            raise
+        except Exception as exc:
+            from ..capabilities.apply import PluginStageError
+
+            if isinstance(exc, PluginStageError):
+                raise
             logger.warning(
                 "Failed to apply persona capabilities for %s",
                 config.persona_id,
@@ -597,6 +652,9 @@ class DockerOrchestrator:
         )
         (build_dir / "entrypoint.sh").write_text(entrypoint_sh(), encoding="utf-8")
         (build_dir / "groket-share-once.py").write_text(share_once_py(), encoding="utf-8")
+        (build_dir / "groket_find_primary_session.py").write_text(
+            find_primary_session_py(), encoding="utf-8"
+        )
         (build_dir / "setup.sh").write_text(
             _build_setup_script(config.setup_instructions), encoding="utf-8"
         )
@@ -673,12 +731,47 @@ class DockerOrchestrator:
             config.resume_session_id = resume_sid
             config.resume_fork_session_id = fork_sid
 
+        # Host-owned /workspace: external path mount, CoW parent on fork, or clone/empty.
+        from ..session.workspace import (
+            parent_checkout_for_session,
+            prepare_host_checkout,
+            resolve_repo_path,
+        )
+
+        external_ws = False
+        repo_path_raw = (config.repo_path or "").strip()
+        if repo_path_raw:
+            # Live operator directory: bind-mount as-is (no CoW into checkouts/).
+            workspace_host = resolve_repo_path(repo_path_raw)
+            external_ws = True
+            logger.info(
+                "Mounting external workspace %s → /workspace (container %s)",
+                workspace_host,
+                config.container_name,
+            )
+        else:
+            parent_ws: Path | None = None
+            if resume_src:
+                parent_ws = parent_checkout_for_session(self.work_dir, Path(resume_src))
+            workspace_host = prepare_host_checkout(
+                self.work_dir,
+                config.container_name,
+                repo_url=config.repo_url or "",
+                repo_branch=config.repo_branch or "",
+                repo_commit=config.repo_commit or "",
+                parent_checkout=parent_ws,
+            )
+
         from ..runs.launch_meta import write_launch_meta_for_config
+        from ..runs.run_recipe import write_run_recipe_for_config
 
         try:
             write_launch_meta_for_config(traces_vol, config)
         except OSError:
             logger.warning("Failed to write launch meta under %s", traces_vol, exc_info=True)
+        # Recipe (persona / plugins / skills / MCP) at start so fork/re-run work
+        # before the container finishes (interactive multi-turn often lives for hours).
+        write_run_recipe_for_config(traces_vol, config)
 
         # Write prompt to a host file and mount it — avoids Docker env newline/quoting
         # issues and `-p` argparse eating values that start with `-`.
@@ -694,6 +787,7 @@ class DockerOrchestrator:
         cfg_text = _eval_config_toml(
             grok_config,
             primary_model=config.model,
+            yolo=bool(config.yolo),
         )
         cfg_text = self._apply_persona_capabilities_config(
             cfg_text,
@@ -701,14 +795,18 @@ class DockerOrchestrator:
             grok_config=grok_config,
             traces_vol=traces_vol,
         )
+        # Re-apply after persona merge so host/persona cannot leave yolo wrong.
+        cfg_text = _force_ui_yolo(cfg_text, yolo=bool(config.yolo))
         eval_config.write_text(cfg_text, encoding="utf-8")
 
-        from ..runs.batch import REASONING_EFFORTS, split_model_effort
+        from ..runs.batch import REASONING_EFFORTS, cli_reasoning_effort, split_model_effort
 
         model_id, effort_tok = split_model_effort(config.model)
-        effort = (config.reasoning_effort or effort_tok or "").strip().lower()
-        if effort not in REASONING_EFFORTS:
-            effort = ""
+        product_effort = (config.reasoning_effort or effort_tok or "").strip().lower()
+        if product_effort not in REASONING_EFFORTS:
+            product_effort = ""
+        # CLI --effort only accepts low|medium|high (xhigh/max → high).
+        effort = cli_reasoning_effort(product_effort)
         envs = {
             "MODEL": model_id or config.model,
             "REPO_URL": config.repo_url or "",
@@ -722,6 +820,9 @@ class DockerOrchestrator:
             ),
             **config.env_vars,
         }
+        if external_ws:
+            # Skip recursive chown of the operator's real tree on EXIT.
+            envs["WORKSPACE_EXTERNAL"] = "1"
         # So entrypoint can chown bind-mounted sessions (prompt_history.jsonl, …)
         # back to the host user (containers write as root otherwise).
         try:
@@ -731,56 +832,63 @@ class DockerOrchestrator:
             pass
         if effort:
             envs["REASONING_EFFORT"] = effort
+        commit = (config.repo_commit or "").strip()
+        if commit:
+            envs["REPO_COMMIT"] = commit
+        if config.restore_code or bool(resume_sid):
+            # Fork/resume: ask Grok to restore the session commit when the CLI can.
+            envs["RESTORE_CODE"] = "1"
         if config.interactive:
             envs["INTERACTIVE"] = "1"
+        if config.yolo:
+            envs["YOLO"] = "1"
+        envs["MAX_TURNS"] = str(normalize_max_turns(config.max_turns))
         if resume_sid:
             # Seeded parent history + first-turn fork so each resume branch gets a new Grok id.
             envs["RESUME_SESSION_ID"] = resume_sid
             envs["RESUME_FORK"] = "1"
             if fork_sid:
                 envs["FORK_SESSION_ID"] = fork_sid
-        rid = (config.run_id or "").strip()
-        if rid:
-            envs["TURN_DIR"] = f"/root/.grok/sessions/.groket-turn-{rid}"
-        # Scripted follow-ups for batch (entrypoint reads JSON list under sessions).
-        turn_names = [".groket-turn"]
-        if rid:
-            turn_names.insert(0, f".groket-turn-{rid}")
+            # Parent chat embeds absolute installed-plugins/<id>/ paths. Collect
+            # those basenames so the entrypoint can symlink them after install.
+            if resume_src:
+                from ..session.resume import collect_installed_plugin_dir_aliases
+
+                aliases = collect_installed_plugin_dir_aliases(Path(resume_src))
+                if aliases:
+                    # Parent chat hardcodes installed-plugins/<id>/…; entrypoint
+                    # recreates those basenames after install (one fork path).
+                    envs["RESUME_PLUGIN_DIR_ALIASES"] = ",".join(aliases)
+        # One turn gate per container traces volume (entrypoint TURN_DIR).
+        envs["TURN_DIR"] = "/root/.grok/sessions/.groket-turn"
         scripted = [str(p) for p in (config.follow_up_prompts or []) if str(p).strip()]
-        for tname in turn_names:
-            turn_dir = traces_vol / tname
-            try:
-                turn_dir.mkdir(parents=True, exist_ok=True)
-                (turn_dir / "scripted-turns.json").write_text(
-                    json.dumps(scripted) + "\n",
-                    encoding="utf-8",
-                )
-            except OSError:
-                logger.debug("Could not write scripted turns under %s", turn_dir, exc_info=True)
+        turn_dir = traces_vol / ".groket-turn"
+        try:
+            turn_dir.mkdir(parents=True, exist_ok=True)
+            (turn_dir / "scripted-turns.json").write_text(
+                json.dumps(scripted) + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.debug("Could not write scripted turns under %s", turn_dir, exc_info=True)
 
         volumes: list[tuple[str, str] | tuple[str, str, str]] = [
             (str(auth_json), "/root/.grok/auth.json", "ro"),
             (str(eval_config), "/root/.grok/config.toml", "ro"),
             (str(traces_vol), "/root/.grok/sessions"),
             (str(prompt_host), "/groket-prompt.txt", "ro"),
+            # Host checkout (CoW on fork); entrypoint skips clone when non-empty.
+            (str(workspace_host), "/workspace"),
         ]
 
-        # Skills / plugins staged next to the session dir (not under sessions mount).
+        # Skills / plugins: only ``*.stage/{skills,plugins}`` (one staging root).
         stage_root = traces_vol.parent / f"{traces_vol.name}.stage"
         skills_host = stage_root / "skills"
-        if not skills_host.is_dir():
-            # Alternate staging path used by some run layouts.
-            skills_host = traces_vol / "groket-skills"
         if skills_host.is_dir() and any(skills_host.iterdir()):
-            volumes.append((str(skills_host), "/root/.grok/skills", "ro"))
+            volumes.append((str(skills_host), "/groket-skills-stage", "ro"))
         plugins_stage = stage_root / "plugins"
-        manifest = plugins_stage / "plugins-manifest.json"
-        if not manifest.is_file():
-            alt = traces_vol / "groket-plugins" / "plugins-manifest.json"
-            if alt.is_file():
-                manifest = alt
-        if manifest.is_file():
-            volumes.append((str(manifest), "/groket-plugins-manifest.json", "ro"))
+        if (plugins_stage / "plugins-manifest.json").is_file():
+            volumes.append((str(plugins_stage), "/groket-plugins", "ro"))
 
         # Share additional config files the CLI needs for model resolution
         grok_home = auth_json.parent
@@ -901,10 +1009,13 @@ class DockerOrchestrator:
         # but files are already on the bind mount.
         self.fix_traces_ownership(traces_dir)
 
-        from ..parser import find_sessions
+        from ..parser import find_sessions, session_trace_mtime
 
         sessions = find_sessions(traces_dir)
-        return sessions[0] if sessions else None
+        if not sessions:
+            return None
+        # Same rule as peek_session_dir: newest primary (subagents already excluded).
+        return max(sessions, key=lambda p: session_trace_mtime(p))
 
     def wait_for_container_with_session_peek(
         self,

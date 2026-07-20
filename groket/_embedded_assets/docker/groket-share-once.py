@@ -125,11 +125,13 @@ except FileNotFoundError:
 except Exception as exc:
     err = str(exc)
 
-final_url = url or prev_url
+# One success model: share_url is set only when this attempt produced a URL.
+# Never recycle a previous URL as the current share (that made failed refreshes
+# look "ready" in the TUI). Keep previous_share_url for history only.
 payload = {
     "session_id": sid,
     "session_dir": str(sess),
-    "share_url": final_url,
+    "share_url": url,
     "error": err if not url else "",
     "source": "incontainer",
     "method": "cli",
@@ -139,7 +141,7 @@ payload = {
     "updated_at": _utc_now(),
     "note": "Created by: grok share <session-id> in eval container",
 }
-if url and prev_url and url != prev_url:
+if prev_url and prev_url != url:
     payload["previous_share_url"] = prev_url
 _write(payload)
 

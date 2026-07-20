@@ -7,22 +7,32 @@ REPO_BRANCH="${REPO_BRANCH:-}"
 PROMPT="${PROMPT:-}"
 SKIP_SETUP="${SKIP_SETUP:-0}"
 
-# Host uid/gid (set by orchestrator) — sessions bind-mount is written as root inside
-# the container; chown so the host user can delete/read prompt_history.jsonl etc.
-_gte_fix_sessions_ownership() {
+# Host uid/gid (set by orchestrator) — bind mounts are written as root inside
+# the container; chown so the host can delete/re-launch (sessions + /workspace).
+_gte_fix_bind_ownership() {
     local uid="${HOST_UID:-}"
     local gid="${HOST_GID:-}"
     if [ -z "$uid" ] || [ -z "$gid" ]; then
         return 0
     fi
-    if [ ! -d /root/.grok/sessions ]; then
+    if [ -d /root/.grok/sessions ]; then
+        if chown -R "${uid}:${gid}" /root/.grok/sessions 2>/dev/null; then
+            echo ">>> Sessions volume ownership → ${uid}:${gid} (host user)"
+        fi
+    fi
+    # External operator path (repo_path): do not chown their real tree.
+    if [ "${WORKSPACE_EXTERNAL:-0}" = "1" ] || [ "${WORKSPACE_EXTERNAL:-}" = "true" ]; then
+        echo ">>> Workspace is external mount — skip chown of /workspace"
         return 0
     fi
-    if chown -R "${uid}:${gid}" /root/.grok/sessions 2>/dev/null; then
-        echo ">>> Sessions volume ownership → ${uid}:${gid} (host user)"
+    if [ -d /workspace ]; then
+        if chown -R "${uid}:${gid}" /workspace 2>/dev/null; then
+            echo ">>> Workspace ownership → ${uid}:${gid} (host user)"
+        fi
     fi
 }
-trap '_gte_fix_sessions_ownership' EXIT
+
+trap '_gte_fix_bind_ownership' EXIT
 
 # GitHub CLI in automation: accept host-injected token when job opts into github_write
 # (orchestrator sets GH_TOKEN from GH_TOKEN on the host).
@@ -67,8 +77,17 @@ else
     echo ">>> No GH_TOKEN (optional): private remotes / git push need a persona PAT or host GH_TOKEN."
 fi
 
-# Repo is optional — jobs may be "prompt + initial commands" only (empty workspace).
-if [ -n "$REPO_URL" ] && [ ! -d /workspace/.git ]; then
+# /workspace is a host bind-mount: checkouts/<container>/, or an external
+# operator path (WORKSPACE_EXTERNAL=1 / repo_path). Host already prepared the
+# tree. Only clone inside the container when the mount is empty (legacy / tests).
+REPO_COMMIT="${REPO_COMMIT:-}"
+if [ -d /workspace/.git ] || [ -n "$(ls -A /workspace 2>/dev/null)" ]; then
+    if [ "${WORKSPACE_EXTERNAL:-0}" = "1" ] || [ "${WORKSPACE_EXTERNAL:-}" = "true" ]; then
+        echo ">>> Using external host directory as /workspace ($(du -sh /workspace 2>/dev/null | awk '{print $1}'))"
+    else
+        echo ">>> Using host-mounted /workspace ($(du -sh /workspace 2>/dev/null | awk '{print $1}'))"
+    fi
+elif [ -n "$REPO_URL" ]; then
     if ! command -v git >/dev/null 2>&1; then
         echo ">>> ERROR: git not installed in the image; cannot clone $REPO_URL"
         echo ">>> Use docker_image fully-loaded (or an image with git)."
@@ -95,8 +114,17 @@ if [ -n "$REPO_URL" ] && [ ! -d /workspace/.git ]; then
         exit "$clone_rc"
     fi
     echo ">>> Clone complete."
-elif [ -z "$REPO_URL" ]; then
-    echo ">>> No REPO_URL — starting in empty /workspace (no-repo job)."
+    if [ -n "$REPO_COMMIT" ] && command -v git >/dev/null 2>&1; then
+        echo ">>> Checking out REPO_COMMIT=$REPO_COMMIT ..."
+        set +e
+        git -C /workspace fetch --depth 1 origin "$REPO_COMMIT" >/dev/null 2>&1 \
+            || git -C /workspace fetch origin "$REPO_COMMIT" >/dev/null 2>&1
+        git -C /workspace checkout --quiet "$REPO_COMMIT" 2>/dev/null \
+            || echo ">>> WARNING: could not checkout $REPO_COMMIT"
+        set -e
+    fi
+else
+    echo ">>> No REPO_URL — empty /workspace."
     mkdir -p /workspace
 fi
 
@@ -109,27 +137,71 @@ if [ -n "${GH_TOKEN:-}" ] && [ -d /workspace/.git ] && command -v git >/dev/null
     set -e
 fi
 
-# Install persona/runner marketplace plugins from /groket-plugins-manifest.json.
-# Single path: git clone (+ optional commit checkout), then
-# ``grok plugin install --trust <local-dir>``. Requires git and grok.
-# Do not pass url@sha to grok (suffix is treated as a branch name).
+# Host-staged skill packs (persona skills + plugin skills) → writable ~/.grok/skills.
+# One path: copy from /groket-skills-stage (no bind-mount onto ~/.grok/skills).
+_gte_seed_skills_from_stage() {
+    local stage="${1:-/groket-skills-stage}"
+    local dest="${2:-/root/.grok/skills}"
+    if [ ! -d "$stage" ]; then
+        return 0
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo ">>> WARNING: skills stage present but python3 missing — skip seed"
+        return 0
+    fi
+    mkdir -p "$dest"
+    python3 - "$stage" "$dest" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+src, dst = Path(sys.argv[1]), Path(sys.argv[2])
+dst.mkdir(parents=True, exist_ok=True)
+n = 0
+for child in sorted(src.iterdir()):
+    if not child.is_dir():
+        continue
+    target = dst / child.name
+    try:
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(child, target)
+        n += 1
+    except OSError as exc:
+        print(f">>> WARNING: could not seed skill {child.name}: {exc}", file=sys.stderr)
+if n:
+    print(f">>> seeded {n} skill pack(s) into {dst}")
+PY
+}
+_gte_seed_skills_from_stage
+
+# Install persona/runner plugins from the host-staged stage dir (preferred) or
+# by git-cloning source_url (origin/main behaviour) when no checkout is present.
+# Manifest: /groket-plugins/plugins-manifest.json  (or legacy single-file mount).
+# After install: link skills under installed-plugins into ~/.grok/skills when
+# missing; recreate parent path aliases when RESUME_PLUGIN_DIR_ALIASES is set.
 _gte_install_plugins_from_manifest() {
-    local manifest="${1:-/groket-plugins-manifest.json}"
+    local stage="${1:-/groket-plugins}"
+    local manifest="$stage/plugins-manifest.json"
+    # Legacy: orchestrator mounted only the JSON file at a fixed path.
+    if [ ! -f "$manifest" ] && [ -f /groket-plugins-manifest.json ]; then
+        manifest="/groket-plugins-manifest.json"
+        stage=""
+    fi
     if [ ! -f "$manifest" ]; then
         return 0
     fi
     if ! command -v python3 >/dev/null 2>&1; then
-        echo ">>> WARNING: plugins manifest present but python3 missing — skipping plugin install."
+        echo ">>> WARNING: plugins manifest present but python3 missing — skip install"
         return 0
     fi
-    if ! command -v git >/dev/null 2>&1 || ! command -v grok >/dev/null 2>&1; then
-        echo ">>> WARNING: plugins manifest present but git+grok required — skipping plugin install."
+    if ! command -v grok >/dev/null 2>&1; then
+        echo ">>> WARNING: plugins manifest present but grok missing — skip install"
         return 0
     fi
     echo ">>> Installing Grok plugins from manifest ..."
-    # shellcheck disable=SC2016
-    python3 - "$manifest" <<'PY'
+    python3 - "$manifest" "$stage" <<'PY'
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -137,6 +209,8 @@ import tempfile
 from pathlib import Path
 
 manifest_path = Path(sys.argv[1])
+stage_raw = (sys.argv[2] or "").strip()
+stage = Path(stage_raw) if stage_raw else None
 try:
     items = json.loads(manifest_path.read_text(encoding="utf-8"))
 except Exception as exc:
@@ -145,14 +219,36 @@ except Exception as exc:
 if not isinstance(items, list):
     sys.exit(0)
 
-for item in items:
-    if not isinstance(item, dict):
-        continue
-    name = str(item.get("name") or "").strip()
-    url = str(item.get("source_url") or "").strip()
-    sha = str(item.get("sha") or "").strip()
-    if not name or not url:
-        continue
+have_git = shutil.which("git") is not None
+
+
+def _install_from_dir(name: str, src: Path, label: str) -> None:
+    try:
+        r = subprocess.run(
+            ["grok", "plugin", "install", "--trust", str(src)],
+            capture_output=True,
+            timeout=300,
+            text=True,
+        )
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        if r.returncode != 0 or out.lower().startswith("error") or "install failed" in out.lower():
+            print(
+                f">>> WARNING: plugin {name} install failed: {out[:800] or r.returncode}",
+                file=sys.stderr,
+            )
+        else:
+            print(f">>> plugin {name} installed ({label})")
+    except Exception as exc:
+        print(f">>> WARNING: plugin {name} install failed: {exc}", file=sys.stderr)
+
+
+def _clone_and_install(name: str, url: str, sha: str) -> None:
+    if not have_git:
+        print(
+            f">>> WARNING: plugin {name} needs git clone of {url} but git is missing",
+            file=sys.stderr,
+        )
+        return
     tmp = Path(tempfile.mkdtemp(prefix=f"groket-pl-{name}-"))
     src = tmp / "src"
     try:
@@ -171,25 +267,94 @@ for item in items:
                 timeout=60,
                 text=True,
             )
-        r = subprocess.run(
-            ["grok", "plugin", "install", "--trust", str(src)],
-            capture_output=True,
-            timeout=300,
-            text=True,
-        )
-        out = ((r.stdout or "") + (r.stderr or "")).strip()
-        if r.returncode != 0 or out.lower().startswith("error") or "install failed" in out.lower():
-            print(
-                f">>> WARNING: plugin {name} install failed: {out[:800] or r.returncode}",
-                file=sys.stderr,
-            )
-        else:
-            print(f">>> plugin {name} installed ({url})")
+        _install_from_dir(name, src, url)
     except Exception as exc:
         err = getattr(exc, "stderr", None) or exc
         print(f">>> WARNING: plugin {name} install failed: {err}", file=sys.stderr)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+for item in items:
+    if not isinstance(item, dict):
+        continue
+    name = str(item.get("name") or "").strip()
+    rel = str(item.get("checkout") or "").strip()
+    url = str(item.get("source_url") or "").strip()
+    sha = str(item.get("sha") or "").strip()
+    if not name:
+        continue
+    # Prefer host-staged checkout (no network in the container).
+    if rel and stage is not None:
+        src = stage / rel
+        if src.is_dir() and any(src.iterdir()):
+            _install_from_dir(name, src, rel)
+            continue
+        print(
+            f">>> WARNING: plugin {name} checkout missing at {src} — try source_url",
+            file=sys.stderr,
+        )
+    if url:
+        _clone_and_install(name, url, sha)
+        continue
+    print(
+        f">>> WARNING: plugin {name} has no staged checkout and no source_url — skip",
+        file=sys.stderr,
+    )
+
+# Ensure ~/.grok/skills has every skill shipped by installed plugins (fill gaps).
+skills_home = Path("/root/.grok/skills")
+skills_home.mkdir(parents=True, exist_ok=True)
+ip_root = Path("/root/.grok/installed-plugins")
+if ip_root.is_dir():
+    filled = 0
+    for child in sorted(ip_root.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        sk = child / "skills"
+        if not sk.is_dir():
+            continue
+        for skill_dir in sorted(sk.iterdir()):
+            if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").is_file():
+                continue
+            dest = skills_home / skill_dir.name
+            if dest.exists():
+                continue
+            try:
+                shutil.copytree(skill_dir, dest)
+                filled += 1
+            except OSError:
+                pass
+    if filled:
+        print(f">>> filled {filled} plugin skill(s) into {skills_home}")
+
+# Fork: parent chat may hardcode installed-plugins/<alias>/… from the parent container.
+aliases = [
+    a.strip()
+    for a in (os.environ.get("RESUME_PLUGIN_DIR_ALIASES") or "").split(",")
+    if a.strip()
+]
+if aliases and ip_root.is_dir():
+    targets = [
+        p
+        for p in ip_root.iterdir()
+        if p.is_dir() and not p.name.startswith(".") and (p / "skills").is_dir()
+    ]
+    if not targets:
+        print(">>> WARNING: RESUME_PLUGIN_DIR_ALIASES set but no plugin install found", file=sys.stderr)
+    else:
+        target = max(targets, key=lambda p: p.stat().st_mtime)
+        for alias in aliases:
+            if alias == target.name:
+                continue
+            link = ip_root / alias
+            if link.exists() or link.is_symlink():
+                continue
+            try:
+                link.symlink_to(target.name, target_is_directory=True)
+                print(f">>> resume plugin path alias {alias} → {target.name}")
+            except OSError as exc:
+                print(f">>> WARNING: could not alias {alias}: {exc}", file=sys.stderr)
 PY
 }
 
@@ -257,14 +422,54 @@ fi
 echo ">>> Prompt file: $PROMPT_FILE ($(wc -c < "$PROMPT_FILE") bytes)"
 # Prompt is exactly what the operator set (Runner / task YAML) — no extra preamble.
 
-# Newest session dir under bind-mounted traces (host sees the same path).
+# True when *path* is resume substrate or a live symlink into it (not a real eval session).
+_gte_is_resume_seed_path() {
+    local p="$1"
+    case "$p" in
+        */.groket-resume-seed|*/.groket-resume-seed/*) return 0 ;;
+    esac
+    if [ -L "$p" ]; then
+        local real
+        real=$(readlink -f "$p" 2>/dev/null || true)
+        case "$real" in
+            */.groket-resume-seed|*/.groket-resume-seed/*) return 0 ;;
+        esac
+    fi
+    return 1
+}
+
+# Primary session under bind-mounted traces (never a Grok subagent).
+# Logic lives in /groket_find_primary_session.py (copied into the thin image).
+_GTE_FIND_PRIMARY_PY="${_GTE_FIND_PRIMARY_PY:-/groket_find_primary_session.py}"
+_GTE_SESSIONS_ROOT="${_GTE_SESSIONS_ROOT:-/root/.grok/sessions}"
+
 _gte_find_session() {
-    find /root/.grok/sessions -mindepth 2 -maxdepth 2 -type d \
-        ! -name 'compaction' 2>/dev/null | while read -r d; do
-            if [ -f "$d/chat_history.jsonl" ] || [ -f "$d/updates.jsonl" ] || [ -f "$d/summary.json" ]; then
-                echo "$d"
-            fi
-        done | sort | tail -1
+    # Full path of newest/sticky primary session dir (share helper).
+    if [ -f "$_GTE_FIND_PRIMARY_PY" ]; then
+        python3 "$_GTE_FIND_PRIMARY_PY" "$_GTE_SESSIONS_ROOT" --path \
+            ${SESSION_ID:+--preferred "$SESSION_ID"} 2>/dev/null || true
+    fi
+}
+
+_gte_resolve_primary_session_id() {
+    # Basename id for multi-turn --resume. Prefers sticky primary, then
+    # prompt_history first row, then newest primary by mtime.
+    local preferred="${1:-}"
+    if [ ! -f "$_GTE_FIND_PRIMARY_PY" ]; then
+        return 0
+    fi
+    if [ -n "$preferred" ]; then
+        python3 "$_GTE_FIND_PRIMARY_PY" "$_GTE_SESSIONS_ROOT" --preferred "$preferred" 2>/dev/null || true
+    else
+        python3 "$_GTE_FIND_PRIMARY_PY" "$_GTE_SESSIONS_ROOT" 2>/dev/null || true
+    fi
+}
+
+_gte_session_is_primary() {
+    local sid="${1:-}"
+    [ -n "$sid" ] || return 1
+    [ -f "$_GTE_FIND_PRIMARY_PY" ] || return 1
+    python3 "$_GTE_FIND_PRIMARY_PY" "$_GTE_SESSIONS_ROOT" --check "$sid" 2>/dev/null
 }
 
 # One share snapshot (force=1 refreshes even if a prior URL exists).
@@ -370,10 +575,54 @@ Path(path).write_text(
 PY
 }
 
+_gte_primary_id_file() {
+    echo "${TURN_DIR}/primary-session-id"
+}
+
+_gte_load_primary_session_id() {
+    local f
+    f="$(_gte_primary_id_file)"
+    if [ -f "$f" ]; then
+        tr -d '[:space:]' < "$f"
+    fi
+}
+
+_gte_save_primary_session_id() {
+    local sid="${1:-}"
+    [ -n "$sid" ] || return 0
+    mkdir -p "$TURN_DIR"
+    printf '%s\n' "$sid" > "$(_gte_primary_id_file)"
+}
+
 _gte_latest_session_id() {
-    # Prefer deepest session dir name (session id segment).
-    find /root/.grok/sessions -mindepth 2 -maxdepth 2 -type d ! -name 'compaction' \
-        ! -path '*/.groket-turn/*' 2>/dev/null | sort | tail -1 | xargs -r basename
+    _gte_resolve_primary_session_id "${SESSION_ID:-}"
+}
+
+_gte_refresh_session_id() {
+    # Authoritative file on the turn gate, else discover primary once and persist.
+    local from_file discovered
+    from_file="$(_gte_load_primary_session_id || true)"
+    if [ -n "$from_file" ] && _gte_session_is_primary "$from_file"; then
+        SESSION_ID="$from_file"
+        return 0
+    fi
+    if [ -n "$SESSION_ID" ] && _gte_session_is_primary "$SESSION_ID"; then
+        _gte_save_primary_session_id "$SESSION_ID"
+        return 0
+    fi
+    if [ -n "$SESSION_ID" ]; then
+        echo ">>> SESSION_ID=$SESSION_ID is not a primary session — re-resolving"
+    fi
+    discovered="$(_gte_resolve_primary_session_id "${SESSION_ID:-}" || true)"
+    if [ -n "$discovered" ]; then
+        if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "$discovered" ]; then
+            echo ">>> Multi-turn session id $SESSION_ID → $discovered (primary)"
+        fi
+        SESSION_ID="$discovered"
+        _gte_save_primary_session_id "$SESSION_ID"
+        return 0
+    fi
+    return 1
 }
 
 _gte_run_grok_turn() {
@@ -385,40 +634,42 @@ _gte_run_grok_turn() {
     local fork_sid="${4:-}"
     # Strip optional model:effort if MODEL was passed as a compound token.
     local model_id="${MODEL%%:*}"
-    local -a cmd=(grok -m "$model_id" --always-approve --output-format streaming-json --prompt-file "$prompt_file")
-    # Headless effort (low|medium|high|xhigh|max). Prefer REASONING_EFFORT env;
-    # fall back to suffix on MODEL (model:xhigh) or config.toml default.
+    # Current Grok Build CLI flags only (no help-grep multipath).
+    # Default: --always-approve (non-interactive evals). Opt-in YOLO=1 → --yolo
+    # (same auto-approve family; sets yolo_mode in session telemetry / config).
+    local -a cmd=(grok -m "$model_id" --output-format streaming-json --prompt-file "$prompt_file")
+    if [ "${YOLO:-0}" = "1" ] || [ "${YOLO:-}" = "true" ]; then
+        cmd+=(--yolo)
+    else
+        cmd+=(--always-approve)
+    fi
     local effort="${REASONING_EFFORT:-}"
     if [ -z "$effort" ] && [ "$MODEL" != "$model_id" ]; then
         effort="${MODEL#*:}"
     fi
+    effort=$(printf '%s' "$effort" | tr '[:upper:]' '[:lower:]')
+    case "$effort" in
+        xhigh|max) effort=high ;;
+        low|medium|high) ;;
+        *) effort="" ;;
+    esac
     if [ -n "$effort" ]; then
-        if grok --help 2>&1 | grep -qE -- '--effort'; then
-            cmd+=(--effort "$effort")
-        elif grok --help 2>&1 | grep -qE -- '--reasoning-effort'; then
-            cmd+=(--reasoning-effort "$effort")
-        fi
+        cmd+=(--effort "$effort")
+    fi
+    local max_turns="${MAX_TURNS:-50}"
+    if [ -n "$max_turns" ] && [ "$max_turns" -gt 0 ] 2>/dev/null; then
+        cmd+=(--max-turns "$max_turns")
     fi
     if [ -n "$resume_id" ]; then
-        # Prefer explicit resume so follow-ups stay on the same Grok session.
-        if grok --help 2>&1 | grep -qE -- '--resume'; then
-            cmd+=(--resume "$resume_id")
-            # Branch into a new session id (resume from parent history without mutating parent id).
-            if [ "$resume_mode" = "fork" ] || [ "$resume_mode" = "1" ]; then
-                if grok --help 2>&1 | grep -qE -- '--fork-session'; then
-                    cmd+=(--fork-session)
-                    if [ -n "$fork_sid" ] && grok --help 2>&1 | grep -qE -- '--session-id'; then
-                        cmd+=(--session-id "$fork_sid")
-                    fi
-                fi
+        cmd+=(--resume "$resume_id")
+        if [ "$resume_mode" = "fork" ] || [ "$resume_mode" = "1" ]; then
+            cmd+=(--fork-session)
+            if [ -n "$fork_sid" ]; then
+                cmd+=(--session-id "$fork_sid")
             fi
-        elif grok --help 2>&1 | grep -qE -- '--continue|-c'; then
-            cmd+=(--continue)
-            if [ "$resume_mode" = "fork" ] || [ "$resume_mode" = "1" ]; then
-                if grok --help 2>&1 | grep -qE -- '--fork-session'; then
-                    cmd+=(--fork-session)
-                fi
-            fi
+        fi
+        if [ "${RESTORE_CODE:-0}" = "1" ] || [ "${RESTORE_CODE:-}" = "true" ]; then
+            cmd+=(--restore-code)
         fi
     fi
     echo ">>> Launching: ${cmd[*]}"
@@ -453,8 +704,21 @@ AGENT_EXIT=0
 SESSION_ID=""
 TURN_INDEX=0
 INTERACTIVE="${INTERACTIVE:-0}"
-# Host-seeded ended session: first turn uses grok --resume (same as later multi-turns).
+# Host-seeded ended session: first turn uses grok --resume --fork-session (new branch id).
 RESUME_SESSION_ID="${RESUME_SESSION_ID:-}"
+# Optional host-chosen UUID for the forked session (--session-id with --fork-session).
+FORK_SESSION_ID="${FORK_SESSION_ID:-}"
+RESUME_FORK="${RESUME_FORK:-1}"
+
+# Fail loud when fork is required but the image CLI is too old (no silent skip).
+if [ -n "$RESUME_SESSION_ID" ] && [ "$RESUME_FORK" != "0" ] && [ "$RESUME_FORK" != "false" ]; then
+    if ! grok --help 2>&1 | grep -qE -- '--fork-session'; then
+        echo ">>> ERROR: grok CLI lacks --fork-session (image CLI too old for fork-resume)."
+        echo ">>> Rebuild the eval Docker image so install.sh pulls a current Grok Build CLI."
+        grok --version 2>&1 || true
+        exit 3
+    fi
+fi
 
 # Do NOT exec: we need a final share after the agent exits (exec would kill this shell
 # and the share loop, leaving the share page mid-turn without the last assistant msg).
@@ -462,31 +726,61 @@ while true; do
     TURN_INDEX=$((TURN_INDEX + 1))
     if [ "$TURN_INDEX" -eq 1 ]; then
         if [ -n "$RESUME_SESSION_ID" ]; then
-            echo ">>> Resuming Grok session id=$RESUME_SESSION_ID"
-            SESSION_ID="$RESUME_SESSION_ID"
-            _gte_run_grok_turn "$PROMPT_FILE" "$RESUME_SESSION_ID"
+            if [ "$RESUME_FORK" = "0" ] || [ "$RESUME_FORK" = "false" ]; then
+                echo ">>> Resuming Grok session id=$RESUME_SESSION_ID (same id, no fork)"
+                SESSION_ID="$RESUME_SESSION_ID"
+                _gte_run_grok_turn "$PROMPT_FILE" "$RESUME_SESSION_ID" ""
+            else
+                echo ">>> Fork-resume from parent=$RESUME_SESSION_ID fork=${FORK_SESSION_ID:-auto}"
+                # Host-named fork id is authoritative once the turn starts.
+                if [ -n "$FORK_SESSION_ID" ]; then
+                    SESSION_ID="$FORK_SESSION_ID"
+                fi
+                _gte_run_grok_turn "$PROMPT_FILE" "$RESUME_SESSION_ID" "fork" "${FORK_SESSION_ID:-}"
+            fi
         else
             _gte_run_grok_turn "$PROMPT_FILE" ""
         fi
         AGENT_EXIT=$?
     else
+        # Later turns continue the primary (or forked) session id, no second fork.
+        if [ -z "$SESSION_ID" ]; then
+            echo ">>> ERROR: multi-turn resume without SESSION_ID (turn $TURN_INDEX) — aborting further turns"
+            AGENT_EXIT=4
+            break
+        fi
+        if ! _gte_session_is_primary "$SESSION_ID" 2>/dev/null; then
+            # Should not happen after refresh; refuse to resume a subagent.
+            if ! _gte_refresh_session_id; then
+                echo ">>> ERROR: cannot resolve primary session for turn $TURN_INDEX"
+                AGENT_EXIT=4
+                break
+            fi
+        fi
         _gte_run_grok_turn "$PROMPT_FILE" "$SESSION_ID"
         AGENT_EXIT=$?
     fi
-    SESSION_ID="$(_gte_latest_session_id || true)"
-    # Prefer explicit resume id when discovery fails (seeded session still valid).
-    if [ -z "$SESSION_ID" ] && [ -n "$RESUME_SESSION_ID" ]; then
-        SESSION_ID="$RESUME_SESSION_ID"
+    # Prefer host-named fork id; else resolve/refresh primary (never sticky subagent).
+    if [ -n "$FORK_SESSION_ID" ] && [ -n "$RESUME_SESSION_ID" ] \
+        && [ "$RESUME_FORK" != "0" ] && [ "$RESUME_FORK" != "false" ]; then
+        SESSION_ID="$FORK_SESSION_ID"
+        _gte_save_primary_session_id "$SESSION_ID"
+    else
+        _gte_refresh_session_id || true
     fi
     echo ">>> Agent turn $TURN_INDEX exited with code $AGENT_EXIT (session=${SESSION_ID:-unknown})"
     # Mid-run chown so live TUI / host tools see non-root prompt_history.jsonl etc.
-    _gte_fix_sessions_ownership
+    _gte_fix_bind_ownership
 
     # Non-interactive scripted follow-ups (batch tasks.turns)
     scripted="$(_gte_pop_scripted_turn || true)"
     if [ -n "$scripted" ]; then
+        if [ -z "$SESSION_ID" ]; then
+            echo ">>> ERROR: scripted follow-up ready but no primary SESSION_ID — stopping"
+            break
+        fi
         printf '%s' "$scripted" > "$PROMPT_FILE"
-        echo ">>> Scripted follow-up turn queued ($(wc -c < "$PROMPT_FILE") bytes)"
+        echo ">>> Scripted follow-up turn queued ($(wc -c < "$PROMPT_FILE") bytes) resume=$SESSION_ID"
         continue
     fi
 
@@ -549,5 +843,5 @@ else
     _gte_share_once 1 || true
 fi
 
-_gte_fix_sessions_ownership
+# EXIT trap: workspace seed snapshot + chown sessions volume.
 exit "$AGENT_EXIT"

@@ -21,6 +21,14 @@ def test_assets_root_and_docker_entrypoint():
     assert "--resume" in text
     assert "--fork-session" in text
     assert "FORK_SESSION_ID" in text
+    # Fork is not soft-skipped: capability gate + always pass flags in fork mode.
+    assert "lacks --fork-session" in text
+    assert "_gte_is_resume_seed_path" in text
+    # CLI effort mapping (product xhigh/max → high).
+    assert "xhigh|max" in text
+    assert "REPO_COMMIT" in text
+    assert "--restore-code" in text
+    assert "host-mounted /workspace" in text
     share = share_once_py()
     assert "grok" in share.lower()
     assert "share" in share.lower()
