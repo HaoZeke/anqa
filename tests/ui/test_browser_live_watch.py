@@ -16,8 +16,8 @@ def teardown_function() -> None:
     clear(KIND_REFRESH)
 
 
-def test_live_watch_root_uses_traces_volume(tmp_path: Path) -> None:
-    """Watch root is the traces volume when turn gates live there."""
+def test_live_watch_root_is_session_dir(tmp_path: Path) -> None:
+    """Watch only the session dir (not the whole traces volume)."""
     vol = tmp_path / "traces" / "ctr"
     vol.mkdir(parents=True)
     (vol / ".groket-turn").mkdir()
@@ -25,17 +25,16 @@ def test_live_watch_root_uses_traces_volume(tmp_path: Path) -> None:
     sess.mkdir(parents=True)
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sess
-    assert screen._live_watch_root() == vol.resolve() or screen._live_watch_root() == vol
+    assert screen._live_watch_root() == sess
 
 
-def test_live_watch_root_falls_back_to_session_dir(tmp_path: Path) -> None:
-    """When no volume is found, watch the session directory itself."""
+def test_live_watch_root_orphan_session(tmp_path: Path) -> None:
+    """Orphan session dirs still watch themselves."""
     sess = tmp_path / "orphan-session"
     sess.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sess
-    root = screen._live_watch_root()
-    assert root == sess or root == sess.resolve()
+    assert screen._live_watch_root() == sess
 
 
 def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -> None:
@@ -46,10 +45,12 @@ def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -
     assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_busy = True
     screen._live_refresh_pending = True
+    screen._last_light_submit_at = 0.0
+    screen._live_refresh_deferred = None
     from groket.session_inflight import request_rerun
 
     request_rerun(KIND_REFRESH, sd)
-    calls: list[str] = []
+    calls: list[object] = []
     screen._live_refresh_from_fs = (  # type: ignore[method-assign]
         lambda **kwargs: calls.append(("tick", bool(kwargs.get("heartbeat"))))
     )
@@ -70,6 +71,8 @@ def test_live_refresh_from_fs_sets_pending_when_busy(tmp_path: Path) -> None:
     screen.meta = None
     screen._live_refresh_busy = False
     screen._live_refresh_pending = False
+    screen._last_light_submit_at = 0.0
+    screen._live_refresh_deferred = None
     screen._session_is_pending = lambda: False  # type: ignore[method-assign]
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
     assert try_begin(KIND_REFRESH, sd) is True
@@ -77,18 +80,18 @@ def test_live_refresh_from_fs_sets_pending_when_busy(tmp_path: Path) -> None:
     assert screen._live_refresh_pending is True
 
 
-def test_live_watch_root_prefers_volume_for_uuid_session_layout(tmp_path: Path) -> None:
-    """Typical eval layout without gates yet still watches the container volume."""
+def test_live_watch_root_uuid_session_layout(tmp_path: Path) -> None:
+    """Typical eval layout still watches the session dir, not the volume root."""
     vol = tmp_path / "traces" / "ctr"
     sess = vol / "%2Fworkspace" / "019fabc-session-id"
     sess.mkdir(parents=True)
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sess
-    assert screen._live_watch_root().resolve() == vol.resolve()
+    assert screen._live_watch_root() == sess
 
 
 def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
-    from groket.constants import LIVE_POLL_HEARTBEAT_INTERVAL
+    from groket.constants import LIVE_BROWSER_SNAPSHOT_INTERVAL, LIVE_POLL_HEARTBEAT_INTERVAL
     from groket.session.context_samples import ContextSampleStore
 
     sd = tmp_path / "019f-sess"
@@ -102,6 +105,7 @@ def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
     screen._live_refresh_pending = False
     screen._live_refresh_timer = None
     screen._live_heartbeat_timer = None
+    screen._live_refresh_deferred = None
     screen._trace_watch = None
     screen._context_samples = ContextSampleStore()
     screen._session_is_pending = lambda: False  # type: ignore[method-assign]
@@ -120,7 +124,9 @@ def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
     screen.set_interval = _set_interval  # type: ignore[method-assign]
     screen._schedule_live_refresh()
     assert LIVE_POLL_HEARTBEAT_INTERVAL in timers
+    assert LIVE_BROWSER_SNAPSHOT_INTERVAL in timers
     assert screen._live_heartbeat_timer is not None
+    assert screen._live_refresh_timer is not None
 
 
 def test_live_refresh_heartbeat_passes_flag(tmp_path: Path) -> None:

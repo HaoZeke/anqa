@@ -1222,6 +1222,10 @@ async def test_extract_session_launch_params(tmp_path: Path) -> None:
         "repo_branch": "main",
         "setup_instructions": "pip install -e .",
         "docker_image": "custom-image",
+        "persona_id": "tree-sitter-analyzer",
+        "run_plugins": ["superpowers"],
+        "run_skills": ["sk1"],
+        "run_mcp_servers": ["mcp1"],
     }
     (sd / "run.json").write_text(json.dumps(run_data), encoding="utf-8")
 
@@ -1231,6 +1235,10 @@ async def test_extract_session_launch_params(tmp_path: Path) -> None:
     assert params["repo_branch"] == "main"
     assert params["setup_instructions"] == "pip install -e ."
     assert params["docker_image"] == "custom-image"
+    assert params["persona_id"] == "tree-sitter-analyzer"
+    assert params["run_plugins"] == ["superpowers"]
+    assert params["run_skills"] == ["sk1"]
+    assert params["run_mcp_servers"] == ["mcp1"]
 
 
 @pytest.mark.asyncio
@@ -1242,6 +1250,58 @@ async def test_extract_session_launch_params_no_run_json(tmp_path: Path) -> None
     params = app._extract_session_launch_params(meta)
     assert "prompt" in params
     assert "docker_image" in params
+    assert params["persona_id"] == ""
+    assert params["run_plugins"] == []
+
+
+@pytest.mark.asyncio
+async def test_extract_session_launch_params_from_fork_parent_seed(tmp_path: Path) -> None:
+    """Fork child without its own recipe reuses parent seed persona/plugins."""
+    from groket.runs.launch_meta import build_launch_meta, write_launch_meta
+    from groket.session.resume import RESUME_SEED_DIRNAME
+
+    app, work, _ = _make_app(tmp_path, n_sessions=0)
+    run = work / "runs" / "traces" / "groket-fork-test-m"
+    token = "%2Fworkspace"
+    parent_id = "parent-abc"
+    child_id = "child-xyz"
+    seed = run / RESUME_SEED_DIRNAME / token / parent_id
+    seed.mkdir(parents=True)
+    (seed / "chat_history.jsonl").write_text("{}\n", encoding="utf-8")
+    (seed / "events.jsonl").write_text("", encoding="utf-8")
+    (seed / "summary.json").write_text("{}", encoding="utf-8")
+    (seed / "run.json").write_text(
+        json.dumps(
+            {
+                "persona_id": "tree-sitter-analyzer",
+                "run_plugins": ["superpowers"],
+                "run_skills": [],
+                "run_mcp_servers": [],
+                "repo_url": "https://github.com/ex/coredis",
+                "docker_image": "fully-loaded",
+            }
+        ),
+        encoding="utf-8",
+    )
+    child = run / token / child_id
+    child.mkdir(parents=True)
+    (child / "summary.json").write_text("{}", encoding="utf-8")
+    (child / "events.jsonl").write_text("", encoding="utf-8")
+    write_launch_meta(
+        run,
+        build_launch_meta(
+            model="grok-4.5",
+            reasoning_effort="high",
+            container_name=run.name,
+            resume_parent_session_id=parent_id,
+            resume_fork_session_id=child_id,
+        ),
+    )
+    meta = load_session_meta(child)
+    params = app._extract_session_launch_params(meta)
+    assert params["persona_id"] == "tree-sitter-analyzer"
+    assert params["run_plugins"] == ["superpowers"]
+    assert params["repo_url"] == "https://github.com/ex/coredis"
 
 
 @pytest.mark.asyncio
@@ -1502,6 +1562,42 @@ async def test_scan_live_sessions_into_table(
             description="live session appears in table",
         )
         assert any("sess-live-new" in str(m.session_dir) for m, _ in app._meta_only)
+
+
+@pytest.mark.asyncio
+async def test_live_poll_promotes_completed_multiturn_to_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a closed turn (completed), the next follow-up must show running again."""
+    app, work, traces = _make_app(tmp_path, n_sessions=1)
+    monkeypatch.setattr(
+        type(app.run_manager),
+        "active_count",
+        property(lambda self: 0),
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        meta, label = app._meta_only[0]
+        # Simulate list stuck on harness "completed" after turn_ended.
+        meta.turn_outcome = "completed"
+        app._meta_only[0] = (meta, label)
+        key = str(meta.session_dir.resolve())
+        app._session_mtimes[key] = 1.0  # same mtime path still refreshes live outcomes
+
+        monkeypatch.setattr(
+            "groket.ui.app.list_turn_outcome_for_dir",
+            lambda _sd: "running",
+        )
+        app._live_sessions_last_scan = 0.0
+        app._live_full_walk_last = 0.0
+        # Idle walk must re-find the session so the known-session path runs.
+        app._scan_live_sessions_into_table()
+        await wait_until(
+            pilot,
+            lambda: (app._meta_only[0][0].turn_outcome or "") == "running",
+            description="completed multi-turn promotes to running",
+        )
+        assert app._meta_only[0][0].list_status_label() == "running"
 
 
 @pytest.mark.asyncio

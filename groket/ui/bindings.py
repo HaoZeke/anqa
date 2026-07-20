@@ -82,6 +82,7 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("m", "cycle_model_filter", U.bind_model(), show=False),
     _b("a", "analyze", U.bind_analyze(), show=False),
     _b("d", "open_rules", U.bind_rules(), show=False),
+    _b("E", "export_session_bundle", U.bind_export_bundle(), show=False),
     # Multi-turn: n = next prompt, e = end session (not Ctrl+Enter).
     _b("n", "follow_up_sessions", U.bind_next_prompt(), show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), show=True),
@@ -114,6 +115,7 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "cycle_model_filter",
         "analyze",
         "open_rules",
+        "export_session_bundle",
         "follow_up_sessions",
         "mark_sessions_done",
     }
@@ -131,6 +133,7 @@ BROWSER: tuple[Binding, ...] = (
         _b("x", "delete_session", U.bind_delete(), show=True),
         _b("delete", "delete_session", U.bind_delete(), show=False),
         _b("s", "open_share", U.bind_share(), show=False),
+        _b("E", "export_bundle", U.bind_export_bundle(), show=True),
         # n = type next prompt (focus input); Enter in input sends; e = end session.
         _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),
         _b("e", "mark_session_done", U.bind_end_session(), show=True),

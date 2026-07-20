@@ -101,6 +101,125 @@ async def test_timeline_load_and_row_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_timeline_load_events_appends_without_clear() -> None:
+    """Live multi-turn growth appends rows instead of full clear+rebuild."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = _basic_events()
+        tl.load_events(events)
+        assert tl.row_count == len(events)
+        extra = make_trace_event(
+            index=99,
+            event_type="user_message_chunk",
+            content="follow-up turn",
+            timestamp=2000,
+        )
+        grown = [*events, extra]
+        tl.load_events(grown)
+        assert tl.row_count == len(grown)
+        assert tl.events[-1].index == 99
+
+
+@pytest.mark.asyncio
+async def test_timeline_load_events_patches_streaming_tail() -> None:
+    """Same-length streaming content updates cells without clear()+rebuild."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        base = [
+            make_trace_event(
+                index=0,
+                event_type="agent_message_chunk",
+                content="hello",
+                timestamp=1000,
+            ),
+            make_trace_event(
+                index=1,
+                event_type="tool_call",
+                tool_name="read_file",
+                tool_call_id="c1",
+                raw_input={"target_file": "a.py"},
+                timestamp=1001,
+            ),
+        ]
+        tl.load_events(base)
+        assert tl.row_count == 2
+        # Simulate streaming assistant text on the first row only.
+        streamed = [
+            make_trace_event(
+                index=0,
+                event_type="agent_message_chunk",
+                content="hello world, still streaming…",
+                timestamp=1000,
+            ),
+            base[1],
+        ]
+        tl.load_events(streamed)
+        assert tl.row_count == 2
+        # Live path keeps in-memory content; table cells are not rewritten mid-stream.
+        assert "still streaming" in tl.events[0].content
+        # Growth after stream: append only.
+        grown = [
+            *streamed,
+            make_trace_event(
+                index=2,
+                event_type="tool_call_update",
+                tool_name="read_file",
+                tool_call_id="c1",
+                content="ok",
+                timestamp=1005,
+            ),
+        ]
+        tl.load_events(grown)
+        assert tl.row_count == 3
+
+
+@pytest.mark.asyncio
+async def test_timeline_live_skips_content_only_stream_patches() -> None:
+    """Live path ignores content-only rewrites (streaming) to keep UI usable."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = [
+            make_trace_event(
+                index=i,
+                event_type="agent_message_chunk",
+                content=f"chunk-{i}",
+                timestamp=1000 + i,
+            )
+            for i in range(80)
+        ]
+        tl.load_events(events)
+        assert tl.row_count == 80
+        # Mutate only the last event (streaming) — table must not thrash.
+        streamed = list(events)
+        streamed[-1] = make_trace_event(
+            index=79,
+            event_type="agent_message_chunk",
+            content="chunk-79 streamed further text",
+            timestamp=1079,
+        )
+        tl.load_events(streamed)
+        assert tl.row_count == 80
+        # In-memory events update for later F5; display cells stay put (no patch).
+        assert "streamed further" in tl.events[-1].content
+        # Append still works without full rebuild.
+        streamed2 = [
+            *streamed,
+            make_trace_event(
+                index=80,
+                event_type="tool_call",
+                tool_name="read_file",
+                tool_call_id="c-tail",
+                timestamp=1080,
+            ),
+        ]
+        tl.load_events(streamed2)
+        assert tl.row_count == 81
+
+
+@pytest.mark.asyncio
 async def test_timeline_durations_computed() -> None:
     app = _TimelineApp()
     async with app.run_test():

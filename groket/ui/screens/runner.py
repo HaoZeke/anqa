@@ -33,6 +33,7 @@ from textual.widgets import (
 )
 
 from ...capabilities.merge import merge_capabilities
+from ...constants import DEFAULT_MAX_TURNS, normalize_max_turns
 from ...docker.base_profiles import DEFAULT_DOCKER_IMAGE
 from ...docker.orchestrator import ContainerStatus
 from ...models import json_as_str_list
@@ -68,6 +69,8 @@ class RunnerPrefill:
     docker_image: str = ""
     repo_url: str = ""
     repo_branch: str = ""
+    # Host directory bind-mounted as /workspace (live; no clone).
+    repo_path: str = ""
     models: list[str] = field(default_factory=list)
     persona_id: str = ""
     run_mcp_servers: list[str] = field(default_factory=list)
@@ -81,6 +84,13 @@ class RunnerPrefill:
     interactive: bool = False
     resume_session_id: str = ""
     resume_source_dir: str = ""
+    # Parent ``head_commit`` for post-clone checkout / ``--restore-code``.
+    repo_commit: str = ""
+    restore_code: bool = False
+    # Grok ``--max-turns`` (agent steps per prompt); 0 / unset → default 50.
+    max_turns: int = 0
+    # Opt-in ``grok --yolo`` (default false → --always-approve).
+    yolo: bool = False
 
 
 class RunnerScreen(TabPaneNavigation, ChromeActions):
@@ -154,6 +164,10 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             ]
             self._resume_session_id = (prefill.resume_session_id or "").strip()
             self._resume_source_dir = (prefill.resume_source_dir or "").strip()
+            self._repo_commit = (prefill.repo_commit or "").strip()
+            self._restore_code = bool(prefill.restore_code) or bool(
+                self._resume_session_id or self._resume_source_dir
+            )
             self._prefill_interactive = bool(prefill.interactive)
         else:
             self._run_mcp_ids = []
@@ -164,6 +178,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             self._run_inline_skills = []
             self._resume_session_id = ""
             self._resume_source_dir = ""
+            self._repo_commit = ""
+            self._restore_code = False
             self._prefill_interactive = False
         self._pending_model_skips: list[str] | None = None
         self._clean_snapshot: tuple[str, ...] | None = None
@@ -204,6 +220,12 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                             yield Checkbox(
                                 t("ui-interactive-multi-turn-follow-ups-until-done"),
                                 id="interactive-multi-turn",
+                                value=True,
+                            )
+                            yield Checkbox(
+                                t("ui-yolo-auto-approve-tools"),
+                                id="yolo-mode",
+                                value=False,
                             )
                             yield Static(
                                 "",
@@ -222,6 +244,12 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                                     id="repo-branch-input",
                                     classes="runner-repo-branch",
                                 )
+                            yield Label(U.repo_path_label())
+                            yield Input(
+                                placeholder=U.repo_path_placeholder(),
+                                id="repo-path-input",
+                                classes="runner-repo-path",
+                            )
                             yield Static("", id="github-write-hint", classes="runner-status-line")
                     with TabPane(U.runner_tab_runtime(), id="runner-tab-runtime"):
                         with VerticalScroll(classes="runner-pane"):
@@ -256,6 +284,13 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                                             classes="runner-inline-btn",
                                         )
                             yield Static("", id="docker-profile-hint", classes="runner-status-line")
+                            yield Label(U.max_turns_label())
+                            yield Input(
+                                value=str(DEFAULT_MAX_TURNS),
+                                placeholder=U.max_turns_placeholder(),
+                                id="max-turns-input",
+                                classes="runner-max-turns",
+                            )
                             yield Static(
                                 "",
                                 id="runtime-launch-panel",
@@ -318,6 +353,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 self.query_one("#repo-url-input", Input).value = pf.repo_url
             if pf.repo_branch:
                 self.query_one("#repo-branch-input", Input).value = pf.repo_branch
+            if pf.repo_path:
+                self.query_one("#repo-path-input", Input).value = pf.repo_path
             if pf.models:
                 self._set_models_selection(pf.models)
             if pf.persona_id is not None:
@@ -333,6 +370,18 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     self.query_one("#interactive-multi-turn", Checkbox).value = True
                 except Exception:
                     logger.debug("failed to set interactive prefill", exc_info=True)
+            if pf.yolo:
+                try:
+                    self.query_one("#yolo-mode", Checkbox).value = True
+                except Exception:
+                    logger.debug("failed to set yolo prefill", exc_info=True)
+            if pf.max_turns and int(pf.max_turns) > 0:
+                try:
+                    self.query_one("#max-turns-input", Input).value = str(
+                        normalize_max_turns(pf.max_turns, default=DEFAULT_MAX_TURNS)
+                    )
+                except Exception:
+                    logger.debug("failed to set max-turns prefill", exc_info=True)
             if self._resume_session_id:
                 self._set_status_line(
                     "resume-session-hint",
@@ -1103,6 +1152,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             docker_image,
             repo_url,
             repo_branch,
+            repo_path,
             models,
             name,
             persona_id,
@@ -1112,6 +1162,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             run_plugins,
             run_env,
             run_inline,
+            max_turns,
+            yolo,
         ) = fields
         if not prompt:
             self.notify(U.prompt_required_save(), severity="error")
@@ -1130,6 +1182,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     existing.docker_image = docker_image
                     existing.repo_url = repo_url
                     existing.repo_branch = repo_branch
+                    existing.repo_path = repo_path
                     existing.persona_id = persona_id
                     existing.github_write = False
                     existing.run_mcp_servers = list(run_mcp)
@@ -1141,6 +1194,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     if models:
                         existing.models = models
                     existing.parallelism = 1
+                    existing.max_turns = max_turns
+                    existing.yolo = bool(yolo)
                     if name:
                         existing.name = name
                     store.save(existing)
@@ -1174,10 +1229,13 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 docker_image=docker_image,
                 repo_url=repo_url,
                 repo_branch=repo_branch,
+                repo_path=repo_path,
                 models=models,
                 parallelism=1,
                 name=name,
                 github_write=False,
+                max_turns=max_turns,
+                yolo=bool(yolo),
             )
             cfg.persona_id = persona_id or ""
             cfg.run_mcp_servers = list(run_mcp)
@@ -1186,6 +1244,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             cfg.run_plugins = list(run_plugins)
             cfg.run_env_vars = dict(run_env)
             cfg.run_inline_skills = list(inline_dicts)
+            cfg.yolo = bool(yolo)
             store.save(cfg)
             self._config_id = cfg.config_id
             self.notify(
@@ -1206,6 +1265,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             str,
             str,
             str,
+            str,
             list[str],
             str,
             str,
@@ -1215,6 +1275,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             list[str],
             dict[str, str],
             list[tuple[str, str]],
+            int,
+            bool,
         ]
         | None
     ):
@@ -1236,6 +1298,10 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             logger.debug(t("ui-failed-to-resolve-docker-base-for-s"), docker_image, exc_info=True)
         repo_url = self.query_one("#repo-url-input", Input).value.strip()
         repo_branch = self.query_one("#repo-branch-input", Input).value.strip()
+        try:
+            repo_path = self.query_one("#repo-path-input", Input).value.strip()
+        except Exception:
+            repo_path = ""
         try:
             models = selection_list_selected_ids(self.query_one("#models-select", SelectionList))
         except Exception:
@@ -1273,6 +1339,17 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
         run_plugins = self._run_plugins_from_form()
         run_env = self._run_env_from_form()
         run_inline = self._run_inline_skills_from_form()
+        try:
+            max_turns_raw = self.query_one("#max-turns-input", Input).value.strip()
+        except Exception:
+            max_turns_raw = str(DEFAULT_MAX_TURNS)
+        max_turns = normalize_max_turns(
+            max_turns_raw or DEFAULT_MAX_TURNS, default=DEFAULT_MAX_TURNS
+        )
+        try:
+            yolo = bool(self.query_one("#yolo-mode", Checkbox).value)
+        except Exception:
+            yolo = False
         if require_models and (not models):
             self.notify(U.select_at_least_one_model(), severity="error")
             return None
@@ -1282,6 +1359,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             docker_image,
             repo_url,
             repo_branch,
+            repo_path,
             models,
             name,
             persona_id,
@@ -1291,6 +1369,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             run_plugins,
             run_env,
             run_inline,
+            max_turns,
+            yolo,
         )
 
     def _do_launch(self) -> None:
@@ -1318,6 +1398,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             docker_image,
             repo_url,
             repo_branch,
+            repo_path,
             models,
             name,
             persona_id,
@@ -1327,6 +1408,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             run_plugins,
             run_env,
             run_inline,
+            max_turns,
+            yolo,
         ) = fields
         if not prompt:
             self.notify(U.prompt_required(), severity="error")
@@ -1355,7 +1438,14 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 timeout=12,
             )
             return
-        if github_write and (not repo_url):
+        if repo_path and len(models) > 1:
+            self.notify(
+                t("ui-repo-path-requires-single-model"),
+                severity="error",
+                timeout=12,
+            )
+            return
+        if github_write and (not repo_url) and (not repo_path):
             self.notify(
                 t("ui-github-write-is-on-but-repo-url-is-empty-set-htt"),
                 severity="warning",
@@ -1400,6 +1490,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 parallelism=1,
                 repo_url=repo_url,
                 repo_branch=repo_branch,
+                repo_path=repo_path,
                 auth_json=auth_json,
                 grok_config=grok_config,
                 prune_exited=True,
@@ -1408,6 +1499,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 existing_config_id=self._config_id,
                 persona_id=persona_id,
                 github_token="",
+                repo_commit=(self._repo_commit or "").strip(),
+                restore_code=bool(self._restore_code) or bool(resume_sid or resume_src),
                 run_mcp_servers=run_mcp,
                 run_mcp_definitions=run_mcp_defs,
                 run_skills=run_skills,
@@ -1416,6 +1509,8 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 run_inline_skills=run_inline,
                 resume_session_id=resume_sid,
                 resume_source_dir=resume_src,
+                max_turns=max_turns,
+                yolo=bool(yolo),
             )
         except RuntimeError as exc:
             self.notify(str(exc), severity="warning")
@@ -1539,6 +1634,10 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
             repo_url = self.query_one("#repo-url-input", Input).value
             repo_branch = self.query_one("#repo-branch-input", Input).value
             try:
+                repo_path = self.query_one("#repo-path-input", Input).value
+            except Exception:
+                repo_path = ""
+            try:
                 docker = select_value_str(
                     self.query_one("#docker-image-select", Select).value,
                     default=DEFAULT_DOCKER_IMAGE,
@@ -1555,6 +1654,14 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 interactive = bool(self.query_one("#interactive-multi-turn", Checkbox).value)
             except Exception:
                 interactive = False
+            try:
+                yolo = bool(self.query_one("#yolo-mode", Checkbox).value)
+            except Exception:
+                yolo = False
+            try:
+                max_turns = self.query_one("#max-turns-input", Input).value.strip()
+            except Exception:
+                max_turns = str(DEFAULT_MAX_TURNS)
             persona = self._persona_id_from_form()
             run_mcp = tuple(self._run_mcp_ids or [])
             run_skills = tuple(self._run_skills_ids or [])
@@ -1572,8 +1679,11 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     docker,
                     repo_url,
                     repo_branch,
+                    repo_path,
                     models,
                     interactive,
+                    yolo,
+                    max_turns,
                     persona,
                     run_mcp,
                     run_skills,

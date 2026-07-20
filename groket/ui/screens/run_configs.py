@@ -291,7 +291,10 @@ class RunConfigsScreen(ChromeActions):
             models = ", ".join(cfg.models[:2])
             if len(cfg.models) > 2:
                 models += "…"
-            repo = (cfg.repo_url or "").split("/")[-1] if cfg.repo_url else "—"
+            if (cfg.repo_path or "").strip():
+                repo = Path(cfg.repo_path).expanduser().name or "local"
+            else:
+                repo = (cfg.repo_url or "").split("/")[-1] if cfg.repo_url else "—"
             table.add_row(
                 selection_mark(cfg.config_id in self._selected),
                 cfg.catalog_label()[:18],
@@ -394,7 +397,12 @@ class RunConfigsScreen(ChromeActions):
         lines.extend(
             [
                 join_ui(
-                    t("ui-repo-1"), cfg.repo_url or "(none)", t("ui-branch"), cfg.repo_branch or "—"
+                    t("ui-repo-1"),
+                    cfg.repo_url or "(none)",
+                    t("ui-branch"),
+                    cfg.repo_branch or "—",
+                    t("ui-repo-path-1"),
+                    cfg.repo_path or "—",
                 ),
                 join_ui(
                     t("ui-image"),
@@ -579,6 +587,7 @@ class RunConfigsScreen(ChromeActions):
                 parallelism=1,
                 repo_url=cfg.repo_url,
                 repo_branch=cfg.repo_branch,
+                repo_path=str(getattr(cfg, "repo_path", "") or ""),
                 auth_json=auth_json,
                 grok_config=grok_config,
                 prune_exited=True,
@@ -586,6 +595,18 @@ class RunConfigsScreen(ChromeActions):
                 config_name=cfg.name,
                 existing_config_id=cfg.config_id,
                 persona_id=str(getattr(cfg, "persona_id", "") or ""),
+                run_mcp_servers=list(cfg.run_mcp_servers or []),
+                run_mcp_definitions=list(cfg.run_mcp_definitions or []),
+                run_skills=list(cfg.run_skills or []),
+                run_plugins=list(cfg.run_plugins or []),
+                run_env_vars=dict(cfg.run_env_vars or {}),
+                run_inline_skills=[
+                    (str(x.get("id") or ""), str(x.get("content") or ""))
+                    for x in (cfg.run_inline_skills or [])
+                    if isinstance(x, dict) and str(x.get("id") or "").strip()
+                ],
+                max_turns=getattr(cfg, "max_turns", None),
+                yolo=bool(getattr(cfg, "yolo", False)),
             )
         except Exception as exc:
             self.notify(str(exc), severity="error")
@@ -630,10 +651,19 @@ class RunConfigsScreen(ChromeActions):
                     "parallelism": 1,
                     "repo_url": c.repo_url,
                     "repo_branch": c.repo_branch,
+                    "repo_path": str(getattr(c, "repo_path", "") or ""),
                     "persona_id": str(getattr(c, "persona_id", "") or ""),
+                    "run_mcp_servers": list(c.run_mcp_servers or []),
+                    "run_mcp_definitions": list(c.run_mcp_definitions or []),
+                    "run_skills": list(c.run_skills or []),
+                    "run_plugins": list(c.run_plugins or []),
+                    "run_env_vars": dict(c.run_env_vars or {}),
+                    "run_inline_skills": list(c.run_inline_skills or []),
                     "config_name": c.name,
                     "existing_config_id": c.config_id,
                     "label": c.task_id or c.display_name() or c.config_id,
+                    "max_turns": getattr(c, "max_turns", None),
+                    "yolo": bool(getattr(c, "yolo", False)),
                 }
             )
         if not items:

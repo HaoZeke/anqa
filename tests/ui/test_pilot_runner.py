@@ -80,6 +80,8 @@ async def test_runner_mounts_blank(tmp_path: Path) -> None:
         scr.query_one("#launch-btn", Button)
         scr.query_one("#save-config-btn", Button)
         scr.query_one("#launch-btn")
+        max_turns = scr.query_one("#max-turns-input", Input)
+        assert max_turns.value == "50"
 
 
 @pytest.mark.asyncio
@@ -96,6 +98,7 @@ async def test_runner_mounts_with_prefill(tmp_path: Path) -> None:
         run_skills=["bash"],
         run_plugins=["chrome-devtools"],
         run_env_vars={"KEY": "val"},
+        max_turns=120,
     )
     app = _Harness(work, prefill=pf)
     async with app.run_test(size=(140, 50)) as pilot:
@@ -106,6 +109,8 @@ async def test_runner_mounts_with_prefill(tmp_path: Path) -> None:
         assert "npm install" in setup.text
         repo = scr.query_one("#repo-url-input", Input)
         assert repo.value == "https://github.com/org/repo"
+        max_turns = scr.query_one("#max-turns-input", Input)
+        assert max_turns.value == "120"
 
 
 # ── Tab switching ─────────────────────────────────────────────────────────
@@ -130,6 +135,7 @@ async def test_runner_tab_switching(tmp_path: Path) -> None:
         # Models live on Runtime (no separate Models pane)
         assert scr.query_one("#models-select") is not None
         assert scr.query_one("#docker-image-select") is not None
+        assert scr.query_one("#max-turns-input", Input).value == "50"
 
         scr.action_tab_extras()
         await pilot.pause()

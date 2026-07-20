@@ -15,6 +15,7 @@ Enter open · / search · r new run · C recipes · P personas
 s select · S select all · x delete (twice)
 R re-run recipe · f fork ended session (new multi-turn)
 Ctrl+S save row as a recipe
+E              export highlighted/selected session tarball
 
 [bold]Session browser[/bold]
 [ ] or 1–5     panes (timeline, summary, diff, findings, report)
@@ -23,9 +24,12 @@ f              flag event
 n              follow-up prompt · e done (multi-turn)
 x              delete this session (twice)
 s              open share link
+E              export session tarball (~/.groket/reports; embeds grok-trace.tar.gz)
 
 [bold]Runner[/bold]
 Ctrl+Enter (or Ctrl+J) launch · Ctrl+S save recipe · [ ] panes
+Repository URL clones into runs/checkouts/; [bold]Local path[/bold] bind-mounts that host directory as /workspace (live edits, single model).
+YOLO checkbox → ``grok --yolo`` (default is ``--always-approve`` only).
 
 [bold]Recipes & personas[/bold]
 Enter open · l launch · s select · n new · x delete

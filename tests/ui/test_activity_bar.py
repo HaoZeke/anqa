@@ -56,9 +56,11 @@ def test_build_activity_line_lifecycle_and_spinner():
 def test_activity_is_busy():
     assert not activity_is_busy({"sessions": 3, "awaiting": 1})
     assert activity_is_busy({"building": 1, "sessions": 0})
-    assert activity_is_busy({"running": 2})
-    assert activity_is_busy({"ending": 1})
+    # Live "running" alone must not enable the fast spinner timer (UI thrash).
+    assert not activity_is_busy({"running": 2})
+    assert not activity_is_busy({"ending": 1})
     assert activity_is_busy({"analyze": 1})
+    assert activity_is_busy({"extracting": 1})
 
 
 def test_build_activity_line_ending():

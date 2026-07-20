@@ -40,26 +40,6 @@ from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, l
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
 from . import text as U
-
-# Harness / terminal outcomes — live poll must not replace these with
-# ``interrupted`` from stale-trace inference (UI shows that as "cancelled").
-_FINISHED_TURN_OUTCOMES = frozenset(
-    {
-        "success",
-        "ok",
-        "completed",
-        "complete",
-        "error",
-        "failed",
-        "failure",
-        "timeout",
-        "cancelled",
-        "canceled",
-        "aborted",
-        "interrupted",
-    }
-)
-
 from .bindings import (
     APP_GLOBAL_PRIORITY,
     APP_SESSIONS,
@@ -849,12 +829,15 @@ class TraceEvalApp(App):
         label: str,
         *,
         hold_inflight: bool = False,
+        force: bool = False,
     ) -> None:
         """Analyze a single session with all plugins. Must be called from a worker thread.
 
         :param hold_inflight: When True, caller already called
             :func:`~groket.analysis.inflight.try_begin_session_analysis` and will
             :func:`~groket.analysis.inflight.end_session_analysis` in its ``finally``.
+        :param force: When True, re-run even when cache is warm (and run deferred
+            LLM plugins). Default False avoids multi-minute LLM on bulk refresh.
         """
         from ..analysis.inflight import (
             analysis_session_key,
@@ -865,14 +848,14 @@ class TraceEvalApp(App):
         _ = label
         sd_key = analysis_session_key(meta.session_dir)
         legacy_key = str(meta.session_dir)
-        if sd_key in self._plugin_results or legacy_key in self._plugin_results:
+        if not force and (sd_key in self._plugin_results or legacy_key in self._plugin_results):
             return
         acquired = hold_inflight
         if not acquired and not try_begin_session_analysis(meta.session_dir):
             return
         try:
             self._plugin_results[sd_key] = self._analysis_svc().analyze_all(
-                meta.session_dir, force=True
+                meta.session_dir, force=force
             )
             if legacy_key != sd_key:
                 self._plugin_results[legacy_key] = self._plugin_results[sd_key]
@@ -958,7 +941,8 @@ class TraceEvalApp(App):
             try:
                 for idx, (meta, label) in enumerate(pending):
                     try:
-                        self._analyze_one(meta, label, hold_inflight=True)
+                        # Explicit Analyze action: force so deferred LLM runs.
+                        self._analyze_one(meta, label, hold_inflight=True, force=True)
                     finally:
                         end_session_analysis(meta.session_dir)
                         self._analysis_jobs_active = max(0, self._analysis_jobs_active - 1)
@@ -1403,81 +1387,49 @@ class TraceEvalApp(App):
         self._do_resume(meta)
 
     def _extract_session_launch_params(self, meta: SessionMeta) -> dict:
-        """Extract launch parameters from a session's run.json and task catalog.
+        """Extract launch parameters from a session's run recipe and task catalog.
 
-        Returns dict with keys: prompt, setup_instructions, docker_image,
-        repo_url, repo_branch, models, persona_id, run_plugins, run_skills,
-        run_mcp_servers.
+        Prefers ``run.json`` on the session, its traces volume (written at
+        container start), or the fork parent seed when the child never got a
+        recipe. Returns keys: prompt, setup_instructions, docker_image,
+        repo_url, repo_branch, repo_path, models, persona_id, run_plugins,
+        run_skills, run_mcp_servers.
         """
         from ..constants import DEFAULT_DOCKER_IMAGE, DEFAULT_MODEL_ID
-        from ..paths import RUN_PREFIX as RUN_DIR_PREFIX
+        from ..runs.run_recipe import load_run_recipe
 
         prompt = extract_prompt(meta.session_dir)
         setup = ""
         docker_image = DEFAULT_DOCKER_IMAGE
         repo_url = meta.git_repo
         repo_branch = meta.git_branch
+        repo_path = ""
         persona_id = ""
         run_plugins: list[str] = []
         run_skills: list[str] = []
         run_mcp: list[str] = []
-        run_json = meta.session_dir / "run.json"
-        if not run_json.exists():
-            # Container traces root often holds run.json one level up from cwd token.
-            for parent in meta.session_dir.parents:
-                candidate = parent / "run.json"
-                if candidate.is_file():
-                    run_json = candidate
-                    break
-                if parent.name.startswith(RUN_DIR_PREFIX):
-                    break
-        if run_json.exists():
-            try:
-                run_data = json.loads(run_json.read_text())
-                if isinstance(run_data, dict):
-                    repo_url = repo_url or str(run_data.get("repo_url") or "")
-                    repo_branch = repo_branch or str(run_data.get("repo_branch") or "")
-                    setup = str(run_data.get("setup_instructions") or setup or "")
-                    docker_image = str(run_data.get("docker_image") or docker_image)
-                    persona_id = str(run_data.get("persona_id") or "").strip()
-                    plugins = run_data.get("plugins") or []
-                    if isinstance(plugins, list):
-                        run_plugins = [str(x) for x in plugins if str(x).strip()]
-                    skills = run_data.get("skills") or []
-                    if isinstance(skills, list):
-                        run_skills = [str(x) for x in skills if str(x).strip()]
-                    mcps = run_data.get("mcp_servers") or []
-                    if isinstance(mcps, list):
-                        run_mcp = [str(x) for x in mcps if str(x).strip()]
-                    models_from_run = run_data.get("models") or []
-                    if isinstance(models_from_run, list) and models_from_run:
-                        models_list = [str(x) for x in models_from_run if str(x).strip()]
-                    else:
-                        models_list = []
-                else:
-                    models_list = []
-            except (json.JSONDecodeError, KeyError, TypeError, OSError):
-                models_list = []
-        else:
-            models_list = []
-        if not repo_url:
-            trace_dir = meta.session_dir
-            for parent in [meta.session_dir] + list(meta.session_dir.parents):
-                if parent.name.startswith(RUN_DIR_PREFIX):
-                    trace_dir = parent
-                    break
-            task_id, _ = self._extract_task_and_model(trace_dir.name)
-            try:
-                tasks: list = []
-                task_map = {t.task_id: t for t in tasks}
-                if task_id in task_map:
-                    task = task_map[task_id]
-                    repo_url = task.repo_url
-                    repo_branch = task.repo_branch
-                    setup = setup or task.setup_instructions
-                    docker_image = task.docker_image
-            except Exception:
-                logger.debug(t("ui-task-catalog-lookup-failed-for-s"), task_id, exc_info=True)
+        models_list: list[str] = []
+        run_data = load_run_recipe(meta.session_dir)
+        if run_data:
+            repo_url = repo_url or str(run_data.get("repo_url") or "")
+            repo_branch = repo_branch or str(run_data.get("repo_branch") or "")
+            repo_path = str(run_data.get("repo_path") or "").strip()
+            setup = str(run_data.get("setup_instructions") or setup or "")
+            docker_image = str(run_data.get("docker_image") or docker_image)
+            persona_id = str(run_data.get("persona_id") or "").strip()
+            # Run-only extras (not merged persona caps).
+            plugins = run_data.get("run_plugins") or []
+            if isinstance(plugins, list):
+                run_plugins = [str(x) for x in plugins if str(x).strip()]
+            skills = run_data.get("run_skills") or []
+            if isinstance(skills, list):
+                run_skills = [str(x) for x in skills if str(x).strip()]
+            mcps = run_data.get("run_mcp_servers") or []
+            if isinstance(mcps, list):
+                run_mcp = [str(x) for x in mcps if str(x).strip()]
+            models_from_run = run_data.get("models") or []
+            if isinstance(models_from_run, list) and models_from_run:
+                models_list = [str(x) for x in models_from_run if str(x).strip()]
         if not models_list:
             models_list = (
                 [meta.model_id] if meta.model_id and meta.model_id != DEFAULT_MODEL_ID else []
@@ -1491,17 +1443,25 @@ class TraceEvalApp(App):
                 models_list = [lm.display_token]
         except Exception:
             logger.debug("launch meta lookup failed for resume/rerun", exc_info=True)
+        # Summary often has remotes/branch when run.json never stored repo_url.
+        if not (repo_url or "").strip():
+            repo_url = (meta.git_repo or "").strip()
+        if not (repo_branch or "").strip():
+            repo_branch = (meta.git_branch or "").strip()
+        repo_commit = (getattr(meta, "git_commit", None) or "").strip()
         return {
             "prompt": prompt,
             "setup_instructions": setup,
             "docker_image": docker_image,
             "repo_url": repo_url,
             "repo_branch": repo_branch,
+            "repo_path": repo_path,
             "models": models_list,
             "persona_id": persona_id,
             "run_plugins": run_plugins,
             "run_skills": run_skills,
             "run_mcp_servers": run_mcp,
+            "repo_commit": repo_commit,
         }
 
     @work(thread=True)
@@ -1524,11 +1484,14 @@ class TraceEvalApp(App):
         # First message is the continuation, not a replay of the original prompt.
         params["prompt"] = ""
         sid = resume_session_id(meta.session_dir)
+        repo_commit = str(params.pop("repo_commit", "") or meta.git_commit or "").strip()
         prefill = RunnerPrefill(
             **params,
             interactive=True,
             resume_session_id=sid,
             resume_source_dir=str(meta.session_dir),
+            repo_commit=repo_commit,
+            restore_code=True,
         )
         call_ui(self, self._push_runner_with_prefill, prefill)
 
@@ -1575,6 +1538,7 @@ class TraceEvalApp(App):
                 docker_image=params["docker_image"],
                 repo_url=params["repo_url"],
                 repo_branch=params["repo_branch"],
+                repo_path=str(params.get("repo_path") or ""),
                 models=params["models"],
                 session_id=meta.session_id,
                 session_dir=str(meta.session_dir),
@@ -2015,6 +1979,53 @@ class TraceEvalApp(App):
             targets = list(self._meta_only)
         self._analyze_targets(targets)
 
+    def action_export_session_bundle(self) -> None:
+        """Export highlighted (or first selected) session as a report tarball."""
+        meta = None
+        if self._selected:
+            key = next(iter(self._selected))
+            for m, _ in self._meta_only:
+                if str(m.session_dir) == key:
+                    meta = m
+                    break
+        if meta is None:
+            cursor_key = self._session_row_key_at_cursor()
+            if cursor_key:
+                for m, _ in self._meta_only:
+                    if str(m.session_dir) == cursor_key:
+                        meta = m
+                        break
+        if meta is None:
+            self.notify(t("export-bundle-no-session"), severity="warning")
+            return
+        self._do_export_session_bundle(meta)
+
+    @work(thread=True)
+    def _do_export_session_bundle(self, meta: SessionMeta | None = None) -> None:
+        if not isinstance(meta, SessionMeta):
+            return
+        from ..session.export_bundle import export_session_bundle
+
+        call_ui(self, self.notify, t("export-bundle-working"), severity="information")
+        try:
+            result = export_session_bundle(meta.session_dir, work_dir=self.work_dir)
+        except Exception as exc:
+            call_ui(
+                self,
+                self.notify,
+                t("export-bundle-failed", exc=str(exc)),
+                severity="error",
+                timeout=12,
+            )
+            return
+        call_ui(
+            self,
+            self.notify,
+            t("export-bundle-saved", path=str(result.path)),
+            severity="information",
+            timeout=12,
+        )
+
     @staticmethod
     def _extract_task_and_model(trace_dir_name: str) -> tuple[str, str]:
         """Extract (task_id, model_suffix) from a trace directory name.
@@ -2066,6 +2077,7 @@ class TraceEvalApp(App):
         self, session_path: Path, plugin_results: dict[str, AnalysisResult] | None
     ) -> None:
         """Construct and push BrowserScreen on the main thread."""
+        self._pause_home_traces_watch(pause=True)
         self.push_screen(BrowserScreen(session_path, plugin_results))
 
     def action_open_runner(self) -> None:
@@ -2159,9 +2171,44 @@ class TraceEvalApp(App):
                 self._live_sessions_heartbeat,
             )
 
+    def _browser_live_screen_open(self) -> bool:
+        """True when a session browser is top of stack (live refresh owns the tree)."""
+        with suppress(Exception):
+            top = self.screen
+            # Browser screens always expose session_dir + live refresh.
+            if getattr(top, "session_dir", None) is not None and hasattr(
+                top, "_live_refresh_from_fs"
+            ):
+                return True
+        return False
+
+    def _pause_home_traces_watch(self, *, pause: bool) -> None:
+        """Stop or restart the home-list FS observer (not just skip ticks).
+
+        ``call_from_thread`` on every traces write still floods the UI loop even
+        when the tick handler returns immediately. Fully stop the observer while
+        a browser is open.
+        """
+        if pause:
+            w = self._traces_watch
+            self._traces_watch = None
+            stop = getattr(w, "stop", None)
+            if callable(stop):
+                with suppress(Exception):
+                    stop()
+            if self._live_sessions_timer is not None:
+                with suppress(Exception):
+                    self._live_sessions_timer.stop()
+                self._live_sessions_timer = None
+            return
+        if not self._exiting:
+            self._schedule_live_sessions_poll()
+
     def _live_sessions_tick(self) -> None:
         """UI thread: at most one background scan at a time (from FS events)."""
         if self._live_sessions_busy or self._exiting:
+            return
+        if self._browser_live_screen_open():
             return
         self._live_sessions_busy = True
         self._scan_live_sessions_worker()
@@ -2169,6 +2216,8 @@ class TraceEvalApp(App):
     def _live_sessions_heartbeat(self) -> None:
         """UI thread: periodic read-only reload of live row metas (context meter)."""
         if self._exiting or self._live_meta_heartbeat_busy:
+            return
+        if self._browser_live_screen_open():
             return
         live_rows = [
             (meta, label)
@@ -2233,6 +2282,9 @@ class TraceEvalApp(App):
                         or fresh.turn_outcome != meta.turn_outcome
                         or fresh.list_status_label() != meta.list_status_label()
                         or fresh.duration_seconds != meta.duration_seconds
+                        # Grok fills generated_title after start; list must refresh.
+                        or (fresh.title or "") != (meta.title or "")
+                        or (fresh.summary_text or "") != (meta.summary_text or "")
                     ):
                         updates.append((key, fresh, label))
                 finally:
@@ -2464,32 +2516,48 @@ class TraceEvalApp(App):
                 new_metas.append((key, meta, label))
                 continue
 
-            # Known session: only refresh *live* turn status when traces moved.
-            # Never overwrite harness outcomes (success/error/…) with
-            # ``_infer_incomplete_turn_outcome`` → interrupted (shows as cancelled).
-            if self._session_mtimes.get(key) == mtime and mtime > 0:
-                continue
-            self._session_mtimes[key] = mtime
-            prev = (prev_outcome.get(key) or "").strip().lower().replace(" ", "_")
-            if prev in _FINISHED_TURN_OUTCOMES:
-                continue
+            # Known session: gate probe + light meta for live rows (title, status).
+            # Always allow live outcomes even when the row was ``completed`` —
+            # multi-turn harness marks each closed turn complete, then the next
+            # follow-up is running / awaiting again. Never apply non-live probe
+            # results (that would invent interrupted/cancelled).
+            if mtime > 0:
+                self._session_mtimes[key] = mtime
             try:
                 outcome = list_turn_outcome_for_dir(sd_res)
             except Exception:
                 continue
             oc = (outcome or "").strip().lower().replace(" ", "_")
-            # Light probe may return interrupted for any old unfinished session;
-            # only apply live states from the gate / freshness path.
-            if oc not in (
+            live_oc = oc in (
                 "running",
                 "ending",
                 "in_progress",
                 "pending",
                 "awaiting_follow_up",
-            ):
+            )
+            # While live, light meta reload so generated_title / status update
+            # without restarting the app (outcome-only probe skips summary.json).
+            if live_oc:
+                try:
+                    fresh = load_session_meta(sd_res, include_timeline_count=False)
+                    # List probe is authoritative for live turn status (gate/freshness).
+                    if outcome:
+                        fresh.turn_outcome = outcome
+                    for meta0, _lab0 in list(self._meta_only):
+                        try:
+                            if str(Path(meta0.session_dir).resolve()) == key:
+                                fresh.num_events = meta0.num_events
+                                break
+                        except OSError:
+                            if str(meta0.session_dir) == key:
+                                fresh.num_events = meta0.num_events
+                                break
+                    label = self._derive_label(sd_res, runner_traces)
+                    new_metas.append((key, fresh, label))  # replace existing row in _apply
+                except Exception:
+                    if outcome != prev_outcome.get(key):
+                        outcome_updates.append((key, outcome))
                 continue
-            if outcome != prev_outcome.get(key):
-                outcome_updates.append((key, outcome))
 
         if not new_metas and not outcome_updates:
             return
@@ -2503,7 +2571,20 @@ class TraceEvalApp(App):
                     by_key[str(meta.session_dir)] = idx
             changed = False
             for key, meta, label in new_metas:
-                if key in by_key:
+                idx_opt = by_key.get(key)
+                if idx_opt is not None:
+                    # Known live row: replace meta (title / status / context).
+                    prev_m, prev_lab = self._meta_only[idx_opt]
+                    if (
+                        prev_m.title != meta.title
+                        or prev_m.turn_outcome != meta.turn_outcome
+                        or prev_m.list_status_label() != meta.list_status_label()
+                        or prev_m.context_usage_compact != meta.context_usage_compact
+                        or prev_m.duration_seconds != meta.duration_seconds
+                        or prev_m.summary_text != meta.summary_text
+                    ):
+                        self._meta_only[idx_opt] = (meta, prev_lab)
+                        changed = True
                     continue
                 self._meta_only.append((meta, label))
                 by_key[key] = len(self._meta_only) - 1

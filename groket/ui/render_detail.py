@@ -396,6 +396,11 @@ def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
         with suppress(Exception):
             out_disp = json.dumps(json.loads(out_disp), indent=2, ensure_ascii=False)
             lexer = "json"
+    # Plain Text for console dumps / large blobs — Pygments + Textual reflow on
+    # every timeline keypress made the browser feel frozen (100ms–1s/event).
+    if console_like or (lexer or "text") == "text" or len(out_disp) > 12_000:
+        parts.append(Text(out_disp))
+        return parts
     ln = (
         lexer in ("python", "javascript", "typescript", "rust", "go", "tsx", "jsx")
         and out_disp.count("\n") > 3

@@ -76,6 +76,8 @@ bind-environment = 3 Environment
 
 bind-export-finding = Export finding
 
+bind-export-bundle = Export
+
 bind-extras = Extras
 
 bind-findings = 4 Findings
@@ -289,6 +291,10 @@ cmd-export-finding = Export finding
 
 cmd-export-finding-help = Export selected finding
 
+cmd-export-bundle = Export session tarball
+
+cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) into ~/.groket/reports
+
 cmd-filter-model = Filter by model
 
 cmd-filter-model-help = Cycle sessions Model Select (same as Filter bar)
@@ -496,6 +502,10 @@ configs-reloaded = Configs reloaded ({ $n } recipes).
 configs-title = Configs
 
 container-image-label = Container image
+
+max-turns-label = Max turns (per prompt)
+
+max-turns-placeholder = 50
 
 containers-heading = Containers
 
@@ -811,9 +821,21 @@ registry-btn = Registry
 
 repo-url-placeholder = https://github.com/org/repo
 
+repo-path-label = Local path (bind-mount as /workspace)
+
+repo-path-placeholder = ~/src/my-project (optional; live directory, no clone)
+
 report-failed = Report failed: { $exc }
 
 report-saved = Report saved: { $path }
+
+export-bundle-saved = Export saved: { $path } (grok-trace.tar.gz + run/)
+
+export-bundle-failed = Export failed: { $exc }
+
+export-bundle-no-session = No session to export
+
+export-bundle-working = Building export tarball…
 
 repository-label = Repository
 
@@ -1584,6 +1606,8 @@ ui-interactive-follow-ups-open-the-session-in-the-b = [dim]Interactive follow-up
 
 ui-interactive-multi-turn-follow-ups-until-done = Interactive multi-turn (follow-ups until Done)
 
+ui-yolo-auto-approve-tools = YOLO mode (grok --yolo; more aggressive auto-approve)
+
 ui-j-jobs = … · j=jobs]
 
 ui-jobs-for-logs-esc-closes-jobs-run-keeps-going =  — Jobs for logs (Esc closes Jobs; run keeps going)
@@ -1963,6 +1987,10 @@ ui-replace-host-mcp-persona-only = Replace host MCP (persona only)
 ui-repo = Repo
 
 ui-repo-1 = repo:
+
+ui-repo-path-1 = path:
+
+ui-repo-path-requires-single-model = Local path mounts a live host directory — select a single model only
 
 ui-report =  (report)
 
@@ -2495,6 +2523,8 @@ ui-xml = <?xml
 ui-plugins-count = plugins: { $n }
 ui-turn-number = Turn { $turn }
 ui-queued-count = { $n } queued
+ui-staged-follow-up = follow-up staged
+ui-staged-last-turn = last turn staged
 ui-batches-count =  · batches { $n }
 ui-version-prefix =   v{ $version }
 ui-failed-suffix =  failed)
@@ -2624,6 +2654,8 @@ browser-status-none = none
 browser-status-clean = clean
 browser-status-idle = idle
 browser-follow-ups-pending = { $n } follow-up(s) pending
+browser-follow-up-staged = Follow-up staged (waiting for agent)
+browser-follow-up-staged-final = Last turn staged (session ends after this turn)
 browser-more-queued = … +{ $n } more
 browser-report-counts = { $total } findings ({ $high } high, { $med } med)
 browser-flags-dim = { $n } flags

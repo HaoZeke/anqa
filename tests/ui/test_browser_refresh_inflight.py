@@ -121,8 +121,8 @@ def test_live_refresh_heartbeat_coalesces_flag(tmp_path: Path) -> None:
         pool.submit = real  # type: ignore[method-assign]
 
 
-def test_load_data_light_always_reloads_meta(tmp_path: Path, monkeypatch) -> None:
-    """Heartbeat/FS refresh re-reads signals even when timeline mtime is unchanged."""
+def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> None:
+    """Heartbeat re-reads signals even when timeline stamp is unchanged."""
     import groket.parser as parser_mod
     from groket.models import SessionMeta
     from groket.ui.screens import browser as browser_mod
@@ -131,8 +131,9 @@ def test_load_data_light_always_reloads_meta(tmp_path: Path, monkeypatch) -> Non
     sd.mkdir()
     screen = _screen(sd)
     screen.timeline = [object()]  # non-empty so unchanged path skips parse
-    screen._last_trace_mtime = 1.0
+    screen._last_trace_mtime = (1.0, 0, 0, 0)
     screen._last_signals_mtime = 1.0
+    screen._light_refresh_heartbeat = True
     screen.meta = SessionMeta(
         session_id="s",
         session_dir=sd,
@@ -142,6 +143,8 @@ def test_load_data_light_always_reloads_meta(tmp_path: Path, monkeypatch) -> Non
     )
     calls: list[str] = []
 
+    monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (1.0, 0, 0, 0))
+    monkeypatch.setattr(parser_mod, "session_timeline_mtime", lambda _p: 1.0)
     monkeypatch.setattr(parser_mod, "session_trace_mtime", lambda _p: 1.0)
     monkeypatch.setattr(
         browser_mod,
@@ -180,4 +183,102 @@ def test_load_data_light_always_reloads_meta(tmp_path: Path, monkeypatch) -> Non
     assert screen.meta.num_events == 1
     assert "_populate_ui_light" in calls
     assert "_live_refresh_worker_done" in calls
+    assert is_inflight(KIND_REFRESH, sd) is False
+
+
+def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch) -> None:
+    """Unchanged stamp + signals must not re-load meta (live FS noise)."""
+    import groket.parser as parser_mod
+    from groket.models import SessionMeta
+    from groket.ui.screens import browser as browser_mod
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    screen = _screen(sd)
+    screen.timeline = [object()]
+    screen._last_trace_mtime = (1.0, 0, 0, 0)
+    screen._last_signals_mtime = 1.0
+    screen._light_refresh_heartbeat = False
+    screen.meta = SessionMeta(
+        session_id="s",
+        session_dir=sd,
+        context_window_usage_pct=10,
+        context_tokens_used=1,
+        context_window_tokens=500000,
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (1.0, 0, 0, 0))
+    monkeypatch.setattr(
+        browser_mod,
+        "load_session_meta",
+        lambda *_a, **_k: calls.append("meta") or screen.meta,
+    )
+    monkeypatch.setattr(browser_mod, "parse_timeline", lambda _p: calls.append("parse") or [])
+    monkeypatch.setattr(
+        browser_mod,
+        "call_ui",
+        lambda _app, cb, *a, **k: (
+            calls.append(getattr(cb, "__name__", str(cb)))
+            or (cb(*a, **k) if getattr(cb, "__name__", "") == "_live_refresh_worker_done" else None)
+        ),
+    )
+    screen._signals_mtime = lambda: 1.0  # type: ignore[method-assign]
+    assert try_begin(KIND_REFRESH, sd) is True
+    screen._live_refresh_busy = True
+    screen._load_data_light_job()
+    assert "meta" not in calls
+    assert "parse" not in calls
+    assert "_populate_ui_light" not in calls
+    assert screen.meta.context_window_usage_pct == 10
+    assert is_inflight(KIND_REFRESH, sd) is False
+
+
+def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypatch) -> None:
+    """Stamp change always re-parses — no second min-gap that hides new rows."""
+    import groket.parser as parser_mod
+    from groket.models import SessionMeta, TraceEvent
+    from groket.ui.screens import browser as browser_mod
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    screen = _screen(sd)
+    screen.timeline = [
+        TraceEvent(index=0, timestamp=1.0, event_type="user_message_chunk", content="hi")
+    ]
+    screen._last_trace_mtime = (1.0, 10, 0, 0)
+    screen._last_signals_mtime = 1.0
+    screen._last_timeline_parse_at = 1e18  # "just parsed" — must not block
+    screen._light_refresh_heartbeat = False
+    screen.meta = SessionMeta(session_id="s", session_dir=sd)
+    new_ev = TraceEvent(index=1, timestamp=2.0, event_type="tool_call", content="bash")
+    calls: list[str] = []
+    monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (2.0, 99, 0, 0))
+    monkeypatch.setattr(
+        browser_mod,
+        "parse_timeline",
+        lambda _p: calls.append("parse") or [*screen.timeline, new_ev],
+    )
+    monkeypatch.setattr(
+        browser_mod,
+        "load_session_meta",
+        lambda *_a, **_k: calls.append("meta") or screen.meta,
+    )
+    monkeypatch.setattr(
+        browser_mod,
+        "call_ui",
+        lambda _app, cb, *a, **k: (
+            calls.append(getattr(cb, "__name__", str(cb)))
+            or (cb(*a, **k) if getattr(cb, "__name__", "") == "_live_refresh_worker_done" else None)
+        ),
+    )
+    screen._signals_mtime = lambda: 1.0  # type: ignore[method-assign]
+    screen._rebuild_indices = lambda: calls.append("rebuild")  # type: ignore[method-assign]
+    assert try_begin(KIND_REFRESH, sd) is True
+    screen._live_refresh_busy = True
+    screen._load_data_light_job()
+    assert "parse" in calls
+    assert "rebuild" in calls
+    assert screen._last_trace_mtime == (2.0, 99, 0, 0)
+    assert len(screen.timeline) == 2
+    assert "_populate_ui_light" in calls
     assert is_inflight(KIND_REFRESH, sd) is False

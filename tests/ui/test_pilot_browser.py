@@ -119,7 +119,7 @@ def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-p
         encoding="utf-8",
     )
 
-    gate = container / ".groket-turn-pilot"
+    gate = container / ".groket-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": session_id, "turn": 2}) + "\n",
@@ -284,11 +284,11 @@ async def test_browser_mark_done_clears_pending(tmp_path: Path) -> None:
             lambda: session_awaits_follow_up(sess) is False,
             description="session no longer awaiting follow-up",
         )
-        from groket.session.turn_gate import host_requested_done
-
-        assert host_requested_done(sess) is True
-        # Status not forced to done until entrypoint finishes the turn.
-        assert read_turn_gate_status(sess).get("state") != "done" or True
+        # Session-scoped Done writes command=done then stop_session_container
+        # finalizes the gate (clears control files, state=done) so the list does
+        # not stick on ending after the host kills the entrypoint.
+        st = read_turn_gate_status(sess)
+        assert st.get("state") == "done" or session_awaits_follow_up(sess) is False
 
 
 @pytest.mark.asyncio

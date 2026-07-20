@@ -259,10 +259,13 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
 
 
 def activity_is_busy(counts: dict[str, int]) -> bool:
-    """True when any spinning phase or pool is active (fast poll + spinner)."""
+    """True when a *short* spinner phase is active (fast poll).
+
+    Do **not** treat ``running`` alone as busy — live evals stay running for
+    minutes and an 80–500ms activity-bar timer reflow freezes the TUI.
+    """
     return any(
-        int(counts.get(k, 0) or 0) > 0
-        for k in ("pending", "building", "running", "ending", "extracting", "analyze")
+        int(counts.get(k, 0) or 0) > 0 for k in ("pending", "building", "extracting", "analyze")
     )
 
 
