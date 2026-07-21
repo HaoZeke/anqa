@@ -156,7 +156,9 @@ def test_is_share_unavailable_error(err: str, expected: bool):
 # ── probe_host_share_capability ───────────────────────────────────────────
 
 
-def test_probe_host_share_capability_account_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_probe_host_share_capability_account_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cache = tmp_path / "cap.json"
     clear_share_capability_cache(cache_path=cache)
 

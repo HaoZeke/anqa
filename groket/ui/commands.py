@@ -75,6 +75,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_analyze", U.cmd_analyze_session()),
                 ("action_focus_timeline_filter", U.cmd_focus_timeline_view()),
                 ("action_clear_filters", U.cmd_clear_timeline_view()),
+                ("action_copy_detail", U.cmd_copy_detail()),
                 ("action_delete_session", U.cmd_delete_sessions()),
                 ("action_export_finding", U.cmd_export_finding()),
                 ("action_export_bundle", U.cmd_export_bundle()),

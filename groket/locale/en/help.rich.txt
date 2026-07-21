@@ -24,7 +24,14 @@ f              flag event
 n              follow-up prompt · e done (multi-turn)
 x              delete this session (twice)
 s              open share link
+y              copy detail pane to clipboard (or mouse selection)
+Ctrl+Shift+C   same as y
+Ctrl+C         copy mouse selection when text is selected (otherwise quit hint)
 E              export session tarball (~/.groket/reports; embeds grok-trace.tar.gz)
+
+[dim]Text selection: drag with the mouse over the detail pane (not the timeline
+table). OS “highlight to copy” does not work while the TUI owns the mouse —
+use Textual selection + y / Ctrl+C / Ctrl+Shift+C (OSC 52 clipboard).[/dim]
 
 [bold]Runner[/bold]
 Ctrl+Enter (or Ctrl+J) launch · Ctrl+S save recipe · T export as task YAML · [ ] panes

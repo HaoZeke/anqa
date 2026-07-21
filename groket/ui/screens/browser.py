@@ -2644,6 +2644,34 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return self._pending_actions_enabled
         return True
 
+    def action_copy_detail(self) -> None:
+        """Copy mouse selection or the full detail pane to the clipboard.
+
+        Textual owns the mouse, so OS drag-to-select does not work. Operators
+        drag to select within the detail body, then ``y`` / Ctrl+Shift+C / Ctrl+C
+        (when a selection exists). With no selection, ``y`` yanks the whole pane.
+        """
+        text = ""
+        with suppress(Exception):
+            selected = self.get_selected_text()
+            if selected:
+                text = selected
+        if not text.strip():
+            with suppress(Exception):
+                detail = self.query_one("#detail-panel", DetailView)
+                text = detail.get_plain_text()
+        text = (text or "").strip()
+        if not text:
+            self.notify(t("ui-nothing-to-copy"), severity="warning")
+            return
+        self.app.copy_to_clipboard(text)
+        # Prefer "selection" wording when we actually copied a selection.
+        with suppress(Exception):
+            if self.get_selected_text():
+                self.notify(t("ui-copied-selection"), severity="information")
+                return
+        self.notify(t("ui-copied-detail"), severity="information")
+
     def action_flag_event(self) -> None:
         """Open the flag modal for the currently selected timeline event."""
         if not self._timeline_event_actionable():

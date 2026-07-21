@@ -133,6 +133,15 @@ BROWSER: tuple[Binding, ...] = (
         _b("x", "delete_session", U.bind_delete(), show=True),
         _b("delete", "delete_session", U.bind_delete(), show=False),
         _b("s", "open_share", U.bind_share(), show=False),
+        # y = yank detail / selection to clipboard (Textual mouse select + OSC 52).
+        _b("y", "copy_detail", U.bind_copy_detail(), show=True),
+        _b(
+            "ctrl+shift+c",
+            "copy_detail",
+            U.bind_copy_detail(),
+            show=False,
+            priority=True,
+        ),
         _b("E", "export_bundle", U.bind_export_bundle(), show=True),
         # n = type next prompt (focus input); Enter in input sends; e = end session.
         _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),

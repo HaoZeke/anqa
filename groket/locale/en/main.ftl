@@ -83,6 +83,7 @@ bind-extras = Extras
 bind-findings = 4 Findings
 
 bind-flag = Flag
+bind-copy-detail = Copy detail
 
 bind-github = 2 GitHub
 
@@ -294,6 +295,9 @@ cmd-export-finding-help = Export selected finding
 cmd-export-bundle = Export session tarball
 
 cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) into ~/.groket/reports
+
+cmd-copy-detail = Copy detail / selection
+cmd-copy-detail-help = Browser: yank detail pane (or mouse selection) to the clipboard — y / Ctrl+Shift+C
 
 cmd-filter-model = Filter by model
 
@@ -1825,6 +1829,16 @@ ui-notes = notes:
 ui-nothing-to-launch-no-models = Nothing to launch (no models)
 
 ui-nothing-to-refresh = Nothing to refresh:
+
+ui-copied-selection = Copied selection to clipboard
+
+ui-copied-detail = Copied detail to clipboard
+
+ui-nothing-to-copy = Nothing to copy
+
+ui-press-key-to-quit = Press [b]{$key}[/b] to quit the app
+
+ui-want-to-quit-title = Do you want to quit?
 
 ui-ok = ok,
 

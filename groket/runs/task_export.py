@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from ..constants import DEFAULT_MAX_TURNS, normalize_max_turns
+from ..models import JsonObject, JsonValue
 from ..paths import user_tasks_dir
 from .run_configs import RunConfig
 from .task_schema import SCHEMA_VERSION, TaskDefinition, TaskFile, load_task_file
@@ -81,7 +82,7 @@ def source_from_run_config(cfg: RunConfig) -> TaskExportSource:
     )
 
 
-def source_from_recipe_mapping(data: Mapping[str, object]) -> TaskExportSource:
+def source_from_recipe_mapping(data: Mapping[str, JsonValue]) -> TaskExportSource:
     """Map a ``run.json`` / recipe dict to export fields."""
     models_raw = data.get("models")
     models: list[str] = []
@@ -132,7 +133,7 @@ def task_definition_from_source(src: TaskExportSource) -> TaskDefinition:
         raise ValueError("prompt is required to export a task")
     tid = slug_task_id(src.task_id or src.description or "exported-task")
     setup = (src.setup_instructions or "").strip() or None
-    data: dict[str, object] = {
+    data: JsonObject = {
         "task_id": tid,
         "prompt": prompt,
         "docker_image": (src.docker_image or "fully-loaded").strip() or "fully-loaded",

@@ -5,19 +5,20 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.message import Message
-from textual.widgets import Static
 
 from ...analysis.base import Finding
 from ...models import Flag, TraceEvent
 from ..render_detail import render_event_detail, set_static_renderable
+from ..selectable_static import SelectableStatic
 
 
 class DetailView(VerticalScroll):
     """Shows detailed information about a selected trace event.
 
-    Uses a single Static child whose content is replaced on each
-    selection, avoiding the remove_children/mount race that causes
-    'NoneType' render_strips errors in Textual.
+    Uses a single :class:`SelectableStatic` child whose content is replaced on
+    each selection, avoiding the remove_children/mount race that causes
+    'NoneType' render_strips errors in Textual. SelectableStatic enables mouse
+    text selection and plain-text clipboard yank for Markdown/Syntax bodies.
     """
 
     class FlagRequested(Message):
@@ -35,7 +36,7 @@ class DetailView(VerticalScroll):
         self._paired_result: TraceEvent | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="detail-body")
+        yield SelectableStatic("", id="detail-body")
 
     def show_event(
         self,
@@ -57,7 +58,7 @@ class DetailView(VerticalScroll):
 
     def _refresh_content(self) -> None:
         ev = self._current_event
-        body = self.query_one("#detail-body", Static)
+        body = self.query_one("#detail-body", SelectableStatic)
         if ev is None:
             body.update("")
             return
@@ -79,4 +80,12 @@ class DetailView(VerticalScroll):
         self._current_duration = None
         self._paired_call = None
         self._paired_result = None
-        self.query_one("#detail-body", Static).update("")
+        self.query_one("#detail-body", SelectableStatic).update("")
+
+    def get_plain_text(self) -> str:
+        """Plain text of the current detail body (for clipboard yank)."""
+        try:
+            body = self.query_one("#detail-body", SelectableStatic)
+        except Exception:
+            return ""
+        return body.get_plain_text()

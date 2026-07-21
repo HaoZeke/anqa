@@ -282,6 +282,8 @@ class TraceEvalApp(App):
     SUB_TITLE = t("ui-trace-evaluation-error-hunting")
     CSS_PATH = "app.tcss"
     BINDINGS = [*APP_GLOBAL_PRIORITY, *APP_SESSIONS]
+    # Textual text selection (drag) + OSC 52 copy; default is True but be explicit.
+    ALLOW_SELECT = True
 
     def get_system_commands(self, screen: Screen):
         """Populate Ctrl+P palette with context-aware actions."""
@@ -290,6 +292,29 @@ class TraceEvalApp(App):
 
         for title, help_text, callback in yield_app_commands(self, screen):
             yield SystemCommand(title, help_text, callback)
+
+    def action_help_quit(self) -> None:
+        """Ctrl+C: copy selection when present, else Textual's quit hint.
+
+        Textual binds Ctrl+C on the app to ``help_quit`` (system). That shadows
+        the screen's ``copy_text`` binding, so selected detail text never
+        copied. Prefer clipboard when :meth:`Screen.get_selected_text` is set.
+        """
+        try:
+            selected = self.screen.get_selected_text()
+        except Exception:
+            selected = None
+        if selected:
+            self.copy_to_clipboard(selected)
+            self.notify(t("ui-copied-selection"), severity="information")
+            return
+        for key, active_binding in self.active_bindings.items():
+            if active_binding.binding.action in ("quit", "app.quit"):
+                self.notify(
+                    t("ui-press-key-to-quit", key=key),
+                    title=t("ui-want-to-quit-title"),
+                )
+                return
 
     class _BgStatus(Message):
         """Worker → UI: container status with a session_dir (thread-safe via post_message)."""
