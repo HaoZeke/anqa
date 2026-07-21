@@ -81,9 +81,10 @@ Panes (`[` / `]` or digits **1–5**):
 5. **Report** — analysis panels and flags  
 
 **Copy from the detail pane:** the TUI owns the mouse, so OS highlight-to-copy
-does not work. Drag to select text in the **detail** body (not the timeline
-table), then **`y`** / **Ctrl+Shift+C** / **Ctrl+C** (when a selection exists).
+does not work. In the **detail** body (not the timeline table), drag to
+highlight a word, line, or region, then **`y`** / **Ctrl+Shift+C** / **Ctrl+C**.
 With no selection, **`y`** copies the whole detail pane (OSC 52 clipboard).
+tmux over SSH: `set -g set-clipboard on` so OSC 52 reaches the local pasteboard.
 
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.

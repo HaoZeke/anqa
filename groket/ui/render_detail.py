@@ -605,7 +605,10 @@ def render_event_detail(
         chunks.append(Text(""))
     chunks.append(head)
     if ev.event_type in et.MESSAGE_TYPES and body.strip():
-        chunks += [Text(""), Markdown(body)]
+        # Soft newlines → Markdown hard breaks so each prompt line stays its own
+        # visual line (selectable for partial copy). Blank lines stay paragraphs.
+        md_body = "  \n".join(body.split("\n"))
+        chunks += [Text(""), Markdown(md_body)]
     elif ev.event_type == "thought" and body.strip():
         chunks += [
             Text(""),

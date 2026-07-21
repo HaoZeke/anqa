@@ -297,7 +297,7 @@ cmd-export-bundle = Export session tarball
 cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) into ~/.groket/reports
 
 cmd-copy-detail = Copy detail / selection
-cmd-copy-detail-help = Browser: yank detail pane (or mouse selection) to the clipboard — y / Ctrl+Shift+C
+cmd-copy-detail-help = Browser: yank mouse selection (word/line/region) or the full detail pane — y / Ctrl+Shift+C
 
 cmd-filter-model = Filter by model
 
