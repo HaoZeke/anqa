@@ -820,6 +820,23 @@ class DockerOrchestrator:
             ),
             **config.env_vars,
         }
+        # Skip in-container ``grok share`` loop when host account cannot share
+        # (avoids multi-hour retry spam). Override with env_vars:
+        #   SHARE_DISABLE=1 force off · SHARE_DISABLE=0 force on (skip probe).
+        _share_flag = str(envs.get("SHARE_DISABLE", "")).strip().lower()
+        if _share_flag not in ("0", "false", "no", "1", "true", "yes"):
+            try:
+                from ..runs.live_share import probe_host_share_capability
+
+                cap = probe_host_share_capability()
+                if not cap.available:
+                    envs["SHARE_DISABLE"] = "1"
+                    logger.info(
+                        "SHARE_DISABLE=1 (host share unavailable: %s)",
+                        cap.reason,
+                    )
+            except Exception:
+                logger.debug("Share capability probe failed", exc_info=True)
         if external_ws:
             # Entrypoint reclaims only root-owned paths under /workspace (not
             # a full recursive chown of the operator's tree).

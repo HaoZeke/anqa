@@ -149,4 +149,12 @@ if url:
     print(">>> [share] SNAPSHOT #%s: %s" % (snapshot_n, url), flush=True)
 elif err:
     print(">>> [share] failed: %s" % (err[:300],), flush=True)
-    sys.exit(1)
+    # Exit 3 = permanent (entrypoint stops the share loop). Transient = 1.
+    el = err.lower()
+    permanent = (
+        "sharing is not available" in el
+        or "session sharing is not available" in el
+        or "share is not available" in el
+        or ("not available for your account" in el and "shar" in el)
+    )
+    sys.exit(3 if permanent else 1)

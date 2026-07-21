@@ -275,6 +275,37 @@ def _check_models_cache() -> CheckResult:
         )
 
 
+def _check_share_capability() -> CheckResult:
+    """Advisory: whether ``grok share`` is entitled on this host account."""
+    try:
+        from ..runs.live_share import probe_host_share_capability
+
+        cap = probe_host_share_capability()
+    except Exception as exc:
+        return CheckResult(
+            id="grok_share",
+            name="Grok session sharing",
+            ok=False,
+            detail=f"probe failed: {exc}"[:160],
+            required=False,
+        )
+    if cap.available:
+        return CheckResult(
+            id="grok_share",
+            name="Grok session sharing",
+            ok=True,
+            detail=f"available ({cap.reason})",
+            required=False,
+        )
+    return CheckResult(
+        id="grok_share",
+        name="Grok session sharing",
+        ok=False,
+        detail=f"unavailable ({cap.reason}) — eval containers set SHARE_DISABLE=1"[:200],
+        required=False,
+    )
+
+
 def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
@@ -284,5 +315,6 @@ def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
         _check_grok_config(),
         _check_grok_cli(),
         _check_models_cache(),
+        _check_share_capability(),
     ]
     return SelfTestReport(checks=checks)

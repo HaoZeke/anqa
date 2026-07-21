@@ -6,16 +6,20 @@ import json
 from pathlib import Path
 
 import pytest
+from groket.runs import live_share as ls
 from groket.runs.live_share import (
     _REGISTRY,
     SHARE_FILENAME,
     ShareResult,
+    clear_share_capability_cache,
     format_share_stats_line,
     format_share_summary_markdown,
     get_share_display,
     get_share_url,
     is_share_not_ready_error,
+    is_share_unavailable_error,
     load_cached_share,
+    probe_host_share_capability,
     refresh_share_from_disk,
     share_path_for,
 )
@@ -128,6 +132,67 @@ def test_share_path_for(tmp_path: Path):
 )
 def test_is_share_not_ready_error(err: str, expected: bool):
     assert is_share_not_ready_error(err) is expected
+
+
+# ── is_share_unavailable_error ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("err", "expected"),
+    [
+        ('Error: Invalid params: "Session sharing is not available for your account."', True),
+        ("Session sharing is not available for your account.", True),
+        ("sharing is not available", True),
+        ('Error: Resource not found: { "uri": "Session not found" }', False),
+        ("Session not found", False),
+        ("connection refused", False),
+        ("", False),
+    ],
+)
+def test_is_share_unavailable_error(err: str, expected: bool):
+    assert is_share_unavailable_error(err) is expected
+
+
+# ── probe_host_share_capability ───────────────────────────────────────────
+
+
+def test_probe_host_share_capability_account_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cache = tmp_path / "cap.json"
+    clear_share_capability_cache(cache_path=cache)
+
+    def _fake_share(session_id: str, *, timeout: float) -> tuple[int, str]:
+        return 1, 'Error: Invalid params: "Session sharing is not available for your account."'
+
+    monkeypatch.setattr(ls, "_run_grok_share", _fake_share)
+    cap = probe_host_share_capability(force=True, cache_path=cache)
+    assert cap.available is False
+    assert cap.reason == "account_disabled"
+
+
+def test_probe_host_share_capability_entitled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cache = tmp_path / "cap.json"
+    clear_share_capability_cache(cache_path=cache)
+
+    def _fake_share(session_id: str, *, timeout: float) -> tuple[int, str]:
+        return 1, 'Error: Resource not found: { "uri": "Session not found" }'
+
+    monkeypatch.setattr(ls, "_run_grok_share", _fake_share)
+    cap = probe_host_share_capability(force=True, cache_path=cache)
+    assert cap.available is True
+    assert cap.reason == "entitled"
+    assert cache.is_file()
+
+    # Process-memory hit (no second CLI call)
+    calls = {"n": 0}
+
+    def _boom(session_id: str, *, timeout: float) -> tuple[int, str]:
+        calls["n"] += 1
+        raise AssertionError("should not re-probe")
+
+    monkeypatch.setattr(ls, "_run_grok_share", _boom)
+    cap2 = probe_host_share_capability(force=False, cache_path=cache)
+    assert cap2.available is True
+    assert calls["n"] == 0
 
 
 # ── load_cached_share ─────────────────────────────────────────────────────
@@ -325,9 +390,6 @@ def test_refresh_share_from_disk_empty_when_missing(tmp_path: Path):
     sd.mkdir()
     url = refresh_share_from_disk(sd)
     assert url == ""
-
-
-from groket.runs import live_share as ls
 
 
 def test_share_result_and_read(tmp_path: Path):

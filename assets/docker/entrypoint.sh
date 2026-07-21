@@ -499,11 +499,12 @@ _gte_share_once() {
     sid=$(basename "$sess")
     echo ">>> [share] snapshot for $sid force=${force_flag:-0}"
     if [ -f /groket-share-once.py ]; then
-        python3 /groket-share-once.py "$sid" "$sess" $force_flag || return 1
-    else
-        echo ">>> [share] /groket-share-once.py missing in image"
-        return 1
+        # Preserve helper exit codes: 3 = permanent entitlement failure.
+        python3 /groket-share-once.py "$sid" "$sess" $force_flag
+        return $?
     fi
+    echo ">>> [share] /groket-share-once.py missing in image"
+    return 1
 }
 
 # Background: periodic mid-run shares (default on ALL images; entrypoint always starts this).
@@ -513,6 +514,21 @@ _gte_share_once() {
 #   SHARE_INTERVAL_SECS (default 60) — min age before re-snapshot once URL exists
 #   SHARE_LOOP_SLEEP_SECS (default 20) — idle poll between attempts
 # First successful share uses non-force; subsequent snapshots force so the share page advances.
+# Permanent share entitlement failure — stop looping (do not spam ``grok share``).
+_gte_share_is_fatal_error() {
+    local sess="$1"
+    local f="$sess/groket-share.json"
+    [ -f "$f" ] || return 1
+    # Match account/plan disable messages from ``grok share``.
+    if grep -qiE 'sharing is not available|session sharing is not available|share is not available' "$f" 2>/dev/null; then
+        return 0
+    fi
+    if grep -qi 'not available for your account' "$f" 2>/dev/null && grep -qi 'shar' "$f" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 _gte_share_loop() {
     local interval="${SHARE_INTERVAL_SECS:-60}"
     local loop_sleep="${SHARE_LOOP_SLEEP_SECS:-20}"
@@ -524,6 +540,11 @@ _gte_share_loop() {
         if [ -z "$sess" ] || [ ! -d "$sess" ]; then
             sleep "$loop_sleep"
             continue
+        fi
+        # Account cannot share — exit loop permanently (SHARE_DISABLE-equivalent).
+        if _gte_share_is_fatal_error "$sess"; then
+            echo ">>> [share] permanent failure in groket-share.json — stopping share loop"
+            return 0
         fi
         if [ -f "$sess/groket-share.json" ] && grep -q '"share_url": "https' "$sess/groket-share.json" 2>/dev/null; then
             had_url=1
@@ -541,7 +562,13 @@ _gte_share_loop() {
         if [ "$had_url" -eq 1 ]; then
             force_flag="1"
         fi
-        _gte_share_once "$force_flag" || true
+        # Exit code 3 = permanent entitlement failure from groket-share-once.py
+        _gte_share_once "$force_flag"
+        local rc=$?
+        if [ "$rc" -eq 3 ] || _gte_share_is_fatal_error "$sess"; then
+            echo ">>> [share] permanent failure (rc=$rc) — stopping share loop"
+            return 0
+        fi
         sleep "$loop_sleep"
     done
 }
