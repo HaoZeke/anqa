@@ -133,6 +133,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_mark_sessions_done", U.cmd_end_session()),
                 ("action_analyze", U.cmd_analyze()),
                 ("action_export_session_bundle", U.cmd_export_bundle()),
+                ("action_import_session", U.cmd_import_session()),
                 ("action_analysis_settings", U.cmd_analysis_settings()),
             ):
                 if hasattr(app, method):

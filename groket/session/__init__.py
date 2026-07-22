@@ -11,6 +11,14 @@ from .export_bundle import (
     export_session_bundle,
     run_volume_for_session,
 )
+from .import_session import (
+    HostSessionRow,
+    ImportSessionResult,
+    host_grok_sessions_root,
+    import_session,
+    is_session_directory,
+    list_host_grok_sessions,
+)
 from .usage_stats import (
     McpServerUsage,
     SessionUsageStats,
@@ -25,6 +33,8 @@ from .workspace_diff import format_diff_meta_line, load_workspace_diff
 
 __all__ = [
     "ExportBundleResult",
+    "HostSessionRow",
+    "ImportSessionResult",
     "McpServerUsage",
     "SessionUsageStats",
     "SkillUsageRow",
@@ -35,6 +45,10 @@ __all__ = [
     "format_usage_markdown",
     "format_usage_plain",
     "format_usage_stats_text",
+    "host_grok_sessions_root",
+    "import_session",
+    "is_session_directory",
+    "list_host_grok_sessions",
     "load_workspace_diff",
     "run_volume_for_session",
 ]

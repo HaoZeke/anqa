@@ -2719,3 +2719,18 @@ export-task-failed = Export task failed: { $exc }
 export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 path-input-empty = Enter a file path
+
+bind-import-session = Import session
+
+cmd-import-session = Import Grok session
+cmd-import-session-help = Copy a native ~/.grok session into this work traces tree
+
+import-session-title = Import Grok session
+import-session-hint = Path to a session under ~/.grok/sessions (…/<session_id>/), or pick a recent one below.
+import-session-placeholder = ~/.grok/sessions/%2Fpath%2Fto%2Fcwd/<session-id>
+import-session-recent-label = Recent host sessions
+import-session-saved = Imported session { $session_id } → { $path }
+import-session-failed = Import failed: { $exc }
+import-session-no-path = Enter or select a session path
+import-session-link-label = Symlink (do not copy)
+

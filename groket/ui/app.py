@@ -2025,6 +2025,66 @@ class TraceEvalApp(App):
             return
         self._do_export_session_bundle(meta)
 
+    def action_import_session(self) -> None:
+        """Import a native Grok session from ``~/.grok/sessions`` into this work tree."""
+        from ..session.import_session import list_host_grok_sessions
+        from .import_session_modal import ImportSessionModal
+
+        recent: list[tuple[str, str]] = []
+        try:
+            for row in list_host_grok_sessions(limit=60):
+                title = row.title or row.session_id
+                label = f"{title[:50]} · {row.cwd_label[:40]}"
+                recent.append((label, str(row.path)))
+        except Exception:
+            logger.debug("list host grok sessions failed", exc_info=True)
+
+        def _done(result: tuple[str, bool] | None) -> None:
+            if not result:
+                return
+            path_raw, link = result
+            self._do_import_session(path_raw, link=link)
+
+        self.push_screen(
+            ImportSessionModal(recent=recent),
+            _done,
+        )
+
+    @work(thread=True)
+    def _do_import_session(self, path_raw: str, *, link: bool = False) -> None:
+        from ..session.import_session import import_session
+
+        try:
+            result = import_session(
+                Path(path_raw),
+                traces_root=self._session_traces_root(),
+                link=link,
+                force=False,
+            )
+        except Exception as exc:
+            call_ui(
+                self,
+                self.notify,
+                t("import-session-failed", exc=str(exc)),
+                severity="error",
+            )
+            return
+
+        def _ui() -> None:
+            self.notify(
+                t(
+                    "import-session-saved",
+                    session_id=result.session_id,
+                    path=str(result.dest),
+                ),
+                severity="information",
+                timeout=12,
+            )
+            # Reload list so the imported session appears.
+            self.action_refresh_context()
+
+        call_ui(self, _ui)
+
     @work(thread=True)
     def _do_export_session_bundle(self, meta: SessionMeta | None = None) -> None:
         if not isinstance(meta, SessionMeta):

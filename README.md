@@ -57,6 +57,8 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `P` | Personas |
 | `d` | Rules (enable/disable detectors) |
 | `a` | Analyze selection |
+| `I` | Import a native Grok session from `~/.grok/sessions` into this work tree |
+| `E` | Export session bundle (tarball) |
 | `n` | Follow-up prompt (awaiting sessions; optional **last turn** in the modal) |
 | `e` | End session (Done) while awaiting — list shows **ending** until shutdown finishes |
 | `x` / `Delete` | Delete session(s) — press twice to confirm |
@@ -88,6 +90,12 @@ tmux over SSH: `set -g set-clipboard on` so OSC 52 reaches the local pasteboard.
 
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.
+
+**Import Grok session** (`I` on the sessions list, or CLI
+``groket import-session PATH``): copy (or ``--link``) a native session from
+``~/.grok/sessions/…/<session_id>/`` into ``work/runs/traces/imported/…`` so it
+appears next to eval runs. You can also open the host tree read-only with
+``groket -P ~/.grok/sessions`` without importing.
 
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks
@@ -194,6 +202,7 @@ Env key/value editing and Grok marketplace plugins/skills/MCP are supported.
 | `groket gen …` | Scaffold detectors, rules, analysis plugins, tasks under `~/.groket/` |
 | `groket batch …` | Headless Docker runs from a task YAML catalog |
 | `groket rules …` | Validate rules / composites YAML |
+| `groket import-session PATH` | Copy (or `--link`) a `~/.grok/sessions/…` dir into `work/runs/traces/imported/` |
 
 ```bash
 groket self-test
@@ -201,6 +210,9 @@ groket gen detector my_check
 groket rules validate examples/detection/minimal/rules/demo_rule.yaml
 groket batch validate examples/tasks/demo_tasks.yaml
 groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
+# Import a host Grok session so it appears in the default TUI work tree:
+groket import-session ~/.grok/sessions/%2Fpath%2Fto%2Fcwd/<session-id>
+groket import-session --link -P ~/.groket/work ~/.grok/sessions/…/<session-id>
 ```
 
 Schemas (editors / Pages):

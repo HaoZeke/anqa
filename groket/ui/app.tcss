@@ -1958,3 +1958,39 @@ LoadingIndicator {
 #batch-launch-modal Label {
     margin-top: 1;
 }
+
+
+#import-session-modal {
+    width: 80;
+    max-width: 94%;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: tall $primary;
+}
+
+#import-session-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#import-session-hint {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#import-session-path {
+    width: 100%;
+    margin: 1 0;
+}
+
+#import-session-actions {
+    height: auto;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+#import-session-actions Button {
+    margin-left: 1;
+}
