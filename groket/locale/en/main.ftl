@@ -2775,14 +2775,24 @@ path-input-empty = Enter a file path
 bind-import-session = Import session
 
 cmd-import-session = Import Grok session
-cmd-import-session-help = Copy a native ~/.grok session into this work traces tree
+cmd-import-session-help = Fuzzy-pick a native ~/.grok session into this work traces tree
 
 import-session-title = Import Grok session
-import-session-hint = Path to a session under ~/.grok/sessions (…/<session_id>/), or pick a recent one below.
-import-session-placeholder = ~/.grok/sessions/%2Fpath%2Fto%2Fcwd/<session-id>
-import-session-recent-label = Recent host sessions
+import-session-hint = Type part of the title or project path (e.g. coredis, grok-trace-eval). Space-separated words all must match. Ctrl+S / Import on the highlighted row.
+import-session-search-placeholder = Title or project path…
+import-session-loading = Loading host sessions…
+import-session-load-failed = Could not list host sessions: { $msg }
+import-session-empty = No host sessions found under ~/.grok/sessions
+import-session-no-match = No sessions match the filter
+import-session-status-count = Showing { $shown } of { $total }
+import-session-col-title = Title
+import-session-col-cwd = Project
+import-session-col-when = When
+import-session-col-id = Id
+import-session-when-unknown = —
+import-session-import = Import
 import-session-saved = Imported session { $session_id } → { $path }
 import-session-failed = Import failed: { $exc }
-import-session-no-path = Enter or select a session path
+import-session-no-path = Select a session row to import
 import-session-link-label = Symlink (do not copy)
 

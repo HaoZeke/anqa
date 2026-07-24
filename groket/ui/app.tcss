@@ -1961,9 +1961,9 @@ LoadingIndicator {
 
 
 #import-session-modal {
-    width: 80;
-    max-width: 94%;
-    height: auto;
+    width: 96;
+    max-width: 98%;
+    height: 32;
     max-height: 90%;
     padding: 1 2;
     background: $surface;
@@ -1972,7 +1972,7 @@ LoadingIndicator {
 
 #import-session-title {
     text-style: bold;
-    margin-bottom: 1;
+    margin-bottom: 0;
 }
 
 #import-session-hint {
@@ -1980,9 +1980,25 @@ LoadingIndicator {
     margin-bottom: 1;
 }
 
-#import-session-path {
+#import-session-search {
     width: 100%;
-    margin: 1 0;
+    margin-bottom: 0;
+}
+
+#import-session-status {
+    color: $text-muted;
+    margin: 0 0 1 0;
+    height: 1;
+}
+
+#import-session-table {
+    height: 1fr;
+    min-height: 10;
+    margin-bottom: 1;
+}
+
+#import-session-link {
+    margin-bottom: 0;
 }
 
 #import-session-actions {

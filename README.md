@@ -92,10 +92,12 @@ Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Don
 `x` deletes (double-press). `Esc` back to the list.
 
 **Import Grok session** (`I` on the sessions list, or CLI
-``groket import-session PATH``): copy (or ``--link``) a native session from
-``~/.grok/sessions/…/<session_id>/`` into ``work/runs/traces/imported/…`` so it
-appears next to eval runs. You can also open the host tree read-only with
-``groket -P ~/.grok/sessions`` without importing.
+``groket import-session PATH``): fuzzy-pick a native session from
+``~/.grok/sessions`` (title / project path / id) and copy (or symlink) it into
+``work/runs/traces/imported/…`` so it appears next to eval runs. The picker
+loads lightweight ``summary.json`` metadata only (not full session parse).
+You can also open the host tree read-only with ``groket -P ~/.grok/sessions``
+without importing.
 
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks

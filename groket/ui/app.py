@@ -2026,18 +2026,12 @@ class TraceEvalApp(App):
         self._do_export_session_bundle(meta)
 
     def action_import_session(self) -> None:
-        """Import a native Grok session from ``~/.grok/sessions`` into this work tree."""
-        from ..session.import_session import list_host_grok_sessions
-        from .import_session_modal import ImportSessionModal
+        """Import a native Grok session from ``~/.grok/sessions`` into this work tree.
 
-        recent: list[tuple[str, str]] = []
-        try:
-            for row in list_host_grok_sessions(limit=60):
-                title = row.title or row.session_id
-                label = f"{title[:50]} · {row.cwd_label[:40]}"
-                recent.append((label, str(row.path)))
-        except Exception:
-            logger.debug("list host grok sessions failed", exc_info=True)
+        Opens the picker immediately; host session listing runs in a worker
+        inside the modal (cheap summary.json pass, not full load_session_meta).
+        """
+        from .import_session_modal import ImportSessionModal
 
         def _done(result: tuple[str, bool] | None) -> None:
             if not result:
@@ -2045,10 +2039,7 @@ class TraceEvalApp(App):
             path_raw, link = result
             self._do_import_session(path_raw, link=link)
 
-        self.push_screen(
-            ImportSessionModal(recent=recent),
-            _done,
-        )
+        self.push_screen(ImportSessionModal(), _done)
 
     @work(thread=True)
     def _do_import_session(self, path_raw: str, *, link: bool = False) -> None:

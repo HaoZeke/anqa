@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 IMPORT_KIND = "host-grok-session"
 IMPORT_META_NAME = "groket-import.json"
 IMPORTED_DIRNAME = "imported"
+# summary.json is small; cap read so a corrupt huge file cannot stall the picker.
+_SUMMARY_READ_MAX = 64 * 1024
+_ACTIVITY_FILES = ("summary.json", "updates.jsonl", "events.jsonl")
 
 
 def host_grok_sessions_root() -> Path:
@@ -58,7 +61,7 @@ def is_session_directory(path: Path) -> bool:
 
 @dataclass(frozen=True)
 class HostSessionRow:
-    """One host Grok session for pickers."""
+    """One host Grok session for pickers (light metadata only)."""
 
     path: Path
     session_id: str
@@ -66,50 +69,177 @@ class HostSessionRow:
     cwd_label: str
     mtime: float
 
+    def search_fields(self) -> list[str]:
+        """Fields and path fragments used for import-picker filtering.
+
+        Includes title, decoded project path, session id, full path, and path
+        segments (so operators can type a repo basename or any path fragment).
+        """
+        fields: list[str] = [
+            self.title or "",
+            self.cwd_label or "",
+            self.session_id or "",
+            str(self.path),
+            self.path.name,
+        ]
+        # Decoded cwd segments: /home/ali/proj → home, ali, proj
+        for part in Path(self.cwd_label or "").parts:
+            if part and part != "/":
+                fields.append(part)
+        # Encoded parent token + unquoted form (Grok sessions layout).
+        parent = self.path.parent.name
+        if parent:
+            fields.append(parent)
+            try:
+                fields.append(unquote(parent))
+            except Exception:
+                pass
+            for part in unquote(parent).replace("\\", "/").split("/"):
+                if part:
+                    fields.append(part)
+        # Dedupe while preserving order (cheap for small lists).
+        seen: set[str] = set()
+        out: list[str] = []
+        for f in fields:
+            s = (f or "").strip()
+            if not s:
+                continue
+            key = s.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(s)
+        return out
+
+    def search_text(self) -> str:
+        """Joined haystack for display/debug."""
+        return " ".join(self.search_fields())
+
+
+def match_host_session(query: str, row: HostSessionRow) -> float:
+    """Score *row* against a picker query; ``0`` means no match.
+
+    Whitespace-separated tokens are AND'd. Each token must appear as a
+    case-insensitive substring of title, project path, session id, or a path
+    fragment. Higher scores prefer title hits, then path, then id.
+
+    ``~`` / ``~/…`` expands to the user home path so project filters work either
+    way.
+    """
+    raw = (query or "").strip()
+    if not raw:
+        return 1.0
+    q = raw
+    if q == "~":
+        q = str(Path.home())
+    elif q.startswith("~/"):
+        q = str(Path.home() / q[2:])
+    tokens = [t for t in q.lower().split() if t]
+    if not tokens:
+        return 1.0
+
+    fields_l = [f.lower() for f in row.search_fields()]
+    # Field weight: title first, then cwd, then the rest.
+    weights: list[float] = []
+    for i, _f in enumerate(fields_l):
+        if i == 0:
+            weights.append(100.0)
+        elif i == 1:
+            weights.append(80.0)
+        else:
+            weights.append(40.0)
+
+    total = 0.0
+    for tok in tokens:
+        best = 0.0
+        for field, weight in zip(fields_l, weights, strict=False):
+            if tok in field:
+                # Longer match / earlier field ranks higher.
+                best = max(best, weight + min(len(tok), 48))
+        if best <= 0:
+            return 0.0
+        total += best
+    return total
+
+
+def _cwd_label(session_dir: Path) -> str:
+    parent = session_dir.parent.name
+    if parent.startswith("%"):
+        try:
+            return unquote(parent)
+        except Exception:
+            return parent
+    return parent
+
+
+def _activity_mtime(session_dir: Path) -> float:
+    """Newest mtime among the session dir and small activity markers (no full reads)."""
+    mtime = 0.0
+    try:
+        mtime = float(session_dir.stat().st_mtime)
+    except OSError:
+        pass
+    for name in _ACTIVITY_FILES:
+        p = session_dir / name
+        try:
+            if p.is_file():
+                mtime = max(mtime, float(p.stat().st_mtime))
+        except OSError:
+            continue
+    return mtime
+
+
+def _summary_id_and_title(session_dir: Path) -> tuple[str, str]:
+    """session_id and title from ``summary.json`` only — not full :func:`load_session_meta`."""
+    sid = session_dir.name
+    title = ""
+    fp = session_dir / "summary.json"
+    if not fp.is_file():
+        return sid, title
+    try:
+        raw = fp.read_bytes()
+        if len(raw) > _SUMMARY_READ_MAX:
+            raw = raw[:_SUMMARY_READ_MAX]
+        data = json.loads(raw.decode("utf-8", errors="replace"))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError):
+        return sid, title
+    if not isinstance(data, dict):
+        return sid, title
+    sid = str(data.get("session_id") or sid).strip() or sid
+    title = str(data.get("generated_title") or data.get("session_summary") or "").strip()
+    if len(title) > 200:
+        title = title[:200]
+    return sid, title
+
 
 def list_host_grok_sessions(
     root: Path | None = None,
     *,
-    limit: int = 80,
+    limit: int = 0,
 ) -> list[HostSessionRow]:
-    """List recent operator sessions under the host Grok sessions root.
+    """List host Grok sessions for pickers (newest first).
 
-    Sorted by newest activity first. Caps at *limit* for UI pickers.
+    Cheap pass: walk via :func:`~groket.parser.find_sessions`, then per session
+    only ``stat`` activity markers and a capped read of ``summary.json``. Does
+    **not** call :func:`~groket.parser.load_session_meta` (that path scans
+    signals, events, gates, run meta and is far too slow for thousands of dirs).
+
+    :param root: Sessions root (default ``~/.grok/sessions``).
+    :param limit: Max rows after sort; ``0`` means no cap.
     """
     base = Path(root).expanduser() if root is not None else host_grok_sessions_root()
     if not base.is_dir():
         return []
     rows: list[HostSessionRow] = []
     for sd in find_sessions(base):
-        try:
-            st = sd.stat()
-            mtime = st.st_mtime
-            for name in ("summary.json", "events.jsonl", "chat_history.jsonl", "updates.jsonl"):
-                p = sd / name
-                if p.is_file():
-                    mtime = max(mtime, p.stat().st_mtime)
-        except OSError:
-            mtime = 0.0
-        sid = sd.name
-        title = ""
-        try:
-            meta = load_session_meta(sd, include_timeline_count=False)
-            sid = meta.session_id or sid
-            title = (meta.title or "").strip()
-        except Exception:
-            logger.debug("meta load failed for %s", sd, exc_info=True)
-        parent = sd.parent.name
-        try:
-            cwd_label = unquote(parent) if parent.startswith("%") else parent
-        except Exception:
-            cwd_label = parent
+        sid, title = _summary_id_and_title(sd)
         rows.append(
             HostSessionRow(
                 path=sd,
                 session_id=sid,
                 title=title,
-                cwd_label=cwd_label,
-                mtime=mtime,
+                cwd_label=_cwd_label(sd),
+                mtime=_activity_mtime(sd),
             )
         )
     rows.sort(key=lambda r: r.mtime, reverse=True)
@@ -240,4 +370,5 @@ __all__ = [
     "import_session",
     "is_session_directory",
     "list_host_grok_sessions",
+    "match_host_session",
 ]

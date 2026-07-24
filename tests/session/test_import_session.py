@@ -10,10 +10,12 @@ from groket.session.import_session import (
     IMPORT_KIND,
     IMPORT_META_NAME,
     IMPORTED_DIRNAME,
+    HostSessionRow,
     host_grok_sessions_root,
     import_session,
     is_session_directory,
     list_host_grok_sessions,
+    match_host_session,
 )
 
 
@@ -95,6 +97,55 @@ def test_list_host_grok_sessions_sorted_and_capped(tmp_path: Path) -> None:
     all_rows = list_host_grok_sessions(tmp_path, limit=0)
     assert {r.session_id for r in all_rows} == {"sid-a", "sid-b"}
     assert a in {r.path for r in all_rows}
+
+
+def test_list_host_grok_sessions_reads_summary_only(tmp_path: Path, monkeypatch) -> None:
+    """Titles come from summary.json; full parser meta is not required."""
+    _seed_host_session(tmp_path, sid="sid-light", title="Light title")
+    # Corrupt/missing heavy side channels still list fine (list does not open them).
+    sess = next(tmp_path.rglob("summary.json")).parent
+    (sess / "signals.json").write_text("{not-json", encoding="utf-8")
+    (sess / "events.jsonl").write_text("x" * 200_000, encoding="utf-8")
+
+    calls: list[object] = []
+
+    def _track(*a, **k):
+        calls.append((a, k))
+        raise AssertionError("load_session_meta should not be used for listing")
+
+    monkeypatch.setattr("groket.parser.load_session_meta", _track)
+    rows = list_host_grok_sessions(tmp_path, limit=0)
+    assert calls == []
+    assert len(rows) == 1
+    assert rows[0].title == "Light title"
+    assert "Light" in rows[0].search_text()
+
+
+def test_list_host_grok_sessions_default_limit_is_uncapped(tmp_path: Path) -> None:
+    for i in range(3):
+        _seed_host_session(tmp_path, cwd_token=f"%2Fcwd{i}", sid=f"sid-{i}", title=f"T{i}")
+    rows = list_host_grok_sessions(tmp_path)
+    assert len(rows) == 3
+
+
+def test_match_host_session_title_and_path() -> None:
+    row = HostSessionRow(
+        path=Path("/home/ali/.grok/sessions/%2Fhome%2Fali%2Fgrok-trace-eval/sid-1"),
+        session_id="sid-1",
+        title="Notes Feature Review",
+        cwd_label="/home/ali/grok-trace-eval",
+        mtime=1.0,
+    )
+    assert match_host_session("", row) > 0
+    assert match_host_session("Notes", row) > 0
+    assert match_host_session("feature review", row) > 0  # multi-word, any order via tokens
+    assert match_host_session("review feature", row) > 0
+    assert match_host_session("grok-trace-eval", row) > 0
+    assert match_host_session("trace-eval", row) > 0
+    assert match_host_session("coredis", row) == 0
+    assert match_host_session("sid-1", row) > 0
+    # Encoded path parent still searchable via segments.
+    assert match_host_session("%2Fhome", row) > 0 or match_host_session("home", row) > 0
 
 
 def test_import_session_copy(tmp_path: Path) -> None:
