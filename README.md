@@ -119,7 +119,10 @@ tarball under `~/.groket/reports/` containing:
   is configured via `~/.groket/notes_schema.toml` (see `examples/notes/`); not
   hardcoded to any review form. **Authoring is TUI-only**: `N` creates a note;
   `O` / palette edit or delete (Delete in the edit modal). Batch does not write
-  notes. Export includes them when present.
+  notes. Works on eval runs and on imported host sessions (`I` /
+  `import-session`); linked imports (`--link`) store notes under
+  `~/.groket/notes/` so `~/.grok/sessions` stays untouched. Export includes
+  notes when present.
 
 ### Multi-turn and forking
 

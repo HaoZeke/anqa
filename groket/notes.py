@@ -2,6 +2,8 @@
 
 Schema: ``~/.groket/notes_schema.toml`` (generic summary/detail defaults).
 Session file: ``<session_dir>/operator_notes.toml`` with config-home fallback.
+Symlinked session dirs (``import-session --link``) always use the fallback so
+notes never write into the live host ``~/.grok/sessions`` tree.
 """
 
 from __future__ import annotations
@@ -371,11 +373,27 @@ def load_notes(session_dir: Path) -> NotesDoc:
     return primary_doc
 
 
+def _session_dir_is_link(session_dir: Path) -> bool:
+    """True when *session_dir* is a symlink (e.g. ``import-session --link``).
+
+    Linked imports point at live ``~/.grok/sessions`` trees. Groket must not
+    write private files into that host session; use the config-home fallback.
+    """
+    try:
+        return Path(session_dir).is_symlink()
+    except OSError:
+        return False
+
+
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     """Write *doc* beside the session; fall back under ``~/.groket/notes``.
 
     Uses temp + replace when possible. On primary failure, writes fallback and
     does not leave success implied by the caller without catching OSError.
+
+    When *session_dir* is a symlink (linked import of a host Grok session),
+    skips the primary path so notes never land inside the live ``~/.grok``
+    tree — same isolation as import meta for ``--link``.
 
     :raises OSError: When both primary and fallback writes fail.
     """
@@ -384,17 +402,19 @@ def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
         doc.session_id = session_dir.name
     text = dump_notes_toml(doc)
     primary = notes_path_in_session(session_dir)
-    try:
-        _atomic_write(primary, text)
-        return primary
-    except OSError:
-        fallback = notes_fallback_dir(session_dir.name) / NOTES_FILENAME
+    if not _session_dir_is_link(session_dir):
         try:
-            _atomic_write(fallback, text)
-            return fallback
+            _atomic_write(primary, text)
+            return primary
         except OSError:
-            logger.exception("Failed to save operator notes for %s", session_dir.name)
-            raise
+            pass
+    fallback = notes_fallback_dir(session_dir.name) / NOTES_FILENAME
+    try:
+        _atomic_write(fallback, text)
+        return fallback
+    except OSError:
+        logger.exception("Failed to save operator notes for %s", session_dir.name)
+        raise
 
 
 def _atomic_write(path: Path, text: str) -> None:

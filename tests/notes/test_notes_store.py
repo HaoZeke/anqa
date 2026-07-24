@@ -165,6 +165,33 @@ def test_fallback_on_permission_error(tmp_path: Path, monkeypatch) -> None:
     assert len(loaded.notes) == 1
 
 
+def test_linked_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
+    """import-session --link must not write operator_notes into the host tree."""
+    import groket.notes as notes_mod
+    import groket.paths as paths_mod
+
+    home = tmp_path / "home" / ".groket"
+    monkeypatch.setattr(paths_mod, "APP_HOME", home)
+    monkeypatch.setattr(notes_mod, "app_home", lambda: home)
+
+    host = tmp_path / "host-sess"
+    host.mkdir()
+    (host / "summary.json").write_text("{}", encoding="utf-8")
+    imported = tmp_path / "work" / "imported" / "cwd" / "sess-id"
+    imported.parent.mkdir(parents=True)
+    imported.symlink_to(host)
+
+    doc = NotesDoc(session_id=imported.name)
+    doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "linked"}, note_id="n-link"))
+    path = save_notes(imported, doc)
+    assert path == home / "notes" / "sess-id" / NOTES_FILENAME
+    assert path.is_file()
+    assert not (imported / NOTES_FILENAME).exists()
+    assert not (host / NOTES_FILENAME).exists()
+    loaded = load_notes(imported)
+    assert loaded.notes[0].fields["summary"] == "linked"
+
+
 def test_prefer_newer_fallback(tmp_path: Path, monkeypatch) -> None:
     import time
 
