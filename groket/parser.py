@@ -823,13 +823,39 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
     if etype in _MESSAGE_TYPE_MAP:
         content = _extract_message_text(update.get("content", ""))
         mapped = _MESSAGE_TYPE_MAP[etype]
-        # Stream agent thought/message chunks into one row. Never glue
-        # ``user_message_chunk`` rows: Grok injects background-task chrome as a
-        # separate user chunk immediately before the next operator prompt, and
-        # coalescing those hid the real prompt from the turn filter (turn N
-        # looked user-less).
-        if events and events[-1].event_type == mapped and mapped != "user_message_chunk":
-            events[-1].content += content
+        # Agent thought/message streams are append-only deltas → one row.
+        # User chunks are different: Grok often re-emits the *full* draft
+        # (partial then complete). Merge only when one is a prefix of the other
+        # so the detail pane shows the finished prompt. Keep distinct when the
+        # texts diverge (background-task chrome immediately before a real prompt).
+        if events and events[-1].event_type == mapped:
+            prev = events[-1]
+            if mapped != "user_message_chunk":
+                prev.content += content
+                if ts is not None:
+                    prev.timestamp = ts
+                prev.update_index = line_no
+            else:
+                old = prev.content or ""
+                if not content:
+                    pass
+                elif not old or content.startswith(old) or old.startswith(content):
+                    if len(content) >= len(old):
+                        prev.content = content
+                    if ts is not None:
+                        prev.timestamp = ts
+                    prev.update_index = line_no
+                else:
+                    events.append(
+                        TraceEvent(
+                            index=idx,
+                            event_type=mapped,
+                            timestamp=ts,
+                            content=content,
+                            update_index=line_no,
+                        )
+                    )
+                    state.idx = idx + 1
         else:
             events.append(
                 TraceEvent(

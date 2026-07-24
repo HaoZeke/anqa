@@ -2760,6 +2760,55 @@ def test_live_browser_timeline_min_interval_scales() -> None:
     )
 
 
+def test_user_message_superseding_draft_coalesced(tmp_path: Path) -> None:
+    """Grok re-emits the full user draft after a partial; keep one full row.
+
+    Real trace: first user_message_chunk ends mid-word (``Basically it'``),
+    second re-sends the complete prompt. Without merge, the detail pane for
+    the first row looks truncated.
+    """
+    import json
+
+    import groket.parser as parser_mod
+    from groket.parser import parse_timeline
+
+    sd = tmp_path / "sess-draft"
+    sd.mkdir()
+    (sd / "events.jsonl").write_text("{}\n", encoding="utf-8")
+    partial = "Looks like we have a new review of the documentation. Basically it'"
+    full = (
+        "Looks like we have a new review of the documentation. "
+        "Basically it's been rewritten. What do you make of this?"
+    )
+    assert full.startswith(partial)
+
+    def _user(text: str, ts: int) -> str:
+        return json.dumps(
+            {
+                "timestamp": ts,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    }
+                },
+            }
+        )
+
+    (sd / "updates.jsonl").write_text(
+        "\n".join([_user(partial, 1000), _user(full, 1001), _user("unrelated next turn", 2000)])
+        + "\n",
+        encoding="utf-8",
+    )
+    parser_mod._timeline_cache.clear()
+    tl = parse_timeline(sd)
+    users = [e for e in tl if e.event_type == "user_message_chunk"]
+    assert len(users) == 2
+    assert users[0].content == full
+    assert "rewritten" in users[0].content
+    assert users[1].content == "unrelated next turn"
+
+
 def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None:
     """Background-task chrome + next operator prompt must stay separate rows.
 
