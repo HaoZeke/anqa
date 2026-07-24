@@ -205,6 +205,15 @@ def _merge_background_completion_segments(
     return out
 
 
+def turn_index_for_event(segments: list[TurnSegment], event_index: int) -> int | None:
+    """Return the turn_index of the segment that contains *event_index*, if any."""
+    for seg in segments:
+        for ev in seg.events:
+            if ev.index == event_index:
+                return int(seg.turn_index)
+    return None
+
+
 def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     """Split *timeline* into turns using session turn_started / turn_ended markers.
 

@@ -271,3 +271,15 @@ def test_multiline_field_roundtrip_byte_identical(tmp_path: Path) -> None:
     assert again["summary"] == no_trailing
     assert again["detail"] == with_trailing
     assert again["extra"] == with_escapes
+
+
+def test_multiline_embedded_triple_quotes_roundtrip(tmp_path: Path) -> None:
+    """Embedded \"\"\" in multiline fields must roundtrip through TOML dump/load."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    value = 'line1\nsaid """hello"""\nline3'
+    doc = NotesDoc(session_id="sess")
+    doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": value}, note_id="n-qq"))
+    save_notes(sd, doc)
+    loaded = load_notes(sd)
+    assert loaded.notes[0].fields["summary"] == value

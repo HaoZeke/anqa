@@ -2,7 +2,8 @@
 
 **Config home** (``APP_HOME`` / ``~/.groket``) holds identity and extensions —
 config, personas, rules, detectors, analysis plugins, tasks scaffolds, analysis
-cache, exported reports, flag fallbacks, optional ``models.yaml``.
+cache, exported reports, flag fallbacks, notes schema / notes fallbacks,
+optional ``models.yaml``.
 
 **Work dir** holds only session / run data — traces, run configs, feedback
 cache, Docker build contexts for launches, batch result log. Default work dir

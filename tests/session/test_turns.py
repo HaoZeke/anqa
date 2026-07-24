@@ -6,6 +6,7 @@ from groket.models import TraceEvent
 from groket.session.turns import (
     format_turns_plain,
     segment_timeline_turns,
+    turn_index_for_event,
     turn_summary_rows,
 )
 
@@ -507,3 +508,23 @@ def test_real_follow_up_after_background_merge_stays_separate() -> None:
     assert any(e.content == "first prompt" for e in segs[0].events)
     assert any(e.content == bg_user for e in segs[0].events)
     assert any(e.content == "real follow-up from host" for e in segs[1].events)
+
+
+def test_turn_index_for_event_mid_timeline() -> None:
+    """Selected mid-session event maps to its segment, not the last turn."""
+    tl = [
+        _ev(0, "turn_started", "turn started  turn_number=0"),
+        _ev(1, "user_message_chunk", "first"),
+        _ev(2, "tool_call"),
+        _ev(3, "turn_ended", "turn ended  outcome=success"),
+        _ev(4, "turn_started", "turn started  turn_number=1"),
+        _ev(5, "user_message_chunk", "second"),
+        _ev(6, "tool_call"),
+        _ev(7, "turn_ended", "turn ended  outcome=success"),
+    ]
+    tl[2] = TraceEvent(index=2, event_type="tool_call", tool_name="grep", timestamp=1_000_020)
+    tl[6] = TraceEvent(index=6, event_type="tool_call", tool_name="bash", timestamp=1_000_060)
+    segs = segment_timeline_turns(tl)
+    assert turn_index_for_event(segs, 2) == 0
+    assert turn_index_for_event(segs, 6) == 1
+    assert turn_index_for_event(segs, 99) is None

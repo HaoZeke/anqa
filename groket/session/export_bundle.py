@@ -42,6 +42,7 @@ from pathlib import Path
 from shutil import which
 
 from ..models import JsonObject, JsonValue, as_json_object, json_as_object
+from ..notes import collect_notes_for_export
 from ..paths import analysis_cache_dir, is_run_dir_name, reports_dir
 
 logger = logging.getLogger(__name__)
@@ -431,8 +432,6 @@ def _collect_feedback(session_id: str, work_dir: Path | None, staging: Path) -> 
 
 def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
     """Embed turn-linked operator notes under ``notes/`` (copy on-disk file)."""
-    from ..notes import collect_notes_for_export
-
     collect_notes_for_export(session_dir, staging / "notes")
 
 

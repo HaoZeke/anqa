@@ -866,6 +866,30 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             pass
         return 0
 
+    def _default_note_turn_index(self) -> int:
+        """Turn for a new note: selected event's turn, else turn filter, else last."""
+        from ...session.turns import segment_timeline_turns, turn_index_for_event
+
+        segs = getattr(self, "_turn_segments", None) or []
+        if not segs:
+            try:
+                segs = segment_timeline_turns(self.timeline or [])
+            except Exception:
+                segs = []
+        if self._current_event is not None and segs:
+            found = turn_index_for_event(segs, self._current_event.index)
+            if found is not None:
+                return found
+        tf = getattr(self, "_turn_filter", "all") or "all"
+        if tf != "all":
+            try:
+                return int(str(tf))
+            except (TypeError, ValueError):
+                pass
+        if segs:
+            return int(segs[-1].turn_index)
+        return self._current_turn_index()
+
     def _signals_mtime(self) -> float:
         fp = Path(self.session_dir) / "signals.json"
         try:
@@ -2717,7 +2741,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if action == "flag_event":
             return True if self._timeline_event_actionable() else False
         if action == "operator_note":
-            # Always available once the browser is open (turn defaults to 0).
+            # Always available once the browser is open (turn from event/filter/last).
             return True
         if action == "edit_operator_note":
             if not self._notes_loaded:
@@ -2775,7 +2799,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._load_notes()
         schema = load_schema()
         turn_options = self._note_turn_options()
-        default_turn = self._current_turn_index()
+        default_turn = self._default_note_turn_index()
         event_indices: list[int] = []
         if self._current_event is not None:
             event_indices = [self._current_event.index]
@@ -2793,7 +2817,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Edit or delete an existing turn-linked operator note."""
         if not self._notes_loaded:
             self._load_notes()
-        notes = list(self._notes_doc.notes)
+        notes = list(self._notes_doc.sorted_notes())
         if not notes:
             self.notify(U.note_none_to_edit())
             return
@@ -2843,6 +2867,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         action, payload = result
         # Re-load from disk so concurrent/external edits and late load are not wiped.
         disk = load_notes(self.session_dir)
+        # Track the schema in use at save time (operator may have edited notes_schema.toml).
+        disk.schema_id = load_schema().schema_id
         if action == "save":
             if not isinstance(payload, NoteEntry):
                 return
