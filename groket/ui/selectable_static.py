@@ -2,12 +2,15 @@
 
 Detail panes often hold Markdown / Syntax / Group renderables. Textual's
 default :meth:`Widget.get_selection` only extracts from ``Text`` / ``Content``,
-so mouse drag selection cannot return a line or region. This widget
-**materializes** rich content into styled :class:`~rich.text.Text` at the
-current width so on-screen coordinates match the clipboard extract.
+so mouse selection can fail for rich bodies. This widget keeps a plain-text
+cache (materialized at the pane width) for clipboard yank and selection
+fallback, while **displaying** the original renderable so layout reflows and
+content is not pre-wrapped/clipped at a stale width.
 """
 
 from __future__ import annotations
+
+from io import StringIO
 
 from rich.console import Console
 from rich.protocol import is_renderable
@@ -24,9 +27,12 @@ def materialize_selectable(
 ) -> tuple[str | Text | Content, str]:
     """Turn a display renderable into selectable Text (or str) + plain cache.
 
+    Used for the plain-text cache / selection fallback — not required for
+    on-screen display (prefer the original Markdown/Syntax/Group there).
+
     :param renderable: String, Rich text, Markdown/Syntax/Group, or similar.
-    :param width: Wrap width (must match the widget for correct line offsets).
-    :returns: ``(visual_for_static, plain_text)``.
+    :param width: Wrap width for plain extraction layout.
+    :returns: ``(visual_text, plain_text)``.
     """
     if renderable is None:
         return "", ""
@@ -41,30 +47,29 @@ def materialize_selectable(
         return s, s
 
     w = max(40, int(width) or 100)
-    # record=True + export_text(styles=True) preserves colour; styles=False is
-    # empty on some Rich builds, so plain always comes from Text.from_ansi.
+    # Capture to a buffer (not the real TTY). Large height avoids soft-clipping
+    # long Syntax/Markdown bodies to the terminal row count.
+    buf = StringIO()
     console = Console(
-        record=True,
-        force_terminal=True,
-        color_system="truecolor",
+        file=buf,
+        force_terminal=False,
+        color_system=None,
         width=w,
+        height=max(10_000, w),
         soft_wrap=True,
         legacy_windows=False,
     )
     try:
         console.print(renderable)
-        ansi = console.export_text(styles=True)
     except Exception:
         s = str(renderable)
         return s, s
-    if not ansi:
+    plain = buf.getvalue().rstrip("\n")
+    if not plain:
         s = str(renderable)
         return s, s
-    text = Text.from_ansi(ansi)
-    # Trailing spaces from Syntax padding stay; drop a final newline only so
-    # Selection line indices match the last visible line.
-    plain = text.plain.rstrip("\n")
-    return text, plain
+    # Text without ANSI — selection extract uses plain coordinates.
+    return Text(plain), plain
 
 
 def plain_from_renderable(renderable: object, *, width: int = 100) -> str:
@@ -79,56 +84,66 @@ def plain_from_renderable(renderable: object, *, width: int = 100) -> str:
 
 
 class SelectableStatic(Static):
-    """:class:`~textual.widgets.Static` with reliable partial text selection."""
+    """:class:`~textual.widgets.Static` with reliable text selection and yank.
+
+    Displays the original rich renderable (so the detail pane reflows and is
+    not pre-truncated). Maintains a plain-text cache for :meth:`get_selection`
+    fallback and full-pane yank.
+    """
 
     ALLOW_SELECT = True
 
     def __init__(self, content: VisualType = "", **kwargs) -> None:  # Textual Static
-        width = 100
-        visual, plain = materialize_selectable(content, width=width)
-        super().__init__(visual, **kwargs)
+        super().__init__(content, **kwargs)
         self._source: object = content
-        self._plain_cache: str = plain
-        self._materialize_width: int = width
+        self._plain_cache: str = plain_from_renderable(content, width=100)
+        self._materialize_width: int = 100
 
     def _widget_width(self) -> int:
         try:
-            return max(40, int(self.size.width) or 100)
+            w = int(self.size.width) or 0
+            if w < 20:
+                parent = self.parent
+                # parent may be a plain DOMNode without size (mypy).
+                pw = getattr(parent, "size", None) if parent is not None else None
+                if pw is not None:
+                    w = int(pw.width) or 0
+            return max(40, w or 100)
         except Exception:
             return 100
 
-    def update(self, content: VisualType = "", *, layout: bool = True) -> None:
-        """Materialize *content* to selectable Text and refresh the plain cache."""
-        self._source = content
+    def _refresh_plain_cache(self) -> None:
         width = self._widget_width()
-        visual, plain = materialize_selectable(content, width=width)
         self._materialize_width = width
-        self._plain_cache = plain
-        super().update(visual, layout=layout)
+        self._plain_cache = plain_from_renderable(self._source, width=width)
+
+    def update(self, content: VisualType = "", *, layout: bool = True) -> None:
+        """Update display with the original renderable; refresh plain cache."""
+        self._source = content
+        # Show Markdown/Syntax/Group as-is — reflows with the pane; no fixed-width bake.
+        super().update(content, layout=layout)
+        self._refresh_plain_cache()
 
     def on_resize(self, event: events.Resize) -> None:
-        """Re-wrap when the pane width changes so selection line offsets stay valid."""
+        """Recompute plain cache when width changes (selection line offsets)."""
         width = self._widget_width()
         if width == self._materialize_width:
             return
         if self._source is None or self._source == "":
             self._materialize_width = width
             return
-        visual, plain = materialize_selectable(self._source, width=width)
-        self._materialize_width = width
-        self._plain_cache = plain
-        super().update(visual, layout=True)
+        self._refresh_plain_cache()
 
     def get_plain_text(self) -> str:
         """Return the full plain-text cache for the current content."""
         return self._plain_cache
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
-        """Extract the dragged region (line / partial line / multi-line).
+        """Extract the dragged region; fall back to plain cache for rich bodies.
 
-        Content is materialized to :class:`~rich.text.Text`, so Textual's native
-        extract usually succeeds. Fall back to :meth:`Selection.extract` on the
-        plain cache (same line layout as the visual).
+        Prefer Textual's native extract when the visual is ``Text``/``Content``.
+        For Markdown/Syntax/Group, extract from the plain cache so a drag still
+        yields a region (coordinates track the plain wrap width).
         """
         try:
             result = super().get_selection(selection)
@@ -136,7 +151,6 @@ class SelectableStatic(Static):
             result = None
         if result is not None:
             text, end = result
-            # Empty extract = zero-width drag; treat as no selection.
             if text:
                 return text, end
         plain = self._plain_cache or ""

@@ -90,7 +90,7 @@ class _MdApp(App):
 
 @pytest.mark.asyncio
 async def test_selectable_static_markdown_partial_line_selection() -> None:
-    """Markdown is materialized to Text; a line-scoped selection is partial."""
+    """Plain cache tracks Markdown so a line-scoped selection is partial."""
     app = _MdApp()
     async with app.run_test():
         body = app.query_one("#body", SelectableStatic)
