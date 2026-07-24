@@ -667,11 +667,15 @@ note-save-failed = Could not save operator note: { $msg }
 
 note-turn-invalid = Choose a valid turn before saving
 
-notes-blurb = Turn-linked operator notes (N to create; palette or O to edit/delete). Field layout comes from ~/.groket/notes_schema.toml (not hardcoded). Authoring is TUI-only; batch does not write notes.
+notes-blurb = Turn-linked operator notes (N to add; O or command palette to edit or delete). Field layout: ~/.groket/notes_schema.toml. Authored in the TUI only.
 
 notes-empty-preview = (empty)
 
 notes-events-hint = Linked events: { $indices }
+
+notes-field-detail = Detail
+
+notes-field-summary = Summary
 
 notes-heading = Operator notes
 

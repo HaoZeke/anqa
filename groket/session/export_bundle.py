@@ -455,8 +455,7 @@ def _write_readme(staging: Path, *, sid: str) -> None:
         f'                 report for each (*.md). Prefer artifacts["report"] when\n'
         f"                 the analyzer produced one; otherwise summary + findings.\n"
         f"notes/           Operator notes file (operator_notes.toml) when present.\n"
-        f"                 Field layout is configurable via\n"
-        f"                 ~/.groket/notes_schema.toml (not hardcoded).\n"
+        f"                 Field layout: ~/.groket/notes_schema.toml.\n"
         f"manifest.json    Machine-readable inventory of this bundle.\n\n"
         f"To recover the pure grok-trace archive::\n"
         f"  tar -xzf <this-bundle>.tar.gz {GROK_TRACE_ARCHIVE_NAME}\n"

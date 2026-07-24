@@ -2031,39 +2031,37 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _render_report_notes(self) -> None:
         notes = self._notes_doc.sorted_notes()
-        schema = load_schema()
-        preferred_ids = [f.id for f in schema.fields]
+        preferred_ids = [f.id for f in load_schema().fields]
         nt = Text()
         nt.append_text(section_header(U.notes_heading()))
         nt.append(f"  {U.notes_blurb()}\n", style="dim")
-        if notes:
-            for note in notes:
-                summary = ""
-                for fid in preferred_ids:
-                    val = (note.fields.get(fid) or "").strip()
-                    if val:
-                        summary = val
-                        break
-                if not summary:
-                    for val in note.fields.values():
-                        if str(val).strip():
-                            summary = str(val).strip()
-                            break
-                if not summary:
-                    summary = U.notes_empty_preview()
-                preview = summary.replace("\n", " ")
-                if len(preview) > 100:
-                    preview = preview[:97] + "…"
-                ev = ""
-                if note.event_indices:
-                    ev = "  ·  #" + ",".join(str(i) for i in note.event_indices)
-                turn_lab = t("turn-filter-n", n=note.turn_index)
-                nt.append_text(bullet(f"{turn_lab}{ev}  — {preview}"))
-                if note.updated_at or note.created_at:
-                    nt.append(
-                        f"      {note.updated_at or note.created_at}\n",
-                        style="dim",
-                    )
+        for note in notes:
+            summary = next(
+                (
+                    (note.fields.get(fid) or "").strip()
+                    for fid in preferred_ids
+                    if (note.fields.get(fid) or "").strip()
+                ),
+                "",
+            )
+            if not summary:
+                summary = next(
+                    (str(v).strip() for v in note.fields.values() if str(v).strip()),
+                    U.notes_empty_preview(),
+                )
+            preview = summary.replace("\n", " ")
+            if len(preview) > 100:
+                preview = preview[:97] + "…"
+            ev = ""
+            if note.event_indices:
+                ev = "  ·  #" + ",".join(str(i) for i in note.event_indices)
+            turn_lab = t("turn-filter-n", n=note.turn_index)
+            nt.append_text(bullet(f"{turn_lab}{ev}  — {preview}"))
+            if note.updated_at or note.created_at:
+                nt.append(
+                    f"      {note.updated_at or note.created_at}\n",
+                    style="dim",
+                )
         self._set_static_content("report-notes-content", nt)
         try:
             self._sync_browser_tip_messages()
@@ -2793,7 +2791,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         )
 
     def action_operator_note(self) -> None:
-        """Open modal to add a turn-linked operator note (create-only; schema fields)."""
+        """Open modal to add a turn-linked operator note (schema fields)."""
         # Ensure disk notes are loaded before the modal (avoid empty-doc wipe).
         if not self._notes_loaded:
             self._load_notes()
@@ -2865,41 +2863,33 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if result is None:
             return
         action, payload = result
-        # Re-load from disk so concurrent/external edits and late load are not wiped.
         disk = load_notes(self.session_dir)
-        # Track the schema in use at save time (operator may have edited notes_schema.toml).
         disk.schema_id = load_schema().schema_id
+        notify = ""
         if action == "save":
             if not isinstance(payload, NoteEntry):
                 return
-            entry = payload
-            was_update = any(n.id == entry.id for n in disk.notes)
-            disk.upsert(entry)
-            try:
-                save_notes(self.session_dir, disk)
-            except OSError as exc:
-                self.notify(U.note_save_failed(str(exc)), severity="error")
-                return
-            self._notes_doc = disk
-            self._notes_loaded = True
-            if was_update:
-                self.notify(U.note_updated(entry.turn_index))
-            else:
-                self.notify(U.note_saved(entry.turn_index))
-            self._update_reports_tab()
+            was_update = any(n.id == payload.id for n in disk.notes)
+            disk.upsert(payload)
+            notify = (
+                U.note_updated(payload.turn_index)
+                if was_update
+                else U.note_saved(payload.turn_index)
+            )
+        elif action == "delete":
+            disk.remove(str(payload))
+            notify = U.note_deleted()
+        else:
             return
-        if action == "delete":
-            note_id = str(payload)
-            disk.remove(note_id)
-            try:
-                save_notes(self.session_dir, disk)
-            except OSError as exc:
-                self.notify(U.note_save_failed(str(exc)), severity="error")
-                return
-            self._notes_doc = disk
-            self._notes_loaded = True
-            self.notify(U.note_deleted())
-            self._update_reports_tab()
+        try:
+            save_notes(self.session_dir, disk)
+        except OSError as exc:
+            self.notify(U.note_save_failed(str(exc)), severity="error")
+            return
+        self._notes_doc = disk
+        self._notes_loaded = True
+        self.notify(notify)
+        self._update_reports_tab()
 
     def _refresh_event_chrome(self) -> None:
         """Re-paint timeline Flags column + detail for the current event."""

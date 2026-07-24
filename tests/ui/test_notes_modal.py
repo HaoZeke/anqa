@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from groket.notes import NoteEntry, default_schema
-from groket.ui.widgets.notes_modal import NotesModal, NotesPickModal, _note_preview_label
+from groket.notes import FieldSpec, NoteEntry, default_schema
+from groket.ui.i18n import setup_i18n
+from groket.ui.widgets.notes_modal import (
+    NotesModal,
+    NotesPickModal,
+    _note_preview_label,
+    note_field_label,
+)
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Static, TextArea
 
@@ -263,5 +269,14 @@ def test_note_preview_label_truncates() -> None:
     long = "x" * 80
     note = NoteEntry.new(turn_index=4, fields={"summary": long}, note_id="n-p")
     label = _note_preview_label(note)
-    assert "..." in label
+    assert "…" in label
     assert len(label) < 80 + 20  # turn prefix + truncated
+
+
+def test_note_field_label_resolves_fluent_defaults() -> None:
+    setup_i18n("en")
+    assert note_field_label(FieldSpec(id="summary")) == "Summary"
+    assert note_field_label(FieldSpec(id="detail")) == "Detail"
+    assert note_field_label(FieldSpec(id="severity", label="Severity")) == "Severity"
+    for spec in default_schema().fields:
+        assert note_field_label(spec) in ("Summary", "Detail")

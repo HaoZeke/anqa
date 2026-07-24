@@ -17,21 +17,31 @@ from ..i18n import join_ui, t
 from ..quit_actions import QuitActions
 
 _PREVIEW_MAX = 60
+_DEFAULT_FIELD_FTL = {
+    "summary": "notes-field-summary",
+    "detail": "notes-field-detail",
+}
+
+
+def note_field_label(spec: FieldSpec) -> str:
+    """Operator label, or Fluent for package-default field ids when label is empty."""
+    lab = (spec.label or "").strip()
+    if lab:
+        return lab
+    mid = _DEFAULT_FIELD_FTL.get(spec.id)
+    if mid is not None:
+        return t(mid)
+    return spec.id
 
 
 def _note_preview_label(note: NoteEntry) -> str:
     """Turn label plus first non-empty field value (truncated)."""
     turn = t("turn-filter-n", n=note.turn_index)
-    preview = ""
-    for val in note.fields.values():
-        text = (val or "").strip()
-        if text:
-            preview = text
-            break
+    preview = next((v.strip() for v in note.fields.values() if (v or "").strip()), "")
     if not preview:
         return turn
     if len(preview) > _PREVIEW_MAX:
-        preview = preview[: _PREVIEW_MAX - 3] + "..."
+        preview = preview[: _PREVIEW_MAX - 1] + "…"
     return join_ui(turn, "—", preview)
 
 
@@ -98,11 +108,9 @@ class NotesModal(QuitActions, ModalScreen):
                 yield Button(U.cancel(), id="cancel-note")
 
     def _field_widgets(self, spec: FieldSpec) -> ComposeResult:
-        yield Label(spec.label + (":" if not spec.label.endswith(":") else ""))
-        # Widget ids use only schema field ids (sanitized at schema load).
-        initial = ""
-        if self.existing is not None:
-            initial = self.existing.fields.get(spec.id, "")
+        label = note_field_label(spec)
+        yield Label(label if label.endswith(":") else f"{label}:")
+        initial = self.existing.fields.get(spec.id, "") if self.existing else ""
         yield TextArea(initial, id=f"note-field-{spec.id}")
 
     def action_cancel(self) -> None:
@@ -113,29 +121,21 @@ class NotesModal(QuitActions, ModalScreen):
     def action_save(self) -> None:
         self._commit_save()
 
-    def _read_field(self, spec: FieldSpec) -> str:
-        return self.query_one(f"#note-field-{spec.id}", TextArea).text.strip()
-
-    def _read_turn_index(self) -> int | None:
+    def _commit_save(self) -> None:
         turn_sel = self.query_one("#note-turn-select", Select)
         raw_turn = turn_sel.value
         if raw_turn is Select.BLANK or raw_turn is None:
             self.notify(U.note_turn_invalid(), severity="error")
-            return None
+            return
         try:
-            return int(str(raw_turn))
+            turn_index = int(str(raw_turn))
         except (TypeError, ValueError):
             self.notify(U.note_turn_invalid(), severity="error")
-            return None
-
-    def _schema_fields_from_form(self) -> dict[str, str]:
-        return {spec.id: self._read_field(spec) for spec in self.schema.fields}
-
-    def _commit_save(self) -> None:
-        turn_index = self._read_turn_index()
-        if turn_index is None:
             return
-        form_fields = self._schema_fields_from_form()
+        form_fields = {
+            spec.id: self.query_one(f"#note-field-{spec.id}", TextArea).text.strip()
+            for spec in self.schema.fields
+        }
         if self.existing is not None:
             fields = dict(self.existing.fields)
             fields.update(form_fields)

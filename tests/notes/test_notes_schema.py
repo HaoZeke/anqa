@@ -4,21 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.notes import (
-    default_schema,
-    dump_schema_toml,
-    load_schema,
-    parse_toml,
-    sanitize_field_id,
-)
+from groket.notes import default_schema, load_schema, schema_from_mapping
 
 
 def test_default_schema_has_generic_fields() -> None:
     s = default_schema()
     assert s.schema_id == "default"
-    ids = [f.id for f in s.fields]
-    assert ids == ["summary", "detail"]
-    assert "what_model_did" not in ids
+    assert [f.id for f in s.fields] == ["summary", "detail"]
+    assert all(f.label == "" for f in s.fields)
 
 
 def test_load_schema_missing_uses_default(tmp_path: Path, monkeypatch) -> None:
@@ -55,19 +48,19 @@ label = "Severity"
     s = load_schema(path=path)
     assert s.schema_id == "custom"
     assert [f.id for f in s.fields] == ["what", "severity"]
+    assert s.fields[0].label == "What happened"
 
 
-def test_sanitize_field_id() -> None:
-    assert sanitize_field_id("summary") == "summary"
-    assert sanitize_field_id("a-b_1") == "a-b_1"
-    assert sanitize_field_id("bad.id") is None
-    assert sanitize_field_id("") is None
+def test_schema_from_mapping_empty_fields_uses_default() -> None:
+    s = schema_from_mapping({"schema_id": "x", "fields": []})
+    assert [f.id for f in s.fields] == ["summary", "detail"]
 
 
-def test_schema_roundtrip_toml() -> None:
-    s = default_schema()
-    text = dump_schema_toml(s)
-    raw = parse_toml(text)
-    assert raw["schema_id"] == "default"
-    assert isinstance(raw["fields"], list)
-    assert raw["fields"][0]["id"] == "summary"
+def test_schema_label_defaults_to_field_id() -> None:
+    s = schema_from_mapping(
+        {
+            "schema_id": "c",
+            "fields": [{"id": "severity"}],
+        }
+    )
+    assert s.fields[0].label == "severity"
