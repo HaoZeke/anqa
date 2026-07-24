@@ -79,6 +79,8 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_delete_session", U.cmd_delete_sessions()),
                 ("action_export_finding", U.cmd_export_finding()),
                 ("action_export_bundle", U.cmd_export_bundle()),
+                ("action_operator_note", U.cmd_operator_note()),
+                ("action_edit_operator_note", U.cmd_edit_operator_note()),
                 ("action_go_back", U.cmd_back_sessions()),
             ):
                 yield _scr(screen, method, th)

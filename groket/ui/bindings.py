@@ -129,6 +129,8 @@ BROWSER: tuple[Binding, ...] = (
     + (
         _b("v", "focus_timeline_filter", U.bind_view(), show=False),
         _b("f", "flag_event", U.bind_flag(), show=True),
+        _b("N", "operator_note", U.bind_note(), show=True),
+        _b("O", "edit_operator_note", U.bind_edit_note(), show=False),
         _b("slash", "search", U.bind_search(), show=False),
         _b("c", "clear_filters", U.bind_clear_view(), show=False),
         _b("i", "tab_pane_4", U.bind_findings(), show=False),  # Findings = pane 4

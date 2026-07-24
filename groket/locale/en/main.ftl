@@ -107,6 +107,10 @@ bind-new = New
 
 bind-new-persona = New persona
 
+bind-note = Note
+
+bind-edit-note = Edit note
+
 bind-next-pane = Next pane
 
 bind-next-tab = Next tab
@@ -294,7 +298,15 @@ cmd-export-finding-help = Export selected finding
 
 cmd-export-bundle = Export session tarball
 
-cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) into ~/.groket/reports
+cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) + operator notes into ~/.groket/reports
+
+cmd-operator-note = Operator note
+
+cmd-operator-note-help = Add a turn-linked operator note (configurable fields)
+
+cmd-edit-operator-note = Edit operator note
+
+cmd-edit-operator-note-help = Edit or delete an existing turn-linked operator note
 
 cmd-copy-detail = Copy detail / selection
 cmd-copy-detail-help = Browser: yank mouse selection (word/line/region) or the full detail pane — y / Ctrl+Shift+C
@@ -638,6 +650,40 @@ flags-blurb = Your annotations on timeline events (verdict + note). Not detector
 flags-heading = Flags
 
 flags-only = Flags only
+
+new-note-title = New operator note
+
+edit-note-title = Edit operator note
+
+note-saved = Operator note saved (turn { $turn })
+
+note-updated = Operator note updated (turn { $turn })
+
+note-deleted = Operator note deleted
+
+note-none-to-edit = No operator notes to edit — press N to add one
+
+note-save-failed = Could not save operator note: { $msg }
+
+note-turn-invalid = Choose a valid turn before saving
+
+notes-blurb = Turn-linked operator notes (N to create; palette or O to edit/delete). Field layout comes from ~/.groket/notes_schema.toml (not hardcoded). Authoring is TUI-only; batch does not write notes.
+
+notes-empty-preview = (empty)
+
+notes-events-hint = Linked events: { $indices }
+
+notes-heading = Operator notes
+
+notes-only = Notes only
+
+notes-schema-hint = Schema: { $id }
+
+pick-note-title = Choose a note to edit
+
+tip-no-notes = No operator notes yet — press `N` to add a turn-linked note
+
+turn-label = Turn:
 
 friendly-name-placeholder = Friendly name
 
@@ -2663,6 +2709,8 @@ browser-findings-chip = { $n } findings
 browser-high-chip = { $n } high
 browser-medium-chip = { $n } medium
 browser-flags-count = Flags ({ $n })
+
+browser-notes-count = Notes ({ $n })
 browser-findings-dim = · { $n } findings
 browser-status-none = none
 browser-status-clean = clean

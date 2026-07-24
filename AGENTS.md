@@ -142,7 +142,8 @@ groket/
   runs/                  # personas, run_configs, run_manager, batch, live_share,
                          #   launch_meta, services, task_schema
   session/               # turns, turn_gate, usage_stats, workspace_diff,
-                         #   context_samples, models_catalog
+                         #   context_samples, models_catalog, export_bundle
+  notes.py               # configurable operator notes (TOML schema + session store)
   diagnostics/           # host self-test
   analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
   engine/                # detectors, rules loader, runner, rule_schema
@@ -180,7 +181,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, optional ``models.yaml`` |
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Traces** banner = active traces root (not a second tree under the git checkout).

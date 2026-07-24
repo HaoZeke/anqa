@@ -176,6 +176,19 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         encoding="utf-8",
     )
 
+    from groket.notes import NoteEntry, NotesDoc, save_notes
+
+    notes_doc = NotesDoc(schema_id="default", session_id=SID)
+    notes_doc.upsert(
+        NoteEntry.new(
+            turn_index=0,
+            fields={"summary": "export me", "detail": "turn note"},
+            event_indices=[2],
+            note_id="n-export",
+        )
+    )
+    save_notes(sess, notes_doc)
+
     dest = tmp_path / "out" / "bundle.tar.gz"
     result = export_session_bundle(
         sess,
@@ -200,6 +213,9 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         fb_md = tf.extractfile("analysis/feedback.md")
         assert fb_md is not None
         fb_text = fb_md.read().decode()
+        notes_f = tf.extractfile("notes/operator_notes.toml")
+        assert notes_f is not None
+        notes_text = notes_f.read().decode()
 
     assert nested_bytes == expected
     assert "manifest.json" in names
@@ -223,6 +239,10 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "analysis/demo.md" in names
     assert "analysis/feedback.json" in names
     assert "analysis/feedback.md" in names
+    assert "notes/operator_notes.toml" in names
+    assert "notes/schema.toml" not in names
+    assert "export me" in notes_text
+    assert "n-export" in notes_text
     assert "Demo issue" in demo_text
     assert "Something happened" in demo_text
     assert "Full markdown from plugin" in fb_text

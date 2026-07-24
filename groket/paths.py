@@ -2,7 +2,8 @@
 
 **Config home** (``APP_HOME`` / ``~/.groket``) holds identity and extensions —
 config, personas, rules, detectors, analysis plugins, tasks scaffolds, analysis
-cache, exported reports, flag fallbacks, optional ``models.yaml``.
+cache, exported reports, flag fallbacks, notes schema / notes fallbacks,
+optional ``models.yaml``.
 
 **Work dir** holds only session / run data — traces, run configs, feedback
 cache, Docker build contexts for launches, batch result log. Default work dir
@@ -71,6 +72,13 @@ def reports_dir() -> Path:
 def flags_fallback_dir(session_id: str) -> Path:
     """``~/.groket/flags/<session_id>`` — flags when session dir is not writable."""
     d = APP_HOME / "flags" / session_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def notes_fallback_dir(session_id: str) -> Path:
+    """``~/.groket/notes/<session_id>`` — operator notes when session dir is not writable."""
+    d = APP_HOME / "notes" / session_id
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -295,11 +295,28 @@ def check_readmes() -> None:
         EXAMPLES / "detection" / "README.md",
         EXAMPLES / "analysis" / "README.md",
         EXAMPLES / "tasks" / "README.md",
+        EXAMPLES / "notes" / "README.md",
     ]
     for path in required:
         if not path.is_file() or path.stat().st_size < 40:
             _err(path, "missing or empty README")
         _ok(f"{_repo_rel(path)}")
+
+
+def check_notes_schema() -> None:
+    """Validate examples/notes schema example loads with non-empty fields."""
+    from groket.notes import load_schema
+
+    path = EXAMPLES / "notes" / "notes_schema.example.toml"
+    if not path.is_file():
+        _err(path, "missing notes schema example")
+    schema = load_schema(path=path)
+    if not schema.fields:
+        _err(path, "schema has no fields")
+    for spec in schema.fields:
+        if not (spec.id or "").strip() or not (spec.label or "").strip():
+            _err(path, f"empty field id/label in {spec!r}")
+    _ok(f"{_repo_rel(path)}  schema_id={schema.schema_id} fields={len(schema.fields)}")
 
 
 def main() -> int:
@@ -313,6 +330,7 @@ def main() -> int:
         plugins = check_analysis_plugins()
         check_analysis_configs(plugins)
         check_personas()
+        check_notes_schema()
     except _Fail as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
