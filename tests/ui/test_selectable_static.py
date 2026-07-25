@@ -243,8 +243,8 @@ def test_is_extractable_static() -> None:
     assert is_extractable_static(None) is False
 
 
-def test_action_copy_detail_yanks_selected_finding() -> None:
-    """On Findings tab, y copies the highlighted finding only."""
+def test_action_copy_detail_yanks_selected_finding_issue_box() -> None:
+    """On Findings tab, y copies MF Issue box (What/Where/Why/Should/Pattern)."""
     from types import SimpleNamespace
 
     from groket.analysis.base import Finding
@@ -252,12 +252,20 @@ def test_action_copy_detail_yanks_selected_finding() -> None:
     from groket.ui.screens.browser import BrowserScreen
 
     finding = Finding(
-        id="f1",
-        plugin_id="basic",
+        id="feedback-f1",
+        plugin_id="feedback",
         severity=Severity.HIGH,
-        title="Missed gate",
-        detail="should have run tests",
-        category="quality",
+        title="Ignored MCP",
+        detail="short",
+        category="Instruction Following",
+        event_indices=[4, 32],
+        extras={
+            "what_model_did": "Claimed MCP failed without trying the bridge.",
+            "what_should_have_done": "Call preferred MCP tools first.",
+            "why_mistake": "Instruction required MCP-first.",
+            "where": "Turn 0, assistant #4",
+            "pattern": "Asserts preferred integration is down without attempting it",
+        },
     )
     copied: list[str] = []
     notes: list[str] = []
@@ -276,6 +284,12 @@ def test_action_copy_detail_yanks_selected_finding() -> None:
         def _active_browser_tab(self) -> str:
             return "tab-findings"
 
+        def _finding_clipboard_text(self, f: Finding) -> str:
+            return BrowserScreen._finding_clipboard_text(self, f)  # type: ignore[arg-type]
+
+        def _format_finding_issue_box(self, f: Finding) -> str | None:
+            return BrowserScreen._format_finding_issue_box(self, f)  # type: ignore[arg-type]
+
         def _finding_plain_text(self, f: Finding) -> str:
             return BrowserScreen._finding_plain_text(self, f)  # type: ignore[arg-type]
 
@@ -289,9 +303,15 @@ def test_action_copy_detail_yanks_selected_finding() -> None:
 
     BrowserScreen.action_copy_detail(_Host())  # type: ignore[arg-type]
     assert len(copied) == 1
-    assert "Missed gate" in copied[0]
-    assert "should have run tests" in copied[0]
-    assert "HIGH" in copied[0]
+    body = copied[0]
+    assert body.startswith("What: Claimed MCP failed")
+    assert "Where: Turn 0, assistant #4" in body
+    assert "Why: Instruction required MCP-first." in body
+    assert "Should have: Call preferred MCP tools first." in body
+    assert "Pattern: Asserts preferred integration is down" in body
+    # Not the whole report / form fields dump
+    assert "Model Name:" not in body
+    assert "Form fields" not in body
     assert notes
 
 

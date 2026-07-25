@@ -87,13 +87,13 @@ does not work. Body text uses ``SelectableStatic`` (detail, summary, diff,
 findings header, report sections). Drag to highlight, then **`y`** /
 **Ctrl+Shift+C** / **Ctrl+C**.
 
-- **One finding:** Findings tab (`4` / `i`) → highlight the row → **`y`**
-  (full finding text; palette “export finding” still writes a file under
-  `~/.groket/reports`).
+- **One Model Feedback issue:** Findings tab (`4` / `i`) → highlight the row
+  → **`y`** copies the **Issue (copy into the Issue box)** text
+  (`What` / `Where` / `Why` / `Should have` / `Pattern`) when the analyzer
+  filled those fields (e.g. `mf_form_feedback`). Palette “export finding”
+  still writes a full markdown file under `~/.groket/reports`.
 - **No selection:** focused body, else the whole active pane (visible Report
-  sections, Summary, Diff, or Timeline detail). On Report, plugin findings
-  share one section body — drag-select lines, or use Findings for a clean
-  single finding.
+  sections, Summary, Diff, or Timeline detail).
 
 OSC 52 clipboard. tmux over SSH: `set -g set-clipboard on` so OSC 52 reaches
 the local pasteboard.

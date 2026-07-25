@@ -32,10 +32,10 @@ Ctrl+Shift+C   same as y
 Ctrl+C         copy mouse selection when text is selected (otherwise quit hint)
 E              export session tarball (~/.groket/reports; embeds grok-trace.tar.gz + notes/)
 
-[dim]Copy one finding: open Findings (4 / i), highlight the row, press y
-(full detail text — same content as export-finding). On Report, findings in a
-plugin card share one body — drag-select those lines, or filter to that plugin
-and drag; for a clean single finding use the Findings tab.
+[dim]Copy one MF “Issue (copy into the Issue box)” block: open Findings (4 / i),
+highlight the finding row, press y. That yanks What/Where/Why/Should/Pattern
+only (not the whole Report). Form fields are on Report; export-finding still
+writes a full markdown file under ~/.groket/reports.
 Partial copy: drag to highlight in detail / summary / diff / report, then y.
 With no highlight: focused body or whole active pane. OSC 52 clipboard.
 OS “highlight to copy” does not work while the TUI owns the mouse.[/dim]

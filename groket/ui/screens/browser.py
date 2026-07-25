@@ -2839,11 +2839,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if selected:
                 text = selected
                 kind = "selection"
-        # One finding: Findings table selection (not the whole plugin section).
+        # One finding: Findings table selection → Issue box (MF form) when present.
         if not text.strip() and self._active_browser_tab() == "tab-findings":
             finding = getattr(self, "_selected_finding", None)
             if isinstance(finding, Finding):
-                text = self._finding_plain_text(finding).strip()
+                text = self._finding_clipboard_text(finding).strip()
                 if text:
                     kind = "finding"
         if not text.strip():
@@ -3032,8 +3032,41 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._refresh_event_chrome()
         self._update_reports_tab()
 
+    def _format_finding_issue_box(self, finding: Finding) -> str | None:
+        """MF form \"Issue (copy into the Issue box)\" when extras support it.
+
+        Matches Model Feedback form drafts: What / Where / Why / Should have /
+        Pattern. Returns None when those structured fields are absent.
+        """
+        extras = finding.extras or {}
+        what = str(extras.get("what_model_did") or "").strip()
+        should = str(extras.get("what_should_have_done") or extras.get("should_have") or "").strip()
+        why = str(extras.get("why_mistake") or "").strip()
+        where = str(extras.get("where") or "").strip()
+        pattern = str(extras.get("pattern") or "").strip()
+        if not (what or should or why or pattern):
+            return None
+        if not where and finding.event_indices:
+            where = "Timeline events " + ", ".join(f"#{i}" for i in finding.event_indices[:8])
+            if finding.tool_call_ids:
+                where += " · tools " + ", ".join(f"`{t}`" for t in finding.tool_call_ids[:4])
+        return (
+            f"What: {what or finding.title or '(see title)'}\n"
+            f"Where: {where or '(see evidence)'}\n"
+            f"Why: {why or '(not specified)'}\n"
+            f"Should have: {should or '(not specified)'}\n"
+            f"Pattern: {pattern or '(none)'}\n"
+        )
+
+    def _finding_clipboard_text(self, finding: Finding) -> str:
+        """Best plain text for ``y``: Issue box when available, else export markdown."""
+        box = self._format_finding_issue_box(finding)
+        if box:
+            return box
+        return self._finding_plain_text(finding)
+
     def _finding_plain_text(self, finding: Finding) -> str:
-        """Markdown-ish plain text for one finding (clipboard + export file)."""
+        """Markdown-ish plain text for one finding (export file + generic clipboard)."""
         model = self.meta.model_display if self.meta else "unknown"
         session_id = self.meta.session_id if self.meta else "unknown"
         lines = [
@@ -3055,10 +3088,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             lines.append(t("report-md-sub-findings", n=len(finding.children)))
             for child in finding.children:
                 lines.append(f"> [{child.severity.value.upper()}] `{child.id}`: {child.title[:80]}")
-        if finding.extras.get("should_have"):
+        should = finding.extras.get("what_should_have_done") or finding.extras.get("should_have")
+        if should:
             lines.append("")
             lines.append(t("ui-what-the-model-should-have-done"))
-            lines.append(f"> {finding.extras['should_have']}")
+            lines.append(f"> {should}")
         return "\n".join(lines).rstrip() + "\n"
 
     def _report_finding(self, finding: Finding) -> None:

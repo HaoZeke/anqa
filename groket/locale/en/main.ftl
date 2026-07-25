@@ -1888,7 +1888,7 @@ ui-copied-report = Copied report to clipboard
 
 ui-copied-content = Copied to clipboard
 
-ui-copied-finding = Copied finding to clipboard
+ui-copied-finding = Copied finding (Issue box) to clipboard
 
 ui-nothing-to-copy = Nothing to copy
 
