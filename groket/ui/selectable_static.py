@@ -89,6 +89,9 @@ class SelectableStatic(Static):
     Displays the original rich renderable (so the detail pane reflows and is
     not pre-truncated). Maintains a plain-text cache for :meth:`get_selection`
     fallback and full-pane yank.
+
+    **Contract:** any body content a human may want to extract from the TUI
+    must use this widget (not plain ``Static``). See AGENTS.md §6.5a.
     """
 
     ALLOW_SELECT = True
@@ -163,3 +166,13 @@ class SelectableStatic(Static):
         if not extracted:
             return None
         return extracted, "\n"
+
+
+def is_extractable_static(widget: object) -> bool:
+    """True when *widget* is a :class:`SelectableStatic` body (not chrome).
+
+    Product rule: use :class:`SelectableStatic` for any operator-facing body
+    (detail, summary, diff, report sections, …). Keep chrome as plain
+    :class:`~textual.widgets.Static` so ``y`` does not yank labels/tips.
+    """
+    return isinstance(widget, SelectableStatic)

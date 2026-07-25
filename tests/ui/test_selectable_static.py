@@ -194,9 +194,10 @@ async def test_action_copy_detail_yanks_full_body() -> None:
         host = SimpleNamespace(
             get_selected_text=lambda: None,
             focused=None,
-            _active_browser_tab=lambda: "tab-timeline",
-            _collect_report_plain_text=lambda: "",
-            query_one=app.query_one,
+            _collect_active_tab_plain_text=lambda: (
+                app.query_one("#detail-panel", DetailView).get_plain_text(),
+                "detail",
+            ),
             app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
             notify=lambda msg, **kwargs: notes.append(str(msg)),
         )
@@ -217,15 +218,25 @@ def test_action_copy_detail_yanks_report_sections() -> None:
     host = SimpleNamespace(
         get_selected_text=lambda: None,
         focused=None,
-        _active_browser_tab=lambda: "tab-reports",
-        _collect_report_plain_text=lambda: "SESSION REPORT\n\nFlags section body",
-        query_one=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no detail")),
+        _collect_active_tab_plain_text=lambda: (
+            "SESSION REPORT\n\nFlags section body",
+            "report",
+        ),
         app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
         notify=lambda msg, **kwargs: notes.append(str(msg)),
     )
     BrowserScreen.action_copy_detail(host)  # type: ignore[arg-type]
     assert copied == ["SESSION REPORT\n\nFlags section body"]
     assert notes
+
+
+def test_is_extractable_static() -> None:
+    from groket.ui.selectable_static import SelectableStatic, is_extractable_static
+    from textual.widgets import Static
+
+    assert is_extractable_static(SelectableStatic("x")) is True
+    assert is_extractable_static(Static("x")) is False
+    assert is_extractable_static(None) is False
 
 
 @pytest.mark.asyncio

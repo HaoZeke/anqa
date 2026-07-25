@@ -82,12 +82,13 @@ Panes (`[` / `]` or digits **1–5**):
 4. **Findings** — detector / analyzer hits (`i` jumps here)  
 5. **Report** — analysis panels, flags, and operator notes  
 
-**Copy from detail or Report:** the TUI owns the mouse, so OS highlight-to-copy
-does not work. Drag to highlight text in the **detail** pane or a **Report**
-section, then **`y`** / **Ctrl+Shift+C** / **Ctrl+C**. With no selection:
-on **Report**, **`y`** copies all visible report sections (or the focused
-section); on **Timeline**, **`y`** copies the whole detail body (OSC 52).
-tmux over SSH: `set -g set-clipboard on` so OSC 52 reaches the local pasteboard.
+**Copy from extractable panes:** the TUI owns the mouse, so OS highlight-to-copy
+does not work. Body text that operators may want to extract uses
+``SelectableStatic`` (detail, summary, diff, findings header, report sections).
+Drag to highlight, then **`y`** / **Ctrl+Shift+C** / **Ctrl+C**. With no
+selection: focused body, else the whole active pane (visible Report sections,
+Summary, Diff, or Timeline detail). OSC 52 clipboard. tmux over SSH:
+`set -g set-clipboard on` so OSC 52 reaches the local pasteboard.
 
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.

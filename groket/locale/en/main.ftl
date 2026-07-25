@@ -308,8 +308,8 @@ cmd-edit-operator-note = Edit operator note
 
 cmd-edit-operator-note-help = Edit or delete an existing turn-linked operator note
 
-cmd-copy-detail = Copy selection / detail / report
-cmd-copy-detail-help = Browser: yank mouse selection, focused report section, visible Report tab, or the detail pane — y / Ctrl+Shift+C
+cmd-copy-detail = Copy selection or pane content
+cmd-copy-detail-help = Browser: yank mouse selection, focused body, or the active pane (detail / summary / diff / report) — y / Ctrl+Shift+C
 
 cmd-filter-model = Filter by model
 
@@ -1885,6 +1885,8 @@ ui-copied-selection = Copied selection to clipboard
 ui-copied-detail = Copied detail to clipboard
 
 ui-copied-report = Copied report to clipboard
+
+ui-copied-content = Copied to clipboard
 
 ui-nothing-to-copy = Nothing to copy
 

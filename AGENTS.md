@@ -454,6 +454,39 @@ First press arms; second with the **same** target set commits. Shared helper:
 ``TipSurface`` (class ``tip-surface``); kinds via ``kind=``. Global hide:
 ``show_tips`` in config / Analysis / Ctrl+P.
 
+### 6.5a Extractable / copyable body content (mandatory)
+
+Operators must be able to copy text from any **body** surface that is useful
+to paste elsewhere (detail, summary, diff, findings header, report sections,
+similar future panes). OS drag-to-copy does not work while Textual owns the
+mouse — the product path is Textual selection + OSC 52 yank.
+
+| Use | Widget |
+|-----|--------|
+| Body content a human may extract | :class:`~groket.ui.selectable_static.SelectableStatic` |
+| Chrome only (labels, filter bar text, tips, empty-state chrome) | plain ``Static`` / ``TipSurface`` |
+
+**Rules**
+
+1. **New extractable bodies** mount :class:`~groket.ui.selectable_static.SelectableStatic`
+   (not plain ``Static``). Display the real Rich renderable via ``update()``;
+   keep plain cache for selection/yank — do **not** pre-bake fixed-width
+   ``Text`` for display (that truncates / mis-wraps).
+2. **``y`` / Ctrl+Shift+C** (browser ``action_copy_detail``) order:
+   mouse selection → focused ``SelectableStatic`` → whole active pane
+   (visible Report sections, Summary, Diff, Findings header, or Timeline
+   detail). Reuse this order; do not invent a second copy path per pane.
+3. **Live refresh** must not clear a widget that has an active text
+   selection (``_widget_has_text_selection`` / ``set_static_renderable``).
+4. **Tests** for new extractable surfaces: plain-text cache + yank path
+   (see ``tests/ui/test_selectable_static.py``).
+5. **Docs**: operator keys in README + ``help.rich.txt`` when adding a
+   major extractable surface; Fluent notify ids
+   (``ui-copied-selection`` / ``ui-copied-detail`` / ``ui-copied-report`` /
+   ``ui-copied-content``).
+
+Helper: :func:`~groket.ui.selectable_static.is_extractable_static`.
+
 ### 6.6 Context-sensitive shortcuts
 
 Stable globals: ``?``, ``F5``/``Ctrl+R``, ``j``, ``Esc``, ``Ctrl+P``, ``q``
@@ -471,7 +504,8 @@ Add a key: ``bindings.py`` → ``action_*`` → palette if useful → help if ma
 
 Primary list focus; pane digits; visible filters; ``s``/``space`` multi-select;
 preserving cursor; ``TipSurface``; ``check_action``; Tab-reachable buttons;
-modals Esc + Ctrl+S save; no mouse-only features.
+modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
+``SelectableStatic`` + ``y`` (§6.5a).
 
 ### 6.9 Global key reference
 
@@ -487,6 +521,10 @@ modals Esc + Ctrl+S save; no mouse-only features.
 | ``[`` / ``]`` | Previous / next pane |
 | ``1``…``N`` | Jump to pane N |
 | ``s`` / ``space`` | Select (multi-select lists) |
+
+Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
+(§6.5a); ``n``/``e`` follow-up/Done when awaiting; ``x`` delete (double-press);
+``f`` flag; ``N``/``O`` notes; ``E`` export; ``I`` import (sessions home).
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
 (double-press); ``a`` analyze; ``d`` rules; ``r``/``C``/``P`` runner/configs/personas.
