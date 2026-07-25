@@ -193,6 +193,9 @@ async def test_action_copy_detail_yanks_full_body() -> None:
         notes: list[str] = []
         host = SimpleNamespace(
             get_selected_text=lambda: None,
+            focused=None,
+            _active_browser_tab=lambda: "tab-timeline",
+            _collect_report_plain_text=lambda: "",
             query_one=app.query_one,
             app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
             notify=lambda msg, **kwargs: notes.append(str(msg)),
@@ -201,6 +204,28 @@ async def test_action_copy_detail_yanks_full_body() -> None:
         assert copied
         assert "clipboard-target-phrase-99" in copied[0]
         assert notes
+
+
+def test_action_copy_detail_yanks_report_sections() -> None:
+    """On Report tab with no selection, y yanks visible report plain text."""
+    from types import SimpleNamespace
+
+    from groket.ui.screens.browser import BrowserScreen
+
+    copied: list[str] = []
+    notes: list[str] = []
+    host = SimpleNamespace(
+        get_selected_text=lambda: None,
+        focused=None,
+        _active_browser_tab=lambda: "tab-reports",
+        _collect_report_plain_text=lambda: "SESSION REPORT\n\nFlags section body",
+        query_one=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no detail")),
+        app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
+        notify=lambda msg, **kwargs: notes.append(str(msg)),
+    )
+    BrowserScreen.action_copy_detail(host)  # type: ignore[arg-type]
+    assert copied == ["SESSION REPORT\n\nFlags section body"]
+    assert notes
 
 
 @pytest.mark.asyncio

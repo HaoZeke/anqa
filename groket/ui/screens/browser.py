@@ -55,6 +55,7 @@ from ..panel_render import (
     section_header,
     status_chip,
 )
+from ..selectable_static import SelectableStatic
 from ..session_summary import assistant_text_from_timeline, render_session_summary
 from ..styles import SEVERITY_LABEL, severity_style
 from ..tab_panes import TabPaneNavigation
@@ -251,18 +252,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         )
                     with VerticalScroll(id="reports-scroll"):
                         with Vertical(classes="panel-card", id="report-section-overview"):
-                            yield Static(id="report-overview-content")
+                            yield SelectableStatic(id="report-overview-content")
                             yield TipSurface(U.tip_report_filter(), id="report-overview-tip")
                             yield TipSurface("", id="report-analysis-tip")
                         with Vertical(
                             classes=t("ui-panel-card-report-section"), id="report-section-flags"
                         ):
-                            yield Static(id="report-flags-content")
+                            yield SelectableStatic(id="report-flags-content")
                             yield TipSurface(U.tip_no_flags(), id="report-flags-tip")
                         with Vertical(
                             classes=t("ui-panel-card-report-section"), id="report-section-notes"
                         ):
-                            yield Static(id="report-notes-content")
+                            yield SelectableStatic(id="report-notes-content")
                             yield TipSurface(U.tip_no_notes(), id="report-notes-tip")
                         yield Vertical(id="report-sections-host")
         yield Footer()
@@ -1841,7 +1842,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             section_id = self._report_section_dom_id(aid)
             content_id = self._report_content_dom_id(aid)
             card = Vertical(classes=t("ui-panel-card-report-section"), id=section_id)
-            card.compose_add_child(Static(id=content_id))
+            card.compose_add_child(SelectableStatic(id=content_id))
             try:
                 host.mount(card)
                 self._report_section_keys.add(aid)
@@ -1875,12 +1876,43 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _set_static_content(self, widget_id: str, renderable) -> None:
         try:
+            # SelectableStatic subclasses Static — query Static matches both.
             widget = self.query_one(f"#{widget_id}", Static)
             if self._widget_has_text_selection(widget):
                 return
             widget.update(renderable)
         except Exception:
             logger.debug(t("ui-report-static-s-missing"), widget_id, exc_info=True)
+
+    def _report_content_ids_for_copy(self) -> list[str]:
+        """Overview + currently visible Report sections (respects filter)."""
+        ids = ["report-overview-content"]
+        if self._section_visible("flags"):
+            ids.append("report-flags-content")
+        if self._section_visible("notes"):
+            ids.append("report-notes-content")
+        for key in sorted(self._report_section_keys):
+            if key in ("flags", "notes"):
+                continue
+            if self._section_visible(key):
+                ids.append(self._report_content_dom_id(key))
+        return ids
+
+    def _collect_report_plain_text(self) -> str:
+        """Plain text of visible Report sections for clipboard yank."""
+        parts: list[str] = []
+        for wid in self._report_content_ids_for_copy():
+            with suppress(Exception):
+                widget = self.query_one(f"#{wid}", SelectableStatic)
+                plain = (widget.get_plain_text() or "").strip()
+                if plain:
+                    parts.append(plain)
+        return "\n\n".join(parts)
+
+    def _active_browser_tab(self) -> str:
+        with suppress(Exception):
+            return str(self.query_one("#browser-tabs", TabbedContent).active or "")
+        return ""
 
     def _update_reports_tab(self) -> None:
         """Fill overview + each inline section; Filter Select controls display."""
@@ -2753,32 +2785,55 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return True
 
     def action_copy_detail(self) -> None:
-        """Copy mouse selection or the full detail pane to the clipboard.
+        """Copy selection, focused report section, Report tab, or detail pane.
 
         Textual owns the mouse, so OS drag-to-select does not work. Operators
-        drag to select within the detail body, then ``y`` / Ctrl+Shift+C / Ctrl+C
-        (when a selection exists). With no selection, ``y`` yanks the whole pane.
+        drag to select, then ``y`` / Ctrl+Shift+C / Ctrl+C. With no selection:
+
+        * focused Report ``SelectableStatic`` → that section
+        * Report tab → all currently visible report sections
+        * otherwise → full timeline detail pane
         """
         text = ""
+        kind = "none"
         with suppress(Exception):
             selected = self.get_selected_text()
             if selected:
                 text = selected
+                kind = "selection"
+        if not text.strip():
+            with suppress(Exception):
+                focused = self.focused
+                fid = str(getattr(focused, "id", "") or "")
+                if isinstance(focused, SelectableStatic) and (
+                    fid.startswith("report-") or fid == "detail-body"
+                ):
+                    plain = (focused.get_plain_text() or "").strip()
+                    if plain:
+                        text = plain
+                        kind = "report" if fid.startswith("report-") else "detail"
+        if not text.strip() and self._active_browser_tab() == "tab-reports":
+            with suppress(Exception):
+                text = self._collect_report_plain_text()
+                if text.strip():
+                    kind = "report"
         if not text.strip():
             with suppress(Exception):
                 detail = self.query_one("#detail-panel", DetailView)
                 text = detail.get_plain_text()
+                if (text or "").strip():
+                    kind = "detail"
         text = (text or "").strip()
         if not text:
             self.notify(t("ui-nothing-to-copy"), severity="warning")
             return
         self.app.copy_to_clipboard(text)
-        # Prefer "selection" wording when we actually copied a selection.
-        with suppress(Exception):
-            if self.get_selected_text():
-                self.notify(t("ui-copied-selection"), severity="information")
-                return
-        self.notify(t("ui-copied-detail"), severity="information")
+        if kind == "selection":
+            self.notify(t("ui-copied-selection"), severity="information")
+        elif kind == "report":
+            self.notify(t("ui-copied-report"), severity="information")
+        else:
+            self.notify(t("ui-copied-detail"), severity="information")
 
     def action_flag_event(self) -> None:
         """Open the flag modal for the currently selected timeline event."""
