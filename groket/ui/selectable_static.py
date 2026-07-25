@@ -92,9 +92,11 @@ class SelectableStatic(Static):
 
     **Contract:** any body content a human may want to extract from the TUI
     must use this widget (not plain ``Static``). See AGENTS.md §6.5a.
+    Focusable so Tab can land on Report sub-panes (and other bodies) for ``y``.
     """
 
     ALLOW_SELECT = True
+    can_focus = True
 
     def __init__(self, content: VisualType = "", **kwargs) -> None:  # Textual Static
         super().__init__(content, **kwargs)

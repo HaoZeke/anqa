@@ -422,6 +422,107 @@ async def test_browser_report_filter_sections(tmp_path: Path) -> None:
         assert screen._section_visible("flags")
 
 
+@pytest.mark.asyncio
+async def test_browser_report_plugin_multi_pane_selectable(tmp_path: Path) -> None:
+    """Plugin report artifact splits into focusable SelectableStatic panes."""
+    from groket.ui.selectable_static import SelectableStatic
+    from textual.containers import Vertical
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    finding = Finding(
+        id="mf1",
+        title="Ignored MCP",
+        severity=Severity.HIGH,
+        plugin_id="engine",
+        detail="short",
+        extras={
+            "what_model_did": "Claimed MCP failed",
+            "what_should_have_done": "Call MCP first",
+            "why_mistake": "Instructions",
+            "where": "Turn 0",
+            "pattern": "skip",
+        },
+    )
+    report_md = """# Model Feedback form drafts — sess
+
+Intro line for the plugin.
+
+## Session summary
+
+Overall summary text.
+
+## Issue 1: Ignored MCP
+
+### Form fields (copy line-by-line)
+
+```
+Model Name: pilot-model
+Session ID: sess
+Severity: Major
+```
+
+### Issue (copy into the Issue box)
+
+```
+What: Claimed MCP failed
+Where: Turn 0
+Why: Instructions
+Should have: Call MCP first
+Pattern: skip
+```
+"""
+    # Use analyzer_id ``engine`` so default enabled plugins keep the result.
+    results = {
+        "engine": AnalysisResult(
+            session_id=sess.name,
+            session_dir=str(sess),
+            analyzer_id="engine",
+            ok=True,
+            summary="1 finding",
+            findings=[finding],
+            artifacts={"report": report_md},
+        )
+    }
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        app.push_screen(BrowserScreen(sess, plugin_results=results))
+
+        def ready() -> bool:
+            scr = app.screen
+            return isinstance(scr, BrowserScreen) and bool(scr.timeline)
+
+        await wait_until(pilot, ready, description="browser with multi-pane report")
+        screen = app.screen
+        assert isinstance(screen, BrowserScreen)
+        screen._stop_live_refresh()
+        screen._collect_findings()
+        screen._populate_analysis_ui()
+        await pilot.pause()
+
+        await _activate_tab(pilot, screen, "tab-reports")
+        screen._update_reports_tab()
+        await pilot.pause()
+
+        section = screen.query_one("#report-section-plugin-engine", Vertical)
+        panes = list(section.query(SelectableStatic))
+        # header + preamble + summary + issue header + form + issue box
+        assert len(panes) >= 4
+        plains = [p.get_plain_text() for p in panes]
+        joined = "\n".join(plains)
+        assert "Claimed MCP failed" in joined
+        assert "Model Name: pilot-model" in joined
+        # Paste-ready Issue pane exists without Form fields mixed in
+        issue_only = [p for p in plains if p.strip().startswith("What:") and "Model Name:" not in p]
+        assert issue_only, plains
+        form_only = [p for p in plains if "Model Name: pilot-model" in p and "What:" not in p]
+        assert form_only, plains
+        # Each pane is focusable for Tab + y
+        assert all(p.can_focus for p in panes)
+
+
 # ── Summary stats tables ─────────────────────────────────────────────────
 
 

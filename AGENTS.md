@@ -476,9 +476,12 @@ mouse — the product path is Textual selection + OSC 52 yank.
    mouse selection → **Findings tab selected finding** (prefer MF
    **Issue box** text What/Where/Why/Should/Pattern when ``Finding.extras``
    has those fields; else export-style markdown) → focused
-   ``SelectableStatic`` → whole active pane. Report plugin cards are one
-   body per analyzer — single-issue paste for Model Feedback is
-   Findings-tab ``y``, not whole-report yank.
+   ``SelectableStatic`` → whole active pane (all visible Report sub-panes
+   joined). Report mounts **one extractable pane per logical unit**:
+   overview, flags, notes, plugin header/findings, each markdown ``##``
+   chunk, and MF **Form fields** / **Issue box** fence bodies (paste-ready).
+   Tab focuses a pane; ``y`` yanks that pane only. Findings-tab ``y`` is
+   still the one-key Issue-box path without opening Report.
 3. **Live refresh** must not clear a widget that has an active text
    selection (``_widget_has_text_selection`` / ``set_static_renderable``).
 4. **Tests** for new extractable surfaces: plain-text cache + yank path

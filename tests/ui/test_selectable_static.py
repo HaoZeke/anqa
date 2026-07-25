@@ -234,6 +234,39 @@ def test_action_copy_detail_yanks_report_sections() -> None:
     assert notes
 
 
+def test_action_copy_detail_yanks_focused_report_pane() -> None:
+    """Focused Report sub-pane (e.g. Issue box) yanks only that pane body."""
+    from types import SimpleNamespace
+
+    from groket.ui.screens.browser import BrowserScreen
+    from groket.ui.selectable_static import SelectableStatic
+
+    issue_body = (
+        "What: Claimed MCP failed\n"
+        "Where: Turn 0\n"
+        "Why: Instruction required MCP-first.\n"
+        "Should have: Call preferred MCP tools first.\n"
+        "Pattern: none\n"
+    )
+    focused = SelectableStatic(issue_body, id="report-pane-feedback-3")
+    copied: list[str] = []
+    notes: list[str] = []
+    host = SimpleNamespace(
+        get_selected_text=lambda: None,
+        focused=focused,
+        _selected_finding=None,
+        _active_browser_tab=lambda: "tab-reports",
+        _collect_active_tab_plain_text=lambda: ("whole report", "report"),
+        app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
+        notify=lambda msg, **kwargs: notes.append(str(msg)),
+    )
+    BrowserScreen.action_copy_detail(host)  # type: ignore[arg-type]
+    assert len(copied) == 1
+    assert copied[0].startswith("What: Claimed MCP failed")
+    assert "whole report" not in copied[0]
+    assert notes
+
+
 def test_is_extractable_static() -> None:
     from groket.ui.selectable_static import SelectableStatic, is_extractable_static
     from textual.widgets import Static

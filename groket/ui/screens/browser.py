@@ -55,6 +55,7 @@ from ..panel_render import (
     section_header,
     status_chip,
 )
+from ..report_panes import split_report_markdown_panes
 from ..selectable_static import SelectableStatic, is_extractable_static
 from ..session_summary import assistant_text_from_timeline, render_session_summary
 from ..styles import SEVERITY_LABEL, severity_style
@@ -1518,14 +1519,23 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             pass
         for aid in list(getattr(self, "_report_section_keys", ()) or ()):
-            if aid == "flags":
+            if aid in ("flags", "notes"):
                 continue
-            try:
-                self.query_one(f"#{self._report_content_dom_id(aid)}", Static).update(
-                    pending_markup
-                )
-            except Exception:
-                pass
+            with suppress(Exception):
+                section = self.query_one(f"#{self._report_section_dom_id(aid)}", Vertical)
+                panes = list(section.query(SelectableStatic))
+                if panes:
+                    for pane in panes:
+                        if not self._widget_has_text_selection(pane):
+                            pane.update(pending_markup)
+                else:
+                    section.mount(
+                        SelectableStatic(
+                            pending_markup,
+                            id=f"report-pane-{self._report_plugin_slug(aid)}-0",
+                            classes="report-pane",
+                        )
+                    )
 
     def _tick_analysis_pending(self) -> None:
         if not self._analysis_pending or not self.is_mounted:
@@ -1775,13 +1785,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return "report-section-notes"
         return f"report-section-plugin-{self._report_plugin_slug(key)}"
 
-    def _report_content_dom_id(self, key: str) -> str:
-        if key == "flags":
-            return "report-flags-content"
-        if key == "notes":
-            return "report-notes-content"
-        return f"report-content-plugin-{self._report_plugin_slug(key)}"
-
     def _report_filter_options(self) -> list[tuple[str, str]]:
         """Select options: All, Flags/Notes (if any), then plugins that have content."""
         opts: list[tuple[str, str]] = [(U.all_sections(), "all")]
@@ -1840,9 +1843,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if aid in self._report_section_keys:
                 continue
             section_id = self._report_section_dom_id(aid)
-            content_id = self._report_content_dom_id(aid)
+            # Empty card; panes mount as direct SelectableStatic children.
             card = Vertical(classes=t("ui-panel-card-report-section"), id=section_id)
-            card.compose_add_child(SelectableStatic(id=content_id))
             try:
                 host.mount(card)
                 self._report_section_keys.add(aid)
@@ -1884,26 +1886,30 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             logger.debug(t("ui-report-static-s-missing"), widget_id, exc_info=True)
 
-    def _report_content_ids_for_copy(self) -> list[str]:
-        """Overview + currently visible Report sections (respects filter)."""
-        ids = ["report-overview-content"]
-        if self._section_visible("flags"):
-            ids.append("report-flags-content")
-        if self._section_visible("notes"):
-            ids.append("report-notes-content")
-        for key in sorted(self._report_section_keys):
-            if key in ("flags", "notes"):
+    def _iter_visible_report_statics(self) -> list[SelectableStatic]:
+        """All extractable Report bodies in view order (respects filter)."""
+        out: list[SelectableStatic] = []
+        with suppress(Exception):
+            out.append(self.query_one("#report-overview-content", SelectableStatic))
+        section_order: list[str] = ["flags", "notes"]
+        section_order.extend(
+            sorted(k for k in self._report_section_keys if k not in ("flags", "notes"))
+        )
+        for key in section_order:
+            if not self._section_visible(key):
                 continue
-            if self._section_visible(key):
-                ids.append(self._report_content_dom_id(key))
-        return ids
+            section_id = self._report_section_dom_id(key)
+            with suppress(Exception):
+                section = self.query_one(f"#{section_id}")
+                for widget in section.query(SelectableStatic):
+                    out.append(widget)
+        return out
 
     def _collect_report_plain_text(self) -> str:
-        """Plain text of visible Report sections for clipboard yank."""
+        """Plain text of visible Report panes for clipboard yank."""
         parts: list[str] = []
-        for wid in self._report_content_ids_for_copy():
+        for widget in self._iter_visible_report_statics():
             with suppress(Exception):
-                widget = self.query_one(f"#{wid}", SelectableStatic)
                 plain = (widget.get_plain_text() or "").strip()
                 if plain:
                     parts.append(plain)
@@ -2133,43 +2139,81 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             pass
 
     def _render_report_plugin(self, aid: str) -> None:
-        content_id = self._report_content_dom_id(aid)
+        """Fill one plugin card as multiple focusable/copyable panes."""
         plugin_findings = [f for f in self._findings if (f.plugin_id or "") == aid]
         result = self._active_plugin_results().get(aid)
         if result is None and aid not in self._active_plugin_results():
             return
-        blocks: list = []
+        header_blocks: list = []
         title = self._plugin_title(aid)
         if result is not None and result.summary:
             title = f"{title}  ({result.summary})"
-        blocks.append(section_header(title))
+        header_blocks.append(section_header(title))
         report_artifact = None
         if result is not None and result.ok:
             report_artifact = (result.artifacts or {}).get("report")
-        # Severity-colored finding lines (same palette as Findings tab), then
-        # optional full markdown report artifact (e.g. feedback).
         if plugin_findings:
-            blocks.append(self._findings_report_block(plugin_findings))
+            header_blocks.append(self._findings_report_block(plugin_findings))
+
+        renderables: list = [panel_group(*header_blocks)]
         if report_artifact and str(report_artifact).strip():
-            blocks.append(content_block(str(report_artifact).strip(), max_chars=12000))
+            for chunk in split_report_markdown_panes(str(report_artifact).strip()):
+                renderables.append(content_block(chunk, max_chars=12000))
         elif not plugin_findings and result is not None:
             if result.summary:
-                blocks.append(Text(f"  {result.summary}\n", style="dim"))
+                renderables.append(Text(f"  {result.summary}\n", style="dim"))
             elif not result.ok and result.error:
-                blocks.append(
+                renderables.append(
                     Text(
                         t("browser-report-error", msg=result.error) + "\n",
                         style="red",
                     )
                 )
             else:
-                blocks.append(Text(t("ui-no-findings"), style="dim"))
-        else:
-            blocks.append(Text(t("ui-no-findings"), style="dim"))
+                renderables.append(Text(t("ui-no-findings"), style="dim"))
+        elif not plugin_findings:
+            renderables.append(Text(t("ui-no-findings"), style="dim"))
+
         try:
-            self._set_static_content(content_id, panel_group(*blocks))
+            self._sync_report_plugin_panes(aid, renderables)
         except Exception:
-            self._set_static_content(content_id, t("ui-report-unavailable"))
+            logger.debug(t("ui-report-static-s-missing"), aid, exc_info=True)
+
+    def _sync_report_plugin_panes(self, aid: str, renderables: list) -> None:
+        """Update/mount SelectableStatic panes under a plugin section card.
+
+        Reuses widgets by index when possible so active text selection on a
+        pane is not cleared mid-drag. Drops extras only when they have no
+        selection. Panes are direct children of the section (same pattern as
+        flags/notes), not a nested host that races on deferred mount.
+        """
+        section_id = self._report_section_dom_id(aid)
+        try:
+            section = self.query_one(f"#{section_id}", Vertical)
+        except Exception:
+            return
+
+        existing = list(section.query(SelectableStatic))
+        slug = self._report_plugin_slug(aid)
+        n = len(renderables)
+        for i, renderable in enumerate(renderables):
+            if i < len(existing):
+                widget = existing[i]
+                if not self._widget_has_text_selection(widget):
+                    widget.update(renderable)
+                continue
+            widget = SelectableStatic(
+                renderable,
+                id=f"report-pane-{slug}-{i}",
+                classes="report-pane",
+            )
+            section.mount(widget)
+        for j in range(len(existing) - 1, n - 1, -1):
+            widget = existing[j]
+            if self._widget_has_text_selection(widget):
+                continue
+            with suppress(Exception):
+                widget.remove()
 
     @on(Select.Changed, "#report-view-select")
     def _on_report_view_changed(self, event: Select.Changed) -> None:
@@ -2822,15 +2866,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         Textual owns the mouse, so OS drag-to-select does not work. Operators
         drag to select, then ``y`` / Ctrl+Shift+C / Ctrl+C. With no selection:
 
-        1. **Findings tab** + highlighted finding → that finding only (full
-           detail, same text as export-finding markdown)
-        2. focused :class:`SelectableStatic` body (detail, report section, …)
-        3. whole active browser pane (visible Report sections, Summary, Diff,
+        1. **Findings tab** + highlighted finding → Issue box when extras
+           support it, else export-style markdown for that finding
+        2. focused :class:`SelectableStatic` body (detail, Report sub-pane, …)
+        3. whole active browser pane (all visible Report panes, Summary, Diff,
            Findings header, or Timeline detail)
 
-        On Report, one *finding* is not a separate widget — filter to a plugin
-        section or drag-select that finding's lines; for a clean single finding
-        use the Findings tab (``4`` / ``i``) then ``y``.
+        On Report, Tab moves between sub-panes (overview, flags, notes, each
+        plugin H2 / Form fields / Issue box). Focus a pane then ``y`` to yank
+        only that body; MF Issue paste also works from Findings ``y``.
         """
         text = ""
         kind = "none"

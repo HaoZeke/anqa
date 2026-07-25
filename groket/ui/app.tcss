@@ -371,6 +371,23 @@ TabPane {
     height: auto;
 }
 
+/* Plugin report: one focusable SelectableStatic per logical pane (H2 / Issue). */
+.report-pane {
+    height: auto;
+    width: 100%;
+    margin: 0 0 1 0;
+    padding: 0 0 0 0;
+    background: transparent;
+    border: none;
+    color: $text;
+}
+
+.report-pane:focus {
+    background: $primary-background 20%;
+    border-left: wide $primary;
+    padding-left: 1;
+}
+
 /* ── Selects — natural height, light chrome (no height:1 clipping) ───── */
 
 Select {
@@ -1513,12 +1530,27 @@ ContentSwitcher {
 #summary-content,
 #reports-content,
 #diff-content,
-#findings-header {
+#findings-header,
+#report-overview-content,
+#report-flags-content,
+#report-notes-content {
     height: auto;
     padding: 0;
     color: $text;
     background: transparent;
     border: none;
+}
+
+#report-overview-content:focus,
+#report-flags-content:focus,
+#report-notes-content:focus,
+#summary-content:focus,
+#diff-content:focus,
+#findings-header:focus,
+#detail-body:focus {
+    background: $primary-background 20%;
+    border-left: wide $primary;
+    padding-left: 1;
 }
 
 /* Scroll hosts: page background; cards provide the frames */

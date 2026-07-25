@@ -309,7 +309,7 @@ cmd-edit-operator-note = Edit operator note
 cmd-edit-operator-note-help = Edit or delete an existing turn-linked operator note
 
 cmd-copy-detail = Copy selection, finding, or pane
-cmd-copy-detail-help = Browser: yank selection; on Findings tab the highlighted finding; else focused body or active pane — y / Ctrl+Shift+C
+cmd-copy-detail-help = Browser: yank selection; Findings row Issue box; focused Report/detail body; else whole pane — y / Ctrl+Shift+C
 
 cmd-filter-model = Filter by model
 

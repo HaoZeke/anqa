@@ -84,16 +84,18 @@ Panes (`[` / `]` or digits **1–5**):
 
 **Copy from extractable panes:** the TUI owns the mouse, so OS highlight-to-copy
 does not work. Body text uses ``SelectableStatic`` (detail, summary, diff,
-findings header, report sections). Drag to highlight, then **`y`** /
-**Ctrl+Shift+C** / **Ctrl+C**.
+findings header, Report sub-panes). Drag to highlight, then **`y`** /
+**Ctrl+Shift+C** / **Ctrl+C**. Tab focuses a body pane for full-pane yank.
 
 - **One Model Feedback issue:** Findings tab (`4` / `i`) → highlight the row
   → **`y`** copies the **Issue (copy into the Issue box)** text
   (`What` / `Where` / `Why` / `Should have` / `Pattern`) when the analyzer
-  filled those fields (e.g. `mf_form_feedback`). Palette “export finding”
+  filled those fields (e.g. `mf_form_feedback`). On **Report**, the same
+  Issue fence (and Form fields) are separate Tab-focusable panes under the
+  plugin card — focus the pane, then **`y`**. Palette “export finding”
   still writes a full markdown file under `~/.groket/reports`.
-- **No selection:** focused body, else the whole active pane (visible Report
-  sections, Summary, Diff, or Timeline detail).
+- **No selection:** focused body, else the whole active pane (all visible
+  Report sub-panes, Summary, Diff, or Timeline detail).
 
 OSC 52 clipboard. tmux over SSH: `set -g set-clipboard on` so OSC 52 reaches
 the local pasteboard.
