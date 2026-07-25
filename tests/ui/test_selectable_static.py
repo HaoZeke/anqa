@@ -194,6 +194,8 @@ async def test_action_copy_detail_yanks_full_body() -> None:
         host = SimpleNamespace(
             get_selected_text=lambda: None,
             focused=None,
+            _selected_finding=None,
+            _active_browser_tab=lambda: "tab-timeline",
             _collect_active_tab_plain_text=lambda: (
                 app.query_one("#detail-panel", DetailView).get_plain_text(),
                 "detail",
@@ -218,6 +220,8 @@ def test_action_copy_detail_yanks_report_sections() -> None:
     host = SimpleNamespace(
         get_selected_text=lambda: None,
         focused=None,
+        _selected_finding=None,
+        _active_browser_tab=lambda: "tab-reports",
         _collect_active_tab_plain_text=lambda: (
             "SESSION REPORT\n\nFlags section body",
             "report",
@@ -237,6 +241,58 @@ def test_is_extractable_static() -> None:
     assert is_extractable_static(SelectableStatic("x")) is True
     assert is_extractable_static(Static("x")) is False
     assert is_extractable_static(None) is False
+
+
+def test_action_copy_detail_yanks_selected_finding() -> None:
+    """On Findings tab, y copies the highlighted finding only."""
+    from types import SimpleNamespace
+
+    from groket.analysis.base import Finding
+    from groket.models import Severity
+    from groket.ui.screens.browser import BrowserScreen
+
+    finding = Finding(
+        id="f1",
+        plugin_id="basic",
+        severity=Severity.HIGH,
+        title="Missed gate",
+        detail="should have run tests",
+        category="quality",
+    )
+    copied: list[str] = []
+    notes: list[str] = []
+
+    class _Host:
+        meta = SimpleNamespace(model_display="test-model", session_id="sess-1")
+        _selected_finding = finding
+
+        def get_selected_text(self) -> None:
+            return None
+
+        @property
+        def focused(self) -> None:
+            return None
+
+        def _active_browser_tab(self) -> str:
+            return "tab-findings"
+
+        def _finding_plain_text(self, f: Finding) -> str:
+            return BrowserScreen._finding_plain_text(self, f)  # type: ignore[arg-type]
+
+        def _collect_active_tab_plain_text(self) -> tuple[str, str]:
+            return ("", "none")
+
+        def notify(self, msg: str, **kwargs: object) -> None:
+            notes.append(str(msg))
+
+        app = SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text))
+
+    BrowserScreen.action_copy_detail(_Host())  # type: ignore[arg-type]
+    assert len(copied) == 1
+    assert "Missed gate" in copied[0]
+    assert "should have run tests" in copied[0]
+    assert "HIGH" in copied[0]
+    assert notes
 
 
 @pytest.mark.asyncio

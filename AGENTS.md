@@ -473,9 +473,12 @@ mouse — the product path is Textual selection + OSC 52 yank.
    keep plain cache for selection/yank — do **not** pre-bake fixed-width
    ``Text`` for display (that truncates / mis-wraps).
 2. **``y`` / Ctrl+Shift+C** (browser ``action_copy_detail``) order:
-   mouse selection → focused ``SelectableStatic`` → whole active pane
-   (visible Report sections, Summary, Diff, Findings header, or Timeline
-   detail). Reuse this order; do not invent a second copy path per pane.
+   mouse selection → **Findings tab selected finding** (one finding, full
+   detail) → focused ``SelectableStatic`` → whole active pane (visible
+   Report sections, Summary, Diff, Findings header, or Timeline detail).
+   Reuse this order; do not invent a second copy path per pane. Report
+   plugin cards are one body per analyzer (not one widget per finding) —
+   single-finding yank is Findings-tab ``y``.
 3. **Live refresh** must not clear a widget that has an active text
    selection (``_widget_has_text_selection`` / ``set_static_renderable``).
 4. **Tests** for new extractable surfaces: plain-text cache + yank path

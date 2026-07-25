@@ -83,12 +83,20 @@ Panes (`[` / `]` or digits **1–5**):
 5. **Report** — analysis panels, flags, and operator notes  
 
 **Copy from extractable panes:** the TUI owns the mouse, so OS highlight-to-copy
-does not work. Body text that operators may want to extract uses
-``SelectableStatic`` (detail, summary, diff, findings header, report sections).
-Drag to highlight, then **`y`** / **Ctrl+Shift+C** / **Ctrl+C**. With no
-selection: focused body, else the whole active pane (visible Report sections,
-Summary, Diff, or Timeline detail). OSC 52 clipboard. tmux over SSH:
-`set -g set-clipboard on` so OSC 52 reaches the local pasteboard.
+does not work. Body text uses ``SelectableStatic`` (detail, summary, diff,
+findings header, report sections). Drag to highlight, then **`y`** /
+**Ctrl+Shift+C** / **Ctrl+C**.
+
+- **One finding:** Findings tab (`4` / `i`) → highlight the row → **`y`**
+  (full finding text; palette “export finding” still writes a file under
+  `~/.groket/reports`).
+- **No selection:** focused body, else the whole active pane (visible Report
+  sections, Summary, Diff, or Timeline detail). On Report, plugin findings
+  share one section body — drag-select lines, or use Findings for a clean
+  single finding.
+
+OSC 52 clipboard. tmux over SSH: `set -g set-clipboard on` so OSC 52 reaches
+the local pasteboard.
 
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.

@@ -2817,14 +2817,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return True
 
     def action_copy_detail(self) -> None:
-        """Copy selection, focused extractable body, or active-pane content.
+        """Copy selection, one finding, focused body, or active-pane content.
 
         Textual owns the mouse, so OS drag-to-select does not work. Operators
         drag to select, then ``y`` / Ctrl+Shift+C / Ctrl+C. With no selection:
 
-        1. focused :class:`SelectableStatic` body (detail, report, summary, …)
-        2. whole active browser pane (visible Report sections, Summary, Diff,
+        1. **Findings tab** + highlighted finding → that finding only (full
+           detail, same text as export-finding markdown)
+        2. focused :class:`SelectableStatic` body (detail, report section, …)
+        3. whole active browser pane (visible Report sections, Summary, Diff,
            Findings header, or Timeline detail)
+
+        On Report, one *finding* is not a separate widget — filter to a plugin
+        section or drag-select that finding's lines; for a clean single finding
+        use the Findings tab (``4`` / ``i``) then ``y``.
         """
         text = ""
         kind = "none"
@@ -2833,6 +2839,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if selected:
                 text = selected
                 kind = "selection"
+        # One finding: Findings table selection (not the whole plugin section).
+        if not text.strip() and self._active_browser_tab() == "tab-findings":
+            finding = getattr(self, "_selected_finding", None)
+            if isinstance(finding, Finding):
+                text = self._finding_plain_text(finding).strip()
+                if text:
+                    kind = "finding"
         if not text.strip():
             with suppress(Exception):
                 focused = self.focused
@@ -2856,6 +2869,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self.app.copy_to_clipboard(text)
         if kind == "selection":
             self.notify(t("ui-copied-selection"), severity="information")
+        elif kind == "finding":
+            self.notify(t("ui-copied-finding"), severity="information")
         elif kind == "report":
             self.notify(t("ui-copied-report"), severity="information")
         elif kind == "detail":
@@ -3017,8 +3032,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._refresh_event_chrome()
         self._update_reports_tab()
 
-    def _report_finding(self, finding: Finding) -> None:
-        """Generate a markdown report for a finding."""
+    def _finding_plain_text(self, finding: Finding) -> str:
+        """Markdown-ish plain text for one finding (clipboard + export file)."""
         model = self.meta.model_display if self.meta else "unknown"
         session_id = self.meta.session_id if self.meta else "unknown"
         lines = [
@@ -3044,8 +3059,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             lines.append("")
             lines.append(t("ui-what-the-model-should-have-done"))
             lines.append(f"> {finding.extras['should_have']}")
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _report_finding(self, finding: Finding) -> None:
+        """Write a markdown report file for *finding* under ``~/.groket/reports``."""
         filename = f"finding-{finding.plugin_id}-{finding.id}"
-        report_text = "\n".join(lines)
+        report_text = self._finding_plain_text(finding)
         try:
             reports_dir = self._reports_dir()
             reports_dir.mkdir(parents=True, exist_ok=True)
