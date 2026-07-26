@@ -4,6 +4,26 @@ version = "0.1.0"
 description = "Groket — Grok session trace evaluation TUI"
 readme = "README.md"
 requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Ali-Akber Saifee", email = "ali@indydevs.org" },
+]
+maintainers = [
+    { name = "Ali-Akber Saifee", email = "ali@indydevs.org" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
 # Prefer capable libraries over bespoke minimalism (TUI + CLI DX is the product).
 dependencies = [
     "click>=8.1",              # CLI foundation (Typer builds on Click)
@@ -20,6 +40,11 @@ dependencies = [
     "watchdog>=6.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/indynull/groket"
+Source = "https://github.com/indynull/groket"
+Documentation = "https://indynull.github.io/groket/"
+
 [project.scripts]
 groket = "groket.cli:main"
 
@@ -31,7 +56,7 @@ test = [
 ]
 
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
