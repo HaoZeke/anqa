@@ -123,6 +123,38 @@ def test_build_pack_from_files(tmp_path: Path) -> None:
     assert "always-approve" in pack.format_runtime()
     assert pack.format_constraints()
     assert pack.format_timeline_digest()
+    assert pack.format_operator_notes() == ""
+    assert pack.operator_notes.notes == []
+
+
+def test_build_pack_includes_operator_notes(tmp_path: Path) -> None:
+    from groket.notes import NoteEntry, NotesDoc, save_notes
+
+    (tmp_path / "summary.json").write_text(
+        '{"info":{"id":"sid"}}',
+        encoding="utf-8",
+    )
+    doc = NotesDoc(session_id=tmp_path.name)
+    doc.upsert(
+        NoteEntry.new(
+            turn_index=1,
+            fields={
+                "summary": "missed tests",
+                "detail": "should have run make test",
+            },
+            event_indices=[4, 9],
+            note_id="n-focus",
+        )
+    )
+    save_notes(tmp_path, doc)
+    pack = build_session_context_pack(tmp_path)
+    assert len(pack.operator_notes.notes) == 1
+    formatted = pack.format_operator_notes()
+    assert "OPERATOR NOTES" in formatted
+    assert "missed tests" in formatted
+    assert "make test" in formatted
+    assert "#4" in formatted
+    assert "n-focus" in formatted
 
 
 def test_load_runtime_inferred_permission(tmp_path: Path) -> None:

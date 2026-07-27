@@ -296,6 +296,19 @@ def load_notes(session_dir: Path) -> NotesDoc:
     return fallback_doc
 
 
+def notes_mtime(session_dir: Path) -> float:
+    """Newest mtime of session or fallback notes files (0 if none).
+
+    Used by analysis cache invalidation so operator-note edits refresh
+    deferred LLM reviews.
+
+    :param session_dir: Grok session directory.
+    :returns: Unix mtime, or ``0.0`` when no notes file exists.
+    """
+    primary, fallback = _notes_paths(Path(session_dir))
+    return max(_mtime(primary), _mtime(fallback), 0.0)
+
+
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     """Write *doc* beside the session; fall back under ``~/.groket/notes``.
 

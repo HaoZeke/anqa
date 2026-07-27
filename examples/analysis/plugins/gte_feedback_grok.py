@@ -26,9 +26,13 @@ MULTI-TURN RULES:
 - Judge each action against the active instruction at that turn (and prior
   constraints that were not superseded).
 - Background-task system reminders are not operator instructions.
+- When operator notes are present, treat them as human evaluator focus
+  areas (suspected issues, turn/event links). Prioritize investigating
+  them; still ground every finding in the timeline.
 
 For each material issue provide what_model_did, what_should_have_done, and
-why_mistake. Cite event_index values from the timeline or operator instructions.
+why_mistake. Cite event_index values from the timeline, operator
+instructions, or operator notes.
 
 Look especially for:
 - Violations of the *current* turn's instructions (not superseded ones)
@@ -45,7 +49,7 @@ class FeedbackReportAnalyzer(LlmReviewAnalyzer):
 
     review_id = "feedback"
     review_name = "Feedback Review"
-    review_version = "11"
+    review_version = "12"
     review_description = (
         "LLM multi-turn session review with timeline-linked findings and a "
         "full report artifact."

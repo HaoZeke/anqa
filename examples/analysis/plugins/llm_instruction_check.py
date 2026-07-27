@@ -21,16 +21,23 @@ class InstructionCheckAnalyzer(LlmReviewAnalyzer):
 
     review_id = "instruction-check"
     review_name = "Instruction Check"
-    review_version = "1"
+    review_version = "2"
     review_description = "Minimal LLM check: did the agent follow operator turns?"
     report_title_prefix = "Instruction check"
     effort = "low"
 
     def build_instructions(self, pack: SessionContextPack) -> str:
+        note_n = len(pack.operator_notes.notes)
+        notes_bit = (
+            f" Also consider {note_n} operator note(s) when present."
+            if note_n
+            else ""
+        )
         return (
             f"This session has {pack.turn_count} operator turn(s). "
             "Only report clear failures to follow the *active* operator "
-            "instruction for each turn (see operator instructions block). "
+            "instruction for each turn (see operator instructions block)."
+            f"{notes_bit} "
             "Ignore style nits. Respect runtime fairness constraints "
             "(e.g. always-approve). Prefer zero findings when the agent "
             "followed the asks."

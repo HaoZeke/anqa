@@ -135,7 +135,9 @@ tarball under `~/.groket/reports/` containing:
   edit modal). Batch does not write notes. Works on eval runs and on imported
   host sessions (`I` / `import-session`); linked imports (`--link`) store notes
   under `~/.groket/notes/` so `~/.grok/sessions` stays untouched. Export includes
-  notes when present.
+  notes when present. Deferred **LLM analysis** plugins include notes in the
+  review prompt (evaluator focus areas); note edits invalidate the analysis
+  cache for that session.
 
 ### Multi-turn and forking
 

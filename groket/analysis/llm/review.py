@@ -263,11 +263,15 @@ def render_prompt_envelope(
         "RUNTIME / FAIRNESS: Respect the runtime and constraints blocks below.",
         "MULTI-TURN: Later operator instructions change scope; work requested in a",
         "later turn is not 'unsolicited' vs an earlier setup-only prompt.",
+        "OPERATOR NOTES: When present, human evaluators left notes (focus areas,",
+        "suspected issues, turn/event links). Use them to prioritize review; still",
+        "ground each finding in the timeline. Do not invent notes that are absent.",
         "",
         instructions.strip(),
         "",
-        "Cite event_index values that appear as #N in the timeline or operator",
-        "instructions. Include tool_call_id when present. Prefer 1–8 findings.",
+        "Cite event_index values that appear as #N in the timeline, operator",
+        "instructions, or operator notes. Include tool_call_id when present.",
+        "Prefer 1–8 findings.",
         "If nothing material is wrong: all_clear=true and findings=[].",
         "Never set all_clear=false with an empty findings array.",
         "title must be a short single-line summary (no markdown).",
@@ -288,6 +292,9 @@ def render_prompt_envelope(
         pack.format_operator_instructions(),
         "</operator_instructions>",
     ]
+    notes = pack.format_operator_notes()
+    if notes:
+        lines.extend(["", "<operator_notes>", notes, "</operator_notes>"])
     prior = pack.format_prior_findings()
     if prior:
         lines.extend(["", "<detector_hints>", prior, "</detector_hints>"])

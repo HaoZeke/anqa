@@ -138,6 +138,41 @@ def test_map_and_report(tmp_path: Path) -> None:
     assert "Rubric here." in env
     assert "always-approve" in env
     assert "#2 USER" in env or "do x" in env
+    assert "OPERATOR NOTES" in env  # guidance in preamble even when none stored
+    assert "<operator_notes>" not in env
+
+
+def test_prompt_envelope_includes_operator_notes(tmp_path: Path) -> None:
+    from groket.analysis.llm.context import RuntimePolicy
+    from groket.notes import NoteEntry, NotesDoc
+    from groket.session.turns import TurnSegment
+
+    meta = SessionMeta(session_id="s-notes", session_dir=tmp_path)
+    notes = NotesDoc(session_id="s-notes")
+    notes.upsert(
+        NoteEntry.new(
+            turn_index=0,
+            fields={"summary": "check shell risk", "detail": "rm -rf looked broad"},
+            event_indices=[12],
+            note_id="n-shell",
+        )
+    )
+    pack = SessionContextPack(
+        session_dir=tmp_path,
+        meta=meta,
+        timeline=[],
+        turns=[TurnSegment(turn_index=0, turn_number=0, events=[])],
+        operator_instructions="#1 USER | fix it",
+        timeline_digest="#1 USER | fix it",
+        digest_truncated=False,
+        runtime=RuntimePolicy(),
+        operator_notes=notes,
+    )
+    env = render_prompt_envelope(pack, "Rubric.")
+    assert "<operator_notes>" in env
+    assert "check shell risk" in env
+    assert "rm -rf looked broad" in env
+    assert "#12" in env
 
 
 def test_map_full_fields_detail() -> None:

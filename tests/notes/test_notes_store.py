@@ -10,6 +10,7 @@ from groket.notes import (
     NotesDoc,
     collect_notes_for_export,
     load_notes,
+    notes_mtime,
     parse_toml,
     save_notes,
 )
@@ -21,6 +22,7 @@ def test_load_empty(tmp_path: Path) -> None:
     doc = load_notes(sd)
     assert doc.notes == []
     assert doc.session_id == "sess"
+    assert notes_mtime(sd) == 0.0
 
 
 def test_save_load_roundtrip(tmp_path: Path) -> None:
@@ -45,6 +47,7 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     assert n.turn_index == 2
     assert n.fields["summary"] == "missed check"
     assert n.event_indices == [4, 7]
+    assert notes_mtime(sd) > 0
 
 
 def test_multi_note_roundtrip(tmp_path: Path) -> None:

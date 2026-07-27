@@ -237,13 +237,28 @@ def test_meta_format_branches(tmp_path: Path) -> None:
     assert "condensed" in m
     assert "complete evidence" in m
     assert pack.format_prior_findings() == ""
+    assert pack.format_operator_notes() == ""
     from groket.analysis.base import Finding
     from groket.models import Severity
+    from groket.notes import NoteEntry, NotesDoc
 
     pack.prior_findings = [
         Finding(id="1", plugin_id="e", severity=Severity.HIGH, title="H", detail="d"),
     ]
     assert "H" in pack.format_prior_findings()
+    pack.operator_notes = NotesDoc(
+        notes=[
+            NoteEntry(
+                id="n1",
+                turn_index=0,
+                fields={"summary": "watch this", "detail": "line1\nline2"},
+                event_indices=[],
+            )
+        ]
+    )
+    notes_fmt = pack.format_operator_notes()
+    assert "watch this" in notes_fmt
+    assert "line1" in notes_fmt
 
 
 def test_runtime_empty_bullets() -> None:

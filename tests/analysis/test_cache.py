@@ -136,6 +136,23 @@ class TestTraceMtime:
         mt = _trace_mtime(sd)
         assert mt > 0
 
+    def test_trace_mtime_includes_operator_notes(self, tmp_path: Path) -> None:
+        import time
+
+        from groket.analysis._cache import _trace_mtime
+        from groket.notes import NoteEntry, NotesDoc, save_notes
+
+        sd = tmp_path / "s-notes-mt"
+        sd.mkdir()
+        (sd / "summary.json").write_text("{}", encoding="utf-8")
+        base = _trace_mtime(sd)
+        time.sleep(0.02)
+        doc = NotesDoc(session_id=sd.name)
+        doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "x"}, note_id="n1"))
+        save_notes(sd, doc)
+        assert _trace_mtime(sd) >= base
+        assert _trace_mtime(sd) > 0
+
 
 class TestCacheDataEdgeCases:
     def test_non_dict_data(self, tmp_path: Path) -> None:

@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 
 from ..models import JsonObject
+from ..notes import notes_mtime
 from .base import AnalysisResult
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def _cache_path(cache_root: Path, session_id: str, analyzer_id: str) -> Path:
 
 
 def _trace_mtime(session_dir: Path) -> float:
-    """Newest mtime across the main trace artifacts."""
+    """Newest mtime across the main trace artifacts and operator notes."""
     newest = 0.0
     for name in ("events.jsonl", "chat_history.jsonl", "updates.jsonl", "summary.json"):
         fp = session_dir / name
@@ -40,7 +41,9 @@ def _trace_mtime(session_dir: Path) -> float:
                 newest = max(newest, fp.stat().st_mtime)
         except OSError:
             continue
-    return newest
+    # Deferred LLM reviews include operator notes in the prompt; note edits
+    # must invalidate the same way as timeline changes.
+    return max(newest, notes_mtime(session_dir))
 
 
 def load_cached_result(

@@ -1,7 +1,7 @@
 """Session context pack for LLM review analyzers.
 
-Builds operator instructions, compressed timeline digest, and runtime
-fairness policy from a session directory.
+Builds operator instructions, operator notes, compressed timeline digest,
+and runtime fairness policy from a session directory.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from pathlib import Path
 from ... import event_types as et
 from ...flags import Flag
 from ...models import JsonObject, SessionMeta, TraceEvent
+from ...notes import NotesDoc, load_notes
 from ...parser import extract_prompt, load_session_meta, parse_timeline
 from ...session.turns import TurnSegment, segment_timeline_turns
 from ...utils import fmt_duration
@@ -26,6 +27,7 @@ _USER_FOLLOWUP_CAP = 1_200
 _ASSISTANT_CAP = 220
 _TOOL_ARG_CAP = 100
 _TOOL_RESULT_ERR_CAP = 180
+_NOTE_FIELD_CAP = 1_500
 
 _READISH_TOOLS = frozenset(
     {
@@ -173,6 +175,7 @@ class SessionContextPack:
     runtime: RuntimePolicy
     prior_findings: list[Finding] = field(default_factory=list)
     flags: list[Flag] = field(default_factory=list)
+    operator_notes: NotesDoc = field(default_factory=NotesDoc)
     prompt: str = ""
     tool_count: int = 0
     tool_error_count: int = 0
@@ -236,6 +239,35 @@ class SessionContextPack:
 
     def format_operator_instructions(self) -> str:
         return self.operator_instructions
+
+    def format_operator_notes(self) -> str:
+        """Human evaluator notes for the review prompt (empty when none)."""
+        notes = self.operator_notes.sorted_notes()
+        if not notes:
+            return ""
+        lines: list[str] = [
+            "OPERATOR NOTES (human evaluator guidance; prioritize these "
+            "signals, still ground findings in the timeline):",
+        ]
+        for n in notes:
+            head = f"  turn {n.turn_index}  id={n.id}"
+            if n.event_indices:
+                evs = ", ".join(f"#{i}" for i in n.event_indices)
+                head += f"  events: {evs}"
+            lines.append(head)
+            fields = {k: v for k, v in n.fields.items() if str(v).strip()}
+            if not fields:
+                lines.append("    (empty fields)")
+                continue
+            for key in sorted(fields):
+                body = _truncate(str(fields[key]).strip(), _NOTE_FIELD_CAP)
+                if "\n" in body:
+                    lines.append(f"    {key}:")
+                    for part in body.splitlines():
+                        lines.append(f"      {part}")
+                else:
+                    lines.append(f"    {key}: {body}")
+        return "\n".join(lines)
 
     def format_prior_findings(self) -> str:
         if not self.prior_findings:
@@ -743,6 +775,7 @@ def build_session_context_pack(
 
     digest, truncated = build_timeline_digest(timeline, turns, max_chars=digest_chars)
     runtime = load_runtime_policy(sd, meta)
+    notes = load_notes(sd)
     return SessionContextPack(
         session_dir=sd,
         meta=meta,
@@ -754,6 +787,7 @@ def build_session_context_pack(
         runtime=runtime,
         prior_findings=list(prior_findings or []),
         flags=list(flags or []),
+        operator_notes=notes,
         prompt=prompt,
         tool_count=sum(tool_counts.values()),
         tool_error_count=error_count,

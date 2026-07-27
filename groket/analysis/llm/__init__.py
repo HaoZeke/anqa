@@ -2,8 +2,8 @@
 
 Plugins subclass :class:`LlmReviewAnalyzer` and implement
 :meth:`~LlmReviewAnalyzer.build_instructions`. Core builds the session
-context pack (operator turns, timeline digest, runtime fairness), calls
-headless ``grok`` with a structured schema, maps results to
+context pack (operator turns, operator notes, timeline digest, runtime
+fairness), calls headless ``grok`` with a structured schema, maps results to
 :class:`~groket.analysis.base.Finding` rows (timeline-linked), and sets
 ``artifacts["report"]`` for the Report tab.
 """
