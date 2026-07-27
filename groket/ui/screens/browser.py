@@ -126,6 +126,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._report_updating: bool = False
         self._live_refresh_timer: Timer | None = None
         self._live_heartbeat_timer: Timer | None = None
+        # Slow probe while the session looks idle so a resumed agent re-arms hot live.
+        self._live_recheck_timer: Timer | None = None
         self._analysis_spinner_timer: Timer | None = None
         self._trace_watch: object | None = None  # fs_watch stop handle
         self._last_light_fp: tuple[str | int | float | bool | None, ...] | None = None
@@ -302,6 +304,30 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 pause(pause=False)
 
     def _stop_live_refresh(self) -> None:
+        for attr in (
+            "_live_refresh_timer",
+            "_live_heartbeat_timer",
+            "_live_refresh_deferred",
+            "_live_recheck_timer",
+        ):
+            t = getattr(self, attr, None)
+            if t is not None:
+                try:
+                    t.stop()
+                except Exception:
+                    pass
+            setattr(self, attr, None)
+        w = self._trace_watch
+        self._trace_watch = None
+        stop = getattr(w, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+
+    def _stop_hot_live_refresh(self) -> None:
+        """Stop FS watch + fast snapshot/heartbeat; leave slow recheck alone."""
         for attr in (
             "_live_refresh_timer",
             "_live_heartbeat_timer",
@@ -693,8 +719,17 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         ``signals.json``). Watching the whole traces volume doubles FS noise
         (sibling sessions, seed trees) and freezes the TUI mid-run. Turn-gate
         transitions are polled on the snapshot / pending-bar path instead.
+
+        Linked imports (``import-session --link``) are symlinks into
+        ``~/.grok/sessions``; resolve so the OS watch sees real file writes.
         """
-        return Path(self.session_dir)
+        root = Path(self.session_dir)
+        try:
+            if root.is_symlink() or root.exists():
+                return root.resolve()
+        except OSError:
+            pass
+        return root
 
     def _schedule_live_refresh(self) -> None:
         """Arm session-dir FS watch + timer backup while the session is live.
@@ -704,13 +739,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         the job always re-parses when the timeline stamp changes so new tool
         rows appear without exiting the screen. Content-only stream rewrites
         are ignored by :meth:`TimelineTable.load_events` (append-only).
+
+        When the session looks idle (common for **imported** host sessions with
+        no turn gate, once ``updates.jsonl`` ages past the fresh window), keep a
+        slow recheck so a resumed agent re-arms hot live without F5.
         """
         pending_ui = self._session_is_pending()
         live_traces = self._session_needs_live_timeline()
         if not pending_ui and not live_traces:
-            self._stop_live_refresh()
+            self._downgrade_live_refresh_to_recheck()
             self._refresh_session_pending_bar()
             return
+        self._stop_live_recheck_timer()
         self._refresh_session_pending_bar()
         from ...constants import (
             LIVE_BROWSER_FS_DEBOUNCE_S,
@@ -748,6 +788,43 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._live_refresh_heartbeat,
             )
 
+    def _stop_live_recheck_timer(self) -> None:
+        t = getattr(self, "_live_recheck_timer", None)
+        self._live_recheck_timer = None
+        if t is not None:
+            try:
+                t.stop()
+            except Exception:
+                pass
+
+    def _downgrade_live_refresh_to_recheck(self) -> None:
+        """Drop hot FS/snapshot polling; keep a slow re-arm probe.
+
+        Imported live sessions often have no ``.groket-turn`` gate, so
+        :func:`~groket.session.turn_gate.session_needs_live_timeline` is only
+        true while ``updates.jsonl`` is fresh. Fully stopping live left the
+        browser frozen after a quiet gap until the operator hit refresh.
+        """
+        self._stop_hot_live_refresh()
+        if self._live_recheck_timer is not None:
+            return
+        from ...constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+
+        self._live_recheck_timer = self.set_interval(
+            LIVE_POLL_WATCH_FALLBACK_INTERVAL,
+            self._live_recheck_tick,
+        )
+
+    def _live_recheck_tick(self) -> None:
+        """UI thread: cheap probe; re-arm hot live if the session woke up."""
+        self._invalidate_live_timeline_cache()
+        self._invalidate_pending_cache()
+        if self._session_is_pending() or self._session_needs_live_timeline():
+            self._stop_live_recheck_timer()
+            self._schedule_live_refresh()
+            # Pull immediately so the first new rows are not delayed a full interval.
+            self._live_refresh_from_fs(heartbeat=False)
+
     def _live_refresh_heartbeat(self) -> None:
         """UI thread: periodic read-only refresh (context meter / gate status)."""
         self._live_refresh_from_fs(heartbeat=True)
@@ -760,7 +837,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _live_refresh_from_fs(self, *, heartbeat: bool = False) -> None:
         """UI thread: debounced FS event, snapshot timer, or heartbeat."""
         if not self._session_is_pending() and not self._session_needs_live_timeline():
-            self._stop_live_refresh()
+            self._downgrade_live_refresh_to_recheck()
             self._refresh_session_pending_bar()
             return
         if not self._session_needs_live_timeline() and not heartbeat:
@@ -1060,9 +1137,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     timeline_table.load_events(
                         self.timeline, self._findings, list(self._flags.values())
                     )
-                    # load_events already paints the full list. Re-filter only when
-                    # View/Turn/search is non-default (avoids a second clear+rebuild
-                    # on every live tick — the multi-turn freeze).
+                    # load_events paints the full list (and row_count mismatches
+                    # after a prior filter force a full rebuild). Always restore
+                    # View/Turn/search so the Select state matches visible rows.
                     if self._timeline_filters_active():
                         self._reapply_timeline_view_filter()
                 except Exception:
@@ -1302,7 +1379,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         self._stop_analysis_spinner_timer()
                         self._collect_findings()
                         self._rebuild_indices()
-                        self._apply_stale_analysis_hints()
+                        # Banner first, then always repaint findings/report (do not
+                        # rely solely on stale-hint repaint; silent failures left
+                        # spinner placeholders on Report until F5).
+                        self._apply_stale_analysis_hints(repaint=False)
+                        try:
+                            self._populate_analysis_ui()
+                        except Exception:
+                            logger.exception("analysis finish UI update failed")
                     try:
                         host_results = getattr(app, "_plugin_results", None)
                         if isinstance(host_results, dict):
@@ -1465,6 +1549,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._set_title_from_meta()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))
+        # load_events always paints the full list; restore View/Turn/search.
+        self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
         self._update_diff_tab()
         self._update_summary_tab()
@@ -1563,6 +1649,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Phase 2 UI: findings + reports — after analysis plugins finish."""
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))
+        if self._timeline_filters_active():
+            self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
         findings_table = self.query_one("#findings-table", DataTable)
         findings_table.clear(columns=True)
@@ -3042,6 +3130,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         try:
             tl = self.query_one("#timeline-list", TimelineTable)
             tl.load_events(self.timeline, self._findings, list(self._flags.values()))
+            if self._timeline_filters_active():
+                self._reapply_timeline_view_filter()
         except Exception:
             pass
         ev = self._current_event

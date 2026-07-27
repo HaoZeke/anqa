@@ -318,6 +318,43 @@ async def test_browser_timeline_filter_and_cursor_stable(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_browser_timeline_view_filter_survives_reload(tmp_path: Path) -> None:
+    """View filter must re-apply after load_events (live tick / F5)."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        full_n = tl.row_count
+        assert full_n > 0
+
+        # Session chrome is always present on this fixture (turn markers).
+        screen._timeline_filter = "sess"
+        screen._apply_timeline_filters()
+        await pilot.pause()
+        filtered_n = tl.row_count
+        assert 0 < filtered_n <= full_n
+
+        # Simulate full / light reload painting the unfiltered list first.
+        tl.load_events(screen.timeline, screen._findings, list(screen._flags.values()))
+        await pilot.pause()
+        assert tl.row_count == full_n  # unfiltered paint
+        # Without reapply, the Select would still say "sess" while all rows show.
+        screen._reapply_timeline_view_filter()
+        await pilot.pause()
+        assert tl.row_count == filtered_n
+
+        # Full populate path must also reapply.
+        screen._populate_ui()
+        await pilot.pause()
+        assert screen._timeline_filter == "sess"
+        assert tl.row_count == filtered_n
+
+
+@pytest.mark.asyncio
 async def test_browser_with_plugin_findings_report(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

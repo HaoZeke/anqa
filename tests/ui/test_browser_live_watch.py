@@ -25,7 +25,7 @@ def test_live_watch_root_is_session_dir(tmp_path: Path) -> None:
     sess.mkdir(parents=True)
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sess
-    assert screen._live_watch_root() == sess
+    assert screen._live_watch_root() == sess.resolve()
 
 
 def test_live_watch_root_orphan_session(tmp_path: Path) -> None:
@@ -34,7 +34,7 @@ def test_live_watch_root_orphan_session(tmp_path: Path) -> None:
     sess.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sess
-    assert screen._live_watch_root() == sess
+    assert screen._live_watch_root() == sess.resolve()
 
 
 def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -> None:
@@ -87,7 +87,7 @@ def test_live_watch_root_uuid_session_layout(tmp_path: Path) -> None:
     sess.mkdir(parents=True)
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sess
-    assert screen._live_watch_root() == sess
+    assert screen._live_watch_root() == sess.resolve()
 
 
 def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
@@ -105,6 +105,7 @@ def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
     screen._live_refresh_pending = False
     screen._live_refresh_timer = None
     screen._live_heartbeat_timer = None
+    screen._live_recheck_timer = None
     screen._live_refresh_deferred = None
     screen._trace_watch = None
     screen._context_samples = ContextSampleStore()
@@ -127,6 +128,90 @@ def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
     assert LIVE_BROWSER_SNAPSHOT_INTERVAL in timers
     assert screen._live_heartbeat_timer is not None
     assert screen._live_refresh_timer is not None
+    assert screen._live_recheck_timer is None
+
+
+def test_schedule_live_refresh_idle_keeps_slow_recheck(tmp_path: Path) -> None:
+    """Imported/idle sessions must re-arm live without a full F5."""
+    from groket.constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+
+    sd = tmp_path / "imported-sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    screen.timeline = []
+    screen.meta = None
+    screen._live_refresh_busy = False
+    screen._live_refresh_pending = False
+    screen._live_refresh_timer = None
+    screen._live_heartbeat_timer = None
+    screen._live_recheck_timer = None
+    screen._live_refresh_deferred = None
+    screen._trace_watch = None
+    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+    screen._session_needs_live_timeline = lambda: False  # type: ignore[method-assign]
+    screen._refresh_session_pending_bar = lambda: None  # type: ignore[method-assign]
+    timers: list[tuple[float, object]] = []
+
+    class _T:
+        def stop(self) -> None:
+            return None
+
+    def _set_interval(interval, callback):
+        timers.append((float(interval), callback))
+        return _T()
+
+    screen.set_interval = _set_interval  # type: ignore[method-assign]
+    screen._schedule_live_refresh()
+    assert screen._live_refresh_timer is None
+    assert screen._live_heartbeat_timer is None
+    assert screen._live_recheck_timer is not None
+    assert any(iv == LIVE_POLL_WATCH_FALLBACK_INTERVAL for iv, _ in timers)
+
+
+def test_live_recheck_tick_rearms_hot_live(tmp_path: Path) -> None:
+    sd = tmp_path / "s"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    screen._live_recheck_timer = object()  # type: ignore[assignment]
+    screen._live_refresh_timer = None
+    screen._live_heartbeat_timer = None
+    screen._trace_watch = None
+    screen._live_refresh_deferred = None
+    scheduled: list[str] = []
+    pulled: list[bool] = []
+
+    class _T:
+        def stop(self) -> None:
+            return None
+
+    screen.set_interval = lambda interval, callback: _T()  # type: ignore[method-assign]
+    screen._invalidate_live_timeline_cache = lambda: None  # type: ignore[method-assign]
+    screen._invalidate_pending_cache = lambda: None  # type: ignore[method-assign]
+    screen._session_is_pending = lambda: False  # type: ignore[method-assign]
+    screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
+    screen._schedule_live_refresh = (  # type: ignore[method-assign]
+        lambda: scheduled.append("hot")
+    )
+    screen._live_refresh_from_fs = (  # type: ignore[method-assign]
+        lambda **kwargs: pulled.append(bool(kwargs.get("heartbeat")))
+    )
+    screen._live_recheck_tick()
+    assert scheduled == ["hot"]
+    assert pulled == [False]
+    assert screen._live_recheck_timer is None
+
+
+def test_live_watch_root_resolves_symlink(tmp_path: Path) -> None:
+    real = tmp_path / "real-sess"
+    real.mkdir()
+    link = tmp_path / "imported" / "link-sess"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(real, target_is_directory=True)
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = link
+    assert screen._live_watch_root() == real.resolve()
 
 
 def test_live_refresh_heartbeat_passes_flag(tmp_path: Path) -> None:
