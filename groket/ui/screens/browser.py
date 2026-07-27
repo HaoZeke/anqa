@@ -3179,10 +3179,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _format_finding_issue_box(self, finding: Finding) -> str | None:
         """MF form \"Issue (copy into the Issue box)\" when extras support it.
 
-        Matches Model Feedback form drafts: What / Where / Why / Should have /
-        Pattern. Returns None when those structured fields are absent.
+        Prefers a pre-rendered ``extras[\"issue_box\"]`` from the analyzer
+        (full question layout). Falls back to structured What / Where / Why /
+        Should have / Pattern fields. Returns None when those are absent.
         """
         extras = finding.extras or {}
+        pre = str(extras.get("issue_box") or "").strip()
+        if pre:
+            return pre if pre.endswith("\n") else pre + "\n"
         what = str(extras.get("what_model_did") or "").strip()
         should = str(extras.get("what_should_have_done") or extras.get("should_have") or "").strip()
         why = str(extras.get("why_mistake") or "").strip()
