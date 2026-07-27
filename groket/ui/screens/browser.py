@@ -35,7 +35,7 @@ from textual.widgets import (
 from ... import event_types as et
 from ...analysis import get_analysis_service
 from ...analysis.base import AnalysisResult, Finding
-from ...analysis.order import sort_findings_by_turn
+from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_turn
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
 from ...models import Flag, SessionMeta, TraceEvent
@@ -2255,7 +2255,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         renderables: list = [panel_group(*header_blocks)]
         if report_artifact and str(report_artifact).strip():
-            for chunk in split_report_markdown_panes(str(report_artifact).strip()):
+            # Reorder ## Issue blocks by Turn: (MF form drafts bake LLM order).
+            report_md = order_report_markdown_by_turn(str(report_artifact).strip())
+            for chunk in split_report_markdown_panes(report_md):
                 renderables.append(content_block(chunk, max_chars=12000))
         elif not plugin_findings and result is not None:
             if result.summary:
