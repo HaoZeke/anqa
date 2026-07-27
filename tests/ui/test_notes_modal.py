@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from groket.notes import FieldSpec, NoteEntry, default_schema
+from groket.notes import (
+    PICK_MANY,
+    PICK_ONE_OF,
+    FieldSpec,
+    NoteEntry,
+    NotesSchema,
+    default_schema,
+)
 from groket.ui.i18n import setup_i18n
 from groket.ui.widgets.notes_modal import (
     NotesModal,
@@ -12,7 +19,7 @@ from groket.ui.widgets.notes_modal import (
     note_field_label,
 )
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Static, TextArea
+from textual.widgets import Button, Select, SelectionList, Static, TextArea
 
 from .pilot_helpers import wait_until
 
@@ -280,3 +287,81 @@ def test_note_field_label_resolves_fluent_defaults() -> None:
     assert note_field_label(FieldSpec(id="severity", label="Severity")) == "Severity"
     for spec in default_schema().fields:
         assert note_field_label(spec) in ("Summary", "Detail")
+
+
+@pytest.mark.asyncio
+async def test_notes_modal_choices_one_of_and_many() -> None:
+    """Constrained schema fields use Select / SelectionList and store cleanly."""
+    schema = NotesSchema(
+        schema_id="rubric",
+        fields=[
+            FieldSpec(id="summary", label="Summary"),
+            FieldSpec(
+                id="severity",
+                label="Severity",
+                choices=("low", "medium", "high"),
+                pick=PICK_ONE_OF,
+            ),
+            FieldSpec(
+                id="tags",
+                label="Tags",
+                choices=("regression", "ux", "tooling"),
+                pick=PICK_MANY,
+            ),
+        ],
+    )
+    existing = NoteEntry(
+        id="n-choice1",
+        turn_index=0,
+        fields={
+            "summary": "gate miss",
+            "severity": "medium",
+            "tags": "ux\nregression",
+        },
+        event_indices=[],
+        created_at="2020-01-01T00:00:00+00:00",
+        updated_at="2020-01-01T00:00:00+00:00",
+    )
+    app = _NoteApp()
+    result_holder: list[object] = []
+
+    async with app.run_test(size=(100, 48)) as pilot:
+        modal = NotesModal(
+            schema=schema,
+            turn_options=[("Turn 0", "0")],
+            existing=existing,
+        )
+        app.push_screen(modal, callback=lambda r: result_holder.append(r))
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, NotesModal),
+            description="NotesModal mounted",
+        )
+        await wait_until(
+            pilot,
+            lambda: bool(list(app.screen.query("#note-field-severity"))),
+            description="choice fields mounted",
+        )
+        assert isinstance(app.screen.query_one("#note-field-summary", TextArea), TextArea)
+        sev = app.screen.query_one("#note-field-severity", Select)
+        assert sev.value == "medium"
+        tags = app.screen.query_one("#note-field-tags", SelectionList)
+        selected = set(str(x) for x in tags.selected)
+        assert selected == {"ux", "regression"}
+
+        sev.value = "high"
+        # Toggle tooling on for many.
+        tags.select("tooling")
+        app.screen.action_save()
+        await wait_until(
+            pilot,
+            lambda: len(result_holder) == 1,
+            description="save with choices",
+        )
+        action, entry = result_holder[0]  # type: ignore[misc]
+        assert action == "save"
+        assert isinstance(entry, NoteEntry)
+        assert entry.fields["summary"] == "gate miss"
+        assert entry.fields["severity"] == "high"
+        # Schema order for multi: regression, ux, tooling
+        assert entry.fields["tags"] == "regression\nux\ntooling"

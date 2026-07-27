@@ -1698,6 +1698,12 @@ ModalScreen {
     padding: 0 2;
 }
 
+#notes-modal-body SelectionList.note-field-choices {
+    height: auto;
+    max-height: 10;
+    margin-bottom: 1;
+}
+
 #flag-buttons {
     dock: bottom;
     height: auto;

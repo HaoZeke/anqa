@@ -130,14 +130,16 @@ tarball under `~/.groket/reports/` containing:
   markdown report per analyzer (``*.md``): uses each plugin’s
   ``artifacts["report"]`` when available, otherwise summary + findings)
 - **`notes/`** — `operator_notes.toml` when present (on-disk copy). Field layout
-  comes from `~/.groket/notes_schema.toml` (see `examples/notes/`). **Authoring
-  is TUI-only**: `N` creates a note; `O` / palette edit or delete (Delete in the
-  edit modal). Batch does not write notes. Works on eval runs and on imported
-  host sessions (`I` / `import-session`); linked imports (`--link`) store notes
-  under `~/.groket/notes/` so `~/.grok/sessions` stays untouched. Export includes
-  notes when present. Deferred **LLM analysis** plugins include notes in the
-  review prompt (evaluator focus areas); note edits invalidate the analysis
-  cache for that session.
+  comes from `~/.groket/notes_schema.toml` (see `examples/notes/`). Free-text
+  fields by default; optional `choices` plus `pick = "one-of"` (dropdown) or
+  `"many"` (multi-select). **Authoring is TUI-only**: `N` creates a note; `O` /
+  palette edit or delete (Delete in the edit modal). Batch does not write notes.
+  Works on eval runs and on imported host sessions (`I` / `import-session`);
+  linked imports (`--link`) store notes under `~/.groket/notes/` so
+  `~/.grok/sessions` stays untouched. Export includes notes when present.
+  Deferred **LLM analysis** plugins include notes in the review prompt
+  (evaluator focus areas); note edits invalidate the analysis cache for that
+  session.
 
 ### Multi-turn and forking
 

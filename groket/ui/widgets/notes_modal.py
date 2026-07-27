@@ -8,11 +8,18 @@ from rich.markup import escape as rich_escape
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Select, Static, TextArea
+from textual.widgets import Button, Label, Select, SelectionList, Static, TextArea
 
-from ...notes import FieldSpec, NoteEntry, NotesSchema
+from ...notes import (
+    FieldSpec,
+    NoteEntry,
+    NotesSchema,
+    decode_many_choices,
+    encode_many_choices,
+)
 from .. import text as U
 from ..bindings import FORM_SAVE
+from ..forms import selection_list_selected_ids
 from ..i18n import join_ui, t
 from ..quit_actions import QuitActions
 
@@ -43,6 +50,10 @@ def _note_preview_label(note: NoteEntry) -> str:
     if len(preview) > _PREVIEW_MAX:
         preview = preview[: _PREVIEW_MAX - 1] + "…"
     return join_ui(turn, "—", preview)
+
+
+def _field_widget_id(field_id: str) -> str:
+    return f"note-field-{field_id}"
 
 
 class NotesModal(QuitActions, ModalScreen):
@@ -111,7 +122,50 @@ class NotesModal(QuitActions, ModalScreen):
         label = note_field_label(spec)
         yield Label(label if label.endswith(":") else f"{label}:")
         initial = self.existing.fields.get(spec.id, "") if self.existing else ""
-        yield TextArea(initial, id=f"note-field-{spec.id}")
+        wid = _field_widget_id(spec.id)
+        if not spec.constrained:
+            yield TextArea(initial, id=wid)
+            return
+        if spec.pick_many:
+            selected = set(decode_many_choices(initial))
+            items: list[tuple[str, str, bool]] = [
+                (choice, choice, choice in selected) for choice in spec.choices
+            ]
+            known = set(spec.choices)
+            for extra in decode_many_choices(initial):
+                if extra not in known:
+                    items.append((extra, extra, True))
+            yield SelectionList[str](*items, id=wid, classes="note-field-choices")
+            return
+        # one-of
+        options: list[tuple[str, str]] = [(c, c) for c in spec.choices]
+        initial_s = (initial or "").strip()
+        if initial_s and initial_s not in {c for c in spec.choices}:
+            options = [(initial_s, initial_s), *options]
+        if initial_s and any(v == initial_s for _, v in options):
+            value: object = initial_s
+        else:
+            value = Select.BLANK
+        yield Select(
+            options,
+            value=value,
+            id=wid,
+            classes="field-select",
+            allow_blank=True,
+        )
+
+    def _read_field_value(self, spec: FieldSpec) -> str:
+        """Read one schema field from the mounted widget."""
+        wid = f"#{_field_widget_id(spec.id)}"
+        if not spec.constrained:
+            return self.query_one(wid, TextArea).text.strip()
+        if spec.pick_many:
+            selected = selection_list_selected_ids(self.query_one(wid, SelectionList))
+            return encode_many_choices(selected, spec.choices)
+        raw = self.query_one(wid, Select).value
+        if raw is Select.BLANK or raw is None:
+            return ""
+        return str(raw).strip()
 
     def action_cancel(self) -> None:
         from ..bindings import dismiss_after_blur
@@ -132,10 +186,7 @@ class NotesModal(QuitActions, ModalScreen):
         except (TypeError, ValueError):
             self.notify(U.note_turn_invalid(), severity="error")
             return
-        form_fields = {
-            spec.id: self.query_one(f"#note-field-{spec.id}", TextArea).text.strip()
-            for spec in self.schema.fields
-        }
+        form_fields = {spec.id: self._read_field_value(spec) for spec in self.schema.fields}
         if self.existing is not None:
             fields = dict(self.existing.fields)
             fields.update(form_fields)

@@ -1,7 +1,9 @@
 """Turn-linked operator notes (session TOML + optional schema).
 
 Schema: ``~/.groket/notes_schema.toml`` (default fields: summary, detail).
-Session file: ``<session_dir>/operator_notes.toml``, fallback under
+Optional per-field ``choices`` with ``pick`` = ``one-of`` | ``many`` for
+constrained values (dropdown / multi-select). Session file:
+``<session_dir>/operator_notes.toml``, fallback under
 ``~/.groket/notes/<session_id>/``. Symlinked session dirs (``import-session
 --link``) always write the fallback so host ``~/.grok/sessions`` stays clean.
 """
@@ -11,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,13 +28,35 @@ NOTES_FILENAME = "operator_notes.toml"
 SCHEMA_FILENAME = "notes_schema.toml"
 _FIELD_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
+# Constrained field cardinality (only when ``choices`` is non-empty).
+PICK_ONE_OF = "one-of"
+PICK_MANY = "many"
+_VALID_PICKS = frozenset({PICK_ONE_OF, PICK_MANY})
+
 
 @dataclass(frozen=True)
 class FieldSpec:
-    """Schema field. Empty *label* means the TUI uses Fluent ``notes-field-{id}``."""
+    """Schema field. Empty *label* means the TUI uses Fluent ``notes-field-{id}``.
+
+    Free text when *choices* is empty (backward compatible). With *choices*:
+    ``pick`` is ``one-of`` (single select) or ``many`` (multi-select); default
+    ``one-of`` when omitted.
+    """
 
     id: str
     label: str = ""
+    choices: tuple[str, ...] = ()
+    pick: str = PICK_ONE_OF
+
+    @property
+    def constrained(self) -> bool:
+        """True when the field has a non-empty allowed-value list."""
+        return bool(self.choices)
+
+    @property
+    def pick_many(self) -> bool:
+        """True when the field is multi-select among *choices*."""
+        return bool(self.choices) and self.pick == PICK_MANY
 
 
 @dataclass
@@ -40,6 +65,67 @@ class NotesSchema:
 
     schema_id: str = "default"
     fields: list[FieldSpec] = field(default_factory=list)
+
+
+def normalize_pick(value: object) -> str:
+    """Return ``one-of`` or ``many``; unknown / empty → ``one-of``."""
+    raw = str(value or "").strip().lower()
+    if raw in _VALID_PICKS:
+        return raw
+    return PICK_ONE_OF
+
+
+def parse_choices(raw: object) -> tuple[str, ...]:
+    """Unique non-empty choice strings, order preserved."""
+    if not isinstance(raw, list):
+        return ()
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        s = str(item).strip() if item is not None else ""
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return tuple(out)
+
+
+def decode_many_choices(stored: str) -> list[str]:
+    """Split a stored multi-select value into tokens (newline-separated)."""
+    if not (stored or "").strip():
+        return []
+    text = stored.replace("\r\n", "\n").replace("\r", "\n")
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in text.split("\n"):
+        tok = line.strip()
+        if tok and tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return out
+
+
+def encode_many_choices(selected: Sequence[str], choices: Sequence[str]) -> str:
+    """Join selected tokens for storage: schema order first, then extras.
+
+    :param selected: Operator-selected values (any order).
+    :param choices: Schema allowed list (defines preferred order).
+    :returns: Newline-joined string (empty when nothing selected).
+    """
+    sel: list[str] = []
+    seen: set[str] = set()
+    for item in selected:
+        s = str(item).strip()
+        if s and s not in seen:
+            seen.add(s)
+            sel.append(s)
+    if not sel:
+        return ""
+    allowed = list(choices)
+    allowed_set = set(allowed)
+    ordered = [c for c in allowed if c in seen]
+    ordered.extend(s for s in sel if s not in allowed_set)
+    return "\n".join(ordered)
 
 
 @dataclass
@@ -127,7 +213,12 @@ def load_schema(*, path: Path | None = None) -> NotesSchema:
 
 
 def schema_from_mapping(data: JsonObject) -> NotesSchema:
-    """Build :class:`NotesSchema` from a TOML/JSON mapping."""
+    """Build :class:`NotesSchema` from a TOML/JSON mapping.
+
+    Backward compatible: fields with only ``id`` / ``label`` stay free text.
+    Optional ``choices`` (string array) plus ``pick`` (``one-of`` | ``many``,
+    default ``one-of``) enable constrained fields.
+    """
     schema_id = str(data.get("schema_id") or "default").strip() or "default"
     fields: list[FieldSpec] = []
     seen: set[str] = set()
@@ -141,7 +232,16 @@ def schema_from_mapping(data: JsonObject) -> NotesSchema:
                 continue
             seen.add(fid)
             label = str(item.get("label") or "").strip()
-            fields.append(FieldSpec(id=fid, label=label or fid))
+            choices = parse_choices(item.get("choices"))
+            pick = normalize_pick(item.get("pick")) if choices else PICK_ONE_OF
+            fields.append(
+                FieldSpec(
+                    id=fid,
+                    label=label or fid,
+                    choices=choices,
+                    pick=pick,
+                )
+            )
     if not fields:
         fields = list(_DEFAULT_FIELDS)
     return NotesSchema(schema_id=schema_id, fields=fields)

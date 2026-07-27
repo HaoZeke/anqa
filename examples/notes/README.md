@@ -11,6 +11,16 @@ Then edit `id` / `label` for your workflow. Field ids must be
 `^[A-Za-z_][A-Za-z0-9_-]*$`. Keep program-specific templates in your local kit,
 not in the groket package.
 
+### Field kinds (one path)
+
+| Schema | TUI | Stored value |
+|--------|-----|----------------|
+| no `choices` (or empty) | text area | free string |
+| `choices = […]` + `pick = "one-of"` (default when `pick` omitted) | dropdown | one token |
+| `choices = […]` + `pick = "many"` | multi-select | newline-joined tokens |
+
+Existing schemas without `choices` keep working as free text.
+
 ## Session file
 
 Notes are stored as `<session_dir>/operator_notes.toml` (fallback:
