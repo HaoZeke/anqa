@@ -18,6 +18,8 @@ from groket.ui.forms import (
     normalize_persona_id,
     persona_select_options,
     persona_select_value,
+    select_is_blank,
+    select_null,
     select_value_str,
     selection_list_selected_ids,
 )
@@ -80,6 +82,19 @@ class TestSelectValueStr:
             pass
 
         assert select_value_str(NoSelection(), default="x") == "x"
+
+    def test_select_null_and_is_blank(self) -> None:
+        from textual.widgets import Select
+
+        assert select_is_blank(None)
+        assert select_is_blank(False)  # legacy Select.BLANK
+        assert select_is_blank(select_null())
+        null = getattr(Select, "NULL", None)
+        if null is not None:
+            assert select_is_blank(null)
+            assert select_null() is null
+        assert not select_is_blank("medium")
+        assert select_value_str(select_null(), default="") == ""
 
 
 class TestDockerSelect:

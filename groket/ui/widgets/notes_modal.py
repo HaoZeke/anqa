@@ -19,7 +19,7 @@ from ...notes import (
 )
 from .. import text as U
 from ..bindings import FORM_SAVE
-from ..forms import selection_list_selected_ids
+from ..forms import select_is_blank, select_null, selection_list_selected_ids
 from ..i18n import join_ui, t
 from ..quit_actions import QuitActions
 
@@ -137,7 +137,8 @@ class NotesModal(QuitActions, ModalScreen):
                     items.append((extra, extra, True))
             yield SelectionList[str](*items, id=wid, classes="note-field-choices")
             return
-        # one-of
+        # one-of — empty initial must use Select.NULL (Textual 8+). Select.BLANK
+        # is the bool False and raises InvalidSelectValueError.
         options: list[tuple[str, str]] = [(c, c) for c in spec.choices]
         initial_s = (initial or "").strip()
         if initial_s and initial_s not in {c for c in spec.choices}:
@@ -145,7 +146,7 @@ class NotesModal(QuitActions, ModalScreen):
         if initial_s and any(v == initial_s for _, v in options):
             value: object = initial_s
         else:
-            value = Select.BLANK
+            value = select_null()
         yield Select(
             options,
             value=value,
@@ -163,7 +164,7 @@ class NotesModal(QuitActions, ModalScreen):
             selected = selection_list_selected_ids(self.query_one(wid, SelectionList))
             return encode_many_choices(selected, spec.choices)
         raw = self.query_one(wid, Select).value
-        if raw is Select.BLANK or raw is None:
+        if select_is_blank(raw):
             return ""
         return str(raw).strip()
 
@@ -178,7 +179,7 @@ class NotesModal(QuitActions, ModalScreen):
     def _commit_save(self) -> None:
         turn_sel = self.query_one("#note-turn-select", Select)
         raw_turn = turn_sel.value
-        if raw_turn is Select.BLANK or raw_turn is None:
+        if select_is_blank(raw_turn):
             self.notify(U.note_turn_invalid(), severity="error")
             return
         try:
@@ -225,7 +226,7 @@ class NotesPickModal(QuitActions, ModalScreen):
 
     def compose(self) -> ComposeResult:
         options = [(_note_preview_label(n), n.id) for n in self.notes]
-        default = options[0][1] if options else Select.BLANK
+        default: object = options[0][1] if options else select_null()
         with Vertical(id="modal-container"):
             yield Static(f"[bold]{rich_escape(U.pick_note_title())}[/bold]")
             yield Select(
@@ -233,7 +234,7 @@ class NotesPickModal(QuitActions, ModalScreen):
                 value=default,
                 id="pick-note-select",
                 classes="field-select",
-                allow_blank=False,
+                allow_blank=not bool(options),
             )
             with Horizontal(id="pick-note-buttons", classes="modal-footer"):
                 yield Button(U.done(), variant="primary", id="pick-note-ok")
@@ -247,7 +248,7 @@ class NotesPickModal(QuitActions, ModalScreen):
     def _commit_pick(self) -> None:
         sel = self.query_one("#pick-note-select", Select)
         raw = sel.value
-        if raw is Select.BLANK or raw is None:
+        if select_is_blank(raw):
             self.dismiss(None)
             return
         note = self._by_id.get(str(raw))

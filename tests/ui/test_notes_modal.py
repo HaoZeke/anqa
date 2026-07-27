@@ -290,6 +290,64 @@ def test_note_field_label_resolves_fluent_defaults() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notes_modal_create_with_one_of_blank_severity() -> None:
+    """New note + severity Select must not use Select.BLANK (False) as value.
+
+    Regression: Textual 8 raises InvalidSelectValueError for value=False.
+    """
+    schema = NotesSchema(
+        schema_id="rubric",
+        fields=[
+            FieldSpec(id="summary", label="Summary"),
+            FieldSpec(
+                id="severity",
+                label="Severity",
+                choices=("low", "medium", "high"),
+                pick=PICK_ONE_OF,
+            ),
+        ],
+    )
+    app = _NoteApp()
+    result_holder: list[object] = []
+
+    async with app.run_test(size=(100, 48)) as pilot:
+        modal = NotesModal(
+            schema=schema,
+            turn_options=[("Turn 0", "0")],
+            default_turn=0,
+        )
+        app.push_screen(modal, callback=lambda r: result_holder.append(r))
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, NotesModal),
+            description="NotesModal mounted",
+        )
+        await wait_until(
+            pilot,
+            lambda: bool(list(app.screen.query("#note-field-severity"))),
+            description="severity select mounted",
+        )
+        sev = app.screen.query_one("#note-field-severity", Select)
+        # Unselected one-of is legal (NULL), not bool False.
+        from groket.ui.forms import select_is_blank
+
+        assert select_is_blank(sev.value)
+        summary = app.screen.query_one("#note-field-summary", TextArea)
+        summary.text = "note without severity"
+        app.screen.action_save()
+        await wait_until(
+            pilot,
+            lambda: len(result_holder) == 1,
+            description="save without severity",
+        )
+        action, entry = result_holder[0]  # type: ignore[misc]
+        assert action == "save"
+        assert isinstance(entry, NoteEntry)
+        assert entry.fields["summary"] == "note without severity"
+        assert entry.fields.get("severity", "") == ""
+
+
+@pytest.mark.asyncio
 async def test_notes_modal_choices_one_of_and_many() -> None:
     """Constrained schema fields use Select / SelectionList and store cleanly."""
     schema = NotesSchema(
