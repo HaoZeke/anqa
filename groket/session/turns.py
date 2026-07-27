@@ -214,6 +214,27 @@ def turn_index_for_event(segments: list[TurnSegment], event_index: int) -> int |
     return None
 
 
+def display_turn_number(seg: TurnSegment) -> int:
+    """Harness ``turn_number`` when present, else 0-based ``turn_index``."""
+    if seg.turn_number is not None:
+        return int(seg.turn_number)
+    return int(seg.turn_index)
+
+
+def event_display_turn_map(segments: list[TurnSegment]) -> dict[int, int]:
+    """Map timeline event index → display turn number for sort/labels.
+
+    :param segments: Output of :func:`segment_timeline_turns`.
+    :returns: ``event.index`` → harness turn number (or index fallback).
+    """
+    out: dict[int, int] = {}
+    for seg in segments:
+        tn = display_turn_number(seg)
+        for ev in seg.events:
+            out[int(ev.index)] = tn
+    return out
+
+
 def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     """Split *timeline* into turns using session turn_started / turn_ended markers.
 

@@ -35,6 +35,7 @@ from textual.widgets import (
 from ... import event_types as et
 from ...analysis import get_analysis_service
 from ...analysis.base import AnalysisResult, Finding
+from ...analysis.order import sort_findings_by_turn
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
 from ...models import Flag, SessionMeta, TraceEvent
@@ -1508,12 +1509,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return out
 
     def _collect_findings(self) -> None:
-        """Collect findings from **enabled** plugin results only."""
+        """Collect findings from **enabled** plugin results only.
+
+        Order is turn → earliest evidence → severity (Findings + Report lists).
+        """
         all_findings: list[Finding] = []
         for result in self._active_plugin_results().values():
             if result is not None and result.ok:
                 all_findings.extend(result.findings)
-        self._findings = sorted(all_findings, key=lambda f: f.severity)
+        self._findings = sort_findings_by_turn(all_findings, self.timeline)
 
     def _rebuild_indices(self) -> None:
         self._findings_by_call = {}
@@ -2335,7 +2339,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         Findings tab / timeline marks (high=red, medium=dark_orange, low=yellow).
         """
         out = Text()
-        for f in sorted(findings, key=lambda x: (x.severity.value, x.title or "")):
+        # Caller passes turn-ordered findings (see _collect_findings); keep order.
+        for f in findings:
             sev_key = (f.severity.value if f.severity else "low").lower()
             sev = sev_key.upper()
             sev_style = severity_style(sev_key)

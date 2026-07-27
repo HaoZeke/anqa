@@ -6,6 +6,7 @@ import re
 
 from ...models import JsonObject, JsonValue, Severity, TraceEvent
 from ..base import Finding
+from ..order import sort_findings_by_turn
 from .context import SessionContextPack
 
 _SEVERITY_MAP = {
@@ -175,7 +176,7 @@ def map_review_findings(
                 extras=extras,
             )
         )
-    return out
+    return sort_findings_by_turn(out, timeline)
 
 
 def render_review_report(

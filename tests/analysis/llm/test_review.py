@@ -198,3 +198,63 @@ def test_map_full_fields_detail() -> None:
 def test_map_empty_payload() -> None:
     assert map_review_findings({}, [], plugin_id="p") == []
     assert map_review_findings({"findings": [None, "x"]}, [], plugin_id="p") == []
+
+
+def test_map_orders_findings_by_turn() -> None:
+    timeline = [
+        TraceEvent(index=0, event_type="session", content="Turn started turn_number=1"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="first"),
+        TraceEvent(index=2, event_type="session", content="Turn ended outcome=success"),
+        TraceEvent(index=3, event_type="session", content="Turn started turn_number=2"),
+        TraceEvent(index=4, event_type="user_message_chunk", content="second"),
+        TraceEvent(index=5, event_type="session", content="Turn ended outcome=success"),
+    ]
+    payload = {
+        "summary": "Two issues",
+        "all_clear": False,
+        "findings": [
+            {
+                "id": "later",
+                "severity": "high",
+                "title": "Later turn issue",
+                "what_model_did": "bad later",
+                "what_should_have_done": "ok later",
+                "why_mistake": "why later",
+                "evidence": [{"event_index": 4}],
+            },
+            {
+                "id": "earlier",
+                "severity": "low",
+                "title": "Earlier turn issue",
+                "what_model_did": "bad early",
+                "what_should_have_done": "ok early",
+                "why_mistake": "why early",
+                "evidence": [{"event_index": 1}],
+            },
+        ],
+    }
+    findings = map_review_findings(payload, timeline, plugin_id="feedback")
+    assert [f.title for f in findings] == ["Earlier turn issue", "Later turn issue"]
+
+    from groket.analysis.llm.context import RuntimePolicy, SessionContextPack
+    from groket.session.turns import TurnSegment
+
+    pack = SessionContextPack(
+        session_dir=Path("/tmp"),
+        meta=SessionMeta(session_id="s-order", session_dir=Path("/tmp")),
+        timeline=timeline,
+        turns=[
+            TurnSegment(turn_index=0, turn_number=1, events=timeline[0:3]),
+            TurnSegment(turn_index=1, turn_number=2, events=timeline[3:6]),
+        ],
+        operator_instructions="",
+        timeline_digest="",
+        digest_truncated=False,
+        runtime=RuntimePolicy(),
+    )
+    report = render_review_report(payload, findings, pack)
+    earlier_at = report.index("Earlier turn issue")
+    later_at = report.index("Later turn issue")
+    assert earlier_at < later_at
+    assert "## 1. Earlier turn issue" in report
+    assert "## 2. Later turn issue" in report

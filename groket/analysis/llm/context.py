@@ -20,6 +20,7 @@ from ...parser import extract_prompt, load_session_meta, parse_timeline
 from ...session.turns import TurnSegment, segment_timeline_turns
 from ...utils import fmt_duration
 from ..base import Finding
+from ..order import sort_findings_by_turn
 
 _DEFAULT_DIGEST_CHARS = 24_000
 _USER_PRIMARY_CAP = 4_000
@@ -273,7 +274,7 @@ class SessionContextPack:
         if not self.prior_findings:
             return ""
         lines: list[str] = []
-        for f in sorted(self.prior_findings, key=lambda x: x.severity):
+        for f in sort_findings_by_turn(self.prior_findings, self.timeline):
             detail = f" — {_one_line(f.detail, 200)}" if f.detail else ""
             lines.append(f"- [{f.severity.value.upper()}] {f.title}{detail}")
         return "\n".join(lines)
