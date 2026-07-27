@@ -32,6 +32,7 @@ def test_rebuild_turn_select_discovers_follow_up_mid_batch(tmp_path: Path) -> No
     ]
     screen._last_turn_segment_count = 1
     screen._turn_segments = []  # pretend already segmented once
+    screen._turn_rebuild_sig = None
     screen._turn_filter = "all"
 
     # Capture set_options / display without mounting.
@@ -63,7 +64,58 @@ def test_rebuild_turn_select_discovers_follow_up_mid_batch(tmp_path: Path) -> No
     assert "0" in values and "1" in values and "all" in values
 
 
-def test_rebuild_turn_select_skips_mid_turn_when_already_multi(tmp_path: Path) -> None:
+def test_rebuild_turn_select_discovers_next_turn_when_already_multi(tmp_path: Path) -> None:
+    """Already multi-turn: a new turn whose batch ends on tool_call must appear.
+
+    Regression: early-return on non-boundary tail left turn N stuck missing
+    until a full refresh (user-reported for turn 42).
+    """
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    # Two completed turns already segmented.
+    screen.timeline = [
+        _ev(0, "turn_started", "turn_number=0"),
+        _ev(1, "turn_ended", "outcome=completed"),
+        _ev(2, "turn_started", "turn_number=1"),
+        _ev(3, "turn_ended", "outcome=completed"),
+    ]
+    screen._last_turn_segment_count = 2
+    screen._turn_rebuild_sig = (4, 3)
+    screen._turn_segments = [object(), object()]  # non-None placeholders
+    screen._turn_filter = "all"
+    calls: list[object] = []
+
+    class _Sel:
+        display = True
+        value = "all"
+
+        def set_options(self, options):
+            calls.append(list(options))
+
+    sel = _Sel()
+    screen.query_one = lambda _q, _t=None: sel  # type: ignore[method-assign]
+
+    # Turn 2 starts; live batch ends on a tool row (not turn_started).
+    screen.timeline = [
+        *screen.timeline,
+        _ev(4, "turn_started", "turn_number=2"),
+        _ev(5, "user_message_chunk", "keep going"),
+        _ev(6, "tool_call", "bash"),
+    ]
+    screen._rebuild_turn_select()
+    assert screen._last_turn_segment_count == 3
+    assert calls, "set_options must run when a new turn appears"
+    values = [v for _, v in calls[-1]]
+    assert "0" in values and "1" in values and "2" in values
+    labels = [lab for lab, _ in calls[-1]]
+    # Harness turn_number preferred in label (turn 2).
+    assert any("2" in str(lab) for lab in labels)
+
+
+def test_rebuild_turn_select_skips_set_options_when_count_unchanged(tmp_path: Path) -> None:
+    """Mid-turn append re-segments but does not thrash Select options."""
     sd = tmp_path / "sess"
     sd.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
@@ -75,7 +127,8 @@ def test_rebuild_turn_select_skips_mid_turn_when_already_multi(tmp_path: Path) -
         _ev(3, "tool_call", "bash"),
     ]
     screen._last_turn_segment_count = 2
-    screen._turn_segments = [object(), object()]  # non-None
+    screen._turn_rebuild_sig = (4, 3)
+    screen._turn_segments = [object(), object()]
     screen._turn_filter = "all"
     calls: list[object] = []
 
@@ -91,3 +144,6 @@ def test_rebuild_turn_select_skips_mid_turn_when_already_multi(tmp_path: Path) -
     screen._rebuild_turn_select()
     assert calls == []
     assert screen._last_turn_segment_count == 2
+    # Same tail again: full no-op (no re-segment needed).
+    screen._rebuild_turn_select()
+    assert calls == []

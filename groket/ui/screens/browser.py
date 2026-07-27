@@ -148,6 +148,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._needs_live_timeline: bool = False
         self._needs_live_timeline_valid: bool = False
         self._last_turn_segment_count: int = -1
+        # (timeline_len, last_event_index) — skip re-segment only when tail unchanged.
+        self._turn_rebuild_sig: tuple[int, int | None] | None = None
         self._detail_debounce: Timer | None = None
         from ...session.context_samples import ContextSampleStore
 
@@ -2813,24 +2815,26 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return mode != "all" or bool(search.strip()) or str(turn) != "all"
 
     def _rebuild_turn_select(self) -> None:
-        """Refresh Turn dropdown; hide it for single-turn (or empty) sessions."""
-        from ... import event_types as et
+        """Refresh Turn dropdown; hide it for single-turn (or empty) sessions.
+
+        Always re-segment when the timeline grows (or the tail event identity
+        changes). A previous optimization skipped re-segment when already
+        multi-turn and the last row was a tool/agent event — that dropped new
+        turns whose live batch ended on a tool_call after ``turn_started``
+        (e.g. turn 42 never appeared until F5).
+        """
         from ...session.turns import segment_timeline_turns
 
         tl = self.timeline or []
         last = tl[-1] if tl else None
-        # Mid-turn live growth: skip re-segment only when we *already* know we
-        # are multi-turn. If count is still 0/1, a follow-up may have started
-        # in this batch with tool events after turn_started — last is then not
-        # a boundary, and the old early-return left the dropdown stuck hidden.
-        already_multi = self._last_turn_segment_count > 1
+        sig = (len(tl), last.index if last is not None else None)
         if (
-            already_multi
-            and last is not None
-            and last.event_type not in (et.TURN_BOUNDARY_TYPES | et.USER_TYPES)
+            sig == getattr(self, "_turn_rebuild_sig", None)
             and getattr(self, "_turn_segments", None) is not None
+            and self._last_turn_segment_count >= 0
         ):
             return
+        self._turn_rebuild_sig = sig
 
         self._turn_segments = segment_timeline_turns(tl)
         n_segs = len(self._turn_segments)
@@ -2851,9 +2855,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._last_turn_segment_count = n_segs
             return
         # Newest turns first (same order as the Summary turns table).
+        # Prefer harness turn_number when present so labels match Grok (turn 42).
         options: list[tuple[str, str]] = [(t("turn-filter-all"), "all")]
         for seg in reversed(self._turn_segments):
-            options.append((t("turn-filter-n", n=seg.turn_index), str(seg.turn_index)))
+            label_n = int(seg.turn_number) if seg.turn_number is not None else int(seg.turn_index)
+            options.append((t("turn-filter-n", n=label_n), str(seg.turn_index)))
         sel.display = True
         sel.set_options(options)
         if getattr(self, "_turn_filter", "all") not in {v for _, v in options}:
