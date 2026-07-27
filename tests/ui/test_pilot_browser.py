@@ -523,6 +523,88 @@ Pattern: skip
         assert all(p.can_focus for p in panes)
 
 
+@pytest.mark.asyncio
+async def test_browser_analysis_pending_collapses_report_panes(tmp_path: Path) -> None:
+    """Pending analysis paints one spinner per plugin card, not one per pane."""
+    from groket.ui.i18n import t
+    from groket.ui.selectable_static import SelectableStatic
+    from textual.containers import Vertical
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    report_md = """# Report
+
+## One
+
+body one
+
+## Two
+
+body two
+
+## Three
+
+body three
+"""
+    results = {
+        "engine": AnalysisResult(
+            session_id=sess.name,
+            session_dir=str(sess),
+            analyzer_id="engine",
+            ok=True,
+            summary="ok",
+            findings=[],
+            artifacts={"report": report_md},
+        )
+    }
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        app.push_screen(BrowserScreen(sess, plugin_results=results))
+
+        def ready() -> bool:
+            scr = app.screen
+            return isinstance(scr, BrowserScreen) and bool(scr.timeline)
+
+        await wait_until(pilot, ready, description="browser with multi-pane report")
+        screen = app.screen
+        assert isinstance(screen, BrowserScreen)
+        screen._stop_live_refresh()
+        screen._collect_findings()
+        screen._populate_analysis_ui()
+        await pilot.pause()
+
+        await _activate_tab(pilot, screen, "tab-reports")
+        screen._update_reports_tab()
+        await pilot.pause()
+
+        section = screen.query_one("#report-section-plugin-engine", Vertical)
+        before = list(section.query(SelectableStatic))
+        assert len(before) >= 3
+
+        # Not pending: paint is a no-op (does not stack spinners on idle open).
+        screen._analysis_pending = False
+        screen._show_analysis_pending()
+        await pilot.pause()
+        assert len(list(section.query(SelectableStatic))) == len(before)
+
+        screen._analysis_pending = True
+        screen._paint_analysis_pending_spinner(full=True)
+        await pilot.pause()
+
+        panes = list(section.query(SelectableStatic))
+        assert len(panes) == 1
+        plain = panes[0].get_plain_text()
+        assert "Running analysis" in plain
+        # Overview is a single body, not duplicated under the plugin card.
+        overview = screen.query_one("#report-overview-content", SelectableStatic)
+        assert "Running analysis" in overview.get_plain_text()
+        # Spinner Fluent uses the braille frame; plain cache should not empty.
+        assert plain.strip()
+        assert t("ui-running-analysis-plain") in plain or "Running analysis" in plain
+
+
 # ── Summary stats tables ─────────────────────────────────────────────────
 
 

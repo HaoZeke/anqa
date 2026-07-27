@@ -1481,18 +1481,24 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _show_analysis_pending(self) -> None:
         """Show loading placeholders; start a cheap spinner timer (no table rebuilds)."""
+        if not self._analysis_pending:
+            return
         self._paint_analysis_pending_spinner(full=True)
-        if self._analysis_pending:
-            if self._analysis_spinner_timer is None:
-                from ...constants import ANALYSIS_PENDING_SPINNER_INTERVAL
+        if self._analysis_spinner_timer is None:
+            from ...constants import ANALYSIS_PENDING_SPINNER_INTERVAL
 
-                self._analysis_spinner_timer = self.set_interval(
-                    ANALYSIS_PENDING_SPINNER_INTERVAL,
-                    self._tick_analysis_pending,
-                )
+            self._analysis_spinner_timer = self.set_interval(
+                ANALYSIS_PENDING_SPINNER_INTERVAL,
+                self._tick_analysis_pending,
+            )
 
     def _paint_analysis_pending_spinner(self, *, full: bool = False) -> None:
-        """Update spinner text only (full=True also clears tables once)."""
+        """Update spinner text only (full=True also clears tables once).
+
+        Report plugin cards may hold many extractable panes after a prior run.
+        Pending state collapses each card to **one** spinner body so the Report
+        tab does not stack "Running analysis…" once per markdown chunk.
+        """
         from ...job_pools import get_activity_log
 
         spin = get_activity_log().spinner_frame()
@@ -1507,6 +1513,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.query_one("#report-overview-content", Static).update(pending_markup)
         except Exception:
             pass
+        self._paint_report_plugin_pending_spinners(pending_markup, full=full)
         if not full:
             return
         try:
@@ -1518,24 +1525,21 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
         except Exception:
             pass
+
+    def _paint_report_plugin_pending_spinners(self, pending_markup: str, *, full: bool) -> None:
+        """One spinner per plugin report card (not one per multi-pane body)."""
         for aid in list(getattr(self, "_report_section_keys", ()) or ()):
             if aid in ("flags", "notes"):
                 continue
             with suppress(Exception):
+                if full:
+                    # Reuse pane sync: update index 0, drop extras without selection.
+                    self._sync_report_plugin_panes(aid, [pending_markup])
+                    continue
                 section = self.query_one(f"#{self._report_section_dom_id(aid)}", Vertical)
                 panes = list(section.query(SelectableStatic))
-                if panes:
-                    for pane in panes:
-                        if not self._widget_has_text_selection(pane):
-                            pane.update(pending_markup)
-                else:
-                    section.mount(
-                        SelectableStatic(
-                            pending_markup,
-                            id=f"report-pane-{self._report_plugin_slug(aid)}-0",
-                            classes="report-pane",
-                        )
-                    )
+                if panes and not self._widget_has_text_selection(panes[0]):
+                    panes[0].update(pending_markup)
 
     def _tick_analysis_pending(self) -> None:
         if not self._analysis_pending or not self.is_mounted:
