@@ -233,11 +233,16 @@ def get_marketplace_entry(
     *,
     home: Path | None = None,
 ) -> MarketplacePluginEntry | None:
-    """Resolve a catalog row by plugin name (exact)."""
+    """Resolve a catalog row by plugin name (exact).
+
+    Uses the local marketplace-cache when present, otherwise the official
+    remote index (same as the Plugins picker) so launch staging can git-clone
+    catalog plugins like ``superpowers`` without a prior host install.
+    """
     n = (name or "").strip()
     if not n:
         return None
-    for entry in list_marketplace_catalog(home=home):
+    for entry in list_marketplace_catalog(home=home, include_remote_index=True):
         if entry.name == n:
             return entry
     return None
@@ -330,11 +335,37 @@ def list_plugins_for_picker(
     *,
     home: Path | None = None,
 ) -> list[PluginPickRow]:
-    """Marketplace catalog rows for persona and runner plugin pickers."""
-    _ = work_dir
+    """Rows for persona/runner plugin pickers.
+
+    Includes **installed** plugins from ``~/.grok/installed-plugins`` (and
+    project ``.grok/plugins/``) plus optional marketplace-cache / remote
+    catalog entries. Without this, a machine with only local installs (no
+    ``marketplace-cache``) shows an empty Plugins picker.
+    """
     by_name: dict[str, PluginPickRow] = {}
 
-    for entry in list_marketplace_catalog(home=home):
+    for plugin in list_installed_plugins_for_work(work_dir, home=home):
+        name = (plugin.name or "").strip()
+        if not name:
+            continue
+        by_name[name] = PluginPickRow(
+            name=name,
+            status="installed",
+            marketplace=plugin.marketplace or plugin.marketplace_plugin or "installed",
+            version=plugin.version or (plugin.commit[:8] if plugin.commit else ""),
+            description="",
+            category="",
+            homepage="",
+            source_url=plugin.git_url,
+            sha=plugin.commit,
+            components=_plugin_components_summary(plugin.path),
+            path=plugin.path if plugin.path.is_dir() else None,
+            selectable=True,
+        )
+
+    # Prefer local marketplace-cache; fall back to official xAI index over the network
+    # so the picker is not empty when the user has never cloned a marketplace.
+    for entry in list_marketplace_catalog(home=home, include_remote_index=True):
         if not entry.name:
             continue
         if entry.name in by_name:
@@ -344,10 +375,12 @@ def list_plugins_for_picker(
             row.homepage = row.homepage or entry.homepage
             row.source_url = row.source_url or entry.source_url
             row.sha = row.sha or entry.sha
+            if row.status != "installed":
+                row.status = "catalog"
             continue
         by_name[entry.name] = PluginPickRow(
             name=entry.name,
-            status="catalog",
+            status="catalog" if not entry.installed else "installed",
             marketplace=entry.marketplace or "marketplace",
             version=(entry.sha[:8] if entry.sha else ""),
             description=entry.description,

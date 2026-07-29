@@ -225,6 +225,119 @@ def test_picker_lists_catalog_entries(tmp_path: Path, monkeypatch) -> None:
     assert "d2" in rows["catalog-b"].detail_markup()
 
 
+def test_picker_lists_installed_without_marketplace_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Installed registry plugins appear even when marketplace-cache is empty."""
+    from groket.capabilities.marketplace import list_plugins_for_picker
+
+    home = tmp_path / "home"
+    grok = home / ".grok"
+    inst = grok / "installed-plugins" / "repo-local"
+    skills = inst / "skills" / "demo-skill"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text("# demo\n", encoding="utf-8")
+    reg = grok / "installed-plugins" / "registry.json"
+    reg.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repos": {
+                    "repo-local": {
+                        "path": str(inst),
+                        "plugins": {"my-local-plugin": {"version": "1.0.0"}},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", lambda: home)
+    # Avoid network in unit tests; installed rows still fill the picker.
+    monkeypatch.setattr(
+        "groket.capabilities.marketplace._fetch_official_marketplace_entries",
+        lambda: [],
+    )
+    rows = {r.name: r for r in list_plugins_for_picker()}
+    assert "my-local-plugin" in rows
+    assert rows["my-local-plugin"].status == "installed"
+    assert "skills" in rows["my-local-plugin"].components
+
+
+def test_picker_requests_remote_catalog_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Picker enables remote index so catalog rows appear without a local cache clone."""
+    from groket.capabilities.marketplace import (
+        MarketplacePluginEntry,
+        list_plugins_for_picker,
+    )
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    seen: dict[str, bool] = {}
+
+    def _catalog(*, home=None, include_remote_index: bool = False):
+        seen["include_remote_index"] = include_remote_index
+        if not include_remote_index:
+            return []
+        return [
+            MarketplacePluginEntry(
+                name="vercel",
+                description="deploy",
+                category="deployment",
+                marketplace="xai-official",
+            )
+        ]
+
+    monkeypatch.setattr(
+        "groket.capabilities.marketplace.list_marketplace_catalog",
+        _catalog,
+    )
+    rows = {r.name: r for r in list_plugins_for_picker()}
+    assert seen.get("include_remote_index") is True
+    assert rows["vercel"].status == "catalog"
+    assert "deploy" in rows["vercel"].description
+
+
+def test_get_marketplace_entry_uses_remote_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Launch staging resolves catalog plugins without a local marketplace-cache."""
+    from groket.capabilities.marketplace import (
+        MarketplacePluginEntry,
+        get_marketplace_entry,
+    )
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    seen: dict[str, bool] = {}
+
+    def _catalog(*, home=None, include_remote_index: bool = False):
+        seen["include_remote_index"] = include_remote_index
+        if not include_remote_index:
+            return []
+        return [
+            MarketplacePluginEntry(
+                name="superpowers",
+                source_url="https://github.com/obra/superpowers.git",
+                sha="abc123",
+                marketplace="xai-official",
+            )
+        ]
+
+    monkeypatch.setattr(
+        "groket.capabilities.marketplace.list_marketplace_catalog",
+        _catalog,
+    )
+    entry = get_marketplace_entry("superpowers")
+    assert seen.get("include_remote_index") is True
+    assert entry is not None
+    assert entry.source_url.endswith("superpowers.git")
+
+
 def test_materialize_clones_from_catalog(tmp_path: Path, monkeypatch) -> None:
     from unittest.mock import MagicMock, patch
 
