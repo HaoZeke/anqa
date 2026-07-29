@@ -1565,6 +1565,33 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
         meta.reasoning_effort = _reasoning_effort_from_run_config(session_dir)
 
 
+def load_session_meta_list(
+    session_dir: Path,
+    *,
+    origin: str = "work",
+) -> SessionMeta:
+    """Metadata for the sessions home list.
+
+    Host rows: summary + signals only (no ``events.jsonl``). Eval rows: light
+    meta including turn markers, without coalesced timeline parse.
+    """
+    origin_key = (origin or "work").strip().lower() or "work"
+    if origin_key == "host":
+        meta = SessionMeta(
+            session_id=Path(session_dir).name,
+            session_dir=Path(session_dir),
+            origin="host",
+        )
+        _load_summary(meta, Path(session_dir))
+        _load_signals(meta, Path(session_dir))
+        if not meta.num_events and meta.num_messages:
+            meta.num_events = int(meta.num_messages)
+        return meta
+    meta = load_session_meta(session_dir, include_timeline_count=False)
+    meta.origin = origin_key
+    return meta
+
+
 def load_session_meta(
     session_dir: Path,
     *,

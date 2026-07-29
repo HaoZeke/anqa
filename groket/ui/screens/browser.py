@@ -723,8 +723,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         (sibling sessions, seed trees) and freezes the TUI mid-run. Turn-gate
         transitions are polled on the snapshot / pending-bar path instead.
 
-        Linked imports (``import-session --link``) are symlinks into
-        ``~/.grok/sessions``; resolve so the OS watch sees real file writes.
+        Host Grok session dirs (and any symlink) are resolved so the OS watch
+        sees real file writes under ``~/.grok/sessions``.
         """
         root = Path(self.session_dir)
         try:
@@ -743,9 +743,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         rows appear without exiting the screen. Content-only stream rewrites
         are ignored by :meth:`TimelineTable.load_events` (append-only).
 
-        When the session looks idle (common for **imported** host sessions with
-        no turn gate, once ``updates.jsonl`` ages past the fresh window), keep a
-        slow recheck so a resumed agent re-arms hot live without F5.
+        When the session looks idle (common for **host** sessions with no turn
+        gate, once ``updates.jsonl`` ages past the fresh window), keep a slow
+        recheck so a resumed agent re-arms hot live without F5.
         """
         pending_ui = self._session_is_pending()
         live_traces = self._session_needs_live_timeline()

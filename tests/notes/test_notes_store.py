@@ -168,8 +168,34 @@ def test_fallback_on_permission_error(tmp_path: Path, monkeypatch) -> None:
     assert len(loaded.notes) == 1
 
 
-def test_linked_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
-    """import-session --link must not write operator_notes into the host tree."""
+def test_host_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
+    """Host Grok sessions must not get operator_notes in ~/.grok/sessions."""
+    import groket.notes as notes_mod
+    import groket.paths as paths_mod
+    import groket.session.sources as sources_mod
+
+    home = tmp_path / "home" / ".groket"
+    monkeypatch.setattr(paths_mod, "APP_HOME", home)
+    monkeypatch.setattr(notes_mod, "app_home", lambda: home)
+
+    host_root = tmp_path / "host-sessions"
+    host = host_root / "%2Fproj" / "sess-id"
+    host.mkdir(parents=True)
+    (host / "summary.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(sources_mod, "host_grok_sessions_root", lambda: host_root)
+
+    doc = NotesDoc(session_id=host.name)
+    doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "host"}, note_id="n-host"))
+    path = save_notes(host, doc)
+    assert path == home / "notes" / "sess-id" / NOTES_FILENAME
+    assert path.is_file()
+    assert not (host / NOTES_FILENAME).exists()
+    loaded = load_notes(host)
+    assert loaded.notes[0].fields["summary"] == "host"
+
+
+def test_symlinked_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
+    """Symlinked session dirs also write notes only under ~/.groket/notes."""
     import groket.notes as notes_mod
     import groket.paths as paths_mod
 
@@ -177,22 +203,16 @@ def test_linked_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None
     monkeypatch.setattr(paths_mod, "APP_HOME", home)
     monkeypatch.setattr(notes_mod, "app_home", lambda: home)
 
-    host = tmp_path / "host-sess"
-    host.mkdir()
-    (host / "summary.json").write_text("{}", encoding="utf-8")
-    imported = tmp_path / "work" / "imported" / "cwd" / "sess-id"
-    imported.parent.mkdir(parents=True)
-    imported.symlink_to(host)
+    real = tmp_path / "real-sess"
+    real.mkdir()
+    link = tmp_path / "link-sess"
+    link.symlink_to(real)
 
-    doc = NotesDoc(session_id=imported.name)
+    doc = NotesDoc(session_id=link.name)
     doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "linked"}, note_id="n-link"))
-    path = save_notes(imported, doc)
-    assert path == home / "notes" / "sess-id" / NOTES_FILENAME
-    assert path.is_file()
-    assert not (imported / NOTES_FILENAME).exists()
-    assert not (host / NOTES_FILENAME).exists()
-    loaded = load_notes(imported)
-    assert loaded.notes[0].fields["summary"] == "linked"
+    path = save_notes(link, doc)
+    assert path == home / "notes" / "link-sess" / NOTES_FILENAME
+    assert not (real / NOTES_FILENAME).exists()
 
 
 def test_prefer_newer_fallback(tmp_path: Path, monkeypatch) -> None:

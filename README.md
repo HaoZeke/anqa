@@ -57,7 +57,7 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `P` | Personas |
 | `d` | Rules (enable/disable detectors) |
 | `a` | Analyze selection |
-| `I` | Import a native Grok session from `~/.grok/sessions` into this work tree |
+| `H` | **Show host** / **Hide host** sessions (`~/.grok/sessions`; footer label flips) |
 | `E` | Export session bundle (tarball) |
 | `n` | Follow-up prompt (awaiting sessions; optional **last turn** in the modal) |
 | `e` | End session (Done) while awaiting — list shows **ending** until shutdown finishes |
@@ -68,9 +68,12 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `Ctrl+P` | Command palette (theme, tips, analysis, …) |
 | `q` | Quit |
 
-Columns include turn status (`running` / `awaiting` / `ending` / `complete`) and
-**context** fill from `signals.json` when present. Subagent session dirs are
-hidden so each eval is one row. Prefs live in `~/.groket/config.json`.
+Columns include **Src** (`Eval` = sessions groket launched under
+`work/runs/traces`, `Host` = native Grok under `~/.grok/sessions`), turn status
+(`running` / `awaiting` / `ending` / `complete`), and **context** fill from
+`signals.json` when present. Subagent session dirs are hidden so each eval is
+one row. Prefs live in `~/.groket/config.json` (`show_host_sessions` for the
+host catalog).
 
 ### Session browser
 
@@ -103,13 +106,13 @@ the local pasteboard.
 Multi-turn live bar: follow-up input, optional **Last turn**, `n` focus, `e` Done.
 `x` deletes (double-press). `Esc` back to the list.
 
-**Import Grok session** (`I` on the sessions list, or CLI
-``groket import-session PATH``): fuzzy-pick a native session from
-``~/.grok/sessions`` (title / project path / id) and copy (or symlink) it into
-``work/runs/traces/imported/…`` so it appears next to eval runs. The picker
-loads lightweight ``summary.json`` metadata only (not full session parse).
-You can also open the host tree read-only with ``groket -P ~/.grok/sessions``
-without importing.
+**Eval vs host sessions:** Docker launches always land under
+``work/runs/traces`` (**Eval** in the list). Press **`H`** (footer **Show host**
+/ **Hide host**) to also list native sessions from ``~/.grok/sessions`` at
+their real paths — no copy into the work tree. ``groket -P ~/.grok/sessions``
+browses that tree while keeping the default work root for new runs. Operator
+notes on host sessions write under ``~/.groket/notes/<session_id>/`` so the
+live Grok tree stays clean.
 
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks
@@ -134,9 +137,9 @@ tarball under `~/.groket/reports/` containing:
   fields by default; optional `choices` plus `pick = "one-of"` (dropdown) or
   `"many"` (multi-select). **Authoring is TUI-only**: `N` creates a note; `O` /
   palette edit or delete (Delete in the edit modal). Batch does not write notes.
-  Works on eval runs and on imported host sessions (`I` / `import-session`);
-  linked imports (`--link`) store notes under `~/.groket/notes/` so
-  `~/.grok/sessions` stays untouched. Export includes notes when present.
+  Works on Docker work sessions and host Grok sessions (`H` / host catalog);
+  host notes store under `~/.groket/notes/` so `~/.grok/sessions` stays
+  untouched. Export includes notes when present.
   Deferred **LLM analysis** plugins include notes in the review prompt
   (evaluator focus areas); note edits invalidate the analysis cache for that
   session.
@@ -227,17 +230,14 @@ Env key/value editing and Grok marketplace plugins/skills/MCP are supported.
 | `groket gen …` | Scaffold detectors, rules, analysis plugins, tasks under `~/.groket/` |
 | `groket batch …` | Headless Docker runs from a task YAML catalog |
 | `groket rules …` | Validate rules / composites YAML |
-| `groket import-session PATH` | Copy (or `--link`) a `~/.grok/sessions/…` dir into `work/runs/traces/imported/` |
-
 ```bash
 groket self-test
 groket gen detector my_check
 groket rules validate examples/detection/minimal/rules/demo_rule.yaml
 groket batch validate examples/tasks/demo_tasks.yaml
 groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
-# Import a host Grok session so it appears in the default TUI work tree:
-groket import-session ~/.grok/sessions/%2Fpath%2Fto%2Fcwd/<session-id>
-groket import-session --link -P ~/.groket/work ~/.grok/sessions/…/<session-id>
+# Browse host Grok sessions (default work root still used for Docker launches):
+groket -P ~/.grok/sessions
 ```
 
 Schemas (editors / Pages):

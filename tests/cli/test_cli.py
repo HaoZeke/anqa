@@ -27,39 +27,7 @@ def test_help_lists_main_commands() -> None:
 
 
 def test_tool_commands() -> None:
-    assert TOOL_COMMANDS == frozenset(
-        {"gen", "generator", "self-test", "batch", "rules", "import-session"}
-    )
-
-
-def test_import_session_cli(tmp_path: Path) -> None:
-    """``groket import-session`` copies into work/runs/traces/imported/."""
-    import json
-
-    work = tmp_path / "work"
-    host = tmp_path / "host"
-    cwd_token = "%2Fproj"
-    sid = "019f-cli-import"
-    sess = host / cwd_token / sid
-    sess.mkdir(parents=True)
-    (sess / "summary.json").write_text(
-        json.dumps({"session_id": sid, "title": "CLI"}),
-        encoding="utf-8",
-    )
-    (sess / "events.jsonl").write_text("{}\n", encoding="utf-8")
-
-    result = runner.invoke(
-        app,
-        ["import-session", str(sess), "-P", str(work)],
-    )
-    assert result.exit_code == 0, result.output
-    out = result.stdout or result.output or ""
-    assert "copied" in out
-    assert sid in out
-    dest = work / "runs" / "traces" / "imported" / cwd_token / sid
-    assert dest.is_dir()
-    assert (dest / "summary.json").is_file()
-    assert (dest / "groket-import.json").is_file()
+    assert TOOL_COMMANDS == frozenset({"gen", "generator", "self-test", "batch", "rules"})
 
 
 class TestSelfTestCommand:

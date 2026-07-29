@@ -89,6 +89,17 @@ class TestResolveWorkAndTraces:
         wd, tr = resolve_work_and_traces(tmp_path)
         assert tr == (tmp_path / "traces").resolve()
 
+    def test_host_grok_sessions_keeps_default_work(self, tmp_path, monkeypatch):
+        host = tmp_path / ".grok" / "sessions"
+        host.mkdir(parents=True)
+        work = tmp_path / "default-work"
+        work.mkdir()
+        monkeypatch.setattr("groket.paths.DEFAULT_WORK_DIR", work)
+        monkeypatch.setattr("groket.paths.default_work_dir", lambda: work)
+        wd, tr = resolve_work_and_traces(host)
+        assert tr == host.resolve()
+        assert wd == work.resolve()
+
 
 class TestAppHome:
     def test_app_home_creates_dir(self, tmp_path, monkeypatch):

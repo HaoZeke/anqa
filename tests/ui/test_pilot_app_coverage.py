@@ -26,10 +26,10 @@ from .pilot_helpers import wait_until
 
 
 def _session_paths_banner_text(work_dir: Path, traces_root: Path) -> str:
-    """Exact markup string the sessions-home banner must show (same as app)."""
-    _ = work_dir
-    traces = Path(traces_root).expanduser()
-    return f"[dim]Traces[/dim]  {traces}"
+    """Exact markup string the sessions-home banner must show (work catalog)."""
+    _ = traces_root
+    work = Path(work_dir).expanduser() / "runs" / "traces"
+    return f"[dim]Eval[/dim]  {work}"
 
 
 def _write_session(
@@ -257,8 +257,8 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
         expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
         assert banner.content == expected
         # Labels resolve (not Fluent message ids) and paths are the live roots.
-        assert "Traces" in expected
-        assert str(app._session_traces_root()) in expected
+        assert "Eval" in expected
+        assert str(app._runner_traces_root()) in expected
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
         )
@@ -1002,13 +1002,17 @@ async def test_meta_cache_round_trip(tmp_path: Path) -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
         # Cache should have been saved during load
-        cache = app._load_meta_cache(traces)
+        cache = app._load_meta_cache()
         assert len(cache) >= 2
 
-        # Loading with a different root invalidates
-        other_root = tmp_path / "other"
-        other_root.mkdir()
-        assert app._load_meta_cache(other_root) == {}
+        # Changing the catalog roots key invalidates (host pref flips the key)
+        from groket.ui.prefs import set_show_host_sessions
+
+        set_show_host_sessions(True)
+        try:
+            assert app._load_meta_cache() == {}
+        finally:
+            set_show_host_sessions(False)
 
 
 @pytest.mark.asyncio
@@ -1948,7 +1952,7 @@ async def test_meta_cache_corrupt_file(tmp_path: Path) -> None:
     app, work, traces = _make_app(tmp_path, n_sessions=0)
     cache_file = work / app._CACHE_FILE
     cache_file.write_text("not json", encoding="utf-8")
-    result = app._load_meta_cache(traces)
+    result = app._load_meta_cache()
     assert result == {}
 
 

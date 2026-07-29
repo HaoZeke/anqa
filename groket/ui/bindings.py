@@ -83,8 +83,8 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("a", "analyze", U.bind_analyze(), show=False),
     _b("d", "open_rules", U.bind_rules(), show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), show=False),
-    _b("I", "import_session", U.bind_import_session(), show=True),
-    # Multi-turn: n = next prompt, e = end session (not Ctrl+Enter).
+    _b("H", "show_host_sessions", U.bind_show_host(), show=True),
+    _b("H", "hide_host_sessions", U.bind_hide_host(), show=True),
     _b("n", "follow_up_sessions", U.bind_next_prompt(), show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), show=True),
 )
@@ -117,7 +117,8 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "analyze",
         "open_rules",
         "export_session_bundle",
-        "import_session",
+        "show_host_sessions",
+        "hide_host_sessions",
         "follow_up_sessions",
         "mark_sessions_done",
     }

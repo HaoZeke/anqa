@@ -501,6 +501,8 @@ class SessionMeta:
     git_commit: str = ""
     task_id: str = ""
     run_id: str = ""
+    # Catalog origin: ``work`` (Docker/eval under work traces) or ``host`` (native Grok).
+    origin: str = "work"
     # From events.jsonl runtime telemetry
     # success | error | cancelled | interrupted | running | ""
     turn_outcome: str = ""

@@ -16,7 +16,7 @@ s select · S select all · x delete (twice)
 R re-run recipe · f fork ended session (new multi-turn)
 Ctrl+S save row as a recipe
 E              export highlighted/selected session tarball
-I              import host session (fuzzy list under ~/.grok/sessions)
+H              show host sessions (~/.grok/sessions); again to hide
 
 [bold]Session browser[/bold]
 [ ] or 1–5     panes (timeline, summary, diff, findings, report)

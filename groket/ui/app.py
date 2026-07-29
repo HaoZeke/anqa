@@ -264,6 +264,7 @@ def _session_search_haystack(meta: SessionMeta, label: str) -> str:
         meta.model_display or "",
         (meta.label or "")[:80],
         label or "",
+        meta.origin or "",
         meta.task_id or "",
         meta.git_repo or "",
         (meta.summary_text or "")[:120],
@@ -378,6 +379,11 @@ class TraceEvalApp(App):
         self._self_test_summary: str = ""
         self._meta_only: list[tuple[SessionMeta, str]] = []
         self._plugin_results: dict[str, dict[str, AnalysisResult]] = {}
+        # Bumps when a sessions catalog load starts; stale workers skip applying.
+        self._sessions_load_gen: int = 0
+        self._sessions_catalog_busy: bool = False
+        self._sessions_reload_timer: Timer | None = None
+        self._pending_include_host: bool | None = None
         self._selected: set[str] = set()
         self._filter_model: str = ""
         self._session_search: str = ""
@@ -425,14 +431,22 @@ class TraceEvalApp(App):
         return Path(self.work_dir).expanduser() / "runs" / "traces"
 
     def _update_session_paths_banner(self) -> None:
-        """Read-only traces root (sessions live here; not the process cwd)."""
+        """Work traces always; host Grok sessions when the pref is on."""
         try:
             banner = self.query_one("#session-paths", Static)
         except Exception:
             return
-        traces = self._session_traces_root()
-        # Fluent strips trailing spaces in labels — join with explicit separators.
-        banner.update(f"[dim]Traces[/dim]  {traces}")
+        from .prefs import show_host_sessions_enabled
+
+        work = self._runner_traces_root()
+        # Rich markup stays in Python (Fluent treats [...] as variants).
+        if show_host_sessions_enabled():
+            from ..session.sources import host_grok_sessions_root
+
+            host = host_grok_sessions_root()
+            banner.update(f"[dim]Eval[/dim]  {work}  ·  [dim]Host[/dim]  {host}")
+        else:
+            banner.update(f"[dim]Eval[/dim]  {work}")
 
     def _load_config(self) -> JsonObject:
         """Load ``~/.groket/config.json`` (empty mapping when missing or invalid)."""
@@ -551,6 +565,7 @@ class TraceEvalApp(App):
         style_data_table(table)
         table.add_columns(
             " ",
+            t("ui-origin"),
             t("ui-session-id"),
             t("ui-model"),
             t("ui-task"),
@@ -582,42 +597,45 @@ class TraceEvalApp(App):
         except Exception:
             pass
         self._update_session_paths_banner()
-        load_p = self._session_traces_root()
-        if load_p.exists():
-            self._load_sessions(load_p)
-        else:
-            self.notify(
-                t(
-                    "notify-traces-path-pending",
-                    path=str(self.work_dir / "runs" / "traces"),
-                ),
-                severity="information",
-                timeout=6,
-            )
+        work = self._runner_traces_root()
+        try:
+            work.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        self._load_sessions(include_host=None)
         table.focus()
         self._schedule_live_sessions_poll()
 
     _CACHE_FILE = META_CACHE_FILENAME
 
-    def _load_meta_cache(self, root: Path) -> dict[str, dict]:
+    def _session_catalog_roots(self):
+        """Work traces always; host Grok tree when the pref (or CLI host path) says so."""
+        return self._catalog_roots_for_load(include_host=None)
+
+    def _cache_roots_key(self) -> str:
+        parts = [f"{r.origin}:{r.path}" for r in self._session_catalog_roots()]
+        return "|".join(parts)
+
+    def _load_meta_cache(self) -> dict[str, dict]:
         """Load cached session metadata keyed by resolved session_dir path."""
         cache_file = self.work_dir / self._CACHE_FILE
         if not cache_file.exists():
             return {}
         try:
             data = json.loads(cache_file.read_text())
-            if data.get("root") != str(root):
+            if data.get("roots") != self._cache_roots_key():
                 return {}
-            return data.get("sessions", {})
-        except (json.JSONDecodeError, KeyError):
+            raw = data.get("sessions", {})
+            return raw if isinstance(raw, dict) else {}
+        except (json.JSONDecodeError, KeyError, TypeError):
             return {}
 
-    def _save_meta_cache(self, root: Path, entries: list[tuple[SessionMeta, str]]) -> None:
+    def _save_meta_cache(self, entries: list[tuple[SessionMeta, str]]) -> None:
         """Write session metadata cache to disk."""
         from ..parser import session_trace_mtime
 
         sessions_cache: dict[str, JsonValue] = {}
-        cache: JsonObject = {"root": str(root), "sessions": sessions_cache}
+        cache: JsonObject = {"roots": self._cache_roots_key(), "sessions": sessions_cache}
         for meta, label in entries:
             key = str(meta.session_dir.resolve())
             try:
@@ -640,6 +658,7 @@ class TraceEvalApp(App):
                 "total_tokens_before_compaction": meta.total_tokens_before_compaction,
                 "task_id": meta.task_id,
                 "run_id": meta.run_id,
+                "origin": meta.origin,
                 "git_repo": meta.git_repo,
                 "git_branch": meta.git_branch,
                 "label": label,
@@ -649,145 +668,86 @@ class TraceEvalApp(App):
         except Exception:
             pass
 
-    def _load_sessions_sync(self, root: Path) -> int:
-        """Load session metas into ``_meta_only`` (any thread; no UI calls).
+    def _label_for_session(self, session_dir: Path, origin: str) -> str:
+        """Display path fragment relative to the catalog root for *origin*."""
+        from ..session.sources import ORIGIN_HOST, host_grok_sessions_root, work_traces_root
 
-        Avoids parsing every ``updates.jsonl`` on launch when a mtime-matching
-        ``num_events`` is already in the meta cache (still coalesced timeline
-        counts — not file-size estimates). Cache misses get a deferred
-        :func:`~groket.parser.parse_timeline` pass so the UI can paint first.
-
-        :returns: Number of sessions loaded (0 if none found — leaves prior list untouched).
-        """
-        from ..parser import parse_timeline, session_trace_mtime
-
-        session_dirs = find_sessions(root)
-        if not session_dirs:
-            if root.is_dir():
-                for sub in sorted(root.iterdir()):
-                    if sub.is_dir():
-                        session_dirs.extend(find_sessions(sub))
-        if not session_dirs:
-            return 0
-        self._meta_only = []
-        self._plugin_results = {}
-        seen_dirs: set[str] = set()
-        unique_dirs: list[Path] = []
-        for sd in session_dirs:
-            resolved = str(sd.resolve())
-            if resolved not in seen_dirs:
-                seen_dirs.add(resolved)
-                unique_dirs.append(sd)
-
-        cache = self._load_meta_cache(root)
-        need_timeline_count: list[int] = []  # indices into _meta_only
-
-        def _load_one(sd: Path) -> tuple[SessionMeta, str, bool] | None:
-            """Return meta, label, and whether timeline count still needed."""
-            try:
-                key = str(sd.resolve())
-            except OSError:
-                key = str(sd)
-            try:
-                mtime = float(session_trace_mtime(sd))
-            except Exception:
-                mtime = 0.0
-            cached = cache.get(key) if isinstance(cache.get(key), dict) else None
-            cached_n = None
-            if isinstance(cached, dict):
-                try:
-                    if float(cached.get("trace_mtime") or -1) == mtime:
-                        ne = cached.get("num_events")
-                        cached_n = int(ne) if ne is not None else None
-                        if cached_n is None:
-                            raise ValueError("missing num_events")
-
-                except (TypeError, ValueError):
-                    cached_n = None
-            try:
-                if cached_n is not None:
-                    meta = load_session_meta(
-                        sd, include_timeline_count=False, timeline_count=cached_n
-                    )
-                    need_count = False
-                else:
-                    # Fast path for list paint — fill coalesced counts after.
-                    meta = load_session_meta(sd, include_timeline_count=False)
-                    need_count = True
-            except Exception:
-                logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
-                return None
-            label = self._derive_label(sd, root)
-            return (meta, label, need_count)
-
-        # One session at a time — no thread pool (parallel meta load pegged CPUs on launch).
-        for sd in unique_dirs:
-            result = _load_one(sd)
-            if result is None:
-                continue
-            meta, label, need_count = result
-            self._meta_only.append((meta, label))
-            if need_count:
-                need_timeline_count.append(len(self._meta_only) - 1)
-
-        # Coalesced event counts for cache misses (still sequential).
-        for idx in need_timeline_count:
-            meta, label = self._meta_only[idx]
-            try:
-                meta.num_events = len(parse_timeline(Path(meta.session_dir)))
-            except Exception:
-                meta.num_events = 0
-            self._meta_only[idx] = (meta, label)
-
-        self._save_meta_cache(root, self._meta_only)
-        return len(self._meta_only)
-
-    @work(thread=True)
-    def _load_sessions(self, root: Path | None = None) -> None:
-        if root is None:
-            return
-        call_ui(
-            self,
-            self.notify,
-            t("notify-scanning", path=str(root)),
-            severity="information",
+        root = (
+            host_grok_sessions_root() if origin == ORIGIN_HOST else work_traces_root(self.work_dir)
         )
-        # Two-phase: paint list as soon as light metas are ready, then fill
-        # coalesced event counts for cache misses without blocking first paint.
-        from ..parser import parse_timeline, session_trace_mtime
+        return self._derive_label(session_dir, root)
 
-        session_dirs = find_sessions(root)
-        if not session_dirs and root.is_dir():
-            for sub in sorted(root.iterdir()):
-                if sub.is_dir():
-                    session_dirs.extend(find_sessions(sub))
-        if not session_dirs:
-            call_ui(
-                self,
-                self.notify,
-                t("notify-no-sessions", path=str(root)),
-                severity="error",
-            )
+    def _begin_sessions_load(self) -> int:
+        """Mark a new catalog load; return generation for stale-worker checks."""
+        self._sessions_load_gen += 1
+        self._sessions_catalog_busy = True
+        return self._sessions_load_gen
+
+    def _sessions_load_current(self, gen: int) -> bool:
+        return gen == self._sessions_load_gen
+
+    def _finish_sessions_load(self, gen: int) -> None:
+        """Clear the catalog-loading flag when *gen* is still the active load."""
+        if self._sessions_load_current(gen):
+            self._sessions_catalog_busy = False
+
+    def _schedule_sessions_reload(self, *, delay: float = 0.15) -> None:
+        """Debounce catalog reloads; snapshot host-pref for the pending fire."""
+        if self._sessions_reload_timer is not None:
+            with suppress(Exception):
+                self._sessions_reload_timer.stop()
+            self._sessions_reload_timer = None
+        from .prefs import show_host_sessions_enabled
+
+        self._pending_include_host = show_host_sessions_enabled()
+        self._sessions_reload_timer = self.set_timer(delay, self._fire_sessions_reload)
+
+    def _fire_sessions_reload(self) -> None:
+        self._sessions_reload_timer = None
+        if self._exiting:
             return
+        include_host = self._pending_include_host
+        if include_host is None:
+            from .prefs import show_host_sessions_enabled
 
-        cache = self._load_meta_cache(root)
-        seen: set[str] = set()
-        unique: list[Path] = []
-        for sd in session_dirs:
-            try:
-                key = str(sd.resolve())
-            except OSError:
-                key = str(sd)
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(sd)
+            include_host = show_host_sessions_enabled()
+        self._load_sessions(include_host=bool(include_host))
 
-        self._meta_only = []
-        self._plugin_results = {}
+    def _drop_host_session_rows(self) -> None:
+        """Drop host-origin rows without waiting for a full rescan."""
+        from ..session.sources import ORIGIN_HOST, ORIGIN_WORK
+
+        kept = [
+            (m, lab)
+            for m, lab in self._meta_only
+            if (m.origin or ORIGIN_WORK).strip().lower() != ORIGIN_HOST
+        ]
+        if len(kept) == len(self._meta_only):
+            return
+        self._meta_only = kept
+        with suppress(Exception):
+            self._rebuild_session_filters()
+            self._populate_session_table(force=True)
+
+    def _build_session_meta_rows(
+        self,
+        unique: list[tuple[Path, str]],
+        cache: dict[str, dict],
+        *,
+        gen: int | None = None,
+    ) -> tuple[list[tuple[SessionMeta, str]], list[int]]:
+        """Build list metas for *unique* dirs; host rows skip events parse.
+
+        :returns: ``(rows, need_timeline_indices)`` for eval rows only.
+        """
+        from ..parser import load_session_meta_list, session_trace_mtime
+        from ..session.sources import ORIGIN_HOST
+
+        rows: list[tuple[SessionMeta, str]] = []
         need_idx: list[int] = []
-
-        for sd in unique:
+        for sd, origin in unique:
+            if gen is not None and not self._sessions_load_current(gen):
+                return rows, need_idx
             try:
                 key = str(sd.resolve())
             except OSError:
@@ -798,52 +758,179 @@ class TraceEvalApp(App):
                 mtime = 0.0
             cached = cache.get(key) if isinstance(cache.get(key), dict) else None
             cached_n: int | None = None
-            if isinstance(cached, dict):
+            if isinstance(cached, dict) and origin != ORIGIN_HOST:
                 try:
                     if float(cached.get("trace_mtime") or -1) == mtime:
-                        cached_n = int(cached["num_events"])
-
+                        ne = cached.get("num_events")
+                        cached_n = int(ne) if ne is not None else None
+                        if cached_n is None:
+                            raise ValueError("missing num_events")
                 except (TypeError, ValueError, KeyError):
                     cached_n = None
             try:
+                meta = load_session_meta_list(sd, origin=origin)
                 if cached_n is not None:
-                    meta = load_session_meta(
-                        sd, include_timeline_count=False, timeline_count=cached_n
-                    )
+                    meta.num_events = cached_n
+                    need_count = False
                 else:
-                    meta = load_session_meta(sd, include_timeline_count=False)
-                    need_idx.append(len(self._meta_only))
+                    need_count = origin != ORIGIN_HOST
             except Exception:
                 logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
                 continue
-            label = self._derive_label(sd, root)
-            self._meta_only.append((meta, label))
+            meta.origin = origin
+            label = self._label_for_session(sd, origin)
+            rows.append((meta, label))
+            if need_count:
+                need_idx.append(len(rows) - 1)
+        return rows, need_idx
 
-        n = len(self._meta_only)
-        call_ui(self, self._rebuild_session_filters)
-        call_ui(self, self._populate_session_table, force=True)
-        call_ui(
-            self,
-            self.notify,
-            t("notify-loaded-sessions", n=n),
-            severity="information",
-        )
+    @staticmethod
+    def _fill_timeline_counts(rows: list[tuple[SessionMeta, str]], need_idx: list[int]) -> bool:
+        """Set ``num_events`` on *rows* at *need_idx* via parse_timeline. Returns if any updated."""
+        from ..parser import parse_timeline
+        from ..session.sources import ORIGIN_HOST
 
-        # Coalesced timeline counts (correct, not size estimates) — one at a time.
         updated = False
         for idx in need_idx:
-            meta, label = self._meta_only[idx]
+            if idx < 0 or idx >= len(rows):
+                continue
+            meta, label = rows[idx]
+            if (meta.origin or "").strip().lower() == ORIGIN_HOST:
+                continue
             try:
                 meta.num_events = len(parse_timeline(Path(meta.session_dir)))
             except Exception:
                 meta.num_events = 0
-            self._meta_only[idx] = (meta, label)
+            rows[idx] = (meta, label)
             updated = True
-        if updated:
-            self._save_meta_cache(root, self._meta_only)
+        return updated
+
+    def _apply_session_meta_rows(
+        self, gen: int, rows: list[tuple[SessionMeta, str]], *, clear_plugins: bool = True
+    ) -> bool:
+        """Install *rows* if *gen* is still current. Returns False when superseded."""
+        if not self._sessions_load_current(gen):
+            return False
+        self._meta_only = rows
+        if clear_plugins:
+            self._plugin_results = {}
+        return True
+
+    def _load_sessions_sync(self, root: Path | None = None) -> int:
+        """Load session metas into ``_meta_only`` (any thread; no UI calls).
+
+        Avoids parsing every ``updates.jsonl`` on launch when a mtime-matching
+        ``num_events`` is already in the meta cache (still coalesced timeline
+        counts — not file-size estimates). Cache misses get a deferred
+        :func:`~groket.parser.parse_timeline` pass so the UI can paint first.
+
+        *root* is ignored (catalog roots come from work + optional host).
+
+        :returns: Number of sessions loaded (0 if none found after a full scan).
+        """
+        _ = root
+        from ..session.sources import collect_session_dirs
+
+        gen = self._begin_sessions_load()
+        try:
+            unique = collect_session_dirs(self._session_catalog_roots())
+            if not unique:
+                if self._apply_session_meta_rows(gen, []):
+                    self._save_meta_cache([])
+                return 0
+            cache = self._load_meta_cache()
+            rows, need_idx = self._build_session_meta_rows(unique, cache, gen=gen)
+            if not self._sessions_load_current(gen):
+                return 0
+            # List paint first; work event counts optional for sync path.
+            if not self._apply_session_meta_rows(gen, rows):
+                return 0
+            self._fill_timeline_counts(rows, need_idx)
+            if self._sessions_load_current(gen):
+                self._save_meta_cache(rows)
+            return len(rows)
+        finally:
+            self._finish_sessions_load(gen)
+
+    def _catalog_roots_for_load(self, *, include_host: bool | None = None):
+        """Build scan roots; *include_host* overrides the pref when set (toggle path)."""
+        from ..session.sources import is_host_grok_sessions_root, session_scan_roots
+        from .prefs import show_host_sessions_enabled
+
+        if include_host is None:
+            include_host = show_host_sessions_enabled()
+        traces = self.traces_path
+        if traces is not None and is_host_grok_sessions_root(Path(traces)):
+            include_host = True
+        return session_scan_roots(
+            self.work_dir,
+            traces_path=Path(traces) if traces is not None else None,
+            include_host=bool(include_host),
+        )
+
+    @work(thread=True, exclusive=True, group="sessions-catalog")
+    def _load_sessions(
+        self,
+        root: Path | None = None,
+        *,
+        include_host: bool | None = None,
+    ) -> None:
+        """Scan eval (+ optional host) roots and replace the sessions list."""
+        _ = root
+        gen = self._begin_sessions_load()
+        roots = self._catalog_roots_for_load(include_host=include_host)
+        scan_desc = ", ".join(str(r.path) for r in roots)
+        try:
+            call_ui(
+                self,
+                self.notify,
+                t("notify-scanning", path=scan_desc),
+                severity="information",
+            )
+            from ..session.sources import collect_session_dirs
+
+            unique = collect_session_dirs(roots)
+            if not self._sessions_load_current(gen):
+                return
+            if not unique:
+                if self._apply_session_meta_rows(gen, []):
+                    self._save_meta_cache([])
+                    call_ui(self, self._rebuild_session_filters)
+                    call_ui(self, self._populate_session_table, force=True)
+                    call_ui(
+                        self,
+                        self.notify,
+                        t("notify-no-sessions", path=scan_desc),
+                        severity="warning",
+                    )
+                return
+
+            cache = self._load_meta_cache()
+            rows, need_idx = self._build_session_meta_rows(unique, cache, gen=gen)
+            if not self._sessions_load_current(gen):
+                return
+            if not self._apply_session_meta_rows(gen, rows):
+                return
+            n = len(rows)
+            call_ui(self, self._rebuild_session_filters)
             call_ui(self, self._populate_session_table, force=True)
-        else:
-            self._save_meta_cache(root, self._meta_only)
+            call_ui(
+                self,
+                self.notify,
+                t("notify-loaded-sessions", n=n),
+                severity="information",
+            )
+
+            if need_idx and self._sessions_load_current(gen):
+                if self._fill_timeline_counts(rows, need_idx) and self._sessions_load_current(gen):
+                    self._save_meta_cache(rows)
+                    call_ui(self, self._populate_session_table, force=True)
+                elif self._sessions_load_current(gen):
+                    self._save_meta_cache(rows)
+            elif self._sessions_load_current(gen):
+                self._save_meta_cache(rows)
+        finally:
+            call_ui(self, self._finish_sessions_load, gen)
 
     def _analysis_svc(self) -> AnalysisService:
         return get_analysis_service(self.work_dir)
@@ -1191,9 +1278,18 @@ class TraceEvalApp(App):
                     style=status_rich_style("idle"),
                 )
             try:
+                from ..session.sources import ORIGIN_HOST
+
                 ctx = meta.context_usage_compact or "—"
+                origin = (meta.origin or "work").strip().lower()
+                origin_text = (
+                    Text(t("ui-origin-host"), style="magenta")
+                    if origin == ORIGIN_HOST
+                    else Text(t("ui-origin-work"), style="dim")
+                )
                 table.add_row(
                     sel,
+                    origin_text,
                     meta.session_id[:20],
                     meta.model_display[:40],
                     task_text,
@@ -1726,8 +1822,8 @@ class TraceEvalApp(App):
     ) -> bool | None:
         """Gate session-home bindings so they do not leak into pushed-screen footers.
 
-        ``n`` / ``e`` also require an awaiting multi-turn target on the home list.
-        Priority launch (Ctrl+Enter / Ctrl+J) only while the runner is open.
+        ``n`` / ``e`` need an awaiting multi-turn target. ``H`` is two actions
+        (show / hide host); only the matching one is enabled.
         """
         if action == "launch_from_runner":
             return self._runner_active()
@@ -1735,6 +1831,14 @@ class TraceEvalApp(App):
             return False
         if action in ("follow_up_sessions", "mark_sessions_done"):
             return bool(self._awaiting_session_targets())
+        if action == "show_host_sessions":
+            from .prefs import show_host_sessions_enabled
+
+            return not show_host_sessions_enabled()
+        if action == "hide_host_sessions":
+            from .prefs import show_host_sessions_enabled
+
+            return show_host_sessions_enabled()
         return True
 
     def action_launch_from_runner(self) -> None:
@@ -2025,56 +2129,34 @@ class TraceEvalApp(App):
             return
         self._do_export_session_bundle(meta)
 
-    def action_import_session(self) -> None:
-        """Import a native Grok session from ``~/.grok/sessions`` into this work tree.
+    def _set_host_sessions_visible(self, on: bool) -> None:
+        """Turn host catalog on or off; update footer via check_action + refresh_bindings."""
+        from .prefs import set_show_host_sessions, show_host_sessions_enabled
 
-        Opens the picker immediately; host session listing runs in a worker
-        inside the modal (cheap summary.json pass, not full load_session_meta).
-        """
-        from .import_session_modal import ImportSessionModal
-
-        def _done(result: tuple[str, bool] | None) -> None:
-            if not result:
-                return
-            path_raw, link = result
-            self._do_import_session(path_raw, link=link)
-
-        self.push_screen(ImportSessionModal(), _done)
-
-    @work(thread=True)
-    def _do_import_session(self, path_raw: str, *, link: bool = False) -> None:
-        from ..session.import_session import import_session
-
-        try:
-            result = import_session(
-                Path(path_raw),
-                traces_root=self._session_traces_root(),
-                link=link,
-                force=False,
-            )
-        except Exception as exc:
-            call_ui(
-                self,
-                self.notify,
-                t("import-session-failed", exc=str(exc)),
-                severity="error",
-            )
+        on = bool(on)
+        if show_host_sessions_enabled() is on:
+            self.refresh_bindings()
             return
+        set_show_host_sessions(on)
+        self._config["show_host_sessions"] = on
+        self._update_session_paths_banner()
+        self.refresh_bindings()
+        self.notify(
+            t("notify-host-sessions-on") if on else t("notify-host-sessions-off"),
+            severity="information",
+            timeout=4,
+        )
+        if not on:
+            self._drop_host_session_rows()
+        self._schedule_sessions_reload()
 
-        def _ui() -> None:
-            self.notify(
-                t(
-                    "import-session-saved",
-                    session_id=result.session_id,
-                    path=str(result.dest),
-                ),
-                severity="information",
-                timeout=12,
-            )
-            # Reload list so the imported session appears.
-            self.action_refresh_context()
+    def action_show_host_sessions(self) -> None:
+        """``H`` when host is hidden — include ``~/.grok/sessions`` on the list."""
+        self._set_host_sessions_visible(True)
 
-        call_ui(self, _ui)
+    def action_hide_host_sessions(self) -> None:
+        """``H`` when host is shown — drop host rows from the list."""
+        self._set_host_sessions_visible(False)
 
     @work(thread=True)
     def _do_export_session_bundle(self, meta: SessionMeta | None = None) -> None:
@@ -2488,11 +2570,15 @@ class TraceEvalApp(App):
           ``updates.jsonl`` on the list poll.
         - New sessions only: ``load_session_meta`` once.
         - UI: one ``call_ui`` apply if anything actually changed — no share spam.
+        - Skip entirely while a catalog reload is in flight (toggle/F5 owns the list).
         """
         import time
 
         from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
         from ..parser import session_trace_mtime
+
+        if self._sessions_catalog_busy:
+            return
 
         now = time.time()
         active_n = int(self.run_manager.active_count or 0)
@@ -2587,7 +2673,8 @@ class TraceEvalApp(App):
                     meta = load_session_meta(sd_res)
                 except Exception:
                     continue
-                label = self._derive_label(sd_res, runner_traces)
+                meta.origin = "work"
+                label = self._label_for_session(sd_res, "work")
                 self._session_mtimes[key] = mtime
                 new_metas.append((key, meta, label))
                 continue
@@ -2628,7 +2715,8 @@ class TraceEvalApp(App):
                             if str(meta0.session_dir) == key:
                                 fresh.num_events = meta0.num_events
                                 break
-                    label = self._derive_label(sd_res, runner_traces)
+                    fresh.origin = "work"
+                    label = self._label_for_session(sd_res, "work")
                     new_metas.append((key, fresh, label))  # replace existing row in _apply
                 except Exception:
                     if outcome != prev_outcome.get(key):
@@ -2651,6 +2739,8 @@ class TraceEvalApp(App):
                 if idx_opt is not None:
                     # Known live row: replace meta (title / status / context).
                     prev_m, prev_lab = self._meta_only[idx_opt]
+                    if not (meta.origin or "").strip():
+                        meta.origin = prev_m.origin or "work"
                     if (
                         prev_m.title != meta.title
                         or prev_m.turn_outcome != meta.turn_outcome
@@ -2716,7 +2806,8 @@ class TraceEvalApp(App):
                 meta = load_session_meta(sd_res)
             except Exception:
                 continue
-            label = self._derive_label(sd_res, root)
+            meta.origin = "work"
+            label = self._label_for_session(sd_res, "work")
             self._meta_only.append((meta, label))
             existing.add(key)
             added = True
@@ -2835,19 +2926,11 @@ class TraceEvalApp(App):
                 severity="error",
                 timeout=12,
             )
-        from ..paths import traces_root_for_reload
-
-        traces = traces_root_for_reload(self.work_dir, self.traces_path)
-        runner_traces = self.work_dir / "runs" / "traces"
-        for candidate in (runner_traces, traces):
-            if candidate.exists():
-                try:
-                    self._load_sessions(candidate)
-                    self.traces_path = candidate
-                    self._update_session_paths_banner()
-                    break
-                except Exception:
-                    pass
+        try:
+            self._load_sessions()
+            self._update_session_paths_banner()
+        except Exception:
+            pass
 
     def action_open_rules(self) -> None:
         self.push_screen(RulesScreen())
@@ -2953,27 +3036,17 @@ class TraceEvalApp(App):
         self._refresh_sessions_list()
 
     def _refresh_sessions_list(self) -> None:
-        """Reload the sessions table from the fixed traces root."""
-        root = self._session_traces_root()
-        if not root.exists():
-            self.notify(t("notify-nothing-to-refresh", path=str(root)), severity="warning")
+        """Reload the sessions table from work traces (+ host when enabled).
+
+        Debounced + exclusive catalog worker — do not race populate here.
+        """
+        roots = self._session_catalog_roots()
+        desc = ", ".join(str(r.path) for r in roots)
+        if not any(r.path.exists() for r in roots):
+            self.notify(t("notify-nothing-to-refresh", path=desc), severity="warning")
             return
         self._update_session_paths_banner()
-        self.notify(
-            t("notify-refreshing-sessions", path=str(root)),
-            severity="information",
-            timeout=4,
-        )
-        self._load_sessions(root)
-        try:
-            self._populate_session_table()
-        except Exception:
-            pass
-        self.notify(
-            t("notify-refreshed-sessions", n=len(self._meta_only)),
-            severity="information",
-            timeout=5,
-        )
+        self._schedule_sessions_reload(delay=0.05)
 
     def action_open_session(self) -> None:
         """Open the highlighted session (same as Enter on sessions table)."""

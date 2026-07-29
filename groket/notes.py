@@ -4,8 +4,9 @@ Schema: ``~/.groket/notes_schema.toml`` (default fields: summary, detail).
 Optional per-field ``choices`` with ``pick`` = ``one-of`` | ``many`` for
 constrained values (dropdown / multi-select). Session file:
 ``<session_dir>/operator_notes.toml``, fallback under
-``~/.groket/notes/<session_id>/``. Symlinked session dirs (``import-session
---link``) always write the fallback so host ``~/.grok/sessions`` stays clean.
+``~/.groket/notes/<session_id>/``. Host Grok sessions under ``~/.grok/sessions``
+(and any symlinked session dir) always write the fallback so the live host
+tree stays clean.
 """
 
 from __future__ import annotations
@@ -412,20 +413,23 @@ def notes_mtime(session_dir: Path) -> float:
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     """Write *doc* beside the session; fall back under ``~/.groket/notes``.
 
-    Symlinked session dirs skip the primary path (linked host Grok sessions).
+    Host Grok sessions and symlinked session dirs skip the primary path so
+    ``~/.grok/sessions`` is not modified.
 
     :raises OSError: When both primary and fallback writes fail.
     """
+    from .session.sources import is_under_host_grok_sessions
+
     session_dir = Path(session_dir)
     if not doc.session_id:
         doc.session_id = session_dir.name
     text = dump_notes_toml(doc)
     primary, fallback = _notes_paths(session_dir)
     try:
-        linked = session_dir.is_symlink()
+        skip_primary = session_dir.is_symlink() or is_under_host_grok_sessions(session_dir)
     except OSError:
-        linked = False
-    if not linked:
+        skip_primary = False
+    if not skip_primary:
         try:
             _atomic_write(primary, text)
             return primary

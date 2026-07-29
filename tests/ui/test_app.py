@@ -133,9 +133,9 @@ def test_populate_session_table_shows_unanalyzed_rows(tmp_path: Path):
     host._populate_session_table_inner()
     assert len(rows_added) == 1
     cells, key = rows_added[0]
-    # findings column is index 9 (after sel, id, model, task, title, turn, dur, context, events)
-    assert str(cells[9]) == "--"
-    assert str(cells[7]) == "—"  # no context telemetry on this stub meta
+    # after sel, origin, id, model, task, title, turn, dur, context, events → findings
+    assert str(cells[10]) == "--"
+    assert str(cells[8]) == "—"  # no context telemetry on this stub meta
     assert key == str(meta.session_dir)
 
 
@@ -176,3 +176,131 @@ async def test_app_launch_empty_traces_notifies(tmp_path: Path):
         )
         table = app.query_one("#session-table", DataTable)
         assert table.row_count == 0
+
+
+def test_fill_timeline_counts_ignores_stale_indices(tmp_path: Path) -> None:
+    """Timeline fill must not IndexError when need_idx is out of range."""
+    from groket.models import SessionMeta
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    work.mkdir()
+    app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
+    meta = SessionMeta(session_id="s", session_dir=tmp_path / "s", origin="work")
+    rows = [(meta, "lab")]
+    # Out-of-range and valid indices — only valid apply.
+    assert TraceEvalApp._fill_timeline_counts(rows, [0, 99, -1]) is True
+    assert len(rows) == 1
+
+
+def test_fill_timeline_counts_skips_host_origin(tmp_path: Path) -> None:
+    """Host rows never trigger multi-MB parse_timeline on catalog load."""
+    from groket.models import SessionMeta
+    from groket.ui.app import TraceEvalApp
+
+    meta = SessionMeta(
+        session_id="h",
+        session_dir=tmp_path / "h",
+        origin="host",
+        num_events=0,
+        num_messages=12,
+    )
+    rows = [(meta, "lab")]
+    assert TraceEvalApp._fill_timeline_counts(rows, [0]) is False
+    assert rows[0][0].num_events == 0
+
+
+def test_sessions_load_gen_supersedes(tmp_path: Path) -> None:
+    """A newer catalog load must supersede an older apply."""
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    work.mkdir()
+    app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
+    g1 = app._begin_sessions_load()
+    g2 = app._begin_sessions_load()
+    assert g2 > g1
+    assert not app._sessions_load_current(g1)
+    assert app._sessions_load_current(g2)
+    from groket.models import SessionMeta
+
+    rows = [(SessionMeta(session_id="a", session_dir=tmp_path / "a"), "a")]
+    assert app._apply_session_meta_rows(g1, rows) is False
+    assert app._meta_only == []
+    assert app._apply_session_meta_rows(g2, rows) is True
+    assert len(app._meta_only) == 1
+
+
+def test_drop_host_session_rows(tmp_path: Path) -> None:
+    """Hiding host drops origin=host rows without waiting for a full rescan."""
+    from groket.models import SessionMeta
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    work.mkdir()
+    app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
+    app._meta_only = [
+        (SessionMeta(session_id="w", session_dir=tmp_path / "w", origin="work"), "w"),
+        (SessionMeta(session_id="h", session_dir=tmp_path / "h", origin="host"), "h"),
+    ]
+    app._drop_host_session_rows()
+    assert len(app._meta_only) == 1
+    assert app._meta_only[0][0].origin == "work"
+
+
+def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
+    """Empty catalog must clear a prior list (not leave arbitrary rows)."""
+    from groket.models import SessionMeta
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    work.mkdir()
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app._meta_only = [
+        (SessionMeta(session_id="stale", session_dir=tmp_path / "stale", origin="host"), "x"),
+    ]
+    n = app._load_sessions_sync()
+    assert n == 0
+    assert app._meta_only == []
+
+
+@pytest.mark.asyncio
+async def test_host_footer_label_flips_with_h(tmp_path: Path) -> None:
+    """H shows Show host or Hide host via check_action (not a stuck static label)."""
+    from groket.ui.app import TraceEvalApp
+    from groket.ui.i18n import t
+    from groket.ui.prefs import set_show_host_sessions, show_host_sessions_enabled
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    set_show_host_sessions(False)
+    app = TraceEvalApp(work_dir=work, traces_path=traces)
+
+    def _host_desc() -> str | None:
+        for _key, ab in app.active_bindings.items():
+            act = ab.binding.action
+            if act in (
+                "show_host_sessions",
+                "hide_host_sessions",
+                "app.show_host_sessions",
+                "app.hide_host_sessions",
+            ):
+                if getattr(ab, "enabled", True) is False:
+                    continue
+                return ab.binding.description
+        return None
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        assert _host_desc() == t("bind-show-host")
+        await pilot.press("H")
+        await pilot.pause()
+        assert show_host_sessions_enabled() is True
+        assert _host_desc() == t("bind-hide-host")
+        await pilot.press("H")
+        await pilot.pause()
+        assert show_host_sessions_enabled() is False
+        assert _host_desc() == t("bind-show-host")

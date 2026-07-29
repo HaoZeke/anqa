@@ -26,10 +26,10 @@ Existing schemas without `choices` keep working as free text.
 Notes are stored as `<session_dir>/operator_notes.toml` (fallback:
 `~/.groket/notes/<session_id>/operator_notes.toml`).
 
-Imported host sessions (`groket import-session`, or `I` in the TUI) support the
-same notes flow. With **`--link`**, the work-tree entry is a symlink into
-`~/.grok/sessions`; notes then write only under `~/.groket/notes/<session_id>/`
-so the live host session is not modified.
+Host Grok sessions (optional **Host** catalog / `H` on the sessions list) use
+the same notes flow; notes always write under
+`~/.groket/notes/<session_id>/` so the live `~/.grok/sessions` tree is not
+modified.
 
 ## TUI
 

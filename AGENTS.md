@@ -184,9 +184,12 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 | **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
-- TUI **Traces** banner = active traces root (not a second tree under the git checkout).
-- CLI path chooses what to load and, for a work root, where new runs go
-  (:func:`groket.paths.resolve_work_and_traces`).
+- TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
+  Docker). Optional **Host** catalog = ``~/.grok/sessions`` (``H`` / pref
+  ``show_host_sessions``); real host paths, no import re-home.
+- CLI path chooses work root / traces root and, for a work root, where new runs
+  go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
+  path keeps the default work root for launches.
 - Gitignored trees under a checkout (``/runs/``, ``/flags/``, ``/config.json``,
   ``/_meta_cache.json``) are **local leftovers**, not the install layout.
 
@@ -530,10 +533,12 @@ modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
 
 Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
 (§6.5a); ``n``/``e`` follow-up/Done when awaiting; ``x`` delete (double-press);
-``f`` flag; ``N``/``O`` notes; ``E`` export; ``I`` import (sessions home).
+``f`` flag; ``N``/``O`` notes; ``E`` export; ``H`` show/hide host sessions
+(sessions home).
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
-(double-press); ``a`` analyze; ``d`` rules; ``r``/``C``/``P`` runner/configs/personas.
+(double-press); ``a`` analyze; ``d`` rules; ``r``/``C``/``P`` runner/configs/personas;
+``H`` show or hide native ``~/.grok/sessions`` next to Docker work traces.
 
 ---
 

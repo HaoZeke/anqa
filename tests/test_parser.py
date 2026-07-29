@@ -2903,3 +2903,21 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
         e.event_type == "user_message_chunk" and "redis before/after" in (e.content or "")
         for e in last_with_redis.events
     )
+
+
+def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
+    """Host list meta must not require events.jsonl (catalog speed)."""
+    from groket.parser import load_session_meta_list
+
+    sd = tmp_path / "host-sess"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"session_id":"host-sess","generated_title":"Hello","num_messages":9}',
+        encoding="utf-8",
+    )
+    # No events.jsonl
+    meta = load_session_meta_list(sd, origin="host")
+    assert meta.origin == "host"
+    assert meta.title == "Hello"
+    assert meta.num_messages == 9
+    assert meta.num_events == 9  # proxy from messages

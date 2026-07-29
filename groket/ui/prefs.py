@@ -15,7 +15,7 @@ from .i18n import t
 
 logger = logging.getLogger(__name__)
 _CACHE: JsonObject | None = None
-_DEFAULTS: JsonObject = {"show_tips": True}
+_DEFAULTS: JsonObject = {"show_tips": True, "show_host_sessions": False}
 
 
 def _read_file() -> JsonObject:
@@ -81,3 +81,12 @@ def toggle_show_tips() -> bool:
     new = not show_tips_enabled()
     set_show_tips(new)
     return new
+
+
+def show_host_sessions_enabled() -> bool:
+    """Whether the sessions home list includes native ``~/.grok/sessions``."""
+    return bool(get_pref("show_host_sessions", False))
+
+
+def set_show_host_sessions(enabled: bool) -> None:
+    set_pref("show_host_sessions", bool(enabled))

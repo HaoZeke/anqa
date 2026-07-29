@@ -76,7 +76,7 @@ rules_app = typer.Typer(
 app.add_typer(rules_app, name="rules")
 
 # Subcommand names — must not be consumed as a TUI path positional.
-TOOL_COMMANDS = frozenset({"gen", "generator", "self-test", "batch", "rules", "import-session"})
+TOOL_COMMANDS = frozenset({"gen", "generator", "self-test", "batch", "rules"})
 COMMAND_ALIASES = {"generator": "gen"}
 
 
@@ -312,64 +312,6 @@ def cmd_rules_schema(
         typer.echo(text, nl=False)
     else:
         typer.echo(f"Wrote {out}")
-
-
-@app.command("import-session")
-def cmd_import_session(
-    source: Annotated[
-        Path,
-        typer.Argument(
-            help=(
-                "Path to a native Grok session directory under ~/.grok/sessions "
-                "(…/<session_id>/ with summary.json or events.jsonl)."
-            ),
-            exists=True,
-            file_okay=False,
-            dir_okay=True,
-            resolve_path=True,
-        ),
-    ],
-    path: Annotated[
-        Path | None,
-        typer.Option(
-            "-P",
-            "--path",
-            help="Work root (import lands under work/runs/traces/imported/).",
-            show_default=False,
-        ),
-    ] = None,
-    link: Annotated[
-        bool,
-        typer.Option(
-            "--link",
-            help="Symlink instead of copy (source must stay in place).",
-        ),
-    ] = False,
-    force: Annotated[
-        bool,
-        typer.Option(
-            "--force",
-            "-f",
-            help="Replace an existing import destination.",
-        ),
-    ] = False,
-) -> None:
-    """Copy or link a host Grok session into the work traces tree for the TUI."""
-    from .paths import resolve_work_and_traces
-    from .session.import_session import import_session
-
-    wd, tr = resolve_work_and_traces(path)
-    try:
-        result = import_session(source, traces_root=tr, link=link, force=force)
-    except (FileNotFoundError, ValueError, OSError) as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    mode = "linked" if result.linked else "copied"
-    typer.echo(f"import-session: {mode} {result.session_id}")
-    typer.echo(f"  source: {result.source}")
-    typer.echo(f"  dest:   {result.dest}")
-    typer.echo(f"  work:   {wd}")
-    typer.echo("Refresh the TUI (F5) or reopen to see the session in the list.")
 
 
 @app.command("self-test")

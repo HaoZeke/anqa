@@ -224,6 +224,15 @@ def resolve_work_and_traces(path: Path | str | None = None) -> tuple[Path, Path]
                 return parent.parent, parent
             return parent, parent
 
+        # Host Grok sessions tree: browse in place; runner still uses default work root.
+        if p.name == "sessions" and p.parent.name == ".grok":
+            wd = default_work_dir()
+            try:
+                wd = wd.resolve()
+            except OSError:
+                pass
+            return wd, p
+
         # Explicit directory path used as work root (opt-in via CLI), never implicit cwd
         return p, p / "runs" / "traces"
 

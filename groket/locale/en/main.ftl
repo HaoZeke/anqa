@@ -2778,27 +2778,18 @@ export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 path-input-empty = Enter a file path
 
-bind-import-session = Import session
+bind-show-host = Show host
+bind-hide-host = Hide host
 
-cmd-import-session = Import Grok session
-cmd-import-session-help = Fuzzy-pick a native ~/.grok session into this work traces tree
+cmd-show-host-sessions = Show host sessions
+cmd-show-host-sessions-help = Include native ~/.grok/sessions on the sessions list
+cmd-hide-host-sessions = Hide host sessions
+cmd-hide-host-sessions-help = Hide native ~/.grok/sessions from the sessions list
 
-import-session-title = Import Grok session
-import-session-hint = Type part of the title or project path (e.g. coredis, grok-trace-eval). Space-separated words all must match. Ctrl+S / Import on the highlighted row.
-import-session-search-placeholder = Title or project path…
-import-session-loading = Loading host sessions…
-import-session-load-failed = Could not list host sessions: { $msg }
-import-session-empty = No host sessions found under ~/.grok/sessions
-import-session-no-match = No sessions match the filter
-import-session-status-count = Showing { $shown } of { $total }
-import-session-col-title = Title
-import-session-col-cwd = Project
-import-session-col-when = When
-import-session-col-id = Id
-import-session-when-unknown = —
-import-session-import = Import
-import-session-saved = Imported session { $session_id } → { $path }
-import-session-failed = Import failed: { $exc }
-import-session-no-path = Select a session row to import
-import-session-link-label = Symlink (do not copy)
+ui-origin = Src
+ui-origin-work = Eval
+ui-origin-host = Host
+
+notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)
+notify-host-sessions-off = Host sessions hidden
 
