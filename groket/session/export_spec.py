@@ -172,6 +172,14 @@ def builtin_profiles() -> dict[str, ExportSpec]:
         include=frozenset(ARCHIVE_FULL_INCLUDE),
         renderer="markdown",
     )
+    archive_org = ExportSpec(
+        profile_id="archive-org",
+        name="Archive (Org mode reports)",
+        description=("Same units as archive-full; analysis human reports as Org mode (.org)."),
+        packaging=Packaging.TAR_GZ,
+        include=frozenset(ARCHIVE_FULL_INCLUDE),
+        renderer="org",
+    )
     trace = ExportSpec(
         profile_id="trace-only",
         name="Trace only",
@@ -180,7 +188,11 @@ def builtin_profiles() -> dict[str, ExportSpec]:
         include=frozenset(TRACE_ONLY_INCLUDE),
         renderer="markdown",
     )
-    return {archive.profile_id: archive, trace.profile_id: trace}
+    return {
+        archive.profile_id: archive,
+        archive_org.profile_id: archive_org,
+        trace.profile_id: trace,
+    }
 
 
 def _load_profile_yaml(path: Path) -> ExportSpec | None:

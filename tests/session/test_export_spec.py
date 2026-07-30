@@ -22,10 +22,15 @@ def test_builtin_archive_full_and_trace_only() -> None:
     profiles = list_export_profiles(profiles_dir=Path("/nonexistent-export-profiles"))
     assert DEFAULT_PROFILE_ID in profiles
     assert "trace-only" in profiles
+    assert "archive-org" in profiles
     full = profiles[DEFAULT_PROFILE_ID]
     assert full.packaging is Packaging.TAR_GZ
+    assert full.renderer == "markdown"
     assert IncludeUnit.GROK_TRACE in full.include
     assert IncludeUnit.ANALYSIS in full.include
+    org = profiles["archive-org"]
+    assert org.renderer == "org"
+    assert IncludeUnit.ANALYSIS_REPORTS in org.include
     trace = profiles["trace-only"]
     assert IncludeUnit.GROK_TRACE in trace.include
     assert IncludeUnit.ANALYSIS not in trace.include

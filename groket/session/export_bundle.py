@@ -34,6 +34,7 @@ from shutil import which
 from ..models import JsonObject, JsonValue, as_json_object, json_as_object
 from ..notes import collect_notes_for_export
 from ..paths import analysis_cache_dir, is_run_dir_name, reports_dir
+from .export_render import analysis_report_from_result, report_file_extension
 from .export_spec import (
     DEFAULT_PROFILE_ID,
     ExportSpec,
@@ -321,62 +322,8 @@ def _analysis_result_payload(raw: JsonValue) -> JsonObject | None:
 
 
 def _markdown_from_analysis_result(result: JsonObject, *, plugin_stem: str) -> str:
-    """Build a markdown report for one analysis result.
-
-    Prefers the plugin's ``artifacts["report"]`` string when present; otherwise
-    synthesises a short report from summary + findings.
-    """
-    artifacts = result.get("artifacts")
-    if isinstance(artifacts, dict):
-        report = artifacts.get("report")
-        if isinstance(report, str) and report.strip():
-            text = report if report.endswith("\n") else report + "\n"
-            return text
-
-    analyzer_id = str(result.get("analyzer_id") or plugin_stem or "analysis").strip()
-    title = f"# Analysis report — {analyzer_id}"
-    lines: list[str] = [title, ""]
-    ok = result.get("ok")
-    if ok is False:
-        lines.append("**Status:** failed")
-        err = str(result.get("error") or "").strip()
-        if err:
-            lines.append("")
-            lines.append(err)
-        lines.append("")
-    summary = str(result.get("summary") or "").strip()
-    if summary:
-        lines.extend(["## Summary", "", summary, ""])
-    findings = result.get("findings")
-    if isinstance(findings, list) and findings:
-        lines.extend(["## Findings", ""])
-        for i, item in enumerate(findings, start=1):
-            if not isinstance(item, dict):
-                continue
-            ftitle = str(item.get("title") or f"Finding {i}").strip()
-            sev = str(item.get("severity") or "").strip().upper()
-            head = f"### {i}. {ftitle}"
-            if sev:
-                head += f" ({sev})"
-            lines.append(head)
-            lines.append("")
-            detail = str(item.get("detail") or "").strip()
-            if detail:
-                lines.append(detail)
-                lines.append("")
-            category = str(item.get("category") or "").strip()
-            if category:
-                lines.append(f"- **Category:** {category}")
-            ev = item.get("event_indices")
-            if isinstance(ev, list) and ev:
-                bits = ", ".join(f"#{x}" for x in ev[:20])
-                lines.append(f"- **Evidence:** {bits}")
-            if category or (isinstance(ev, list) and ev):
-                lines.append("")
-    elif not summary and ok is not False:
-        lines.append("_No findings or report artifact for this analyzer._")
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    """Build a markdown analysis report (tests and markdown renderer path)."""
+    return analysis_report_from_result(result, plugin_stem=plugin_stem, renderer="markdown")
 
 
 def _load_analysis_cache_json(path: Path) -> JsonValue | None:
@@ -394,10 +341,15 @@ def _load_analysis_cache_json(path: Path) -> JsonValue | None:
     return data
 
 
-def _write_analysis_markdown_reports(analysis_dir: Path) -> None:
-    """Write ``*.md`` next to each analysis ``*.json`` cache file."""
+def _write_analysis_reports(
+    analysis_dir: Path,
+    *,
+    renderer: str,
+) -> None:
+    """Write human reports next to each analysis ``*.json`` (dialect from *renderer*)."""
     if not analysis_dir.is_dir():
         return
+    ext = report_file_extension(renderer)
     for path in sorted(analysis_dir.glob("*.json")):
         raw = _load_analysis_cache_json(path)
         if raw is None:
@@ -406,12 +358,12 @@ def _write_analysis_markdown_reports(analysis_dir: Path) -> None:
         if result is None:
             continue
         stem = _safe_report_stem(path.name)
-        md_path = analysis_dir / f"{stem}.md"
-        body = _markdown_from_analysis_result(result, plugin_stem=stem)
+        out_path = analysis_dir / f"{stem}{ext}"
+        body = analysis_report_from_result(result, plugin_stem=stem, renderer=renderer)
         try:
-            md_path.write_text(body, encoding="utf-8")
+            out_path.write_text(body, encoding="utf-8")
         except OSError:
-            logger.debug("failed to write analysis markdown %s", md_path, exc_info=True)
+            logger.debug("failed to write analysis report %s", out_path, exc_info=True)
 
 
 def _collect_analysis(
@@ -420,6 +372,7 @@ def _collect_analysis(
     cache_root: Path | None,
     *,
     write_reports: bool,
+    renderer: str,
 ) -> None:
     root = Path(cache_root) if cache_root is not None else analysis_cache_dir()
     src = root / "analysis" / session_id
@@ -428,7 +381,7 @@ def _collect_analysis(
     dest = staging / "analysis"
     shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
     if write_reports:
-        _write_analysis_markdown_reports(dest)
+        _write_analysis_reports(dest, renderer=renderer)
 
 
 def _collect_flags(session_dir: Path, staging: Path) -> None:
@@ -469,7 +422,8 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
         f"                 (exact CLI bytes). Grok session files only — not\n"
         f"                 groket flags/notes/analysis/run extras.\n\n"
         f"run/             Eval launch artifacts under a work volume.\n"
-        f"analysis/        Cached analysis results (*.json) + optional (*.md).\n"
+        f"analysis/        Cached analysis results (*.json) + optional human\n"
+        f"                 reports (*.md / *.org / *.txt per profile renderer).\n"
         f"flags.json       Operator flags (session or ~/.groket/flags fallback).\n"
         f"notes/           operator_notes.toml when notes exist.\n"
         f"                 Schema: ~/.groket/notes_schema.toml (not bundled).\n"
@@ -607,6 +561,7 @@ def export_session_bundle(
                     staging,
                     analysis_cache_root,
                     write_reports=resolved.includes(IncludeUnit.ANALYSIS_REPORTS),
+                    renderer=resolved.renderer,
                 )
             except OSError:
                 logger.debug("analysis cache collect failed", exc_info=True)

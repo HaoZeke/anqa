@@ -381,6 +381,54 @@ def test_export_dir_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert result.packaging == "dir"
 
 
+def test_export_archive_org_writes_org_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sess = _seed_session(tmp_path)
+    _patch_cli(monkeypatch)
+    cache = tmp_path / "cache"
+    analysis = cache / "analysis" / SID
+    analysis.mkdir(parents=True)
+    (analysis / "demo.json").write_text(
+        json.dumps(
+            {
+                "result": {
+                    "analyzer_id": "demo",
+                    "ok": True,
+                    "summary": "demo summary",
+                    "findings": [
+                        {
+                            "title": "Org finding",
+                            "severity": "low",
+                            "detail": "detail text",
+                        }
+                    ],
+                    "artifacts": {},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "org-bundle.tar.gz"
+    result = export_session_bundle(
+        sess,
+        dest=dest,
+        profile="archive-org",
+        analysis_cache_root=cache,
+    )
+    assert result.profile_id == "archive-org"
+    with tarfile.open(result.path, "r:gz") as tf:
+        names = set(tf.getnames())
+        org_f = tf.extractfile("analysis/demo.org")
+        assert org_f is not None
+        text = org_f.read().decode()
+    assert "analysis/demo.org" in names
+    assert "analysis/demo.md" not in names
+    assert "#+TITLE:" in text
+    assert "Org finding" in text
+
+
 def test_export_without_analysis_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from groket.session.export_spec import ExportSpec, IncludeUnit, Packaging
 

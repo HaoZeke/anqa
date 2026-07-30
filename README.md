@@ -128,13 +128,18 @@ include, and (later) the human renderer id.
 **Config**
 
 - Default profile: ``export.default_profile`` in ``~/.groket/config.json``
-  (built-ins: ``archive-full``, ``trace-only``).
+  (built-ins: ``archive-full``, ``archive-org``, ``trace-only``).
 - User profiles: ``~/.groket/export_profiles/*.yaml`` (same id overrides a
   built-in). Fields: ``id``, ``name``, ``packaging`` (`tar.gz` | `dir`),
   ``include`` (unit list), ``renderer``, ``renderer_options``.
 
 **Built-in units** (`include`): ``grok_trace``, ``run``, ``analysis``,
 ``analysis_reports``, ``flags``, ``notes``, ``readme``, ``manifest``.
+
+**Built-in renderers** (`renderer`): ``markdown`` (default for
+``archive-full``), ``org`` (Org mode analysis reports; use profile
+``archive-org``), ``plain`` (``.txt`` reports). Analysis human files land
+next to cache JSON as ``*.md`` / ``*.org`` / ``*.txt``.
 
 **Always written for `archive-full` when selected and data exists**
 
