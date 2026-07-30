@@ -298,7 +298,7 @@ cmd-export-finding-help = Export selected finding
 
 cmd-export-bundle = Export session tarball
 
-cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) + run/analysis (JSON + markdown reports) + operator notes into ~/.groket/reports
+cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) plus optional run/, analysis/, flags, and notes into ~/.groket/reports
 
 cmd-operator-note = Operator note
 
@@ -883,7 +883,7 @@ report-failed = Report failed: { $exc }
 
 report-saved = Report saved: { $path }
 
-export-bundle-saved = Export saved: { $path } (grok-trace.tar.gz + run/)
+export-bundle-saved = Export saved: { $path }
 
 export-bundle-failed = Export failed: { $exc }
 

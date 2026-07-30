@@ -3340,29 +3340,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     @work(thread=True)
     def _do_export_bundle(self) -> None:
-        from ...session.export_bundle import export_session_bundle
+        from ..export_session import export_session_with_notify
 
-        app = resolve_ui_app(self)
-        call_ui(app, self.notify, t("export-bundle-working"), severity="information")
-        work_dir = getattr(self.app, "work_dir", None)
-        try:
-            result = export_session_bundle(
-                self.session_dir,
-                work_dir=Path(work_dir) if work_dir else None,
-            )
-        except Exception as exc:
-            call_ui(
-                app,
-                self.notify,
-                t("export-bundle-failed", exc=str(exc)),
-                severity="error",
-                timeout=12,
-            )
-            return
-        call_ui(
-            app,
-            self.notify,
-            t("export-bundle-saved", path=str(result.path)),
-            severity="information",
-            timeout=12,
-        )
+        export_session_with_notify(self, self.session_dir)

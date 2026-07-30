@@ -121,28 +121,37 @@ for the file path (default `~/.groket/tasks/<task_id>.yaml`). Run extras
 batch, or re-apply as runner extras.
 
 **Export** (`E` in the browser or on the sessions list): writes **one** outer
-tarball under `~/.groket/reports/` containing:
+tarball under `~/.groket/reports/`.
+
+**Always included**
 
 - **`grok-trace.tar.gz`** — nested archive that is **only** the output of
   ``grok trace --local $session_id`` (exact CLI bytes; no groket repack).
-  Requires ``grok`` on ``PATH``. Layout:
-  ``<session_id>/export_metadata.json``, `trace_config.json`, `events.jsonl`,
-  `chat_history.jsonl`, `summary.json`, …
-- **`run/`** — launch recipe / prompt / config / turn gate (groket extras)
-- **`analysis/`** — cached analysis results when present (``*.json``) plus a
-  markdown report per analyzer (``*.md``): uses each plugin’s
-  ``artifacts["report"]`` when available, otherwise summary + findings)
-- **`notes/`** — `operator_notes.toml` when present (on-disk copy). Field layout
-  comes from `~/.groket/notes_schema.toml` (see `examples/notes/`). Free-text
-  fields by default; optional `choices` plus `pick = "one-of"` (dropdown) or
-  `"many"` (multi-select). **Authoring is TUI-only**: `N` creates a note; `O` /
-  palette edit or delete (Delete in the edit modal). Batch does not write notes.
-  Works on Docker work sessions and host Grok sessions (`H` / host catalog);
-  host notes store under `~/.groket/notes/` so `~/.grok/sessions` stays
-  untouched. Export includes notes when present.
-  Deferred **LLM analysis** plugins include notes in the review prompt
-  (evaluator focus areas); note edits invalidate the analysis cache for that
-  session.
+  Requires ``grok`` on ``PATH``. Grok session files only
+  (``export_metadata.json``, `events.jsonl`, `chat_history.jsonl`, …). Does
+  **not** contain groket flags, notes, analysis cache, or eval `run/` extras.
+- **`manifest.json`** — inventory of outer members
+- **`README.txt`** — short layout notes
+
+**Included only when present**
+
+- **`run/`** — launch recipe / prompt / config / turn gate when the session
+  lives under a work volume (`runs/traces/groket-…/`)
+- **`analysis/`** — analysis cache (``*.json``) plus a markdown report per
+  analyzer (``*.md``): plugin ``artifacts["report"]`` when available, else
+  summary + findings
+- **`flags.json`** — operator flags from the session or
+  `~/.groket/flags/<session_id>/` (always outer; not in the nested grok-trace)
+- **`notes/`** — `operator_notes.toml` from the notes store (session file or
+  `~/.groket/notes/…`). Field layout is `~/.groket/notes_schema.toml` (see
+  `examples/notes/`) and is **not** bundled. **Authoring is TUI-only** (`N` /
+  `O`); batch does not write notes. Host sessions keep notes under
+  `~/.groket/notes/` so `~/.grok/sessions` stays clean. Deferred LLM analysis
+  plugins include notes in the review prompt; note edits invalidate the
+  analysis cache for that session.
+
+Host-only sessions often export as just the nested archive + manifest +
+README (no `run/`).
 
 ### Multi-turn and forking
 

@@ -2162,27 +2162,9 @@ class TraceEvalApp(App):
     def _do_export_session_bundle(self, meta: SessionMeta | None = None) -> None:
         if not isinstance(meta, SessionMeta):
             return
-        from ..session.export_bundle import export_session_bundle
+        from .export_session import export_session_with_notify
 
-        call_ui(self, self.notify, t("export-bundle-working"), severity="information")
-        try:
-            result = export_session_bundle(meta.session_dir, work_dir=self.work_dir)
-        except Exception as exc:
-            call_ui(
-                self,
-                self.notify,
-                t("export-bundle-failed", exc=str(exc)),
-                severity="error",
-                timeout=12,
-            )
-            return
-        call_ui(
-            self,
-            self.notify,
-            t("export-bundle-saved", path=str(result.path)),
-            severity="information",
-            timeout=12,
-        )
+        export_session_with_notify(self, meta.session_dir)
 
     @staticmethod
     def _extract_task_and_model(trace_dir_name: str) -> tuple[str, str]:

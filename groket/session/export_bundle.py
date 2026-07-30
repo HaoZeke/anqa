@@ -1,15 +1,19 @@
 """Export a session run as a portable outer tarball.
 
-Outer archive layout (under ``~/.groket/reports/`` by default)::
+Outer archive layout (under ``~/.groket/reports/`` by default).
+
+Always present::
 
     grok-trace.tar.gz       # exact ``grok trace --local`` archive (nested)
-    run/                    # parent traces-volume files (recipe, launch, prompt, …)
-    analysis/               # cached analysis plugin JSON + markdown reports
-    flags.json              # operator flags when present outside the session tree
-    feedback/               # optional feedback_cache copy for this session id
-    notes/                  # operator_notes.toml when notes exist (file copy)
     README.txt
     manifest.json
+
+Present only when the data exists::
+
+    run/                    # eval volume (recipe, launch, prompt, turn gate, …)
+    analysis/               # cached analysis plugin JSON + markdown reports
+    flags.json              # operator flags (session or config-home fallback)
+    notes/                  # operator_notes.toml from the notes store
 
 ``grok-trace.tar.gz`` is **only** produced by the Grok CLI
 (``grok trace --local``). There is no groket session-copy fallback: if the CLI
@@ -72,6 +76,9 @@ _GROK_TRACE_CORE_FILES = frozenset(
     }
 )
 
+# Manifest schema for this outer bundle layout (bump when fields/layout change).
+_MANIFEST_SCHEMA = 6
+
 
 @dataclass
 class ExportBundleResult:
@@ -79,7 +86,6 @@ class ExportBundleResult:
 
     path: Path
     session_id: str
-    used_grok_cli: bool
     arcnames: list[str] = field(default_factory=list)
 
 
@@ -107,10 +113,11 @@ def _session_id(session_dir: Path) -> str:
     return Path(session_dir).name.strip() or "session"
 
 
-def _grok_trace_via_cli(session_dir: Path, out_tar: Path) -> None:
-    """Run ``grok trace --local`` after linking *session_dir* into ``~/.grok/sessions``.
+def build_grok_trace_archive(session_dir: Path, out_tar: Path) -> None:
+    """Write *out_tar* via ``grok trace --local`` only (exact CLI bytes).
 
-    Writes *out_tar* with the CLI archive as-is.
+    Links *session_dir* into ``~/.grok/sessions`` so the CLI can resolve the
+    session id, then copies the CLI output as-is.
 
     :raises RuntimeError: ``grok`` missing, link failure, CLI error, or empty output.
     """
@@ -174,16 +181,6 @@ def _grok_trace_via_cli(session_dir: Path, out_tar: Path) -> None:
                     shutil.rmtree(probe, ignore_errors=True)
         except OSError:
             logger.debug("cleanup of grok sessions probe failed", exc_info=True)
-
-
-def build_grok_trace_archive(session_dir: Path, out_tar: Path) -> None:
-    """Write *out_tar* via ``grok trace --local`` only (exact CLI bytes).
-
-    :raises RuntimeError: CLI missing or export failed.
-    """
-    out_tar = Path(out_tar)
-    out_tar.parent.mkdir(parents=True, exist_ok=True)
-    _grok_trace_via_cli(session_dir, out_tar)
 
 
 def grok_trace_member_paths(session_id: str) -> frozenset[str]:
@@ -250,10 +247,29 @@ def _add_tree(tf: tarfile.TarFile, src: Path, arc_prefix: str) -> list[str]:
     return names
 
 
+def _staging_member_paths(staging: Path, *, skip: frozenset[str] | set[str]) -> list[str]:
+    """Relative paths under *staging* that will be packed (same rules as :func:`_add_tree`)."""
+    names: list[str] = []
+    for path in sorted(staging.iterdir()):
+        if path.name in skip:
+            continue
+        if path.is_file():
+            names.append(path.name)
+        elif path.is_dir():
+            for child in sorted(path.rglob("*")):
+                if child.is_symlink() or child.is_file():
+                    rel = child.relative_to(staging).as_posix()
+                    names.append(rel)
+                elif child.is_dir() and not any(child.iterdir()):
+                    rel = child.relative_to(staging).as_posix()
+                    names.append(rel)
+    return names
+
+
 def _collect_run_volume_files(run_vol: Path, staging: Path) -> None:
     """Copy run-volume artifacts into *staging* (excludes nested session trees)."""
     dest = staging / "run"
-    dest.mkdir(parents=True, exist_ok=True)
+    copied = False
     for child in sorted(run_vol.iterdir()):
         name = child.name
         if name in _RUN_SKIP_NAMES:
@@ -263,12 +279,23 @@ def _collect_run_volume_files(run_vol: Path, staging: Path) -> None:
         if name.startswith("%2F") or name in ("workspace",):
             ph = child / "prompt_history.jsonl"
             if ph.is_file():
+                dest.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ph, dest / "prompt_history.jsonl")
+                copied = True
             continue
         if child.is_file():
+            dest.mkdir(parents=True, exist_ok=True)
             shutil.copy2(child, dest / name)
+            copied = True
         elif child.is_dir() and name.startswith("."):
+            dest.mkdir(parents=True, exist_ok=True)
             shutil.copytree(child, dest / name, symlinks=True, dirs_exist_ok=True)
+            copied = True
+    if not copied and dest.is_dir():
+        try:
+            dest.rmdir()
+        except OSError:
+            pass
 
 
 def _safe_report_stem(name: str) -> str:
@@ -364,14 +391,10 @@ def _load_analysis_cache_json(path: Path) -> JsonValue | None:
     return data
 
 
-def _write_analysis_markdown_reports(analysis_dir: Path) -> list[str]:
-    """Write ``*.md`` next to each analysis ``*.json`` cache file.
-
-    :returns: Relative paths of markdown files written (under ``analysis/``).
-    """
-    written: list[str] = []
+def _write_analysis_markdown_reports(analysis_dir: Path) -> None:
+    """Write ``*.md`` next to each analysis ``*.json`` cache file."""
     if not analysis_dir.is_dir():
-        return written
+        return
     for path in sorted(analysis_dir.glob("*.json")):
         raw = _load_analysis_cache_json(path)
         if raw is None:
@@ -380,16 +403,12 @@ def _write_analysis_markdown_reports(analysis_dir: Path) -> list[str]:
         if result is None:
             continue
         stem = _safe_report_stem(path.name)
-        md_name = f"{stem}.md"
-        md_path = analysis_dir / md_name
+        md_path = analysis_dir / f"{stem}.md"
         body = _markdown_from_analysis_result(result, plugin_stem=stem)
         try:
             md_path.write_text(body, encoding="utf-8")
         except OSError:
             logger.debug("failed to write analysis markdown %s", md_path, exc_info=True)
-            continue
-        written.append(f"analysis/{md_name}")
-    return written
 
 
 def _collect_analysis(session_id: str, staging: Path, cache_root: Path | None) -> None:
@@ -403,35 +422,23 @@ def _collect_analysis(session_id: str, staging: Path, cache_root: Path | None) -
 
 
 def _collect_flags(session_dir: Path, staging: Path) -> None:
+    """Write operator flags to outer ``flags.json`` when any exist.
+
+    Flags are a groket annotation, not part of the official nested
+    ``grok-trace.tar.gz`` (``grok trace`` does not pack them). Load from the
+    session file or config-home fallback via :func:`~groket.flags.load_flags`.
+    """
     from ..flags import load_flags
-    from ..paths import flags_fallback_dir
 
-    sid = _session_id(session_dir)
-    session_flags = session_dir / "flags.json"
-    fallback = flags_fallback_dir(sid) / "flags.json"
-    if session_flags.is_file():
-        # Flags may also appear inside the nested grok-trace archive.
-        return
-    if fallback.is_file():
-        shutil.copy2(fallback, staging / "flags.json")
-        return
     flags = load_flags(session_dir)
-    if flags:
-        payload = [fl.model_dump() for fl in flags]
-        (staging / "flags.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
-def _collect_feedback(session_id: str, work_dir: Path | None, staging: Path) -> None:
-    if work_dir is None:
+    if not flags:
         return
-    fb = Path(work_dir).expanduser() / "runs" / "feedback_cache" / session_id
-    if not fb.is_dir():
-        return
-    shutil.copytree(fb, staging / "feedback", symlinks=True, dirs_exist_ok=True)
+    payload = [fl.model_dump() for fl in flags]
+    (staging / "flags.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
-    """Embed turn-linked operator notes under ``notes/`` (copy on-disk file)."""
+    """Embed turn-linked operator notes under ``notes/``."""
     collect_notes_for_export(session_dir, staging / "notes")
 
 
@@ -440,27 +447,38 @@ def _write_readme(staging: Path, *, sid: str) -> None:
         f"groket session export\n"
         f"=====================\n\n"
         f"session_id: {sid}\n\n"
-        f"Outer tarball contains a nested official grok-trace archive plus\n"
-        f"optional eval extras (run/, analysis/).\n\n"
+        f"Always: {GROK_TRACE_ARCHIVE_NAME}, README.txt, manifest.json.\n"
+        f"Optional when present: run/, analysis/, flags.json, notes/.\n\n"
         f"Contents\n"
         f"--------\n"
         f"{GROK_TRACE_ARCHIVE_NAME}\n"
-        f"                 Nested archive produced only by:\n"
-        f"                   grok trace --local {sid}\n"
-        f"                 (exact CLI bytes; no groket repack/fallback).\n"
-        f"                 Layout inside: {sid}/export_metadata.json,\n"
-        f"                 {sid}/trace_config.json, {sid}/events.jsonl, …\n\n"
-        f"run/             Eval launch artifacts (run.json, prompt, config, turn gate).\n"
-        f"analysis/        Cached analysis plugin results (*.json) plus a markdown\n"
-        f'                 report for each (*.md). Prefer artifacts["report"] when\n'
-        f"                 the analyzer produced one; otherwise summary + findings.\n"
-        f"notes/           Operator notes file (operator_notes.toml) when present.\n"
-        f"                 Field layout: ~/.groket/notes_schema.toml.\n"
-        f"manifest.json    Machine-readable inventory of this bundle.\n\n"
+        f"                 Nested archive from: grok trace --local {sid}\n"
+        f"                 (exact CLI bytes). Grok session files only — not\n"
+        f"                 groket flags/notes/analysis/run extras.\n\n"
+        f"run/             Eval launch artifacts when session is under a work\n"
+        f"                 volume (run.json, prompt, config, turn gate).\n"
+        f"analysis/        Cached analysis results (*.json) + markdown (*.md).\n"
+        f"flags.json       Operator flags (session or ~/.groket/flags fallback).\n"
+        f"notes/           operator_notes.toml when notes exist.\n"
+        f"                 Schema: ~/.groket/notes_schema.toml (not bundled).\n"
+        f"manifest.json    Inventory of this outer bundle.\n\n"
         f"To recover the pure grok-trace archive::\n"
         f"  tar -xzf <this-bundle>.tar.gz {GROK_TRACE_ARCHIVE_NAME}\n"
     )
     (staging / "README.txt").write_text(text, encoding="utf-8")
+
+
+def _assert_outer_layout(arcnames: list[str], *, sid: str) -> None:
+    """Fail if the outer archive drifts from the nested-grok-trace contract."""
+    if GROK_TRACE_ARCHIVE_NAME not in arcnames:
+        raise RuntimeError(f"export bundle missing {GROK_TRACE_ARCHIVE_NAME}")
+    nested_tars = [n for n in arcnames if n.endswith(".tar.gz")]
+    if nested_tars != [GROK_TRACE_ARCHIVE_NAME]:
+        raise RuntimeError(f"export must embed only {GROK_TRACE_ARCHIVE_NAME}, got {nested_tars}")
+    if any(n == sid or n.startswith(f"{sid}/") for n in arcnames):
+        raise RuntimeError(
+            f"session files must live inside {GROK_TRACE_ARCHIVE_NAME}, not outer {sid}/"
+        )
 
 
 def export_session_bundle(
@@ -468,7 +486,6 @@ def export_session_bundle(
     *,
     dest: Path | None = None,
     analysis_cache_root: Path | None = None,
-    work_dir: Path | None = None,
 ) -> ExportBundleResult:
     """Build an outer report tarball for *session_dir*.
 
@@ -480,7 +497,6 @@ def export_session_bundle(
     :param session_dir: Grok session directory (…/%2Fworkspace/<session_id>/).
     :param dest: Outer ``.tar.gz`` path; default under :func:`~groket.paths.reports_dir`.
     :param analysis_cache_root: Override analysis cache root (tests).
-    :param work_dir: Work root for optional feedback_cache inclusion.
     :returns: :class:`ExportBundleResult` with the path written.
     :raises FileNotFoundError: Session directory missing.
     :raises RuntimeError: ``grok`` missing, CLI export failed, or archive invalid.
@@ -514,30 +530,26 @@ def export_session_bundle(
         except OSError:
             logger.debug("flags collect failed", exc_info=True)
         try:
-            _collect_feedback(sid, work_dir, staging)
-        except OSError:
-            logger.debug("feedback collect failed", exc_info=True)
-        try:
             _collect_operator_notes(session_dir, staging)
         except OSError:
             logger.debug("operator notes collect failed", exc_info=True)
 
         _write_readme(staging, sid=sid)
 
-        members = sorted(p.name for p in staging.iterdir() if p.name != "bundle.tar.gz")
+        skip_pack = frozenset({"bundle.tar.gz"})
+        # Placeholder so ``manifest.json`` exists when we inventory members.
+        (staging / "manifest.json").write_text("{}\n", encoding="utf-8")
+        members = _staging_member_paths(staging, skip=skip_pack)
         if GROK_TRACE_ARCHIVE_NAME not in members:
             raise RuntimeError(f"export missing nested {GROK_TRACE_ARCHIVE_NAME}")
 
         manifest: JsonObject = as_json_object(
             {
-                "schema": 5,
+                "schema": _MANIFEST_SCHEMA,
                 "kind": "groket-session-export",
                 "session_id": sid,
-                "session_dir": str(session_dir),
-                "run_volume": str(run_vol) if run_vol else "",
                 "exported_at": datetime.now(UTC).isoformat(),
                 "grok_trace": GROK_TRACE_ARCHIVE_NAME,
-                "grok_trace_via_cli": True,
                 "grok_trace_members": nested_members,
                 "members": members,
             }
@@ -558,19 +570,7 @@ def export_session_bundle(
                 elif path.is_dir():
                     arcnames.extend(_add_tree(tf, path, path.name))
 
-        if GROK_TRACE_ARCHIVE_NAME not in arcnames:
-            raise RuntimeError(f"export bundle missing {GROK_TRACE_ARCHIVE_NAME}")
-        nested_tars = [n for n in arcnames if n.endswith(".tar.gz")]
-        if nested_tars != [GROK_TRACE_ARCHIVE_NAME]:
-            raise RuntimeError(
-                f"export must embed only {GROK_TRACE_ARCHIVE_NAME}, got {nested_tars}"
-            )
-        if any(n == sid or n.startswith(f"{sid}/") for n in arcnames):
-            raise RuntimeError(
-                f"session files must live inside {GROK_TRACE_ARCHIVE_NAME}, not outer {sid}/"
-            )
-        if any(n == "trace" or n.startswith("trace/") for n in arcnames):
-            raise RuntimeError("export must not use legacy outer trace/ tree")
+        _assert_outer_layout(arcnames, sid=sid)
 
         try:
             shutil.move(str(tmp_out), str(out))
@@ -580,7 +580,6 @@ def export_session_bundle(
     return ExportBundleResult(
         path=out.resolve(),
         session_id=sid,
-        used_grok_cli=True,
         arcnames=arcnames,
     )
 

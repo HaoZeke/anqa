@@ -6,6 +6,7 @@ import io
 import json
 import tarfile
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 from groket.session.export_bundle import (
@@ -17,7 +18,7 @@ from groket.session.export_bundle import (
     run_volume_for_session,
 )
 
-# Official core members from a real ``grok trace`` export (/var/tmp/actual.tar.gz).
+# Official core members from a real ``grok trace`` export.
 _ACTUAL_CORE = frozenset(
     {
         "export_metadata.json",
@@ -76,6 +77,19 @@ def _fake_cli_archive_bytes(session_id: str = SID) -> bytes:
     return buf.getvalue()
 
 
+def _patch_cli(monkeypatch: pytest.MonkeyPatch, payload: bytes | None = None) -> None:
+    expected = payload if payload is not None else _fake_cli_archive_bytes()
+
+    def _fake_cli(_session_dir: Path, out_tar: Path) -> None:
+        out_tar.parent.mkdir(parents=True, exist_ok=True)
+        out_tar.write_bytes(expected)
+
+    monkeypatch.setattr(
+        "groket.session.export_bundle.build_grok_trace_archive",
+        _fake_cli,
+    )
+
+
 def test_run_volume_for_session(tmp_path: Path) -> None:
     sess = _seed_session(tmp_path)
     vol = run_volume_for_session(sess)
@@ -88,12 +102,18 @@ def test_build_grok_trace_uses_cli_bytes(tmp_path: Path, monkeypatch: pytest.Mon
     sess = _seed_session(tmp_path)
     expected = _fake_cli_archive_bytes()
 
-    def _fake_cli(_session_dir: Path, out_tar: Path) -> None:
-        out_tar.write_bytes(expected)
+    def _fake_run(cmd: list[str], **_kwargs: object) -> CompletedProcess[str]:
+        out = Path(cmd[cmd.index("-o") + 1])
+        out.write_bytes(expected)
+        return CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(
-        "groket.session.export_bundle._grok_trace_via_cli",
-        _fake_cli,
+        "groket.session.export_bundle.which",
+        lambda _name: "/usr/bin/grok",
+    )
+    monkeypatch.setattr(
+        "groket.session.export_bundle.subprocess.run",
+        _fake_run,
     )
     out = tmp_path / "from-cli.tar.gz"
     build_grok_trace_archive(sess, out)
@@ -105,16 +125,7 @@ def test_build_grok_trace_no_fallback_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sess = _seed_session(tmp_path)
-
-    def _fail(_session_dir: Path, out_tar: Path) -> None:
-        raise RuntimeError(
-            "grok CLI not found on PATH; session export requires `grok trace --local`"
-        )
-
-    monkeypatch.setattr(
-        "groket.session.export_bundle._grok_trace_via_cli",
-        _fail,
-    )
+    monkeypatch.setattr("groket.session.export_bundle.which", lambda _name: None)
     with pytest.raises(RuntimeError, match="grok CLI not found"):
         build_grok_trace_archive(sess, tmp_path / "x.tar.gz")
 
@@ -124,14 +135,8 @@ def test_export_session_bundle_embeds_nested_grok_trace(
 ) -> None:
     sess = _seed_session(tmp_path)
     expected = _fake_cli_archive_bytes()
+    _patch_cli(monkeypatch, expected)
 
-    def _fake_cli(_session_dir: Path, out_tar: Path) -> None:
-        out_tar.write_bytes(expected)
-
-    monkeypatch.setattr(
-        "groket.session.export_bundle._grok_trace_via_cli",
-        _fake_cli,
-    )
     cache = tmp_path / "cache"
     analysis = cache / "analysis" / SID
     analysis.mkdir(parents=True)
@@ -160,15 +165,15 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         + "\n",
         encoding="utf-8",
     )
-    (analysis / "feedback.json").write_text(
+    (analysis / "report_plugin.json").write_text(
         json.dumps(
             {
                 "result": {
-                    "analyzer_id": "feedback",
+                    "analyzer_id": "report_plugin",
                     "ok": True,
                     "summary": "ignored when report present",
                     "findings": [],
-                    "artifacts": {"report": "# Feedback report\n\nFull markdown from plugin.\n"},
+                    "artifacts": {"report": "# Plugin report\n\nFull markdown from plugin.\n"},
                 }
             }
         )
@@ -194,10 +199,8 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         sess,
         dest=dest,
         analysis_cache_root=cache,
-        work_dir=tmp_path,
     )
     assert result.path == dest.resolve()
-    assert result.used_grok_cli is True
     assert result.session_id == SID
     assert dest.is_file()
 
@@ -210,9 +213,9 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         demo_md = tf.extractfile("analysis/demo.md")
         assert demo_md is not None
         demo_text = demo_md.read().decode()
-        fb_md = tf.extractfile("analysis/feedback.md")
-        assert fb_md is not None
-        fb_text = fb_md.read().decode()
+        report_md = tf.extractfile("analysis/report_plugin.md")
+        assert report_md is not None
+        report_text = report_md.read().decode()
         notes_f = tf.extractfile("notes/operator_notes.toml")
         assert notes_f is not None
         notes_text = notes_f.read().decode()
@@ -223,7 +226,7 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert GROK_TRACE_ARCHIVE_NAME in names
     assert [n for n in names if n.endswith(".tar.gz")] == [GROK_TRACE_ARCHIVE_NAME]
     assert not any(n == SID or n.startswith(f"{SID}/") for n in names)
-    assert not any(n == "trace" or n.startswith("trace/") for n in names)
+    assert not any(n == "feedback" or n.startswith("feedback/") for n in names)
 
     nested_path = tmp_path / "extracted-nested.tar.gz"
     nested_path.write_bytes(nested_bytes)
@@ -237,21 +240,27 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "run/.groket-turn/scripted-turns.json" in names
     assert "analysis/demo.json" in names
     assert "analysis/demo.md" in names
-    assert "analysis/feedback.json" in names
-    assert "analysis/feedback.md" in names
+    assert "analysis/report_plugin.json" in names
+    assert "analysis/report_plugin.md" in names
     assert "notes/operator_notes.toml" in names
     assert "notes/schema.toml" not in names
     assert "export me" in notes_text
     assert "n-export" in notes_text
     assert "Demo issue" in demo_text
     assert "Something happened" in demo_text
-    assert "Full markdown from plugin" in fb_text
-    assert "# Feedback report" in fb_text
+    assert "Full markdown from plugin" in report_text
+    assert "# Plugin report" in report_text
     assert manifest["session_id"] == SID
     assert manifest["grok_trace"] == GROK_TRACE_ARCHIVE_NAME
-    assert manifest["schema"] == 5
-    assert manifest["grok_trace_via_cli"] is True
+    assert manifest["schema"] == 6
+    assert "grok_trace_via_cli" not in manifest
+    assert "session_dir" not in manifest
+    assert "run_volume" not in manifest
     assert GROK_TRACE_ARCHIVE_NAME in manifest["members"]
+    assert "analysis/demo.md" in manifest["members"]
+    assert "notes/operator_notes.toml" in manifest["members"]
+    assert set(manifest["members"]) == names
+    assert set(result.arcnames) == names
 
 
 def test_export_cli_failure_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,7 +270,7 @@ def test_export_cli_failure_propagates(tmp_path: Path, monkeypatch: pytest.Monke
         raise RuntimeError("grok trace --local failed (rc=1): boom")
 
     monkeypatch.setattr(
-        "groket.session.export_bundle._grok_trace_via_cli",
+        "groket.session.export_bundle.build_grok_trace_archive",
         _fail,
     )
     with pytest.raises(RuntimeError, match="grok trace --local failed"):
@@ -271,6 +280,49 @@ def test_export_cli_failure_propagates(tmp_path: Path, monkeypatch: pytest.Monke
 def test_export_missing_session_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         export_session_bundle(tmp_path / "nope", dest=tmp_path / "x.tar.gz")
+
+
+def test_export_fallback_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sess = _seed_session(tmp_path)
+    _patch_cli(monkeypatch)
+    flags_dir = tmp_path / "flag-fallback" / SID
+    flags_dir.mkdir(parents=True)
+    (flags_dir / "flags.json").write_text(
+        json.dumps([{"event_index": 1, "verdict": "bad", "description": "fallback flag"}]) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "groket.flags.flags_fallback_dir",
+        lambda sid: tmp_path / "flag-fallback" / sid,
+    )
+    dest = tmp_path / "with-flags.tar.gz"
+    result = export_session_bundle(sess, dest=dest)
+    with tarfile.open(result.path, "r:gz") as tf:
+        names = set(tf.getnames())
+        raw = tf.extractfile("flags.json")
+        assert raw is not None
+        body = raw.read().decode()
+    assert "flags.json" in names
+    assert "fallback flag" in body
+
+
+def test_export_session_local_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Session-local flags go in the outer bundle (not inside nested grok-trace)."""
+    sess = _seed_session(tmp_path)
+    (sess / "flags.json").write_text(
+        json.dumps([{"event_index": 2, "verdict": "good", "description": "session flag"}]) + "\n",
+        encoding="utf-8",
+    )
+    _patch_cli(monkeypatch)
+    dest = tmp_path / "session-flags.tar.gz"
+    result = export_session_bundle(sess, dest=dest)
+    with tarfile.open(result.path, "r:gz") as tf:
+        names = set(tf.getnames())
+        raw = tf.extractfile("flags.json")
+        assert raw is not None
+        body = raw.read().decode()
+    assert "flags.json" in names
+    assert "session flag" in body
 
 
 def test_markdown_from_analysis_result_prefers_report_artifact() -> None:
