@@ -3335,17 +3335,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._report_finding(self._selected_finding)
 
     def action_export_bundle(self) -> None:
-        """Pack session with the default export profile under ``~/.groket/reports``."""
-        self._do_export_bundle()
+        """Export this session: configured profile, or ask if none is set."""
+        from ..export_session import start_export_smart
+
+        start_export_smart(self, self.session_dir)
 
     def action_export_choose_profile(self) -> None:
-        """Palette: pick an export profile, then export this session."""
+        """Palette: pick a profile for this export only (does not change default)."""
         from ..export_session import start_export_with_profile_picker
 
-        start_export_with_profile_picker(self, self.session_dir)
-
-    @work(thread=True)
-    def _do_export_bundle(self) -> None:
-        from ..export_session import export_session_with_notify
-
-        export_session_with_notify(self, self.session_dir)
+        start_export_with_profile_picker(self, self.session_dir, remember_as_default=False)

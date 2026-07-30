@@ -288,13 +288,22 @@ def _read_export_config_section() -> JsonObject:
     return {}
 
 
-def default_export_profile_id() -> str:
-    """``export.default_profile`` from config.json, else :data:`DEFAULT_PROFILE_ID`."""
+def configured_export_profile_id() -> str | None:
+    """Return ``export.default_profile`` when set in config.json; else ``None``.
+
+    Distinguishes “operator chose a default” from the built-in fallback used by
+    :func:`default_export_profile_id`.
+    """
     section = _read_export_config_section()
     raw = section.get("default_profile")
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
-    return DEFAULT_PROFILE_ID
+    return None
+
+
+def default_export_profile_id() -> str:
+    """``export.default_profile`` from config.json, else :data:`DEFAULT_PROFILE_ID`."""
+    return configured_export_profile_id() or DEFAULT_PROFILE_ID
 
 
 def set_default_export_profile_id(profile_id: str) -> None:
@@ -329,6 +338,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "TRACE_ONLY_INCLUDE",
     "builtin_profiles",
+    "configured_export_profile_id",
     "default_export_profile_id",
     "get_export_profile",
     "list_export_profiles",

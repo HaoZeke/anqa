@@ -296,13 +296,13 @@ cmd-export-finding = Export finding
 
 cmd-export-finding-help = Export selected finding
 
-cmd-export-bundle = Export session tarball
+cmd-export-bundle = Export session
 
-cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) plus optional run/, analysis/, flags, and notes into ~/.groket/reports
+cmd-export-bundle-help = Export with your default profile, or pick one if none is configured
 
 cmd-export-choose-profile = Export with profile…
 
-cmd-export-choose-profile-help = Choose archive-full, archive-org, trace-only, or a user profile, then export the session
+cmd-export-choose-profile-help = Pick a profile for this export only (does not change the default)
 
 cmd-operator-note = Operator note
 
@@ -897,7 +897,7 @@ export-bundle-working = Building export tarball…
 
 export-profile-title = Export profile
 
-export-profile-hint = Choose a profile (renderer + units). Esc cancels.
+export-profile-hint = Choose archive-full, archive-org, trace-only, or a user profile. Esc cancels.
 
 export-profile-export = Export
 

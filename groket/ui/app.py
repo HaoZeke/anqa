@@ -2127,22 +2127,24 @@ class TraceEvalApp(App):
         return meta
 
     def action_export_session_bundle(self) -> None:
-        """Export highlighted (or first selected) session with the default profile."""
+        """Export session: use configured profile, or ask if none is set."""
         meta = self._session_meta_for_export()
         if meta is None:
             self.notify(t("export-bundle-no-session"), severity="warning")
             return
-        self._do_export_session_bundle(meta)
+        from .export_session import start_export_smart
+
+        start_export_smart(self, meta.session_dir)
 
     def action_export_session_choose_profile(self) -> None:
-        """Palette: pick an export profile, then export the current session."""
+        """Palette: pick an export profile for this export only (does not change default)."""
         meta = self._session_meta_for_export()
         if meta is None:
             self.notify(t("export-bundle-no-session"), severity="warning")
             return
         from .export_session import start_export_with_profile_picker
 
-        start_export_with_profile_picker(self, meta.session_dir)
+        start_export_with_profile_picker(self, meta.session_dir, remember_as_default=False)
 
     def _set_host_sessions_visible(self, on: bool) -> None:
         """Turn host catalog on or off; update footer via check_action + refresh_bindings."""
@@ -2172,14 +2174,6 @@ class TraceEvalApp(App):
     def action_hide_host_sessions(self) -> None:
         """``H`` when host is shown — drop host rows from the list."""
         self._set_host_sessions_visible(False)
-
-    @work(thread=True)
-    def _do_export_session_bundle(self, meta: SessionMeta | None = None) -> None:
-        if not isinstance(meta, SessionMeta):
-            return
-        from .export_session import export_session_with_notify
-
-        export_session_with_notify(self, meta.session_dir)
 
     @staticmethod
     def _extract_task_and_model(trace_dir_name: str) -> tuple[str, str]:

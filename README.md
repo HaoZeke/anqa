@@ -164,9 +164,10 @@ and analysis reports next to cache JSON as ``*.md`` / ``*.org`` / ``*.txt``.
 ``trace-only`` is nest + readme + manifest. Host sessions often have no
 ``run/``. Packaging ``dir`` writes a folder instead of a tarball.
 
-**TUI:** **`E`** uses the default profile. Command palette
-(**Ctrl+P** → **Export with profile…**) picks `archive-full`,
-`archive-org`, `trace-only`, or a user profile, then exports.
+**TUI:** **`E`** exports with ``export.default_profile`` when that is set in
+``~/.groket/config.json``; if unset, **`E` asks once** (profile picker) and
+saves the choice as the default. Command palette **Export with profile…**
+picks a profile for that export only (does not change the default).
 
 ### Multi-turn and forking
 
