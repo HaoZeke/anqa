@@ -162,8 +162,11 @@ and analysis reports next to cache JSON as ``*.md`` / ``*.org`` / ``*.txt``.
   (`N` / `O`). Host notes live under `~/.groket/notes/`.
 
 ``trace-only`` is nest + readme + manifest. Host sessions often have no
-``run/``. Packaging ``dir`` writes a folder instead of a tarball (domain API /
-profiles; TUI `E` still uses the default profile as-is).
+``run/``. Packaging ``dir`` writes a folder instead of a tarball.
+
+**TUI:** **`E`** uses the default profile. Command palette
+(**Ctrl+P** → **Export with profile…**) picks `archive-full`,
+`archive-org`, `trace-only`, or a user profile, then exports.
 
 ### Multi-turn and forking
 

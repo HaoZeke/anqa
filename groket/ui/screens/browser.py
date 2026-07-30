@@ -3335,8 +3335,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._report_finding(self._selected_finding)
 
     def action_export_bundle(self) -> None:
-        """Pack session + run artifacts + grok-trace archive under ``~/.groket/reports``."""
+        """Pack session with the default export profile under ``~/.groket/reports``."""
         self._do_export_bundle()
+
+    def action_export_choose_profile(self) -> None:
+        """Palette: pick an export profile, then export this session."""
+        from ..export_session import start_export_with_profile_picker
+
+        start_export_with_profile_picker(self, self.session_dir)
 
     @work(thread=True)
     def _do_export_bundle(self) -> None:

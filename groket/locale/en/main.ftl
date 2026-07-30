@@ -300,6 +300,10 @@ cmd-export-bundle = Export session tarball
 
 cmd-export-bundle-help = Pack nested grok-trace.tar.gz (CLI only) plus optional run/, analysis/, flags, and notes into ~/.groket/reports
 
+cmd-export-choose-profile = Export with profile…
+
+cmd-export-choose-profile-help = Choose archive-full, archive-org, trace-only, or a user profile, then export the session
+
 cmd-operator-note = Operator note
 
 cmd-operator-note-help = Add a turn-linked operator note (configurable fields)
@@ -883,13 +887,19 @@ report-failed = Report failed: { $exc }
 
 report-saved = Report saved: { $path }
 
-export-bundle-saved = Export saved: { $path }
+export-bundle-saved = Export saved: { $path } [{ $profile }]
 
 export-bundle-failed = Export failed: { $exc }
 
 export-bundle-no-session = No session to export
 
 export-bundle-working = Building export tarball…
+
+export-profile-title = Export profile
+
+export-profile-hint = Choose a profile (renderer + units). Esc cancels.
+
+export-profile-export = Export
 
 repository-label = Repository
 

@@ -2108,8 +2108,8 @@ class TraceEvalApp(App):
             targets = list(self._meta_only)
         self._analyze_targets(targets)
 
-    def action_export_session_bundle(self) -> None:
-        """Export highlighted (or first selected) session as a report tarball."""
+    def _session_meta_for_export(self) -> SessionMeta | None:
+        """Highlighted or first selected session for export actions."""
         meta = None
         if self._selected:
             key = next(iter(self._selected))
@@ -2124,10 +2124,25 @@ class TraceEvalApp(App):
                     if str(m.session_dir) == cursor_key:
                         meta = m
                         break
+        return meta
+
+    def action_export_session_bundle(self) -> None:
+        """Export highlighted (or first selected) session with the default profile."""
+        meta = self._session_meta_for_export()
         if meta is None:
             self.notify(t("export-bundle-no-session"), severity="warning")
             return
         self._do_export_session_bundle(meta)
+
+    def action_export_session_choose_profile(self) -> None:
+        """Palette: pick an export profile, then export the current session."""
+        meta = self._session_meta_for_export()
+        if meta is None:
+            self.notify(t("export-bundle-no-session"), severity="warning")
+            return
+        from .export_session import start_export_with_profile_picker
+
+        start_export_with_profile_picker(self, meta.session_dir)
 
     def _set_host_sessions_visible(self, on: bool) -> None:
         """Turn host catalog on or off; update footer via check_action + refresh_bindings."""
