@@ -238,6 +238,7 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "run/groket-prompt.txt" in names
     assert "run/prompt_history.jsonl" in names
     assert "run/.groket-turn/scripted-turns.json" in names
+    assert "human/summary.md" in names
     assert "analysis/demo.json" in names
     assert "analysis/demo.md" in names
     assert "analysis/report_plugin.json" in names
@@ -425,8 +426,16 @@ def test_export_archive_org_writes_org_reports(
         text = org_f.read().decode()
     assert "analysis/demo.org" in names
     assert "analysis/demo.md" not in names
+    assert "human/summary.org" in names
+    assert "human/summary.md" not in names
     assert "#+TITLE:" in text
     assert "Org finding" in text
+    with tarfile.open(result.path, "r:gz") as tf:
+        sum_f = tf.extractfile("human/summary.org")
+        assert sum_f is not None
+        sum_text = sum_f.read().decode()
+    assert "#+TITLE:" in sum_text
+    assert SID in sum_text
 
 
 def test_export_without_analysis_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

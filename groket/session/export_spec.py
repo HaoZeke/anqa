@@ -37,6 +37,7 @@ class IncludeUnit(StrEnum):
 
     GROK_TRACE = "grok_trace"
     RUN = "run"
+    SUMMARY = "summary"
     ANALYSIS = "analysis"
     ANALYSIS_REPORTS = "analysis_reports"
     FLAGS = "flags"
@@ -52,6 +53,7 @@ ALL_INCLUDE_UNITS: frozenset[IncludeUnit] = frozenset(IncludeUnit)
 ARCHIVE_FULL_INCLUDE: tuple[IncludeUnit, ...] = (
     IncludeUnit.GROK_TRACE,
     IncludeUnit.RUN,
+    IncludeUnit.SUMMARY,
     IncludeUnit.ANALYSIS,
     IncludeUnit.ANALYSIS_REPORTS,
     IncludeUnit.FLAGS,

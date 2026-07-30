@@ -34,7 +34,12 @@ from shutil import which
 from ..models import JsonObject, JsonValue, as_json_object, json_as_object
 from ..notes import collect_notes_for_export
 from ..paths import analysis_cache_dir, is_run_dir_name, reports_dir
-from .export_render import analysis_report_from_result, report_file_extension
+from .export_render import (
+    SessionSummaryData,
+    analysis_report_from_result,
+    report_file_extension,
+    session_summary_body,
+)
 from .export_spec import (
     DEFAULT_PROFILE_ID,
     ExportSpec,
@@ -405,6 +410,73 @@ def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
     collect_notes_for_export(session_dir, staging / "notes")
 
 
+def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
+    """Load meta / timeline / usage into :class:`SessionSummaryData`."""
+    from ..parser import load_session_meta, parse_timeline
+    from ..utils import fmt_duration
+    from .turns import segment_timeline_turns
+    from .usage_stats import collect_session_usage, format_usage_markdown
+
+    meta = load_session_meta(session_dir)
+    timeline = parse_timeline(session_dir)
+    tool_calls = [e for e in timeline if e.event_type == "tool_call"]
+    tool_errs = sum(1 for e in tool_calls if e.is_error)
+    turn_count = 0
+    try:
+        turn_count = len(segment_timeline_turns(timeline))
+    except Exception:
+        logger.debug("turn segmentation failed for export summary", exc_info=True)
+    dur = ""
+    if meta.duration_seconds:
+        dur = fmt_duration(meta.duration_seconds)
+    context = ""
+    if meta.has_context_usage:
+        context = (meta.context_usage_str or meta.context_usage_compact or "").strip()
+    created = (meta.created_at or "").strip()
+    if "T" in created and len(created) > 19:
+        created = created[:19].replace("T", " ")
+    usage_block = ""
+    persona = ""
+    try:
+        usage = collect_session_usage(session_dir, timeline)
+        persona = (usage.persona_id or "").strip()
+        usage_block = format_usage_markdown(usage).strip()
+    except Exception:
+        logger.debug("usage stats failed for export summary", exc_info=True)
+    return SessionSummaryData(
+        session_id=(meta.session_id or session_dir.name or "").strip(),
+        title=(meta.title or "").strip(),
+        model=(meta.model_display or meta.model_id or "").strip(),
+        outcome=(meta.turn_outcome or "").strip(),
+        duration_label=dur,
+        summary_text=(meta.summary_text or "").strip(),
+        event_count=len(timeline),
+        tool_call_count=len(tool_calls),
+        tool_error_count=tool_errs,
+        turn_count=turn_count,
+        context_label=context,
+        task_id=(meta.task_id or "").strip(),
+        run_id=(meta.run_id or "").strip(),
+        git_repo=(meta.git_repo or "").strip(),
+        git_branch=(meta.git_branch or "").strip(),
+        created_at=created,
+        persona_id=persona,
+        usage_block=usage_block,
+    )
+
+
+def _collect_summary(session_dir: Path, staging: Path, *, renderer: str) -> None:
+    """Write ``human/summary.<ext>`` via the active builtin renderer."""
+    data = _gather_session_summary_data(session_dir)
+    if not data.session_id and not data.summary_text and data.event_count == 0:
+        return
+    ext = report_file_extension(renderer)
+    body = session_summary_body(data, renderer=renderer)
+    dest_dir = staging / "human"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / f"summary{ext}").write_text(body, encoding="utf-8")
+
+
 def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
     units = ", ".join(sorted(u.value for u in spec.include)) or "(none)"
     text = (
@@ -422,6 +494,8 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
         f"                 (exact CLI bytes). Grok session files only — not\n"
         f"                 groket flags/notes/analysis/run extras.\n\n"
         f"run/             Eval launch artifacts under a work volume.\n"
+        f"human/summary.*  Session overview (meta, counts, usage) in the\n"
+        f"                 profile renderer dialect (.md / .org / .txt).\n"
         f"analysis/        Cached analysis results (*.json) + optional human\n"
         f"                 reports (*.md / *.org / *.txt per profile renderer).\n"
         f"flags.json       Operator flags (session or ~/.groket/flags fallback).\n"
@@ -553,6 +627,14 @@ def export_session_bundle(
                     logger.warning(
                         "Failed to collect run volume files from %s", run_vol, exc_info=True
                     )
+
+        if resolved.includes(IncludeUnit.SUMMARY):
+            try:
+                _collect_summary(session_dir, staging, renderer=resolved.renderer)
+            except OSError:
+                logger.debug("session summary collect failed", exc_info=True)
+            except Exception:
+                logger.warning("session summary collect failed", exc_info=True)
 
         if resolved.includes(IncludeUnit.ANALYSIS):
             try:

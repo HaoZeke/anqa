@@ -133,13 +133,14 @@ include, and (later) the human renderer id.
   built-in). Fields: ``id``, ``name``, ``packaging`` (`tar.gz` | `dir`),
   ``include`` (unit list), ``renderer``, ``renderer_options``.
 
-**Built-in units** (`include`): ``grok_trace``, ``run``, ``analysis``,
-``analysis_reports``, ``flags``, ``notes``, ``readme``, ``manifest``.
+**Built-in units** (`include`): ``grok_trace``, ``run``, ``summary``,
+``analysis``, ``analysis_reports``, ``flags``, ``notes``, ``readme``,
+``manifest``.
 
 **Built-in renderers** (`renderer`): ``markdown`` (default for
-``archive-full``), ``org`` (Org mode analysis reports; use profile
-``archive-org``), ``plain`` (``.txt`` reports). Analysis human files land
-next to cache JSON as ``*.md`` / ``*.org`` / ``*.txt``.
+``archive-full``), ``org`` (Org mode human files; use profile
+``archive-org``), ``plain`` (``.txt``). Human files: ``human/summary.*``
+and analysis reports next to cache JSON as ``*.md`` / ``*.org`` / ``*.txt``.
 
 **Always written for `archive-full` when selected and data exists**
 
@@ -150,9 +151,11 @@ next to cache JSON as ``*.md`` / ``*.org`` / ``*.txt``.
   **not** contain groket flags, notes, analysis cache, or eval `run/` extras.
 - **`manifest.json`** — inventory (profile, packaging, include, members)
 - **`README.txt`** — short layout notes
+- **`human/summary.*`** — session overview (title, model, outcome, counts,
+  Grok session summary text, usage) in the profile renderer dialect
 - **`run/`** — launch recipe / prompt / config / turn gate under a work volume
 - **`analysis/`** — analysis cache (``*.json``); ``analysis_reports`` adds
-  markdown per analyzer (plugin ``artifacts["report"]`` or summary + findings)
+  a human report per analyzer (plugin ``artifacts["report"]`` or findings)
 - **`flags.json`** — operator flags (session or `~/.groket/flags/…`; outer only)
 - **`notes/`** — `operator_notes.toml` from the notes store. Schema is
   `~/.groket/notes_schema.toml` (not bundled). **Authoring is TUI-only**
