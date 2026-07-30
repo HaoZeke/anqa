@@ -111,6 +111,13 @@ def user_tasks_dir() -> Path:
     return d
 
 
+def user_export_profiles_dir() -> Path:
+    """``~/.groket/export_profiles`` — user session-export profile YAML."""
+    d = APP_HOME / "export_profiles"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def ensure_user_extension_dirs() -> dict[str, Path]:
     """Create standard user extension directories; return a name → path map."""
     return {
@@ -118,6 +125,7 @@ def ensure_user_extension_dirs() -> dict[str, Path]:
         "detectors": user_detectors_dir(),
         "plugins": user_analysis_plugins_dir(),
         "tasks": user_tasks_dir(),
+        "export_profiles": user_export_profiles_dir(),
     }
 
 

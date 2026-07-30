@@ -11,6 +11,14 @@ from .export_bundle import (
     export_session_bundle,
     run_volume_for_session,
 )
+from .export_spec import (
+    DEFAULT_PROFILE_ID,
+    ExportSpec,
+    IncludeUnit,
+    Packaging,
+    get_export_profile,
+    list_export_profiles,
+)
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
@@ -35,10 +43,14 @@ from .usage_stats import (
 from .workspace_diff import format_diff_meta_line, load_workspace_diff
 
 __all__ = [
+    "DEFAULT_PROFILE_ID",
     "ORIGIN_HOST",
     "ORIGIN_WORK",
     "ExportBundleResult",
+    "ExportSpec",
+    "IncludeUnit",
     "McpServerUsage",
+    "Packaging",
     "SessionScanRoot",
     "SessionUsageStats",
     "SkillUsageRow",
@@ -50,9 +62,11 @@ __all__ = [
     "format_usage_markdown",
     "format_usage_plain",
     "format_usage_stats_text",
+    "get_export_profile",
     "host_grok_sessions_root",
     "is_host_grok_sessions_root",
     "is_under_host_grok_sessions",
+    "list_export_profiles",
     "load_workspace_diff",
     "run_volume_for_session",
     "session_scan_roots",

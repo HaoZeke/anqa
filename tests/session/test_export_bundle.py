@@ -252,8 +252,10 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "# Plugin report" in report_text
     assert manifest["session_id"] == SID
     assert manifest["grok_trace"] == GROK_TRACE_ARCHIVE_NAME
-    assert manifest["schema"] == 6
-    assert "grok_trace_via_cli" not in manifest
+    assert manifest["schema"] == 7
+    assert manifest["profile"] == "archive-full"
+    assert manifest["packaging"] == "tar.gz"
+    assert "grok_trace" in manifest["include"]
     assert "session_dir" not in manifest
     assert "run_volume" not in manifest
     assert GROK_TRACE_ARCHIVE_NAME in manifest["members"]
@@ -261,6 +263,8 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "notes/operator_notes.toml" in manifest["members"]
     assert set(manifest["members"]) == names
     assert set(result.arcnames) == names
+    assert result.profile_id == "archive-full"
+    assert result.packaging == "tar.gz"
 
 
 def test_export_cli_failure_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -323,6 +327,89 @@ def test_export_session_local_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         body = raw.read().decode()
     assert "flags.json" in names
     assert "session flag" in body
+
+
+def test_export_trace_only_profile_skips_extras(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sess = _seed_session(tmp_path)
+    _patch_cli(monkeypatch)
+    cache = tmp_path / "cache"
+    analysis = cache / "analysis" / SID
+    analysis.mkdir(parents=True)
+    (analysis / "demo.json").write_text('{"result": {"ok": true}}\n', encoding="utf-8")
+    dest = tmp_path / "trace-only.tar.gz"
+    result = export_session_bundle(
+        sess,
+        dest=dest,
+        profile="trace-only",
+        analysis_cache_root=cache,
+    )
+    with tarfile.open(result.path, "r:gz") as tf:
+        names = set(tf.getnames())
+    assert GROK_TRACE_ARCHIVE_NAME in names
+    assert "manifest.json" in names
+    assert "README.txt" in names
+    assert not any(n.startswith("analysis/") for n in names)
+    assert not any(n.startswith("run/") for n in names)
+    assert result.profile_id == "trace-only"
+
+
+def test_export_dir_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from groket.session.export_spec import ExportSpec, IncludeUnit, Packaging
+
+    sess = _seed_session(tmp_path)
+    _patch_cli(monkeypatch)
+    dest = tmp_path / "out-dir"
+    spec = ExportSpec(
+        profile_id="dir-full",
+        packaging=Packaging.DIR,
+        include=frozenset(
+            {
+                IncludeUnit.GROK_TRACE,
+                IncludeUnit.RUN,
+                IncludeUnit.MANIFEST,
+                IncludeUnit.README,
+            }
+        ),
+    )
+    result = export_session_bundle(sess, dest=dest, spec=spec)
+    assert result.path.is_dir()
+    assert (result.path / GROK_TRACE_ARCHIVE_NAME).is_file()
+    assert (result.path / "manifest.json").is_file()
+    assert (result.path / "run" / "run.json").is_file()
+    assert result.packaging == "dir"
+
+
+def test_export_without_analysis_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from groket.session.export_spec import ExportSpec, IncludeUnit, Packaging
+
+    sess = _seed_session(tmp_path)
+    _patch_cli(monkeypatch)
+    cache = tmp_path / "cache"
+    analysis = cache / "analysis" / SID
+    analysis.mkdir(parents=True)
+    (analysis / "demo.json").write_text(
+        json.dumps({"result": {"analyzer_id": "demo", "ok": True, "summary": "s"}}) + "\n",
+        encoding="utf-8",
+    )
+    spec = ExportSpec(
+        profile_id="json-only",
+        packaging=Packaging.TAR_GZ,
+        include=frozenset(
+            {
+                IncludeUnit.GROK_TRACE,
+                IncludeUnit.ANALYSIS,
+                IncludeUnit.MANIFEST,
+            }
+        ),
+    )
+    dest = tmp_path / "no-md.tar.gz"
+    result = export_session_bundle(sess, dest=dest, spec=spec, analysis_cache_root=cache)
+    with tarfile.open(result.path, "r:gz") as tf:
+        names = set(tf.getnames())
+    assert "analysis/demo.json" in names
+    assert "analysis/demo.md" not in names
 
 
 def test_markdown_from_analysis_result_prefers_report_artifact() -> None:
