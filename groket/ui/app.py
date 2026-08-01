@@ -6,6 +6,7 @@ UI entry point only: domain work goes through ``services``, ``analysis``,
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import suppress
@@ -35,6 +36,7 @@ from textual.widgets import (
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
 from ..constants import META_CACHE_FILENAME
+from ..integrations.control import ControlServer
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
 from ..paths import app_config_path
@@ -331,12 +333,37 @@ class TraceEvalApp(App):
             super().__init__()
             self.run = run
 
+    class _ControlOpenSession(Message):
+        """Control service request marshalled onto the Textual message loop."""
+
+        def __init__(
+            self,
+            session_dir: Path,
+            prompt_index: int | None,
+            result: asyncio.Future[bool],
+        ) -> None:
+            super().__init__()
+            self.session_dir = session_dir
+            self.prompt_index = prompt_index
+            self.result = result
+
+    class _ControlNotesChanged(Message):
+        """Canonical note change marshalled onto the Textual message loop."""
+
+        def __init__(self, session_dir: Path, result: asyncio.Future[None]) -> None:
+            super().__init__()
+            self.session_dir = session_dir
+            self.result = result
+
     def __init__(
         self,
         traces_path: Path | None = None,
         work_dir: Path | None = None,
         *,
         config_path: Path | None = None,
+        control_socket: Path | None = None,
+        initial_session: Path | None = None,
+        initial_prompt_index: int | None = None,
         **kwargs,
     ) -> None:
         setup_i18n()
@@ -375,6 +402,14 @@ class TraceEvalApp(App):
         self._sessions_table_primed = False
         self._exiting = False
         self._config_path = Path(config_path).expanduser() if config_path else None
+        self._control_socket = (
+            Path(control_socket).expanduser() if control_socket is not None else None
+        )
+        self._control_server: ControlServer | None = None
+        self._initial_session = (
+            Path(initial_session).expanduser().resolve() if initial_session is not None else None
+        )
+        self._initial_prompt_index = initial_prompt_index
         self._analysis_jobs_active: int = 0
         self._self_test_summary: str = ""
         self._meta_only: list[tuple[SessionMeta, str]] = []
@@ -605,6 +640,127 @@ class TraceEvalApp(App):
         self._load_sessions(include_host=None)
         table.focus()
         self._schedule_live_sessions_poll()
+        self._start_control_service()
+        if self._initial_session is not None:
+            self.call_after_refresh(
+                self.open_session_path,
+                self._initial_session,
+                prompt_index=self._initial_prompt_index,
+            )
+
+    def _resolve_control_session(self, reference: str) -> Path | None:
+        """Resolve a path or catalog session id without a broad filesystem scan."""
+        candidate = Path(reference).expanduser()
+        if candidate.is_dir():
+            return candidate.resolve()
+        for meta, _label in self._meta_only:
+            if meta.session_id == reference or meta.session_dir.name == reference:
+                return meta.session_dir.resolve()
+        for root in self._session_catalog_roots():
+            candidate = root.path / reference
+            if candidate.is_dir():
+                return candidate.resolve()
+        return None
+
+    async def _control_open_session(
+        self,
+        session_dir: Path,
+        prompt_index: int | None,
+    ) -> bool:
+        """Request a browser transition through Textual's message queue."""
+        result = asyncio.get_running_loop().create_future()
+        self.post_message(self._ControlOpenSession(session_dir, prompt_index, result))
+        return await result
+
+    async def _control_notes_changed(self, session_dir: Path) -> None:
+        """Refresh an open browser after a socket-originated note mutation."""
+        result = asyncio.get_running_loop().create_future()
+        self.post_message(self._ControlNotesChanged(session_dir, result))
+        await result
+
+    def _start_control_service(self) -> None:
+        if self._control_socket is None:
+            return
+        self._control_server = ControlServer(
+            socket_path=self._control_socket,
+            resolve_session=self._resolve_control_session,
+            open_session=self._control_open_session,
+            notes_changed=self._control_notes_changed,
+        )
+        self.run_worker(
+            self._control_server.serve_forever(),
+            name="editor-control-service",
+            group="editor-control-service",
+            exclusive=True,
+        )
+
+    def on_trace_eval_app__control_open_session(
+        self,
+        event: _ControlOpenSession,
+    ) -> None:
+        """Open a session requested by an editor client."""
+        if event.result.done():
+            return
+        try:
+            self.open_session_path(
+                event.session_dir,
+                prompt_index=event.prompt_index,
+                notify_control=False,
+            )
+        except Exception as exc:
+            event.result.set_exception(exc)
+        else:
+            event.result.set_result(True)
+
+    def on_trace_eval_app__control_notes_changed(
+        self,
+        event: _ControlNotesChanged,
+    ) -> None:
+        """Reload notes when the active browser displays the changed session."""
+        if event.result.done():
+            return
+        try:
+            screen = self.screen
+            if isinstance(screen, BrowserScreen):
+                try:
+                    same_session = screen.session_dir.resolve() == event.session_dir.resolve()
+                except OSError:
+                    same_session = screen.session_dir == event.session_dir
+                if same_session:
+                    screen._load_notes()
+                    screen._update_reports_tab()
+        except Exception as exc:
+            event.result.set_exception(exc)
+        else:
+            event.result.set_result(None)
+
+    def _run_control_broadcast(self, coroutine) -> None:
+        """Run a control notification under Textual worker ownership."""
+        if self._control_server is None:
+            coroutine.close()
+            return
+        self.run_worker(coroutine, group="editor-control-broadcasts")
+
+    def control_session_selected(
+        self,
+        session_dir: Path,
+        prompt_index: int | None,
+    ) -> None:
+        """Broadcast the session and prompt selected in the TUI."""
+        if self._control_server is not None:
+            self._run_control_broadcast(
+                self._control_server.publish_session_selected(session_dir, prompt_index)
+            )
+
+    def control_session_changed(self, session_dir: Path) -> None:
+        """Broadcast a changed trace projection."""
+        if self._control_server is not None:
+            self._run_control_broadcast(self._control_server.publish_session_changed(session_dir))
+
+    def control_notes_changed(self, session_dir: Path) -> None:
+        """Broadcast a canonical operator-note mutation."""
+        if self._control_server is not None:
+            self._run_control_broadcast(self._control_server.publish_notes_changed(session_dir))
 
     _CACHE_FILE = META_CACHE_FILENAME
 
@@ -949,7 +1105,7 @@ class TraceEvalApp(App):
             :func:`~groket.analysis.inflight.try_begin_session_analysis` and will
             :func:`~groket.analysis.inflight.end_session_analysis` in its ``finally``.
         :param force: When True, re-run even when cache is warm (and run deferred
-            LLM plugins). Default False avoids multi-minute LLM on bulk refresh.
+            plugins). Default False avoids slow deferred work on bulk refresh.
         """
         from ..analysis.inflight import (
             analysis_session_key,
@@ -1043,7 +1199,7 @@ class TraceEvalApp(App):
                 t("notify-analysis-in-flight", n=skipped_inflight),
                 severity="information",
             )
-        # Serial analysis pool (default 1 worker) — avoids stampeding LLM/plugins.
+        # Serial analysis pool (default 1 worker) avoids stampeding plugins.
         from ..job_pools import get_analysis_pool
 
         self._analysis_jobs_active = max(0, int(self._analysis_jobs_active)) + len(pending)
@@ -1053,7 +1209,7 @@ class TraceEvalApp(App):
             try:
                 for idx, (meta, label) in enumerate(pending):
                     try:
-                        # Explicit Analyze action: force so deferred LLM runs.
+                        # Explicit Analyze action includes deferred plugins.
                         self._analyze_one(meta, label, hold_inflight=True, force=True)
                     finally:
                         end_session_analysis(meta.session_dir)
@@ -2205,29 +2361,54 @@ class TraceEvalApp(App):
         row_key = str(event.row_key.value)
         self._open_session(row_key)
 
-    def open_session_path(self, session_dir: Path | str, *, live: bool | None = None) -> None:
+    def open_session_path(
+        self,
+        session_dir: Path | str,
+        *,
+        live: bool | None = None,
+        prompt_index: int | None = None,
+        notify_control: bool = True,
+    ) -> None:
         """Open a session path in the trace browser (main list, Jobs modal, etc.)."""
-        self._open_session(str(session_dir), live=live)
+        self._open_session(
+            str(session_dir),
+            live=live,
+            prompt_index=prompt_index,
+            notify_control=notify_control,
+        )
 
-    def _open_session(self, row_key: str, live: bool | None = None) -> None:
+    def _open_session(
+        self,
+        row_key: str,
+        live: bool | None = None,
+        prompt_index: int | None = None,
+        notify_control: bool = True,
+    ) -> None:
         """Open a session in the browser immediately.
 
         Analysis runs inside BrowserScreen._load_data on its own worker
         so the screen appears without delay.
         """
         plugin_results = self._plugin_results.get(row_key)
-        self._push_browser(Path(row_key), plugin_results)
+        session_path = Path(row_key)
+        self._push_browser(session_path, plugin_results, prompt_index=prompt_index)
+        if notify_control:
+            self.control_session_selected(session_path, prompt_index)
 
     def _push_runner_with_prefill(self, prefill: RunnerPrefill) -> None:
         """Construct and push RunnerScreen on the main thread."""
         self.push_screen(RunnerScreen(self.work_dir, run_manager=self.run_manager, prefill=prefill))
 
     def _push_browser(
-        self, session_path: Path, plugin_results: dict[str, AnalysisResult] | None
+        self,
+        session_path: Path,
+        plugin_results: dict[str, AnalysisResult] | None,
+        *,
+        prompt_index: int | None = None,
     ) -> None:
         """Construct and push BrowserScreen on the main thread."""
         self._pause_home_traces_watch(pause=True)
-        self.push_screen(BrowserScreen(session_path, plugin_results))
+        self.push_screen(BrowserScreen(session_path, plugin_results, prompt_index=prompt_index))
 
     def action_open_runner(self) -> None:
         self.push_screen(RunnerScreen(self.work_dir, run_manager=self.run_manager))
@@ -2645,6 +2826,7 @@ class TraceEvalApp(App):
 
         new_metas: list[tuple[str, SessionMeta, str]] = []
         outcome_updates: list[tuple[str, str]] = []  # key, new outcome
+        changed_sessions: dict[str, Path] = {}
 
         for sd in found:
             try:
@@ -2676,6 +2858,9 @@ class TraceEvalApp(App):
             # follow-up is running / awaiting again. Never apply non-live probe
             # results (that would invent interrupted/cancelled).
             if mtime > 0:
+                previous_mtime = self._session_mtimes.get(key)
+                if previous_mtime is not None and mtime > previous_mtime:
+                    changed_sessions[key] = sd_res
                 self._session_mtimes[key] = mtime
             try:
                 outcome = list_turn_outcome_for_dir(sd_res)
@@ -2714,7 +2899,7 @@ class TraceEvalApp(App):
                         outcome_updates.append((key, outcome))
                 continue
 
-        if not new_metas and not outcome_updates:
+        if not new_metas and not outcome_updates and not changed_sessions:
             return
 
         def _apply() -> None:
@@ -2759,6 +2944,8 @@ class TraceEvalApp(App):
             if changed:
                 with suppress(Exception):
                     self._populate_session_table()
+            for session_dir in changed_sessions.values():
+                self.control_session_changed(session_dir)
 
         try:
             call_ui(self, _apply)
