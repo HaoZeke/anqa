@@ -48,6 +48,16 @@ class ControlError(Exception):
     data: JsonObject | None = None
 
 
+@dataclass(frozen=True)
+class ControlSocketInUse(Exception):
+    """Another live process already owns the control socket (singleton)."""
+
+    socket_path: Path
+
+    def __str__(self) -> str:
+        return f"control socket is active: {self.socket_path}"
+
+
 def default_socket_path() -> Path:
     """Return the per-user runtime socket path."""
     runtime = os.environ.get("XDG_RUNTIME_DIR", "").strip()
@@ -197,7 +207,7 @@ class ControlServer:
             else:
                 writer.close()
                 await writer.wait_closed()
-                raise RuntimeError(f"control socket is active: {self.socket_path}")
+                raise ControlSocketInUse(self.socket_path)
         self._server = await asyncio.start_unix_server(
             self._handle_client,
             path=self.socket_path,
@@ -206,7 +216,10 @@ class ControlServer:
         self.socket_path.chmod(0o600)
 
     async def serve_forever(self) -> None:
-        """Serve until cancelled, then release the owned socket."""
+        """Serve until cancelled, then release the owned socket.
+
+        :raises ControlSocketInUse: When another live owner holds the path.
+        """
         if self._server is None:
             await self.start()
         assert self._server is not None

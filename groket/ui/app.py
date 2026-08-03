@@ -36,7 +36,7 @@ from textual.widgets import (
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
 from ..constants import META_CACHE_FILENAME
-from ..integrations.control import ControlServer
+from ..integrations.control import ControlServer, ControlSocketInUse
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
 from ..paths import app_config_path
@@ -708,11 +708,26 @@ class TraceEvalApp(App):
             notes_changed=self._control_notes_changed,
         )
         self.run_worker(
-            self._control_server.serve_forever(),
+            self._run_control_service(),
             name="editor-control-service",
             group="editor-control-service",
             exclusive=True,
         )
+
+    async def _run_control_service(self) -> None:
+        """Own the editor control socket, or continue without it if already taken."""
+        server = self._control_server
+        if server is None:
+            return
+        try:
+            await server.serve_forever()
+        except ControlSocketInUse as exc:
+            self._control_server = None
+            logger.warning(
+                "Editor control socket already active at %s; this instance continues without it",
+                exc.socket_path,
+            )
+            self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
 
     def on_trace_eval_app__control_open_session(
         self,

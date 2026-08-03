@@ -154,8 +154,10 @@ edits fail instead of overwriting a newer note.
 | `C-c C-k` | Delete the note at point |
 
 The TUI and Org buffer exchange prompt selection, trace-change, and note-change
-notifications over the same socket. `groket --no-control` disables the socket;
-`groket --control-socket PATH` selects another path.
+notifications over the same socket. **One live TUI owns the default socket**
+(singleton): a second `groket` keeps running and shows a warning, but does not
+steal the socket — use `groket --control-socket PATH` for a separate owner, or
+`groket --no-control` to skip the socket entirely.
 
 ### Neovim (Vim) Org buffers
 
