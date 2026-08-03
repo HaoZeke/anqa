@@ -192,6 +192,14 @@ function M.request(method, params)
   end, M.config.timeout_ms)
   coroutine.yield()
   if err_msg then
+    if tostring(err_msg):find("method not found", 1, true) then
+      error(
+        err_msg
+          .. " — restart the groket TUI from a build that includes this control method ("
+          .. method
+          .. ")"
+      )
+    end
     error(err_msg)
   end
   return result
