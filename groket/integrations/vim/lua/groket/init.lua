@@ -552,6 +552,47 @@ local function run(fn)
   end
 end
 
+local function session_entry_label(entry)
+  local title = entry.title or entry.label or ""
+  local session_id = entry.sessionId or ""
+  local head = (title ~= "" and title) or session_id
+  local parts = { head }
+  if entry.status and entry.status ~= "" then
+    table.insert(parts, entry.status)
+  end
+  if entry.model and entry.model ~= "" then
+    table.insert(parts, entry.model)
+  end
+  if entry.origin and entry.origin ~= "" then
+    table.insert(parts, entry.origin)
+  end
+  if session_id ~= "" and session_id ~= head then
+    table.insert(parts, session_id)
+  end
+  return table.concat(parts, "  ·  ")
+end
+
+local function session_entry_path(entry)
+  return entry.path or entry.sessionId
+end
+
+---List catalog sessions from the running TUI.
+---@param query string|nil
+---@param limit integer|nil
+---@return table result
+function M.list_sessions(query, limit)
+  local co = coroutine.running()
+  if not co then
+    error("groket.list_sessions must run inside a coroutine")
+  end
+  ensure_connection(nil)
+  local params = { query = query or "" }
+  if limit ~= nil then
+    params.limit = limit
+  end
+  return M.request("session/list", params)
+end
+
 function M.open_session(session, prompt_index)
   run(function()
     local reference = normalize_session(session)
@@ -566,6 +607,94 @@ function M.open_session(session, prompt_index)
     M.request("session/open", params)
     vim.api.nvim_set_current_buf(buf)
     notify("opened " .. result.sessionId)
+  end)
+end
+
+---Pick a catalog session (optional server-side QUERY) and open it.
+---@param query string|nil
+function M.find_session(query)
+  run(function()
+    local result = M.list_sessions(query)
+    local sessions = result.sessions or {}
+    if #sessions == 0 then
+      local suffix = (query and query ~= "") and (" for " .. vim.inspect(query)) or ""
+      error("no sessions matched" .. suffix)
+    end
+    local labels = {}
+    local by_label = {}
+    for _, entry in ipairs(sessions) do
+      local label = session_entry_label(entry)
+      local key = label
+      local n = 2
+      while by_label[key] do
+        key = label .. " (" .. tostring(n) .. ")"
+        n = n + 1
+      end
+      by_label[key] = session_entry_path(entry)
+      table.insert(labels, key)
+    end
+    vim.schedule(function()
+      vim.ui.select(labels, { prompt = "Groket session" }, function(choice)
+        if not choice then
+          return
+        end
+        local path = by_label[choice]
+        if path then
+          M.open_session(path)
+        end
+      end)
+    end)
+  end)
+end
+
+---Show catalog rows in a scratch buffer; press Enter to open.
+---@param query string|nil
+function M.show_sessions(query)
+  run(function()
+    local result = M.list_sessions(query)
+    local sessions = result.sessions or {}
+    local lines = {
+      string.format(
+        "Groket sessions  matched %s / total %s%s",
+        tostring(result.matched or #sessions),
+        tostring(result.total or #sessions),
+        (query and query ~= "") and ("  filter: " .. query) or ""
+      ),
+      "",
+    }
+    local paths = {}
+    if #sessions == 0 then
+      table.insert(lines, "(no sessions)")
+    else
+      for i, entry in ipairs(sessions) do
+        local line = session_entry_label(entry)
+        table.insert(lines, line)
+        paths[i + 2] = session_entry_path(entry) -- account for header lines
+      end
+    end
+    vim.schedule(function()
+      local buf = vim.api.nvim_create_buf(true, true)
+      vim.bo[buf].buftype = "nofile"
+      vim.bo[buf].bufhidden = "wipe"
+      vim.bo[buf].swapfile = false
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.bo[buf].modifiable = false
+      vim.bo[buf].filetype = "groket-sessions"
+      pcall(vim.api.nvim_buf_set_name, buf, "groket://sessions")
+      vim.b[buf].groket_session_paths = paths
+      vim.keymap.set("n", "<CR>", function()
+        local row = vim.api.nvim_win_get_cursor(0)[1]
+        local path = vim.b[buf].groket_session_paths and vim.b[buf].groket_session_paths[row]
+        if path then
+          M.open_session(path)
+        else
+          notify("no session on this line", vim.log.levels.WARN)
+        end
+      end, { buffer = buf, desc = "Groket: open session" })
+      vim.api.nvim_set_current_buf(buf)
+      notify(string.format("listed %d session(s)", #sessions))
+    end)
   end)
 end
 
@@ -757,10 +886,17 @@ function M.setup(opts)
     local prompt = args[2] and tonumber(args[2]) or nil
     M.open_session(args[1], prompt)
   end, { nargs = "+", complete = "dir" })
+  vim.api.nvim_create_user_command("GroketSessions", function(cmd)
+    local query = vim.trim(cmd.args or "")
+    M.show_sessions(query ~= "" and query or nil)
+  end, { nargs = "*" })
+  vim.api.nvim_create_user_command("GroketFindSession", function(cmd)
+    local query = vim.trim(cmd.args or "")
+    M.find_session(query ~= "" and query or nil)
+  end, { nargs = "*" })
   vim.api.nvim_create_user_command("GroketRefresh", function()
     M.refresh()
-  end, {})
-  vim.api.nvim_create_user_command("GroketSaveNote", function()
+  end, {})  vim.api.nvim_create_user_command("GroketSaveNote", function()
     M.save_note()
   end, {})
   vim.api.nvim_create_user_command("GroketSaveAllNotes", function()

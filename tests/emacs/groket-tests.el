@@ -130,6 +130,23 @@ Original detail
       (should (equal (plist-get sent-params :expectedRevision) "rev-1"))
       (should (equal (plist-get sent-params :noteId) "n-emacs")))))
 
+(ert-deftest groket-session-entry-annotation-includes-status-and-model ()
+  (let ((entry '(:sessionId "alpha-1"
+                 :title "Socket review"
+                 :status "complete"
+                 :model "grok-4"
+                 :origin "work")))
+    (should (string-match-p "Socket review" (groket--session-entry-annotation entry)))
+    (should (string-match-p "complete" (groket--session-entry-annotation entry)))
+    (should (string-match-p "grok-4" (groket--session-entry-annotation entry)))
+    (should (equal (groket--session-entry-path entry) "alpha-1"))))
+(ert-deftest groket-session-entry-path-prefers-path ()
+  (should (equal (groket--session-entry-path
+                  '(:sessionId "alpha" :path "/tmp/alpha"))
+                 "/tmp/alpha"))
+  (should (equal (groket--session-entry-path '(:sessionId "alpha"))
+                 "alpha")))
+
 (ert-deftest groket-notifications-target-the-matching-session ()
   (let ((matching (generate-new-buffer " *groket-matching*"))
         (other (generate-new-buffer " *groket-other*")))

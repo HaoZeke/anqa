@@ -124,8 +124,18 @@ session and editing operator notes in an Org buffer. Load the packaged file:
 ```
 
 Use `M-x groket-open-session` with a session directory or an id from the
-running catalog. When Groket is not running, a session directory starts the
-TUI in a terminal buffer. The TUI owns a private per-user Unix socket at
+running catalog. Prefer catalog browse/search when the TUI is already up:
+
+| Command | Action |
+|---------|--------|
+| `M-x groket-find-session` | Completing-read over the TUI catalog (prefix arg → filter query) |
+| `M-x groket-list-sessions` | Buttonized `*groket-sessions*` buffer (prefix arg → filter query) |
+
+Both call the shared control method `session/list` (optional `query` /
+`limit`) against the TUI home list — same data as Emacs and Neovim.
+
+When Groket is not running, a session directory starts the TUI in a terminal
+buffer. The TUI owns a private per-user Unix socket at
 `$XDG_RUNTIME_DIR/groket/control.sock`; set `groket-control-socket` when a
 different location is required.
 
@@ -177,6 +187,8 @@ require("groket").setup({
 
 | Command | Action |
 |---------|--------|
+| `:GroketFindSession [query]` | Pick from TUI catalog (`session/list`) and open |
+| `:GroketSessions [query]` | List catalog in a buffer; `<CR>` opens a row |
 | `:GroketOpenSession {path-or-id} [prompt]` | Render Org buffer; select session in TUI |
 | `:GroketConnect` / `:GroketDisconnect` | Attach to / drop the control socket |
 | `:GroketRefresh` | Reload projection (`R` in the buffer) |

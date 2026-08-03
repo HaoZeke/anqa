@@ -273,6 +273,115 @@
      reference)
     (goto-char (min point-before (point-max)))))
 
+(defun groket--session-list (&optional query limit)
+  "Return the `session/list' result for QUERY and optional LIMIT."
+  (let ((params (list :query (or query ""))))
+    (when limit
+      (setq params (plist-put params :limit limit)))
+    (jsonrpc-request
+     (groket-connect) "session/list" params
+     :timeout groket-request-timeout)))
+
+(defun groket--session-entry-path (entry)
+  "Return a stable open reference for session ENTRY."
+  (or (plist-get entry :path)
+      (plist-get entry :sessionId)))
+
+(defun groket--session-entry-annotation (entry)
+  "Return a one-line label for catalog ENTRY."
+  (let* ((title (or (plist-get entry :title) (plist-get entry :label) ""))
+         (session-id (or (plist-get entry :sessionId) ""))
+         (status (or (plist-get entry :status) ""))
+         (model (or (plist-get entry :model) ""))
+         (origin (or (plist-get entry :origin) ""))
+         (head (if (and title (not (string-empty-p title)))
+                   title
+                 session-id)))
+    (string-trim
+     (mapconcat #'identity
+                (delq nil
+                      (list head
+                            (and status (not (string-empty-p status)) status)
+                            (and model (not (string-empty-p model)) model)
+                            (and origin (not (string-empty-p origin)) origin)
+                            session-id))
+                "  ·  "))))
+
+(defun groket-list-sessions (&optional query)
+  "List sessions from the running TUI catalog, optionally filtered by QUERY.
+With a prefix argument, prompt for QUERY. Results open a read-only buffer."
+  (interactive
+   (list (if current-prefix-arg
+             (read-string "Filter sessions: ")
+           "")))
+  (groket-connect)
+  (let* ((result (groket--session-list query))
+         (sessions (append (plist-get result :sessions) nil))
+         (total (or (plist-get result :total) 0))
+         (matched (or (plist-get result :matched) (length sessions)))
+         (buffer (get-buffer-create "*groket-sessions*")))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert
+         (format "Groket sessions  matched %s / total %s"
+                 matched total)
+         (if (and query (not (string-empty-p query)))
+             (format "  filter: %s\n\n" query)
+           "\n\n"))
+        (if (null sessions)
+            (insert "(no sessions)\n")
+          (dolist (entry sessions)
+            (let ((path (groket--session-entry-path entry))
+                  (line (groket--session-entry-annotation entry)))
+              (insert-text-button
+               line
+               'action (lambda (_button)
+                         (groket-open-session path))
+               'follow-link t
+               'groket-session path
+               'help-echo path)
+              (insert "\n")))))
+      (goto-char (point-min))
+      (setq buffer-read-only t)
+      (special-mode))
+    (pop-to-buffer buffer)
+    buffer))
+
+(defun groket-find-session (&optional query)
+  "Pick a catalog session with completion and open it as an Org buffer.
+QUERY pre-filters the catalog on the server when non-empty. With a prefix
+argument, prompt for QUERY first."
+  (interactive
+   (list (if current-prefix-arg
+             (read-string "Filter sessions: ")
+           "")))
+  (groket-connect)
+  (let* ((result (groket--session-list query))
+         (sessions (append (plist-get result :sessions) nil))
+         (table (make-hash-table :test #'equal))
+         candidates)
+    (when (null sessions)
+      (user-error "No sessions matched%s"
+                  (if (and query (not (string-empty-p query)))
+                      (format " %S" query)
+                    "")))
+    (dolist (entry sessions)
+      (let* ((annotation (groket--session-entry-annotation entry))
+             (path (groket--session-entry-path entry))
+             (key annotation)
+             (n 2))
+        (while (gethash key table)
+          (setq key (format "%s (%s)" annotation n)
+                n (1+ n)))
+        (puthash key path table)
+        (push key candidates)))
+    (let* ((choice (completing-read "Groket session: " (nreverse candidates) nil t))
+           (path (gethash choice table)))
+      (unless path
+        (user-error "No session selected"))
+      (groket-open-session path))))
+
 (defun groket-open-session (session &optional prompt-index)
   "Open SESSION as an Org buffer and select PROMPT-INDEX in the TUI."
   (interactive (list (read-string "Session path or id: ") nil))
@@ -296,7 +405,6 @@
      :timeout groket-request-timeout)
     (pop-to-buffer buffer)
     buffer))
-
 (defun groket-open-prompt-at-point ()
   "Select the prompt at point in the running TUI."
   (interactive)

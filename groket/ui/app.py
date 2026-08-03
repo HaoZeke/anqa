@@ -662,6 +662,25 @@ class TraceEvalApp(App):
                 return candidate.resolve()
         return None
 
+    def _control_list_sessions(self) -> list[JsonObject]:
+        """Snapshot the sessions-home catalog for editor ``session/list``."""
+        rows: list[JsonObject] = []
+        for meta, label in self._meta_only:
+            session_id = (meta.session_id or meta.session_dir.name).strip()
+            rows.append(
+                {
+                    "sessionId": session_id,
+                    "path": str(meta.session_dir.resolve()),
+                    "title": meta.title or "",
+                    "label": label or meta.label,
+                    "model": meta.model_display,
+                    "status": meta.list_status_label(),
+                    "outcome": meta.turn_outcome or "",
+                    "origin": meta.origin or "work",
+                }
+            )
+        return rows
+
     async def _control_open_session(
         self,
         session_dir: Path,
@@ -684,6 +703,7 @@ class TraceEvalApp(App):
         self._control_server = ControlServer(
             socket_path=self._control_socket,
             resolve_session=self._resolve_control_session,
+            list_sessions=self._control_list_sessions,
             open_session=self._control_open_session,
             notes_changed=self._control_notes_changed,
         )

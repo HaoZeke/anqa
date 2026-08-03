@@ -17,6 +17,9 @@ def test_vim_runtime_layout_matches_cli() -> None:
     init = (root / "lua" / "groket" / "init.lua").read_text(encoding="utf-8")
     plugin = (root / "plugin" / "groket.lua").read_text(encoding="utf-8")
     assert "session/render" in init
+    assert "session/list" in init
     assert "notes/upsert" in init
     assert "GroketOpenSession" in init
+    assert "GroketFindSession" in init
+    assert "GroketSessions" in init
     assert 'require("groket").setup()' in plugin

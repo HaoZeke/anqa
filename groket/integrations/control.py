@@ -23,7 +23,9 @@ from .editor import render_editor_document
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
+DEFAULT_SESSION_LIST_LIMIT = 200
 CAPABILITIES = (
+    "session/list",
     "session/open",
     "session/render",
     "notes/list",
@@ -32,6 +34,7 @@ CAPABILITIES = (
 )
 
 type SessionResolver = Callable[[str], Path | None]
+type SessionLister = Callable[[], list[JsonObject]]
 type OpenSession = Callable[[Path, int | None], Awaitable[bool]]
 type NotesChanged = Callable[[Path], Awaitable[None]]
 
@@ -55,6 +58,46 @@ def default_socket_path() -> Path:
 def _default_resolve_session(reference: str) -> Path | None:
     path = Path(reference).expanduser()
     return path.resolve() if path.is_dir() else None
+
+
+def _session_list_haystack(entry: JsonObject) -> str:
+    parts = (
+        json_as_str(entry.get("sessionId")),
+        json_as_str(entry.get("path")),
+        json_as_str(entry.get("title")),
+        json_as_str(entry.get("label")),
+        json_as_str(entry.get("model")),
+        json_as_str(entry.get("status")),
+        json_as_str(entry.get("outcome")),
+        json_as_str(entry.get("origin")),
+    )
+    return " ".join(part for part in parts if part).casefold()
+
+
+def filter_session_catalog(
+    sessions: list[JsonObject],
+    *,
+    query: str = "",
+    limit: int | None = None,
+) -> JsonObject:
+    """Filter and cap a catalog snapshot for ``session/list``.
+
+    :param sessions: Full catalog rows (already shaped for the wire).
+    :param query: Case-insensitive substring across id/path/title/model/status.
+    :param limit: Max rows to return after filtering; ``None`` means default cap.
+    :returns: Mapping with ``sessions``, ``total``, and ``matched``.
+    """
+    needle = (query or "").strip().casefold()
+    if needle:
+        matched = [row for row in sessions if needle in _session_list_haystack(row)]
+    else:
+        matched = list(sessions)
+    cap = DEFAULT_SESSION_LIST_LIMIT if limit is None else max(0, limit)
+    return {
+        "sessions": matched[:cap],
+        "total": len(sessions),
+        "matched": len(matched),
+    }
 
 
 def _note_mapping(note: NoteEntry) -> JsonObject:
@@ -120,11 +163,13 @@ class ControlServer:
         *,
         socket_path: Path | None = None,
         resolve_session: SessionResolver | None = None,
+        list_sessions: SessionLister | None = None,
         open_session: OpenSession | None = None,
         notes_changed: NotesChanged | None = None,
     ) -> None:
         self.socket_path = Path(socket_path or default_socket_path()).expanduser()
         self._resolve_session = resolve_session or _default_resolve_session
+        self._list_sessions = list_sessions
         self._open_session = open_session
         self._notes_changed = notes_changed
         self._server: asyncio.AbstractServer | None = None
@@ -302,6 +347,18 @@ class ControlServer:
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": list(CAPABILITIES),
             }
+        if method == "session/list":
+            if self._list_sessions is None:
+                catalog: list[JsonObject] = []
+            else:
+                catalog = list(self._list_sessions())
+            raw_limit = params.get("limit")
+            limit = None if raw_limit is None else json_as_int(raw_limit)
+            return filter_session_catalog(
+                catalog,
+                query=json_as_str(params.get("query")),
+                limit=limit,
+            )
         if method == "session/render":
             document = await asyncio.to_thread(render_editor_document, self._session(params))
             return {
