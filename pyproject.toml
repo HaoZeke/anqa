@@ -72,6 +72,8 @@ groket = [
     "locale/**/*.txt",
     "locale/**/README*",
     "integrations/emacs/*.el",
+    "integrations/vim/lua/**/*.lua",
+    "integrations/vim/plugin/**/*.lua",
     "_embedded_assets/**/*",
 ]
 

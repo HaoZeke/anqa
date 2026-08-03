@@ -147,6 +147,59 @@ The TUI and Org buffer exchange prompt selection, trace-change, and note-change
 notifications over the same socket. `groket --no-control` disables the socket;
 `groket --control-socket PATH` selects another path.
 
+### Neovim (Vim) Org buffers
+
+The wheel also ships a **Neovim 0.9+** client on the same control socket (classic
+Vim without Lua is not supported). Put the packaged runtime on your
+``runtimepath`` and load commands:
+
+```vim
+" init.vim / init.lua (vim.cmd)
+let &runtimepath = trim(system('groket vim-path')) . ',' . &runtimepath
+```
+
+```lua
+-- init.lua
+vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "groket", "vim-path" })))
+-- plugin/groket.lua calls require("groket").setup() automatically
+```
+
+Optional setup overrides (socket path, auto-start TUI, executable name):
+
+```lua
+require("groket").setup({
+  socket = nil,              -- default: $XDG_RUNTIME_DIR/groket/control.sock
+  executable = "groket",
+  auto_start = true,         -- start TUI when opening a session directory
+  timeout_ms = 10000,
+})
+```
+
+| Command | Action |
+|---------|--------|
+| `:GroketOpenSession {path-or-id} [prompt]` | Render Org buffer; select session in TUI |
+| `:GroketConnect` / `:GroketDisconnect` | Attach to / drop the control socket |
+| `:GroketRefresh` | Reload projection (`R` in the buffer) |
+| `:GroketOpenPrompt` | Select prompt at cursor in the TUI |
+| `:GroketSaveNote` / `:GroketSaveAllNotes` | Upsert note(s) with revision checks |
+| `:GroketNewNote` / `:GroketDeleteNote` | Create under prompt / delete note at cursor |
+
+Buffer-local maps (default local leader is ``\``):
+
+| Key | Action |
+|-----|--------|
+| `R` | Refresh |
+| `<LocalLeader>o` | Open prompt in TUI |
+| `<LocalLeader>c` | Save note at cursor |
+| `<LocalLeader>s` | Save all notes |
+| `<LocalLeader>n` | New note |
+| `<LocalLeader>k` | Delete note |
+
+Start the TUI first (`groket`), or open a **session directory** with
+`:GroketOpenSession` so the plugin can launch `groket --path …` when
+`auto_start` is on. Only operator-note field bodies are persisted; refresh
+reloads the projection from the TUI.
+
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks
 for the file path (default `~/.groket/tasks/<task_id>.yaml`). Run extras

@@ -76,7 +76,9 @@ rules_app = typer.Typer(
 app.add_typer(rules_app, name="rules")
 
 # Subcommand names — must not be consumed as a TUI path positional.
-TOOL_COMMANDS = frozenset({"gen", "generator", "self-test", "batch", "rules", "emacs-path"})
+TOOL_COMMANDS = frozenset(
+    {"gen", "generator", "self-test", "batch", "rules", "emacs-path", "vim-path"}
+)
 COMMAND_ALIASES = {"generator": "gen"}
 
 
@@ -124,6 +126,12 @@ def launch_tui(
 def emacs_path() -> None:
     """Print the installed groket.el path."""
     typer.echo(Path(__file__).parent / "integrations" / "emacs" / "groket.el")
+
+
+@app.command("vim-path")
+def vim_path() -> None:
+    """Print the installed Neovim runtimepath directory for the Groket client."""
+    typer.echo(Path(__file__).parent / "integrations" / "vim")
 
 
 @app.callback(invoke_without_command=True)
