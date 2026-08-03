@@ -114,6 +114,20 @@ browses that tree while keeping the default work root for new runs. Operator
 notes on host sessions write under ``~/.groket/notes/<session_id>/`` so the
 live Grok tree stays clean.
 
+### Editor projections (Org / Markdown / JSON)
+
+`session/render` accepts optional ``format``:
+
+| `format` | `contentType` | Client |
+|----------|---------------|--------|
+| `org` (default) | `text/org` | Emacs |
+| `markdown` | `text/markdown` | Neovim (default) |
+| `json` | `application/json` | Scripts / tools |
+
+Markdown uses YAML front matter plus ``<!-- groket:… -->`` tags for machine
+anchors (prompt index, note id, field id). Org keeps property drawers. JSON is
+a structured snapshot (not meant as the primary edit buffer).
+
 ### Emacs Org buffers
 
 The installed distribution includes an Emacs package for viewing the active
@@ -159,11 +173,11 @@ notifications over the same socket. **One live TUI owns the default socket**
 steal the socket — use `groket --control-socket PATH` for a separate owner, or
 `groket --no-control` to skip the socket entirely.
 
-### Neovim (Vim) Org buffers
+### Neovim (Markdown) buffers
 
 The wheel also ships a **Neovim 0.9+** client on the same control socket (classic
-Vim without Lua is not supported). Put the packaged runtime on your
-``runtimepath`` and load commands:
+Vim without Lua is not supported). Sessions open as **Markdown** (not Org).
+Put the packaged runtime on your ``runtimepath`` and load commands:
 
 ```vim
 " init.vim / init.lua (vim.cmd)
@@ -182,6 +196,7 @@ Optional setup overrides (socket path, auto-start TUI, executable name):
 require("groket").setup({
   socket = nil,              -- default: $XDG_RUNTIME_DIR/groket/control.sock
   executable = "groket",
+  format = "markdown",       -- session/render format (markdown | org)
   auto_start = true,         -- start TUI when opening a session directory
   timeout_ms = 10000,
 })

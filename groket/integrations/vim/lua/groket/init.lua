@@ -18,11 +18,13 @@ M.config = {
   executable = "groket",
   timeout_ms = 10000,
   auto_start = true,
+  ---@type "markdown"|"org"
+  format = "markdown",
   picker = "auto",
   keys = {
     find = "<leader>gs", -- fuzzy find + open session
     list = "<leader>gl", -- session browser buffer
-    refresh = "<leader>gR", -- refresh open Org projection
+    refresh = "<leader>gR", -- refresh open projection
     connect = "<leader>gc",
   },
 }
@@ -325,10 +327,13 @@ function M._on_notification(method, params)
         elseif method == "session/changed" then
           vim.b[buf].groket_session_stale = true
         elseif method == "session/selected" and params.promptIndex ~= nil then
-          local needle = ":GROKET_PROMPT_INDEX: " .. tostring(params.promptIndex)
+          local idx = tostring(params.promptIndex)
           local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
           for i, line in ipairs(lines) do
-            if line == needle then
+            local hit = line:find("prompt%-index=" .. idx, 1, false)
+              or line == ("## Prompt " .. idx)
+              or line == (":GROKET_PROMPT_INDEX: " .. idx)
+            if hit then
               local win = vim.fn.bufwinid(buf)
               if win ~= -1 then
                 vim.api.nvim_win_set_cursor(win, { i, 0 })
@@ -343,65 +348,69 @@ function M._on_notification(method, params)
   end
 end
 
-local function property_value(line)
-  local key, value = line:match("^:([%w_]+):%s*(.*)$")
-  if key then
-    return key, vim.trim(value or "")
+---Parse ``<!-- groket:k=v k2=v2 -->`` machine tags (Markdown projection).
+---@param line string
+---@return table<string, string>|nil
+local function parse_groket_comment(line)
+  local inner = line:match("<!%-%-%s*groket:([^>]-)%s*%-%->")
+  if not inner then
+    return nil
   end
-  return nil, nil
+  local meta = {}
+  for token in inner:gmatch("%S+") do
+    local key, value = token:match("^([%w%-_]+)=(.*)$")
+    if key then
+      meta[key] = value
+    end
+  end
+  return meta
 end
 
----Scan upward for an Org property drawer value.
+---Scan upward for a groket HTML comment attribute.
 ---@param lines string[]
 ---@param row integer 1-based
 ---@param name string
 ---@return string|nil
-local function ancestor_property(lines, row, name)
-  local i = row
-  while i >= 1 do
-    if lines[i]:match("^:PROPERTIES:") then
-      local j = i + 1
-      while j <= #lines and not lines[j]:match("^:END:") do
-        local key, value = property_value(lines[j])
-        if key == name then
-          return value
-        end
-        j = j + 1
-      end
+local function ancestor_meta(lines, row, name)
+  for i = row, 1, -1 do
+    local meta = parse_groket_comment(lines[i])
+    if meta and meta[name] then
+      return meta[name]
     end
-    i = i - 1
   end
   return nil
 end
 
-local function heading_level(line)
-  local stars = line:match("^(%*+)%s")
-  if not stars then
+---Markdown AT heading level (``#`` count), or nil.
+---@param line string
+---@return integer|nil
+local function md_heading_level(line)
+  local hashes = line:match("^(#+)%s+")
+  if not hashes then
     return nil
   end
-  return #stars
+  return #hashes
 end
 
----Locate the *** note heading for *note_id* and return start/end line indexes.
+---Locate #### note heading span for *note_id*.
 ---@param lines string[]
 ---@param note_id string
----@return integer, integer, integer  start, end, level
-local function note_span(lines, note_id)
-  local prop_line
+---@return integer, integer, integer
+local function note_span_md(lines, note_id)
+  local tag_line
   for i, line in ipairs(lines) do
-    local key, value = property_value(line)
-    if key == "GROKET_NOTE_ID" and value == note_id then
-      prop_line = i
+    local meta = parse_groket_comment(line)
+    if meta and meta["note-id"] == note_id and not meta["field-id"] then
+      tag_line = i
       break
     end
   end
-  if not prop_line then
+  if not tag_line then
     error("could not locate note " .. note_id)
   end
   local note_start
-  for i = prop_line, 1, -1 do
-    local level = heading_level(lines[i])
-    if level then
+  for i = tag_line, 1, -1 do
+    if md_heading_level(lines[i]) then
       note_start = i
       break
     end
@@ -409,10 +418,10 @@ local function note_span(lines, note_id)
   if not note_start then
     error("could not locate note heading for " .. note_id)
   end
-  local note_level = heading_level(lines[note_start])
+  local note_level = md_heading_level(lines[note_start])
   local note_end = #lines
   for i = note_start + 1, #lines do
-    local level = heading_level(lines[i])
+    local level = md_heading_level(lines[i])
     if level and level <= note_level then
       note_end = i - 1
       break
@@ -426,37 +435,47 @@ end
 ---@return table
 local function note_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local note_id = ancestor_property(lines, row, "GROKET_NOTE_ID")
+  local note_id = ancestor_meta(lines, row, "note-id")
   if not note_id then
     error("cursor is not inside an operator note")
   end
-  local note_start, note_end, note_level = note_span(lines, note_id)
-  local turn_index = tonumber(ancestor_property(lines, note_start + 1, "GROKET_TURN_INDEX") or "0")
-    or 0
-  local event_text = ancestor_property(lines, note_start + 1, "GROKET_EVENT_INDICES") or ""
-  local created_at = ancestor_property(lines, note_start + 1, "GROKET_CREATED_AT") or ""
+  local note_start, note_end, note_level = note_span_md(lines, note_id)
+  local turn_index = tonumber(ancestor_meta(lines, note_start, "turn-index") or "0") or 0
+  local event_text = ""
+  local created_at = ""
+  for i = note_start, math.min(note_start + 5, note_end) do
+    local meta = parse_groket_comment(lines[i])
+    if meta and meta["note-id"] == note_id and not meta["field-id"] then
+      event_text = meta["event-indices"] or ""
+      created_at = meta.created or ""
+      break
+    end
+  end
   local fields = vim.empty_dict()
   local i = note_start
   while i <= note_end do
-    local level = heading_level(lines[i])
+    local level = md_heading_level(lines[i])
     if level and level == note_level + 1 then
       local field_id
       local body_start = i + 1
-      if lines[body_start] and lines[body_start]:match("^:PROPERTIES:") then
-        local j = body_start + 1
-        while j <= note_end and not lines[j]:match("^:END:") do
-          local key, value = property_value(lines[j])
-          if key == "GROKET_FIELD_ID" then
-            field_id = value
+      -- optional HTML comment immediately under heading
+      while body_start <= note_end and lines[body_start]:match("^%s*$") do
+        body_start = body_start + 1
+      end
+      if body_start <= note_end then
+        local meta = parse_groket_comment(lines[body_start])
+        if meta and meta["field-id"] then
+          field_id = meta["field-id"]
+          body_start = body_start + 1
+          while body_start <= note_end and lines[body_start]:match("^%s*$") do
+            body_start = body_start + 1
           end
-          j = j + 1
         end
-        body_start = j + 1
       end
       if field_id then
         local body_end = note_end
         for k = body_start, note_end do
-          local lvl = heading_level(lines[k])
+          local lvl = md_heading_level(lines[k])
           if lvl and lvl <= level then
             body_end = k - 1
             break
@@ -497,13 +516,13 @@ end
 
 local function prompt_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local raw = ancestor_property(lines, row, "GROKET_PROMPT_INDEX")
+  local raw = ancestor_meta(lines, row, "prompt-index")
   return raw and tonumber(raw) or nil
 end
 
 local function turn_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local raw = ancestor_property(lines, row, "GROKET_TURN_INDEX")
+  local raw = ancestor_meta(lines, row, "turn-index")
   return raw and tonumber(raw) or nil
 end
 
@@ -548,8 +567,9 @@ local function apply_document(buf, text, session_id, revision, reference)
   vim.b[buf].groket_notes_stale = false
   vim.b[buf].groket_session_stale = false
   set_stale_status(buf)
+  local ft = (M.config.format == "org") and "org" or "markdown"
   pcall(function()
-    vim.bo[buf].filetype = "org"
+    vim.bo[buf].filetype = ft
   end)
   vim.bo[buf].modified = false
   pcall(vim.api.nvim_buf_set_name, buf, "groket://" .. session_id)
@@ -1055,11 +1075,18 @@ function M.list_sessions(query, limit)
   return M.request("session/list", params)
 end
 
+local function render_params(session)
+  return {
+    session = session,
+    format = M.config.format or "markdown",
+  }
+end
+
 function M.open_session(session, prompt_index)
   run(function()
     local reference = normalize_session(session)
     ensure_connection(reference)
-    local result = M.request("session/render", { session = reference })
+    local result = M.request("session/render", render_params(reference))
     local buf = vim.api.nvim_create_buf(true, true)
     apply_document(buf, result.text, result.sessionId, result.notesRevision, reference)
     local params = { session = reference }
@@ -1068,7 +1095,7 @@ function M.open_session(session, prompt_index)
     end
     M.request("session/open", params)
     vim.api.nvim_set_current_buf(buf)
-    notify("opened " .. result.sessionId)
+    notify("opened " .. result.sessionId .. " (" .. (result.format or M.config.format) .. ")")
   end)
 end
 
@@ -1200,7 +1227,7 @@ function M.refresh()
       end
     end
     ensure_connection(reference)
-    local result = M.request("session/render", { session = reference })
+    local result = M.request("session/render", render_params(reference))
     local row = vim.api.nvim_win_get_cursor(0)[1]
     apply_document(buf, result.text, result.sessionId, result.notesRevision, reference)
     local line_count = vim.api.nvim_buf_line_count(buf)
@@ -1286,7 +1313,7 @@ function M.new_note()
       },
     })
     vim.b[buf].groket_notes_revision = result.revision
-    local rendered = M.request("session/render", { session = reference })
+    local rendered = M.request("session/render", render_params(reference))
     apply_document(buf, rendered.text, rendered.sessionId, rendered.notesRevision, reference)
     notify("created note " .. note_id)
   end)
@@ -1301,7 +1328,7 @@ function M.delete_note()
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local note_id = ancestor_property(lines, row, "GROKET_NOTE_ID")
+    local note_id = ancestor_meta(lines, row, "note-id")
     if not note_id then
       error("cursor is not inside an operator note")
     end
@@ -1316,7 +1343,7 @@ function M.delete_note()
       noteId = note_id,
     })
     vim.b[buf].groket_notes_revision = result.revision
-    local rendered = M.request("session/render", { session = reference })
+    local rendered = M.request("session/render", render_params(reference))
     apply_document(buf, rendered.text, rendered.sessionId, rendered.notesRevision, reference)
     notify("deleted note " .. note_id)
   end)
@@ -1332,8 +1359,11 @@ function M.save_all_notes()
     ensure_connection(reference)
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local rows = {}
+    local seen = {}
     for i, line in ipairs(lines) do
-      if line:match("^:GROKET_NOTE_ID:") then
+      local meta = parse_groket_comment(line)
+      if meta and meta["note-id"] and not meta["field-id"] and not seen[meta["note-id"]] then
+        seen[meta["note-id"]] = true
         table.insert(rows, i)
       end
     end

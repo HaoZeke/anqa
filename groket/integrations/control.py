@@ -19,7 +19,7 @@ from ..notes import (
     notes_snapshot,
     upsert_note,
 )
-from .editor import render_editor_document
+from .editor import SUPPORTED_FORMATS, EditorDocument, render_editor_document
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
@@ -103,8 +103,9 @@ def filter_session_catalog(
     else:
         matched = list(sessions)
     cap = DEFAULT_SESSION_LIST_LIMIT if limit is None else max(0, limit)
+    sessions_out: list[JsonValue] = list(matched[:cap])
     return {
-        "sessions": matched[:cap],
+        "sessions": sessions_out,
         "total": len(sessions),
         "matched": len(matched),
     }
@@ -373,12 +374,25 @@ class ControlServer:
                 limit=limit,
             )
         if method == "session/render":
-            document = await asyncio.to_thread(render_editor_document, self._session(params))
+            fmt = json_as_str(params.get("format")).strip().lower() or "org"
+            if fmt not in SUPPORTED_FORMATS:
+                raise ControlError(
+                    -32602,
+                    "unsupported editor format",
+                    {"supported": list(SUPPORTED_FORMATS), "format": fmt},
+                )
+            session = self._session(params)
+
+            def _render() -> EditorDocument:
+                return render_editor_document(session, format=fmt)
+
+            document = await asyncio.to_thread(_render)
             return {
                 "sessionId": document.session_id,
                 "notesRevision": document.notes_revision,
                 "promptIndexes": list(document.prompt_indexes),
-                "contentType": "text/org",
+                "format": document.format,
+                "contentType": document.content_type,
                 "text": document.text,
             }
         if method == "session/open":

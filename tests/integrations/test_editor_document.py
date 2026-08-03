@@ -1,4 +1,4 @@
-"""Editor-facing Org session projection."""
+"""Editor-facing session projections (Org, Markdown, JSON)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from pathlib import Path
 from groket.notes import NoteEntry, NotesDoc, save_notes
 
 
-def _render_editor_document(session_dir: Path):
+def _render_editor_document(session_dir: Path, *, format: str = "org"):
     module = import_module("groket.integrations.editor")
-    return module.render_editor_document(session_dir)
+    return module.render_editor_document(session_dir, format=format)
 
 
 def _write_session(session_dir: Path) -> None:
@@ -137,3 +137,53 @@ def test_render_editor_document_uses_turn_index_when_prompt_metadata_is_absent(
 
     assert document.prompt_indexes == (0,)
     assert "* Prompt 0" in document.text
+
+
+def test_render_markdown_uses_html_comments_and_headings(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-md"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    note = NoteEntry.new(
+        turn_index=1,
+        fields={"summary": "Wrong branch", "detail": "stale ref"},
+        event_indices=[3],
+        note_id="n-md",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+
+    document = _render_editor_document(session_dir, format="markdown")
+
+    assert document.format == "markdown"
+    assert document.content_type == "text/markdown"
+    assert "groket_session_id:" in document.text
+    assert "## Prompt 4" in document.text
+    assert "<!-- groket:prompt-index=4 turn-index=" in document.text
+    assert "<!-- groket:note-id=n-md" in document.text
+    assert "<!-- groket:field-id=summary note-id=n-md -->" in document.text
+    assert "    * not a heading" in document.text
+    assert "Wrong branch" in document.text
+
+
+def test_render_json_document_is_structured(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-json"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    document = _render_editor_document(session_dir, format="json")
+    assert document.content_type == "application/json"
+    payload = json.loads(document.text)
+    assert payload["sessionId"] == session_dir.name
+    assert payload["promptIndexes"] == [4, 9]
+    assert payload["prompts"][0]["promptIndex"] == 4
+    assert payload["prompts"][0]["messages"][0]["role"] == "user"
+
+
+def test_render_rejects_unknown_format(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-bad"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    module = import_module("groket.integrations.editor")
+    try:
+        module.render_editor_document(session_dir, format="rtf")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "unsupported" in str(exc)
