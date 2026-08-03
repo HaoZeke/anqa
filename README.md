@@ -189,8 +189,8 @@ require("groket").setup({
 
 | Command | Action |
 |---------|--------|
-| `:GroketFindSession [query]` | Pick from TUI catalog (`session/list`) and open |
-| `:GroketSessions [query]` | List catalog in a buffer; `<CR>` opens a row |
+| `:GroketFindSession [query]` | **Fuzzy** pick from TUI catalog and open |
+| `:GroketSessions [query]` | Session browser buffer; filter + open |
 | `:GroketOpenSession {path-or-id} [prompt]` | Render Org buffer; select session in TUI |
 | `:GroketConnect` / `:GroketDisconnect` | Attach to / drop the control socket |
 | `:GroketRefresh` | Reload projection (`R` in the buffer) |
@@ -198,7 +198,28 @@ require("groket").setup({
 | `:GroketSaveNote` / `:GroketSaveAllNotes` | Upsert note(s) with revision checks |
 | `:GroketNewNote` / `:GroketDeleteNote` | Create under prompt / delete note at cursor |
 
-Buffer-local maps (default local leader is ``\``):
+**Global shortcuts** (defaults; override via `require("groket").setup({ keys = … })`):
+
+| Key | Action |
+|-----|--------|
+| `<leader>gs` | Fuzzy find session (float, or Telescope / fzf-lua / mini.pick / snacks if installed) |
+| `<leader>gl` | Session browser buffer |
+| `<leader>gR` | Refresh current Org projection |
+| `<leader>gc` | Connect to control socket |
+
+In the fuzzy float: type to filter, `Ctrl-n` / `Ctrl-p` (or ↑↓) move, `Enter` open, `Esc` cancel.
+
+Browser buffer (`:GroketSessions` / `<leader>gl`):
+
+| Key | Action |
+|-----|--------|
+| `<CR>` / `o` | Open session |
+| `f` / `/` | Filter list |
+| `g` | Open fuzzy picker |
+| `r` | Reload catalog |
+| `q` | Close |
+
+Buffer-local maps on an open session (default local leader is ``\``):
 
 | Key | Action |
 |-----|--------|

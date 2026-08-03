@@ -22,4 +22,6 @@ def test_vim_runtime_layout_matches_cli() -> None:
     assert "GroketOpenSession" in init
     assert "GroketFindSession" in init
     assert "GroketSessions" in init
+    assert "float_fuzzy_pick" in init
+    assert "<leader>gs" in init
     assert 'require("groket").setup()' in plugin

@@ -10,12 +10,21 @@ local uv = vim.uv or vim.loop
 ---@field executable string groket CLI for optional TUI start
 ---@field timeout_ms integer request wait
 ---@field auto_start boolean start TUI when socket missing and session is a directory
+---@field keys table<string, string|false>|nil global maps; set false to disable
+---@field picker "auto"|"float"|"telescope"|"fzf-lua"|"mini"|"snacks"|nil
 
 M.config = {
   socket = nil,
   executable = "groket",
   timeout_ms = 10000,
   auto_start = true,
+  picker = "auto",
+  keys = {
+    find = "<leader>gs", -- fuzzy find + open session
+    list = "<leader>gl", -- session browser buffer
+    refresh = "<leader>gR", -- refresh open Org projection
+    connect = "<leader>gc",
+  },
 }
 
 local state = {
@@ -564,24 +573,469 @@ local function session_entry_label(entry)
   local title = entry.title or entry.label or ""
   local session_id = entry.sessionId or ""
   local head = (title ~= "" and title) or session_id
-  local parts = { head }
-  if entry.status and entry.status ~= "" then
-    table.insert(parts, entry.status)
-  end
-  if entry.model and entry.model ~= "" then
-    table.insert(parts, entry.model)
-  end
-  if entry.origin and entry.origin ~= "" then
-    table.insert(parts, entry.origin)
+  local status = entry.status or "—"
+  local origin = entry.origin or ""
+  local model = entry.model or ""
+  -- Compact, scannable: [status] origin · title · model · id
+  local bits = {
+    string.format("%-8s", status),
+    (origin ~= "" and origin) or "work",
+    head,
+  }
+  if model ~= "" then
+    table.insert(bits, model)
   end
   if session_id ~= "" and session_id ~= head then
-    table.insert(parts, session_id)
+    table.insert(bits, session_id)
   end
-  return table.concat(parts, "  ·  ")
+  return table.concat(bits, "  ·  ")
 end
 
 local function session_entry_path(entry)
   return entry.path or entry.sessionId
+end
+
+local function session_entry_search_text(entry)
+  return table.concat({
+    entry.sessionId or "",
+    entry.path or "",
+    entry.title or "",
+    entry.label or "",
+    entry.model or "",
+    entry.status or "",
+    entry.outcome or "",
+    entry.origin or "",
+  }, " "):lower()
+end
+
+---@class groket.PickItem
+---@field label string
+---@field path string
+---@field entry table
+---@field search string
+
+---@param sessions table[]
+---@return groket.PickItem[]
+local function sessions_to_items(sessions)
+  local items = {}
+  local seen = {}
+  for _, entry in ipairs(sessions) do
+    local label = session_entry_label(entry)
+    local key = label
+    local n = 2
+    while seen[key] do
+      key = label .. " (" .. tostring(n) .. ")"
+      n = n + 1
+    end
+    seen[key] = true
+    table.insert(items, {
+      label = key,
+      path = session_entry_path(entry),
+      entry = entry,
+      search = session_entry_search_text(entry),
+    })
+  end
+  return items
+end
+
+local function fuzzy_score(haystack, needle)
+  if needle == nil or needle == "" then
+    return 1
+  end
+  needle = needle:lower()
+  haystack = haystack:lower()
+  if haystack:find(needle, 1, true) then
+    return 1000 - (haystack:find(needle, 1, true) or 0)
+  end
+  -- subsequence match (fzf-ish)
+  local hi = 1
+  local score = 0
+  local last = 0
+  for i = 1, #needle do
+    local ch = needle:sub(i, i)
+    local found = haystack:find(ch, hi, true)
+    if not found then
+      return nil
+    end
+    if last > 0 and found == last + 1 then
+      score = score + 5
+    else
+      score = score + 1
+    end
+    last = found
+    hi = found + 1
+  end
+  return score
+end
+
+---@param items groket.PickItem[]
+---@param query string
+---@return groket.PickItem[]
+local function filter_items(items, query)
+  query = vim.trim(query or "")
+  if query == "" then
+    return items
+  end
+  local scored = {}
+  for _, item in ipairs(items) do
+    local s = fuzzy_score(item.search .. " " .. item.label, query)
+    if s then
+      table.insert(scored, { s = s, item = item })
+    end
+  end
+  table.sort(scored, function(a, b)
+    if a.s == b.s then
+      return a.item.label < b.item.label
+    end
+    return a.s > b.s
+  end)
+  local out = {}
+  for _, row in ipairs(scored) do
+    table.insert(out, row.item)
+  end
+  return out
+end
+
+---Built-in floating fuzzy picker (no plugin deps).
+---@param items groket.PickItem[]
+---@param opts { prompt?: string }
+---@param on_choice fun(item: groket.PickItem|nil)
+local function float_fuzzy_pick(items, opts, on_choice)
+  opts = opts or {}
+  local prompt_text = opts.prompt or "Groket sessions"
+  local width = math.min(math.floor(vim.o.columns * 0.85), 120)
+  local list_height = math.min(18, math.max(6, #items + 1))
+  local total_height = list_height + 3
+  local row = math.max(0, math.floor((vim.o.lines - total_height) / 2) - 1)
+  local col = math.max(0, math.floor((vim.o.columns - width) / 2))
+
+  local list_buf = vim.api.nvim_create_buf(false, true)
+  local prompt_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[list_buf].bufhidden = "wipe"
+  vim.bo[prompt_buf].bufhidden = "wipe"
+  vim.bo[list_buf].modifiable = true
+  vim.bo[prompt_buf].modifiable = true
+
+  local border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
+  local list_win = vim.api.nvim_open_win(list_buf, true, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = width,
+    height = list_height,
+    style = "minimal",
+    border = border,
+    title = " " .. prompt_text .. " ",
+    title_pos = "center",
+    zindex = 50,
+  })
+  local prompt_win = vim.api.nvim_open_win(prompt_buf, true, {
+    relative = "editor",
+    row = row + list_height + 1,
+    col = col,
+    width = width,
+    height = 1,
+    style = "minimal",
+    border = border,
+    title = " filter ",
+    title_pos = "left",
+    zindex = 51,
+  })
+
+  local state_pick = {
+    all = items,
+    filtered = items,
+    selected = 1,
+    query = "",
+    closed = false,
+  }
+
+  local function close(choice)
+    if state_pick.closed then
+      return
+    end
+    state_pick.closed = true
+    pcall(vim.api.nvim_win_close, prompt_win, true)
+    pcall(vim.api.nvim_win_close, list_win, true)
+    pcall(vim.api.nvim_buf_delete, prompt_buf, { force = true })
+    pcall(vim.api.nvim_buf_delete, list_buf, { force = true })
+    if on_choice then
+      on_choice(choice)
+    end
+  end
+
+  local function render()
+    local lines = {}
+    if #state_pick.filtered == 0 then
+      lines = { "  (no matches)" }
+    else
+      for i, item in ipairs(state_pick.filtered) do
+        local mark = (i == state_pick.selected) and "▸ " or "  "
+        table.insert(lines, mark .. item.label)
+      end
+    end
+    vim.bo[list_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, lines)
+    vim.bo[list_buf].modifiable = false
+    -- Highlight selected line
+    vim.api.nvim_buf_clear_namespace(list_buf, -1, 0, -1)
+    if #state_pick.filtered > 0 and state_pick.selected >= 1 then
+      pcall(vim.api.nvim_buf_add_highlight, list_buf, -1, "Visual", state_pick.selected - 1, 0, -1)
+      pcall(vim.api.nvim_win_set_cursor, list_win, { state_pick.selected, 0 })
+    end
+    vim.bo[prompt_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(prompt_buf, 0, -1, false, { "> " .. state_pick.query })
+    vim.api.nvim_win_set_cursor(prompt_win, { 1, #state_pick.query + 2 })
+  end
+
+  local function set_query(q)
+    state_pick.query = q
+    state_pick.filtered = filter_items(state_pick.all, q)
+    state_pick.selected = (#state_pick.filtered > 0) and 1 or 0
+    render()
+  end
+
+  local function move(delta)
+    if #state_pick.filtered == 0 then
+      return
+    end
+    state_pick.selected = state_pick.selected + delta
+    if state_pick.selected < 1 then
+      state_pick.selected = #state_pick.filtered
+    elseif state_pick.selected > #state_pick.filtered then
+      state_pick.selected = 1
+    end
+    render()
+  end
+
+  local function accept()
+    local item = state_pick.filtered[state_pick.selected]
+    close(item)
+  end
+
+  -- Prompt key handling: insert mode for typing
+  local function on_prompt_input()
+    local line = vim.api.nvim_buf_get_lines(prompt_buf, 0, 1, false)[1] or ""
+    local q = line:gsub("^>%s?", "")
+    if q ~= state_pick.query then
+      set_query(q)
+    end
+  end
+
+  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
+    buffer = prompt_buf,
+    callback = on_prompt_input,
+  })
+
+  local function map_prompt(lhs, rhs)
+    vim.keymap.set({ "i", "n" }, lhs, rhs, { buffer = prompt_buf, silent = true, nowait = true })
+  end
+  local function map_list(lhs, rhs)
+    vim.keymap.set("n", lhs, rhs, { buffer = list_buf, silent = true, nowait = true })
+  end
+
+  map_prompt("<CR>", function()
+    vim.cmd("stopinsert")
+    accept()
+  end)
+  map_prompt("<Esc>", function()
+    vim.cmd("stopinsert")
+    close(nil)
+  end)
+  map_prompt("<C-c>", function()
+    vim.cmd("stopinsert")
+    close(nil)
+  end)
+  map_prompt("<C-n>", function()
+    move(1)
+  end)
+  map_prompt("<C-p>", function()
+    move(-1)
+  end)
+  map_prompt("<Down>", function()
+    move(1)
+  end)
+  map_prompt("<Up>", function()
+    move(-1)
+  end)
+  map_prompt("<C-j>", function()
+    move(1)
+  end)
+  map_prompt("<C-k>", function()
+    move(-1)
+  end)
+  map_prompt("<Tab>", function()
+    move(1)
+  end)
+
+  map_list("<CR>", accept)
+  map_list("q", function()
+    close(nil)
+  end)
+  map_list("<Esc>", function()
+    close(nil)
+  end)
+  map_list("j", function()
+    move(1)
+  end)
+  map_list("k", function()
+    move(-1)
+  end)
+
+  render()
+  vim.api.nvim_set_current_win(prompt_win)
+  vim.cmd("startinsert!")
+  -- place cursor after "> "
+  vim.schedule(function()
+    if vim.api.nvim_win_is_valid(prompt_win) then
+      vim.api.nvim_win_set_cursor(prompt_win, { 1, 2 })
+    end
+  end)
+end
+
+---@param items groket.PickItem[]
+---@param on_choice fun(item: groket.PickItem|nil)
+local function pick_with_telescope(items, on_choice)
+  local pickers = require("telescope.pickers")
+  local finders = require("telescope.finders")
+  local conf = require("telescope.config").values
+  local actions = require("telescope.actions")
+  local action_state = require("telescope.actions.state")
+  pickers
+    .new({}, {
+      prompt_title = "Groket sessions",
+      finder = finders.new_table({
+        results = items,
+        entry_maker = function(item)
+          return {
+            value = item,
+            display = item.label,
+            ordinal = item.search .. " " .. item.label,
+          }
+        end,
+      }),
+      sorter = conf.generic_sorter({}),
+      attach_mappings = function(prompt_bufnr, _)
+        actions.select_default:replace(function()
+          local selection = action_state.get_selected_entry()
+          actions.close(prompt_bufnr)
+          on_choice(selection and selection.value or nil)
+        end)
+        return true
+      end,
+    })
+    :find()
+end
+
+---@param items groket.PickItem[]
+---@param on_choice fun(item: groket.PickItem|nil)
+local function pick_with_fzf_lua(items, on_choice)
+  local fzf = require("fzf-lua")
+  local labels = {}
+  local by = {}
+  for _, item in ipairs(items) do
+    table.insert(labels, item.label)
+    by[item.label] = item
+  end
+  fzf.fzf_exec(labels, {
+    prompt = "Groket> ",
+    actions = {
+      ["default"] = function(selected)
+        local label = selected and selected[1]
+        on_choice(label and by[label] or nil)
+      end,
+    },
+  })
+end
+
+---@param items groket.PickItem[]
+---@param on_choice fun(item: groket.PickItem|nil)
+local function pick_with_mini(items, on_choice)
+  local mini_pick = require("mini.pick")
+  local labels = vim.tbl_map(function(i)
+    return i.label
+  end, items)
+  local by = {}
+  for _, item in ipairs(items) do
+    by[item.label] = item
+  end
+  mini_pick.start({
+    source = {
+      items = labels,
+      name = "Groket sessions",
+      choose = function(label)
+        on_choice(label and by[label] or nil)
+      end,
+    },
+  })
+end
+
+---@param items groket.PickItem[]
+---@param on_choice fun(item: groket.PickItem|nil)
+local function pick_with_snacks(items, on_choice)
+  local snacks = require("snacks")
+  local rows = {}
+  for _, item in ipairs(items) do
+    table.insert(rows, {
+      text = item.label,
+      item = item,
+    })
+  end
+  snacks.picker.pick({
+    items = rows,
+    format = "text",
+    confirm = function(picker, item)
+      picker:close()
+      on_choice(item and item.item or nil)
+    end,
+  })
+end
+
+---@param items groket.PickItem[]
+---@param on_choice fun(item: groket.PickItem|nil)
+local function pick_sessions(items, on_choice)
+  local mode = M.config.picker or "auto"
+  local function try(name, fn)
+    if mode ~= "auto" and mode ~= name then
+      return false
+    end
+    local ok = pcall(fn)
+    return ok
+  end
+
+  if mode == "float" then
+    float_fuzzy_pick(items, { prompt = "Groket sessions" }, on_choice)
+    return
+  end
+  if
+    try("snacks", function()
+      pick_with_snacks(items, on_choice)
+    end)
+  then
+    return
+  end
+  if
+    try("telescope", function()
+      pick_with_telescope(items, on_choice)
+    end)
+  then
+    return
+  end
+  if
+    try("fzf-lua", function()
+      pick_with_fzf_lua(items, on_choice)
+    end)
+  then
+    return
+  end
+  if
+    try("mini", function()
+      pick_with_mini(items, on_choice)
+    end)
+  then
+    return
+  end
+  float_fuzzy_pick(items, { prompt = "Groket sessions" }, on_choice)
 end
 
 ---List catalog sessions from the running TUI.
@@ -618,80 +1072,75 @@ function M.open_session(session, prompt_index)
   end)
 end
 
----Pick a catalog session (optional server-side QUERY) and open it.
----@param query string|nil
+---Fuzzy-pick a catalog session and open it (float / telescope / fzf / …).
+---@param query string|nil optional pre-filter sent to the server
 function M.find_session(query)
   run(function()
-    local result = M.list_sessions(query)
+    -- Pull full catalog when query empty so local fuzzy can filter; server
+    -- pre-filter still available when the user passes a seed query.
+    local result = M.list_sessions(query, query and query ~= "" and 200 or 500)
     local sessions = result.sessions or {}
     if #sessions == 0 then
       local suffix = (query and query ~= "") and (" for " .. vim.inspect(query)) or ""
-      error("no sessions matched" .. suffix)
+      error("no sessions matched" .. suffix .. " (is the TUI running with a catalog?)")
     end
-    local labels = {}
-    local by_label = {}
-    for _, entry in ipairs(sessions) do
-      local label = session_entry_label(entry)
-      local key = label
-      local n = 2
-      while by_label[key] do
-        key = label .. " (" .. tostring(n) .. ")"
-        n = n + 1
-      end
-      by_label[key] = session_entry_path(entry)
-      table.insert(labels, key)
-    end
+    local items = sessions_to_items(sessions)
     vim.schedule(function()
-      vim.ui.select(labels, { prompt = "Groket session" }, function(choice)
-        if not choice then
-          return
-        end
-        local path = by_label[choice]
-        if path then
-          M.open_session(path)
+      pick_sessions(items, function(item)
+        if item and item.path then
+          M.open_session(item.path)
         end
       end)
     end)
   end)
 end
 
----Show catalog rows in a scratch buffer; press Enter to open.
+---Session browser buffer with live `/` filter and open keys.
 ---@param query string|nil
 function M.show_sessions(query)
   run(function()
-    local result = M.list_sessions(query)
+    local result = M.list_sessions(query, 500)
     local sessions = result.sessions or {}
-    local lines = {
-      string.format(
-        "Groket sessions  matched %s / total %s%s",
-        tostring(result.matched or #sessions),
-        tostring(result.total or #sessions),
-        (query and query ~= "") and ("  filter: " .. query) or ""
-      ),
-      "",
-    }
-    local paths = {}
-    if #sessions == 0 then
-      table.insert(lines, "(no sessions)")
-    else
-      for i, entry in ipairs(sessions) do
-        local line = session_entry_label(entry)
-        table.insert(lines, line)
-        paths[i + 2] = session_entry_path(entry) -- account for header lines
-      end
-    end
+    local items = sessions_to_items(sessions)
     vim.schedule(function()
       local buf = vim.api.nvim_create_buf(true, true)
       vim.bo[buf].buftype = "nofile"
       vim.bo[buf].bufhidden = "wipe"
       vim.bo[buf].swapfile = false
       vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      vim.bo[buf].modifiable = false
+
+      local function paint(filter)
+        local filtered = filter_items(items, filter or "")
+        local lines = {
+          string.format(
+            "Groket  %d/%d  f filter · <CR>/o open · r refresh · q quit%s",
+            #filtered,
+            #items,
+            (filter and filter ~= "") and ("  ·  /" .. filter) or ""
+          ),
+          "",
+        }
+        local paths = {}
+        if #filtered == 0 then
+          table.insert(lines, "(no matches)")
+        else
+          for i, item in ipairs(filtered) do
+            table.insert(lines, item.label)
+            paths[i + 2] = item.path
+          end
+        end
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modifiable = false
+        vim.b[buf].groket_session_paths = paths
+        vim.b[buf].groket_session_filter = filter or ""
+      end
+
+      paint(query or "")
       vim.bo[buf].filetype = "groket-sessions"
       pcall(vim.api.nvim_buf_set_name, buf, "groket://sessions")
-      vim.b[buf].groket_session_paths = paths
-      vim.keymap.set("n", "<CR>", function()
+
+      local function open_row()
         local row = vim.api.nvim_win_get_cursor(0)[1]
         local path = vim.b[buf].groket_session_paths and vim.b[buf].groket_session_paths[row]
         if path then
@@ -699,9 +1148,40 @@ function M.show_sessions(query)
         else
           notify("no session on this line", vim.log.levels.WARN)
         end
-      end, { buffer = buf, desc = "Groket: open session" })
+      end
+
+      vim.keymap.set("n", "<CR>", open_row, { buffer = buf, desc = "Groket: open session" })
+      vim.keymap.set("n", "o", open_row, { buffer = buf, desc = "Groket: open session" })
+      vim.keymap.set("n", "q", "<cmd>bd!<cr>", { buffer = buf, desc = "Groket: close browser" })
+      vim.keymap.set("n", "r", function()
+        M.show_sessions(vim.b[buf].groket_session_filter)
+      end, { buffer = buf, desc = "Groket: reload catalog" })
+      vim.keymap.set("n", "f", function()
+        vim.ui.input({
+          prompt = "Filter sessions: ",
+          default = vim.b[buf].groket_session_filter or "",
+        }, function(input)
+          if input ~= nil then
+            paint(input)
+          end
+        end)
+      end, { buffer = buf, desc = "Groket: filter list" })
+      vim.keymap.set("n", "/", function()
+        vim.ui.input({
+          prompt = "Filter sessions: ",
+          default = vim.b[buf].groket_session_filter or "",
+        }, function(input)
+          if input ~= nil then
+            paint(input)
+          end
+        end)
+      end, { buffer = buf, desc = "Groket: filter list" })
+      vim.keymap.set("n", "g", function()
+        M.find_session(vim.b[buf].groket_session_filter)
+      end, { buffer = buf, desc = "Groket: fuzzy picker" })
+
       vim.api.nvim_set_current_buf(buf)
-      notify(string.format("listed %d session(s)", #sessions))
+      notify(string.format("listed %d session(s) — <CR> open · f filter · g fuzzy", #items))
     end)
   end)
 end
@@ -873,6 +1353,36 @@ function M.save_all_notes()
   end)
 end
 
+local function bind_global_keys()
+  local keys = M.config.keys
+  if type(keys) ~= "table" then
+    return
+  end
+  local maps = {
+    find = { rhs = function()
+      M.find_session()
+    end, desc = "Groket: fuzzy find session" },
+    list = { rhs = function()
+      M.show_sessions()
+    end, desc = "Groket: session browser" },
+    refresh = { rhs = function()
+      M.refresh()
+    end, desc = "Groket: refresh session buffer" },
+    connect = { rhs = function()
+      run(function()
+        M.connect()
+        notify("connected to " .. default_socket_path())
+      end)
+    end, desc = "Groket: connect control socket" },
+  }
+  for name, spec in pairs(maps) do
+    local lhs = keys[name]
+    if type(lhs) == "string" and lhs ~= "" then
+      vim.keymap.set("n", lhs, spec.rhs, { silent = true, desc = spec.desc })
+    end
+  end
+end
+
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   vim.api.nvim_create_user_command("GroketConnect", function()
@@ -904,7 +1414,8 @@ function M.setup(opts)
   end, { nargs = "*" })
   vim.api.nvim_create_user_command("GroketRefresh", function()
     M.refresh()
-  end, {})  vim.api.nvim_create_user_command("GroketSaveNote", function()
+  end, {})
+  vim.api.nvim_create_user_command("GroketSaveNote", function()
     M.save_note()
   end, {})
   vim.api.nvim_create_user_command("GroketSaveAllNotes", function()
@@ -919,6 +1430,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("GroketOpenPrompt", function()
     M.open_prompt_at_cursor()
   end, {})
+  bind_global_keys()
 end
 
 return M
