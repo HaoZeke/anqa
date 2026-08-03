@@ -46,11 +46,16 @@ async def test_tui_continues_when_control_socket_already_owned(tmp_path: Path) -
             control_socket=sock,
         )
         async with app.run_test(size=(100, 30)) as pilot:
-            for _ in range(80):
-                if app._control_server is None:
-                    break
+            for _ in range(200):
                 await pilot.pause()
+                server = app._control_server
+                # Soft-fail clears the app handle, or leaves an unstarted server.
+                if server is None or server._server is None:
+                    break
             assert app.is_running
-            assert app._control_server is None
+            server = app._control_server
+            assert server is None or server._server is None
+            # Original owner still holds the socket.
+            assert sock.exists()
     finally:
         await owner.close()

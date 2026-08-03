@@ -722,12 +722,23 @@ class TraceEvalApp(App):
         try:
             await server.serve_forever()
         except ControlSocketInUse as exc:
-            self._control_server = None
             logger.warning(
                 "Editor control socket already active at %s; this instance continues without it",
                 exc.socket_path,
             )
-            self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
+            self._control_server = None
+            with suppress(Exception):
+                self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
+        except OSError as exc:
+            # Race: two processes bind the same path; treat like in-use.
+            logger.warning(
+                "Editor control socket unavailable (%s): %s",
+                server.socket_path,
+                exc,
+            )
+            self._control_server = None
+            with suppress(Exception):
+                self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
 
     def on_trace_eval_app__control_open_session(
         self,

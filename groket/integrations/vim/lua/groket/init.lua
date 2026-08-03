@@ -17,8 +17,9 @@ M.config = {
   socket = nil,
   executable = "groket",
   timeout_ms = 10000,
-  auto_start = true,
-  ---@type "markdown"|"org"
+  -- Detached Textual without a PTY is unreliable; prefer an already-running TUI.
+  auto_start = false,
+  -- Markdown projection only (HTML comment anchors). Org remains the Emacs client.
   format = "markdown",
   picker = "auto",
   keys = {
@@ -1076,9 +1077,10 @@ function M.list_sessions(query, limit)
 end
 
 local function render_params(session)
+  -- Neovim client only implements Markdown machine tags.
   return {
     session = session,
-    format = M.config.format or "markdown",
+    format = "markdown",
   }
 end
 
@@ -1415,6 +1417,12 @@ end
 
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+  vim.g.groket_setup_done = true
+  if vim.g.groket_commands_registered then
+    bind_global_keys()
+    return
+  end
+  vim.g.groket_commands_registered = true
   vim.api.nvim_create_user_command("GroketConnect", function()
     run(function()
       M.connect()

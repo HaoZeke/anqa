@@ -9,4 +9,8 @@ if vim.fn.has("nvim-0.9") == 0 then
   return
 end
 
-require("groket").setup()
+-- Prefer an explicit require("groket").setup({…}) from the user init when present.
+-- Only auto-setup when the user has not already configured the client.
+if not vim.g.groket_setup_done then
+  require("groket").setup()
+end

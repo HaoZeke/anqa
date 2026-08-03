@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
+import logging
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -20,6 +22,8 @@ from ..notes import (
     upsert_note,
 )
 from .editor import SUPPORTED_FORMATS, EditorDocument, render_editor_document
+
+logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
@@ -200,20 +204,34 @@ class ControlServer:
         if self.socket_path.exists():
             try:
                 reader, writer = await asyncio.wait_for(
-                    asyncio.open_unix_connection(self.socket_path), timeout=0.2
+                    asyncio.open_unix_connection(self.socket_path),
+                    timeout=0.5,
                 )
-                _ = reader
-            except (OSError, TimeoutError):
+            except TimeoutError as exc:
+                # Ambiguous: prefer not to unlink a path that may still be owned.
+                raise ControlSocketInUse(self.socket_path) from exc
+            except (ConnectionRefusedError, FileNotFoundError):
                 self.socket_path.unlink(missing_ok=True)
+            except OSError as exc:
+                if exc.errno in {errno.ECONNREFUSED, errno.ENOENT}:
+                    self.socket_path.unlink(missing_ok=True)
+                else:
+                    # Do not unlink on unexpected errors (avoids stealing a live socket).
+                    raise ControlSocketInUse(self.socket_path) from exc
             else:
                 writer.close()
                 await writer.wait_closed()
                 raise ControlSocketInUse(self.socket_path)
-        self._server = await asyncio.start_unix_server(
-            self._handle_client,
-            path=self.socket_path,
-            limit=MAX_MESSAGE_BYTES + 1,
-        )
+        try:
+            self._server = await asyncio.start_unix_server(
+                self._handle_client,
+                path=self.socket_path,
+                limit=MAX_MESSAGE_BYTES + 1,
+            )
+        except OSError as exc:
+            if exc.errno in {errno.EADDRINUSE, errno.EEXIST}:
+                raise ControlSocketInUse(self.socket_path) from exc
+            raise
         self.socket_path.chmod(0o600)
 
     async def serve_forever(self) -> None:
@@ -336,6 +354,10 @@ class ControlServer:
         except OSError as exc:
             await self._send_error(writer, request_id, -32603, str(exc))
             return
+        except Exception as exc:
+            logger.exception("control method %s failed", method)
+            await self._send_error(writer, request_id, -32603, f"internal error: {exc}")
+            return
         if request_id is not None:
             await self._send(writer, {"jsonrpc": "2.0", "id": request_id, "result": result})
 
@@ -360,6 +382,7 @@ class ControlServer:
             return {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": list(CAPABILITIES),
+                "renderFormats": list(SUPPORTED_FORMATS),
             }
         if method == "session/list":
             if self._list_sessions is None:
@@ -402,10 +425,11 @@ class ControlServer:
             prompt_index = None if raw_prompt is None else json_as_int(raw_prompt)
             session = self._session(params)
             opened = await self._open_session(session, prompt_index)
-            await self.notify(
-                "session/selected",
-                {"sessionId": session.name, "promptIndex": prompt_index},
-            )
+            if opened:
+                await self.notify(
+                    "session/selected",
+                    {"sessionId": session.name, "promptIndex": prompt_index},
+                )
             return {"opened": bool(opened)}
         if method == "notes/list":
             snapshot = await asyncio.to_thread(notes_snapshot, self._session(params))

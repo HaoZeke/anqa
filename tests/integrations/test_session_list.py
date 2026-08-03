@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from importlib import import_module
 from pathlib import Path
 
@@ -109,6 +110,71 @@ async def test_control_server_session_list() -> None:
         await writer.wait_closed()
     finally:
         await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_render_formats_and_markdown() -> None:
+    control = import_module("groket.integrations.control")
+    session_dir = Path("/tmp") / "groket-test-render-session"
+    if session_dir.exists():
+        shutil.rmtree(session_dir)
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        '{"info":{"id":"groket-test-render-session"},"generated_title":"Fmt"}',
+        encoding="utf-8",
+    )
+    (session_dir / "updates.jsonl").write_text(
+        '{"timestamp":1,"params":{"update":{"sessionUpdate":"user_message_chunk",'
+        '"content":{"type":"text","text":"hi"},"_meta":{"promptIndex":2}}}}\n',
+        encoding="utf-8",
+    )
+    sock = _short_sock("render-fmt")
+    server = control.ControlServer(
+        socket_path=sock,
+        resolve_session=lambda ref: (
+            session_dir if ref in {session_dir.name, str(session_dir)} else None
+        ),
+    )
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        init = await _request(
+            reader,
+            writer,
+            1,
+            "initialize",
+            {"protocolVersion": 1, "clientInfo": {"name": "test"}},
+        )
+        assert "markdown" in init["result"]["renderFormats"]
+        assert "json" in init["result"]["renderFormats"]
+        assert "session/list" in init["result"]["capabilities"]
+
+        md = await _request(
+            reader,
+            writer,
+            2,
+            "session/render",
+            {"session": session_dir.name, "format": "markdown"},
+        )
+        assert md["result"]["format"] == "markdown"
+        assert md["result"]["contentType"] == "text/markdown"
+        assert "## Prompt 2" in md["result"]["text"]
+        assert "<!-- groket:prompt-index=2" in md["result"]["text"]
+
+        bad = await _request(
+            reader,
+            writer,
+            3,
+            "session/render",
+            {"session": session_dir.name, "format": "rtf"},
+        )
+        assert bad.get("error", {}).get("code") == -32602
+
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+        shutil.rmtree(session_dir, ignore_errors=True)
 
 
 @pytest.mark.asyncio
