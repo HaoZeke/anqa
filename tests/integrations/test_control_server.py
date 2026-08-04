@@ -312,6 +312,46 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_control_server_drops_stalled_clients_from_broadcasts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = import_module("groket.integrations.control")
+    monkeypatch.setattr(control, "NOTIFY_TIMEOUT_SECONDS", 0.1)
+    session_dir = tmp_path / "session-stalled"
+    _write_session(session_dir)
+    server = control.ControlServer(socket_path=_short_sock("stalled.sock"))
+    await server.start()
+    try:
+        reader_a, writer_a = await asyncio.open_unix_connection(server.socket_path)
+        await _request(reader_a, writer_a, 1, "initialize", {"protocolVersion": 1})
+        reader_b, writer_b = await asyncio.open_unix_connection(server.socket_path)
+        await _header_request(reader_b, writer_b, 1, "initialize", {"protocolVersion": 1})
+
+        stalled = next(
+            peer
+            for peer, framing in server._writer_framing.items()
+            if framing == "headers"
+        )
+
+        async def never_drains() -> None:
+            await asyncio.sleep(3600)
+
+        stalled.drain = never_drains  # type: ignore[method-assign]
+        await asyncio.wait_for(server.publish_session_changed(session_dir), timeout=1)
+        assert stalled not in server._writers
+
+        healthy = json.loads(await asyncio.wait_for(reader_a.readline(), timeout=2))
+        assert healthy["method"] == "session/changed"
+        writer_a.close()
+        writer_b.close()
+        await writer_a.wait_closed()
+        await writer_b.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_control_server_returns_jsonrpc_errors(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("errors.sock"))

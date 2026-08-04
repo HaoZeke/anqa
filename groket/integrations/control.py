@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
+NOTIFY_TIMEOUT_SECONDS = 2.0
 DEFAULT_SESSION_LIST_LIMIT = 200
 CAPABILITIES = (
     "session/list",
@@ -503,13 +504,22 @@ class ControlServer:
         raise ControlError(-32601, "method not found", {"method": method})
 
     async def notify(self, method: str, params: JsonObject) -> None:
-        """Publish a notification to connected editor clients."""
+        """Publish a notification to connected editor clients.
+
+        Each send is time-bounded: a client that stopped reading (full pipe
+        buffer) is dropped instead of blocking every later broadcast and the
+        callers awaiting them.
+        """
         message: JsonObject = {"jsonrpc": "2.0", "method": method, "params": params}
         for writer in list(self._writers):
             try:
-                await self._send(writer, message)
-            except (ConnectionError, OSError):
+                await asyncio.wait_for(
+                    self._send(writer, message), timeout=NOTIFY_TIMEOUT_SECONDS
+                )
+            except (TimeoutError, ConnectionError, OSError):
                 self._writers.discard(writer)
+                self._writer_framing.pop(writer, None)
+                writer.close()
 
     async def publish_session_changed(self, session_dir: Path) -> None:
         """Notify editor clients that a session projection changed."""
