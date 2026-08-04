@@ -68,9 +68,14 @@
              (let ((prompt-index (plist-get params :promptIndex)))
                (when prompt-index
                  (goto-char (point-min))
-                 (re-search-forward
-                  (format "^:GROKET_PROMPT_INDEX: %s$" prompt-index)
-                  nil t)))))
+                 ;; Prefer the outline headline (readable); property may be folded away.
+                 (or (re-search-forward
+                      (format "^\\* Prompt %s$" prompt-index)
+                      nil t)
+                     (re-search-forward
+                      (format "^:GROKET_PROMPT_INDEX: %s$" prompt-index)
+                      nil t))
+                 (beginning-of-line)))))
           (force-mode-line-update))))))
 
 (defun groket--make-network-process (_connection)
@@ -195,6 +200,14 @@
         groket-notes-stale nil
         groket-session-stale nil)
   (set-buffer-modified-p nil)
+  ;; Native src fontify (Markdown transcript); keep body un-indented for tables.
+  (setq-local org-src-fontify-natively t)
+  (setq-local org-src-preserve-indentation t)
+  (setq-local org-edit-src-content-indentation 0)
+  ;; Pipe tables stay aligned only when lines are not soft-wrapped.
+  (setq-local truncate-lines t)
+  (when (fboundp 'org-restart-font-lock)
+    (org-restart-font-lock))
   (goto-char (point-min)))
 
 (defun groket--ancestor-property (property)
@@ -490,7 +503,17 @@ argument, prompt for QUERY first."
                  :note ,note)
                :timeout groket-request-timeout)))
         (setq groket-notes-revision (plist-get result :revision))
-        (groket-refresh)))))
+        (let ((note-id (plist-get note :id)))
+          (groket-refresh)
+          (when note-id
+            (goto-char (point-min))
+            (when (re-search-forward
+                   (format "^:GROKET_NOTE_ID: %s$" (regexp-quote note-id))
+                   nil t)
+              (org-back-to-heading t)
+              ;; Prefer first field body (editable) under the note.
+              (when (re-search-forward "^:GROKET_FIELD_ID:" nil t)
+                (org-end-of-meta-data t))))))))
 
 (defun groket-delete-note (&optional no-confirm)
   "Delete the note at point, asking first unless NO-CONFIRM is non-nil."
@@ -526,7 +549,8 @@ argument, prompt for QUERY first."
 
 (defvar-keymap groket-session-mode-map
   :parent org-mode-map
-  "g" #'groket-refresh
+  ;; Do not bind bare ``g`` — in Evil/Doom it is a motion prefix (``gg``, …).
+  "C-c C-r" #'groket-refresh
   "C-c C-n" #'groket-new-note
   "C-c C-k" #'groket-delete-note
   "C-c C-o" #'groket-open-prompt-at-point
@@ -534,13 +558,27 @@ argument, prompt for QUERY first."
   "C-x C-s" #'groket-save-buffer)
 
 (define-derived-mode groket-session-mode org-mode "Groket"
-  "Major mode for live Groket Org session buffers."
+  "Major mode for live Groket Org session buffers.
+
+Transcript is read-only Markdown in source blocks; only note field bodies edit.
+Keys: \\`C-c C-c' save note, \\`C-x C-s' save all, \\`C-c C-n' new note,
+\\`C-c C-k' delete, \\`C-c C-o' select prompt in TUI, \\`C-c C-r' refresh.
+In Doom/Evil, \\`gr' also refreshes when Evil is present."
   (setq-local write-contents-functions '(groket-save-buffer))
+  (setq-local org-src-fontify-natively t)
+  (setq-local org-src-preserve-indentation t)
+  (setq-local org-edit-src-content-indentation 0)
+  (setq-local truncate-lines t)
   (setq-local mode-line-process
               '(:eval
                 (concat
                  (when groket-session-stale " Trace changed")
                  (when groket-notes-stale " Notes changed")))))
+
+;; Evil/Doom: ``gr`` refresh (special-mode convention) without stealing ``g``.
+(with-eval-after-load 'evil
+  (when (fboundp 'evil-define-key)
+    (evil-define-key 'normal groket-session-mode-map (kbd "gr") #'groket-refresh)))
 
 (provide 'groket)
 ;;; groket.el ends here
