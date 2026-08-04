@@ -507,7 +507,10 @@ class ControlServer:
             if self._list_sessions is None:
                 catalog: list[JsonObject] = []
             else:
-                catalog = list(self._list_sessions())
+                # Row building resolves paths (one realpath chain per session);
+                # keep those syscalls off the event loop like every other method.
+                lister = self._list_sessions
+                catalog = await asyncio.to_thread(lambda: list(lister()))
             return filter_session_catalog(
                 catalog,
                 query=json_as_str(params.get("query")),
