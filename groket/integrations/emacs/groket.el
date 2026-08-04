@@ -62,8 +62,18 @@
         (when (and (derived-mode-p 'groket-session-mode)
                    (or (null session) (equal groket-session-id session)))
           (pcase (groket--method-name method)
-            ("notes/changed" (setq groket-notes-stale t))
-            ("session/changed" (setq groket-session-stale t))
+            ("notes/changed"
+             (let ((rev (plist-get params :revision)))
+               ;; Matching revision is the echo of our own upsert/delete, not external drift.
+               (if (and rev (equal rev groket-notes-revision))
+                   (setq groket-notes-stale nil)
+                 (unless groket-notes-stale
+                   (message "Groket: notes changed — C-c C-r (or gr) to reload"))
+                 (setq groket-notes-stale t))))
+            ("session/changed"
+             (unless groket-session-stale
+               (message "Groket: session trace changed — C-c C-r (or gr) to reload"))
+             (setq groket-session-stale t))
             ("session/selected"
              (let ((prompt-index (plist-get params :promptIndex)))
                (when prompt-index

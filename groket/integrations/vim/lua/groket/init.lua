@@ -344,9 +344,29 @@ function M._on_notification(method, params)
     if vim.api.nvim_buf_is_loaded(buf) and vim.b[buf].groket_session_id then
       if session == nil or session == vim.b[buf].groket_session_id then
         if method == "notes/changed" then
-          vim.b[buf].groket_notes_stale = true
+          -- Same revision as our last save/load: echo of our own upsert, not external.
+          local rev = params.revision
+          if rev ~= nil and rev == vim.b[buf].groket_notes_revision then
+            vim.b[buf].groket_notes_stale = false
+          else
+            local was = vim.b[buf].groket_notes_stale
+            vim.b[buf].groket_notes_stale = true
+            if not was then
+              notify(
+                "Notes changed — R or <LocalLeader>r to reload",
+                vim.log.levels.WARN
+              )
+            end
+          end
         elseif method == "session/changed" then
+          local was = vim.b[buf].groket_session_stale
           vim.b[buf].groket_session_stale = true
+          if not was then
+            notify(
+              "Session trace changed — R or <LocalLeader>r to reload",
+              vim.log.levels.WARN
+            )
+          end
         elseif method == "session/selected" and params.promptIndex ~= nil then
           local idx = tostring(params.promptIndex)
           local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
