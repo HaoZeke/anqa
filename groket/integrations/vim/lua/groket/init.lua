@@ -395,6 +395,29 @@ local function ancestor_meta(lines, row, name)
   return nil
 end
 
+---Resolve a machine attribute at *row*.
+---Tags sit on the line under headings (``#### note`` then ``<!-- groket:note-id=… -->``),
+---so a cursor on the heading must look a short distance *down* as well as up.
+---@param lines string[]
+---@param row integer 1-based
+---@param name string
+---@return string|nil
+local function meta_near_row(lines, row, name)
+  local found = ancestor_meta(lines, row, name)
+  if found then
+    return found
+  end
+  -- Immediate look-ahead only (heading → optional blank → tag); avoid stealing a
+  -- later note from transcript lines above ``### Operator notes``.
+  for i = row + 1, math.min(row + 2, #lines) do
+    local meta = parse_groket_comment(lines[i])
+    if meta and meta[name] then
+      return meta[name]
+    end
+  end
+  return nil
+end
+
 ---Markdown AT heading level (``#`` count), or nil.
 ---@param line string
 ---@return integer|nil
@@ -449,11 +472,12 @@ end
 ---@return table
 local function note_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local note_id = ancestor_meta(lines, row, "note-id")
+  local note_id = meta_near_row(lines, row, "note-id")
   if not note_id then
     error("cursor is not inside an operator note")
   end
   local note_start, note_end, note_level = note_span_md(lines, note_id)
+  -- turn-index lives on the prompt tag above the note heading.
   local turn_index = tonumber(ancestor_meta(lines, note_start, "turn-index") or "0") or 0
   local event_text = ""
   local created_at = ""
@@ -534,13 +558,13 @@ M._parse_groket_comment = parse_groket_comment
 
 local function prompt_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local raw = ancestor_meta(lines, row, "prompt-index")
+  local raw = meta_near_row(lines, row, "prompt-index")
   return raw and tonumber(raw) or nil
 end
 
 local function turn_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local raw = ancestor_meta(lines, row, "turn-index")
+  local raw = meta_near_row(lines, row, "turn-index")
   return raw and tonumber(raw) or nil
 end
 

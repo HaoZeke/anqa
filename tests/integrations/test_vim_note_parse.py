@@ -121,6 +121,65 @@ def test_nvim_note_at_row_round_trips_heading_field_values(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
+def test_nvim_note_at_row_works_on_note_and_field_headings(tmp_path: Path) -> None:
+    """Cursor on ``####`` / ``#####`` must resolve note-id (tag is on next line)."""
+    session_dir = tmp_path / "session-nvim-heading"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    note = NoteEntry.new(
+        turn_index=0,
+        fields={"summary": "Head save", "detail": "body"},
+        event_indices=[1],
+        note_id="n-head",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+    editor = import_module("groket.integrations.editor")
+    document = editor.render_editor_document(session_dir, format="markdown")
+    md_path = tmp_path / "session.md"
+    md_path.write_text(document.text, encoding="utf-8")
+    lines = document.text.splitlines()
+    note_heading_row = next(i + 1 for i, line in enumerate(lines) if line.startswith("#### "))
+    # Label casing depends on notes schema under isolated APP_HOME.
+    field_heading_row = next(i + 1 for i, line in enumerate(lines) if line.startswith("##### "))
+    vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
+    out_json = tmp_path / "heading_out.json"
+    harness = tmp_path / "heading.lua"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            vim.opt.runtimepath:prepend({str(vim_root)!r})
+            local groket = require("groket")
+            local lines = vim.fn.readfile({str(md_path)!r})
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            local from_note = groket._note_at_row(buf, {note_heading_row})
+            local from_field = groket._note_at_row(buf, {field_heading_row})
+            vim.fn.writefile({{
+              vim.json.encode({{
+                note_id = from_note.id,
+                field_id = from_field.id,
+                summary = from_note.fields.summary,
+              }})
+            }}, {str(out_json)!r})
+            """
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["nvim", "--headless", "-u", "NONE", "-n", "-l", str(harness)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"nvim failed:\n{proc.stdout}\n{proc.stderr}"
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["note_id"] == "n-head"
+    assert payload["field_id"] == "n-head"
+    assert payload["summary"] == "Head save"
+
+
+@pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
 def test_nvim_parse_groket_comment_requires_column_zero(tmp_path: Path) -> None:
     vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
     harness = tmp_path / "anchor.lua"
