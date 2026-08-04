@@ -651,13 +651,15 @@ local function session_help()
   local show = (ll == " ") and "<Space>" or ll
   notify(
     string.format(
-      "Groket: %sc save note · %ss all · %sn new · %sk delete · %so TUI prompt · %sr refresh · :w saves all",
+      "Groket: %sc save · %ss all · %sn new · %sk del · %so prompt · %sr refresh · %sh highlight (%s) · :w all",
       show,
       show,
       show,
       show,
       show,
-      show
+      show,
+      show,
+      tostring(M.config.highlight or "soft")
     ),
     vim.log.levels.INFO
   )
@@ -696,6 +698,9 @@ local function map_buffer(buf)
     M.save_all_notes()
   end, "Groket: save all notes")
   map("<LocalLeader>?", session_help, "Groket: session key help")
+  map("<LocalLeader>h", function()
+    M.cycle_highlight()
+  end, "Groket: cycle highlight mode")
   map_ni("<C-s>", function()
     vim.cmd.stopinsert()
     M.save_note()
@@ -817,6 +822,48 @@ local function apply_highlight(buf)
   if mode ~= "full" then
     apply_soft_markdown_hl()
   end
+end
+
+local HIGHLIGHT_CYCLE = { "soft", "calm", "full", "none" }
+
+---Re-apply highlight + window chrome to every open groket session buffer.
+local function reapply_highlight_all_sessions()
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and vim.b[buf].groket_session_id then
+      apply_highlight(buf)
+      if vim.fn.bufwinid(buf) ~= -1 then
+        apply_window_chrome(buf)
+      end
+    end
+  end
+end
+
+---Set highlight mode and re-apply to open session buffers.
+---@param mode string
+function M.set_highlight(mode)
+  local allowed = { soft = true, calm = true, full = true, none = true }
+  if not allowed[mode] then
+    error("highlight must be soft|calm|full|none, got " .. tostring(mode))
+  end
+  M.config.highlight = mode
+  reapply_highlight_all_sessions()
+  notify("highlight = " .. mode)
+end
+
+---Cycle soft → calm → full → none → soft.
+---@return string new mode
+function M.cycle_highlight()
+  local cur = M.config.highlight or "soft"
+  local idx = 1
+  for i, name in ipairs(HIGHLIGHT_CYCLE) do
+    if name == cur then
+      idx = i
+      break
+    end
+  end
+  local next_mode = HIGHLIGHT_CYCLE[(idx % #HIGHLIGHT_CYCLE) + 1]
+  M.set_highlight(next_mode)
+  return next_mode
 end
 
 local function apply_document(buf, text, session_id, revision, reference)
@@ -1624,6 +1671,19 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("GroketRefresh", function()
     M.refresh()
   end, {})
+  vim.api.nvim_create_user_command("GroketHighlight", function(cmd)
+    local arg = vim.trim(cmd.args or "")
+    if arg == "" then
+      M.cycle_highlight()
+      return
+    end
+    M.set_highlight(arg)
+  end, {
+    nargs = "?",
+    complete = function()
+      return { "soft", "calm", "full", "none" }
+    end,
+  })
   vim.api.nvim_create_user_command("GroketSaveNote", function()
     M.save_note()
   end, {})
