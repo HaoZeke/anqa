@@ -11,7 +11,7 @@ local uv = vim.uv or vim.loop
 ---@field timeout_ms integer request wait
 ---@field auto_start boolean start TUI when socket missing and session is a directory
 ---@field keys table<string, string|false>|nil global maps; set false to disable
----@field picker "auto"|"float"|"telescope"|"fzf-lua"|"mini"|"snacks"|nil
+---@field picker "auto"|"select"|"telescope"|"fzf-lua"|"mini"|"snacks"|nil
 
 M.config = {
   socket = nil,
@@ -21,9 +21,10 @@ M.config = {
   auto_start = false,
   -- Markdown projection only (HTML comment anchors). Org remains the Emacs client.
   format = "markdown",
+  -- auto: telescope/fzf-lua/mini/snacks when installed, else vim.ui.select
   picker = "auto",
   keys = {
-    find = "<leader>gs", -- fuzzy find + open session
+    find = "<leader>gs", -- pick session (ui.select / ecosystem picker)
     list = "<leader>gl", -- session browser buffer
     refresh = "<leader>gR", -- refresh open projection
     connect = "<leader>gc",
@@ -717,200 +718,24 @@ local function filter_items(items, query)
   return out
 end
 
----Built-in floating fuzzy picker (no plugin deps).
+---Stock Neovim picker (and any `vim.ui.select` override, e.g. dressing / telescope-ui-select).
 ---@param items groket.PickItem[]
----@param opts { prompt?: string }
 ---@param on_choice fun(item: groket.PickItem|nil)
-local function float_fuzzy_pick(items, opts, on_choice)
-  opts = opts or {}
-  local prompt_text = opts.prompt or "Groket sessions"
-  local width = math.min(math.floor(vim.o.columns * 0.85), 120)
-  local list_height = math.min(18, math.max(6, #items + 1))
-  local total_height = list_height + 3
-  local row = math.max(0, math.floor((vim.o.lines - total_height) / 2) - 1)
-  local col = math.max(0, math.floor((vim.o.columns - width) / 2))
-
-  local list_buf = vim.api.nvim_create_buf(false, true)
-  local prompt_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[list_buf].bufhidden = "wipe"
-  vim.bo[prompt_buf].bufhidden = "wipe"
-  vim.bo[list_buf].modifiable = true
-  vim.bo[prompt_buf].modifiable = true
-
-  local border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
-  local list_win = vim.api.nvim_open_win(list_buf, true, {
-    relative = "editor",
-    row = row,
-    col = col,
-    width = width,
-    height = list_height,
-    style = "minimal",
-    border = border,
-    title = " " .. prompt_text .. " ",
-    title_pos = "center",
-    zindex = 50,
-  })
-  local prompt_win = vim.api.nvim_open_win(prompt_buf, true, {
-    relative = "editor",
-    row = row + list_height + 1,
-    col = col,
-    width = width,
-    height = 1,
-    style = "minimal",
-    border = border,
-    title = " filter ",
-    title_pos = "left",
-    zindex = 51,
-  })
-
-  local state_pick = {
-    all = items,
-    filtered = items,
-    selected = 1,
-    query = "",
-    closed = false,
-  }
-
-  local function close(choice)
-    if state_pick.closed then
-      return
-    end
-    state_pick.closed = true
-    pcall(vim.api.nvim_win_close, prompt_win, true)
-    pcall(vim.api.nvim_win_close, list_win, true)
-    pcall(vim.api.nvim_buf_delete, prompt_buf, { force = true })
-    pcall(vim.api.nvim_buf_delete, list_buf, { force = true })
-    if on_choice then
-      on_choice(choice)
-    end
+local function pick_with_ui_select(items, on_choice)
+  local labels = {}
+  local by = {}
+  for _, item in ipairs(items) do
+    table.insert(labels, item.label)
+    by[item.label] = item
   end
-
-  local function render()
-    local lines = {}
-    if #state_pick.filtered == 0 then
-      lines = { "  (no matches)" }
-    else
-      for i, item in ipairs(state_pick.filtered) do
-        local mark = (i == state_pick.selected) and "▸ " or "  "
-        table.insert(lines, mark .. item.label)
-      end
-    end
-    vim.bo[list_buf].modifiable = true
-    vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, lines)
-    vim.bo[list_buf].modifiable = false
-    -- Highlight selected line
-    vim.api.nvim_buf_clear_namespace(list_buf, -1, 0, -1)
-    if #state_pick.filtered > 0 and state_pick.selected >= 1 then
-      pcall(vim.api.nvim_buf_add_highlight, list_buf, -1, "Visual", state_pick.selected - 1, 0, -1)
-      pcall(vim.api.nvim_win_set_cursor, list_win, { state_pick.selected, 0 })
-    end
-    vim.bo[prompt_buf].modifiable = true
-    vim.api.nvim_buf_set_lines(prompt_buf, 0, -1, false, { "> " .. state_pick.query })
-    vim.api.nvim_win_set_cursor(prompt_win, { 1, #state_pick.query + 2 })
-  end
-
-  local function set_query(q)
-    state_pick.query = q
-    state_pick.filtered = filter_items(state_pick.all, q)
-    state_pick.selected = (#state_pick.filtered > 0) and 1 or 0
-    render()
-  end
-
-  local function move(delta)
-    if #state_pick.filtered == 0 then
-      return
-    end
-    state_pick.selected = state_pick.selected + delta
-    if state_pick.selected < 1 then
-      state_pick.selected = #state_pick.filtered
-    elseif state_pick.selected > #state_pick.filtered then
-      state_pick.selected = 1
-    end
-    render()
-  end
-
-  local function accept()
-    local item = state_pick.filtered[state_pick.selected]
-    close(item)
-  end
-
-  -- Prompt key handling: insert mode for typing
-  local function on_prompt_input()
-    local line = vim.api.nvim_buf_get_lines(prompt_buf, 0, 1, false)[1] or ""
-    local q = line:gsub("^>%s?", "")
-    if q ~= state_pick.query then
-      set_query(q)
-    end
-  end
-
-  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
-    buffer = prompt_buf,
-    callback = on_prompt_input,
-  })
-
-  local function map_prompt(lhs, rhs)
-    vim.keymap.set({ "i", "n" }, lhs, rhs, { buffer = prompt_buf, silent = true, nowait = true })
-  end
-  local function map_list(lhs, rhs)
-    vim.keymap.set("n", lhs, rhs, { buffer = list_buf, silent = true, nowait = true })
-  end
-
-  map_prompt("<CR>", function()
-    vim.cmd("stopinsert")
-    accept()
-  end)
-  map_prompt("<Esc>", function()
-    vim.cmd("stopinsert")
-    close(nil)
-  end)
-  map_prompt("<C-c>", function()
-    vim.cmd("stopinsert")
-    close(nil)
-  end)
-  map_prompt("<C-n>", function()
-    move(1)
-  end)
-  map_prompt("<C-p>", function()
-    move(-1)
-  end)
-  map_prompt("<Down>", function()
-    move(1)
-  end)
-  map_prompt("<Up>", function()
-    move(-1)
-  end)
-  map_prompt("<C-j>", function()
-    move(1)
-  end)
-  map_prompt("<C-k>", function()
-    move(-1)
-  end)
-  map_prompt("<Tab>", function()
-    move(1)
-  end)
-
-  map_list("<CR>", accept)
-  map_list("q", function()
-    close(nil)
-  end)
-  map_list("<Esc>", function()
-    close(nil)
-  end)
-  map_list("j", function()
-    move(1)
-  end)
-  map_list("k", function()
-    move(-1)
-  end)
-
-  render()
-  vim.api.nvim_set_current_win(prompt_win)
-  vim.cmd("startinsert!")
-  -- place cursor after "> "
-  vim.schedule(function()
-    if vim.api.nvim_win_is_valid(prompt_win) then
-      vim.api.nvim_win_set_cursor(prompt_win, { 1, 2 })
-    end
+  vim.ui.select(labels, {
+    prompt = "Groket session",
+    kind = "groket_session",
+    format_item = function(label)
+      return label
+    end,
+  }, function(choice)
+    on_choice(choice and by[choice] or nil)
   end)
 end
 
@@ -1016,17 +841,17 @@ end
 ---@param on_choice fun(item: groket.PickItem|nil)
 local function pick_sessions(items, on_choice)
   local mode = M.config.picker or "auto"
+  if mode == "select" or mode == "float" then
+    -- "float" kept as an alias for older configs; stock select is the reliable UI.
+    pick_with_ui_select(items, on_choice)
+    return
+  end
   local function try(name, fn)
     if mode ~= "auto" and mode ~= name then
       return false
     end
     local ok = pcall(fn)
     return ok
-  end
-
-  if mode == "float" then
-    float_fuzzy_pick(items, { prompt = "Groket sessions" }, on_choice)
-    return
   end
   if
     try("snacks", function()
@@ -1056,7 +881,7 @@ local function pick_sessions(items, on_choice)
   then
     return
   end
-  float_fuzzy_pick(items, { prompt = "Groket sessions" }, on_choice)
+  pick_with_ui_select(items, on_choice)
 end
 
 ---List catalog sessions from the running TUI.
@@ -1101,12 +926,12 @@ function M.open_session(session, prompt_index)
   end)
 end
 
----Fuzzy-pick a catalog session and open it (float / telescope / fzf / …).
+---Pick a catalog session and open it (``vim.ui.select`` or ecosystem picker).
 ---@param query string|nil optional pre-filter sent to the server
 function M.find_session(query)
   run(function()
-    -- Pull full catalog when query empty so local fuzzy can filter; server
-    -- pre-filter still available when the user passes a seed query.
+    -- Pull full catalog when query empty so the picker can filter locally;
+    -- server pre-filter still applies when the user passes a seed query.
     local result = M.list_sessions(query, query and query ~= "" and 200 or 500)
     local sessions = result.sessions or {}
     if #sessions == 0 then
@@ -1207,10 +1032,10 @@ function M.show_sessions(query)
       end, { buffer = buf, desc = "Groket: filter list" })
       vim.keymap.set("n", "g", function()
         M.find_session(vim.b[buf].groket_session_filter)
-      end, { buffer = buf, desc = "Groket: fuzzy picker" })
+      end, { buffer = buf, desc = "Groket: pick session" })
 
       vim.api.nvim_set_current_buf(buf)
-      notify(string.format("listed %d session(s) — <CR> open · f filter · g fuzzy", #items))
+      notify(string.format("listed %d session(s) — <CR> open · f filter · g pick", #items))
     end)
   end)
 end

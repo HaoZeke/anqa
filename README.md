@@ -157,7 +157,7 @@ primary interactive edit buffer).
 - Revision-safe concurrent note edits (expected revision on every mutation).
 - Jumping TUI selection from a prompt in the buffer (and the reverse via
   notifications).
-- Fuzzy catalog browse from the editor without re-scanning the filesystem.
+- Catalog browse and pick from the editor without re-scanning the filesystem.
 - Scripted dump of a session as Markdown or JSON for reports, tickets, or CI.
 - A second-screen companion that listens for session/note change notifications.
 
@@ -198,14 +198,16 @@ Markdown.)
 
 | Command / key | Action |
 |---------------|--------|
-| `:GroketFindSession` / `<leader>gs` | Fuzzy pick catalog session and open |
+| `:GroketFindSession` / `<leader>gs` | Pick catalog session and open |
 | `:GroketSessions` / `<leader>gl` | Browser buffer (`f` filter, `<CR>` open) |
 | `:GroketOpenSession {path-or-id}` | Open Markdown projection; select in TUI |
 | `:GroketRefresh` / `R` / `<leader>gR` | Reload projection |
 | `<LocalLeader>c` / `s` / `n` / `k` / `o` | Save note / all / new / delete / open prompt |
 
-Fuzzy UI: built-in float, or Telescope / fzf-lua / mini.pick / snacks when
-present (`picker = "auto"`). Start the TUI first so the control socket exists.
+Session pick uses stock ``vim.ui.select`` (or Telescope / fzf-lua / mini.pick /
+snacks when installed; `picker = "auto"`). Overrides such as dressing.nvim or
+telescope-ui-select improve filtering without a custom float. Start the TUI
+first so the control socket exists.
 
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks
