@@ -331,13 +331,16 @@ end
 
 ---Winbar text for session buffers (stale flags + short hint).
 function M._winbar()
-  local parts = { "groket" }
-  local st = vim.b.groket_status
-  if type(st) == "string" and st ~= "" then
-    table.insert(parts, st)
-  end
-  table.insert(parts, "\\? help")
-  return table.concat(parts, " · ")
+  local ok, text = pcall(function()
+    local parts = { "groket" }
+    local st = vim.b.groket_status
+    if type(st) == "string" and st ~= "" then
+      table.insert(parts, st)
+    end
+    table.insert(parts, "\\? help")
+    return table.concat(parts, " · ")
+  end)
+  return ok and text or "groket"
 end
 
 ---Reload or warn when a remote change arrives (first transition only).
@@ -712,26 +715,27 @@ local function map_buffer(buf)
     desc = "Groket: session winbar and conceal",
     callback = function()
       pcall(function()
-        vim.wo.winbar = "%{%v:lua.require('groket')._winbar()%}"
+        -- Static status from buffer var (avoid brittle %{%v:lua…%} failures).
+        local st = vim.b[buf].groket_status
+        if type(st) == "string" and st ~= "" then
+          vim.wo.winbar = "groket · " .. st .. " · \\? help"
+        else
+          vim.wo.winbar = "groket · \\? help"
+        end
       end)
-      -- conceallevel is window-local
       pcall(function()
         vim.wo.conceallevel = 0
         vim.wo.concealcursor = ""
       end)
-      -- Treesitter may re-attach on filetype; keep calm/none quiet.
       local mode = M.config.highlight or "calm"
       if mode ~= "full" then
         pcall(vim.treesitter.stop, buf)
-        pcall(function()
-          vim.bo[buf].syntax = ""
-        end)
       end
     end,
   })
 end
 
----Tone down Markdown chrome on session buffers (nested fences look loud otherwise).
+---Session buffer highlighting. Default calm: light markdown, no treesitter.
 ---@param buf integer
 local function apply_highlight(buf)
   local mode = M.config.highlight or "calm"
@@ -744,18 +748,19 @@ local function apply_highlight(buf)
       vim.bo[buf].syntax = ""
     end)
   elseif mode == "full" then
-    local ft = (M.config.format == "org") and "org" or "markdown"
     pcall(function()
-      vim.bo[buf].filetype = ft
+      vim.bo[buf].filetype = "markdown"
     end)
   else
-    -- calm (default): filetype markdown for plugins, but no treesitter/syntax paint.
+    -- calm: classic markdown syntax (headings) without treesitter injections.
     pcall(function()
       vim.bo[buf].filetype = "markdown"
     end)
     pcall(vim.treesitter.stop, buf)
+    -- Prefer classic syntax for structure; do not leave syntax fully off.
     pcall(function()
-      vim.bo[buf].syntax = ""
+      vim.cmd("syntax enable")
+      vim.bo[buf].syntax = "markdown"
     end)
   end
 end
