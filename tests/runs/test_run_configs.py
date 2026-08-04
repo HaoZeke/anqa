@@ -2539,20 +2539,23 @@ class TestRmtreeRobustFallback:
         d = tmp_path / "target"
         d.mkdir()
         call_count = 0
+        real_rmtree = shutil.rmtree
 
         def _rmtree_fail(p: Path, **kw: JsonValue) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise PermissionError("root owned")
-            # Second call succeeds after chown
-            shutil.rmtree(p)
+            # Second call succeeds after chown; the patch owns shutil.rmtree,
+            # so the captured original avoids recursing into the mock.
+            real_rmtree(p)
 
         with (
             patch("groket.runs.run_configs.shutil.rmtree", side_effect=_rmtree_fail),
             patch("groket.runs.run_configs.chown_path_to_host_user", return_value=True),
         ):
             rc.rmtree_robust(d)
+        assert not d.exists()
 
     def test_non_eacces_oserror_still_tries_docker(self, tmp_path: Path) -> None:
         """Non-EACCES OSError on first rmtree still falls through to docker path."""
