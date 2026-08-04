@@ -166,19 +166,26 @@ Packaged clients (same protocol):
 #### Emacs
 
 ```elisp
-(load (car (process-lines "groket" "emacs-path")))
+(load (string-trim (shell-command-to-string "groket emacs-path")))
+;; optional: (setq groket-auto-refresh t)  ; default on
 ```
 
-| Command | Action |
-|---------|--------|
+| Command / key | Action |
+|---------------|--------|
 | `M-x groket-find-session` | Completing-read over the catalog (prefix arg → filter) |
 | `M-x groket-list-sessions` | Buttonized `*groket-sessions*` buffer |
 | `M-x groket-open-session` | Open path/id as Org buffer |
+| `C-c C-c` | Save note at point |
+| `C-x C-s` | Save all notes |
+| `C-c C-n` / `C-c C-k` | New / delete note |
+| `C-c C-o` | Select prompt in the TUI |
+| `C-c C-r` (Evil: `gr`) | Refresh projection |
 
-When the socket is missing, opening a **session directory** can start the TUI
-in a terminal buffer. Session buffer keys: `g` refresh, `C-c C-o` select
-prompt, `C-c C-c` / `C-x C-s` save note(s), `C-c C-n` / `C-c C-k` new/delete
-note. Trace content is read-only; only note field bodies edit.
+User/assistant turns are `#+begin_src markdown` blocks; property drawers hold
+machine ids (folded on load). Trace is read-only; only note field bodies
+edit. Remote notes/trace changes auto-reload when `groket-auto-refresh` is
+non-nil and the buffer is unmodified. When the socket is missing, opening a
+**session directory** can start the TUI in a terminal buffer.
 
 #### Neovim (0.9+)
 
@@ -187,7 +194,7 @@ Classic Vim without Lua is not supported. Sessions open as **Markdown**.
 ```lua
 vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "groket", "vim-path" })))
 require("groket").setup({
-  -- socket, executable, picker, keys …
+  -- socket, executable, picker, keys, highlight, auto_refresh …
   -- auto_start = false by default (start `groket` yourself; socket must exist)
 })
 ```
@@ -208,15 +215,21 @@ require("groket").setup({
 | `<LocalLeader>n` | New note (cursor must be inside a **Prompt**) |
 | `<LocalLeader>k` | Delete note under cursor |
 | `<LocalLeader>o` | Select this prompt in the TUI |
+| `<LocalLeader>O` / `:GroketOutline` | Location-list outline (prompts / notes) |
+| `<LocalLeader>h` / `:GroketHighlight` | Cycle highlight: soft → calm → full → none |
 | `<LocalLeader>?` | Show key reminder |
 
-Edit only **field bodies** (indented lines under `##### …`). Leave
-`<!-- groket:… -->` tags alone. After **new note**, the cursor jumps to the
-first field. Start the TUI first so the control socket exists.
+User/assistant turns are fenced `` ```markdown `` blocks (outer fence length
+outruns nested code fences). Note field bodies stay **indented** for
+edit/save. Machine tags (`<!-- groket:… -->`) are concealed in the buffer but
+still present for parsing. Default `highlight = "soft"` (treesitter + quieter
+chrome); `auto_refresh = true` reloads when notes/trace change if the buffer
+is unmodified. After **new note**, the cursor jumps to the first field.
 
 Session pick uses stock ``vim.ui.select`` (or Telescope / fzf-lua / mini.pick /
 snacks when installed; `picker = "auto"`). Overrides such as dressing.nvim or
-telescope-ui-select improve filtering without a custom float.
+telescope-ui-select improve filtering without a custom float. Start the TUI
+first so the control socket exists.
 
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks

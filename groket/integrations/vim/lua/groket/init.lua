@@ -23,8 +23,8 @@ M.config = {
   auto_start = false,
   -- Markdown projection only (HTML comment anchors). Org remains the Emacs client.
   format = "markdown",
-  -- soft (default): treesitter for nested MD/code, quieter chrome + conceal tags.
-  -- full: loud treesitter. calm: no treesitter. none: plain text.
+  -- soft/full: treesitter + no code-block grey bg. calm: classic syntax only.
+  -- none: plain text. Cycle with <LocalLeader>h / :GroketHighlight.
   highlight = "soft",
   -- Reload projection when notes/trace change remotely (skipped if buffer modified).
   auto_refresh = true,
@@ -328,20 +328,6 @@ local function set_stale_status(buf)
   pcall(vim.cmd.redrawstatus)
 end
 
----Winbar text for session buffers (stale flags + short hint).
-function M._winbar()
-  local ok, text = pcall(function()
-    local parts = { "groket" }
-    local st = vim.b.groket_status
-    if type(st) == "string" and st ~= "" then
-      table.insert(parts, st)
-    end
-    table.insert(parts, "\\? help")
-    return table.concat(parts, " · ")
-  end)
-  return ok and text or "groket"
-end
-
 ---Reload or warn when a remote change arrives (first transition only).
 ---@param buf integer
 ---@param kind string
@@ -520,7 +506,6 @@ local function note_span_md(lines, note_id)
   if not note_start then
     error("could not locate note heading for " .. note_id)
   end
-  local note_level = 4
   local note_end = #lines
   for i = note_start + 1, #lines do
     -- Sibling note or leaving Operator notes / prompt — not user ``#`` paste.
@@ -529,7 +514,7 @@ local function note_span_md(lines, note_id)
       break
     end
   end
-  return note_start, note_end, note_level
+  return note_start, note_end
 end
 
 ---@param buf integer
@@ -541,7 +526,7 @@ local function note_at_row(buf, row)
   if not note_id then
     error("cursor is not inside an operator note")
   end
-  local note_start, note_end, note_level = note_span_md(lines, note_id)
+  local note_start, note_end = note_span_md(lines, note_id)
   -- turn-index lives on the prompt tag above the note heading.
   local turn_index = tonumber(ancestor_meta(lines, note_start, "turn-index") or "0") or 0
   local event_text = ""
@@ -770,43 +755,10 @@ apply_window_chrome = function(buf)
   end
 end
 
----Quieter heading/fence chrome; kill code-block grey backgrounds (common theme default).
-local function apply_soft_markdown_hl()
-  local links = {
-    ["@markup.heading.1.markdown"] = "Title",
-    ["@markup.heading.2.markdown"] = "Title",
-    ["@markup.heading.3.markdown"] = "Title",
-    ["@markup.heading.4.markdown"] = "Title",
-    ["@markup.heading.5.markdown"] = "Title",
-    ["@markup.heading.6.markdown"] = "Title",
-    ["@markup.heading.1.marker.markdown"] = "Comment",
-    ["@markup.heading.2.marker.markdown"] = "Comment",
-    ["@markup.heading.3.marker.markdown"] = "Comment",
-    ["@markup.heading.4.marker.markdown"] = "Comment",
-    ["@markup.heading.5.marker.markdown"] = "Comment",
-    ["@markup.heading.6.marker.markdown"] = "Comment",
-    ["@punctuation.special.markdown"] = "Comment",
-    ["@label.markdown"] = "Comment",
-  }
-  for group, link in pairs(links) do
-    pcall(vim.api.nvim_set_hl, 0, group, { link = link, default = false })
-  end
-  -- Transcript is one big fenced block; a distinct bg looks like a grey wash.
-  for _, group in ipairs({
-    "@markup.raw.block.markdown",
-    "markdownCodeBlock",
-    "RenderMarkdownCode",
-    "RenderMarkdownCodeBorder",
-    "RenderMarkdownCodeInfo",
-  }) do
-    pcall(vim.api.nvim_set_hl, 0, group, { bg = "NONE", default = false })
-  end
-end
-
----Disable render-markdown code block backgrounds on groket session buffers.
+---Clear code-block grey wash (transcript is a large ```markdown fence).
+---Highlight groups are global in Neovim; we only touch background, not colors.
 ---@param buf integer
 local function quiet_code_block_bg(buf)
-  -- render-markdown.nvim buffer overrides (if installed)
   pcall(function()
     vim.b[buf].render_markdown = vim.tbl_deep_extend("force", vim.b[buf].render_markdown or {}, {
       code = {
@@ -816,13 +768,12 @@ local function quiet_code_block_bg(buf)
       },
     })
   end)
-  -- Always clear common code-block bg groups for this buffer via win HL is hard;
-  -- apply buffer-local highlight links used by treesitter + render-markdown.
   for _, group in ipairs({
     "@markup.raw.block.markdown",
     "markdownCodeBlock",
     "RenderMarkdownCode",
     "RenderMarkdownCodeBorder",
+    "RenderMarkdownCodeInfo",
   }) do
     pcall(vim.api.nvim_set_hl, 0, group, { bg = "NONE", default = false })
   end
@@ -854,17 +805,15 @@ local function apply_highlight(buf)
     return
   end
   -- soft / full: treesitter so ```markdown bodies inject tables and code.
+  -- soft and full both use treesitter; soft only differs by default config
+  -- intent (callers may still set highlight=soft). Code-block bg cleared always.
   pcall(function()
     vim.bo[buf].filetype = "markdown"
   end)
   pcall(function()
     vim.treesitter.start(buf, "markdown")
   end)
-  -- Always strip code-block grey wash (transcript is a large ```markdown fence).
   quiet_code_block_bg(buf)
-  if mode ~= "full" then
-    apply_soft_markdown_hl()
-  end
 end
 
 local HIGHLIGHT_CYCLE = { "soft", "calm", "full", "none" }
