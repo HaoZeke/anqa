@@ -312,6 +312,57 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_control_server_accepts_content_type_first_framing(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    server = control.ControlServer(socket_path=_short_sock("ctype.sock"))
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        payload = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}
+        ).encode("utf-8")
+        writer.write(
+            b"Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n"
+            + f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii")
+            + payload
+        )
+        await writer.drain()
+        header = await asyncio.wait_for(reader.readline(), timeout=2)
+        assert header.startswith(b"Content-Length: ")
+        length = int(header.split(b":", 1)[1])
+        assert await reader.readline() == b"\r\n"
+        response = json.loads(await reader.readexactly(length))
+        assert response["result"]["protocolVersion"] == 1
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    session_dir = tmp_path / "session-quiet"
+    _write_session(session_dir)
+    server = control.ControlServer(socket_path=_short_sock("quiet.sock"))
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        # Connected but silent: no frame yet, so its framing is unknown and it
+        # must not receive broadcasts it may be unable to parse.
+        await asyncio.sleep(0.05)
+        await server.publish_session_changed(session_dir)
+        initialized = await _header_request(
+            reader, writer, 1, "initialize", {"protocolVersion": 1}
+        )
+        assert initialized["result"]["protocolVersion"] == 1
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_control_server_drops_stalled_clients_from_broadcasts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

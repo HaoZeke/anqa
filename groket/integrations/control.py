@@ -7,6 +7,7 @@ import errno
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
 NOTIFY_TIMEOUT_SECONDS = 2.0
+MAX_HEADER_LINES = 32
+# JSON-RPC bodies always open with ``{``; anything shaped like ``Name:`` is an
+# LSP-style framing header regardless of which header comes first.
+_HEADER_LINE_RE = re.compile(rb"^[A-Za-z][A-Za-z0-9-]*:")
 DEFAULT_SESSION_LIST_LIMIT = 200
 CAPABILITIES = (
     "session/list",
@@ -292,7 +297,6 @@ class ControlServer:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        self._writers.add(writer)
         try:
             while not reader.at_eof():
                 try:
@@ -302,24 +306,10 @@ class ControlServer:
                     break
                 if not first_line:
                     break
-                if first_line.lower().startswith(b"content-length:"):
+                if _HEADER_LINE_RE.match(first_line):
                     self._writer_framing[writer] = "headers"
-                    try:
-                        length = int(first_line.split(b":", 1)[1].strip())
-                    except ValueError:
-                        await self._send_error(writer, None, -32600, "invalid Content-Length")
-                        break
-                    while True:
-                        header = await reader.readline()
-                        if header in (b"\r\n", b"\n", b""):
-                            break
-                    if length < 0 or length > MAX_MESSAGE_BYTES:
-                        await self._send_error(
-                            writer,
-                            None,
-                            -32600,
-                            "message exceeds size limit",
-                        )
+                    length = await self._read_header_length(reader, writer, first_line)
+                    if length is None:
                         break
                     try:
                         message = await reader.readexactly(length)
@@ -331,6 +321,10 @@ class ControlServer:
                 if len(message) > MAX_MESSAGE_BYTES:
                     await self._send_error(writer, None, -32600, "message exceeds size limit")
                     break
+                # Broadcast only once the client's framing is known; a
+                # notification sent earlier would use a framing the peer may
+                # not speak and desynchronize it permanently.
+                self._writers.add(writer)
                 await self._handle_line(message, writer)
         finally:
             self._writers.discard(writer)
@@ -340,6 +334,41 @@ class ControlServer:
                 await writer.wait_closed()
             except OSError:
                 pass
+
+    async def _read_header_length(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        first_line: bytes,
+    ) -> int | None:
+        """Consume an LSP-style header block and return the Content-Length.
+
+        Accepts any header order (e.g. ``Content-Type`` first); replies with a
+        -32600 error and returns ``None`` when the block is unusable.
+        """
+        length: int | None = None
+        header = first_line
+        header_count = 0
+        while header not in (b"\r\n", b"\n", b""):
+            header_count += 1
+            if header_count > MAX_HEADER_LINES:
+                await self._send_error(writer, None, -32600, "too many framing headers")
+                return None
+            name, _, value = header.partition(b":")
+            if name.strip().lower() == b"content-length":
+                try:
+                    length = int(value.strip())
+                except ValueError:
+                    await self._send_error(writer, None, -32600, "invalid Content-Length")
+                    return None
+            header = await reader.readline()
+        if length is None:
+            await self._send_error(writer, None, -32600, "missing Content-Length")
+            return None
+        if length < 0 or length > MAX_MESSAGE_BYTES:
+            await self._send_error(writer, None, -32600, "message exceeds size limit")
+            return None
+        return length
 
     async def _handle_line(self, line: bytes, writer: asyncio.StreamWriter) -> None:
         try:
