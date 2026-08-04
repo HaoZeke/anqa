@@ -12,6 +12,9 @@ local uv = vim.uv or vim.loop
 ---@field auto_start boolean start TUI when socket missing and session is a directory
 ---@field keys table<string, string|false>|nil global maps; set false to disable
 ---@field picker "auto"|"select"|"telescope"|"fzf-lua"|"mini"|"snacks"|nil
+---Session buffer highlighting. Nested transcript is fenced plain text; full
+---Markdown treesitter on the outer buffer is usually too noisy.
+---@field highlight "calm"|"full"|"none"|nil
 
 M.config = {
   socket = nil,
@@ -21,6 +24,9 @@ M.config = {
   auto_start = false,
   -- Markdown projection only (HTML comment anchors). Org remains the Emacs client.
   format = "markdown",
+  -- calm: no treesitter / no concealing (default). full: normal markdown ft.
+  -- none: plain text (no filetype highlights).
+  highlight = "calm",
   -- auto: telescope/fzf-lua/mini/snacks when installed, else vim.ui.select
   picker = "auto",
   keys = {
@@ -673,13 +679,55 @@ local function map_buffer(buf)
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = augroup,
     buffer = buf,
-    desc = "Groket: session winbar",
+    desc = "Groket: session winbar and conceal",
     callback = function()
       pcall(function()
         vim.wo.winbar = "%{%v:lua.require('groket')._winbar()%}"
       end)
+      -- conceallevel is window-local
+      pcall(function()
+        vim.wo.conceallevel = 0
+        vim.wo.concealcursor = ""
+      end)
+      -- Treesitter may re-attach on filetype; keep calm/none quiet.
+      local mode = M.config.highlight or "calm"
+      if mode ~= "full" then
+        pcall(vim.treesitter.stop, buf)
+        pcall(function()
+          vim.bo[buf].syntax = ""
+        end)
+      end
     end,
   })
+end
+
+---Tone down Markdown chrome on session buffers (nested fences look loud otherwise).
+---@param buf integer
+local function apply_highlight(buf)
+  local mode = M.config.highlight or "calm"
+  if mode == "none" then
+    pcall(function()
+      vim.bo[buf].filetype = ""
+    end)
+    pcall(vim.treesitter.stop, buf)
+    pcall(function()
+      vim.bo[buf].syntax = ""
+    end)
+  elseif mode == "full" then
+    local ft = (M.config.format == "org") and "org" or "markdown"
+    pcall(function()
+      vim.bo[buf].filetype = ft
+    end)
+  else
+    -- calm (default): filetype markdown for plugins, but no treesitter/syntax paint.
+    pcall(function()
+      vim.bo[buf].filetype = "markdown"
+    end)
+    pcall(vim.treesitter.stop, buf)
+    pcall(function()
+      vim.bo[buf].syntax = ""
+    end)
+  end
 end
 
 local function apply_document(buf, text, session_id, revision, reference)
@@ -699,10 +747,7 @@ local function apply_document(buf, text, session_id, revision, reference)
   vim.b[buf].groket_notes_stale = false
   vim.b[buf].groket_session_stale = false
   set_stale_status(buf)
-  local ft = (M.config.format == "org") and "org" or "markdown"
-  pcall(function()
-    vim.bo[buf].filetype = ft
-  end)
+  apply_highlight(buf)
   vim.bo[buf].modified = false
   pcall(vim.api.nvim_buf_set_name, buf, "groket://" .. session_id)
   map_buffer(buf)

@@ -66,11 +66,13 @@ def _md_fence_ticks(text: str) -> str:
     return "`" * max(3, longest + 1)
 
 
-def _md_transcript_lines(text: str, *, lang: str = "markdown") -> list[str]:
-    """Wrap user/assistant bodies in a fenced block for editor highlighting.
+def _md_transcript_lines(text: str, *, lang: str = "") -> list[str]:
+    """Wrap user/assistant bodies in a fenced block.
 
-    Headings and inner fences stay inside the fence so they cannot form
-    session structure. Fence length exceeds any run of backticks in the body.
+    Unlabelled fence (default): body is monospaced code content, not re-parsed
+    as nested Markdown (avoids noisy heading/list highlights in Neovim).
+    Headings and inner fences stay inside the fence so they cannot form session
+    structure. Fence length exceeds any run of backticks in the body.
     """
     body = text or ""
     fence = _md_fence_ticks(body)
