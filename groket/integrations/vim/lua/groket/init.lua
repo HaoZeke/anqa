@@ -618,6 +618,43 @@ local function apply_document(buf, text, session_id, revision, reference)
   map_buffer(buf)
 end
 
+---Move the cursor onto a note after create/render (first field body, else heading).
+---@param buf integer
+---@param note_id string
+local function jump_to_note(buf, note_id)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local note_heading_row ---@type integer|nil
+  local first_field_body ---@type integer|nil
+  for i, line in ipairs(lines) do
+    local meta = parse_groket_comment(line)
+    if meta and meta["note-id"] == note_id and not meta["field-id"] then
+      for h = i, 1, -1 do
+        if md_heading_level(lines[h]) then
+          note_heading_row = h
+          break
+        end
+      end
+    elseif meta and meta["note-id"] == note_id and meta["field-id"] and not first_field_body then
+      local body = i + 1
+      while body <= #lines and lines[body]:match("^%s*$") do
+        body = body + 1
+      end
+      -- Empty field: still land on the blank line under the field tag.
+      first_field_body = math.min(body, #lines)
+    end
+  end
+  local target = first_field_body or note_heading_row
+  if not target then
+    return
+  end
+  local win = vim.fn.bufwinid(buf)
+  if win ~= -1 then
+    pcall(vim.api.nvim_win_set_cursor, win, { target, 0 })
+  end
+end
+
+M._jump_to_note = jump_to_note
+
 local function run(fn)
   local co = coroutine.create(function()
     local ok, err = pcall(fn)
@@ -1183,6 +1220,7 @@ function M.new_note()
     vim.b[buf].groket_notes_revision = result.revision
     local rendered = M.request("session/render", render_params(reference))
     apply_document(buf, rendered.text, rendered.sessionId, rendered.notesRevision, reference)
+    jump_to_note(buf, note_id)
     notify("created note " .. note_id)
   end)
 end
@@ -1196,7 +1234,7 @@ function M.delete_note()
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local note_id = ancestor_meta(lines, row, "note-id")
+    local note_id = meta_near_row(lines, row, "note-id")
     if not note_id then
       error("cursor is not inside an operator note")
     end

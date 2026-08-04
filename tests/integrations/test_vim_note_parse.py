@@ -180,6 +180,60 @@ def test_nvim_note_at_row_works_on_note_and_field_headings(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
+def test_nvim_jump_to_note_lands_on_field_body(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-nvim-jump"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    note = NoteEntry.new(
+        turn_index=0,
+        fields={"summary": "jump here", "detail": "x"},
+        event_indices=[1],
+        note_id="n-jump",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+    editor = import_module("groket.integrations.editor")
+    document = editor.render_editor_document(session_dir, format="markdown")
+    md_path = tmp_path / "session.md"
+    md_path.write_text(document.text, encoding="utf-8")
+    vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
+    out_json = tmp_path / "jump_out.json"
+    harness = tmp_path / "jump.lua"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            vim.opt.runtimepath:prepend({str(vim_root)!r})
+            local groket = require("groket")
+            local lines = vim.fn.readfile({str(md_path)!r})
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.api.nvim_set_current_buf(buf)
+            local win = vim.api.nvim_get_current_win()
+            vim.api.nvim_win_set_cursor(win, {{ 1, 0 }})
+            groket._jump_to_note(buf, "n-jump")
+            local row = vim.api.nvim_win_get_cursor(win)[1]
+            local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+            vim.fn.writefile({{
+              vim.json.encode({{ row = row, line = line }})
+            }}, {str(out_json)!r})
+            """
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["nvim", "--headless", "-u", "NONE", "-n", "-l", str(harness)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"nvim failed:\n{proc.stdout}\n{proc.stderr}"
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    # First field body is the indented summary value.
+    assert "jump here" in payload["line"]
+    assert payload["row"] > 1
+
+
+@pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
 def test_nvim_parse_groket_comment_requires_column_zero(tmp_path: Path) -> None:
     vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
     harness = tmp_path / "anchor.lua"
