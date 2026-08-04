@@ -50,6 +50,29 @@ def _org_fixed_lines(text: str) -> list[str]:
     return [f": {line}" if line else ":" for line in _split_lines(text)]
 
 
+def _org_escape_src_line(line: str) -> str:
+    """Comma-escape Org lines that would close or open a source block early."""
+    stripped = line.lstrip()
+    lower = stripped.casefold()
+    if lower.startswith("#+end_src") or lower.startswith("#+begin_src"):
+        # Org literal escape: leading comma is stripped on fontify/export of src bodies.
+        return f",{line}"
+    return line
+
+
+def _org_transcript_lines(text: str, *, lang: str = "markdown") -> list[str]:
+    """Wrap user/assistant bodies in an Org source block for Markdown fontification.
+
+    Note field bodies stay on fixed-width lines (``_org_fixed_lines``) so Emacs
+    can still edit/save them.
+    """
+    return [
+        f"#+begin_src {lang}",
+        *(_org_escape_src_line(line) for line in _split_lines(text or "")),
+        "#+end_src",
+    ]
+
+
 def _md_fixed_lines(text: str) -> list[str]:
     """Indent note field bodies so they cannot form Markdown headings or tags."""
     out: list[str] = []
@@ -164,9 +187,9 @@ def _render_segment_org(
     ]
     for event in segment.events:
         if event.event_type in et.USER_TYPES:
-            lines.extend(["** User", "", *_org_fixed_lines(event.content), ""])
+            lines.extend(["** User", "", *_org_transcript_lines(event.content), ""])
         elif event.event_type in et.AGENT_TYPES:
-            lines.extend(["** Assistant", "", *_org_fixed_lines(event.content), ""])
+            lines.extend(["** Assistant", "", *_org_transcript_lines(event.content), ""])
     lines.extend(["** Operator notes", ""])
     for note in notes:
         lines.extend(_render_note_org(note, schema))
