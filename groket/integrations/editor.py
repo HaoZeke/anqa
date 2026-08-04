@@ -330,10 +330,16 @@ def _render_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
+# Quote unless the scalar is unambiguously plain: YAML indicators such as
+# ``[``, ``*``, ``&``, ``!``, ``%``, ``|``, ``>``, ``@`` or a backtick at the
+# start of a title otherwise change how the whole front matter parses.
+_YAML_PLAIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9 ._/()-]*[A-Za-z0-9._/()-])?$")
+
+
 def _yaml_escape(value: str) -> str:
-    if any(ch in value for ch in (":", "#", "\n", '"', "'")) or value.strip() != value:
-        return json.dumps(value)
-    return value
+    if _YAML_PLAIN_RE.match(value):
+        return value
+    return json.dumps(value)
 
 
 def _note_json(note: NoteEntry) -> JsonObject:

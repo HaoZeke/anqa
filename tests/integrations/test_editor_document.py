@@ -317,3 +317,25 @@ def test_render_rejects_unknown_format(tmp_path: Path) -> None:
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "unsupported" in str(exc)
+
+
+def test_markdown_front_matter_quotes_yaml_indicator_titles(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-yaml"
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "sessionId": session_dir.name,
+                "generated_title": "[draft] *retry* & !tag",
+                "model": "m",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "updates.jsonl").write_text("", encoding="utf-8")
+
+    document = _render_editor_document(session_dir, format="markdown")
+
+    assert 'title: "[draft] *retry* & !tag"' in document.text
+    # Plain names stay unquoted.
+    assert f"groket_session_id: {session_dir.name}" in document.text
