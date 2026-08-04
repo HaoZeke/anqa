@@ -33,6 +33,12 @@
   "Seconds to wait for a control request."
   :type 'number)
 
+(defcustom groket-auto-refresh t
+  "When non-nil, reload the session projection on remote notes/trace changes.
+If the buffer has unsaved edits, auto-refresh is skipped and a message is shown
+instead (same as when this option is nil)."
+  :type 'boolean)
+
 (defvar groket--connection nil)
 (defvar groket--terminal-buffer nil)
 (defvar-local groket-session-id nil)
@@ -54,6 +60,22 @@
   "Return METHOD as a protocol string."
   (if (symbolp method) (symbol-name method) method))
 
+(defun groket--maybe-auto-refresh (reason)
+  "Reload the projection after a remote change, or message how to reload.
+REASON is a short human label (e.g. \"notes changed\")."
+  (cond
+   ((not groket-auto-refresh)
+    (message "Groket: %s — C-c C-r (or gr) to reload" reason))
+   ((buffer-modified-p)
+    (message "Groket: %s — unsaved note edits; save or C-c C-r to reload" reason))
+   (t
+    (condition-case err
+        (progn
+          (groket--do-refresh)
+          (message "Groket: reloaded (%s)" reason))
+      (error
+       (message "Groket: auto-refresh failed: %s" (error-message-string err)))))))
+
 (defun groket--notification (_connection method params)
   "Handle a server notification named METHOD with PARAMS."
   (let ((session (plist-get params :sessionId)))
@@ -67,13 +89,15 @@
                ;; Matching revision is the echo of our own upsert/delete, not external drift.
                (if (and rev (equal rev groket-notes-revision))
                    (setq groket-notes-stale nil)
-                 (unless groket-notes-stale
-                   (message "Groket: notes changed — C-c C-r (or gr) to reload"))
-                 (setq groket-notes-stale t))))
+                 (let ((was groket-notes-stale))
+                   (setq groket-notes-stale t)
+                   (unless was
+                     (groket--maybe-auto-refresh "notes changed"))))))
             ("session/changed"
-             (unless groket-session-stale
-               (message "Groket: session trace changed — C-c C-r (or gr) to reload"))
-             (setq groket-session-stale t))
+             (let ((was groket-session-stale))
+               (setq groket-session-stale t)
+               (unless was
+                 (groket--maybe-auto-refresh "session trace changed"))))
             ("session/selected"
              (let ((prompt-index (plist-get params :promptIndex)))
                (when prompt-index
@@ -291,12 +315,8 @@ stars inside a value cannot form headlines, then round-trip cleanly."
    `(:session ,session)
    :timeout groket-request-timeout))
 
-(defun groket-refresh ()
-  "Reload the current session projection from Groket."
-  (interactive)
-  (when (and (buffer-modified-p)
-             (not (yes-or-no-p "Discard unsaved note edits? ")))
-    (user-error "Refresh cancelled"))
+(defun groket--do-refresh ()
+  "Reload the projection without prompting (caller checks dirty state)."
   (let* ((reference (or groket-session-reference groket-session-id))
          (result (groket--render-session reference))
          (point-before (point)))
@@ -306,6 +326,14 @@ stars inside a value cannot form headlines, then round-trip cleanly."
      (plist-get result :notesRevision)
      reference)
     (goto-char (min point-before (point-max)))))
+
+(defun groket-refresh ()
+  "Reload the current session projection from Groket."
+  (interactive)
+  (when (and (buffer-modified-p)
+             (not (yes-or-no-p "Discard unsaved note edits? ")))
+    (user-error "Refresh cancelled"))
+  (groket--do-refresh))
 
 (defun groket--session-list (&optional query limit)
   "Return the `session/list' result for QUERY and optional LIMIT."

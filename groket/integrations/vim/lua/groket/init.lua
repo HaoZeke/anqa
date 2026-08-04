@@ -27,6 +27,8 @@ M.config = {
   -- calm: no treesitter / no concealing (default). full: normal markdown ft.
   -- none: plain text (no filetype highlights).
   highlight = "calm",
+  -- Reload projection when notes/trace change remotely (skipped if buffer modified).
+  auto_refresh = true,
   -- auto: telescope/fzf-lua/mini/snacks when installed, else vim.ui.select
   picker = "auto",
   keys = {
@@ -338,6 +340,20 @@ function M._winbar()
   return table.concat(parts, " · ")
 end
 
+---Reload or warn when a remote change arrives (first transition only).
+---@param buf integer
+---@param kind string
+local function on_remote_stale(buf, kind)
+  if M.config.auto_refresh ~= false then
+    M.refresh({ auto = true, buf = buf, reason = kind })
+  else
+    notify(
+      kind .. " — R or <LocalLeader>r to reload",
+      vim.log.levels.WARN
+    )
+  end
+end
+
 function M._on_notification(method, params)
   local session = params.sessionId
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -352,20 +368,14 @@ function M._on_notification(method, params)
             local was = vim.b[buf].groket_notes_stale
             vim.b[buf].groket_notes_stale = true
             if not was then
-              notify(
-                "Notes changed — R or <LocalLeader>r to reload",
-                vim.log.levels.WARN
-              )
+              on_remote_stale(buf, "Notes changed")
             end
           end
         elseif method == "session/changed" then
           local was = vim.b[buf].groket_session_stale
           vim.b[buf].groket_session_stale = true
           if not was then
-            notify(
-              "Session trace changed — R or <LocalLeader>r to reload",
-              vim.log.levels.WARN
-            )
+            on_remote_stale(buf, "Session trace changed")
           end
         elseif method == "session/selected" and params.promptIndex ~= nil then
           local idx = tostring(params.promptIndex)
@@ -1288,14 +1298,25 @@ function M.show_sessions(query)
   end)
 end
 
-function M.refresh()
+---@param opts { auto?: boolean, buf?: integer, reason?: string }|nil
+function M.refresh(opts)
+  opts = opts or {}
+  local auto = opts.auto == true
   run(function()
-    local buf = vim.api.nvim_get_current_buf()
+    local buf = opts.buf or vim.api.nvim_get_current_buf()
     local reference = vim.b[buf].groket_session_reference or vim.b[buf].groket_session_id
     if not reference then
       error("not a groket session buffer")
     end
     if vim.bo[buf].modified then
+      if auto then
+        notify(
+          (opts.reason or "Remote change")
+            .. " — unsaved note edits; save or R to reload",
+          vim.log.levels.WARN
+        )
+        return
+      end
       local choice = vim.fn.confirm("Discard unsaved note edits?", "&Yes\n&No", 2)
       if choice ~= 1 then
         return
@@ -1303,10 +1324,19 @@ function M.refresh()
     end
     ensure_connection(reference)
     local result = M.request("session/render", render_params(reference))
-    local row = vim.api.nvim_win_get_cursor(0)[1]
+    local win = vim.fn.bufwinid(buf)
+    local row = 1
+    if win ~= -1 then
+      row = vim.api.nvim_win_get_cursor(win)[1]
+    end
     apply_document(buf, result.text, result.sessionId, result.notesRevision, reference)
     local line_count = vim.api.nvim_buf_line_count(buf)
-    pcall(vim.api.nvim_win_set_cursor, 0, { math.min(row, line_count), 0 })
+    if win ~= -1 then
+      pcall(vim.api.nvim_win_set_cursor, win, { math.min(row, line_count), 0 })
+    end
+    if auto then
+      notify("Reloaded (" .. (opts.reason or "remote change") .. ")")
+    end
   end)
 end
 
