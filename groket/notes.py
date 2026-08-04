@@ -305,11 +305,21 @@ def dump_notes_toml(doc: NotesDoc) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+# TOML basic strings forbid raw control characters (tab and, in the multiline
+# form, newline excepted); unescaped ones make the whole document unparseable
+# and _try_load then silently reverts the session's notes to empty.
+_TOML_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _toml_escape_control(s: str) -> str:
+    return _TOML_CONTROL_RE.sub(lambda m: f"\\u{ord(m.group(0)):04X}", s)
+
+
 def _toml_str(s: str) -> str:
-    if "\n" in s or "\r" in s:
-        escaped = s.replace("\\", "\\\\").replace('"""', '\\"""')
+    if "\n" in s:
+        escaped = _toml_escape_control(s.replace("\\", "\\\\")).replace('"""', '\\"""')
         return f'"""\n{escaped}"""'
-    return f'"{s.replace("\\", "\\\\").replace('"', '\\"')}"'
+    return f'"{_toml_escape_control(s.replace("\\", "\\\\").replace('"', '\\"'))}"'
 
 
 def _notes_paths(session_dir: Path) -> tuple[Path, Path]:
