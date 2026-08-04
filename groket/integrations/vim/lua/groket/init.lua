@@ -701,6 +701,9 @@ local function map_buffer(buf)
   map("<LocalLeader>h", function()
     M.cycle_highlight()
   end, "Groket: cycle highlight mode")
+  map("<LocalLeader>O", function()
+    M.outline()
+  end, "Groket: session outline (prompts/notes)")
   map_ni("<C-s>", function()
     vim.cmd.stopinsert()
     M.save_note()
@@ -741,7 +744,11 @@ apply_window_chrome = function(buf)
     vim.wo.conceallevel = 2
     -- Show tags under cursor so operators can still inspect them.
     vim.wo.concealcursor = "n"
-    vim.wo.foldenable = false
+    -- Treesitter folds for ## / ### (open by default; zM / za to collapse).
+    vim.wo.foldenable = true
+    vim.wo.foldmethod = "expr"
+    vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+    vim.wo.foldlevel = 99
     vim.wo.wrap = false
   end)
   -- Conceal <!-- groket:… --> machine lines (still in buffer for parse/save).
@@ -900,6 +907,42 @@ function M.cycle_highlight()
   local next_mode = HIGHLIGHT_CYCLE[(idx % #HIGHLIGHT_CYCLE) + 1]
   M.set_highlight(next_mode)
   return next_mode
+end
+
+---Location-list outline of prompts and operator notes in the session buffer.
+function M.outline()
+  local buf = vim.api.nvim_get_current_buf()
+  if not vim.b[buf].groket_session_id then
+    error("not a groket session buffer")
+  end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local entries = {}
+  for i, line in ipairs(lines) do
+    local text ---@type string|nil
+    if line:match("^## Prompt ") then
+      text = line
+    elseif line:match("^### ") then
+      -- User / Assistant / Operator notes under a prompt
+      text = "  " .. line
+    elseif line:match("^#### ") and not line:match("^#####") then
+      text = "    " .. line
+    end
+    if text then
+      table.insert(entries, {
+        bufnr = buf,
+        lnum = i,
+        col = 1,
+        text = text,
+      })
+    end
+  end
+  if #entries == 0 then
+    notify("no outline headings in this buffer", vim.log.levels.WARN)
+    return
+  end
+  vim.fn.setloclist(0, entries, "r")
+  vim.cmd("lopen 14")
+  notify(string.format("outline: %d headings (Enter to jump, :lclose to dismiss)", #entries))
 end
 
 local function apply_document(buf, text, session_id, revision, reference)
@@ -1720,6 +1763,9 @@ function M.setup(opts)
       return { "soft", "calm", "full", "none" }
     end,
   })
+  vim.api.nvim_create_user_command("GroketOutline", function()
+    M.outline()
+  end, {})
   vim.api.nvim_create_user_command("GroketSaveNote", function()
     M.save_note()
   end, {})
