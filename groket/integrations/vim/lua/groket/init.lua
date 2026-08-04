@@ -12,9 +12,8 @@ local uv = vim.uv or vim.loop
 ---@field auto_start boolean start TUI when socket missing and session is a directory
 ---@field keys table<string, string|false>|nil global maps; set false to disable
 ---@field picker "auto"|"select"|"telescope"|"fzf-lua"|"mini"|"snacks"|nil
----Session buffer highlighting. Nested transcript is fenced plain text; full
----Markdown treesitter on the outer buffer is usually too noisy.
----@field highlight "calm"|"full"|"none"|nil
+---Session buffer highlighting for fenced ```markdown transcript bodies.
+---@field highlight "soft"|"full"|"calm"|"none"|nil
 
 M.config = {
   socket = nil,
@@ -24,9 +23,9 @@ M.config = {
   auto_start = false,
   -- Markdown projection only (HTML comment anchors). Org remains the Emacs client.
   format = "markdown",
-  -- full: treesitter markdown (tables/code inside ```markdown transcript fences).
-  -- calm: classic markdown syntax, no treesitter. none: plain text.
-  highlight = "full",
+  -- soft (default): treesitter for nested MD/code, quieter chrome + conceal tags.
+  -- full: loud treesitter. calm: no treesitter. none: plain text.
+  highlight = "soft",
   -- Reload projection when notes/trace change remotely (skipped if buffer modified).
   auto_refresh = true,
   -- auto: telescope/fzf-lua/mini/snacks when installed, else vim.ui.select
@@ -664,6 +663,9 @@ local function session_help()
   )
 end
 
+-- Forward decl: map_buffer autocmds call this after it is assigned below.
+local apply_window_chrome
+
 local function map_buffer(buf)
   local function map(lhs, rhs, desc)
     vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, desc = desc })
@@ -712,33 +714,78 @@ local function map_buffer(buf)
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = augroup,
     buffer = buf,
-    desc = "Groket: session winbar and conceal",
+    desc = "Groket: session window chrome",
     callback = function()
-      pcall(function()
-        -- Static status from buffer var (avoid brittle %{%v:lua…%} failures).
-        local st = vim.b[buf].groket_status
-        if type(st) == "string" and st ~= "" then
-          vim.wo.winbar = "groket · " .. st .. " · \\? help"
-        else
-          vim.wo.winbar = "groket · \\? help"
-        end
-      end)
-      pcall(function()
-        vim.wo.conceallevel = 0
-        vim.wo.concealcursor = ""
-      end)
-      local mode = M.config.highlight or "calm"
-      if mode ~= "full" then
-        pcall(vim.treesitter.stop, buf)
-      end
+      apply_window_chrome(buf)
     end,
   })
 end
 
----Session buffer highlighting. Default full so fenced transcript gets MD inject.
+---Hide machine tags and keep pipe tables aligned (window-local).
+---@param buf integer
+apply_window_chrome = function(buf)
+  pcall(function()
+    local st = vim.b[buf].groket_status
+    if type(st) == "string" and st ~= "" then
+      vim.wo.winbar = "groket · " .. st .. " · \\? help"
+    else
+      vim.wo.winbar = "groket · \\? help"
+    end
+  end)
+  pcall(function()
+    vim.wo.conceallevel = 2
+    -- Show tags under cursor so operators can still inspect them.
+    vim.wo.concealcursor = "n"
+    vim.wo.foldenable = false
+    vim.wo.wrap = false
+  end)
+  -- Conceal <!-- groket:… --> machine lines (still in buffer for parse/save).
+  pcall(function()
+    if vim.b[buf].groket_conceal_id then
+      pcall(vim.fn.matchdelete, vim.b[buf].groket_conceal_id)
+    end
+    vim.b[buf].groket_conceal_id = vim.fn.matchadd(
+      "Conceal",
+      [[^<!-- groket:.\{-}-->\s*$]],
+      10,
+      -1,
+      { conceal = "" }
+    )
+  end)
+  local mode = M.config.highlight or "soft"
+  if mode == "calm" or mode == "none" then
+    pcall(vim.treesitter.stop, buf)
+  end
+end
+
+---Quieter heading/fence chrome; leave code/table inject captures alone.
+local function apply_soft_markdown_hl()
+  local links = {
+    ["@markup.heading.1.markdown"] = "Title",
+    ["@markup.heading.2.markdown"] = "Title",
+    ["@markup.heading.3.markdown"] = "Title",
+    ["@markup.heading.4.markdown"] = "Title",
+    ["@markup.heading.5.markdown"] = "Title",
+    ["@markup.heading.6.markdown"] = "Title",
+    ["@markup.heading.1.marker.markdown"] = "Comment",
+    ["@markup.heading.2.marker.markdown"] = "Comment",
+    ["@markup.heading.3.marker.markdown"] = "Comment",
+    ["@markup.heading.4.marker.markdown"] = "Comment",
+    ["@markup.heading.5.marker.markdown"] = "Comment",
+    ["@markup.heading.6.marker.markdown"] = "Comment",
+    ["@punctuation.special.markdown"] = "Comment",
+    ["@markup.raw.block.markdown"] = "Comment",
+    ["@label.markdown"] = "Comment",
+  }
+  for group, link in pairs(links) do
+    pcall(vim.api.nvim_set_hl, 0, group, { link = link, default = false })
+  end
+end
+
+---Session buffer highlighting. Default soft: nested MD + quieter chrome.
 ---@param buf integer
 local function apply_highlight(buf)
-  local mode = M.config.highlight or "full"
+  local mode = M.config.highlight or "soft"
   if mode == "none" then
     pcall(function()
       vim.bo[buf].filetype = ""
@@ -747,7 +794,9 @@ local function apply_highlight(buf)
     pcall(function()
       vim.bo[buf].syntax = ""
     end)
-  elseif mode == "calm" then
+    return
+  end
+  if mode == "calm" then
     pcall(function()
       vim.bo[buf].filetype = "markdown"
     end)
@@ -756,14 +805,17 @@ local function apply_highlight(buf)
       vim.cmd("syntax enable")
       vim.bo[buf].syntax = "markdown"
     end)
-  else
-    -- full (default): treesitter + markdown filetype for nested ```markdown bodies.
-    pcall(function()
-      vim.bo[buf].filetype = "markdown"
-    end)
-    pcall(function()
-      vim.treesitter.start(buf, "markdown")
-    end)
+    return
+  end
+  -- soft / full: treesitter so ```markdown bodies inject tables and code.
+  pcall(function()
+    vim.bo[buf].filetype = "markdown"
+  end)
+  pcall(function()
+    vim.treesitter.start(buf, "markdown")
+  end)
+  if mode ~= "full" then
+    apply_soft_markdown_hl()
   end
 end
 
@@ -788,6 +840,10 @@ local function apply_document(buf, text, session_id, revision, reference)
   vim.bo[buf].modified = false
   pcall(vim.api.nvim_buf_set_name, buf, "groket://" .. session_id)
   map_buffer(buf)
+  -- Window opts if already displayed.
+  if vim.fn.bufwinid(buf) ~= -1 then
+    apply_window_chrome(buf)
+  end
 end
 
 ---Move the cursor onto a note after create/render (first field body, else heading).

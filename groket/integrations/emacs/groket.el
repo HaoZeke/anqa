@@ -240,8 +240,14 @@ REASON is a short human label (e.g. \"notes changed\")."
   (setq-local org-edit-src-content-indentation 0)
   ;; Pipe tables stay aligned only when lines are not soft-wrapped.
   (setq-local truncate-lines t)
+  (setq-local org-hide-drawer-startup t)
   (when (fboundp 'org-restart-font-lock)
     (org-restart-font-lock))
+  ;; Fold property drawers (machine tags) for a calmer outline.
+  (save-excursion
+    (goto-char (point-min))
+    (when (fboundp 'org-cycle-hide-drawers)
+      (org-cycle-hide-drawers 'all)))
   (goto-char (point-min)))
 
 (defun groket--ancestor-property (property)
@@ -605,6 +611,7 @@ C-c C-o select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
   (setq-local org-src-preserve-indentation t)
   (setq-local org-edit-src-content-indentation 0)
   (setq-local truncate-lines t)
+  (setq-local org-hide-drawer-startup t)
   (setq-local mode-line-process
               '(:eval
                 (concat
