@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,8 @@ from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
 from ..parser import load_session_meta, parse_timeline
 from ..session.turns import TurnSegment, segment_timeline_turns
+
+_FENCE_RUN = re.compile(r"`+")
 
 EditorFormat = Literal["org", "markdown", "json"]
 
@@ -71,11 +74,32 @@ def _org_transcript_lines(text: str, *, lang: str = "markdown") -> list[str]:
 
 
 def _md_fixed_lines(text: str) -> list[str]:
-    """Indent transcript/note bodies so they cannot form Markdown headings or tags."""
+    """Indent note field bodies so they cannot form Markdown headings or tags."""
     out: list[str] = []
     for line in _split_lines(text):
         out.append(f"    {line}" if line else "")
     return out
+
+
+def _md_fence_ticks(text: str) -> str:
+    """Return a fence longer than any backtick run in *text* (at least 3)."""
+    longest = 0
+    for match in _FENCE_RUN.finditer(text or ""):
+        longest = max(longest, len(match.group(0)))
+    return "`" * max(3, longest + 1)
+
+
+def _md_transcript_lines(text: str, *, lang: str = "markdown") -> list[str]:
+    """Wrap user/assistant bodies in a fenced Markdown block.
+
+    Language tag ``markdown`` lets Neovim treesitter inject nested MD (tables,
+    code fences). Outer fence length exceeds any inner backtick run so nested
+    ````` blocks stay intact. Note fields still use :func:`_md_fixed_lines`.
+    """
+    body = text or ""
+    fence = _md_fence_ticks(body)
+    open_fence = f"{fence}{lang}" if lang else fence
+    return [open_fence, *_split_lines(body), fence]
 
 
 def _prompt_index(segment: TurnSegment) -> int:
@@ -182,11 +206,9 @@ def _render_segment_md(
     ]
     for event in segment.events:
         if event.event_type in et.USER_TYPES:
-            # Indent (not fence): keeps session structure safe and stays readable
-            # when the Neovim client uses calm highlighting (no treesitter soup).
-            lines.extend(["### User", "", *_md_fixed_lines(event.content), ""])
+            lines.extend(["### User", "", *_md_transcript_lines(event.content), ""])
         elif event.event_type in et.AGENT_TYPES:
-            lines.extend(["### Assistant", "", *_md_fixed_lines(event.content), ""])
+            lines.extend(["### Assistant", "", *_md_transcript_lines(event.content), ""])
     lines.extend(["### Operator notes", ""])
     for note in notes:
         lines.extend(_render_note_md(note, schema))

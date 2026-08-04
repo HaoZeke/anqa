@@ -24,9 +24,9 @@ M.config = {
   auto_start = false,
   -- Markdown projection only (HTML comment anchors). Org remains the Emacs client.
   format = "markdown",
-  -- calm: no treesitter / no concealing (default). full: normal markdown ft.
-  -- none: plain text (no filetype highlights).
-  highlight = "calm",
+  -- full: treesitter markdown (tables/code inside ```markdown transcript fences).
+  -- calm: classic markdown syntax, no treesitter. none: plain text.
+  highlight = "full",
   -- Reload projection when notes/trace change remotely (skipped if buffer modified).
   auto_refresh = true,
   -- auto: telescope/fzf-lua/mini/snacks when installed, else vim.ui.select
@@ -735,10 +735,10 @@ local function map_buffer(buf)
   })
 end
 
----Session buffer highlighting. Default calm: light markdown, no treesitter.
+---Session buffer highlighting. Default full so fenced transcript gets MD inject.
 ---@param buf integer
 local function apply_highlight(buf)
-  local mode = M.config.highlight or "calm"
+  local mode = M.config.highlight or "full"
   if mode == "none" then
     pcall(function()
       vim.bo[buf].filetype = ""
@@ -747,20 +747,22 @@ local function apply_highlight(buf)
     pcall(function()
       vim.bo[buf].syntax = ""
     end)
-  elseif mode == "full" then
-    pcall(function()
-      vim.bo[buf].filetype = "markdown"
-    end)
-  else
-    -- calm: classic markdown syntax (headings) without treesitter injections.
+  elseif mode == "calm" then
     pcall(function()
       vim.bo[buf].filetype = "markdown"
     end)
     pcall(vim.treesitter.stop, buf)
-    -- Prefer classic syntax for structure; do not leave syntax fully off.
     pcall(function()
       vim.cmd("syntax enable")
       vim.bo[buf].syntax = "markdown"
+    end)
+  else
+    -- full (default): treesitter + markdown filetype for nested ```markdown bodies.
+    pcall(function()
+      vim.bo[buf].filetype = "markdown"
+    end)
+    pcall(function()
+      vim.treesitter.start(buf, "markdown")
     end)
   end
 end
