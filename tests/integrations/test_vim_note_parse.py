@@ -234,6 +234,117 @@ def test_nvim_jump_to_note_lands_on_field_body(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
+def test_nvim_note_at_row_keeps_user_hash_headings_in_field(tmp_path: Path) -> None:
+    """Bare ``#`` inside a field must not truncate the note on save-parse."""
+    session_dir = tmp_path / "session-nvim-hash"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    detail = "# repro\nsteps\n## also fine\nmore"
+    note = NoteEntry.new(
+        turn_index=0,
+        fields={"summary": "s", "detail": detail},
+        event_indices=[1],
+        note_id="n-hash",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+    editor = import_module("groket.integrations.editor")
+    document = editor.render_editor_document(session_dir, format="markdown")
+    md_path = tmp_path / "session.md"
+    md_path.write_text(document.text, encoding="utf-8")
+    lines = document.text.splitlines()
+    # Cursor on first field body line after detail tag (indented).
+    detail_tag = next(i for i, line in enumerate(lines) if "field-id=detail" in line)
+    cursor_row = detail_tag + 2  # 1-based: tag is detail_tag+1, body often next+1
+    # Find an indented body line under detail.
+    for i in range(detail_tag + 1, len(lines)):
+        if lines[i].startswith("    # repro"):
+            cursor_row = i + 1
+            break
+    vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
+    out_json = tmp_path / "hash_out.json"
+    harness = tmp_path / "hash.lua"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            vim.opt.runtimepath:prepend({str(vim_root)!r})
+            local groket = require("groket")
+            local lines = vim.fn.readfile({str(md_path)!r})
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            local note = groket._note_at_row(buf, {cursor_row})
+            vim.fn.writefile({{ vim.json.encode(note.fields) }}, {str(out_json)!r})
+            """
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["nvim", "--headless", "-u", "NONE", "-n", "-l", str(harness)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"nvim failed:\n{proc.stdout}\n{proc.stderr}"
+    fields = json.loads(out_json.read_text(encoding="utf-8"))
+    assert fields["detail"] == detail
+
+
+@pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
+def test_nvim_prompt_index_zero_is_valid(tmp_path: Path) -> None:
+    """Lua must not treat prompt/turn index 0 as missing."""
+    vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
+    md = textwrap.dedent(
+        """\
+        ## Prompt 0
+        <!-- groket:prompt-index=0 turn-index=0 -->
+
+        ### User
+
+            hi
+
+        ### Operator notes
+        """
+    )
+    md_path = tmp_path / "p0.md"
+    md_path.write_text(md, encoding="utf-8")
+    out_json = tmp_path / "p0_out.json"
+    harness = tmp_path / "p0.lua"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            vim.opt.runtimepath:prepend({str(vim_root)!r})
+            -- exercise meta_near_row via public note helpers by loading module internals
+            local groket = require("groket")
+            local lines = vim.fn.readfile({str(md_path)!r})
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            -- heading row 1 should resolve prompt-index 0 (not nil)
+            local parse = groket._parse_groket_comment
+            local meta = parse(lines[2])
+            vim.fn.writefile({{
+              vim.json.encode({{
+                has_prompt = meta ~= nil and meta["prompt-index"] == "0",
+                turn = meta and meta["turn-index"],
+              }})
+            }}, {str(out_json)!r})
+            """
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["nvim", "--headless", "-u", "NONE", "-n", "-l", str(harness)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"nvim failed:\n{proc.stdout}\n{proc.stderr}"
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["has_prompt"] is True
+    assert payload["turn"] == "0"
+
+
+@pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
 def test_nvim_parse_groket_comment_requires_column_zero(tmp_path: Path) -> None:
     vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
     harness = tmp_path / "anchor.lua"

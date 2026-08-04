@@ -192,22 +192,31 @@ require("groket").setup({
 })
 ```
 
-(`groket vim-path` prints the runtimepath root. Default leader maps use
-``<leader>`` — set ``vim.g.mapleader`` before `setup`. Projection is always
-Markdown.)
+(`groket vim-path` prints the runtimepath root. Global maps use ``<leader>``
+— set ``vim.g.mapleader`` **before** `setup`. Session note maps use
+``<LocalLeader>`` (often ``\``; set ``vim.g.maplocalleader`` before
+`setup`). Projection is always Markdown.)
 
 | Command / key | Action |
 |---------------|--------|
 | `:GroketFindSession` / `<leader>gs` | Pick catalog session and open |
-| `:GroketSessions` / `<leader>gl` | Browser buffer (`f` filter, `<CR>` open) |
+| `:GroketSessions` / `<leader>gl` | Browser (`f` filter, `<CR>` open, `P` fuzzy pick) |
 | `:GroketOpenSession {path-or-id}` | Open Markdown projection; select in TUI |
-| `:GroketRefresh` / `R` / `<leader>gR` | Reload projection |
-| `<LocalLeader>c` / `s` / `n` / `k` / `o` | Save note / all / new / delete / open prompt |
+| `:GroketRefresh` / `R` / `<LocalLeader>r` / `<leader>gR` | Reload projection |
+| `<LocalLeader>c` / `<C-s>` | Save note under cursor |
+| `<LocalLeader>s` / `:w` | Save **all** notes in the buffer |
+| `<LocalLeader>n` | New note (cursor must be inside a **Prompt**) |
+| `<LocalLeader>k` | Delete note under cursor |
+| `<LocalLeader>o` | Select this prompt in the TUI |
+| `<LocalLeader>?` | Show key reminder |
+
+Edit only **field bodies** (indented lines under `##### …`). Leave
+`<!-- groket:… -->` tags alone. After **new note**, the cursor jumps to the
+first field. Start the TUI first so the control socket exists.
 
 Session pick uses stock ``vim.ui.select`` (or Telescope / fzf-lua / mini.pick /
 snacks when installed; `picker = "auto"`). Overrides such as dressing.nvim or
-telescope-ui-select improve filtering without a custom float. Start the TUI
-first so the control socket exists.
+telescope-ui-select improve filtering without a custom float.
 
 **Export as task** (`T` on Runner or Recipes): write a batch tasks YAML
 (prompt, repo/local path, persona, models, max_turns, yolo, …). A modal asks

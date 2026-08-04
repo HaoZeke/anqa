@@ -317,6 +317,19 @@ local function set_stale_status(buf)
   local notes = vim.b[buf].groket_notes_stale and " Notes changed" or ""
   local trace = vim.b[buf].groket_session_stale and " Trace changed" or ""
   vim.b[buf].groket_status = vim.trim(trace .. notes)
+  -- Refresh winbar when stale flags flip (best-effort).
+  pcall(vim.cmd.redrawstatus)
+end
+
+---Winbar text for session buffers (stale flags + short hint).
+function M._winbar()
+  local parts = { "groket" }
+  local st = vim.b.groket_status
+  if type(st) == "string" and st ~= "" then
+    table.insert(parts, st)
+  end
+  table.insert(parts, "\\? help")
+  return table.concat(parts, " · ")
 end
 
 function M._on_notification(method, params)
@@ -429,6 +442,20 @@ local function md_heading_level(line)
   return #hashes
 end
 
+---Projection structure only — not user paste that starts with ``#``.
+---Note titles are ``#### ``; fields are ``##### ``; sections ``##`` / ``###``.
+---@param line string
+---@return boolean
+local function is_note_heading(line)
+  return line:match("^####%s+") ~= nil and line:match("^#####") == nil
+end
+
+---@param line string
+---@return boolean
+local function is_field_heading(line)
+  return line:match("^#####%s+") ~= nil
+end
+
 ---Locate #### note heading span for *note_id*.
 ---@param lines string[]
 ---@param note_id string
@@ -447,7 +474,7 @@ local function note_span_md(lines, note_id)
   end
   local note_start
   for i = tag_line, 1, -1 do
-    if md_heading_level(lines[i]) then
+    if is_note_heading(lines[i]) then
       note_start = i
       break
     end
@@ -455,11 +482,11 @@ local function note_span_md(lines, note_id)
   if not note_start then
     error("could not locate note heading for " .. note_id)
   end
-  local note_level = md_heading_level(lines[note_start])
+  local note_level = 4
   local note_end = #lines
   for i = note_start + 1, #lines do
-    local level = md_heading_level(lines[i])
-    if level and level <= note_level then
+    -- Sibling note or leaving Operator notes / prompt — not user ``#`` paste.
+    if is_note_heading(lines[i]) or lines[i]:match("^##%s+") or lines[i]:match("^###%s+") then
       note_end = i - 1
       break
     end
@@ -492,8 +519,7 @@ local function note_at_row(buf, row)
   local fields = vim.empty_dict()
   local i = note_start
   while i <= note_end do
-    local level = md_heading_level(lines[i])
-    if level and level == note_level + 1 then
+    if is_field_heading(lines[i]) then
       local field_id
       local body_start = i + 1
       -- optional HTML comment immediately under heading
@@ -513,8 +539,12 @@ local function note_at_row(buf, row)
       if field_id then
         local body_end = note_end
         for k = body_start, note_end do
-          local lvl = md_heading_level(lines[k])
-          if lvl and lvl <= level then
+          -- Next field / note / section — not a bare ``#`` paste inside the body.
+          if is_field_heading(lines[k]) or is_note_heading(lines[k]) then
+            body_end = k - 1
+            break
+          end
+          if lines[k]:match("^##%s+") or lines[k]:match("^###%s+") then
             body_end = k - 1
             break
           end
@@ -559,21 +589,54 @@ M._parse_groket_comment = parse_groket_comment
 local function prompt_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local raw = meta_near_row(lines, row, "prompt-index")
-  return raw and tonumber(raw) or nil
+  if raw == nil then
+    return nil
+  end
+  return tonumber(raw)
 end
 
 local function turn_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local raw = meta_near_row(lines, row, "turn-index")
-  return raw and tonumber(raw) or nil
+  if raw == nil then
+    return nil
+  end
+  return tonumber(raw)
+end
+
+local function session_help()
+  local ll = vim.g.maplocalleader
+  if type(ll) ~= "string" or ll == "" then
+    ll = "\\"
+  end
+  -- Display space localleader clearly.
+  local show = (ll == " ") and "<Space>" or ll
+  notify(
+    string.format(
+      "Groket: %sc save note · %ss all · %sn new · %sk delete · %so TUI prompt · %sr refresh · :w saves all",
+      show,
+      show,
+      show,
+      show,
+      show,
+      show
+    ),
+    vim.log.levels.INFO
+  )
 end
 
 local function map_buffer(buf)
   local function map(lhs, rhs, desc)
     vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, desc = desc })
   end
-  -- Avoid bare ``g`` (breaks gg/gq/…). ``R`` reloads the projection.
+  local function map_ni(lhs, rhs, desc)
+    vim.keymap.set({ "n", "i" }, lhs, rhs, { buffer = buf, silent = true, desc = desc })
+  end
+  -- Avoid bare ``g`` (breaks gg). Prefer LocalLeader; keep ``R`` as fugitive-style refresh.
   map("R", function()
+    M.refresh()
+  end, "Groket: refresh session")
+  map("<LocalLeader>r", function()
     M.refresh()
   end, "Groket: refresh session")
   map("<LocalLeader>o", function()
@@ -591,6 +654,32 @@ local function map_buffer(buf)
   map("<LocalLeader>s", function()
     M.save_all_notes()
   end, "Groket: save all notes")
+  map("<LocalLeader>?", session_help, "Groket: session key help")
+  map_ni("<C-s>", function()
+    vim.cmd.stopinsert()
+    M.save_note()
+  end, "Groket: save note at cursor")
+
+  local augroup = vim.api.nvim_create_augroup("groket_buf_" .. buf, { clear = true })
+  -- :w / :write → upsert every note (Emacs C-x C-s parity); buffer is nofile.
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = augroup,
+    buffer = buf,
+    desc = "Groket: save all notes on :w",
+    callback = function()
+      M.save_all_notes()
+    end,
+  })
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
+    group = augroup,
+    buffer = buf,
+    desc = "Groket: session winbar",
+    callback = function()
+      pcall(function()
+        vim.wo.winbar = "%{%v:lua.require('groket')._winbar()%}"
+      end)
+    end,
+  })
 end
 
 local function apply_document(buf, text, session_id, revision, reference)
@@ -602,6 +691,7 @@ local function apply_document(buf, text, session_id, revision, reference)
   vim.bo[buf].bufhidden = "hide"
   vim.bo[buf].swapfile = false
   vim.bo[buf].modifiable = true
+  vim.bo[buf].buflisted = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.b[buf].groket_session_id = session_id
   vim.b[buf].groket_session_reference = reference
@@ -999,7 +1089,22 @@ function M.open_session(session, prompt_index)
     end
     M.request("session/open", params)
     vim.api.nvim_set_current_buf(buf)
-    notify("opened " .. result.sessionId .. " (" .. (result.format or M.config.format) .. ")")
+    if prompt_index ~= nil then
+      -- Local jump (notification may also move the cursor).
+      local idx = tostring(prompt_index)
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      for i, line in ipairs(lines) do
+        if line:find("prompt%-index=" .. idx .. "%f[%D]", 1, false) or line == ("## Prompt " .. idx) then
+          pcall(vim.api.nvim_win_set_cursor, 0, { i, 0 })
+          break
+        end
+      end
+    end
+    notify(
+      "opened "
+        .. result.sessionId
+        .. " — LocalLeader ? for keys (\\c save · \\n new note)"
+    )
   end)
 end
 
@@ -1044,7 +1149,7 @@ function M.show_sessions(query)
         local filtered = filter_items(items, filter or "")
         local lines = {
           string.format(
-            "Groket  %d/%d  f filter · <CR>/o open · p pick · r refresh · q quit%s",
+            "Groket  %d/%d  f filter · <CR>/o open · P pick · r refresh · q quit%s",
             #filtered,
             #items,
             (filter and filter ~= "") and ("  ·  /" .. filter) or ""
@@ -1107,13 +1212,13 @@ function M.show_sessions(query)
           end
         end)
       end, { buffer = buf, desc = "Groket: filter list" })
-      -- Avoid bare ``g`` (shadows ``gg``); session buffers document the same rule.
-      vim.keymap.set("n", "p", function()
+      -- Avoid bare ``g`` (``gg``) and ``p`` (paste); use ``P`` for fuzzy pick.
+      vim.keymap.set("n", "P", function()
         M.find_session(vim.b[buf].groket_session_filter)
       end, { buffer = buf, desc = "Groket: pick session" })
 
       vim.api.nvim_set_current_buf(buf)
-      notify(string.format("listed %d session(s) — <CR> open · f filter · p pick", #items))
+      notify(string.format("listed %d session(s) — <CR> open · f filter · P pick", #items))
     end)
   end)
 end
@@ -1136,7 +1241,7 @@ function M.refresh()
     local row = vim.api.nvim_win_get_cursor(0)[1]
     apply_document(buf, result.text, result.sessionId, result.notesRevision, reference)
     local line_count = vim.api.nvim_buf_line_count(buf)
-    vim.api.nvim_win_set_cursor(0, { math.min(row, line_count), 0 })
+    pcall(vim.api.nvim_win_set_cursor, 0, { math.min(row, line_count), 0 })
   end)
 end
 
@@ -1149,7 +1254,7 @@ function M.open_prompt_at_cursor()
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local prompt_index = prompt_index_at_row(buf, row)
-    if not prompt_index then
+    if prompt_index == nil then
       error("cursor is not inside a prompt")
     end
     ensure_connection(reference)
@@ -1191,7 +1296,8 @@ function M.new_note()
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local turn_index = turn_index_at_row(buf, row)
     local prompt_index = prompt_index_at_row(buf, row)
-    if not turn_index or not prompt_index then
+    -- Prompt/turn index 0 is valid; only nil means "not in a prompt".
+    if turn_index == nil or prompt_index == nil then
       error("cursor is not inside a prompt")
     end
     ensure_connection(reference)
@@ -1250,7 +1356,10 @@ function M.delete_note()
     })
     vim.b[buf].groket_notes_revision = result.revision
     local rendered = M.request("session/render", render_params(reference))
+    local keep_row = vim.api.nvim_win_get_cursor(0)[1]
     apply_document(buf, rendered.text, rendered.sessionId, rendered.notesRevision, reference)
+    local line_count = vim.api.nvim_buf_line_count(buf)
+    pcall(vim.api.nvim_win_set_cursor, 0, { math.min(keep_row, line_count), 0 })
     notify("deleted note " .. note_id)
   end)
 end
