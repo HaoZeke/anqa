@@ -106,7 +106,7 @@ def test_render_editor_document_uses_prompt_indexes_and_note_properties(tmp_path
     assert "* Prompt 9" in document.text
     assert ":GROKET_PROMPT_INDEX: 9" in document.text
     # Transcript is a markdown source block (org fontification); not fixed-width.
-    assert "#+begin_src markdown\nfirst\n* not a heading\n#+end_src" in document.text
+    assert "#+begin_src markdown\nfirst\n,* not a heading\n#+end_src" in document.text
     assert ":GROKET_NOTE_ID: n-review" in document.text
     assert ":GROKET_EVENT_INDICES: 3,4" in document.text
     assert ":GROKET_FIELD_ID: summary" in document.text
