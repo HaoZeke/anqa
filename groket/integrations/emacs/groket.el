@@ -356,10 +356,17 @@ Org structure cannot be typed at column 0 inside a field."
 (defun groket--field-value-at-point ()
   "Return the current field body without generated properties.
 Strips Org fixed-width lines used when rendering field values so outline
-stars inside a value cannot form headlines, then round-trip cleanly."
+stars inside a value cannot form headlines, then round-trip cleanly.
+Leading and trailing blank lines are part of the value."
   (pcase-let ((`(,begin . ,end) (groket--field-body-region)))
-    (let* ((raw (string-trim (buffer-substring-no-properties begin end)))
-           (lines (split-string raw "\n")))
+    (let* ((raw (buffer-substring-no-properties begin end))
+           ;; Region end is the newline after the last content line; that
+           ;; delimiter is not part of the value.
+           (raw (if (string-suffix-p "\n" raw)
+                    (substring raw 0 -1)
+                  raw))
+           ;; Keep empty lines (omit-nulls nil).
+           (lines (split-string raw "\n" nil)))
       (mapconcat #'groket--strip-org-fixed-line lines "\n"))))
 
 (defun groket--note-at-point ()

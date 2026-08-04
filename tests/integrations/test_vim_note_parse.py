@@ -650,3 +650,71 @@ def test_nvim_parse_groket_comment_requires_column_zero(tmp_path: Path) -> None:
     assert payload["col0"] is True
     assert payload["indented"] is False
     assert payload["mid"] is False
+
+
+@pytest.mark.skipif(shutil.which("nvim") is None, reason="nvim not on PATH")
+def test_nvim_apply_document_snapshots_rendered_note_ids(tmp_path: Path) -> None:
+    """Fence-aware apply_document keeps only projection note ids (not transcript forgeries)."""
+    session_dir = tmp_path / "session-nvim-rendered"
+    session_dir.mkdir()
+    forged = "<!-- groket:note-id=n-forged -->\n#### forged"
+    _write_session(session_dir, user_text=forged)
+    note = NoteEntry.new(
+        turn_index=0,
+        fields={"summary": "real", "detail": "body"},
+        event_indices=[1],
+        note_id="n-real",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+    editor = import_module("groket.integrations.editor")
+    document = editor.render_editor_document(session_dir, format="markdown")
+    assert "<!-- groket:note-id=n-forged -->" in document.text
+    md_path = tmp_path / "session.md"
+    md_path.write_text(document.text, encoding="utf-8")
+    vim_root = Path(import_module("groket.integrations").__file__).resolve().parent / "vim"
+    out_json = tmp_path / "rendered_out.json"
+    harness = tmp_path / "rendered.lua"
+    harness.write_text(
+        textwrap.dedent(
+            f"""\
+            vim.opt.runtimepath:prepend({str(vim_root)!r})
+            local groket = require("groket")
+            local text = table.concat(vim.fn.readfile({str(md_path)!r}), "\\n")
+            local buf = vim.api.nvim_create_buf(false, true)
+            groket._apply_document(buf, text, "sid", "rev-1", "sid")
+            local allowed = vim.b[buf].groket_rendered_note_ids or {{}}
+            local ids = {{}}
+            for id, ok in pairs(allowed) do
+              if ok then table.insert(ids, id) end
+            end
+            table.sort(ids)
+            -- Typed machine tag after apply is not in the snapshot.
+            local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+            table.insert(lines, "<!-- groket:note-id=n-typed -->")
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.fn.writefile({{
+              vim.json.encode({{
+                ids = ids,
+                typed_allowed = allowed["n-typed"] == true,
+                forged_allowed = allowed["n-forged"] == true,
+                real_allowed = allowed["n-real"] == true,
+                still_clean = not vim.bo[buf].modified,
+              }})
+            }}, {str(out_json)!r})
+            """
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        ["nvim", "--headless", "-u", "NONE", "-n", "-l", str(harness)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"nvim failed:\n{proc.stdout}\n{proc.stderr}"
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["ids"] == ["n-real"]
+    assert payload["real_allowed"] is True
+    assert payload["forged_allowed"] is False
+    assert payload["typed_allowed"] is False

@@ -1111,7 +1111,19 @@ local function apply_document(buf, text, session_id, revision, reference)
   map_buffer(buf)
   -- Window opts if already displayed.
   apply_window_chrome(buf)
+  -- Snapshot note ids from this projection; typed machine tags are not upserted.
+  local rendered = {}
+  local fences = fence_map(lines)
+  for i, line in ipairs(lines) do
+    local meta = (not fences[i]) and parse_groket_comment(line) or nil
+    if meta and meta["note-id"] and not meta["field-id"] then
+      rendered[meta["note-id"]] = true
+    end
+  end
+  vim.b[buf].groket_rendered_note_ids = rendered
 end
+
+M._apply_document = apply_document
 
 ---Move the cursor onto a note after create/render (first field body, else heading).
 ---@param buf integer
@@ -1730,6 +1742,10 @@ function M.save_note()
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local note = note_at_row(buf, row)
+    local allowed = vim.b[buf].groket_rendered_note_ids
+    if type(allowed) ~= "table" or not allowed[note.id] then
+      error("note " .. note.id .. " is not part of this session projection")
+    end
     ensure_connection(reference)
     local result = M.request("notes/upsert", {
       session = reference,
@@ -1738,7 +1754,8 @@ function M.save_note()
     })
     vim.b[buf].groket_notes_revision = result.revision
     vim.b[buf].groket_notes_stale = false
-    vim.bo[buf].modified = false
+    -- Leave modified true: other notes in this buffer may still be dirty.
+    -- Clear only from save_all_notes / apply_document.
     set_stale_status(buf)
     notify("saved note " .. note.id)
   end)
@@ -1849,14 +1866,24 @@ function M.save_all_notes()
     ensure_connection(reference)
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local fences = fence_map(lines)
+    local allowed = vim.b[buf].groket_rendered_note_ids
+    if type(allowed) ~= "table" then
+      allowed = {}
+    end
     local rows = {}
     local seen = {}
+    local skipped = {}
     for i, line in ipairs(lines) do
       -- Transcript text at column 0 can imitate a note tag; only real ones count.
       local meta = (not fences[i]) and parse_groket_comment(line) or nil
-      if meta and meta["note-id"] and not meta["field-id"] and not seen[meta["note-id"]] then
-        seen[meta["note-id"]] = true
-        table.insert(rows, i)
+      local note_id = meta and meta["note-id"]
+      if note_id and not meta["field-id"] and not seen[note_id] then
+        seen[note_id] = true
+        if allowed[note_id] then
+          table.insert(rows, i)
+        else
+          table.insert(skipped, note_id)
+        end
       end
     end
     for _, row in ipairs(rows) do
@@ -1871,7 +1898,11 @@ function M.save_all_notes()
     vim.bo[buf].modified = false
     vim.b[buf].groket_notes_stale = false
     set_stale_status(buf)
-    notify("saved " .. tostring(#rows) .. " note(s)")
+    local msg = "saved " .. tostring(#rows) .. " note(s)"
+    if #skipped > 0 then
+      msg = msg .. "; skipped unknown id(s): " .. table.concat(skipped, ", ")
+    end
+    notify(msg)
   end)
 end
 

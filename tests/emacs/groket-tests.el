@@ -175,6 +175,54 @@ Original detail
       (should (equal (gethash "summary" fields) "Original summary"))
       (should (equal (gethash "detail" fields) "Original detail")))))
 
+(ert-deftest groket-field-value-keeps-leading-and-trailing-blank-lines ()
+  "Blank lines inside a fixed-width field body survive save-parse."
+  (with-temp-buffer
+    (groket-session-mode)
+    (groket--apply-document
+     "#+TITLE: blanks
+#+PROPERTY: GROKET_SESSION_ID session-emacs
+#+PROPERTY: GROKET_NOTES_REVISION rev-1
+
+* Prompt 1
+:PROPERTIES:
+:GROKET_PROMPT_INDEX: 1
+:GROKET_TURN_INDEX: 0
+:END:
+
+** Operator notes
+
+*** Note
+:PROPERTIES:
+:GROKET_NOTE_ID: n-blank
+:GROKET_EVENT_INDICES: 1
+:GROKET_CREATED_AT: 2026-08-01T12:00:00+00:00
+:GROKET_UPDATED_AT: 2026-08-01T12:00:00+00:00
+:END:
+
+**** Summary
+:PROPERTIES:
+:GROKET_FIELD_ID: summary
+:END:
+:
+: alpha
+:
+
+**** Detail
+:PROPERTIES:
+:GROKET_FIELD_ID: detail
+:END:
+:
+: text
+"
+     "session-emacs" "rev-1" "session-emacs")
+    (goto-char (point-min))
+    (search-forward "alpha")
+    (let* ((note (groket--note-at-point))
+           (fields (plist-get note :fields)))
+      (should (equal (gethash "summary" fields) "\nalpha\n"))
+      (should (equal (gethash "detail" fields) "\ntext")))))
+
 (ert-deftest groket-document-records-rendered-note-ids ()
   (with-temp-buffer
     (groket-test--render)
