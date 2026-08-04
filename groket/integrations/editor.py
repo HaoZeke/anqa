@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,8 @@ from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
 from ..parser import load_session_meta, parse_timeline
 from ..session.turns import TurnSegment, segment_timeline_turns
+
+_FENCE_RUN = re.compile(r"`+")
 
 EditorFormat = Literal["org", "markdown", "json"]
 
@@ -48,11 +51,31 @@ def _org_fixed_lines(text: str) -> list[str]:
 
 
 def _md_fixed_lines(text: str) -> list[str]:
-    """Indent user/assistant content so it cannot form Markdown headings."""
+    """Indent note field bodies so they cannot form Markdown headings or tags."""
     out: list[str] = []
     for line in _split_lines(text):
         out.append(f"    {line}" if line else "")
     return out
+
+
+def _md_fence_ticks(text: str) -> str:
+    """Return a fence longer than any backtick run in *text* (at least 3)."""
+    longest = 0
+    for match in _FENCE_RUN.finditer(text or ""):
+        longest = max(longest, len(match.group(0)))
+    return "`" * max(3, longest + 1)
+
+
+def _md_transcript_lines(text: str, *, lang: str = "markdown") -> list[str]:
+    """Wrap user/assistant bodies in a fenced block for editor highlighting.
+
+    Headings and inner fences stay inside the fence so they cannot form
+    session structure. Fence length exceeds any run of backticks in the body.
+    """
+    body = text or ""
+    fence = _md_fence_ticks(body)
+    open_fence = f"{fence}{lang}" if lang else fence
+    return [open_fence, *_split_lines(body), fence]
 
 
 def _prompt_index(segment: TurnSegment) -> int:
@@ -112,8 +135,7 @@ def _render_note_md(note: NoteEntry, schema: NotesSchema) -> list[str]:
         meta["updated"] = note.updated_at
     lines = [f"#### {summary}", _md_comment(**meta), ""]
     for spec, value in _field_order(note, schema):
-        # Same 4-space indent as transcript so headings / anchors in values
-        # cannot close the note span or spoof machine comments on save.
+        # Indent only (not fenced): fields stay editable and strip cleanly on save.
         lines.extend(
             [
                 f"##### {spec.label or spec.id}",
@@ -160,9 +182,9 @@ def _render_segment_md(
     ]
     for event in segment.events:
         if event.event_type in et.USER_TYPES:
-            lines.extend(["### User", "", *_md_fixed_lines(event.content), ""])
+            lines.extend(["### User", "", *_md_transcript_lines(event.content), ""])
         elif event.event_type in et.AGENT_TYPES:
-            lines.extend(["### Assistant", "", *_md_fixed_lines(event.content), ""])
+            lines.extend(["### Assistant", "", *_md_transcript_lines(event.content), ""])
     lines.extend(["### Operator notes", ""])
     for note in notes:
         lines.extend(_render_note_md(note, schema))

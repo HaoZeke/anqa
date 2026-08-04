@@ -161,9 +161,43 @@ def test_render_markdown_uses_html_comments_and_headings(tmp_path: Path) -> None
     assert "<!-- groket:prompt-index=4 turn-index=" in document.text
     assert "<!-- groket:note-id=n-md" in document.text
     assert "<!-- groket:field-id=summary note-id=n-md -->" in document.text
-    assert "    * not a heading" in document.text
-    # Field bodies use the same 4-space indent as transcript content.
+    # Transcript is fenced (highlightable); content is not session structure.
+    assert "```markdown\nfirst\n* not a heading\n```" in document.text
+    # Note field bodies stay indented for edit/save.
     assert "    Wrong branch" in document.text
+
+
+def test_render_markdown_transcript_fence_outruns_inner_backticks(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-fence"
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        json.dumps({"sessionId": session_dir.name, "title": "Fence", "model": "m"}),
+        encoding="utf-8",
+    )
+    body = "see\n```python\nprint(1)\n```\ndone"
+    (session_dir / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": body},
+                        "_meta": {"promptIndex": 1},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    document = _render_editor_document(session_dir, format="markdown")
+    # Outer fence must be longer than inner ``` so the block does not close early.
+    assert "````markdown\n" in document.text
+    assert "```python\nprint(1)\n```" in document.text
+    assert document.text.count("````") >= 2
+    assert "### Assistant" in document.text
+    assert "### Operator notes" in document.text
 
 
 def test_render_note_fields_escape_outline_markers(tmp_path: Path) -> None:
