@@ -389,9 +389,7 @@ async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path
         # must not receive broadcasts it may be unable to parse.
         await asyncio.sleep(0.05)
         await server.publish_session_changed(session_dir)
-        initialized = await _header_request(
-            reader, writer, 1, "initialize", {"protocolVersion": 1}
-        )
+        initialized = await _header_request(reader, writer, 1, "initialize", {"protocolVersion": 1})
         assert initialized["result"]["protocolVersion"] == 1
         writer.close()
         await writer.wait_closed()
@@ -417,9 +415,7 @@ async def test_control_server_drops_stalled_clients_from_broadcasts(
         await _header_request(reader_b, writer_b, 1, "initialize", {"protocolVersion": 1})
 
         stalled = next(
-            peer
-            for peer, framing in server._writer_framing.items()
-            if framing == "headers"
+            peer for peer, framing in server._writer_framing.items() if framing == "headers"
         )
 
         async def never_drains() -> None:
