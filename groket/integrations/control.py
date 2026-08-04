@@ -604,9 +604,7 @@ class ControlServer:
         message: JsonObject = {"jsonrpc": "2.0", "method": method, "params": params}
         for writer in list(self._writers):
             try:
-                await asyncio.wait_for(
-                    self._send(writer, message), timeout=NOTIFY_TIMEOUT_SECONDS
-                )
+                await asyncio.wait_for(self._send(writer, message), timeout=NOTIFY_TIMEOUT_SECONDS)
             except (TimeoutError, ConnectionError, OSError):
                 self._writers.discard(writer)
                 self._writer_framing.pop(writer, None)
