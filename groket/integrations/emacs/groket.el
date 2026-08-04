@@ -46,6 +46,10 @@ instead (same as when this option is nil)."
 (defvar-local groket-notes-revision nil)
 (defvar-local groket-notes-stale nil)
 (defvar-local groket-session-stale nil)
+(defvar-local groket--rendered-note-ids nil
+  "Note ids present in the document rendered into this buffer.
+Only these ids may be pushed back to the server; anything else was typed
+into the buffer and does not name a note.")
 
 (defun groket--socket-path ()
   "Return the expanded control socket path."
@@ -126,12 +130,27 @@ REASON is a short human label (e.g. \"notes changed\")."
   (and groket--connection
        (jsonrpc-running-p groket--connection)))
 
+(defun groket--drop-connection ()
+  "Shut the control connection down and forget it."
+  (when groket--connection
+    (ignore-errors (jsonrpc-shutdown groket--connection))
+    (setq groket--connection nil)))
+
+(defun groket--request (connection method params)
+  "Send METHOD with PARAMS over CONNECTION and return the result.
+A connection whose peer died is dropped so the next command reconnects."
+  (condition-case err
+      (jsonrpc-request connection method params
+                       :timeout groket-request-timeout)
+    (error
+     (unless (groket-connected-p)
+       (groket--drop-connection))
+     (signal (car err) (cdr err)))))
+
 (defun groket-disconnect ()
   "Close the editor control connection."
   (interactive)
-  (when groket--connection
-    (jsonrpc-shutdown groket--connection)
-    (setq groket--connection nil)))
+  (groket--drop-connection))
 
 (defun groket-connect ()
   "Connect to the running Groket control socket."
@@ -139,19 +158,23 @@ REASON is a short human label (e.g. \"notes changed\")."
   (unless (groket-connected-p)
     (unless (file-exists-p (groket--socket-path))
       (user-error "Groket control socket does not exist: %s" (groket--socket-path)))
-    (setq groket--connection
-          (make-instance
-           'jsonrpc-process-connection
-           :name "groket"
-           :process #'groket--make-network-process
-           :notification-dispatcher #'groket--notification
-           :events-buffer-config '(:size 200)))
-    (jsonrpc-request
-     groket--connection
-     "initialize"
-     `(:protocolVersion 1
-       :clientInfo (:name "Emacs" :version ,emacs-version))
-     :timeout groket-request-timeout))
+    (condition-case err
+        (progn
+          (setq groket--connection
+                (make-instance
+                 'jsonrpc-process-connection
+                 :name "groket"
+                 :process #'groket--make-network-process
+                 :notification-dispatcher #'groket--notification
+                 :events-buffer-config '(:size 200)))
+          (groket--request
+           groket--connection
+           "initialize"
+           `(:protocolVersion 1
+             :clientInfo (:name "Emacs" :version ,emacs-version))))
+      (error
+       (groket--drop-connection)
+       (signal (car err) (cdr err)))))
   groket--connection)
 
 (defun groket--wait-for-socket (process)
@@ -184,12 +207,46 @@ REASON is a short human label (e.g. \"notes changed\")."
     (groket--wait-for-socket process)
     buffer))
 
+(defun groket--connection-refused-p (err)
+  "Return non-nil when ERR reports a control socket that accepts nothing."
+  (or (eq (car err) 'file-error)
+      (let ((message (downcase (error-message-string err))))
+        (or (string-match-p "connection refused" message)
+            (string-match-p "no such file or directory" message)))))
+
+(defun groket--connect-retrying (deadline)
+  "Connect, retrying refused connections until DEADLINE.
+A TUI taking a stale socket over needs a moment before it accepts clients."
+  (let (connected)
+    (while (not connected)
+      (condition-case err
+          (progn (groket-connect) (setq connected t))
+        (error
+         (groket--drop-connection)
+         (when (or (not (groket--connection-refused-p err))
+                   (>= (float-time) deadline))
+           (signal (car err) (cdr err)))
+         (sleep-for 0.1)))))
+  groket--connection)
+
 (defun groket--connection-for-session (session)
   "Return a live connection, starting Groket for SESSION when needed."
   (unless (groket-connected-p)
-    (unless (file-exists-p (groket--socket-path))
-      (groket-start (and (file-directory-p session) session) nil))
-    (groket-connect))
+    (let ((directory (and session
+                          (file-directory-p session)
+                          session)))
+      (unless (file-exists-p (groket--socket-path))
+        (groket-start directory nil))
+      (condition-case err
+          (groket-connect)
+        (error
+         (groket--drop-connection)
+         ;; A socket file outliving its TUI refuses connections; starting the
+         ;; TUI again takes the stale socket over.
+         (unless (and directory (groket--connection-refused-p err))
+           (signal (car err) (cdr err)))
+         (groket-start directory nil)
+         (groket--connect-retrying (+ (float-time) groket-request-timeout))))))
   groket--connection)
 
 (defun groket--normalize-session-reference (session)
@@ -199,12 +256,24 @@ REASON is a short human label (e.g. \"notes changed\")."
     session))
 
 (defun groket--field-body-region ()
-  "Return the body region of the Org field at point."
+  "Return the body region of the Org field at point.
+The region ends with the newline of the last content line, so the blank
+separator line before the next heading stays outside the writable span and
+Org structure cannot be typed at column 0 inside a field."
   (save-excursion
     (org-back-to-heading t)
-    (let ((end (org-entry-end-position)))
+    (let ((limit (org-entry-end-position)))
       (org-end-of-meta-data t)
-      (cons (point) end))))
+      (let ((begin (point))
+            (end limit))
+        (save-excursion
+          (goto-char limit)
+          (skip-chars-backward " \t\n" begin)
+          ;; A body of blank lines only has no content line to stop after.
+          (when (> (point) begin)
+            (forward-line 1)
+            (setq end (min limit (point)))))
+        (cons begin (max begin end))))))
 
 (defun groket--editable-field-regions ()
   "Return body regions for headings with a GROKET_FIELD_ID property."
@@ -216,11 +285,23 @@ REASON is a short human label (e.g. \"notes changed\")."
      nil nil)
     regions))
 
+(defun groket--document-note-ids ()
+  "Return the GROKET_NOTE_ID values present in the current buffer."
+  (let (ids)
+    (org-map-entries
+     (lambda ()
+       (let ((note-id (org-entry-get nil "GROKET_NOTE_ID" nil)))
+         (when note-id (push note-id ids))))
+     nil nil)
+    (nreverse ids)))
+
 (defun groket--apply-document (text session-id revision reference)
   "Replace the current buffer with TEXT and configure session metadata."
   (let ((inhibit-read-only t))
     (erase-buffer)
     (insert text)
+    (goto-char (point-min))
+    (setq groket--rendered-note-ids (groket--document-note-ids))
     (goto-char (point-min))
     (let ((regions (groket--editable-field-regions)))
       (add-text-properties
@@ -275,10 +356,17 @@ REASON is a short human label (e.g. \"notes changed\")."
 (defun groket--field-value-at-point ()
   "Return the current field body without generated properties.
 Strips Org fixed-width lines used when rendering field values so outline
-stars inside a value cannot form headlines, then round-trip cleanly."
+stars inside a value cannot form headlines, then round-trip cleanly.
+Leading and trailing blank lines are part of the value."
   (pcase-let ((`(,begin . ,end) (groket--field-body-region)))
-    (let* ((raw (string-trim (buffer-substring-no-properties begin end)))
-           (lines (split-string raw "\n")))
+    (let* ((raw (buffer-substring-no-properties begin end))
+           ;; Region end is the newline after the last content line; that
+           ;; delimiter is not part of the value.
+           (raw (if (string-suffix-p "\n" raw)
+                    (substring raw 0 -1)
+                  raw))
+           ;; Keep empty lines (omit-nulls nil).
+           (lines (split-string raw "\n" nil)))
       (mapconcat #'groket--strip-org-fixed-line lines "\n"))))
 
 (defun groket--note-at-point ()
@@ -315,22 +403,38 @@ stars inside a value cannot form headlines, then round-trip cleanly."
 
 (defun groket--render-session (session)
   "Request the Org projection for SESSION."
-  (jsonrpc-request
+  (groket--request
    (groket--connection-for-session session)
    "session/render"
-   `(:session ,session)
-   :timeout groket-request-timeout))
+   `(:session ,session)))
 
 (defun groket--do-refresh ()
-  "Reload the projection without prompting (caller checks dirty state)."
+  "Reload the projection without prompting (caller checks dirty state).
+Changes announced while the render request is in flight postdate the
+response, so their stale flags survive the reload."
   (let* ((reference (or groket-session-reference groket-session-id))
-         (result (groket--render-session reference))
-         (point-before (point)))
+         (point-before (point))
+         (notes-stale groket-notes-stale)
+         (session-stale groket-session-stale)
+         result)
+    (setq groket-notes-stale nil
+          groket-session-stale nil)
+    (condition-case err
+        (setq result (groket--render-session reference))
+      (error
+       (setq groket-notes-stale (or groket-notes-stale notes-stale)
+             groket-session-stale (or groket-session-stale session-stale))
+       (signal (car err) (cdr err))))
+    (setq notes-stale groket-notes-stale
+          session-stale groket-session-stale)
     (groket--apply-document
      (plist-get result :text)
      (plist-get result :sessionId)
      (plist-get result :notesRevision)
      reference)
+    (setq groket-notes-stale notes-stale
+          groket-session-stale session-stale)
+    (force-mode-line-update)
     (goto-char (min point-before (point-max)))))
 
 (defun groket-refresh ()
@@ -346,9 +450,7 @@ stars inside a value cannot form headlines, then round-trip cleanly."
   (let ((params (list :query (or query ""))))
     (when limit
       (setq params (plist-put params :limit limit)))
-    (jsonrpc-request
-     (groket-connect) "session/list" params
-     :timeout groket-request-timeout)))
+    (groket--request (groket-connect) "session/list" params)))
 
 (defun groket--session-entry-path (entry)
   "Return a stable open reference for session ENTRY."
@@ -459,22 +561,28 @@ argument, prompt for QUERY first."
   (interactive (list (read-string "Session path or id: ") nil))
   (let* ((reference (groket--normalize-session-reference session))
          (connection (groket--connection-for-session reference))
-         (result (jsonrpc-request
-                  connection "session/render" `(:session ,reference)
-                  :timeout groket-request-timeout))
+         (result (groket--request
+                  connection "session/render" `(:session ,reference)))
          (session-id (plist-get result :sessionId))
-         (buffer (get-buffer-create (format "*groket:%s*" session-id))))
-    (with-current-buffer buffer
-      (groket-session-mode)
-      (groket--apply-document
-       (plist-get result :text)
-       session-id
-       (plist-get result :notesRevision)
-       reference))
-    (jsonrpc-request
+         (name (format "*groket:%s*" session-id))
+         (existing (get-buffer name))
+         ;; Re-rendering an open buffer throws its edits away, so ask first.
+         (render (or (null existing)
+                     (not (buffer-modified-p existing))
+                     (yes-or-no-p
+                      (format "%s has unsaved note edits; discard them? " name))))
+         (buffer (or existing (get-buffer-create name))))
+    (when render
+      (with-current-buffer buffer
+        (groket-session-mode)
+        (groket--apply-document
+         (plist-get result :text)
+         session-id
+         (plist-get result :notesRevision)
+         reference)))
+    (groket--request
      connection "session/open"
-     `(:session ,reference :promptIndex ,prompt-index)
-     :timeout groket-request-timeout)
+     `(:session ,reference :promptIndex ,prompt-index))
     (pop-to-buffer buffer)
     buffer))
 (defun groket-open-prompt-at-point ()
@@ -482,26 +590,32 @@ argument, prompt for QUERY first."
   (interactive)
   (let ((prompt-index (groket--prompt-index-at-point)))
     (unless prompt-index (user-error "Point is not inside a prompt"))
-    (jsonrpc-request
+    (groket--request
      (groket-connect) "session/open"
-     `(:session ,groket-session-reference :promptIndex ,prompt-index)
-     :timeout groket-request-timeout)))
+     `(:session ,groket-session-reference :promptIndex ,prompt-index))))
+
+(defun groket--rendered-note-id-p (note-id)
+  "Return non-nil when NOTE-ID belongs to the rendered document."
+  (and note-id (member note-id groket--rendered-note-ids) t))
 
 (defun groket-save-note ()
-  "Save the operator note at point with revision checking."
+  "Save the operator note at point with revision checking.
+The buffer stays modified: other notes may still hold unsaved edits."
   (interactive)
-  (let* ((result
-          (jsonrpc-request
-           (groket-connect) "notes/upsert"
-           `(:session ,groket-session-reference
-             :expectedRevision ,groket-notes-revision
-             :note ,(groket--note-at-point))
-           :timeout groket-request-timeout)))
-    (setq groket-notes-revision (plist-get result :revision)
-          groket-notes-stale nil)
-    (set-buffer-modified-p nil)
-    (force-mode-line-update)
-    result))
+  (let ((note (groket--note-at-point)))
+    (unless (groket--rendered-note-id-p (plist-get note :id))
+      (user-error "Note %s is not part of this session projection"
+                  (plist-get note :id)))
+    (let ((result
+           (groket--request
+            (groket-connect) "notes/upsert"
+            `(:session ,groket-session-reference
+              :expectedRevision ,groket-notes-revision
+              :note ,note))))
+      (setq groket-notes-revision (plist-get result :revision)
+            groket-notes-stale nil)
+      (force-mode-line-update)
+      result)))
 
 (defun groket--new-note-id ()
   "Return a locally unique note id."
@@ -511,18 +625,25 @@ argument, prompt for QUERY first."
     (secure-hash 'sha256 (format "%s:%s:%s" (float-time) (random) (emacs-pid)))
     0 12)))
 
+(defun groket--require-saved (action)
+  "Refuse ACTION while the buffer holds unsaved note edits.
+ACTION reloads the projection, which would drop those edits."
+  (when (buffer-modified-p)
+    (user-error "Unsaved note edits; C-x C-s to save or C-c C-r to reload before %s"
+                action)))
+
 (defun groket-new-note ()
   "Create an operator note under the prompt at point."
   (interactive)
+  (groket--require-saved "creating a note")
   (let* ((turn-text (groket--ancestor-property "GROKET_TURN_INDEX"))
          (prompt-index (groket--prompt-index-at-point)))
     (unless (and turn-text prompt-index)
       (user-error "Point is not inside a prompt"))
     (let* ((connection (groket-connect))
-           (listed (jsonrpc-request
+           (listed (groket--request
                     connection "notes/list"
-                    `(:session ,groket-session-reference)
-                    :timeout groket-request-timeout))
+                    `(:session ,groket-session-reference)))
            (schema (plist-get listed :schema))
            (field-specs (plist-get schema :fields))
            (fields (make-hash-table :test #'equal))
@@ -541,14 +662,15 @@ argument, prompt for QUERY first."
            (when field-id (puthash field-id "" fields))))
        field-specs)
       (let ((result
-             (jsonrpc-request
+             (groket--request
               connection "notes/upsert"
               `(:session ,groket-session-reference
                 :expectedRevision ,groket-notes-revision
-                :note ,note)
-              :timeout groket-request-timeout)))
+                :note ,note))))
         (setq groket-notes-revision (plist-get result :revision))
-        (groket-refresh)
+        ;; The note exists on the server; reload without a prompt that could
+        ;; abort and leave the buffer disagreeing with it.
+        (groket--do-refresh)
         (goto-char (point-min))
         (when (re-search-forward
                (format "^:GROKET_NOTE_ID: %s$" (regexp-quote note-id))
@@ -561,34 +683,61 @@ argument, prompt for QUERY first."
 (defun groket-delete-note (&optional no-confirm)
   "Delete the note at point, asking first unless NO-CONFIRM is non-nil."
   (interactive)
+  (groket--require-saved "deleting a note")
   (let ((note-id (groket--ancestor-property "GROKET_NOTE_ID")))
     (unless note-id (user-error "Point is not inside an operator note"))
     (when (or no-confirm (yes-or-no-p (format "Delete note %s? " note-id)))
       (let ((result
-             (jsonrpc-request
+             (groket--request
               (groket-connect) "notes/delete"
               `(:session ,groket-session-reference
                 :expectedRevision ,groket-notes-revision
-                :noteId ,note-id)
-              :timeout groket-request-timeout)))
+                :noteId ,note-id))))
         (setq groket-notes-revision (plist-get result :revision))
-        (groket-refresh)))))
+        ;; The delete happened; reload without a prompt that could abort.
+        (groket--do-refresh)))))
 
 (defun groket-save-buffer ()
-  "Save every operator note in the current session buffer."
+  "Save every operator note in the current session buffer.
+Headings carrying a note id the projection never rendered name no note on
+the server, so they are reported and left alone."
   (interactive)
-  (let (positions)
-    (goto-char (point-min))
-    (org-map-entries
-     (lambda ()
-       (when (org-entry-get nil "GROKET_NOTE_ID" nil)
-         (push (copy-marker (point)) positions)))
-     nil nil)
-    (dolist (position (nreverse positions))
-      (goto-char position)
-      (groket-save-note))
-    (set-buffer-modified-p nil))
+  (save-excursion
+    (let (entries skipped)
+      (goto-char (point-min))
+      (org-map-entries
+       (lambda ()
+         (let ((note-id (org-entry-get nil "GROKET_NOTE_ID" nil)))
+           (when note-id
+             (push (cons note-id (copy-marker (point))) entries))))
+       nil nil)
+      (dolist (entry (nreverse entries))
+        (if (groket--rendered-note-id-p (car entry))
+            (progn
+              (goto-char (cdr entry))
+              (groket-save-note))
+          (push (car entry) skipped)))
+      (when skipped
+        (message "Groket: skipped %d unknown note id(s): %s"
+                 (length skipped)
+                 (mapconcat #'identity (nreverse skipped) ", ")))))
+  (set-buffer-modified-p nil)
   t)
+
+(defun groket--other-session-buffer-p ()
+  "Return non-nil when another live session buffer exists."
+  (cl-some (lambda (buffer)
+             (and (not (eq buffer (current-buffer)))
+                  (buffer-live-p buffer)
+                  (with-current-buffer buffer
+                    (derived-mode-p 'groket-session-mode))))
+           (buffer-list)))
+
+(defun groket--kill-buffer-hook ()
+  "Drop the control connection with the last session buffer.
+The TUI terminal buffer stays: it belongs to the user, not to this client."
+  (unless (groket--other-session-buffer-p)
+    (groket--drop-connection)))
 
 (defvar-keymap groket-session-mode-map
   :parent org-mode-map
@@ -607,6 +756,7 @@ Transcript is read-only Markdown in source blocks; only note field bodies edit.
 Keys: C-c C-c save note, C-x C-s save all, C-c C-n new note, C-c C-k delete,
 C-c C-o select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
   (setq-local write-contents-functions '(groket-save-buffer))
+  (add-hook 'kill-buffer-hook #'groket--kill-buffer-hook nil t)
   (setq-local org-src-fontify-natively t)
   (setq-local org-src-preserve-indentation t)
   (setq-local org-edit-src-content-indentation 0)
@@ -619,9 +769,13 @@ C-c C-o select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
                  (when groket-notes-stale " Notes changed")))))
 
 ;; Evil/Doom: gr refresh without stealing g (motion prefix).
+;; `evil-define-key*' is a function, so this body survives byte compilation
+;; without Evil loaded at compile time.
+(declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
+
 (with-eval-after-load 'evil
-  (when (fboundp 'evil-define-key)
-    (evil-define-key 'normal groket-session-mode-map (kbd "gr") #'groket-refresh)))
+  (when (fboundp 'evil-define-key*)
+    (evil-define-key* 'normal groket-session-mode-map (kbd "gr") #'groket-refresh)))
 
 (provide 'groket)
 ;;; groket.el ends here

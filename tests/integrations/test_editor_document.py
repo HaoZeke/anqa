@@ -106,7 +106,7 @@ def test_render_editor_document_uses_prompt_indexes_and_note_properties(tmp_path
     assert "* Prompt 9" in document.text
     assert ":GROKET_PROMPT_INDEX: 9" in document.text
     # Transcript is a markdown source block (org fontification); not fixed-width.
-    assert "#+begin_src markdown\nfirst\n* not a heading\n#+end_src" in document.text
+    assert "#+begin_src markdown\nfirst\n,* not a heading\n#+end_src" in document.text
     assert ":GROKET_NOTE_ID: n-review" in document.text
     assert ":GROKET_EVENT_INDICES: 3,4" in document.text
     assert ":GROKET_FIELD_ID: summary" in document.text
@@ -145,6 +145,41 @@ def test_render_org_transcript_escapes_nested_end_src(tmp_path: Path) -> None:
     assert ",#+begin_src python" in document.text
     assert document.text.count("#+begin_src markdown") == 1
     assert document.text.rstrip().endswith("#+end_src") or "\n#+end_src\n" in document.text
+
+
+def test_render_org_transcript_escapes_headline_and_keyword_lines(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-org-stars"
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        json.dumps({"sessionId": session_dir.name, "title": "Org", "model": "m"}),
+        encoding="utf-8",
+    )
+    body = "* markdown bullet\n** nested\n#+title: keyword\n,#+end_src\nplain"
+    (session_dir / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": body},
+                        "_meta": {"promptIndex": 1},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    document = _render_editor_document(session_dir, format="org")
+    # A column-0 asterisk inside the src block would register as an Org
+    # headline and derail outline-based note navigation.
+    assert ",* markdown bullet" in document.text
+    assert ",** nested" in document.text
+    assert ",#+title: keyword" in document.text
+    # Pre-escaped lines gain one more comma so the original stays recoverable.
+    assert ",,#+end_src" in document.text
+    assert "\nplain" in document.text
 
 
 def test_render_editor_document_uses_turn_index_when_prompt_metadata_is_absent(
@@ -282,3 +317,25 @@ def test_render_rejects_unknown_format(tmp_path: Path) -> None:
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "unsupported" in str(exc)
+
+
+def test_markdown_front_matter_quotes_yaml_indicator_titles(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-yaml"
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "sessionId": session_dir.name,
+                "generated_title": "[draft] *retry* & !tag",
+                "model": "m",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "updates.jsonl").write_text("", encoding="utf-8")
+
+    document = _render_editor_document(session_dir, format="markdown")
+
+    assert 'title: "[draft] *retry* & !tag"' in document.text
+    # Plain names stay unquoted.
+    assert f"groket_session_id: {session_dir.name}" in document.text

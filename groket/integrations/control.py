@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import fcntl
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,16 @@ logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
+NOTIFY_TIMEOUT_SECONDS = 2.0
+MAX_HEADER_LINES = 32
+# JSON-RPC bodies always open with ``{``; anything shaped like ``Name:`` is an
+# LSP-style framing header regardless of which header comes first.
+_HEADER_LINE_RE = re.compile(rb"^[A-Za-z][A-Za-z0-9-]*:")
+# Note ids and field ids are woven verbatim into the Org property drawers and
+# ``<!-- groket:… -->`` machine tags of every projection; whitespace, ``-->``
+# or newlines there corrupt the round trip, so reject them at the boundary.
+_NOTE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_TIMESTAMP_RE = re.compile(r"^[0-9][0-9T:+.Z-]{0,63}$")
 DEFAULT_SESSION_LIST_LIMIT = 200
 CAPABILITIES = (
     "session/list",
@@ -170,12 +182,22 @@ def _note_from_params(data: JsonObject) -> NoteEntry:
     note_id = json_as_str(data.get("id")).strip()
     if not note_id:
         raise ControlError(-32602, "note.id is required")
+    if not _NOTE_TOKEN_RE.match(note_id):
+        raise ControlError(-32602, "note.id must match [A-Za-z0-9][A-Za-z0-9._-]*")
     raw_fields = data.get("fields")
     fields = (
         {str(key): str(value) for key, value in raw_fields.items() if value is not None}
         if isinstance(raw_fields, dict)
         else {}
     )
+    for key in fields:
+        if not _NOTE_TOKEN_RE.match(key):
+            raise ControlError(-32602, f"field id {key!r} must match [A-Za-z0-9][A-Za-z0-9._-]*")
+    created_at = json_as_str(data.get("createdAt"))
+    updated_at = json_as_str(data.get("updatedAt"))
+    for stamp_name, stamp in (("createdAt", created_at), ("updatedAt", updated_at)):
+        if stamp and not _TIMESTAMP_RE.match(stamp):
+            raise ControlError(-32602, f"{stamp_name} must be a compact timestamp")
     raw_indices = data.get("eventIndices")
     event_indices = (
         [json_as_int(value) for value in raw_indices] if isinstance(raw_indices, list) else []
@@ -185,8 +207,8 @@ def _note_from_params(data: JsonObject) -> NoteEntry:
         turn_index=json_as_int(data.get("turnIndex")),
         fields=fields,
         event_indices=event_indices,
-        created_at=json_as_str(data.get("createdAt")),
-        updated_at=json_as_str(data.get("updatedAt")),
+        created_at=created_at,
+        updated_at=updated_at,
     )
 
 
@@ -208,6 +230,7 @@ class ControlServer:
         self._open_session = open_session
         self._notes_changed = notes_changed
         self._server: asyncio.AbstractServer | None = None
+        self._lock_fd: int | None = None
         self._writers: set[asyncio.StreamWriter] = set()
         self._writer_framing: dict[asyncio.StreamWriter, str] = {}
 
@@ -219,40 +242,78 @@ class ControlServer:
         except FileExistsError:
             if not socket_parent.is_dir():
                 raise
-        else:
-            socket_parent.chmod(0o700)
-        if self.socket_path.exists():
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_unix_connection(self.socket_path),
-                    timeout=0.5,
-                )
-            except TimeoutError as exc:
-                # Ambiguous: prefer not to unlink a path that may still be owned.
-                raise ControlSocketInUse(self.socket_path) from exc
-            except (ConnectionRefusedError, FileNotFoundError):
-                self.socket_path.unlink(missing_ok=True)
-            except OSError as exc:
-                if exc.errno in {errno.ECONNREFUSED, errno.ENOENT}:
-                    self.socket_path.unlink(missing_ok=True)
-                else:
-                    # Do not unlink on unexpected errors (avoids stealing a live socket).
-                    raise ControlSocketInUse(self.socket_path) from exc
-            else:
-                writer.close()
-                await writer.wait_closed()
-                raise ControlSocketInUse(self.socket_path)
         try:
-            self._server = await asyncio.start_unix_server(
-                self._handle_client,
-                path=self.socket_path,
-                limit=MAX_MESSAGE_BYTES + 1,
-            )
-        except OSError as exc:
-            if exc.errno in {errno.EADDRINUSE, errno.EEXIST}:
-                raise ControlSocketInUse(self.socket_path) from exc
+            socket_parent.chmod(0o700)
+        except OSError:
+            logger.warning("could not tighten permissions on %s", socket_parent)
+        self._acquire_lock()
+        try:
+            await self._takeover_or_fail()
+            try:
+                self._server = await asyncio.start_unix_server(
+                    self._handle_client,
+                    path=self.socket_path,
+                    limit=MAX_MESSAGE_BYTES + 1,
+                )
+            except OSError as exc:
+                if exc.errno in {errno.EADDRINUSE, errno.EEXIST}:
+                    raise ControlSocketInUse(self.socket_path) from exc
+                raise
+            self.socket_path.chmod(0o600)
+        except BaseException:
+            self._release_lock()
             raise
-        self.socket_path.chmod(0o600)
+
+    def _acquire_lock(self) -> None:
+        """Take the exclusive advisory lock that serializes socket ownership.
+
+        The lock removes the probe/unlink/bind race between two starting
+        instances and lets ``close()`` know the socket file is still ours to
+        remove. The lock file itself is never unlinked: removing it would
+        reopen the race for a third starter.
+        """
+        lock_path = self.socket_path.with_name(self.socket_path.name + ".lock")
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(lock_fd)
+            raise ControlSocketInUse(self.socket_path) from exc
+        self._lock_fd = lock_fd
+
+    def _release_lock(self) -> None:
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
+
+    async def _takeover_or_fail(self) -> None:
+        """Remove a stale socket file, or refuse when a live owner answers.
+
+        The probe still matters with the lock held: an owner from a build
+        without the lock file may hold the path, and it must not be stolen.
+        """
+        if not self.socket_path.exists():
+            return
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.socket_path),
+                timeout=0.5,
+            )
+        except TimeoutError as exc:
+            # Ambiguous: prefer not to unlink a path that may still be owned.
+            raise ControlSocketInUse(self.socket_path) from exc
+        except (ConnectionRefusedError, FileNotFoundError):
+            self.socket_path.unlink(missing_ok=True)
+        except OSError as exc:
+            if exc.errno in {errno.ECONNREFUSED, errno.ENOENT}:
+                self.socket_path.unlink(missing_ok=True)
+            else:
+                # Do not unlink on unexpected errors (avoids stealing a live socket).
+                raise ControlSocketInUse(self.socket_path) from exc
+        else:
+            writer.close()
+            await writer.wait_closed()
+            raise ControlSocketInUse(self.socket_path)
 
     async def serve_forever(self) -> None:
         """Serve until cancelled, then release the owned socket.
@@ -284,14 +345,17 @@ class ControlServer:
                 await writer.wait_closed()
             except OSError:
                 pass
-        self.socket_path.unlink(missing_ok=True)
+        # Unlink only while holding the ownership lock; another instance may
+        # have bound a fresh socket at this path since we lost or never had it.
+        if self._lock_fd is not None:
+            self.socket_path.unlink(missing_ok=True)
+        self._release_lock()
 
     async def _handle_client(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        self._writers.add(writer)
         try:
             while not reader.at_eof():
                 try:
@@ -301,24 +365,10 @@ class ControlServer:
                     break
                 if not first_line:
                     break
-                if first_line.lower().startswith(b"content-length:"):
+                if _HEADER_LINE_RE.match(first_line):
                     self._writer_framing[writer] = "headers"
-                    try:
-                        length = int(first_line.split(b":", 1)[1].strip())
-                    except ValueError:
-                        await self._send_error(writer, None, -32600, "invalid Content-Length")
-                        break
-                    while True:
-                        header = await reader.readline()
-                        if header in (b"\r\n", b"\n", b""):
-                            break
-                    if length < 0 or length > MAX_MESSAGE_BYTES:
-                        await self._send_error(
-                            writer,
-                            None,
-                            -32600,
-                            "message exceeds size limit",
-                        )
+                    length = await self._read_header_length(reader, writer, first_line)
+                    if length is None:
                         break
                     try:
                         message = await reader.readexactly(length)
@@ -330,6 +380,10 @@ class ControlServer:
                 if len(message) > MAX_MESSAGE_BYTES:
                     await self._send_error(writer, None, -32600, "message exceeds size limit")
                     break
+                # Broadcast only once the client's framing is known; a
+                # notification sent earlier would use a framing the peer may
+                # not speak and desynchronize it permanently.
+                self._writers.add(writer)
                 await self._handle_line(message, writer)
         finally:
             self._writers.discard(writer)
@@ -339,6 +393,41 @@ class ControlServer:
                 await writer.wait_closed()
             except OSError:
                 pass
+
+    async def _read_header_length(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        first_line: bytes,
+    ) -> int | None:
+        """Consume an LSP-style header block and return the Content-Length.
+
+        Accepts any header order (e.g. ``Content-Type`` first); replies with a
+        -32600 error and returns ``None`` when the block is unusable.
+        """
+        length: int | None = None
+        header = first_line
+        header_count = 0
+        while header not in (b"\r\n", b"\n", b""):
+            header_count += 1
+            if header_count > MAX_HEADER_LINES:
+                await self._send_error(writer, None, -32600, "too many framing headers")
+                return None
+            name, _, value = header.partition(b":")
+            if name.strip().lower() == b"content-length":
+                try:
+                    length = int(value.strip())
+                except ValueError:
+                    await self._send_error(writer, None, -32600, "invalid Content-Length")
+                    return None
+            header = await reader.readline()
+        if length is None:
+            await self._send_error(writer, None, -32600, "missing Content-Length")
+            return None
+        if length < 0 or length > MAX_MESSAGE_BYTES:
+            await self._send_error(writer, None, -32600, "message exceeds size limit")
+            return None
+        return length
 
     async def _handle_line(self, line: bytes, writer: asyncio.StreamWriter) -> None:
         try:
@@ -357,8 +446,9 @@ class ControlServer:
             return
         params_raw = request.get("params")
         params = as_json_object(params_raw) if isinstance(params_raw, dict) else {}
+        after_send: list[tuple[str, JsonObject]] = []
         try:
-            result = await self._dispatch(method, params)
+            result = await self._dispatch(method, params, after_send)
         except NotesConflict as exc:
             await self._send_error(
                 writer,
@@ -380,6 +470,10 @@ class ControlServer:
             return
         if request_id is not None:
             await self._send(writer, {"jsonrpc": "2.0", "id": request_id, "result": result})
+        # Broadcasts go out after the response so the requesting client can update
+        # its own revision first and recognize the notification as its own echo.
+        for notify_method, notify_params in after_send:
+            await self.notify(notify_method, notify_params)
 
     def _session(self, params: JsonObject) -> Path:
         reference = json_as_str(params.get("session")).strip()
@@ -390,7 +484,12 @@ class ControlServer:
             raise ControlError(404, "session not found", {"session": reference})
         return session
 
-    async def _dispatch(self, method: str, params: JsonObject) -> JsonValue:
+    async def _dispatch(
+        self,
+        method: str,
+        params: JsonObject,
+        after_send: list[tuple[str, JsonObject]],
+    ) -> JsonValue:
         if method == "initialize":
             requested = json_as_int(params.get("protocolVersion"))
             if requested != PROTOCOL_VERSION:
@@ -408,7 +507,10 @@ class ControlServer:
             if self._list_sessions is None:
                 catalog: list[JsonObject] = []
             else:
-                catalog = list(self._list_sessions())
+                # Row building resolves paths (one realpath chain per session);
+                # keep those syscalls off the event loop like every other method.
+                lister = self._list_sessions
+                catalog = await asyncio.to_thread(lambda: list(lister()))
             return filter_session_catalog(
                 catalog,
                 query=json_as_str(params.get("query")),
@@ -444,9 +546,11 @@ class ControlServer:
             session = self._session(params)
             opened = await self._open_session(session, prompt_index)
             if opened:
-                await self.notify(
-                    "session/selected",
-                    {"sessionId": session.name, "promptIndex": prompt_index},
+                after_send.append(
+                    (
+                        "session/selected",
+                        {"sessionId": session.name, "promptIndex": prompt_index},
+                    )
                 )
             return {"opened": bool(opened)}
         if method == "notes/list":
@@ -466,9 +570,8 @@ class ControlServer:
             result = _snapshot_mapping(snapshot)
             if self._notes_changed is not None:
                 await self._notes_changed(session)
-            await self.notify(
-                "notes/changed",
-                {"sessionId": session.name, "revision": snapshot.revision},
+            after_send.append(
+                ("notes/changed", {"sessionId": session.name, "revision": snapshot.revision})
             )
             return result
         if method == "notes/delete":
@@ -485,21 +588,27 @@ class ControlServer:
             result = _snapshot_mapping(snapshot)
             if self._notes_changed is not None:
                 await self._notes_changed(session)
-            await self.notify(
-                "notes/changed",
-                {"sessionId": session.name, "revision": snapshot.revision},
+            after_send.append(
+                ("notes/changed", {"sessionId": session.name, "revision": snapshot.revision})
             )
             return result
         raise ControlError(-32601, "method not found", {"method": method})
 
     async def notify(self, method: str, params: JsonObject) -> None:
-        """Publish a notification to connected editor clients."""
+        """Publish a notification to connected editor clients.
+
+        Each send is time-bounded: a client that stopped reading (full pipe
+        buffer) is dropped instead of blocking every later broadcast and the
+        callers awaiting them.
+        """
         message: JsonObject = {"jsonrpc": "2.0", "method": method, "params": params}
         for writer in list(self._writers):
             try:
-                await self._send(writer, message)
-            except (ConnectionError, OSError):
+                await asyncio.wait_for(self._send(writer, message), timeout=NOTIFY_TIMEOUT_SECONDS)
+            except (TimeoutError, ConnectionError, OSError):
                 self._writers.discard(writer)
+                self._writer_framing.pop(writer, None)
+                writer.close()
 
     async def publish_session_changed(self, session_dir: Path) -> None:
         """Notify editor clients that a session projection changed."""

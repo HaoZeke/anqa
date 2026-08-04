@@ -15,6 +15,7 @@ from ..parser import load_session_meta, parse_timeline
 from ..session.turns import TurnSegment, segment_timeline_turns
 
 _FENCE_RUN = re.compile(r"`+")
+_ORG_ESCAPE_RE = re.compile(r"^,*(\*|#\+)")
 
 EditorFormat = Literal["org", "markdown", "json"]
 
@@ -51,11 +52,16 @@ def _org_fixed_lines(text: str) -> list[str]:
 
 
 def _org_escape_src_line(line: str) -> str:
-    """Comma-escape Org lines that would close or open a source block early."""
-    stripped = line.lstrip()
-    lower = stripped.casefold()
-    if lower.startswith("#+end_src") or lower.startswith("#+begin_src"):
-        # Org literal escape: leading comma is stripped on fontify/export of src bodies.
+    """Comma-escape lines Org treats as structure inside a src block.
+
+    Mirrors ``org-escape-code-in-region``: headlines (``*``), every ``#+``
+    keyword (block delimiters included), and already-escaped lines, whose
+    comma run grows by one so the original text stays recoverable. A bare
+    ``* bullet`` in transcript Markdown would otherwise register as an Org
+    headline and derail outline navigation (note saves then resolve the
+    wrong turn).
+    """
+    if _ORG_ESCAPE_RE.match(line.lstrip()):
         return f",{line}"
     return line
 
@@ -324,10 +330,16 @@ def _render_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
+# Quote unless the scalar is unambiguously plain: YAML indicators such as
+# ``[``, ``*``, ``&``, ``!``, ``%``, ``|``, ``>``, ``@`` or a backtick at the
+# start of a title otherwise change how the whole front matter parses.
+_YAML_PLAIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9 ._/()-]*[A-Za-z0-9._/()-])?$")
+
+
 def _yaml_escape(value: str) -> str:
-    if any(ch in value for ch in (":", "#", "\n", '"', "'")) or value.strip() != value:
-        return json.dumps(value)
-    return value
+    if _YAML_PLAIN_RE.match(value):
+        return value
+    return json.dumps(value)
 
 
 def _note_json(note: NoteEntry) -> JsonObject:

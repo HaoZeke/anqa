@@ -136,19 +136,17 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
             3,
             "session/open",
             {"session": session_dir.name, "promptIndex": 6},
-            notifications := [],
         )
-        writer.close()
-        await writer.wait_closed()
         assert opened_response["result"] == {"opened": True}
         assert opened == [(session_dir, 6)]
-        assert notifications == [
-            {
-                "jsonrpc": "2.0",
-                "method": "session/selected",
-                "params": {"sessionId": session_dir.name, "promptIndex": 6},
-            }
-        ]
+        selected = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert selected == {
+            "jsonrpc": "2.0",
+            "method": "session/selected",
+            "params": {"sessionId": session_dir.name, "promptIndex": 6},
+        }
+        writer.close()
+        await writer.wait_closed()
     finally:
         await server.close()
 
@@ -254,7 +252,6 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
             "fields": {"summary": "Socket note", "detail": "Inspect the event."},
             "eventIndices": [1],
         }
-        notifications: list[dict] = []
         saved = await _request(
             reader,
             writer,
@@ -265,11 +262,18 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
                 "expectedRevision": original_revision,
                 "note": entry,
             },
-            notifications,
         )
         saved_revision = saved["result"]["revision"]
         assert saved_revision != original_revision
         assert saved["result"]["notes"][0]["id"] == "n-socket"
+        # The response precedes the change broadcast so the mutating client can
+        # record its new revision before the notes/changed echo arrives.
+        echo = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert echo["method"] == "notes/changed"
+        assert echo["params"] == {
+            "sessionId": session_dir.name,
+            "revision": saved_revision,
+        }
 
         stale = await _request(
             reader,
@@ -298,13 +302,135 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
             },
         )
         assert deleted["result"]["notes"] == []
+        delete_echo = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert delete_echo["method"] == "notes/changed"
+        assert delete_echo["params"]["revision"] == deleted["result"]["revision"]
         writer.close()
         await writer.wait_closed()
-        assert notifications[0]["method"] == "notes/changed"
-        assert notifications[0]["params"] == {
-            "sessionId": session_dir.name,
-            "revision": saved_revision,
-        }
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_rejects_unroundtrippable_note_tokens(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    session_dir = tmp_path / "session-tokens"
+    _write_session(session_dir)
+    server = control.ControlServer(
+        socket_path=_short_sock("tokens.sock"),
+        resolve_session=lambda reference: session_dir if reference == session_dir.name else None,
+    )
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        listed = await _request(reader, writer, 1, "notes/list", {"session": session_dir.name})
+        revision = listed["result"]["revision"]
+        for request_id, note in enumerate(
+            [
+                {"id": "spaced id", "turnIndex": 0, "fields": {"summary": "x"}},
+                {"id": "n --> gone", "turnIndex": 0, "fields": {"summary": "x"}},
+                {"id": "n-ok", "turnIndex": 0, "fields": {"bad field": "x"}},
+                {"id": "n-ok", "turnIndex": 0, "fields": {"summary": "x"}, "createdAt": "a b"},
+            ],
+            start=2,
+        ):
+            response = await _request(
+                reader,
+                writer,
+                request_id,
+                "notes/upsert",
+                {"session": session_dir.name, "expectedRevision": revision, "note": note},
+            )
+            assert response["error"]["code"] == -32602
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_accepts_content_type_first_framing(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    server = control.ControlServer(socket_path=_short_sock("ctype.sock"))
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        payload = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}
+        ).encode("utf-8")
+        writer.write(
+            b"Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n"
+            + f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii")
+            + payload
+        )
+        await writer.drain()
+        header = await asyncio.wait_for(reader.readline(), timeout=2)
+        assert header.startswith(b"Content-Length: ")
+        length = int(header.split(b":", 1)[1])
+        assert await reader.readline() == b"\r\n"
+        response = json.loads(await reader.readexactly(length))
+        assert response["result"]["protocolVersion"] == 1
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    session_dir = tmp_path / "session-quiet"
+    _write_session(session_dir)
+    server = control.ControlServer(socket_path=_short_sock("quiet.sock"))
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        # Connected but silent: no frame yet, so its framing is unknown and it
+        # must not receive broadcasts it may be unable to parse.
+        await asyncio.sleep(0.05)
+        await server.publish_session_changed(session_dir)
+        initialized = await _header_request(reader, writer, 1, "initialize", {"protocolVersion": 1})
+        assert initialized["result"]["protocolVersion"] == 1
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_drops_stalled_clients_from_broadcasts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = import_module("groket.integrations.control")
+    monkeypatch.setattr(control, "NOTIFY_TIMEOUT_SECONDS", 0.1)
+    session_dir = tmp_path / "session-stalled"
+    _write_session(session_dir)
+    server = control.ControlServer(socket_path=_short_sock("stalled.sock"))
+    await server.start()
+    try:
+        reader_a, writer_a = await asyncio.open_unix_connection(server.socket_path)
+        await _request(reader_a, writer_a, 1, "initialize", {"protocolVersion": 1})
+        reader_b, writer_b = await asyncio.open_unix_connection(server.socket_path)
+        await _header_request(reader_b, writer_b, 1, "initialize", {"protocolVersion": 1})
+
+        stalled = next(
+            peer for peer, framing in server._writer_framing.items() if framing == "headers"
+        )
+
+        async def never_drains() -> None:
+            await asyncio.sleep(3600)
+
+        stalled.drain = never_drains  # type: ignore[method-assign]
+        await asyncio.wait_for(server.publish_session_changed(session_dir), timeout=1)
+        assert stalled not in server._writers
+
+        healthy = json.loads(await asyncio.wait_for(reader_a.readline(), timeout=2))
+        assert healthy["method"] == "session/changed"
+        writer_a.close()
+        writer_b.close()
+        await writer_a.wait_closed()
+        await writer_b.wait_closed()
     finally:
         await server.close()
 

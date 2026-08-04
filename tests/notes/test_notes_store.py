@@ -387,3 +387,27 @@ def test_multiline_embedded_triple_quotes_roundtrip(tmp_path: Path) -> None:
     save_notes(sd, doc)
     loaded = load_notes(sd)
     assert loaded.notes[0].fields["summary"] == value
+
+
+def test_control_characters_in_field_values_round_trip(tmp_path: Path) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    gnarly = "bell\x07 and\x01\ncarriage\rreturn\x7f"
+    doc = NotesDoc(session_id="sess")
+    doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": gnarly}, note_id="n-ctl"))
+
+    save_notes(sd, doc)
+
+    loaded = load_notes(sd)
+    assert loaded.notes[0].fields["summary"] == gnarly
+
+
+def test_lone_carriage_return_round_trips(tmp_path: Path) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    doc = NotesDoc(session_id="sess")
+    doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "a\rb"}, note_id="n-cr"))
+
+    save_notes(sd, doc)
+
+    assert load_notes(sd).notes[0].fields["summary"] == "a\rb"

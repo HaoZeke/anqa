@@ -114,6 +114,16 @@ local function on_read(err, data)
     return
   end
   if data == nil then
+    -- EOF: a final frame without its newline still carries a reply; deliver it
+    -- so the waiter settles instead of burning the request timeout.
+    local tail = state.read_buf
+    state.read_buf = ""
+    if tail:match("%S") then
+      local msg = decode_line(tail)
+      if msg then
+        handle_message(msg)
+      end
+    end
     vim.schedule(function()
       M.disconnect()
     end)
@@ -342,6 +352,36 @@ local function on_remote_stale(buf, kind)
   end
 end
 
+---Mark every line that belongs to a column-0 fenced block.
+---Transcripts render as ```` ```markdown ```` fences whose bodies sit at column 0,
+---so their text can imitate machine tags and structural headings; scanners must
+---skip those lines. The delimiter lines themselves count as fenced.
+---@param lines string[]
+---@return boolean[] one flag per line
+local function fence_map(lines)
+  local flags = {}
+  local open_len ---@type integer|nil
+  for i, line in ipairs(lines) do
+    local run = line:match("^(`+)")
+    if open_len == nil then
+      if run and #run >= 3 then
+        open_len = #run
+        flags[i] = true
+      else
+        flags[i] = false
+      end
+    else
+      flags[i] = true
+      if run and #run >= open_len then
+        open_len = nil
+      end
+    end
+  end
+  return flags
+end
+
+M._fence_map = fence_map
+
 function M._on_notification(method, params)
   local session = params.sessionId
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -368,11 +408,15 @@ function M._on_notification(method, params)
         elseif method == "session/selected" and params.promptIndex ~= nil then
           local idx = tostring(params.promptIndex)
           local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+          local fences = fence_map(lines)
           for i, line in ipairs(lines) do
             -- Boundary after the index so "4" does not match "prompt-index=41".
-            local hit = line:find("prompt%-index=" .. idx .. "%f[%D]", 1, false)
-              or line == ("## Prompt " .. idx)
-              or line == (":GROKET_PROMPT_INDEX: " .. idx)
+            local hit = not fences[i]
+              and (
+                line:find("prompt%-index=" .. idx .. "%f[%D]", 1, false)
+                or line == ("## Prompt " .. idx)
+                or line == (":GROKET_PROMPT_INDEX: " .. idx)
+              )
             if hit then
               local win = vim.fn.bufwinid(buf)
               if win ~= -1 then
@@ -417,45 +461,7 @@ local function strip_md_fixed_line(line)
   return line
 end
 
----Scan upward for a groket HTML comment attribute.
----@param lines string[]
----@param row integer 1-based
----@param name string
----@return string|nil
-local function ancestor_meta(lines, row, name)
-  for i = row, 1, -1 do
-    local meta = parse_groket_comment(lines[i])
-    if meta and meta[name] then
-      return meta[name]
-    end
-  end
-  return nil
-end
-
----Resolve a machine attribute at *row*.
----Tags sit on the line under headings (``#### note`` then ``<!-- groket:note-id=… -->``),
----so a cursor on the heading must look a short distance *down* as well as up.
----@param lines string[]
----@param row integer 1-based
----@param name string
----@return string|nil
-local function meta_near_row(lines, row, name)
-  local found = ancestor_meta(lines, row, name)
-  if found then
-    return found
-  end
-  -- Immediate look-ahead only (heading → optional blank → tag); avoid stealing a
-  -- later note from transcript lines above ``### Operator notes``.
-  for i = row + 1, math.min(row + 2, #lines) do
-    local meta = parse_groket_comment(lines[i])
-    if meta and meta[name] then
-      return meta[name]
-    end
-  end
-  return nil
-end
-
----Markdown AT heading level (``#`` count), or nil.
+---Markdown ATX heading level (``#`` count), or nil.
 ---@param line string
 ---@return integer|nil
 local function md_heading_level(line)
@@ -480,17 +486,134 @@ local function is_field_heading(line)
   return line:match("^#####%s+") ~= nil
 end
 
----Locate #### note heading span for *note_id*.
+---A ``####``/``#####`` heading is projection structure only when a machine tag
+---follows within two lines. User paste at column 0 inside a field body carries
+---no tag and must not terminate the body.
+---@param lines string[]
+---@param row integer 1-based
+---@param fences boolean[]
+---@return boolean
+local function is_structural_heading(lines, row, fences)
+  if fences[row] then
+    return false
+  end
+  local line = lines[row]
+  if not (is_note_heading(line) or is_field_heading(line)) then
+    return false
+  end
+  for i = row + 1, math.min(row + 2, #lines) do
+    if not fences[i] then
+      local meta = parse_groket_comment(lines[i])
+      if meta and (meta["note-id"] or meta["field-id"]) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+---Section boundary (``## Prompt N`` / ``### User``) outside fences.
+---@param lines string[]
+---@param row integer 1-based
+---@param fences boolean[]
+---@return boolean
+local function is_section_heading(lines, row, fences)
+  if fences[row] then
+    return false
+  end
+  return lines[row]:match("^##%s+") ~= nil or lines[row]:match("^###%s+") ~= nil
+end
+
+---Scan upward for a groket HTML comment attribute (fenced lines skipped).
+---@param lines string[]
+---@param row integer 1-based
+---@param name string
+---@param fences boolean[]|nil
+---@return string|nil
+local function ancestor_meta(lines, row, name, fences)
+  fences = fences or fence_map(lines)
+  for i = math.min(row, #lines), 1, -1 do
+    if not fences[i] then
+      local meta = parse_groket_comment(lines[i])
+      if meta and meta[name] then
+        return meta[name]
+      end
+    end
+  end
+  return nil
+end
+
+---Resolve a machine attribute at *row* (prompt/turn scope).
+---Tags sit on the line under headings (``## Prompt 1`` then ``<!-- groket:… -->``),
+---so a cursor on the heading must look a short distance *down* as well as up.
+---@param lines string[]
+---@param row integer 1-based
+---@param name string
+---@return string|nil
+local function meta_near_row(lines, row, name)
+  local fences = fence_map(lines)
+  local found = ancestor_meta(lines, row, name, fences)
+  if found then
+    return found
+  end
+  -- Immediate look-ahead only (heading → optional blank → tag); avoid stealing a
+  -- later note from transcript lines above ``### Operator notes``.
+  for i = row + 1, math.min(row + 2, #lines) do
+    if not fences[i] then
+      local meta = parse_groket_comment(lines[i])
+      if meta and meta[name] then
+        return meta[name]
+      end
+    end
+  end
+  return nil
+end
+
+---Note that owns *row*: the nearest structural ``####`` heading at or above it.
+---Field headings and bodies belong to that heading; a ``###``/``##`` section
+---boundary means the cursor sits outside the operator notes of this note.
+---@param lines string[]
+---@param row integer 1-based
+---@param fences boolean[]|nil
+---@return string|nil
+local function note_id_at_row(lines, row, fences)
+  fences = fences or fence_map(lines)
+  for i = math.min(row, #lines), 1, -1 do
+    if not fences[i] then
+      if is_note_heading(lines[i]) then
+        if is_structural_heading(lines, i, fences) then
+          for k = i + 1, math.min(i + 2, #lines) do
+            if not fences[k] then
+              local meta = parse_groket_comment(lines[k])
+              if meta and meta["note-id"] then
+                return meta["note-id"]
+              end
+            end
+          end
+        end
+      elseif is_section_heading(lines, i, fences) then
+        return nil
+      end
+    end
+  end
+  return nil
+end
+
+---Locate the ``#### `` note heading span for *note_id*.
 ---@param lines string[]
 ---@param note_id string
----@return integer, integer, integer
-local function note_span_md(lines, note_id)
+---@param fences boolean[]|nil
+---@return integer, integer
+local function note_span_md(lines, note_id, fences)
+  fences = fences or fence_map(lines)
   local tag_line
   for i, line in ipairs(lines) do
-    local meta = parse_groket_comment(line)
-    if meta and meta["note-id"] == note_id and not meta["field-id"] then
-      tag_line = i
-      break
+    if not fences[i] then
+      local meta = parse_groket_comment(line)
+      if meta and meta["note-id"] == note_id and not meta["field-id"] then
+        tag_line = i
+        break
+      end
     end
   end
   if not tag_line then
@@ -498,7 +621,7 @@ local function note_span_md(lines, note_id)
   end
   local note_start
   for i = tag_line, 1, -1 do
-    if is_note_heading(lines[i]) then
+    if not fences[i] and is_note_heading(lines[i]) then
       note_start = i
       break
     end
@@ -509,7 +632,8 @@ local function note_span_md(lines, note_id)
   local note_end = #lines
   for i = note_start + 1, #lines do
     -- Sibling note or leaving Operator notes / prompt — not user ``#`` paste.
-    if is_note_heading(lines[i]) or lines[i]:match("^##%s+") or lines[i]:match("^###%s+") then
+    local sibling = is_note_heading(lines[i]) and is_structural_heading(lines, i, fences)
+    if sibling or is_section_heading(lines, i, fences) then
       note_end = i - 1
       break
     end
@@ -522,39 +646,40 @@ end
 ---@return table
 local function note_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local note_id = meta_near_row(lines, row, "note-id")
+  local fences = fence_map(lines)
+  local note_id = note_id_at_row(lines, row, fences)
   if not note_id then
     error("cursor is not inside an operator note")
   end
-  local note_start, note_end = note_span_md(lines, note_id)
+  local note_start, note_end = note_span_md(lines, note_id, fences)
   -- turn-index lives on the prompt tag above the note heading.
-  local turn_index = tonumber(ancestor_meta(lines, note_start, "turn-index") or "0") or 0
+  local turn_index = tonumber(ancestor_meta(lines, note_start, "turn-index", fences) or "0") or 0
   local event_text = ""
   local created_at = ""
   for i = note_start, math.min(note_start + 5, note_end) do
-    local meta = parse_groket_comment(lines[i])
-    if meta and meta["note-id"] == note_id and not meta["field-id"] then
-      event_text = meta["event-indices"] or ""
-      created_at = meta.created or ""
-      break
+    if not fences[i] then
+      local meta = parse_groket_comment(lines[i])
+      if meta and meta["note-id"] == note_id and not meta["field-id"] then
+        event_text = meta["event-indices"] or ""
+        created_at = meta.created or ""
+        break
+      end
     end
   end
   local fields = vim.empty_dict()
   local i = note_start
   while i <= note_end do
-    if is_field_heading(lines[i]) then
+    if not fences[i] and is_field_heading(lines[i]) then
       local field_id
       local body_start = i + 1
-      -- optional HTML comment immediately under heading
-      while body_start <= note_end and lines[body_start]:match("^%s*$") do
-        body_start = body_start + 1
-      end
-      if body_start <= note_end then
+      -- Machine tag sits directly under the field heading.
+      if body_start <= note_end and not fences[body_start] then
         local meta = parse_groket_comment(lines[body_start])
         if meta and meta["field-id"] then
           field_id = meta["field-id"]
           body_start = body_start + 1
-          while body_start <= note_end and lines[body_start]:match("^%s*$") do
+          -- Exactly one blank separator; further blanks are part of the value.
+          if body_start <= note_end and lines[body_start] == "" then
             body_start = body_start + 1
           end
         end
@@ -563,11 +688,9 @@ local function note_at_row(buf, row)
         local body_end = note_end
         for k = body_start, note_end do
           -- Next field / note / section — not a bare ``#`` paste inside the body.
-          if is_field_heading(lines[k]) or is_note_heading(lines[k]) then
-            body_end = k - 1
-            break
-          end
-          if lines[k]:match("^##%s+") or lines[k]:match("^###%s+") then
+          local structural = (is_field_heading(lines[k]) or is_note_heading(lines[k]))
+            and is_structural_heading(lines, k, fences)
+          if structural or is_section_heading(lines, k, fences) then
             body_end = k - 1
             break
           end
@@ -576,7 +699,8 @@ local function note_at_row(buf, row)
         for k = body_start, body_end do
           table.insert(body, strip_md_fixed_line(lines[k]))
         end
-        while #body > 0 and body[#body] == "" do
+        -- One trailing blank belongs to the renderer's separator, the rest to the value.
+        if #body > 0 and body[#body] == "" then
           table.remove(body)
         end
         fields[field_id] = table.concat(body, "\n")
@@ -608,6 +732,9 @@ end
 ---Exposed for headless round-trip tests (``nvim --headless -l``).
 M._note_at_row = note_at_row
 M._parse_groket_comment = parse_groket_comment
+M._note_id_at_row = function(lines, row)
+  return note_id_at_row(lines, row)
+end
 
 local function prompt_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -714,34 +841,60 @@ local function map_buffer(buf)
   })
 end
 
----Hide machine tags and keep pipe tables aligned (window-local).
+---Treesitter highlighting drives the fold expression; ``calm``/``none`` stop the
+---parser and Neovim without a markdown parser has none at all, so folds fall
+---back to ``manual`` rather than erroring on every redraw.
 ---@param buf integer
-apply_window_chrome = function(buf)
+---@param winid integer
+local function apply_fold_chrome(buf, winid)
+  local mode = M.config.highlight or "soft"
+  local ts_mode = mode ~= "calm" and mode ~= "none"
+  local has_parser = false
+  if ts_mode then
+    local ok, parser = pcall(vim.treesitter.get_parser, buf)
+    has_parser = ok and parser ~= nil
+  end
+  pcall(function()
+    if has_parser then
+      -- Treesitter folds for ## / ### (open by default; zM / za to collapse).
+      vim.wo[winid].foldenable = true
+      vim.wo[winid].foldmethod = "expr"
+      vim.wo[winid].foldexpr = "v:lua.vim.treesitter.foldexpr()"
+      vim.wo[winid].foldlevel = 99
+    else
+      vim.wo[winid].foldmethod = "manual"
+    end
+  end)
+end
+
+---Hide machine tags and keep pipe tables aligned in one window on *buf*.
+---@param buf integer
+---@param winid integer
+local function apply_chrome_to_win(buf, winid)
   pcall(function()
     local st = vim.b[buf].groket_status
     if type(st) == "string" and st ~= "" then
-      vim.wo.winbar = "groket · " .. st .. " · \\? help"
+      vim.wo[winid].winbar = "groket · " .. st .. " · \\? help"
     else
-      vim.wo.winbar = "groket · \\? help"
+      vim.wo[winid].winbar = "groket · \\? help"
     end
   end)
   pcall(function()
-    vim.wo.conceallevel = 2
-    -- Show tags under cursor so operators can still inspect them.
-    vim.wo.concealcursor = "n"
-    -- Treesitter folds for ## / ### (open by default; zM / za to collapse).
-    vim.wo.foldenable = true
-    vim.wo.foldmethod = "expr"
-    vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
-    vim.wo.foldlevel = 99
-    vim.wo.wrap = false
+    vim.wo[winid].conceallevel = 2
+    -- Show tags under the cursor line so operators can inspect them in any mode.
+    vim.wo[winid].concealcursor = ""
+    vim.wo[winid].wrap = false
   end)
+  apply_fold_chrome(buf, winid)
   -- Conceal <!-- groket:… --> machine lines (still in buffer for parse/save).
-  pcall(function()
-    if vim.b[buf].groket_conceal_id then
-      pcall(vim.fn.matchdelete, vim.b[buf].groket_conceal_id)
+  -- Match ids are window scoped: two windows on one buffer each own their match.
+  pcall(vim.api.nvim_win_call, winid, function()
+    local prev = vim.w[winid].groket_conceal_id
+    if prev then
+      pcall(vim.fn.matchdelete, prev)
+      vim.w[winid].groket_conceal_id = nil
     end
-    vim.b[buf].groket_conceal_id = vim.fn.matchadd(
+    vim.w[winid].groket_conceal_id = vim.fn.matchadd(
       "Conceal",
       [[^<!-- groket:.\{-}-->\s*$]],
       10,
@@ -749,10 +902,44 @@ apply_window_chrome = function(buf)
       { conceal = "" }
     )
   end)
+end
+
+---Apply window chrome to every window showing *buf*; each keeps its own match id.
+---@param buf integer
+apply_window_chrome = function(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  for _, winid in ipairs(vim.fn.win_findbuf(buf)) do
+    apply_chrome_to_win(buf, winid)
+  end
   local mode = M.config.highlight or "soft"
   if mode == "calm" or mode == "none" then
     pcall(vim.treesitter.stop, buf)
   end
+end
+
+local CODE_BLOCK_GROUPS = {
+  "@markup.raw.block.markdown",
+  "markdownCodeBlock",
+  "RenderMarkdownCode",
+  "RenderMarkdownCodeBorder",
+  "RenderMarkdownCodeInfo",
+}
+
+---Definitions captured before the first quieting, keyed by group name.
+local saved_code_block_hl = nil ---@type table<string, table>|nil
+
+---Put the colorscheme's code-block groups back; they are global, so every other
+---Markdown buffer shares them.
+local function restore_code_block_bg()
+  if not saved_code_block_hl then
+    return
+  end
+  for group, def in pairs(saved_code_block_hl) do
+    pcall(vim.api.nvim_set_hl, 0, group, def)
+  end
+  saved_code_block_hl = nil
 end
 
 ---Clear code-block grey wash (transcript is a large ```markdown fence).
@@ -768,13 +955,17 @@ local function quiet_code_block_bg(buf)
       },
     })
   end)
-  for _, group in ipairs({
-    "@markup.raw.block.markdown",
-    "markdownCodeBlock",
-    "RenderMarkdownCode",
-    "RenderMarkdownCodeBorder",
-    "RenderMarkdownCodeInfo",
-  }) do
+  if not saved_code_block_hl then
+    local saved = {}
+    for _, group in ipairs(CODE_BLOCK_GROUPS) do
+      -- ``link = true`` keeps a linked group linked when restored; a group that
+      -- does not exist yet comes back as the empty definition it started as.
+      local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = true })
+      saved[group] = (ok and type(def) == "table") and def or {}
+    end
+    saved_code_block_hl = saved
+  end
+  for _, group in ipairs(CODE_BLOCK_GROUPS) do
     pcall(vim.api.nvim_set_hl, 0, group, { bg = "NONE", default = false })
   end
 end
@@ -784,6 +975,7 @@ end
 local function apply_highlight(buf)
   local mode = M.config.highlight or "soft"
   if mode == "none" then
+    restore_code_block_bg()
     pcall(function()
       vim.bo[buf].filetype = ""
     end)
@@ -794,6 +986,7 @@ local function apply_highlight(buf)
     return
   end
   if mode == "calm" then
+    restore_code_block_bg()
     pcall(function()
       vim.bo[buf].filetype = "markdown"
     end)
@@ -823,9 +1016,7 @@ local function reapply_highlight_all_sessions()
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(buf) and vim.b[buf].groket_session_id then
       apply_highlight(buf)
-      if vim.fn.bufwinid(buf) ~= -1 then
-        apply_window_chrome(buf)
-      end
+      apply_window_chrome(buf)
     end
   end
 end
@@ -865,10 +1056,13 @@ function M.outline()
     error("not a groket session buffer")
   end
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fences = fence_map(lines)
   local entries = {}
   for i, line in ipairs(lines) do
     local text ---@type string|nil
-    if line:match("^## Prompt ") then
+    if fences[i] then
+      text = nil
+    elseif line:match("^## Prompt ") then
       text = line
     elseif line:match("^### ") then
       -- User / Assistant / Operator notes under a prompt
@@ -916,23 +1110,34 @@ local function apply_document(buf, text, session_id, revision, reference)
   pcall(vim.api.nvim_buf_set_name, buf, "groket://" .. session_id)
   map_buffer(buf)
   -- Window opts if already displayed.
-  if vim.fn.bufwinid(buf) ~= -1 then
-    apply_window_chrome(buf)
+  apply_window_chrome(buf)
+  -- Snapshot note ids from this projection; typed machine tags are not upserted.
+  local rendered = {}
+  local fences = fence_map(lines)
+  for i, line in ipairs(lines) do
+    local meta = (not fences[i]) and parse_groket_comment(line) or nil
+    if meta and meta["note-id"] and not meta["field-id"] then
+      rendered[meta["note-id"]] = true
+    end
   end
+  vim.b[buf].groket_rendered_note_ids = rendered
 end
+
+M._apply_document = apply_document
 
 ---Move the cursor onto a note after create/render (first field body, else heading).
 ---@param buf integer
 ---@param note_id string
 local function jump_to_note(buf, note_id)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local fences = fence_map(lines)
   local note_heading_row ---@type integer|nil
   local first_field_body ---@type integer|nil
   for i, line in ipairs(lines) do
-    local meta = parse_groket_comment(line)
+    local meta = (not fences[i]) and parse_groket_comment(line) or nil
     if meta and meta["note-id"] == note_id and not meta["field-id"] then
       for h = i, 1, -1 do
-        if md_heading_level(lines[h]) then
+        if not fences[h] and md_heading_level(lines[h]) then
           note_heading_row = h
           break
         end
@@ -1296,22 +1501,35 @@ function M.open_session(session, prompt_index)
     local result = M.request("session/render", render_params(reference))
     local buf = vim.api.nvim_create_buf(true, true)
     apply_document(buf, result.text, result.sessionId, result.notesRevision, reference)
-    local params = { session = reference }
-    if prompt_index ~= nil then
-      params.promptIndex = prompt_index
-    end
-    M.request("session/open", params)
+    -- Show the rendered buffer before asking the TUI to follow; a session/open
+    -- failure then leaves a usable buffer instead of an orphaned one.
     vim.api.nvim_set_current_buf(buf)
+    apply_window_chrome(buf)
     if prompt_index ~= nil then
       -- Local jump (notification may also move the cursor).
       local idx = tostring(prompt_index)
       local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local fences = fence_map(lines)
       for i, line in ipairs(lines) do
-        if line:find("prompt%-index=" .. idx .. "%f[%D]", 1, false) or line == ("## Prompt " .. idx) then
+        if
+          not fences[i]
+          and (
+            line:find("prompt%-index=" .. idx .. "%f[%D]", 1, false)
+            or line == ("## Prompt " .. idx)
+          )
+        then
           pcall(vim.api.nvim_win_set_cursor, 0, { i, 0 })
           break
         end
       end
+    end
+    local params = { session = reference }
+    if prompt_index ~= nil then
+      params.promptIndex = prompt_index
+    end
+    local opened, open_err = pcall(M.request, "session/open", params)
+    if not opened then
+      notify("session/open failed: " .. tostring(open_err), vim.log.levels.WARN)
     end
     notify(
       "opened "
@@ -1442,17 +1660,22 @@ function M.refresh(opts)
   local auto = opts.auto == true
   run(function()
     local buf = opts.buf or vim.api.nvim_get_current_buf()
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
     local reference = vim.b[buf].groket_session_reference or vim.b[buf].groket_session_id
     if not reference then
       error("not a groket session buffer")
     end
+    local function warn_unsaved()
+      notify(
+        (opts.reason or "Remote change") .. " — unsaved note edits; save or R to reload",
+        vim.log.levels.WARN
+      )
+    end
     if vim.bo[buf].modified then
       if auto then
-        notify(
-          (opts.reason or "Remote change")
-            .. " — unsaved note edits; save or R to reload",
-          vim.log.levels.WARN
-        )
+        warn_unsaved()
         return
       end
       local choice = vim.fn.confirm("Discard unsaved note edits?", "&Yes\n&No", 2)
@@ -1462,6 +1685,20 @@ function M.refresh(opts)
     end
     ensure_connection(reference)
     local result = M.request("session/render", render_params(reference))
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
+    if auto and vim.bo[buf].modified then
+      -- Edited during the render round trip: keep the stale marker, drop the reload.
+      if opts.reason == "Notes changed" then
+        vim.b[buf].groket_notes_stale = true
+      else
+        vim.b[buf].groket_session_stale = true
+      end
+      set_stale_status(buf)
+      warn_unsaved()
+      return
+    end
     local win = vim.fn.bufwinid(buf)
     local row = 1
     if win ~= -1 then
@@ -1505,6 +1742,10 @@ function M.save_note()
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local note = note_at_row(buf, row)
+    local allowed = vim.b[buf].groket_rendered_note_ids
+    if type(allowed) ~= "table" or not allowed[note.id] then
+      error("note " .. note.id .. " is not part of this session projection")
+    end
     ensure_connection(reference)
     local result = M.request("notes/upsert", {
       session = reference,
@@ -1513,7 +1754,8 @@ function M.save_note()
     })
     vim.b[buf].groket_notes_revision = result.revision
     vim.b[buf].groket_notes_stale = false
-    vim.bo[buf].modified = false
+    -- Leave modified true: other notes in this buffer may still be dirty.
+    -- Clear only from save_all_notes / apply_document.
     set_stale_status(buf)
     notify("saved note " .. note.id)
   end)
@@ -1525,6 +1767,10 @@ function M.new_note()
     local reference = vim.b[buf].groket_session_reference
     if not reference then
       error("not a groket session buffer")
+    end
+    -- Creating a note re-renders the whole projection; typed edits would vanish.
+    if vim.bo[buf].modified then
+      error("unsaved note edits — save with :w (or \\s) before creating a note")
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
     local turn_index = turn_index_at_row(buf, row)
@@ -1558,6 +1804,9 @@ function M.new_note()
     })
     vim.b[buf].groket_notes_revision = result.revision
     local rendered = M.request("session/render", render_params(reference))
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
     apply_document(buf, rendered.text, rendered.sessionId, rendered.notesRevision, reference)
     jump_to_note(buf, note_id)
     notify("created note " .. note_id)
@@ -1567,13 +1816,18 @@ end
 function M.delete_note()
   run(function()
     local buf = vim.api.nvim_get_current_buf()
+    local win = vim.api.nvim_get_current_win()
     local reference = vim.b[buf].groket_session_reference
     if not reference then
       error("not a groket session buffer")
     end
-    local row = vim.api.nvim_win_get_cursor(0)[1]
+    -- Deleting re-renders the whole projection; typed edits would vanish.
+    if vim.bo[buf].modified then
+      error("unsaved note edits — save with :w (or \\s) before deleting a note")
+    end
+    local keep_row = vim.api.nvim_win_get_cursor(win)[1]
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local note_id = meta_near_row(lines, row, "note-id")
+    local note_id = note_id_at_row(lines, keep_row)
     if not note_id then
       error("cursor is not inside an operator note")
     end
@@ -1589,10 +1843,15 @@ function M.delete_note()
     })
     vim.b[buf].groket_notes_revision = result.revision
     local rendered = M.request("session/render", render_params(reference))
-    local keep_row = vim.api.nvim_win_get_cursor(0)[1]
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
     apply_document(buf, rendered.text, rendered.sessionId, rendered.notesRevision, reference)
-    local line_count = vim.api.nvim_buf_line_count(buf)
-    pcall(vim.api.nvim_win_set_cursor, 0, { math.min(keep_row, line_count), 0 })
+    -- The originating window may have moved on during the two round trips.
+    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+      local line_count = vim.api.nvim_buf_line_count(buf)
+      pcall(vim.api.nvim_win_set_cursor, win, { math.min(keep_row, line_count), 0 })
+    end
     notify("deleted note " .. note_id)
   end)
 end
@@ -1606,13 +1865,25 @@ function M.save_all_notes()
     end
     ensure_connection(reference)
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local fences = fence_map(lines)
+    local allowed = vim.b[buf].groket_rendered_note_ids
+    if type(allowed) ~= "table" then
+      allowed = {}
+    end
     local rows = {}
     local seen = {}
+    local skipped = {}
     for i, line in ipairs(lines) do
-      local meta = parse_groket_comment(line)
-      if meta and meta["note-id"] and not meta["field-id"] and not seen[meta["note-id"]] then
-        seen[meta["note-id"]] = true
-        table.insert(rows, i)
+      -- Transcript text at column 0 can imitate a note tag; only real ones count.
+      local meta = (not fences[i]) and parse_groket_comment(line) or nil
+      local note_id = meta and meta["note-id"]
+      if note_id and not meta["field-id"] and not seen[note_id] then
+        seen[note_id] = true
+        if allowed[note_id] then
+          table.insert(rows, i)
+        else
+          table.insert(skipped, note_id)
+        end
       end
     end
     for _, row in ipairs(rows) do
@@ -1627,11 +1898,22 @@ function M.save_all_notes()
     vim.bo[buf].modified = false
     vim.b[buf].groket_notes_stale = false
     set_stale_status(buf)
-    notify("saved " .. tostring(#rows) .. " note(s)")
+    local msg = "saved " .. tostring(#rows) .. " note(s)"
+    if #skipped > 0 then
+      msg = msg .. "; skipped unknown id(s): " .. table.concat(skipped, ", ")
+    end
+    notify(msg)
   end)
 end
 
+---lhs strings this plugin currently owns, so a later ``setup()`` can move them.
+local bound_global_keys = {} ---@type string[]
+
 local function bind_global_keys()
+  for _, lhs in ipairs(bound_global_keys) do
+    pcall(vim.keymap.del, "n", lhs)
+  end
+  bound_global_keys = {}
   local keys = M.config.keys
   if type(keys) ~= "table" then
     return
@@ -1655,8 +1937,10 @@ local function bind_global_keys()
   }
   for name, spec in pairs(maps) do
     local lhs = keys[name]
+    -- ``false`` disables a default map.
     if type(lhs) == "string" and lhs ~= "" then
       vim.keymap.set("n", lhs, spec.rhs, { silent = true, desc = spec.desc })
+      table.insert(bound_global_keys, lhs)
     end
   end
 end
@@ -1664,6 +1948,11 @@ end
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   vim.g.groket_setup_done = true
+  -- Note ids must differ between Neovim instances started the same millisecond.
+  pcall(function()
+    local seed = (uv.hrtime() % 2147483647) + vim.fn.getpid()
+    math.randomseed(seed % 2147483647)
+  end)
   if vim.g.groket_commands_registered then
     bind_global_keys()
     return

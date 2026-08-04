@@ -82,13 +82,20 @@ async def test_selecting_none_clears_previous_persona(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 50)) as pilot:
         scr = await _runner(pilot, app)
         scr._refresh_persona_select(select_id="gh-p")
-        await pilot.pause()
-        assert scr._persona_id_from_form() == "gh-p"
+        await wait_until(
+            pilot,
+            lambda: scr._persona_id_from_form() == "gh-p",
+            description="persona gh-p selected",
+        )
         sel = scr.query_one("#persona-select", Select)
         sel.value = PERSONA_NONE
-        await pilot.pause()
-        assert scr._persona_id == ""
-        assert scr._persona_id_from_form() == ""
+        # Select.Changed is async; a single pause can return before the handler
+        # clears _persona_id (CI flake under load).
+        await wait_until(
+            pilot,
+            lambda: scr._persona_id == "" and scr._persona_id_from_form() == "",
+            description="persona cleared to none",
+        )
         caps = scr._persona_capability_snapshot()
         assert caps == ([], [], [], {})
 

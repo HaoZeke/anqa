@@ -663,9 +663,13 @@ class TraceEvalApp(App):
         return None
 
     def _control_list_sessions(self) -> list[JsonObject]:
-        """Snapshot the sessions-home catalog for editor ``session/list``."""
+        """Snapshot the sessions-home catalog for editor ``session/list``.
+
+        Runs on a worker thread; copy the row source up front so UI-side
+        mutation cannot race the iteration.
+        """
         rows: list[JsonObject] = []
-        for meta, label in self._meta_only:
+        for meta, label in list(self._meta_only):
             session_id = (meta.session_id or meta.session_dir.name).strip()
             rows.append(
                 {
