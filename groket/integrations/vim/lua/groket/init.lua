@@ -763,7 +763,7 @@ apply_window_chrome = function(buf)
   end
 end
 
----Quieter heading/fence chrome; leave code/table inject captures alone.
+---Quieter heading/fence chrome; kill code-block grey backgrounds (common theme default).
 local function apply_soft_markdown_hl()
   local links = {
     ["@markup.heading.1.markdown"] = "Title",
@@ -779,11 +779,45 @@ local function apply_soft_markdown_hl()
     ["@markup.heading.5.marker.markdown"] = "Comment",
     ["@markup.heading.6.marker.markdown"] = "Comment",
     ["@punctuation.special.markdown"] = "Comment",
-    ["@markup.raw.block.markdown"] = "Comment",
     ["@label.markdown"] = "Comment",
   }
   for group, link in pairs(links) do
     pcall(vim.api.nvim_set_hl, 0, group, { link = link, default = false })
+  end
+  -- Transcript is one big fenced block; a distinct bg looks like a grey wash.
+  for _, group in ipairs({
+    "@markup.raw.block.markdown",
+    "markdownCodeBlock",
+    "RenderMarkdownCode",
+    "RenderMarkdownCodeBorder",
+    "RenderMarkdownCodeInfo",
+  }) do
+    pcall(vim.api.nvim_set_hl, 0, group, { bg = "NONE", default = false })
+  end
+end
+
+---Disable render-markdown code block backgrounds on groket session buffers.
+---@param buf integer
+local function quiet_code_block_bg(buf)
+  -- render-markdown.nvim buffer overrides (if installed)
+  pcall(function()
+    vim.b[buf].render_markdown = vim.tbl_deep_extend("force", vim.b[buf].render_markdown or {}, {
+      code = {
+        width = "full",
+        border = "none",
+        disable_background = true,
+      },
+    })
+  end)
+  -- Always clear common code-block bg groups for this buffer via win HL is hard;
+  -- apply buffer-local highlight links used by treesitter + render-markdown.
+  for _, group in ipairs({
+    "@markup.raw.block.markdown",
+    "markdownCodeBlock",
+    "RenderMarkdownCode",
+    "RenderMarkdownCodeBorder",
+  }) do
+    pcall(vim.api.nvim_set_hl, 0, group, { bg = "NONE", default = false })
   end
 end
 
@@ -819,6 +853,8 @@ local function apply_highlight(buf)
   pcall(function()
     vim.treesitter.start(buf, "markdown")
   end)
+  -- Always strip code-block grey wash (transcript is a large ```markdown fence).
+  quiet_code_block_bg(buf)
   if mode ~= "full" then
     apply_soft_markdown_hl()
   end
