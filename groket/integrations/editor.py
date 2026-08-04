@@ -15,6 +15,7 @@ from ..parser import load_session_meta, parse_timeline
 from ..session.turns import TurnSegment, segment_timeline_turns
 
 _FENCE_RUN = re.compile(r"`+")
+_ORG_ESCAPE_RE = re.compile(r"^,*(\*|#\+)")
 
 EditorFormat = Literal["org", "markdown", "json"]
 
@@ -51,11 +52,16 @@ def _org_fixed_lines(text: str) -> list[str]:
 
 
 def _org_escape_src_line(line: str) -> str:
-    """Comma-escape Org lines that would close or open a source block early."""
-    stripped = line.lstrip()
-    lower = stripped.casefold()
-    if lower.startswith("#+end_src") or lower.startswith("#+begin_src"):
-        # Org literal escape: leading comma is stripped on fontify/export of src bodies.
+    """Comma-escape lines Org treats as structure inside a src block.
+
+    Mirrors ``org-escape-code-in-region``: headlines (``*``), every ``#+``
+    keyword (block delimiters included), and already-escaped lines, whose
+    comma run grows by one so the original text stays recoverable. A bare
+    ``* bullet`` in transcript Markdown would otherwise register as an Org
+    headline and derail outline navigation (note saves then resolve the
+    wrong turn).
+    """
+    if _ORG_ESCAPE_RE.match(line.lstrip()):
         return f",{line}"
     return line
 

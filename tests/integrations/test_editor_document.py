@@ -147,6 +147,41 @@ def test_render_org_transcript_escapes_nested_end_src(tmp_path: Path) -> None:
     assert document.text.rstrip().endswith("#+end_src") or "\n#+end_src\n" in document.text
 
 
+def test_render_org_transcript_escapes_headline_and_keyword_lines(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-org-stars"
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        json.dumps({"sessionId": session_dir.name, "title": "Org", "model": "m"}),
+        encoding="utf-8",
+    )
+    body = "* markdown bullet\n** nested\n#+title: keyword\n,#+end_src\nplain"
+    (session_dir / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": body},
+                        "_meta": {"promptIndex": 1},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    document = _render_editor_document(session_dir, format="org")
+    # A column-0 asterisk inside the src block would register as an Org
+    # headline and derail outline-based note navigation.
+    assert ",* markdown bullet" in document.text
+    assert ",** nested" in document.text
+    assert ",#+title: keyword" in document.text
+    # Pre-escaped lines gain one more comma so the original stays recoverable.
+    assert ",,#+end_src" in document.text
+    assert "\nplain" in document.text
+
+
 def test_render_editor_document_uses_turn_index_when_prompt_metadata_is_absent(
     tmp_path: Path,
 ) -> None:
