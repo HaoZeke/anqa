@@ -357,8 +357,9 @@ class ControlServer:
             return
         params_raw = request.get("params")
         params = as_json_object(params_raw) if isinstance(params_raw, dict) else {}
+        after_send: list[tuple[str, JsonObject]] = []
         try:
-            result = await self._dispatch(method, params)
+            result = await self._dispatch(method, params, after_send)
         except NotesConflict as exc:
             await self._send_error(
                 writer,
@@ -380,6 +381,10 @@ class ControlServer:
             return
         if request_id is not None:
             await self._send(writer, {"jsonrpc": "2.0", "id": request_id, "result": result})
+        # Broadcasts go out after the response so the requesting client can update
+        # its own revision first and recognize the notification as its own echo.
+        for notify_method, notify_params in after_send:
+            await self.notify(notify_method, notify_params)
 
     def _session(self, params: JsonObject) -> Path:
         reference = json_as_str(params.get("session")).strip()
@@ -390,7 +395,12 @@ class ControlServer:
             raise ControlError(404, "session not found", {"session": reference})
         return session
 
-    async def _dispatch(self, method: str, params: JsonObject) -> JsonValue:
+    async def _dispatch(
+        self,
+        method: str,
+        params: JsonObject,
+        after_send: list[tuple[str, JsonObject]],
+    ) -> JsonValue:
         if method == "initialize":
             requested = json_as_int(params.get("protocolVersion"))
             if requested != PROTOCOL_VERSION:
@@ -444,9 +454,11 @@ class ControlServer:
             session = self._session(params)
             opened = await self._open_session(session, prompt_index)
             if opened:
-                await self.notify(
-                    "session/selected",
-                    {"sessionId": session.name, "promptIndex": prompt_index},
+                after_send.append(
+                    (
+                        "session/selected",
+                        {"sessionId": session.name, "promptIndex": prompt_index},
+                    )
                 )
             return {"opened": bool(opened)}
         if method == "notes/list":
@@ -466,9 +478,8 @@ class ControlServer:
             result = _snapshot_mapping(snapshot)
             if self._notes_changed is not None:
                 await self._notes_changed(session)
-            await self.notify(
-                "notes/changed",
-                {"sessionId": session.name, "revision": snapshot.revision},
+            after_send.append(
+                ("notes/changed", {"sessionId": session.name, "revision": snapshot.revision})
             )
             return result
         if method == "notes/delete":
@@ -485,9 +496,8 @@ class ControlServer:
             result = _snapshot_mapping(snapshot)
             if self._notes_changed is not None:
                 await self._notes_changed(session)
-            await self.notify(
-                "notes/changed",
-                {"sessionId": session.name, "revision": snapshot.revision},
+            after_send.append(
+                ("notes/changed", {"sessionId": session.name, "revision": snapshot.revision})
             )
             return result
         raise ControlError(-32601, "method not found", {"method": method})

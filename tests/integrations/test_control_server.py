@@ -136,19 +136,17 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
             3,
             "session/open",
             {"session": session_dir.name, "promptIndex": 6},
-            notifications := [],
         )
-        writer.close()
-        await writer.wait_closed()
         assert opened_response["result"] == {"opened": True}
         assert opened == [(session_dir, 6)]
-        assert notifications == [
-            {
-                "jsonrpc": "2.0",
-                "method": "session/selected",
-                "params": {"sessionId": session_dir.name, "promptIndex": 6},
-            }
-        ]
+        selected = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert selected == {
+            "jsonrpc": "2.0",
+            "method": "session/selected",
+            "params": {"sessionId": session_dir.name, "promptIndex": 6},
+        }
+        writer.close()
+        await writer.wait_closed()
     finally:
         await server.close()
 
@@ -254,7 +252,6 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
             "fields": {"summary": "Socket note", "detail": "Inspect the event."},
             "eventIndices": [1],
         }
-        notifications: list[dict] = []
         saved = await _request(
             reader,
             writer,
@@ -265,11 +262,18 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
                 "expectedRevision": original_revision,
                 "note": entry,
             },
-            notifications,
         )
         saved_revision = saved["result"]["revision"]
         assert saved_revision != original_revision
         assert saved["result"]["notes"][0]["id"] == "n-socket"
+        # The response precedes the change broadcast so the mutating client can
+        # record its new revision before the notes/changed echo arrives.
+        echo = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert echo["method"] == "notes/changed"
+        assert echo["params"] == {
+            "sessionId": session_dir.name,
+            "revision": saved_revision,
+        }
 
         stale = await _request(
             reader,
@@ -298,13 +302,11 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
             },
         )
         assert deleted["result"]["notes"] == []
+        delete_echo = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert delete_echo["method"] == "notes/changed"
+        assert delete_echo["params"]["revision"] == deleted["result"]["revision"]
         writer.close()
         await writer.wait_closed()
-        assert notifications[0]["method"] == "notes/changed"
-        assert notifications[0]["params"] == {
-            "sessionId": session_dir.name,
-            "revision": saved_revision,
-        }
     finally:
         await server.close()
 
