@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import socket
 import tempfile
 from importlib import import_module
 from pathlib import Path
@@ -27,6 +29,43 @@ async def test_second_control_server_raises_socket_in_use() -> None:
         with pytest.raises(control.ControlSocketInUse) as exc_info:
             await second.start()
         assert exc_info.value.socket_path == sock
+    finally:
+        await first.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_takes_over_stale_socket_file() -> None:
+    control = import_module("groket.integrations.control")
+    sock = _short_sock("stale")
+    holder = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    holder.bind(str(sock))
+    holder.close()  # closed without listen/unlink: a crashed owner's leftover
+    server = control.ControlServer(socket_path=sock)
+    await server.start()
+    try:
+        assert sock.is_socket()
+    finally:
+        await server.close()
+    assert not sock.exists()
+
+
+@pytest.mark.asyncio
+async def test_failed_starter_does_not_unlink_live_socket() -> None:
+    control = import_module("groket.integrations.control")
+    sock = _short_sock("keep")
+    first = control.ControlServer(socket_path=sock)
+    second = control.ControlServer(socket_path=sock)
+    await first.start()
+    try:
+        with pytest.raises(control.ControlSocketInUse):
+            await second.start()
+        # The loser's close() must not remove the winner's live socket.
+        await second.close()
+        assert sock.is_socket()
+        reader, writer = await asyncio.open_unix_connection(sock)
+        writer.close()
+        await writer.wait_closed()
+        _ = reader
     finally:
         await first.close()
 

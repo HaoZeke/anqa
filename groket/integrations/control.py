@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import fcntl
 import json
 import logging
 import os
@@ -214,6 +215,7 @@ class ControlServer:
         self._open_session = open_session
         self._notes_changed = notes_changed
         self._server: asyncio.AbstractServer | None = None
+        self._lock_fd: int | None = None
         self._writers: set[asyncio.StreamWriter] = set()
         self._writer_framing: dict[asyncio.StreamWriter, str] = {}
 
@@ -225,40 +227,78 @@ class ControlServer:
         except FileExistsError:
             if not socket_parent.is_dir():
                 raise
-        else:
-            socket_parent.chmod(0o700)
-        if self.socket_path.exists():
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_unix_connection(self.socket_path),
-                    timeout=0.5,
-                )
-            except TimeoutError as exc:
-                # Ambiguous: prefer not to unlink a path that may still be owned.
-                raise ControlSocketInUse(self.socket_path) from exc
-            except (ConnectionRefusedError, FileNotFoundError):
-                self.socket_path.unlink(missing_ok=True)
-            except OSError as exc:
-                if exc.errno in {errno.ECONNREFUSED, errno.ENOENT}:
-                    self.socket_path.unlink(missing_ok=True)
-                else:
-                    # Do not unlink on unexpected errors (avoids stealing a live socket).
-                    raise ControlSocketInUse(self.socket_path) from exc
-            else:
-                writer.close()
-                await writer.wait_closed()
-                raise ControlSocketInUse(self.socket_path)
         try:
-            self._server = await asyncio.start_unix_server(
-                self._handle_client,
-                path=self.socket_path,
-                limit=MAX_MESSAGE_BYTES + 1,
-            )
-        except OSError as exc:
-            if exc.errno in {errno.EADDRINUSE, errno.EEXIST}:
-                raise ControlSocketInUse(self.socket_path) from exc
+            socket_parent.chmod(0o700)
+        except OSError:
+            logger.warning("could not tighten permissions on %s", socket_parent)
+        self._acquire_lock()
+        try:
+            await self._takeover_or_fail()
+            try:
+                self._server = await asyncio.start_unix_server(
+                    self._handle_client,
+                    path=self.socket_path,
+                    limit=MAX_MESSAGE_BYTES + 1,
+                )
+            except OSError as exc:
+                if exc.errno in {errno.EADDRINUSE, errno.EEXIST}:
+                    raise ControlSocketInUse(self.socket_path) from exc
+                raise
+            self.socket_path.chmod(0o600)
+        except BaseException:
+            self._release_lock()
             raise
-        self.socket_path.chmod(0o600)
+
+    def _acquire_lock(self) -> None:
+        """Take the exclusive advisory lock that serializes socket ownership.
+
+        The lock removes the probe/unlink/bind race between two starting
+        instances and lets ``close()`` know the socket file is still ours to
+        remove. The lock file itself is never unlinked: removing it would
+        reopen the race for a third starter.
+        """
+        lock_path = self.socket_path.with_name(self.socket_path.name + ".lock")
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(lock_fd)
+            raise ControlSocketInUse(self.socket_path) from exc
+        self._lock_fd = lock_fd
+
+    def _release_lock(self) -> None:
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
+
+    async def _takeover_or_fail(self) -> None:
+        """Remove a stale socket file, or refuse when a live owner answers.
+
+        The probe still matters with the lock held: an owner from a build
+        without the lock file may hold the path, and it must not be stolen.
+        """
+        if not self.socket_path.exists():
+            return
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.socket_path),
+                timeout=0.5,
+            )
+        except TimeoutError as exc:
+            # Ambiguous: prefer not to unlink a path that may still be owned.
+            raise ControlSocketInUse(self.socket_path) from exc
+        except (ConnectionRefusedError, FileNotFoundError):
+            self.socket_path.unlink(missing_ok=True)
+        except OSError as exc:
+            if exc.errno in {errno.ECONNREFUSED, errno.ENOENT}:
+                self.socket_path.unlink(missing_ok=True)
+            else:
+                # Do not unlink on unexpected errors (avoids stealing a live socket).
+                raise ControlSocketInUse(self.socket_path) from exc
+        else:
+            writer.close()
+            await writer.wait_closed()
+            raise ControlSocketInUse(self.socket_path)
 
     async def serve_forever(self) -> None:
         """Serve until cancelled, then release the owned socket.
@@ -290,7 +330,11 @@ class ControlServer:
                 await writer.wait_closed()
             except OSError:
                 pass
-        self.socket_path.unlink(missing_ok=True)
+        # Unlink only while holding the ownership lock; another instance may
+        # have bound a fresh socket at this path since we lost or never had it.
+        if self._lock_fd is not None:
+            self.socket_path.unlink(missing_ok=True)
+        self._release_lock()
 
     async def _handle_client(
         self,
