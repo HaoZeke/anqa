@@ -34,6 +34,11 @@ MAX_HEADER_LINES = 32
 # JSON-RPC bodies always open with ``{``; anything shaped like ``Name:`` is an
 # LSP-style framing header regardless of which header comes first.
 _HEADER_LINE_RE = re.compile(rb"^[A-Za-z][A-Za-z0-9-]*:")
+# Note ids and field ids are woven verbatim into the Org property drawers and
+# ``<!-- groket:… -->`` machine tags of every projection; whitespace, ``-->``
+# or newlines there corrupt the round trip, so reject them at the boundary.
+_NOTE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_TIMESTAMP_RE = re.compile(r"^[0-9][0-9T:+.Z-]{0,63}$")
 DEFAULT_SESSION_LIST_LIMIT = 200
 CAPABILITIES = (
     "session/list",
@@ -177,12 +182,22 @@ def _note_from_params(data: JsonObject) -> NoteEntry:
     note_id = json_as_str(data.get("id")).strip()
     if not note_id:
         raise ControlError(-32602, "note.id is required")
+    if not _NOTE_TOKEN_RE.match(note_id):
+        raise ControlError(-32602, "note.id must match [A-Za-z0-9][A-Za-z0-9._-]*")
     raw_fields = data.get("fields")
     fields = (
         {str(key): str(value) for key, value in raw_fields.items() if value is not None}
         if isinstance(raw_fields, dict)
         else {}
     )
+    for key in fields:
+        if not _NOTE_TOKEN_RE.match(key):
+            raise ControlError(-32602, f"field id {key!r} must match [A-Za-z0-9][A-Za-z0-9._-]*")
+    created_at = json_as_str(data.get("createdAt"))
+    updated_at = json_as_str(data.get("updatedAt"))
+    for stamp_name, stamp in (("createdAt", created_at), ("updatedAt", updated_at)):
+        if stamp and not _TIMESTAMP_RE.match(stamp):
+            raise ControlError(-32602, f"{stamp_name} must be a compact timestamp")
     raw_indices = data.get("eventIndices")
     event_indices = (
         [json_as_int(value) for value in raw_indices] if isinstance(raw_indices, list) else []
@@ -192,8 +207,8 @@ def _note_from_params(data: JsonObject) -> NoteEntry:
         turn_index=json_as_int(data.get("turnIndex")),
         fields=fields,
         event_indices=event_indices,
-        created_at=json_as_str(data.get("createdAt")),
-        updated_at=json_as_str(data.get("updatedAt")),
+        created_at=created_at,
+        updated_at=updated_at,
     )
 
 

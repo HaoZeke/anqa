@@ -312,6 +312,43 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_control_server_rejects_unroundtrippable_note_tokens(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    session_dir = tmp_path / "session-tokens"
+    _write_session(session_dir)
+    server = control.ControlServer(
+        socket_path=_short_sock("tokens.sock"),
+        resolve_session=lambda reference: session_dir if reference == session_dir.name else None,
+    )
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        listed = await _request(reader, writer, 1, "notes/list", {"session": session_dir.name})
+        revision = listed["result"]["revision"]
+        for request_id, note in enumerate(
+            [
+                {"id": "spaced id", "turnIndex": 0, "fields": {"summary": "x"}},
+                {"id": "n --> gone", "turnIndex": 0, "fields": {"summary": "x"}},
+                {"id": "n-ok", "turnIndex": 0, "fields": {"bad field": "x"}},
+                {"id": "n-ok", "turnIndex": 0, "fields": {"summary": "x"}, "createdAt": "a b"},
+            ],
+            start=2,
+        ):
+            response = await _request(
+                reader,
+                writer,
+                request_id,
+                "notes/upsert",
+                {"session": session_dir.name, "expectedRevision": revision, "note": note},
+            )
+            assert response["error"]["code"] == -32602
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_control_server_accepts_content_type_first_framing(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("ctype.sock"))
