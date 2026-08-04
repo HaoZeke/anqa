@@ -520,38 +520,37 @@ argument, prompt for QUERY first."
            (schema (plist-get listed :schema))
            (field-specs (plist-get schema :fields))
            (fields (make-hash-table :test #'equal))
-           (timestamp (format-time-string "%FT%T%:z" nil t)))
+           (timestamp (format-time-string "%FT%T%:z" nil t))
+           (note-id (groket--new-note-id))
+           (note
+            `(:id ,note-id
+              :turnIndex ,(string-to-number turn-text)
+              :fields ,fields
+              :eventIndices []
+              :createdAt ,timestamp
+              :updatedAt ,timestamp)))
       (mapc
        (lambda (spec)
          (let ((field-id (plist-get spec :id)))
            (when field-id (puthash field-id "" fields))))
        field-specs)
-      (let* ((note
-              `(:id ,(groket--new-note-id)
-                :turnIndex ,(string-to-number turn-text)
-                :fields ,fields
-                :eventIndices []
-                :createdAt ,timestamp
-                :updatedAt ,timestamp))
-             (result
-              (jsonrpc-request
-               connection "notes/upsert"
-               `(:session ,groket-session-reference
-                 :expectedRevision ,groket-notes-revision
-                 :note ,note)
-               :timeout groket-request-timeout)))
+      (let ((result
+             (jsonrpc-request
+              connection "notes/upsert"
+              `(:session ,groket-session-reference
+                :expectedRevision ,groket-notes-revision
+                :note ,note)
+              :timeout groket-request-timeout)))
         (setq groket-notes-revision (plist-get result :revision))
-        (let ((note-id (plist-get note :id)))
-          (groket-refresh)
-          (when note-id
-            (goto-char (point-min))
-            (when (re-search-forward
-                   (format "^:GROKET_NOTE_ID: %s$" (regexp-quote note-id))
-                   nil t)
-              (org-back-to-heading t)
-              ;; Prefer first field body (editable) under the note.
-              (when (re-search-forward "^:GROKET_FIELD_ID:" nil t)
-                (org-end-of-meta-data t))))))))
+        (groket-refresh)
+        (goto-char (point-min))
+        (when (re-search-forward
+               (format "^:GROKET_NOTE_ID: %s$" (regexp-quote note-id))
+               nil t)
+          (org-back-to-heading t)
+          ;; Prefer first field body (editable) under the note.
+          (when (re-search-forward "^:GROKET_FIELD_ID:" nil t)
+            (org-end-of-meta-data t)))))))
 
 (defun groket-delete-note (&optional no-confirm)
   "Delete the note at point, asking first unless NO-CONFIRM is non-nil."
@@ -599,9 +598,8 @@ argument, prompt for QUERY first."
   "Major mode for live Groket Org session buffers.
 
 Transcript is read-only Markdown in source blocks; only note field bodies edit.
-Keys: \\`C-c C-c' save note, \\`C-x C-s' save all, \\`C-c C-n' new note,
-\\`C-c C-k' delete, \\`C-c C-o' select prompt in TUI, \\`C-c C-r' refresh.
-In Doom/Evil, \\`gr' also refreshes when Evil is present."
+Keys: C-c C-c save note, C-x C-s save all, C-c C-n new note, C-c C-k delete,
+C-c C-o select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
   (setq-local write-contents-functions '(groket-save-buffer))
   (setq-local org-src-fontify-natively t)
   (setq-local org-src-preserve-indentation t)
@@ -613,7 +611,7 @@ In Doom/Evil, \\`gr' also refreshes when Evil is present."
                  (when groket-session-stale " Trace changed")
                  (when groket-notes-stale " Notes changed")))))
 
-;; Evil/Doom: ``gr`` refresh (special-mode convention) without stealing ``g``.
+;; Evil/Doom: gr refresh without stealing g (motion prefix).
 (with-eval-after-load 'evil
   (when (fboundp 'evil-define-key)
     (evil-define-key 'normal groket-session-mode-map (kbd "gr") #'groket-refresh)))
