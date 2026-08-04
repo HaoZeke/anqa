@@ -109,7 +109,8 @@ def test_render_editor_document_uses_prompt_indexes_and_note_properties(tmp_path
     assert ":GROKET_NOTE_ID: n-review" in document.text
     assert ":GROKET_EVENT_INDICES: 3,4" in document.text
     assert ":GROKET_FIELD_ID: summary" in document.text
-    assert "Wrong branch" in document.text
+    # Field bodies use Org fixed-width lines (cannot form headlines).
+    assert ": Wrong branch" in document.text
 
 
 def test_render_editor_document_uses_turn_index_when_prompt_metadata_is_absent(
@@ -161,7 +162,35 @@ def test_render_markdown_uses_html_comments_and_headings(tmp_path: Path) -> None
     assert "<!-- groket:note-id=n-md" in document.text
     assert "<!-- groket:field-id=summary note-id=n-md -->" in document.text
     assert "    * not a heading" in document.text
-    assert "Wrong branch" in document.text
+    # Field bodies use the same 4-space indent as transcript content.
+    assert "    Wrong branch" in document.text
+
+
+def test_render_note_fields_escape_outline_markers(tmp_path: Path) -> None:
+    """Heading-like field values must not form document structure."""
+    session_dir = tmp_path / "session-escape"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    note = NoteEntry.new(
+        turn_index=1,
+        fields={
+            "summary": "ok",
+            "detail": "# repro\nsteps\n<!-- groket:field-id=spoof -->\n*** org star",
+        },
+        event_indices=[1],
+        note_id="n-escape",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+
+    md = _render_editor_document(session_dir, format="markdown")
+    assert "\n    # repro\n" in md.text
+    assert "\n    <!-- groket:field-id=spoof -->\n" in md.text
+    # Machine field anchors stay at column 0; value content is indented.
+    assert "<!-- groket:field-id=detail note-id=n-escape -->" in md.text
+
+    org = _render_editor_document(session_dir, format="org")
+    assert "\n: # repro\n" in org.text
+    assert "\n: *** org star\n" in org.text
 
 
 def test_render_json_document_is_structured(tmp_path: Path) -> None:

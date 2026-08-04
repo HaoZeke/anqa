@@ -87,13 +87,14 @@ def _render_note_org(note: NoteEntry, schema: NotesSchema) -> list[str]:
         lines.append(f":GROKET_UPDATED_AT: {note.updated_at}")
     lines.extend([":END:", ""])
     for spec, value in _field_order(note, schema):
+        # Fixed lines so field bodies cannot form Org headlines (*** …).
         lines.extend(
             [
                 f"**** {spec.label or spec.id}",
                 ":PROPERTIES:",
                 f":GROKET_FIELD_ID: {spec.id}",
                 ":END:",
-                value,
+                *_org_fixed_lines(value),
                 "",
             ]
         )
@@ -111,12 +112,14 @@ def _render_note_md(note: NoteEntry, schema: NotesSchema) -> list[str]:
         meta["updated"] = note.updated_at
     lines = [f"#### {summary}", _md_comment(**meta), ""]
     for spec, value in _field_order(note, schema):
+        # Same 4-space indent as transcript so headings / anchors in values
+        # cannot close the note span or spoof machine comments on save.
         lines.extend(
             [
                 f"##### {spec.label or spec.id}",
                 _md_comment(**{"field-id": spec.id, "note-id": note.id}),
                 "",
-                value,
+                *_md_fixed_lines(value),
                 "",
             ]
         )

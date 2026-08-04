@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,11 +15,9 @@ from textual.pilot import Pilot
 
 
 def _short_sock(name: str) -> Path:
-    root = Path("/tmp/groket-ctl-test")
-    root.mkdir(mode=0o700, exist_ok=True)
-    path = root / f"{name}.sock"
-    path.unlink(missing_ok=True)
-    return path
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    return root / name
 
 
 async def _wait_until(

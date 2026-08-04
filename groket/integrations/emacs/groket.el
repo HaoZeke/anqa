@@ -212,10 +212,21 @@
   (let ((raw (groket--ancestor-property "GROKET_PROMPT_INDEX")))
     (and raw (string-to-number raw))))
 
+(defun groket--strip-org-fixed-line (line)
+  "Undo Org fixed-width prefix (`: ' / `:') from a rendered field LINE."
+  (cond
+   ((string-prefix-p ": " line) (substring line 2))
+   ((string-equal ":" line) "")
+   (t line)))
+
 (defun groket--field-value-at-point ()
-  "Return the current field body without generated properties."
+  "Return the current field body without generated properties.
+Strips Org fixed-width lines used when rendering field values so outline
+stars inside a value cannot form headlines, then round-trip cleanly."
   (pcase-let ((`(,begin . ,end) (groket--field-body-region)))
-    (string-trim (buffer-substring-no-properties begin end))))
+    (let* ((raw (string-trim (buffer-substring-no-properties begin end)))
+           (lines (split-string raw "\n")))
+      (mapconcat #'groket--strip-org-fixed-line lines "\n"))))
 
 (defun groket--note-at-point ()
   "Return the operator note containing point as a JSON-ready plist."
@@ -304,7 +315,11 @@
                             (and status (not (string-empty-p status)) status)
                             (and model (not (string-empty-p model)) model)
                             (and origin (not (string-empty-p origin)) origin)
-                            session-id))
+                            ;; Avoid "id · id" when the title fell back to session-id.
+                            (and session-id
+                                 (not (string-empty-p session-id))
+                                 (not (string-equal session-id head))
+                                 session-id)))
                 "  ·  "))))
 
 (defun groket-list-sessions (&optional query)

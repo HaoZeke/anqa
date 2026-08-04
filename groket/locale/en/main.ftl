@@ -2801,6 +2801,7 @@ ui-origin-work = Eval
 ui-origin-host = Host
 
 ui-control-socket-in-use = Editor control already owned by another groket; this instance continues without the socket
+ui-control-socket-start-failed = Editor control socket could not start; this instance continues without the socket
 
 notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)
 notify-host-sessions-off = Host sessions hidden

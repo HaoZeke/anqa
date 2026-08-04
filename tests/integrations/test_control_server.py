@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from importlib import import_module
 from pathlib import Path
 
@@ -11,12 +12,9 @@ import pytest
 
 
 def _short_sock(name: str) -> Path:
-    """Short AF_UNIX path (pytest tmp paths often exceed macOS limits)."""
-    root = Path("/tmp/groket-ctl-test")
-    root.mkdir(mode=0o700, exist_ok=True)
-    path = root / f"{name}.sock"
-    path.unlink(missing_ok=True)
-    return path
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    return root / name
 
 
 async def _request(

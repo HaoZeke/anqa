@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from importlib import import_module
 from pathlib import Path
 
@@ -10,9 +11,9 @@ from groket.ui.app import TraceEvalApp
 
 
 def _short_sock(name: str) -> Path:
-    path = Path("/tmp") / f"groket-test-{name}.sock"
-    path.unlink(missing_ok=True)
-    return path
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    return root / name
 
 
 @pytest.mark.asyncio

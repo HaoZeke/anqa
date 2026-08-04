@@ -719,8 +719,10 @@ class TraceEvalApp(App):
         server = self._control_server
         if server is None:
             return
+        # Bind/start only: OSError here is not the same as "already owned"
+        # (e.g. PermissionError on mkdir/chmod of the runtime dir).
         try:
-            await server.serve_forever()
+            await server.start()
         except ControlSocketInUse as exc:
             logger.warning(
                 "Editor control socket already active at %s; this instance continues without it",
@@ -729,16 +731,18 @@ class TraceEvalApp(App):
             self._control_server = None
             with suppress(Exception):
                 self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
+            return
         except OSError as exc:
-            # Race: two processes bind the same path; treat like in-use.
             logger.warning(
-                "Editor control socket unavailable (%s): %s",
+                "Editor control socket failed to start (%s): %s",
                 server.socket_path,
                 exc,
             )
             self._control_server = None
             with suppress(Exception):
-                self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
+                self.notify(t("ui-control-socket-start-failed"), severity="warning", timeout=6)
+            return
+        await server.serve_forever()
 
     def on_trace_eval_app__control_open_session(
         self,

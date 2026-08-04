@@ -88,6 +88,26 @@ def _session_list_haystack(entry: JsonObject) -> str:
     return " ".join(part for part in parts if part).casefold()
 
 
+def _optional_int_param(value: JsonValue | None, *, name: str) -> int | None:
+    """Parse an optional JSON-RPC integer param, or raise ``ControlError`` (-32602)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ControlError(-32602, f"{name} must be an integer")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        raise ControlError(-32602, f"{name} must be an integer")
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise ControlError(-32602, f"{name} must be an integer") from exc
+    raise ControlError(-32602, f"{name} must be an integer")
+
+
 def filter_session_catalog(
     sessions: list[JsonObject],
     *,
@@ -97,7 +117,7 @@ def filter_session_catalog(
     """Filter and cap a catalog snapshot for ``session/list``.
 
     :param sessions: Full catalog rows (already shaped for the wire).
-    :param query: Case-insensitive substring across id/path/title/model/status.
+    :param query: Case-insensitive substring across id/path/title/label/model/status/outcome/origin.
     :param limit: Max rows to return after filtering; ``None`` means default cap.
     :returns: Mapping with ``sessions``, ``total``, and ``matched``.
     """
@@ -389,12 +409,10 @@ class ControlServer:
                 catalog: list[JsonObject] = []
             else:
                 catalog = list(self._list_sessions())
-            raw_limit = params.get("limit")
-            limit = None if raw_limit is None else json_as_int(raw_limit)
             return filter_session_catalog(
                 catalog,
                 query=json_as_str(params.get("query")),
-                limit=limit,
+                limit=_optional_int_param(params.get("limit"), name="limit"),
             )
         if method == "session/render":
             fmt = json_as_str(params.get("format")).strip().lower() or "org"

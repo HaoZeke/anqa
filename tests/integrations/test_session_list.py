@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
+import tempfile
 from importlib import import_module
 from pathlib import Path
 
@@ -75,10 +75,9 @@ async def _request(
 
 
 def _short_sock(name: str) -> Path:
-    """Bind under /tmp — pytest tmp paths often exceed AF_UNIX limits on macOS."""
-    path = Path("/tmp") / f"groket-test-{name}.sock"
-    path.unlink(missing_ok=True)
-    return path
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    return root / name
 
 
 @pytest.mark.asyncio
@@ -113,11 +112,9 @@ async def test_control_server_session_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test_control_server_render_formats_and_markdown() -> None:
+async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
-    session_dir = Path("/tmp") / "groket-test-render-session"
-    if session_dir.exists():
-        shutil.rmtree(session_dir)
+    session_dir = tmp_path / "groket-test-render-session"
     session_dir.mkdir()
     (session_dir / "summary.json").write_text(
         '{"info":{"id":"groket-test-render-session"},"generated_title":"Fmt"}',
@@ -174,7 +171,6 @@ async def test_control_server_render_formats_and_markdown() -> None:
         await writer.wait_closed()
     finally:
         await server.close()
-        shutil.rmtree(session_dir, ignore_errors=True)
 
 
 @pytest.mark.asyncio
@@ -186,6 +182,30 @@ async def test_control_server_session_list_empty_without_lister() -> None:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
         listed = await _request(reader, writer, 1, "session/list", {})
         assert listed["result"] == {"sessions": [], "total": 0, "matched": 0}
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_server_session_list_rejects_bad_limit() -> None:
+    control = import_module("groket.integrations.control")
+    server = control.ControlServer(
+        socket_path=_short_sock("session-list-limit"),
+        list_sessions=_catalog,
+    )
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        bad = await _request(reader, writer, 1, "session/list", {"limit": "abc"})
+        assert bad.get("error", {}).get("code") == -32602
+        assert "limit" in bad["error"]["message"]
+
+        ok = await _request(reader, writer, 2, "session/list", {"limit": 1})
+        assert len(ok["result"]["sessions"]) == 1
+        assert ok["result"]["matched"] == 2
+
         writer.close()
         await writer.wait_closed()
     finally:

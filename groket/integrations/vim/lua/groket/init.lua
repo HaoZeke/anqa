@@ -332,7 +332,8 @@ function M._on_notification(method, params)
           local idx = tostring(params.promptIndex)
           local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
           for i, line in ipairs(lines) do
-            local hit = line:find("prompt%-index=" .. idx, 1, false)
+            -- Boundary after the index so "4" does not match "prompt-index=41".
+            local hit = line:find("prompt%-index=" .. idx .. "%f[%D]", 1, false)
               or line == ("## Prompt " .. idx)
               or line == (":GROKET_PROMPT_INDEX: " .. idx)
             if hit then
@@ -351,10 +352,11 @@ function M._on_notification(method, params)
 end
 
 ---Parse ``<!-- groket:k=v k2=v2 -->`` machine tags (Markdown projection).
+---Only column-0 comments count; indented transcript content must not match.
 ---@param line string
 ---@return table<string, string>|nil
 local function parse_groket_comment(line)
-  local inner = line:match("<!%-%-%s*groket:([^>]-)%s*%-%->")
+  local inner = line:match("^<!%-%-%s*groket:([^>]-)%s*%-%->%s*$")
   if not inner then
     return nil
   end
@@ -366,6 +368,16 @@ local function parse_groket_comment(line)
     end
   end
   return meta
+end
+
+---Strip the 4-space field/transcript indent from a rendered Markdown body line.
+---@param line string
+---@return string
+local function strip_md_fixed_line(line)
+  if line:sub(1, 4) == "    " then
+    return line:sub(5)
+  end
+  return line
 end
 
 ---Scan upward for a groket HTML comment attribute.
@@ -485,7 +497,7 @@ local function note_at_row(buf, row)
         end
         local body = {}
         for k = body_start, body_end do
-          table.insert(body, lines[k])
+          table.insert(body, strip_md_fixed_line(lines[k]))
         end
         while #body > 0 and body[#body] == "" do
           table.remove(body)
@@ -515,6 +527,10 @@ local function note_at_row(buf, row)
     updatedAt = os.date("!%Y-%m-%dT%H:%M:%S+00:00"),
   }
 end
+
+---Exposed for headless round-trip tests (``nvim --headless -l``).
+M._note_at_row = note_at_row
+M._parse_groket_comment = parse_groket_comment
 
 local function prompt_index_at_row(buf, row)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -967,7 +983,7 @@ function M.show_sessions(query)
         local filtered = filter_items(items, filter or "")
         local lines = {
           string.format(
-            "Groket  %d/%d  f filter · <CR>/o open · r refresh · q quit%s",
+            "Groket  %d/%d  f filter · <CR>/o open · p pick · r refresh · q quit%s",
             #filtered,
             #items,
             (filter and filter ~= "") and ("  ·  /" .. filter) or ""
@@ -1030,12 +1046,13 @@ function M.show_sessions(query)
           end
         end)
       end, { buffer = buf, desc = "Groket: filter list" })
-      vim.keymap.set("n", "g", function()
+      -- Avoid bare ``g`` (shadows ``gg``); session buffers document the same rule.
+      vim.keymap.set("n", "p", function()
         M.find_session(vim.b[buf].groket_session_filter)
       end, { buffer = buf, desc = "Groket: pick session" })
 
       vim.api.nvim_set_current_buf(buf)
-      notify(string.format("listed %d session(s) — <CR> open · f filter · g pick", #items))
+      notify(string.format("listed %d session(s) — <CR> open · f filter · p pick", #items))
     end)
   end)
 end
