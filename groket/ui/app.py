@@ -36,7 +36,7 @@ from textual.widgets import (
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
 from ..constants import META_CACHE_FILENAME
-from ..integrations.control import ControlServer
+from ..integrations.control import ControlServer, ControlSocketInUse
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
 from ..paths import app_config_path
@@ -662,6 +662,25 @@ class TraceEvalApp(App):
                 return candidate.resolve()
         return None
 
+    def _control_list_sessions(self) -> list[JsonObject]:
+        """Snapshot the sessions-home catalog for editor ``session/list``."""
+        rows: list[JsonObject] = []
+        for meta, label in self._meta_only:
+            session_id = (meta.session_id or meta.session_dir.name).strip()
+            rows.append(
+                {
+                    "sessionId": session_id,
+                    "path": str(meta.session_dir.resolve()),
+                    "title": meta.title or "",
+                    "label": label or meta.label,
+                    "model": meta.model_display,
+                    "status": meta.list_status_label(),
+                    "outcome": meta.turn_outcome or "",
+                    "origin": meta.origin or "work",
+                }
+            )
+        return rows
+
     async def _control_open_session(
         self,
         session_dir: Path,
@@ -684,15 +703,46 @@ class TraceEvalApp(App):
         self._control_server = ControlServer(
             socket_path=self._control_socket,
             resolve_session=self._resolve_control_session,
+            list_sessions=self._control_list_sessions,
             open_session=self._control_open_session,
             notes_changed=self._control_notes_changed,
         )
         self.run_worker(
-            self._control_server.serve_forever(),
+            self._run_control_service(),
             name="editor-control-service",
             group="editor-control-service",
             exclusive=True,
         )
+
+    async def _run_control_service(self) -> None:
+        """Own the editor control socket, or continue without it if already taken."""
+        server = self._control_server
+        if server is None:
+            return
+        # Bind/start only: OSError here is not the same as "already owned"
+        # (e.g. PermissionError on mkdir/chmod of the runtime dir).
+        try:
+            await server.start()
+        except ControlSocketInUse as exc:
+            logger.warning(
+                "Editor control socket already active at %s; this instance continues without it",
+                exc.socket_path,
+            )
+            self._control_server = None
+            with suppress(Exception):
+                self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
+            return
+        except OSError as exc:
+            logger.warning(
+                "Editor control socket failed to start (%s): %s",
+                server.socket_path,
+                exc,
+            )
+            self._control_server = None
+            with suppress(Exception):
+                self.notify(t("ui-control-socket-start-failed"), severity="warning", timeout=6)
+            return
+        await server.serve_forever()
 
     def on_trace_eval_app__control_open_session(
         self,

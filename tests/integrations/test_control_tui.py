@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -11,6 +12,12 @@ import pytest
 from groket.ui.app import TraceEvalApp
 from groket.ui.screens.browser import BrowserScreen
 from textual.pilot import Pilot
+
+
+def _short_sock(name: str) -> Path:
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    return root / name
 
 
 async def _wait_until(
@@ -91,7 +98,7 @@ async def test_tui_owns_control_socket_and_opens_catalog_session(tmp_path: Path)
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     session_dir = _write_session(traces)
-    socket_path = tmp_path / "groket-control.sock"
+    socket_path = _short_sock("tui-control.sock")
     app = TraceEvalApp(
         work_dir=work,
         traces_path=traces,

@@ -20,6 +20,7 @@ def test_help_lists_main_commands() -> None:
     assert "self-test" in out
     assert "batch" in out
     assert "emacs-path" in out
+    assert "vim-path" in out
     assert "audit" not in out
     result2 = runner.invoke(app, ["gen", "--help"])
     assert result2.exit_code == 0
@@ -29,7 +30,7 @@ def test_help_lists_main_commands() -> None:
 
 def test_tool_commands() -> None:
     assert TOOL_COMMANDS == frozenset(
-        {"gen", "generator", "self-test", "batch", "rules", "emacs-path"}
+        {"gen", "generator", "self-test", "batch", "rules", "emacs-path", "vim-path"}
     )
 
 
@@ -39,6 +40,15 @@ def test_emacs_path_prints_packaged_integration() -> None:
     path = Path(result.stdout.strip())
     assert path.name == "groket.el"
     assert path.is_file()
+
+
+def test_vim_path_prints_packaged_neovim_runtime() -> None:
+    result = runner.invoke(app, ["vim-path"])
+    assert result.exit_code == 0
+    path = Path(result.stdout.strip())
+    assert path.name == "vim"
+    assert (path / "lua" / "groket" / "init.lua").is_file()
+    assert (path / "plugin" / "groket.lua").is_file()
 
 
 class TestSelfTestCommand:

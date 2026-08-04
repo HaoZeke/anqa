@@ -33,6 +33,12 @@
   "Seconds to wait for a control request."
   :type 'number)
 
+(defcustom groket-auto-refresh t
+  "When non-nil, reload the session projection on remote notes/trace changes.
+If the buffer has unsaved edits, auto-refresh is skipped and a message is shown
+instead (same as when this option is nil)."
+  :type 'boolean)
+
 (defvar groket--connection nil)
 (defvar groket--terminal-buffer nil)
 (defvar-local groket-session-id nil)
@@ -54,6 +60,22 @@
   "Return METHOD as a protocol string."
   (if (symbolp method) (symbol-name method) method))
 
+(defun groket--maybe-auto-refresh (reason)
+  "Reload the projection after a remote change, or message how to reload.
+REASON is a short human label (e.g. \"notes changed\")."
+  (cond
+   ((not groket-auto-refresh)
+    (message "Groket: %s — C-c C-r (or gr) to reload" reason))
+   ((buffer-modified-p)
+    (message "Groket: %s — unsaved note edits; save or C-c C-r to reload" reason))
+   (t
+    (condition-case err
+        (progn
+          (groket--do-refresh)
+          (message "Groket: reloaded (%s)" reason))
+      (error
+       (message "Groket: auto-refresh failed: %s" (error-message-string err)))))))
+
 (defun groket--notification (_connection method params)
   "Handle a server notification named METHOD with PARAMS."
   (let ((session (plist-get params :sessionId)))
@@ -62,15 +84,32 @@
         (when (and (derived-mode-p 'groket-session-mode)
                    (or (null session) (equal groket-session-id session)))
           (pcase (groket--method-name method)
-            ("notes/changed" (setq groket-notes-stale t))
-            ("session/changed" (setq groket-session-stale t))
+            ("notes/changed"
+             (let ((rev (plist-get params :revision)))
+               ;; Matching revision is the echo of our own upsert/delete, not external drift.
+               (if (and rev (equal rev groket-notes-revision))
+                   (setq groket-notes-stale nil)
+                 (let ((was groket-notes-stale))
+                   (setq groket-notes-stale t)
+                   (unless was
+                     (groket--maybe-auto-refresh "notes changed"))))))
+            ("session/changed"
+             (let ((was groket-session-stale))
+               (setq groket-session-stale t)
+               (unless was
+                 (groket--maybe-auto-refresh "session trace changed"))))
             ("session/selected"
              (let ((prompt-index (plist-get params :promptIndex)))
                (when prompt-index
                  (goto-char (point-min))
-                 (re-search-forward
-                  (format "^:GROKET_PROMPT_INDEX: %s$" prompt-index)
-                  nil t)))))
+                 ;; Prefer the outline headline (readable); property may be folded away.
+                 (or (re-search-forward
+                      (format "^\\* Prompt %s$" prompt-index)
+                      nil t)
+                     (re-search-forward
+                      (format "^:GROKET_PROMPT_INDEX: %s$" prompt-index)
+                      nil t))
+                 (beginning-of-line)))))
           (force-mode-line-update))))))
 
 (defun groket--make-network-process (_connection)
@@ -195,6 +234,20 @@
         groket-notes-stale nil
         groket-session-stale nil)
   (set-buffer-modified-p nil)
+  ;; Native src fontify (Markdown transcript); keep body un-indented for tables.
+  (setq-local org-src-fontify-natively t)
+  (setq-local org-src-preserve-indentation t)
+  (setq-local org-edit-src-content-indentation 0)
+  ;; Pipe tables stay aligned only when lines are not soft-wrapped.
+  (setq-local truncate-lines t)
+  (setq-local org-hide-drawer-startup t)
+  (when (fboundp 'org-restart-font-lock)
+    (org-restart-font-lock))
+  ;; Fold property drawers (machine tags) for a calmer outline.
+  (save-excursion
+    (goto-char (point-min))
+    (when (fboundp 'org-cycle-hide-drawers)
+      (org-cycle-hide-drawers 'all)))
   (goto-char (point-min)))
 
 (defun groket--ancestor-property (property)
@@ -212,10 +265,21 @@
   (let ((raw (groket--ancestor-property "GROKET_PROMPT_INDEX")))
     (and raw (string-to-number raw))))
 
+(defun groket--strip-org-fixed-line (line)
+  "Undo Org fixed-width prefix (`: ' / `:') from a rendered field LINE."
+  (cond
+   ((string-prefix-p ": " line) (substring line 2))
+   ((string-equal ":" line) "")
+   (t line)))
+
 (defun groket--field-value-at-point ()
-  "Return the current field body without generated properties."
+  "Return the current field body without generated properties.
+Strips Org fixed-width lines used when rendering field values so outline
+stars inside a value cannot form headlines, then round-trip cleanly."
   (pcase-let ((`(,begin . ,end) (groket--field-body-region)))
-    (string-trim (buffer-substring-no-properties begin end))))
+    (let* ((raw (string-trim (buffer-substring-no-properties begin end)))
+           (lines (split-string raw "\n")))
+      (mapconcat #'groket--strip-org-fixed-line lines "\n"))))
 
 (defun groket--note-at-point ()
   "Return the operator note containing point as a JSON-ready plist."
@@ -257,12 +321,8 @@
    `(:session ,session)
    :timeout groket-request-timeout))
 
-(defun groket-refresh ()
-  "Reload the current session projection from Groket."
-  (interactive)
-  (when (and (buffer-modified-p)
-             (not (yes-or-no-p "Discard unsaved note edits? ")))
-    (user-error "Refresh cancelled"))
+(defun groket--do-refresh ()
+  "Reload the projection without prompting (caller checks dirty state)."
   (let* ((reference (or groket-session-reference groket-session-id))
          (result (groket--render-session reference))
          (point-before (point)))
@@ -272,6 +332,127 @@
      (plist-get result :notesRevision)
      reference)
     (goto-char (min point-before (point-max)))))
+
+(defun groket-refresh ()
+  "Reload the current session projection from Groket."
+  (interactive)
+  (when (and (buffer-modified-p)
+             (not (yes-or-no-p "Discard unsaved note edits? ")))
+    (user-error "Refresh cancelled"))
+  (groket--do-refresh))
+
+(defun groket--session-list (&optional query limit)
+  "Return the `session/list' result for QUERY and optional LIMIT."
+  (let ((params (list :query (or query ""))))
+    (when limit
+      (setq params (plist-put params :limit limit)))
+    (jsonrpc-request
+     (groket-connect) "session/list" params
+     :timeout groket-request-timeout)))
+
+(defun groket--session-entry-path (entry)
+  "Return a stable open reference for session ENTRY."
+  (or (plist-get entry :path)
+      (plist-get entry :sessionId)))
+
+(defun groket--session-entry-annotation (entry)
+  "Return a one-line label for catalog ENTRY."
+  (let* ((title (or (plist-get entry :title) (plist-get entry :label) ""))
+         (session-id (or (plist-get entry :sessionId) ""))
+         (status (or (plist-get entry :status) ""))
+         (model (or (plist-get entry :model) ""))
+         (origin (or (plist-get entry :origin) ""))
+         (head (if (and title (not (string-empty-p title)))
+                   title
+                 session-id)))
+    (string-trim
+     (mapconcat #'identity
+                (delq nil
+                      (list head
+                            (and status (not (string-empty-p status)) status)
+                            (and model (not (string-empty-p model)) model)
+                            (and origin (not (string-empty-p origin)) origin)
+                            ;; Avoid "id · id" when the title fell back to session-id.
+                            (and session-id
+                                 (not (string-empty-p session-id))
+                                 (not (string-equal session-id head))
+                                 session-id)))
+                "  ·  "))))
+
+(defun groket-list-sessions (&optional query)
+  "List sessions from the running TUI catalog, optionally filtered by QUERY.
+With a prefix argument, prompt for QUERY. Results open a read-only buffer."
+  (interactive
+   (list (if current-prefix-arg
+             (read-string "Filter sessions: ")
+           "")))
+  (groket-connect)
+  (let* ((result (groket--session-list query))
+         (sessions (append (plist-get result :sessions) nil))
+         (total (or (plist-get result :total) 0))
+         (matched (or (plist-get result :matched) (length sessions)))
+         (buffer (get-buffer-create "*groket-sessions*")))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert
+         (format "Groket sessions  matched %s / total %s"
+                 matched total)
+         (if (and query (not (string-empty-p query)))
+             (format "  filter: %s\n\n" query)
+           "\n\n"))
+        (if (null sessions)
+            (insert "(no sessions)\n")
+          (dolist (entry sessions)
+            (let ((path (groket--session-entry-path entry))
+                  (line (groket--session-entry-annotation entry)))
+              (insert-text-button
+               line
+               'action (lambda (_button)
+                         (groket-open-session path))
+               'follow-link t
+               'groket-session path
+               'help-echo path)
+              (insert "\n")))))
+      (goto-char (point-min))
+      (setq buffer-read-only t)
+      (special-mode))
+    (pop-to-buffer buffer)
+    buffer))
+
+(defun groket-find-session (&optional query)
+  "Pick a catalog session with completion and open it as an Org buffer.
+QUERY pre-filters the catalog on the server when non-empty. With a prefix
+argument, prompt for QUERY first."
+  (interactive
+   (list (if current-prefix-arg
+             (read-string "Filter sessions: ")
+           "")))
+  (groket-connect)
+  (let* ((result (groket--session-list query))
+         (sessions (append (plist-get result :sessions) nil))
+         (table (make-hash-table :test #'equal))
+         candidates)
+    (when (null sessions)
+      (user-error "No sessions matched%s"
+                  (if (and query (not (string-empty-p query)))
+                      (format " %S" query)
+                    "")))
+    (dolist (entry sessions)
+      (let* ((annotation (groket--session-entry-annotation entry))
+             (path (groket--session-entry-path entry))
+             (key annotation)
+             (n 2))
+        (while (gethash key table)
+          (setq key (format "%s (%s)" annotation n)
+                n (1+ n)))
+        (puthash key path table)
+        (push key candidates)))
+    (let* ((choice (completing-read "Groket session: " (nreverse candidates) nil t))
+           (path (gethash choice table)))
+      (unless path
+        (user-error "No session selected"))
+      (groket-open-session path))))
 
 (defun groket-open-session (session &optional prompt-index)
   "Open SESSION as an Org buffer and select PROMPT-INDEX in the TUI."
@@ -296,7 +477,6 @@
      :timeout groket-request-timeout)
     (pop-to-buffer buffer)
     buffer))
-
 (defun groket-open-prompt-at-point ()
   "Select the prompt at point in the running TUI."
   (interactive)
@@ -346,28 +526,37 @@
            (schema (plist-get listed :schema))
            (field-specs (plist-get schema :fields))
            (fields (make-hash-table :test #'equal))
-           (timestamp (format-time-string "%FT%T%:z" nil t)))
+           (timestamp (format-time-string "%FT%T%:z" nil t))
+           (note-id (groket--new-note-id))
+           (note
+            `(:id ,note-id
+              :turnIndex ,(string-to-number turn-text)
+              :fields ,fields
+              :eventIndices []
+              :createdAt ,timestamp
+              :updatedAt ,timestamp)))
       (mapc
        (lambda (spec)
          (let ((field-id (plist-get spec :id)))
            (when field-id (puthash field-id "" fields))))
        field-specs)
-      (let* ((note
-              `(:id ,(groket--new-note-id)
-                :turnIndex ,(string-to-number turn-text)
-                :fields ,fields
-                :eventIndices []
-                :createdAt ,timestamp
-                :updatedAt ,timestamp))
-             (result
-              (jsonrpc-request
-               connection "notes/upsert"
-               `(:session ,groket-session-reference
-                 :expectedRevision ,groket-notes-revision
-                 :note ,note)
-               :timeout groket-request-timeout)))
+      (let ((result
+             (jsonrpc-request
+              connection "notes/upsert"
+              `(:session ,groket-session-reference
+                :expectedRevision ,groket-notes-revision
+                :note ,note)
+              :timeout groket-request-timeout)))
         (setq groket-notes-revision (plist-get result :revision))
-        (groket-refresh)))))
+        (groket-refresh)
+        (goto-char (point-min))
+        (when (re-search-forward
+               (format "^:GROKET_NOTE_ID: %s$" (regexp-quote note-id))
+               nil t)
+          (org-back-to-heading t)
+          ;; Prefer first field body (editable) under the note.
+          (when (re-search-forward "^:GROKET_FIELD_ID:" nil t)
+            (org-end-of-meta-data t)))))))
 
 (defun groket-delete-note (&optional no-confirm)
   "Delete the note at point, asking first unless NO-CONFIRM is non-nil."
@@ -403,7 +592,8 @@
 
 (defvar-keymap groket-session-mode-map
   :parent org-mode-map
-  "g" #'groket-refresh
+  ;; Do not bind bare ``g`` — in Evil/Doom it is a motion prefix (``gg``, …).
+  "C-c C-r" #'groket-refresh
   "C-c C-n" #'groket-new-note
   "C-c C-k" #'groket-delete-note
   "C-c C-o" #'groket-open-prompt-at-point
@@ -411,13 +601,27 @@
   "C-x C-s" #'groket-save-buffer)
 
 (define-derived-mode groket-session-mode org-mode "Groket"
-  "Major mode for live Groket Org session buffers."
+  "Major mode for live Groket Org session buffers.
+
+Transcript is read-only Markdown in source blocks; only note field bodies edit.
+Keys: C-c C-c save note, C-x C-s save all, C-c C-n new note, C-c C-k delete,
+C-c C-o select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
   (setq-local write-contents-functions '(groket-save-buffer))
+  (setq-local org-src-fontify-natively t)
+  (setq-local org-src-preserve-indentation t)
+  (setq-local org-edit-src-content-indentation 0)
+  (setq-local truncate-lines t)
+  (setq-local org-hide-drawer-startup t)
   (setq-local mode-line-process
               '(:eval
                 (concat
                  (when groket-session-stale " Trace changed")
                  (when groket-notes-stale " Notes changed")))))
+
+;; Evil/Doom: gr refresh without stealing g (motion prefix).
+(with-eval-after-load 'evil
+  (when (fboundp 'evil-define-key)
+    (evil-define-key 'normal groket-session-mode-map (kbd "gr") #'groket-refresh)))
 
 (provide 'groket)
 ;;; groket.el ends here

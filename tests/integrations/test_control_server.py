@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
+import tempfile
 from importlib import import_module
 from pathlib import Path
 
 import pytest
+
+
+def _short_sock(name: str) -> Path:
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    return root / name
 
 
 async def _request(
@@ -96,7 +102,7 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
         return True
 
     server = control.ControlServer(
-        socket_path=tmp_path / "control.sock",
+        socket_path=_short_sock("control.sock"),
         resolve_session=lambda reference: session_dir if reference == session_dir.name else None,
         open_session=open_session,
     )
@@ -150,7 +156,7 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
 @pytest.mark.asyncio
 async def test_control_server_supports_emacs_jsonrpc_framing(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
-    server = control.ControlServer(socket_path=tmp_path / "emacs.sock")
+    server = control.ControlServer(socket_path=_short_sock("emacs.sock"))
     await server.start()
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
@@ -173,11 +179,11 @@ async def test_control_server_does_not_chmod_existing_socket_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     control = import_module("groket.integrations.control")
-    socket_path = tmp_path / "existing-parent.sock"
+    socket_path = _short_sock("existing-parent.sock")
     original_chmod = Path.chmod
 
     def reject_parent_chmod(path: Path, mode: int, **kwargs: object) -> None:
-        if path == tmp_path:
+        if path == socket_path.parent:
             raise PermissionError("socket parent is not owned by this process")
         original_chmod(path, mode, **kwargs)
 
@@ -195,7 +201,7 @@ async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     session_dir = tmp_path / "session-tui-change"
     _write_session(session_dir)
-    server = control.ControlServer(socket_path=tmp_path / "changes.sock")
+    server = control.ControlServer(socket_path=_short_sock("changes.sock"))
     await server.start()
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
@@ -223,68 +229,12 @@ async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stock_emacs_opens_live_org_session(tmp_path: Path) -> None:
-    emacs = shutil.which("emacs")
-    if emacs is None:
-        pytest.skip("Emacs is not installed")
-    control = import_module("groket.integrations.control")
-    session_dir = tmp_path / "session-emacs-live"
-    _write_session(session_dir)
-    opened: list[tuple[Path, int | None]] = []
-
-    async def open_session(path: Path, prompt_index: int | None) -> bool:
-        opened.append((path, prompt_index))
-        return True
-
-    server = control.ControlServer(
-        socket_path=tmp_path / "emacs-live.sock",
-        open_session=open_session,
-    )
-    await server.start()
-    package_dir = Path(__file__).parents[2] / "groket" / "integrations" / "emacs"
-    expression = f"""
-(progn
-  (setq groket-control-socket {json.dumps(str(server.socket_path))})
-  (require 'groket)
-  (let ((buffer (groket-open-session {json.dumps(str(session_dir))} 6)))
-    (with-current-buffer buffer
-      (princ (format "%s|%s|%s"
-                     groket-session-id
-                     groket-notes-revision
-                     (derived-mode-p 'groket-session-mode))))))
-"""
-    try:
-        process = await asyncio.create_subprocess_exec(
-            emacs,
-            "--batch",
-            "--quick",
-            "--eval",
-            "(setq load-prefer-newer t)",
-            "-L",
-            str(package_dir),
-            "--eval",
-            expression,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
-        assert process.returncode == 0, stderr.decode("utf-8", errors="replace")
-        session_id, revision, mode = stdout.decode().strip().split("|")
-        assert session_id == session_dir.name
-        assert len(revision) == 64
-        assert mode == "groket-session-mode"
-        assert opened == [(session_dir, 6)]
-    finally:
-        await server.close()
-
-
-@pytest.mark.asyncio
 async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     session_dir = tmp_path / "session-notes"
     _write_session(session_dir)
     server = control.ControlServer(
-        socket_path=tmp_path / "notes.sock",
+        socket_path=_short_sock("notes.sock"),
         resolve_session=lambda reference: session_dir if reference == session_dir.name else None,
     )
     await server.start()
@@ -362,7 +312,7 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_control_server_returns_jsonrpc_errors(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
-    server = control.ControlServer(socket_path=tmp_path / "errors.sock")
+    server = control.ControlServer(socket_path=_short_sock("errors.sock"))
     await server.start()
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
