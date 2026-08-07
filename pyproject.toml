@@ -90,7 +90,9 @@ select = [
     "UP",      # pyupgrade
     "T20",     # flake8-print
 ]
-# PLR complexity rules: track in TODO.md; enable in a dedicated make target later.
+# Size/complexity (PLR0911–0915, PLR0904): not in default select — historical
+# debt. Report via ``make lint-complexity``; split when editing offenders.
+# Thresholds under [tool.ruff.lint.pylint] match AGENTS.md §4.6.
 ignore = [
     "E501",  # line length — formatter / line-length setting
     "UP042", # str Enum pattern used for Severity / FlagVerdict
@@ -106,8 +108,9 @@ ignore = [
 "groket/docker/orchestrator.py" = ["E402"]
 "groket/engine/detectors/__init__.py" = ["E402"]
 "groket/runs/run_configs.py" = ["E402"]
-"groket/ui/**" = ["E402", "E741", "F841"]
-"tests/**" = ["E402", "T20", "F841"]
+# Textual widgets often need late imports (E402); single-letter loop vars (E741).
+"groket/ui/**" = ["E402", "E741"]
+"tests/**" = ["E402", "T20"]
 "examples/**" = ["T20"]
 "scripts/**" = ["T20"]
 "plugins/**" = ["T20"]

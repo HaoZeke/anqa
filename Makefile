@@ -5,9 +5,9 @@
 help:
 	@echo "groket development targets"
 	@echo "  install          project venv (test+dev) + groket on PATH (uv tool)"
-	@echo "  lint             ruff check + format --check + mypy (whole groket/)"
+	@echo "  lint             ruff check + format --check + mypy + policy scripts"
 	@echo "  lint-fix        ruff autofix + format + mypy (whole groket/)"
-	@echo "  lint-complexity  ruff PLR on groket (informational / debt)"
+	@echo "  lint-complexity  size limits only (args/returns/branches/statements/methods); debt report"
 	@echo "  schema           regenerate schemas/*.schema.json from Pydantic"
 	@echo "  schema-check     fail if committed schemas are out of date"
 	@echo "  examples-check   validate examples/ packs (schema + import contract)"
@@ -37,8 +37,12 @@ lint-fix:
 	uv run ruff format groket tests
 	uv run mypy groket
 
+# Size-limit rules only (AGENTS §4.6). Not part of make lint / CI.
+# PLR0904 (public methods) needs ruff preview. Exit non-zero while debt remains.
 lint-complexity:
-	uv run ruff check --select PLR groket
+	uv run ruff check --preview \
+		--select PLR0911,PLR0912,PLR0913,PLR0915,PLR0904 \
+		groket
 
 # JSON Schema for batch tasks + detection rules (Pydantic sources).
 # Committed under schemas/ for editors; published on GitHub Pages at
