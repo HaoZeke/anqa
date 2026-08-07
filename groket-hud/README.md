@@ -27,6 +27,19 @@ Sol-style session **command palette** for the local groket control plane
 - Rust (stable)
 - Node.js + npm
 - Running control owner: ``groket serve -d`` (or auto-start via ``groket hud``)
+- **Linux (build only):** system packages for Tauri’s WebKitGTK webview.
+  Runtime shared libraries are not enough — cargo needs the ``-dev`` packages
+  (headers + pkg-config ``.pc`` files). On Ubuntu/Debian 24.04+:
+
+  ```bash
+  sudo apt install libwebkit2gtk-4.1-dev \
+    libjavascriptcoregtk-4.1-dev \
+    libsoup-3.0-dev
+  ```
+
+  Without these, ``cargo build`` fails with ``javascriptcoregtk-4.1`` /
+  ``libsoup-3.0`` “package not found” from pkg-config. macOS and Windows use
+  different webviews and do not need these packages.
 
 ## Develop
 
@@ -50,6 +63,8 @@ npm run build
 ```
 
 ``groket hud`` prefers this release (then debug) binary when present.
+From an editable checkout, ``groket hud`` also auto-runs ``cargo build``
+(debug) when the binary is missing or sources are newer.
 
 ## Env
 

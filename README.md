@@ -186,6 +186,17 @@ groket hud --rebuild          # force cargo build before launch
 # Override binary: GROKET_HUD_BIN=/path/to/groket-hud
 ```
 
+**Linux build deps** (Tauri WebKitGTK; once per machine — not shipped by the
+Python package)::
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev \
+  libjavascriptcoregtk-4.1-dev \
+  libsoup-3.0-dev
+```
+
+See ``groket-hud/README.md`` for the full prerequisite list.
+
 Floating, frameless, always-on-top command palette (search sessions, detail
 pane). While the palette is open, a **live poll** re-reads overview and the
 timeline tail for running/awaiting turns (~2s) so a mid-turn Timeline tab
