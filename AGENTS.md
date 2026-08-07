@@ -24,8 +24,11 @@ make ci             # lint + schema-check + test  (matches GitHub Actions)
 
 | CLI | Role |
 |-----|------|
-| ``groket`` / ``groket PATH`` | Interactive TUI |
-| ``groket self-test`` | Host checks (Docker, Grok auth, paths) — no TUI |
+| ``groket`` / ``groket tui`` / ``groket PATH`` | Interactive TUI (control client) |
+| ``groket serve`` | Control owner (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
+| ``groket hud`` | Desktop palette (Tauri; control client) |
+| ``groket doctor`` | Host checks (Docker, Grok auth, paths) — no TUI |
+| ``groket editor …`` | Packaged Emacs / Neovim client paths |
 | ``groket gen …`` | Scaffold under ``~/.groket/`` (detector, rule, plugin, tasks) |
 | ``groket batch …`` | Headless Docker from task YAML (``examples/tasks/``) |
 | ``groket rules …`` | Validate rules / composites YAML |
@@ -142,8 +145,14 @@ groket/
   runs/                  # personas, run_configs, run_manager, batch, live_share,
                          #   launch_meta, services, task_schema
   session/               # turns, turn_gate, usage_stats, workspace_diff,
-                         #   context_samples, models_catalog, export_bundle
+                         #   context_samples, models_catalog, export_bundle,
+                         #   sources, catalog (domain session list for control)
   notes.py               # configurable operator notes (TOML schema + session store)
+  integrations/          # control Unix JSON-RPC, daemon (``groket serve``),
+                         #   ControlClient, emacs/vim packages
+  hud/                   # launches Tauri palette binary
+  session/control_views.py  # wire payloads for session/get|timeline|turns|usage
+# Sibling: groket-hud/     # Tauri Sol-style palette (not part of Python package)
   diagnostics/           # host self-test
   analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
   engine/                # detectors, rules loader, runner, rule_schema
@@ -174,6 +183,22 @@ Optional wheel mirror: groket/_embedded_assets/
 ``engine`` → ``ui``. Prefer domain modules for parse and Docker orchestration.
 UI may schedule **read-only** live reloads (meta / signals / light timeline) on
 worker pools; it must not start eval containers from widgets.
+
+**Local control plane:** headless ``groket serve`` is the sole owner of the
+per-user Unix socket (JSON-RPC for Emacs/Neovim/HUD/TUI). Lifecycle: bare
+``serve`` starts (foreground; ``-d`` detaches); ``serve stop`` /
+``restart`` / ``status``. Domain path: ``session/access`` +
+``session/catalog`` / ``control_views`` + notes on disk; serve also warms the
+catalog, watches the traces tree, runs analysis jobs (``analysis/run`` /
+``analysis/status``), and notifies ``session/changed`` /
+``session/selected`` / ``notes/changed`` / ``analysis/changed``.
+TUI **never owns** the socket: default is detach-start owner if free
+(``--no-serve`` skips spawn; ``--no-socket`` runs offline), then attach,
+load home catalog via ``session/list``, and listen for notifications.
+TUI exit does not stop the owner.
+``session/list`` ``query`` is server-side casefold substring; do not reimplement
+catalog discovery for control outside ``session/catalog`` +
+``session/access`` + ``integrations.control`` / ``daemon``.
 
 Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
@@ -286,6 +311,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``make install`` | ``uv sync --group test --group dev`` + editable uv tool |
 | ``make lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
 | ``make lint-fix`` | ruff autofix + format + mypy |
+| ``make lint-complexity`` | Size-limit report only (not in ``make ci``); see §4.6 |
 | ``make test`` | pytest (no coverage flag) |
 | ``make test-cov`` | pytest + coverage report (``fail_under`` applies) |
 | ``make schema`` | Regenerate ``schemas/*.schema.json`` |
@@ -366,7 +392,11 @@ interactive git. Assert outcomes and what the user reads in the UI.
 | PLR0915 | 50 statements |
 | PLR0904 | 20 public methods / class |
 
-Split when exceeded. Optional debt: [TODO.md](TODO.md).
+**Not part of default ``make lint`` / CI** (historical debt). Report with
+``make lint-complexity``. When you **edit** a function or class that already
+exceeds a limit, split or simplify that unit in the same change — no blanket
+``noqa``. Do not open a mass split of unrelated large modules. Debt notes:
+[TODO.md](TODO.md).
 
 ### 4.7 Models
 
@@ -386,8 +416,8 @@ domain folder.
 
 | What | How |
 |------|-----|
-| Unused imports / locals | ruff F401 / F841 |
-| Complexity | PLR table above |
+| Unused imports / locals | ruff F401 / F841 (default ``make lint``) |
+| Size / complexity | §4.6 table via ``make lint-complexity`` (not CI) |
 | ``from __future__ import annotations`` | isort required-imports |
 | ``print`` outside CLI | T20 (``cli.py`` only) |
 
@@ -452,10 +482,16 @@ First press arms; second with the **same** target set commits. Shared helper:
 ``style_data_table``, ``preserving_cursor``, ``cursor_row_key``,
 ``set_selection_marker`` / ``update_row_cell`` — do not reimplement.
 
-### 6.5 Tips
+### 6.5 Guidance chrome (do not mash into one callout)
 
-``TipSurface`` (class ``tip-surface``); kinds via ``kind=``. Global hide:
-``show_tips`` in config / Analysis / Ctrl+P.
+| Role | Widget / place | Notes |
+|------|----------------|--------|
+| Empty pane | :class:`~groket.ui.panel_render.EmptyState` | Dim one-line, no border; only when section empty |
+| Keys / how-to | Footer, ``?`` help, Ctrl+P | Not permanent in-pane cyan boxes |
+| Rare interrupt | :class:`~groket.ui.panel_render.TipSurface` | Framed callout; ``show_tips`` toggles these only |
+
+Never use ``TipSurface`` for empty states or always-on shortcut lessons.
+``show_tips`` in config / Analysis / Ctrl+P hides TipSurface only.
 
 ### 6.5a Extractable / copyable body content (mandatory)
 
@@ -467,7 +503,8 @@ mouse — the product path is Textual selection + OSC 52 yank.
 | Use | Widget |
 |-----|--------|
 | Body content a human may extract | :class:`~groket.ui.selectable_static.SelectableStatic` |
-| Chrome only (labels, filter bar text, tips, empty-state chrome) | plain ``Static`` / ``TipSurface`` |
+| Chrome only (labels, filter bar, empty-state) | plain ``Static`` / :class:`~groket.ui.panel_render.EmptyState` |
+| Rare framed callout | :class:`~groket.ui.panel_render.TipSurface` |
 
 **Rules**
 

@@ -25,3 +25,7 @@ __pycache__/
 traces/
 .venv/
 *.swp
+# Tauri / Node (groket-hud palette)
+groket-hud/node_modules/
+groket-hud/src-tauri/target/
+groket-hud/dist/
