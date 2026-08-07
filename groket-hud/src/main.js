@@ -192,14 +192,20 @@ function sessionSortEpoch(row) {
   return 0;
 }
 
-function applySessionFilter() {
-  // Rank/refine the page already returned by session/list. Authoritative filter
-  // for catalog discovery is the server ``query`` param (substring); fuzzy is
-  // presentation-only on that page, not a second disk scan.
+/**
+ * Rank/refine the page already returned by session/list.
+ * Authoritative catalog discovery is the server ``query`` param; fuzzy is
+ * presentation-only on that page.
+ * @param {{ render?: boolean, listOpts?: { scrollActive?: boolean } }} [opts]
+ *   render — when false, skip list paint (live tick measures identity change).
+ * @returns {boolean} true when the visible session-id order changed
+ */
+function applySessionFilter(opts = {}) {
+  const doRender = opts.render !== false;
   const keepId =
     (sessions[active] && sessions[active].sessionId) || overviewSid || "";
   const needle = queryText();
-  // Always newest-first (server should already send this; re-assert after fuzzy).
+  const prev = sessions.map((r) => String(r.sessionId || "")).join("\n");
   const ranked = needle ? fuzzyFilter(needle, allSessions, sessionHay) : allSessions.slice();
   sessions = ranked.sort((a, b) => {
     const db = sessionSortEpoch(b) - sessionSortEpoch(a);
@@ -212,7 +218,16 @@ function applySessionFilter() {
   } else if (active >= sessions.length) {
     active = Math.max(0, sessions.length - 1);
   }
-  renderList();
+  const changed = prev !== sessions.map((r) => String(r.sessionId || "")).join("\n");
+  if (doRender) renderList(opts.listOpts || {});
+  return changed;
+}
+
+/** Catalog identity fingerprint (id + status + title) for skip-paint on live list. */
+function catalogSig(list) {
+  return list
+    .map((r) => `${r.sessionId}\u0001${r.status}\u0001${r.title}`)
+    .join("\n");
 }
 
 function statusClass(status) {
@@ -584,10 +599,15 @@ function paintTimelineLive(merged, scroll) {
  * @param {string} sid
  * @returns {Promise<boolean>} true when the buffer changed
  */
+/**
+ * Live-tick tail refresh: one chunk near the end via {@link fetchTimelineChunk}.
+ * Soft-fails (status only) — does not blank the detail pane.
+ * @param {string} sid
+ * @returns {Promise<boolean>} true when the buffer changed
+ */
 async function refreshTimelineTail(sid) {
   if (!sid) return false;
   if (timelineLoading || timelineLoadingMore) return false;
-  // Only keep a live tail when we already care about this session's timeline.
   if (timelineSid && timelineSid !== sid) return false;
   if (!timelineSid || timelineSid !== sid) {
     if (tab === "timeline") {
@@ -598,102 +618,37 @@ async function refreshTimelineTail(sid) {
   }
 
   const gen = timelineGen;
-  // Re-read pin state at tick start (user may have scrolled mid-poll).
   if (tab === "timeline") {
     timelinePinnedToBottom = detailNearBottom();
   }
   const follow = tab === "timeline" && timelinePinnedToBottom;
   const top = detailEl.scrollTop;
-  // Re-read a small tail window so the open/streaming last event updates, not
-  // only brand-new indices past nextOffset.
-  // When not pinned, only pull truly new rows (skip re-render thrash of the open body).
+  // Re-read a small tail window so the open/streaming last event updates.
   const tailBack = follow ? 4 : 0;
   const offset = Math.max(0, timelineNextOffset - tailBack);
   try {
-    const data = rpcPayload(
-      await invoke("control_session_timeline", {
-        session: sid,
-        offset,
-        limit: TIMELINE_CHUNK,
-        contentChars: 12000,
-      }),
-    );
+    const result = await fetchTimelineChunk(sid, offset, {
+      append: true,
+      gen,
+      limit: TIMELINE_CHUNK,
+    });
     if (gen !== timelineGen || timelineSid !== sid) return false;
-    const batch = Array.isArray(data?.events) ? data.events : [];
-    const total = Number(data?.total);
-    if (Number.isFinite(total) && total >= 0) {
-      timelineTotal = total;
+    // When lagging total with no new indices, nudge cursor so the next tick advances.
+    if (
+      result.added === 0 &&
+      Number.isFinite(timelineTotal) &&
+      timelineNextOffset < timelineTotal
+    ) {
+      timelineNextOffset = Math.max(
+        timelineNextOffset,
+        Math.min(timelineTotal, offset + result.batch.length),
+      );
     }
-    let merged = { events: timelineEvents, added: 0, updated: 0, changedIndices: [] };
-    if (batch.length) {
-      merged = mergeTimelineByIndex(timelineEvents, batch);
-      timelineEvents = merged.events;
-      const off = Number(data?.offset);
-      const base = Number.isFinite(off) ? off : offset;
-      timelineNextOffset = Math.max(timelineNextOffset, base + batch.length);
-      if (Number.isFinite(total)) {
-        timelineNextOffset = Math.min(timelineNextOffset, total);
-        // If we still lag the server total, advance toward the end on next tick.
-        if (timelineNextOffset < total && merged.added === 0) {
-          timelineNextOffset = Math.max(timelineNextOffset, Math.min(total, base + batch.length));
-        }
-      }
-    } else if (Number.isFinite(total)) {
-      // Empty batch at this offset: clamp complete cursor.
-      if (offset >= total) {
-        timelineNextOffset = total;
-      }
-    }
-    const changed = merged.added > 0 || merged.updated > 0;
+    const changed = result.added > 0 || result.updated > 0;
     if (changed && tab === "timeline" && overviewSid === sid) {
-      paintTimelineLive(merged, { follow, top });
+      paintTimelineLive(result, { follow, top });
     }
     return changed;
-  } catch (e) {
-    // Soft-fail live ticks — do not blank the detail pane.
-    setStatus(String(e), true);
-    return false;
-  }
-}
-
-/**
- * Quiet overview re-fetch for live poll (no skeleton; no loadGen race).
- * @param {string} sid
- * @returns {Promise<boolean>}
- */
-async function quietReloadOverview(sid) {
-  if (!sid) return false;
-  const gen = ++liveOverviewGen;
-  const top = detailEl.scrollTop;
-  try {
-    const data = rpcPayload(await invoke("control_session_overview", { session: sid }));
-    if (gen !== liveOverviewGen) return false;
-    if (!data || typeof data !== "object") return false;
-    // Drop if selection moved.
-    const row = sessions[active];
-    if (!row?.sessionId || String(row.sessionId) !== sid) return false;
-    // Ignore if a user-driven overview load is in flight for another sid.
-    if (overviewPendingSid && overviewPendingSid !== sid) return false;
-    overviewCache = data;
-    overviewSid = sid;
-    const meta = data.meta && typeof data.meta === "object" ? data.meta : null;
-    if (meta) {
-      const a = patchListRowFromMeta(allSessions, sid, meta);
-      const b = patchListRowFromMeta(sessions, sid, meta);
-      if (a.listPaint || b.listPaint) {
-        // Live: never scroll the list — that was the main jitter source.
-        renderList({ scrollActive: false });
-      }
-    }
-    const fp = overviewPaintFingerprint(data);
-    const paint = fp !== overviewPaintFp;
-    overviewPaintFp = fp;
-    // Timeline body is updated by refreshTimelineTail (avoid scroll jank here).
-    if (paint && tab !== "timeline") {
-      renderDetail();
-      detailEl.scrollTop = top;
-    }
-    return true;
   } catch (e) {
     setStatus(String(e), true);
     return false;
@@ -729,7 +684,7 @@ async function liveTick() {
       listLiveTick += 1;
       const wantOverview = tab !== "timeline" || listLiveTick % 2 === 0;
       if (wantOverview) {
-        await quietReloadOverview(sid);
+        await loadOverview(false, { quiet: true, session: sid });
       }
       if (timelineSid === sid || tab === "timeline") {
         await refreshTimelineTail(sid);
@@ -738,12 +693,12 @@ async function liveTick() {
         void ensureTimeline(sid, { force: false });
       }
       // Full catalog rarely — selected row is patched from overview.
-      if (listLiveTick % 5 === 0) void quietRefreshList();
+      if (listLiveTick % 5 === 0) void refreshListFromServer({ quiet: true });
     } else if (sid && tab === "timeline" && isLiveStatus(selectedStatus())) {
       await refreshTimelineTail(sid);
     } else {
       // Idle interval is already slow; refresh catalog for new/finished runs.
-      void quietRefreshList();
+      void refreshListFromServer({ quiet: true });
     }
   } finally {
     livePollBusy = false;
@@ -751,104 +706,68 @@ async function liveTick() {
   }
 }
 
-/** Soft session/list refresh without blanking the list on failure. */
-async function quietRefreshList() {
-  const gen = ++listLiveGen;
-  try {
-    const needle = queryText();
-    const listed = rpcPayload(
-      await invoke("control_session_list", {
-        ...(needle ? { query: needle } : {}),
-        limit: needle ? 200 : 300,
-      }),
-    );
-    if (gen !== listLiveGen) return;
-    const rows = sessionRowsFromList(listed);
-    if (!rows.length && allSessions.length) {
-      // Transient empty — keep prior catalog.
-      return;
-    }
-    const prevSid = sessions[active]?.sessionId
-      ? String(sessions[active].sessionId)
-      : overviewSid;
-    // Skip paint when the catalog identity set is unchanged (order+ids+status).
-    const sig = (list) =>
-      list
-        .map((r) => `${r.sessionId}\u0001${r.status}\u0001${r.title}`)
-        .join("\n");
-    const prevSig = sig(allSessions);
-    allSessions = rows;
-    const keepFilter = applySessionFilterSilent();
-    if (prevSid) {
-      const idx = sessions.findIndex((r) => String(r.sessionId || "") === prevSid);
-      if (idx >= 0) active = idx;
-    }
-    if (sig(allSessions) !== prevSig || keepFilter) {
-      renderList({ scrollActive: false });
-    }
-  } catch {
-    /* ignore soft list errors during live poll */
-  }
-}
-
 /**
- * Like applySessionFilter but does not render (live list refresh helper).
- * @returns {boolean} true when the visible ranked list identity changed
- */
-function applySessionFilterSilent() {
-  const keepId =
-    (sessions[active] && sessions[active].sessionId) || overviewSid || "";
-  const needle = queryText();
-  const prev = sessions.map((r) => String(r.sessionId || "")).join("\n");
-  const ranked = needle ? fuzzyFilter(needle, allSessions, sessionHay) : allSessions.slice();
-  sessions = ranked.sort((a, b) => {
-    const db = sessionSortEpoch(b) - sessionSortEpoch(a);
-    if (db !== 0) return db;
-    return String(a.sessionId || "").localeCompare(String(b.sessionId || ""));
-  });
-  if (keepId) {
-    const idx = sessions.findIndex((r) => String(r.sessionId || "") === String(keepId));
-    active = idx >= 0 ? idx : 0;
-  } else if (active >= sessions.length) {
-    active = Math.max(0, sessions.length - 1);
-  }
-  const next = sessions.map((r) => String(r.sessionId || "")).join("\n");
-  return prev !== next;
-}
-
-/**
- * Fetch one chunk and either replace or append into *timelineEvents*.
+ * Fetch one chunk and apply into *timelineEvents* (sole timeline RPC apply path).
  * @param {string} sid
  * @param {number} offset
- * @param {{ append?: boolean, gen?: number }} [opts]
+ * @param {{ append?: boolean, gen?: number, limit?: number }} [opts]
+ * @returns {Promise<{ batch: Array<Record<string, unknown>>, added: number, updated: number, changedIndices: number[], total: number }>}
  */
 async function fetchTimelineChunk(sid, offset, opts = {}) {
   const append = Boolean(opts.append);
+  const gen = opts.gen;
+  const limit = Number.isFinite(opts.limit) ? Number(opts.limit) : TIMELINE_CHUNK;
   const data = rpcPayload(
     await invoke("control_session_timeline", {
       session: sid,
       offset,
-      limit: TIMELINE_CHUNK,
+      limit,
       contentChars: 12000,
     }),
   );
+  if (gen != null && gen !== timelineGen) {
+    return { batch: [], added: 0, updated: 0, changedIndices: [], total: timelineTotal };
+  }
   const batch = Array.isArray(data?.events) ? data.events : [];
-  const total = Number(data?.total) || 0;
-  const off = Number(data?.offset) || offset;
-  if (append && timelineSid === sid) {
-    // Merge+sort so head fills after a late seek do not leave indices shuffled.
-    timelineEvents = mergeTimelineByIndex(timelineEvents, batch).events;
+  const total = Number(data?.total);
+  const off = Number(data?.offset);
+  const base = Number.isFinite(off) ? off : offset;
+  const resolvedTotal = Number.isFinite(total) && total >= 0 ? total : timelineTotal;
+  /** @type {{ events: Array<Record<string, unknown>>, added: number, updated: number, changedIndices: number[] }} */
+  let merged = { events: timelineEvents, added: 0, updated: 0, changedIndices: [] };
+  if (append && timelineSid === sid && timelineEvents.length) {
+    merged = mergeTimelineByIndex(timelineEvents, batch);
+    timelineEvents = merged.events;
   } else {
     timelineEvents = batch;
+    merged = {
+      events: batch,
+      added: batch.length,
+      updated: 0,
+      changedIndices: batch.map((e) => Number(e.index)).filter((n) => Number.isFinite(n)),
+    };
   }
   timelineSid = sid;
-  timelineTotal = total || timelineEvents.length;
-  // Never rewind the high-water mark when a seek/fill loads an earlier window.
-  timelineNextOffset = Math.max(timelineNextOffset, off + batch.length);
-  if (batch.length === 0) {
-    timelineNextOffset = Math.max(timelineNextOffset, timelineTotal);
+  if (Number.isFinite(resolvedTotal) && resolvedTotal >= 0) {
+    timelineTotal = resolvedTotal;
+  } else {
+    timelineTotal = timelineEvents.length;
   }
-  return batch;
+  // Never rewind the high-water mark when a seek/fill loads an earlier window.
+  timelineNextOffset = Math.max(timelineNextOffset, base + batch.length);
+  if (Number.isFinite(timelineTotal) && timelineTotal > 0) {
+    timelineNextOffset = Math.min(timelineNextOffset, timelineTotal);
+  }
+  if (batch.length === 0 && Number.isFinite(timelineTotal)) {
+    if (base >= timelineTotal) timelineNextOffset = Math.max(timelineNextOffset, timelineTotal);
+  }
+  return {
+    batch,
+    added: merged.added,
+    updated: merged.updated,
+    changedIndices: merged.changedIndices,
+    total: timelineTotal,
+  };
 }
 
 /**
@@ -862,75 +781,28 @@ function timelineHasFocus(focusIndex) {
 }
 
 /**
- * Append chunks until *done(events)* or fully loaded / cancelled.
+ * Append chunks at *timelineNextOffset* until *done(events)* or complete / cancelled.
  * @param {string} sid
- * @param {(evs: Array<Record<string, unknown>>) => boolean} done
+ * @param {(evs: Array<Record<string, unknown>>) => boolean} done — stop when true
  * @param {number} [gen]
  */
 async function fillTimelineUntil(sid, done, gen = timelineGen) {
-  while (gen === timelineGen && timelineSid === sid && !done(timelineEvents) && !timelineIsComplete()) {
+  while (
+    gen === timelineGen &&
+    timelineSid === sid &&
+    !done(timelineEvents) &&
+    !timelineIsComplete()
+  ) {
     timelineLoadingMore = true;
-    await fetchTimelineChunk(sid, timelineNextOffset, { append: true });
+    await fetchTimelineChunk(sid, timelineNextOffset, { append: true, gen });
     if (gen !== timelineGen) return;
   }
-  timelineLoadingMore = false;
+  if (gen === timelineGen) timelineLoadingMore = false;
 }
 
 /**
- * Load a window around *focusIndex* (event.index ≈ list offset when unfiltered).
- * Merges into the buffer so turn jumps do not wait on a full head fill.
- * @param {string} sid
- * @param {number} focusIndex
- * @param {number} [gen]
- */
-async function seekTimelineToFocus(sid, focusIndex, gen = timelineGen) {
-  if (!Number.isFinite(focusIndex)) return;
-  if (timelineHasFocus(focusIndex)) return;
-  // Window around target; indices align with offsets for unfiltered session/timeline.
-  const windowStart = timelineSeekOffset(focusIndex, 20);
-  const limit = Math.min(TIMELINE_CHUNK, 120);
-  timelineLoadingMore = true;
-  try {
-    const data = rpcPayload(
-      await invoke("control_session_timeline", {
-        session: sid,
-        offset: windowStart,
-        limit,
-        contentChars: 12000,
-      }),
-    );
-    if (gen !== timelineGen) return;
-    const batch = Array.isArray(data?.events) ? data.events : [];
-    const total = Number(data?.total);
-    const off = Number(data?.offset);
-    if (Number.isFinite(total) && total >= 0) timelineTotal = total;
-    if (timelineSid === sid && timelineEvents.length) {
-      const merged = mergeTimelineByIndex(timelineEvents, batch);
-      timelineEvents = merged.events;
-    } else {
-      timelineEvents = batch;
-      timelineSid = sid;
-    }
-    const base = Number.isFinite(off) ? off : windowStart;
-    timelineNextOffset = Math.max(timelineNextOffset, base + batch.length);
-    if (Number.isFinite(total) && total > 0) {
-      timelineNextOffset = Math.min(timelineNextOffset, total);
-    }
-    // If seek landed past end of sparse buffer, still allow sequential catch-up.
-    if (!timelineHasFocus(focusIndex) && timelineNextOffset < (timelineTotal || 0)) {
-      // Prefer filling from min(nextOffset, focus) toward the target.
-      if (timelineNextOffset < windowStart) {
-        timelineNextOffset = windowStart;
-      }
-      await fillTimelineUntil(sid, (evs) => timelineHasFocus(focusIndex), gen);
-    }
-  } finally {
-    if (gen === timelineGen) timelineLoadingMore = false;
-  }
-}
-
-/**
- * Ensure focus event is in *timelineEvents* (seek then sequential fill).
+ * Ensure *focusIndex* is in the buffer: one seek window, then sequential fill if needed.
+ * Unfiltered session/timeline offsets match sequential event.index.
  * @param {string} sid
  * @param {number|null|undefined} focusIndex
  * @param {number} [gen]
@@ -939,19 +811,28 @@ async function ensureTimelineFocus(sid, focusIndex, gen = timelineGen) {
   if (focusIndex == null || Number.isNaN(Number(focusIndex))) return;
   const target = Number(focusIndex);
   if (timelineHasFocus(target)) return;
-  // Always seek a window around the target. After a late jump, nextOffset sits
-  // near the end — forward-only fill never reaches earlier turn prompts.
-  await seekTimelineToFocus(sid, target, gen);
-  if (gen !== timelineGen || timelineHasFocus(target)) return;
-  // Last resort: walk from the head with merge (restore nextOffset after).
-  const savedNext = timelineNextOffset;
-  timelineNextOffset = 0;
+  const windowStart = timelineSeekOffset(target, 20);
+  timelineLoadingMore = true;
   try {
-    await fillTimelineUntil(sid, () => timelineHasFocus(target), gen);
-  } finally {
-    if (gen === timelineGen) {
-      timelineNextOffset = Math.max(timelineNextOffset, savedNext);
+    // One window around the target (merge). Never walk only from a late nextOffset.
+    await fetchTimelineChunk(sid, windowStart, {
+      append: timelineEvents.length > 0 && timelineSid === sid,
+      gen,
+      limit: Math.min(TIMELINE_CHUNK, 120),
+    });
+    if (gen !== timelineGen || timelineHasFocus(target)) return;
+    // Still missing: fill from the head (restore high-water mark after).
+    const savedNext = timelineNextOffset;
+    timelineNextOffset = 0;
+    try {
+      await fillTimelineUntil(sid, () => timelineHasFocus(target), gen);
+    } finally {
+      if (gen === timelineGen) {
+        timelineNextOffset = Math.max(timelineNextOffset, savedNext);
+      }
     }
+  } finally {
+    if (gen === timelineGen) timelineLoadingMore = false;
   }
 }
 
@@ -992,8 +873,7 @@ async function ensureTimeline(sid, opts = {}) {
       /* primary path reports errors */
     }
     if (timelineFocusIndex != null && timelineSid === sid) {
-      const gen = timelineGen;
-      await ensureTimelineFocus(sid, timelineFocusIndex, gen);
+      await ensureTimelineFocus(sid, timelineFocusIndex, timelineGen);
     }
     paintTimelineIfActive(sid);
     return;
@@ -1001,9 +881,8 @@ async function ensureTimeline(sid, opts = {}) {
 
   // Already warm: only pull focus if missing.
   if (!force && timelineSid === sid && timelineEvents.length && !timelineLoading) {
-    const gen = timelineGen;
     if (timelineFocusIndex != null && !timelineHasFocus(timelineFocusIndex)) {
-      await ensureTimelineFocus(sid, timelineFocusIndex, gen);
+      await ensureTimelineFocus(sid, timelineFocusIndex, timelineGen);
     }
     paintTimelineIfActive(sid);
     return;
@@ -1022,26 +901,24 @@ async function ensureTimeline(sid, opts = {}) {
 
   const run = (async () => {
     try {
-      // If jumping to a late event, seek first so we do not wait on 0..N chunks.
-      if (timelineFocusIndex != null && Number(timelineFocusIndex) >= 40) {
-        await seekTimelineToFocus(sid, Number(timelineFocusIndex), gen);
+      // Seed one chunk: window around focus when jumping, else head.
+      if (!timelineEvents.length || timelineSid !== sid) {
+        const seed =
+          timelineFocusIndex != null && Number.isFinite(Number(timelineFocusIndex))
+            ? timelineSeekOffset(Number(timelineFocusIndex), 20)
+            : 0;
+        await fetchTimelineChunk(sid, seed, {
+          append: false,
+          gen,
+          limit: Math.min(TIMELINE_CHUNK, 120),
+        });
         if (gen !== timelineGen) return;
-        if (!timelineHasFocus(timelineFocusIndex)) {
-          // Fall back to head load + fill (seek can miss filtered/odd indexes).
-          if (!timelineEvents.length) {
-            await fetchTimelineChunk(sid, 0, { append: false });
-          }
-          if (gen !== timelineGen) return;
-          await ensureTimelineFocus(sid, timelineFocusIndex, gen);
-        }
-      } else {
-        await fetchTimelineChunk(sid, 0, { append: false });
-        if (gen !== timelineGen) return;
-        if (timelineFocusIndex != null) {
-          await ensureTimelineFocus(sid, timelineFocusIndex, gen);
-        }
       }
-      if (gen !== timelineGen) return;
+      // Single focus policy (seek window + fill if still missing).
+      if (timelineFocusIndex != null) {
+        await ensureTimelineFocus(sid, timelineFocusIndex, gen);
+        if (gen !== timelineGen) return;
+      }
       timelineLoading = false;
       paintTimelineIfActive(sid);
     } catch (e) {
@@ -1054,10 +931,6 @@ async function ensureTimeline(sid, opts = {}) {
       if (tab === "timeline") {
         detailEl.innerHTML = `<p class="err">${escapeHtml(e)}</p>`;
         setStatus(String(e), true);
-      }
-    } finally {
-      if (timelineEnsureSid === sid && timelineEnsurePromise) {
-        // Cleared by outer assignment after await; noop safety.
       }
     }
   })();
@@ -1141,10 +1014,8 @@ async function ensureTimelineFilledForSearch(sid) {
   const gen = timelineGen;
   timelineLoadingMore = true;
   try {
-    while (gen === timelineGen && timelineSid === sid && !timelineIsComplete()) {
-      await fetchTimelineChunk(sid, timelineNextOffset, { append: true });
-      if (gen !== timelineGen) return;
-    }
+    // done() never true → fillTimelineUntil stops only when complete / cancelled.
+    await fillTimelineUntil(sid, () => false, gen);
   } finally {
     if (gen === timelineGen) timelineLoadingMore = false;
   }
@@ -1676,7 +1547,52 @@ function scheduleOverview(force, delayMs = 90) {
   }, Math.max(0, delayMs));
 }
 
-async function loadOverview(force) {
+/**
+ * Load session overview for the selection (or *opts.session* on live ticks).
+ * @param {boolean} [force]
+ * @param {{ quiet?: boolean, session?: string }} [opts]
+ *   quiet — live poll: no skeleton, soft status on error, fingerprint skip-paint.
+ * @returns {Promise<boolean|void>} quiet path returns success bool
+ */
+async function loadOverview(force = false, opts = {}) {
+  const quiet = Boolean(opts.quiet);
+  if (quiet) {
+    const sid = opts.session ? String(opts.session) : "";
+    if (!sid) return false;
+    const gen = ++liveOverviewGen;
+    const top = detailEl.scrollTop;
+    try {
+      const data = rpcPayload(await invoke("control_session_overview", { session: sid }));
+      if (gen !== liveOverviewGen) return false;
+      if (!data || typeof data !== "object") return false;
+      const row = sessions[active];
+      if (!row?.sessionId || String(row.sessionId) !== sid) return false;
+      if (overviewPendingSid && overviewPendingSid !== sid) return false;
+      overviewCache = data;
+      overviewSid = sid;
+      const meta = data.meta && typeof data.meta === "object" ? data.meta : null;
+      if (meta) {
+        const a = patchListRowFromMeta(allSessions, sid, meta);
+        const b = patchListRowFromMeta(sessions, sid, meta);
+        if (a.listPaint || b.listPaint) {
+          renderList({ scrollActive: false });
+        }
+      }
+      const fp = overviewPaintFingerprint(data);
+      const paint = fp !== overviewPaintFp;
+      overviewPaintFp = fp;
+      // Timeline body is owned by refreshTimelineTail (avoid scroll jank here).
+      if (paint && tab !== "timeline") {
+        renderDetail();
+        detailEl.scrollTop = top;
+      }
+      return true;
+    } catch (e) {
+      setStatus(String(e), true);
+      return false;
+    }
+  }
+
   const row = sessions[active];
   if (!row?.sessionId) {
     overviewCache = null;
@@ -1726,7 +1642,45 @@ async function loadOverview(force) {
   }
 }
 
-async function refreshListFromServer() {
+/**
+ * Re-list sessions from the control owner.
+ * @param {{ quiet?: boolean }} [opts]
+ *   quiet — live poll: soft-fail, skip paint when catalog identity unchanged.
+ */
+async function refreshListFromServer(opts = {}) {
+  const quiet = Boolean(opts.quiet);
+  if (quiet) {
+    const gen = ++listLiveGen;
+    try {
+      const needle = queryText();
+      const listed = rpcPayload(
+        await invoke("control_session_list", {
+          ...(needle ? { query: needle } : {}),
+          limit: needle ? 200 : 300,
+        }),
+      );
+      if (gen !== listLiveGen) return;
+      const rows = sessionRowsFromList(listed);
+      if (!rows.length && allSessions.length) return;
+      const prevSid = sessions[active]?.sessionId
+        ? String(sessions[active].sessionId)
+        : overviewSid;
+      const prevSig = catalogSig(allSessions);
+      allSessions = rows;
+      const filterChanged = applySessionFilter({ render: false });
+      if (prevSid) {
+        const idx = sessions.findIndex((r) => String(r.sessionId || "") === prevSid);
+        if (idx >= 0) active = idx;
+      }
+      if (catalogSig(allSessions) !== prevSig || filterChanged) {
+        renderList({ scrollActive: false });
+      }
+    } catch {
+      /* soft-fail live poll — do not blank the list */
+    }
+    return;
+  }
+
   listLoading = true;
   renderList();
   try {
@@ -1783,7 +1737,6 @@ async function refreshListFromServer() {
       sessions = [];
       renderList();
     } else {
-      listLoading = false;
       renderList();
     }
     setStatus(String(e), true);
@@ -2054,7 +2007,7 @@ listen("control-notify", (event) => {
     void refreshListFromServer();
     const sid = String(params.sessionId || "").trim();
     if (sid && sid === overviewSid) {
-      void quietReloadOverview(sid);
+      void loadOverview(false, { quiet: true, session: sid });
     }
     return;
   }
@@ -2063,7 +2016,7 @@ listen("control-notify", (event) => {
     if (sid && sid === overviewSid) {
       // Force paint even if fingerprint logic is sticky (notes must show).
       overviewPaintFp = "";
-      void quietReloadOverview(sid);
+      void loadOverview(false, { quiet: true, session: sid });
     }
   }
 });
