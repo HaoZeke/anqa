@@ -336,10 +336,17 @@ function scrollTimelineFocus() {
   if (!el) return;
   // Instant — smooth + live poll fighting each other is the main scroll jitter.
   timelineScrollProgrammatic = true;
-  el.scrollIntoView({ block: "center", behavior: "auto" });
   timelinePinnedToBottom = false;
+  el.scrollIntoView({ block: "center", behavior: "auto" });
+  // Large list rebuilds need a second frame before geometry is stable.
   requestAnimationFrame(() => {
-    timelineScrollProgrammatic = false;
+    const again = detailEl.querySelector(`[data-index="${String(timelineFocusIndex)}"]`);
+    if (again) {
+      again.scrollIntoView({ block: "center", behavior: "auto" });
+    }
+    requestAnimationFrame(() => {
+      timelineScrollProgrammatic = false;
+    });
   });
 }
 
@@ -911,12 +918,20 @@ async function ensureTimelineFocus(sid, focusIndex, gen = timelineGen) {
   if (focusIndex == null || Number.isNaN(Number(focusIndex))) return;
   const target = Number(focusIndex);
   if (timelineHasFocus(target)) return;
-  // Late turns: seek near the index instead of only walking from offset 0.
-  if (target >= Math.max(40, timelineNextOffset)) {
-    await seekTimelineToFocus(sid, target, gen);
-    if (gen !== timelineGen || timelineHasFocus(target)) return;
+  // Always seek a window around the target. After a late jump, nextOffset sits
+  // near the end — forward-only fill never reaches earlier turn prompts.
+  await seekTimelineToFocus(sid, target, gen);
+  if (gen !== timelineGen || timelineHasFocus(target)) return;
+  // Last resort: walk from the head with merge (restore nextOffset after).
+  const savedNext = timelineNextOffset;
+  timelineNextOffset = 0;
+  try {
+    await fillTimelineUntil(sid, () => timelineHasFocus(target), gen);
+  } finally {
+    if (gen === timelineGen) {
+      timelineNextOffset = Math.max(timelineNextOffset, savedNext);
+    }
   }
-  await fillTimelineUntil(sid, () => timelineHasFocus(target), gen);
 }
 
 /**
@@ -1137,6 +1152,12 @@ function jumpToTimelineEvent(index) {
   const target = Number(index);
   if (Number.isNaN(target)) return;
   timelineFocusIndex = target;
+  timelinePinnedToBottom = false;
+  // Filter can hide the target row from the DOM even when it is in the buffer.
+  if (timelineQuery) {
+    timelineQuery = "";
+    if (tlQ) tlQ.value = "";
+  }
   tab = "timeline";
   for (const btn of tabsEl.querySelectorAll(".tab")) {
     btn.classList.toggle("active", btn.dataset.tab === "timeline");
