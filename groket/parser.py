@@ -1611,8 +1611,12 @@ def load_session_meta_list(
         if not meta.num_events and meta.num_messages:
             meta.num_events = int(meta.num_messages)
         return meta
+    # List path: skip full coalesced parse_timeline, but still expose an Events
+    # column via summary num_messages (same proxy host rows already use).
     meta = load_session_meta(session_dir, include_timeline_count=False)
     meta.origin = origin_key
+    if not meta.num_events and meta.num_messages:
+        meta.num_events = int(meta.num_messages)
     return meta
 
 
@@ -1952,6 +1956,11 @@ _SKIP_SESSION_WALK_DIRS = frozenset(
         "__pycache__",
         ".venv",
         "venv",
+        "target",
+        "dist",
+        "build",
+        ".cache",
+        ".tox",
         # Resume history substrate (see :mod:`groket.session.resume`).
         ".groket-resume-seed",
         # Parent /workspace tree for fork restore.
@@ -1978,28 +1987,35 @@ def _prune_session_walk_dirs(dirnames: list[str]) -> None:
 
 
 def _is_subagent_session_dir(path: Path) -> bool:
-    """True for Grok subagent traces (not operator-facing list rows).
+    """True when *path* is under a ``subagents`` segment (nested Grok subagent)."""
+    return "subagents" in path.parts
 
-    Subagents appear as ``<parent>/subagents/<id>`` and are often mirrored as
-    sibling dirs under the same workspace token with full session artifacts.
+
+def _drop_subagent_mirror_sessions(sessions: list[Path]) -> list[Path]:
+    """Remove workspace sibling mirrors of ``parent/subagents/<id>`` trees.
+
+    Nested ``…/subagents/<id>`` dirs are already skipped during the walk. Mirrors
+    are full session dirs next to the parent with the same id — drop those by
+    collecting ids under each kept session's ``subagents/`` (O(sessions), not
+    O(sessions²) sibling probing during the walk).
     """
-    parts = path.parts
-    if "subagents" in parts:
-        return True
-    parent = path.parent
-    name = path.name
-    if not name or not parent.is_dir():
-        return False
-    try:
-        for sib in parent.iterdir():
-            if not sib.is_dir() or sib.name == name:
-                continue
-            marker = sib / "subagents" / name
-            if marker.exists():
-                return True
-    except OSError:
-        return False
-    return False
+    if not sessions:
+        return sessions
+    drop: set[Path] = set()
+    for session in sessions:
+        sub_root = session / "subagents"
+        if not sub_root.is_dir():
+            continue
+        try:
+            with os.scandir(sub_root) as it:
+                for ent in it:
+                    if ent.is_dir(follow_symlinks=False):
+                        drop.add(session.parent / ent.name)
+        except OSError:
+            continue
+    if not drop:
+        return sessions
+    return [s for s in sessions if s not in drop]
 
 
 def _looks_like_session_dir(path: Path, filenames: set[str]) -> bool:
@@ -2023,20 +2039,29 @@ def find_sessions(root: Path) -> list[Path]:
     Skips eval staging trees (``groket-plugins``, ``groket-skills``, ``*.stage``,
     ``.groket-resume-seed``), Grok subagent sessions, and live paths that are
     only symlinks into resume substrate (see :mod:`groket.session.resume`).
+
+    Once a session dir is recognized, the walk does **not** descend into it
+    (workspaces under a session are not nested sessions). Descending was the
+    dominant cost on large ``~/.grok/sessions`` trees (tens of seconds).
     """
     from .session.resume import is_resume_seed_path
 
     sessions: list[Path] = []
     if not root.exists():
         return sessions
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+    # followlinks=False avoids symlink cycles into huge trees from host sessions.
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         _prune_session_walk_dirs(dirnames)
         path = Path(dirpath)
         if _is_subagent_session_dir(path):
+            dirnames.clear()
             continue
         # Resume substrate (.groket-resume-seed/…) or live symlink into it.
         if is_resume_seed_path(path):
+            dirnames.clear()
             continue
         if _looks_like_session_dir(path, set(filenames)):
             sessions.append(path)
-    return sessions
+            # Do not walk workspace / build trees inside a session.
+            dirnames.clear()
+    return _drop_subagent_mirror_sessions(sessions)

@@ -94,6 +94,32 @@ def test_turn_label_with_outcome():
     assert "0" in seg[0].label
 
 
+def test_label_uses_sequential_index_not_harness_turn_number():
+    """Harness turn_number can skip/jump; operator labels stay 0..n-1 in order."""
+    tl = [
+        _ev(0, "turn_started", "turn started  turn_number=83"),
+        _ev(1, "user_message_chunk", "a"),
+        _ev(2, "turn_ended", "turn ended  outcome=success"),
+        _ev(3, "turn_started", "turn started  turn_number=80"),
+        _ev(4, "user_message_chunk", "b"),
+        _ev(5, "turn_ended", "turn ended  outcome=success"),
+        _ev(6, "turn_started", "turn started  turn_number=87"),
+        _ev(7, "user_message_chunk", "c"),
+        _ev(8, "turn_ended", "turn ended  outcome=success"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 3
+    assert [s.turn_index for s in segs] == [0, 1, 2]
+    # Wire keeps harness numbers for correlation.
+    assert segs[0].turn_number == 83
+    assert segs[1].turn_number == 80
+    assert segs[2].turn_number == 87
+    # Visible labels are sequential, not 83/80/87.
+    assert segs[0].label.startswith("turn 0")
+    assert segs[1].label.startswith("turn 1")
+    assert segs[2].label.startswith("turn 2")
+
+
 def test_turn_label_plain_number():
     """When no markers, label uses turn_index 0."""
     tl = [_ev(0, "user_message_chunk", "hi")]
@@ -479,6 +505,79 @@ def test_background_user_between_turns_attaches_to_previous() -> None:
     assert len(segs) == 2
     assert any(e.content == bg for e in segs[0].events)
     assert any(e.content == "real follow-up" for e in segs[1].events)
+
+
+def test_system_reminder_turns_do_not_become_operator_turns() -> None:
+    """Generic ``<system-reminder>`` harness chrome must not open a new turn.
+
+    Rules/skills/MCP status injections arrive as user_message_chunk inside their
+    own turn_started/ended pair — fold into the parent interactive turn so TUI /
+    HUD / editors do not list them as operator prompts.
+    """
+    from groket.models import TraceEvent
+    from groket.session.control_views import turn_segment_mapping
+    from groket.session.turns import is_harness_user_chrome, segment_timeline_turns
+
+    skills = (
+        "<system-reminder>\nThe following skills are available for use:\n"
+        "- check-work: verify changes\n</system-reminder>"
+    )
+    rules = (
+        "<system-reminder>\nAs you answer the user's questions, you can use "
+        "the following context…\n</system-reminder>"
+    )
+    assert is_harness_user_chrome(skills)
+    assert is_harness_user_chrome(rules)
+
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="fix the flaky test"),
+        TraceEvent(index=2, event_type="agent_message_chunk", content="working"),
+        TraceEvent(index=3, event_type="turn_ended", content="Turn ended outcome=completed"),
+        # Mid-session system-reminder only turn (skills dump)
+        TraceEvent(index=4, event_type="turn_started", content="Turn started turn_number=1"),
+        TraceEvent(index=5, event_type="user_message_chunk", content=skills),
+        TraceEvent(index=6, event_type="turn_ended", content="Turn ended outcome=completed"),
+        # Between-turn system-reminder before real follow-up
+        TraceEvent(index=7, event_type="user_message_chunk", content=rules),
+        TraceEvent(index=8, event_type="turn_started", content="Turn started turn_number=2"),
+        TraceEvent(index=9, event_type="user_message_chunk", content="and then push"),
+        TraceEvent(index=10, event_type="turn_ended", content="Turn ended outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 2
+    assert any(e.content == "fix the flaky test" for e in segs[0].events)
+    assert any(e.content == skills for e in segs[0].events)
+    assert any(e.content == rules for e in segs[0].events)
+    assert any(e.content == "and then push" for e in segs[1].events)
+    # Turn card summary must be operator text, not the system-reminder body.
+    row0 = turn_segment_mapping(segs[0])
+    row1 = turn_segment_mapping(segs[1])
+    assert row0["summary"] == "fix the flaky test"
+    assert row1["summary"] == "and then push"
+    assert "<system-reminder>" not in str(row0["summary"])
+    assert "<system-reminder>" not in str(row1["summary"])
+
+
+def test_system_reminder_before_operator_in_same_turn_skipped_for_summary() -> None:
+    """When reminder and operator share a turn, summary prefers the operator."""
+    from groket.models import TraceEvent
+    from groket.session.control_views import turn_segment_mapping
+    from groket.session.turns import segment_timeline_turns
+
+    reminder = "<system-reminder>\nMCP servers connected:\n- tasks\n</system-reminder>"
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content=reminder),
+        TraceEvent(index=2, event_type="user_message_chunk", content="say meow"),
+        TraceEvent(index=3, event_type="agent_message_chunk", content="meow"),
+        TraceEvent(index=4, event_type="turn_ended", content="Turn ended outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 1
+    row = turn_segment_mapping(segs[0])
+    assert row["summary"] == "say meow"
+    assert row["userEventIndex"] == 2
 
 
 def test_open_background_tail_keeps_parent_open() -> None:

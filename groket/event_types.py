@@ -81,3 +81,31 @@ def type_label(event_type: str) -> str:
     if not et:
         return "?"
     return et.replace("_", " ")
+
+
+def event_kind(event_type: str) -> str:
+    """Coarse role for UI color/layout: user|agent|thought|tool|tool_result|plan|error|session|system|other."""
+    et = (event_type or "").strip()
+    if et in USER_TYPES or et == "user":
+        return "user"
+    if et in AGENT_TYPES or et == "assistant":
+        return "agent"
+    if et in THOUGHT_TYPES or et == "thought":
+        return "thought"
+    if et in TOOL_CALL_TYPES:
+        return "tool"
+    if et in TOOL_UPDATE_TYPES or et == "tool_result":
+        return "tool_result"
+    if et in PLAN_TYPES:
+        return "plan"
+    if et in ERROR_TYPES:
+        return "error"
+    if et in SESSION_CHROME_TYPES - ERROR_TYPES - {SYSTEM} or et == "session":
+        return "session"
+    if et == SYSTEM:
+        return "system"
+    if et in SUBAGENT_TYPES or et == "subagent":
+        return "subagent"
+    if et in TASK_TYPES:
+        return "task"
+    return "other"

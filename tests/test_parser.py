@@ -268,18 +268,7 @@ class TestParseTimeline:
         # Chronological: start1, assistant@1500, end1, start2, assistant@3500, end2
         types = [e.event_type for e in events]
         assert types.count("turn_started") + types.count("turn_ended") >= 4
-        session_contents = [e.content or "" for e in events if e.event_type == "session"]
         starts = [i for i, e in enumerate(events) if "turn started" in (e.content or "")]
-        ends = [
-            i
-            for i, e in enumerate(events)
-            if "turn ended" in (e.content or "").lower()
-            or (
-                e.event_type == "session"
-                and "started" not in (e.content or "")
-                and "error" not in (e.content or "").lower()
-            )
-        ]
         # At least two starts and they are not both before all non-session content
         assert len(starts) >= 2
         assert starts[0] < starts[1]
@@ -1564,7 +1553,7 @@ def test_coalesce_existing_result_error_flag():
     events: list[_TE] = [ev]
     result_by: dict[str, int] = {"t1": 0}
     pending = {"t1": _TE(index=0, event_type="tool_call", tool_name="grep", tool_call_id="t1")}
-    idx = _coalesce_tool_result(
+    _coalesce_tool_result(
         {"toolCallId": "t1", "content": "error text", "isError": True, "status": "failed"},
         11,
         1,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 from pathlib import Path
 
@@ -248,7 +247,8 @@ def seed_resume_into_traces_vol(traces_vol: Path, source_session_dir: Path) -> s
             shutil.rmtree(live_dest)
         else:
             live_dest.unlink()
-    rel = Path(os.path.relpath(seed_dest, start=live_dest.parent))
+    # Relative link so the seed stays portable if the traces volume moves.
+    rel = seed_dest.resolve().relative_to(live_dest.parent.resolve(), walk_up=True)
     live_dest.symlink_to(rel, target_is_directory=True)
 
     logger.info("Seeded resume session %s → %s (live link %s)", sid, seed_dest, live_dest)
