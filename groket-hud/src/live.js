@@ -73,6 +73,35 @@ export function timelineSeekOffset(focusIndex, pad = 20) {
 }
 
 /**
+ * Scroll offset that centers a child row inside an overflow scroller.
+ *
+ * Prefer this over ``scrollIntoView`` for nested overflow panes (WebKit/Tauri
+ * often leaves the focused row off-screen after a full list rebuild).
+ *
+ * @param {number} scrollTop — current ``scroller.scrollTop``
+ * @param {number} scrollerTop — ``scroller.getBoundingClientRect().top``
+ * @param {number} scrollerClientHeight — ``scroller.clientHeight``
+ * @param {number} childTop — ``child.getBoundingClientRect().top``
+ * @param {number} childHeight — ``child.getBoundingClientRect().height`` (or ``offsetHeight``)
+ * @returns {number}
+ */
+export function centeredScrollTop(
+  scrollTop,
+  scrollerTop,
+  scrollerClientHeight,
+  childTop,
+  childHeight,
+) {
+  const st = Number(scrollTop);
+  const sh = Number(scrollerClientHeight);
+  const y = st + (Number(childTop) - Number(scrollerTop));
+  const h = Number(childHeight);
+  if (!Number.isFinite(st) || !Number.isFinite(sh) || !Number.isFinite(y)) return 0;
+  const mid = Number.isFinite(h) ? h / 2 : 0;
+  return Math.max(0, y - sh / 2 + mid);
+}
+
+/**
  * Stable fingerprint for a timeline event (skip no-op merges).
  * @param {Record<string, unknown>} ev
  * @returns {string}

@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  centeredScrollTop,
   eventFingerprint,
   hasOpenTurn,
   isLiveStatus,
@@ -75,6 +76,23 @@ describe("shouldAutoFollowTimeline", () => {
   it("follows when near bottom", () => {
     assert.equal(shouldAutoFollowTimeline(900, 1000, 100, 120), true);
     assert.equal(shouldAutoFollowTimeline(0, 1000, 100, 120), false);
+  });
+});
+
+describe("centeredScrollTop", () => {
+  it("centers a child already partially scrolled into view", () => {
+    // scroller viewport at y=100 height 400; child on screen at y=300 height 40
+    // content offset of child = 200 + (300-100) = 400; center → 400 - 200 + 20 = 220
+    assert.equal(centeredScrollTop(200, 100, 400, 300, 40), 220);
+  });
+
+  it("floors at zero for a child above the viewport", () => {
+    assert.equal(centeredScrollTop(0, 100, 400, 50, 20), 0);
+  });
+
+  it("matches seek pad math for early indices", () => {
+    assert.equal(timelineSeekOffset(10, 20), 0);
+    assert.equal(timelineSeekOffset(100, 20), 80);
   });
 });
 

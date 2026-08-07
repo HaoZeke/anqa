@@ -7,6 +7,7 @@ import {
 import {
   IDLE_POLL_MS,
   LIVE_POLL_MS,
+  centeredScrollTop,
   isLiveStatus,
   mergeTimelineByIndex,
   overviewPaintFingerprint,
@@ -77,6 +78,11 @@ let tlSearchDebounce = 0;
 let timelinePinnedToBottom = true;
 /** Ignore programmatic scrollTop writes when measuring pin state. */
 let timelineScrollProgrammatic = false;
+/**
+ * After a turn/finding jump, re-center on the focus row until this time
+ * (ms, ``performance.now()``) so live paints cannot pin the scroller to 0.
+ */
+let timelineFocusScrollUntil = 0;
 
 /** Palette is on-screen (poll only while visible / focused). */
 let paletteLive = true;
@@ -330,20 +336,33 @@ function timelineIsComplete() {
   return Boolean(timelineSid) && timelineNextOffset >= timelineTotal;
 }
 
+/**
+ * Center the focus event row inside ``#detail`` (nested overflow scroller).
+ * Uses explicit scrollTop — ``scrollIntoView`` is unreliable here after large
+ * list rebuilds (especially once the operator has already scrolled the pane).
+ */
 function scrollTimelineFocus() {
   if (timelineFocusIndex == null) return;
-  const el = detailEl.querySelector(`[data-index="${String(timelineFocusIndex)}"]`);
-  if (!el) return;
-  // Instant — smooth + live poll fighting each other is the main scroll jitter.
-  timelineScrollProgrammatic = true;
-  timelinePinnedToBottom = false;
-  el.scrollIntoView({ block: "center", behavior: "auto" });
+  const apply = () => {
+    const el = detailEl.querySelector(`[data-index="${String(timelineFocusIndex)}"]`);
+    if (!el) return false;
+    timelineScrollProgrammatic = true;
+    timelinePinnedToBottom = false;
+    const parent = detailEl.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    detailEl.scrollTop = centeredScrollTop(
+      detailEl.scrollTop,
+      parent.top,
+      detailEl.clientHeight,
+      rect.top,
+      rect.height,
+    );
+    return true;
+  };
+  if (!apply()) return;
   // Large list rebuilds need a second frame before geometry is stable.
   requestAnimationFrame(() => {
-    const again = detailEl.querySelector(`[data-index="${String(timelineFocusIndex)}"]`);
-    if (again) {
-      again.scrollIntoView({ block: "center", behavior: "auto" });
-    }
+    apply();
     requestAnimationFrame(() => {
       timelineScrollProgrammatic = false;
     });
@@ -519,11 +538,16 @@ function paintTimelineLive(merged, scroll) {
   if (tab !== "timeline" || overviewSid !== timelineSid) return;
   const needle = (timelineQuery || "").trim();
   const follow = Boolean(scroll.follow) && timelinePinnedToBottom;
+  const holdFocus =
+    !follow &&
+    timelineFocusIndex != null &&
+    performance.now() < timelineFocusScrollUntil;
   // Search filter: full re-render is simpler and rare during live watch.
   if (needle || !detailEl.querySelector(".event-list")) {
     const top = detailEl.scrollTop;
     renderDetail();
     if (follow) applyTimelineFollowScroll(true);
+    else if (holdFocus) requestAnimationFrame(() => scrollTimelineFocus());
     else detailEl.scrollTop = top;
     return;
   }
@@ -532,6 +556,7 @@ function paintTimelineLive(merged, scroll) {
     const top = detailEl.scrollTop;
     renderDetail();
     if (follow) applyTimelineFollowScroll(true);
+    else if (holdFocus) requestAnimationFrame(() => scrollTimelineFocus());
     else detailEl.scrollTop = top;
     return;
   }
@@ -550,6 +575,7 @@ function paintTimelineLive(merged, scroll) {
       : `${timelineEvents.length}+`;
   }
   applyTimelineFollowScroll(follow);
+  if (holdFocus) requestAnimationFrame(() => scrollTimelineFocus());
 }
 
 /**
@@ -810,20 +836,15 @@ async function fetchTimelineChunk(sid, offset, opts = {}) {
   const total = Number(data?.total) || 0;
   const off = Number(data?.offset) || offset;
   if (append && timelineSid === sid) {
-    const seen = new Set(timelineEvents.map((e) => Number(e.index)));
-    for (const ev of batch) {
-      const ix = Number(ev.index);
-      if (!seen.has(ix)) {
-        timelineEvents.push(ev);
-        seen.add(ix);
-      }
-    }
+    // Merge+sort so head fills after a late seek do not leave indices shuffled.
+    timelineEvents = mergeTimelineByIndex(timelineEvents, batch).events;
   } else {
     timelineEvents = batch;
   }
   timelineSid = sid;
   timelineTotal = total || timelineEvents.length;
-  timelineNextOffset = off + batch.length;
+  // Never rewind the high-water mark when a seek/fill loads an earlier window.
+  timelineNextOffset = Math.max(timelineNextOffset, off + batch.length);
   if (batch.length === 0) {
     timelineNextOffset = Math.max(timelineNextOffset, timelineTotal);
   }
@@ -1153,6 +1174,8 @@ function jumpToTimelineEvent(index) {
   if (Number.isNaN(target)) return;
   timelineFocusIndex = target;
   timelinePinnedToBottom = false;
+  // Keep re-centering through the next paint/live tick after a jump.
+  timelineFocusScrollUntil = performance.now() + 2000;
   // Filter can hide the target row from the DOM even when it is in the buffer.
   if (timelineQuery) {
     timelineQuery = "";
@@ -1179,6 +1202,8 @@ function jumpToTimelineEvent(index) {
     }
     renderDetail();
   } else {
+    // Buffer already has the row (common after scrolling the timeline). Still
+    // force a full paint + centered scroll — do not rely on leftover scrollTop.
     renderDetail();
     requestAnimationFrame(() => scrollTimelineFocus());
     return;
