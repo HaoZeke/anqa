@@ -2662,6 +2662,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             duration=duration,
             paired_call=timeline_table.get_paired_call(ev),
             paired_result=timeline_table.get_paired_result(ev),
+            turn_index=timeline_table.turn_index_for(ev.index),
         )
 
     def on_descendant_focus(self, _event) -> None:
@@ -3371,6 +3372,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 duration=duration,
                 paired_call=timeline_table.get_paired_call(ev),
                 paired_result=timeline_table.get_paired_result(ev),
+                turn_index=timeline_table.turn_index_for(ev.index),
             )
         except Exception:
             pass

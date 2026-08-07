@@ -79,7 +79,7 @@ host catalog).
 
 Panes (`[` / `]` or digits **1–5**):
 
-1. **Timeline** — events + detail (Turn column for sequential operator turn); `v` filter, `f` flag, `N` new operator note, `O` / palette edit or delete note, `/` search  
+1. **Timeline** — events + detail (selected event shows sequential operator turn); `v` filter, `f` flag, `N` new operator note, `O` / palette edit or delete note, `/` search  
 2. **Summary** — overview, usage, turns (context samples when live)  
 3. **Diff** — workspace changes  
 4. **Findings** — detector / analyzer hits (`i` jumps here)  

@@ -101,8 +101,8 @@ async def test_timeline_load_and_row_count() -> None:
 
 
 @pytest.mark.asyncio
-async def test_timeline_turn_column_maps_events() -> None:
-    """Turn column shows sequential operator turn ids from segmentation."""
+async def test_timeline_turn_index_for_maps_events() -> None:
+    """turn_index_for exposes sequential operator turn ids for the detail pane."""
     app = _TimelineApp()
     async with app.run_test():
         tl = app.query_one("#timeline-list", TimelineTable)
@@ -139,13 +139,8 @@ async def test_timeline_turn_column_maps_events() -> None:
             ),
         ]
         tl.load_events(events)
-        assert tl._turn_by_index.get(1) == 0
-        assert tl._turn_by_index.get(4) == 1
-        # Turn column is index 1 (after #).
-        cells = tl._row_cell_values(events[1])
-        assert "0" in cells[1]
-        cells1 = tl._row_cell_values(events[4])
-        assert "1" in cells1[1]
+        assert tl.turn_index_for(1) == 0
+        assert tl.turn_index_for(4) == 1
 
 
 @pytest.mark.asyncio

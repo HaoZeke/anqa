@@ -43,13 +43,7 @@ class TimelineTable(DataTable):
     def on_mount(self) -> None:
         style_data_table(self)
         self.add_columns(
-            "#",
-            t("col-turn"),
-            t("col-time"),
-            t("col-dur"),
-            t("col-type"),
-            t("col-tool"),
-            t("col-summary"),
+            "#", t("col-time"), t("col-dur"), t("col-type"), t("col-tool"), t("col-summary")
         )
 
     def load_events(
@@ -329,15 +323,12 @@ class TimelineTable(DataTable):
             return
         self._turn_by_index = event_display_turn_map(segment_timeline_turns(self.events))
 
-    def _turn_cell(self, ev: TraceEvent) -> str:
-        """Compact turn id for the Turn column (or dim dash when session-level)."""
-        ti = self._turn_by_index.get(int(ev.index))
-        if ti is None:
-            return "[dim]—[/]"
-        return f"[cyan]{ti}[/]"
+    def turn_index_for(self, event_index: int) -> int | None:
+        """Sequential operator turn id for *event_index*, if the event is in a turn."""
+        return self._turn_by_index.get(int(event_index))
 
-    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str, str]:
-        """Visible cell values for one event (columns 0–6)."""
+    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str]:
+        """Visible cell values for one event (columns 0–5)."""
         from ...session.turns import harness_user_chrome_heading
 
         chrome_heading = harness_user_chrome_heading(ev.content or "")
@@ -370,15 +361,7 @@ class TimelineTable(DataTable):
             sev = getattr(finding.severity, "value", None) or "low"
             prefix += finding_mark(sev) + " "
         summary = prefix + rich_escape(ev.summary_line[: 56 if prefix else 60])
-        return (
-            str(ev.index),
-            self._turn_cell(ev),
-            ev.time_str,
-            dur_str,
-            type_style,
-            tool_col,
-            summary,
-        )
+        return (str(ev.index), ev.time_str, dur_str, type_style, tool_col, summary)
 
     def _add_event_row(self, ev: TraceEvent) -> None:
         """Append one timeline row for *ev*."""

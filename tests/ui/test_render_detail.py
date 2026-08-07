@@ -347,6 +347,26 @@ class TestRenderEventDetail:
         plain = rich_plain(result)
         assert "run_terminal_command" in plain or "sleep 5" in plain or "5" in plain
 
+    def test_turn_index_in_detail_meta(self):
+        """Selected-event detail shows sequential operator turn in the meta line."""
+        ev = make_trace_event(
+            index=12,
+            event_type="user_message_chunk",
+            content="hello from turn 3",
+            timestamp=1000,
+        )
+        result = render_event_detail(ev, turn_index=3)
+        plain = rich_plain(result)
+        assert "Turn 3" in plain
+        tool = make_trace_event(
+            index=13,
+            event_type="tool_call",
+            tool_name="read_file",
+            raw_input={"target_file": "x.py"},
+        )
+        tool_plain = rich_plain(render_event_detail(tool, turn_index=3))
+        assert "Turn 3" in tool_plain
+
 
 # ── Tool input rendering branches ────────────────────────────────────────
 

@@ -450,11 +450,13 @@ def render_tool_detail(
     event_type: str = "tool",
     duration: float | None = None,
     truncate: bool = True,
+    turn_index: int | None = None,
 ) -> Group:
     """Unified tool detail (trace_viewer render_tool_detail), call+result merged.
 
     :param truncate: When True (display), mid-cap huge tool bodies. When False
         (clipboard yank), keep full input/output text.
+    :param turn_index: Sequential operator turn id (0-based) for orientation.
     """
     _ = (tool_call_id, update_index)
     ri = raw_input or {}
@@ -475,6 +477,8 @@ def render_tool_detail(
     head.append("\n")
     meta = Text()
     meta_bits: list[str] = []
+    if turn_index is not None:
+        meta_bits.append(t("ui-turn-number", turn=int(turn_index)))
     if time_str:
         meta_bits.append(time_str)
     if duration is not None:
@@ -511,6 +515,7 @@ def render_tool_detail_from_event(
     paired_result: TraceEvent | None = None,
     duration: float | None = None,
     truncate: bool = True,
+    turn_index: int | None = None,
 ) -> Group:
     """Render tool_call / tool_result, merging pair when available (trace_viewer style)."""
     call = ev if ev.event_type == "tool_call" else paired_call
@@ -580,6 +585,7 @@ def render_tool_detail_from_event(
         event_type=ev.event_type,
         duration=duration,
         truncate=truncate,
+        turn_index=turn_index,
     )
 
 
@@ -592,11 +598,13 @@ def render_event_detail(
     paired_call: TraceEvent | None = None,
     paired_result: TraceEvent | None = None,
     truncate: bool = True,
+    turn_index: int | None = None,
 ) -> RenderableType:
     """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners).
 
     :param truncate: Display caps for huge bodies (default). Pass False for
         clipboard yank so the operator gets the full event text.
+    :param turn_index: Sequential operator turn id (0-based) for orientation.
     """
     banners: list = []
     if flag:
@@ -622,6 +630,7 @@ def render_event_detail(
             paired_result=paired_result,
             duration=duration,
             truncate=truncate,
+            turn_index=turn_index,
         )
         if banners:
             return Group(*banners, Text(""), core)
@@ -645,6 +654,8 @@ def render_event_detail(
         head.append(t("ui-error-1"), style="bold red")
     head.append("\n")
     meta_parts: list[str] = []
+    if turn_index is not None:
+        meta_parts.append(t("ui-turn-number", turn=int(turn_index)))
     if ev.time_str:
         meta_parts.append(ev.time_str)
     if duration is not None:
