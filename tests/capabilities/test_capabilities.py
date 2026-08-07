@@ -481,7 +481,7 @@ def test_catalog_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "---\ndescription: Cool skill\n---\n# Cool\n", encoding="utf-8"
     )
     # work_dir skills via scan paths — use monkeypatch on _scan if needed
-    rows = catalog.scan_host_skills(tmp_path)
+    catalog.scan_host_skills(tmp_path)
     # may be empty depending on paths; still exercise search APIs
     catalog.search_skills("cool", work_dir=tmp_path)
     catalog.resolve_skill_path("cool", work_dir=tmp_path)
@@ -1686,13 +1686,6 @@ def test_apply_mcp_catalog_entry_fallback():
 
 def test_apply_mcp_enabled_false_rewritten():
     """Block with enabled=false gets rewritten to true."""
-    p = Persona(
-        persona_id="t",
-        mcp_servers=["srv"],
-        mcp_definitions=[
-            {"id": "srv", "transport": "http", "url": "http://x"},
-        ],
-    )
     # definition_to_toml_block returns enabled=true by default, so force enabled=false
     # via host config block
     host = '[mcp_servers.srv]\nenabled = false\nurl = "http://x"\n'

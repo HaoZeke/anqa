@@ -524,7 +524,7 @@ class TestPruneEmptyParents:
         traces = tmp_path / "runs" / "traces"
         sd = traces / "groket-r" / "s"
         sd.mkdir(parents=True)
-        removed = rc.prune_empty_parents_after_session_delete(sd, stop_at=traces)
+        rc.prune_empty_parents_after_session_delete(sd, stop_at=traces)
         # Should not remove traces itself
         assert traces.is_dir()
 
@@ -882,7 +882,7 @@ class TestPruneEmptyParentsExtended:
         import shutil
 
         shutil.rmtree(sd)
-        removed = rc.prune_empty_parents_after_session_delete(sd, stop_at=traces)
+        rc.prune_empty_parents_after_session_delete(sd, stop_at=traces)
         # parent has keep.txt so it should not be removed
         assert parent.is_dir()
 
@@ -1579,7 +1579,7 @@ class TestMarkInterruptedSessionsAdvanced:
         (sd / "events.jsonl").write_text("x" * 300 + "\n", encoding="utf-8")
         old_time = time.time() - 7200
         os.utime(sd / "events.jsonl", (old_time, old_time))
-        result = rc.mark_interrupted_sessions(traces, dry_run=True)
+        rc.mark_interrupted_sessions(traces, dry_run=True)
         from groket.constants import INTERRUPTED_MARKER_FILENAME
 
         assert not (sd / INTERRUPTED_MARKER_FILENAME).exists()
@@ -1725,7 +1725,7 @@ class TestRebuildFeedbackCacheIndex:
             json.dumps({"session_id": "s2", "status": "pending"}), encoding="utf-8"
         )
         (sd / "report.md").write_text("# Report", encoding="utf-8")
-        result = rc.rebuild_feedback_cache_index(tmp_path)
+        rc.rebuild_feedback_cache_index(tmp_path)
         idx = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
         assert idx["sessions"]["s2"]["status"] == "has_report"
 
@@ -3190,7 +3190,6 @@ class TestPruneEmptyParentsRmdirFail:
         sd.mkdir(parents=True)
         shutil.rmtree(sd)
         # parent is now empty, but monkeypatch rmdir to fail
-        orig_rmdir = Path.rmdir
 
         def bad_rmdir(self: Path) -> None:
             raise OSError("cannot rmdir")

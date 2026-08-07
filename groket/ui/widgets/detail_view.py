@@ -9,7 +9,7 @@ from textual.message import Message
 from ...analysis.base import Finding
 from ...models import Flag, TraceEvent
 from ..render_detail import render_event_detail, set_static_renderable
-from ..selectable_static import SelectableStatic
+from ..selectable_static import SelectableStatic, plain_from_renderable
 
 
 class DetailView(VerticalScroll):
@@ -83,7 +83,24 @@ class DetailView(VerticalScroll):
         self.query_one("#detail-body", SelectableStatic).update("")
 
     def get_plain_text(self) -> str:
-        """Plain text of the current detail body (for clipboard yank)."""
+        """Plain text of the current detail body (for clipboard yank).
+
+        Rebuilds the event without display mid-caps so ``y`` is not limited to
+        the truncated on-screen tool/message bodies. Falls back to the widget
+        full plain cache when no event is loaded.
+        """
+        ev = self._current_event
+        if ev is not None:
+            renderable = render_event_detail(
+                ev,
+                finding=self._current_finding,
+                flag=self._current_flag,
+                duration=self._current_duration,
+                paired_call=self._paired_call,
+                paired_result=self._paired_result,
+                truncate=False,
+            )
+            return plain_from_renderable(renderable, full=True)
         try:
             body = self.query_one("#detail-body", SelectableStatic)
         except Exception:

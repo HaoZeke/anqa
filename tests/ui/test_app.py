@@ -183,9 +183,6 @@ def test_fill_timeline_counts_ignores_stale_indices(tmp_path: Path) -> None:
     from groket.models import SessionMeta
     from groket.ui.app import TraceEvalApp
 
-    work = tmp_path / "work"
-    work.mkdir()
-    app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
     meta = SessionMeta(session_id="s", session_dir=tmp_path / "s", origin="work")
     rows = [(meta, "lab")]
     # Out-of-range and valid indices — only valid apply.

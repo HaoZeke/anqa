@@ -138,7 +138,7 @@ async def test_toggle_select_and_select_all(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_cursor_shows_detail(tmp_path: Path) -> None:
     work = _make_work(tmp_path)
-    cfgs = _seed_configs(work, n=2)
+    _seed_configs(work, n=2)
     app = _Harness(work)
     async with app.run_test(size=(140, 40)) as pilot:
         scr = await _wait_table(pilot, app)
@@ -168,7 +168,7 @@ async def test_refresh_context(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_delete_config_double_press(tmp_path: Path) -> None:
     work = _make_work(tmp_path)
-    cfgs = _seed_configs(work, n=2)
+    _seed_configs(work, n=2)
     app = _Harness(work)
     async with app.run_test(size=(140, 40)) as pilot:
         scr = await _wait_table(pilot, app)

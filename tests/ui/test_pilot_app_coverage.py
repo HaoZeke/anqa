@@ -1000,8 +1000,12 @@ async def test_meta_cache_round_trip(tmp_path: Path) -> None:
     """Meta cache saves and loads correctly."""
     app, work, traces = _make_app(tmp_path, n_sessions=2)
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
-        # Cache should have been saved during load
+        # Wait for cache write, not only _meta_only (paint can race ahead of save).
+        await wait_until(
+            pilot,
+            lambda: len(app._meta_only) >= 2 and len(app._load_meta_cache()) >= 2,
+            description="sessions loaded and meta cache saved",
+        )
         cache = app._load_meta_cache()
         assert len(cache) >= 2
 

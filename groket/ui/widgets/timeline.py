@@ -313,11 +313,18 @@ class TimelineTable(DataTable):
 
     def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str]:
         """Visible cell values for one event (columns 0–5)."""
-        type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
+        from ...session.turns import harness_user_chrome_heading
+
+        chrome_heading = harness_user_chrome_heading(ev.content or "")
+        if chrome_heading is not None:
+            # Harness injects system-reminder / background-task as user_message_chunk.
+            type_style = f"[bold magenta]{chrome_heading.lower()}[/]"
+        else:
+            type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
         tool_err = ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES
-        if tool_err:
+        if tool_err and chrome_heading is None:
             type_style = f"[red bold underline]{ev.type_label}[/]"
-        elif ev.event_type in et.ERROR_TYPES:
+        elif ev.event_type in et.ERROR_TYPES and chrome_heading is None:
             type_style = f"[red bold underline]{ev.type_label}[/]"
         dur_str = ""
         if ev.index in self._durations:

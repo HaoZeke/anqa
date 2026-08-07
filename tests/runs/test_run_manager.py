@@ -1246,7 +1246,7 @@ def test_worker_status_callback_detached(
     statuses: list = []
     rm.add_status_listener(lambda s: statuses.append(s))
 
-    bg = rm.start_run(
+    rm.start_run(
         prompt="p",
         setup_instructions="",
         docker_image="fully-loaded",
@@ -1436,7 +1436,7 @@ def test_start_run_saves_config(rm: RunManager, tmp_path: Path):
     """start_run saves a run config when save_config=True."""
     rm.orchestrator.run_parallel_evaluations = Mock(return_value=[])
     with _mock_validate():
-        bg = rm.start_run(prompt="test save", models=["m1"], **_run_kw(tmp_path, save_config=True))
+        rm.start_run(prompt="test save", models=["m1"], **_run_kw(tmp_path, save_config=True))
     from groket.runs.run_configs import RunConfigStore
 
     configs = RunConfigStore(rm.work_dir).list_configs()
@@ -1849,7 +1849,7 @@ def test_start_run_saves_config_flag(rm: RunManager, tmp_path: Path) -> None:
     """start_run persists run config when save_config=True."""
     rm.orchestrator.run_parallel_evaluations = Mock(return_value=[])
     with _mock_validate():
-        bg = rm.start_run(
+        rm.start_run(
             prompt="save me",
             models=["m1"],
             **_run_kw(tmp_path, save_config=True),

@@ -268,7 +268,6 @@ class JobsModal(TabPaneNavigation, QuitActions, ModalScreen[None]):
             log_id = "jobs-log-" + tab_id.removeprefix("jobs-log-tab-")
             with suppress(Exception):
                 self.query_one(f"#{log_id}", RichLog).clear()
-        return
 
     @on(Button.Pressed, "#jobs-close-btn")
     def _btn_close(self) -> None:

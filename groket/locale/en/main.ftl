@@ -671,7 +671,7 @@ note-save-failed = Could not save operator note: { $msg }
 
 note-turn-invalid = Choose a valid turn before saving
 
-notes-blurb = Turn-linked operator notes (N to add; O or command palette to edit or delete). Field layout: ~/.groket/notes_schema.toml. Authored in the TUI only.
+notes-blurb = Turn-linked operator notes (N to add; O or command palette to edit or delete). Field layout: ~/.groket/notes_schema.toml. Same store as Emacs, Neovim, and the HUD via the control plane.
 
 notes-empty-preview = (empty)
 
@@ -2674,6 +2674,7 @@ tool-binary-output = (binary / control-only output)
 tool-empty-output = (empty)
 notify-scanning = Scanning { $path }…
 notify-no-sessions = No sessions found in { $path }
+notify-control-list-failed = Control catalog failed: { $err }
 notify-loaded-sessions = Loaded { $n } sessions
 notify-analyzing = Analyzing { $n } sessions ({ $plugins } plugins)…
 notify-analysis-complete = Analysis complete — { $n } sessions
@@ -2800,7 +2801,7 @@ ui-origin = Src
 ui-origin-work = Eval
 ui-origin-host = Host
 
-ui-control-socket-in-use = Editor control already owned by another groket; this instance continues without the socket
+ui-control-socket-attached = Attached to existing control owner (catalog and notes via control socket)
 ui-control-socket-start-failed = Editor control socket could not start; this instance continues without the socket
 
 notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)

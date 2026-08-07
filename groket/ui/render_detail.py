@@ -221,13 +221,33 @@ def _content_str(
     return s
 
 
-def _truncate_mid(s: str, head: int = 7000, tail: int = 5000, limit: int = 14000) -> str:
-    if len(s) <= limit:
+def _truncate_mid(
+    s: str,
+    head: int = 7000,
+    tail: int = 5000,
+    limit: int = 14000,
+    *,
+    truncate: bool = True,
+) -> str:
+    """Mid-body cap for *display*; when *truncate* is False keep the full string (yank)."""
+    if not truncate or len(s) <= limit:
         return s
     return s[:head] + t("truncate-marker") + s[-tail:]
 
 
-def _render_tool_input(tname: str, ri: dict) -> list:
+def _cap_str(s: str, limit: int, *, truncate: bool, marker: str | None = None) -> str:
+    """Prefix cap for long fields; no-op when *truncate* is False.
+
+    :param marker: Suffix after the cut. ``None`` uses the Fluent truncated
+        marker; ``""`` means hard cut with no suffix (legacy search_replace).
+    """
+    if not truncate or len(s) <= limit:
+        return s
+    suffix = t("ui-truncated-1") if marker is None else marker
+    return s[:limit] + suffix
+
+
+def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool input sections (trace_viewer render_tool_detail)."""
     parts: list = []
     path_hint = _path_hint(ri)
@@ -246,10 +266,18 @@ def _render_tool_input(tname: str, ri: dict) -> list:
         old_s, new_s = (str(ri.get("old_string") or ""), str(ri.get("new_string") or ""))
         if old_s:
             parts.append(Text(t("tool-field-old-string"), style="red"))
-            parts.append(_syntax(old_s[:8000], lang, line_numbers=True))
+            parts.append(
+                _syntax(
+                    _cap_str(old_s, 8000, truncate=truncate, marker=""), lang, line_numbers=True
+                )
+            )
         if new_s:
             parts.append(Text(t("tool-field-new-string"), style="green"))
-            parts.append(_syntax(new_s[:8000], lang, line_numbers=True))
+            parts.append(
+                _syntax(
+                    _cap_str(new_s, 8000, truncate=truncate, marker=""), lang, line_numbers=True
+                )
+            )
         extra = {
             k: v
             for k, v in ri.items()
@@ -330,9 +358,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
         for key in ("query", "prompt", "description", "question"):
             if key in ri and isinstance(ri[key], str) and ri[key].strip():
                 parts.append(Text(f"{key}:", style="bright_blue"))
-                val = ri[key]
-                if len(val) > 4000:
-                    val = val[:4000] + t("ui-truncated-1")
+                val = _cap_str(str(ri[key]), 4000, truncate=truncate)
                 if key in ("prompt", "description") and "\n" in val:
                     parts.append(Markdown(val))
                 else:
@@ -363,7 +389,7 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     return parts
 
 
-def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
+def _render_tool_output(out: str, tname: str, path_hint: str, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool output (trace_viewer output block)."""
     parts: list = []
     raw_len = len(out or "")
@@ -371,7 +397,7 @@ def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
     if not cleaned and out:
         cleaned = sanitize_console_text(out, for_display=False) or t("tool-binary-output")
     n_out = len(cleaned)
-    out_disp = _truncate_mid(cleaned)
+    out_disp = _truncate_mid(cleaned, truncate=truncate)
     if raw_len and n_out < raw_len * 0.9:
         out_label = t("tool-output-rule-cleaned", n=n_out, raw=raw_len)
     else:
@@ -423,8 +449,14 @@ def render_tool_detail(
     update_index: int | None = None,
     event_type: str = "tool",
     duration: float | None = None,
+    truncate: bool = True,
 ) -> Group:
-    """Unified tool detail (trace_viewer render_tool_detail), call+result merged."""
+    """Unified tool detail (trace_viewer render_tool_detail), call+result merged.
+
+    :param truncate: When True (display), mid-cap huge tool bodies. When False
+        (clipboard yank), keep full input/output text.
+    """
+    _ = (tool_call_id, update_index)
     ri = raw_input or {}
     path_hint = _path_hint(ri)
     tname = tool_name or "?"
@@ -460,7 +492,7 @@ def render_tool_detail(
     parts: list = [head, meta]
     if ri:
         parts += [Text(""), Rule(t("ui-input"), style="bright_black")]
-        parts.extend(_render_tool_input(tname, ri))
+        parts.extend(_render_tool_input(tname, ri, truncate=truncate))
     else:
         parts += [
             Text(""),
@@ -468,7 +500,7 @@ def render_tool_detail(
             Text(t("tool-no-input"), style="dim italic"),
         ]
     parts.append(Text(""))
-    parts.extend(_render_tool_output(output, tname, path_hint))
+    parts.extend(_render_tool_output(output, tname, path_hint, truncate=truncate))
     return Group(*parts)
 
 
@@ -478,6 +510,7 @@ def render_tool_detail_from_event(
     paired_call: TraceEvent | None = None,
     paired_result: TraceEvent | None = None,
     duration: float | None = None,
+    truncate: bool = True,
 ) -> Group:
     """Render tool_call / tool_result, merging pair when available (trace_viewer style)."""
     call = ev if ev.event_type == "tool_call" else paired_call
@@ -546,6 +579,7 @@ def render_tool_detail_from_event(
         update_index=update_index,
         event_type=ev.event_type,
         duration=duration,
+        truncate=truncate,
     )
 
 
@@ -557,8 +591,13 @@ def render_event_detail(
     duration: float | None = None,
     paired_call: TraceEvent | None = None,
     paired_result: TraceEvent | None = None,
+    truncate: bool = True,
 ) -> RenderableType:
-    """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners)."""
+    """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners).
+
+    :param truncate: Display caps for huge bodies (default). Pass False for
+        clipboard yank so the operator gets the full event text.
+    """
     banners: list = []
     if flag:
         ft = Text()
@@ -571,21 +610,37 @@ def render_event_detail(
         it = Text()
         it.append(t("ui-finding"), style=f"{sc} bold")
         it.append(f"  [{finding.plugin_id}] {finding.category}: {finding.title}\n", style=sc)
-        it.append(f"  {(finding.detail or '')[:400]}", style="dim")
+        detail = finding.detail or ""
+        if truncate and len(detail) > 400:
+            detail = detail[:400]
+        it.append(f"  {detail}", style="dim")
         banners.append(it)
     if ev.event_type in et.TOOL_TYPES:
         core = render_tool_detail_from_event(
-            ev, paired_call=paired_call, paired_result=paired_result, duration=duration
+            ev,
+            paired_call=paired_call,
+            paired_result=paired_result,
+            duration=duration,
+            truncate=truncate,
         )
         if banners:
             return Group(*banners, Text(""), core)
         return core
+    from ..session.tagged_blocks import unwrap_for_display
+    from ..session.turns import harness_user_chrome_heading
+
+    chrome_heading = harness_user_chrome_heading(ev.content or "")
     style = KIND_STYLES.get(ev.event_type, "white")
+    if chrome_heading is not None:
+        style = "bold magenta"
     if ev.is_error and ev.event_type in et.SESSION_CHROME_TYPES:
         style = "bold red"
     head = Text()
     head.append(f"#{ev.index} ", style="dim")
-    head.append(ev.type_label or ev.event_type, style=style)
+    head.append(
+        chrome_heading if chrome_heading is not None else (ev.type_label or ev.event_type),
+        style=style,
+    )
     if ev.is_error:
         head.append(t("ui-error-1"), style="bold red")
     head.append("\n")
@@ -596,8 +651,12 @@ def render_event_detail(
         meta_parts.append(fmt_duration(duration))
     if meta_parts:
         head.append("  ·  ".join(meta_parts), style="dim")
-    body = _content_str(ev.content, sanitize=True, tool_name=ev.tool_name or "")
-    if len(body) > 20000:
+    body = _content_str(
+        unwrap_for_display(ev.content or ""),
+        sanitize=True,
+        tool_name=ev.tool_name or "",
+    )
+    if truncate and len(body) > 20000:
         body = body[:10000] + t("truncate-marker") + body[-8000:]
     chunks: list = []
     if banners:
@@ -635,10 +694,15 @@ def render_event_detail(
     return Group(*chunks)
 
 
-def render_markdown_doc(text: str, *, max_chars: int = 120000) -> RenderableType:
-    """Markdown document for Summary / Feedback tabs."""
+def render_markdown_doc(
+    text: str, *, max_chars: int = 120000, truncate: bool = True
+) -> RenderableType:
+    """Markdown document for Summary / Feedback tabs.
+
+    :param truncate: Cap huge docs for display. False keeps full text (yank).
+    """
     body = text or "_empty_"
-    if len(body) > max_chars:
+    if truncate and len(body) > max_chars:
         body = body[: max_chars // 2] + t("truncate-for-display") + body[-(max_chars // 3) :]
     try:
         return Markdown(body)

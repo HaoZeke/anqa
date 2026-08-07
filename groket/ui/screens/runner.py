@@ -557,12 +557,9 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     existing_ids.add(str(vid))
         except Exception:
             existing_ids = set()
-        if existing_ids != launch_tokens and not (
-            existing_ids <= launch_tokens and launch_tokens <= existing_ids
-        ):
-            if (existing_ids - launch_tokens) or (launch_tokens - existing_ids):
-                self._rebuild_models_selection(want, default_select_all=False)
-                return
+        if existing_ids != launch_tokens:
+            self._rebuild_models_selection(want, default_select_all=False)
+            return
         try:
             for sid in list(sl.selected):
                 try:

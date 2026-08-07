@@ -56,6 +56,18 @@ def test_tips_off_empty():
     prefs.set_show_tips(True)
 
 
+def test_empty_state_quiet_chrome():
+    from groket.ui.panel_render import EMPTY_STATE_CLASS, EmptyState
+
+    empty = EmptyState("No flags yet", id="es")
+    assert EMPTY_STATE_CLASS in empty.classes
+    assert "No flags yet" in empty._render_body().plain
+    assert "┌" not in empty._render_body().plain
+    empty.clear_message()
+    assert empty._empty_message == ""
+    assert "empty-state-hidden" in empty.classes
+
+
 def test_tip_surface_always_has_class():
     tip = TipSurface("hello", kind="info", classes="extra-layout")
     assert TIP_SURFACE_CLASS in tip.classes

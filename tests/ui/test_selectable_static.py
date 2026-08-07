@@ -34,9 +34,52 @@ def test_plain_from_renderable_markdown() -> None:
     assert "code" in plain
 
 
+def test_plain_from_renderable_markdown_fences_not_width_padded() -> None:
+    """Rich Console pads Markdown to width with spaces — yank must use source."""
+    import re
+
+    from groket.ui.panel_render import content_block
+
+    body = (
+        "Where do you see it?\n\n"
+        "```bash\n"
+        "mkdir -p …/grokos-agent-pi/{src,bin,scripts,test}\n"
+        "```\n\n"
+        "```text\n"
+        "…/grokos-agent-pi/package.json\n"
+        '+ "name": "@grokos/agent-pi"\n'
+        "```\n"
+    )
+    for obj in (Markdown(body), content_block(body)):
+        plain = plain_from_renderable(obj, width=80, full=True)
+        max_spaces = max((len(m.group(0)) for m in re.finditer(r" +", plain)), default=0)
+        assert max_spaces < 20, max_spaces
+        assert "mkdir -p" in plain
+        assert '"name": "@grokos/agent-pi"' in plain
+        assert len(plain) < 500
+
+
 def test_plain_from_renderable_syntax() -> None:
     plain = plain_from_renderable(Syntax("print(1)", "python"))
     assert "print" in plain
+
+
+def test_plain_from_renderable_syntax_long_line_not_cropped_at_narrow_width() -> None:
+    """Rich Syntax crops to console width; yank must use raw .code instead."""
+    long_line = "print('" + ("z" * 400) + "END')"
+    plain = plain_from_renderable(Syntax(long_line, "python"), width=40)
+    assert "END" in plain
+    assert len(plain) >= 400
+    assert plain_from_renderable(Syntax(long_line, "python"), width=40, full=True).endswith("')")
+
+
+def test_plain_from_renderable_group_preserves_syntax_code() -> None:
+    long_line = "payload_" + ("x" * 300) + "_TAIL"
+    group = Group(Text("hdr"), Syntax(long_line, "text"), Text("foot"))
+    plain = plain_from_renderable(group, width=30)
+    assert "hdr" in plain
+    assert "foot" in plain
+    assert "_TAIL" in plain
 
 
 def test_materialize_group_preserves_line_for_partial_extract() -> None:
@@ -132,6 +175,34 @@ async def test_detail_view_get_plain_text_yanks_message() -> None:
         plain = dv.get_plain_text()
         assert "XYZ123" in plain
         assert "please copy" in plain
+
+
+@pytest.mark.asyncio
+async def test_detail_view_yank_keeps_full_tool_output_past_display_cap() -> None:
+    """Display mid-caps tool output; y must still include the whole body."""
+    app = _DetailApp()
+    async with app.run_test():
+        dv = app.query_one("#detail", DetailView)
+        # Mid-cap keeps head+tail; middle unique marker must survive full yank only.
+        middle = "UNIQUE_MIDDLE_CHUNK_991177"
+        out = ("A" * 9000) + middle + ("B" * 9000)
+        ev = make_trace_event(
+            index=1,
+            event_type="tool_call",
+            tool_name="run_terminal_command",
+            content=out,
+            raw_input={"command": "echo hi"},
+        )
+        dv.show_event(ev)
+        body = dv.query_one("#detail-body", SelectableStatic)
+        display_plain = body.get_plain_text()
+        yank = dv.get_plain_text()
+        assert middle in yank
+        # Display path may omit the middle when mid-truncated.
+        from groket.ui.i18n import t
+
+        if t("truncate-marker") in display_plain:
+            assert middle not in display_plain
 
 
 @pytest.mark.asyncio

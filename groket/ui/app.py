@@ -36,11 +36,12 @@ from textual.widgets import (
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
 from ..constants import META_CACHE_FILENAME
-from ..integrations.control import ControlServer, ControlSocketInUse
-from ..models import JsonObject, JsonValue, SessionMeta
+from ..integrations.control_client import ControlClient, listen_control_notifications
+from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
 from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
+from ..session.access import RemoteSessionAccess
 from . import text as U
 from .bindings import (
     APP_GLOBAL_PRIORITY,
@@ -333,28 +334,6 @@ class TraceEvalApp(App):
             super().__init__()
             self.run = run
 
-    class _ControlOpenSession(Message):
-        """Control service request marshalled onto the Textual message loop."""
-
-        def __init__(
-            self,
-            session_dir: Path,
-            prompt_index: int | None,
-            result: asyncio.Future[bool],
-        ) -> None:
-            super().__init__()
-            self.session_dir = session_dir
-            self.prompt_index = prompt_index
-            self.result = result
-
-    class _ControlNotesChanged(Message):
-        """Canonical note change marshalled onto the Textual message loop."""
-
-        def __init__(self, session_dir: Path, result: asyncio.Future[None]) -> None:
-            super().__init__()
-            self.session_dir = session_dir
-            self.result = result
-
     def __init__(
         self,
         traces_path: Path | None = None,
@@ -362,6 +341,7 @@ class TraceEvalApp(App):
         *,
         config_path: Path | None = None,
         control_socket: Path | None = None,
+        control_attach_only: bool = False,
         initial_session: Path | None = None,
         initial_prompt_index: int | None = None,
         **kwargs,
@@ -405,7 +385,11 @@ class TraceEvalApp(App):
         self._control_socket = (
             Path(control_socket).expanduser() if control_socket is not None else None
         )
-        self._control_server: ControlServer | None = None
+        # True when attached to a live control owner (TUI never owns the socket).
+        self._control_attached: bool = False
+        # When true, load catalog via session/list and never bind the socket.
+        self._control_attach_only: bool = bool(control_attach_only)
+        self._control_notify_stop: asyncio.Event | None = None
         self._initial_session = (
             Path(initial_session).expanduser().resolve() if initial_session is not None else None
         )
@@ -637,10 +621,11 @@ class TraceEvalApp(App):
             work.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+        # Attach-only: start control client first so home list loads via RPC.
+        self._start_control_service()
         self._load_sessions(include_host=None)
         table.focus()
         self._schedule_live_sessions_poll()
-        self._start_control_service()
         if self._initial_session is not None:
             self.call_after_refresh(
                 self.open_session_path,
@@ -648,173 +633,207 @@ class TraceEvalApp(App):
                 prompt_index=self._initial_prompt_index,
             )
 
-    def _resolve_control_session(self, reference: str) -> Path | None:
-        """Resolve a path or catalog session id without a broad filesystem scan."""
-        candidate = Path(reference).expanduser()
-        if candidate.is_dir():
-            return candidate.resolve()
-        for meta, _label in self._meta_only:
-            if meta.session_id == reference or meta.session_dir.name == reference:
-                return meta.session_dir.resolve()
-        for root in self._session_catalog_roots():
-            candidate = root.path / reference
-            if candidate.is_dir():
-                return candidate.resolve()
-        return None
-
-    def _control_list_sessions(self) -> list[JsonObject]:
-        """Snapshot the sessions-home catalog for editor ``session/list``.
-
-        Runs on a worker thread; copy the row source up front so UI-side
-        mutation cannot race the iteration.
-        """
-        rows: list[JsonObject] = []
-        for meta, label in list(self._meta_only):
-            session_id = (meta.session_id or meta.session_dir.name).strip()
-            rows.append(
-                {
-                    "sessionId": session_id,
-                    "path": str(meta.session_dir.resolve()),
-                    "title": meta.title or "",
-                    "label": label or meta.label,
-                    "model": meta.model_display,
-                    "status": meta.list_status_label(),
-                    "outcome": meta.turn_outcome or "",
-                    "origin": meta.origin or "work",
-                }
-            )
-        return rows
-
-    async def _control_open_session(
-        self,
-        session_dir: Path,
-        prompt_index: int | None,
-    ) -> bool:
-        """Request a browser transition through Textual's message queue."""
-        result = asyncio.get_running_loop().create_future()
-        self.post_message(self._ControlOpenSession(session_dir, prompt_index, result))
-        return await result
-
-    async def _control_notes_changed(self, session_dir: Path) -> None:
-        """Refresh an open browser after a socket-originated note mutation."""
-        result = asyncio.get_running_loop().create_future()
-        self.post_message(self._ControlNotesChanged(session_dir, result))
-        await result
-
     def _start_control_service(self) -> None:
+        """Attach to the control owner; the TUI never binds the socket."""
         if self._control_socket is None:
             return
-        self._control_server = ControlServer(
-            socket_path=self._control_socket,
-            resolve_session=self._resolve_control_session,
-            list_sessions=self._control_list_sessions,
-            open_session=self._control_open_session,
-            notes_changed=self._control_notes_changed,
-        )
+        self._control_attach_only = True
+        self._control_attached = True
         self.run_worker(
-            self._run_control_service(),
-            name="editor-control-service",
+            self._attach_control_client(),
+            name="editor-control-attach",
             group="editor-control-service",
             exclusive=True,
         )
 
-    async def _run_control_service(self) -> None:
-        """Own the editor control socket, or continue without it if already taken."""
-        server = self._control_server
-        if server is None:
+    async def _attach_control_client(self) -> None:
+        """Confirm the live owner, then start a notify listener worker."""
+        self._control_attached = True
+        with suppress(Exception):
+            await self._confirm_control_attach()
+        with suppress(Exception):
+            self.notify(t("ui-control-socket-attached"), severity="information", timeout=6)
+        if self._control_socket is None:
             return
-        # Bind/start only: OSError here is not the same as "already owned"
-        # (e.g. PermissionError on mkdir/chmod of the runtime dir).
-        try:
-            await server.start()
-        except ControlSocketInUse as exc:
-            logger.warning(
-                "Editor control socket already active at %s; this instance continues without it",
-                exc.socket_path,
-            )
-            self._control_server = None
-            with suppress(Exception):
-                self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
-            return
-        except OSError as exc:
-            logger.warning(
-                "Editor control socket failed to start (%s): %s",
-                server.socket_path,
-                exc,
-            )
-            self._control_server = None
-            with suppress(Exception):
-                self.notify(t("ui-control-socket-start-failed"), severity="warning", timeout=6)
-            return
-        await server.serve_forever()
+        stop = asyncio.Event()
+        self._control_notify_stop = stop
+        # Separate long-lived worker so attach itself can finish cleanly.
+        self.run_worker(
+            self._control_notify_loop(stop),
+            name="editor-control-notify",
+            group="editor-control-notify",
+            exclusive=True,
+        )
 
-    def on_trace_eval_app__control_open_session(
-        self,
-        event: _ControlOpenSession,
-    ) -> None:
-        """Open a session requested by an editor client."""
-        if event.result.done():
+    async def _control_notify_loop(self, stop: asyncio.Event) -> None:
+        """Background: stay connected for session/notes/analysis notifies."""
+        if self._control_socket is None:
             return
-        try:
-            self.open_session_path(
-                event.session_dir,
-                prompt_index=event.prompt_index,
+        await listen_control_notifications(
+            self._control_socket,
+            self._on_control_notification,
+            client_name="groket-tui-notify",
+            stop=stop,
+        )
+
+    async def _on_control_notification(self, method: str, params: JsonObject) -> None:
+        """Handle serve-side notify (session/selected, changed, notes, analysis)."""
+        from ..models import json_as_int
+
+        if self._exiting:
+            return
+        if method == "session/selected":
+            sid = json_as_str(params.get("sessionId")).strip()
+            if not sid:
+                return
+            raw_pi = params.get("promptIndex")
+            prompt_index = None if raw_pi is None else json_as_int(raw_pi)
+            # Resolve id → path via catalog rows or traces root.
+            path = self._resolve_session_id_for_control(sid)
+            if path is None:
+                return
+            self.call_later(
+                self.open_session_path,
+                path,
+                prompt_index=prompt_index,
                 notify_control=False,
             )
-        except Exception as exc:
-            event.result.set_exception(exc)
-        else:
-            event.result.set_result(True)
+            return
+        if method == "session/changed":
+            sid = json_as_str(params.get("sessionId")).strip()
+            self.call_later(self._control_session_changed_ui, sid)
+            return
+        if method == "notes/changed":
+            sid = json_as_str(params.get("sessionId")).strip()
+            self.call_later(self._control_notes_changed_ui, sid)
+            return
+        if method == "analysis/changed":
+            sid = json_as_str(params.get("sessionId")).strip()
+            self.call_later(self._control_analysis_changed_ui, sid)
+            return
 
-    def on_trace_eval_app__control_notes_changed(
-        self,
-        event: _ControlNotesChanged,
-    ) -> None:
-        """Reload notes when the active browser displays the changed session."""
-        if event.result.done():
+    def _resolve_session_id_for_control(self, session_id: str) -> Path | None:
+        """Map a session id from control notify to a local directory."""
+        for meta, _label in self._meta_only:
+            if session_id in (meta.session_id, meta.session_dir.name):
+                return meta.session_dir
+        for root in self._session_catalog_roots():
+            candidate = root.path / session_id
+            if candidate.is_dir():
+                return candidate
+        return None
+
+    def _control_session_changed_ui(self, session_id: str) -> None:
+        """Refresh home list and open browser when the changed session is open."""
+        if session_id:
+            self._load_sessions()
+        screen = self.screen
+        if isinstance(screen, BrowserScreen) and session_id:
+            try:
+                if screen.session_dir.name == session_id:
+                    screen._live_refresh_from_fs(heartbeat=False)
+            except Exception:
+                logger.debug("browser refresh on session/changed failed", exc_info=True)
+
+    def _control_notes_changed_ui(self, session_id: str) -> None:
+        screen = self.screen
+        if not isinstance(screen, BrowserScreen) or not session_id:
             return
         try:
-            screen = self.screen
-            if isinstance(screen, BrowserScreen):
-                try:
-                    same_session = screen.session_dir.resolve() == event.session_dir.resolve()
-                except OSError:
-                    same_session = screen.session_dir == event.session_dir
-                if same_session:
-                    screen._load_notes()
-                    screen._update_reports_tab()
-        except Exception as exc:
-            event.result.set_exception(exc)
-        else:
-            event.result.set_result(None)
+            if screen.session_dir.name == session_id:
+                screen._load_notes()
+                screen._update_reports_tab()
+        except Exception:
+            logger.debug("notes refresh on notes/changed failed", exc_info=True)
 
-    def _run_control_broadcast(self, coroutine) -> None:
-        """Run a control notification under Textual worker ownership."""
-        if self._control_server is None:
-            coroutine.close()
+    def _control_analysis_changed_ui(self, session_id: str) -> None:
+        screen = self.screen
+        if not isinstance(screen, BrowserScreen) or not session_id:
             return
-        self.run_worker(coroutine, group="editor-control-broadcasts")
+        try:
+            if screen.session_dir.name != session_id:
+                return
+            from ..analysis import get_analysis_service
+
+            cached = get_analysis_service().load_cached_all(screen.session_dir, allow_stale=True)
+            if cached:
+                screen.plugin_results = cached
+                screen._collect_findings()
+                screen._rebuild_indices()
+                screen._populate_analysis_ui()
+        except Exception:
+            logger.debug("analysis refresh on analysis/changed failed", exc_info=True)
+
+    def is_control_client(self) -> bool:
+        """True when this TUI uses a control owner (never owns the socket)."""
+        return bool(self._control_attached and self._control_socket is not None)
+
+    def is_control_owner(self) -> bool:
+        """Always false: headless ``groket serve`` is the sole socket owner."""
+        return False
+
+    def control_client(self) -> ControlClient | None:
+        """Return a client for the control socket when configured."""
+        if self._control_socket is None:
+            return None
+        return ControlClient(
+            self._control_socket,
+            client_name="groket-tui",
+        )
+
+    def session_access(self) -> RemoteSessionAccess | None:
+        """Remote façade over the control owner (None when socket disabled)."""
+        client = self.control_client()
+        if client is None:
+            return None
+        return RemoteSessionAccess(client)
+
+    async def control_session_list(
+        self,
+        *,
+        query: str = "",
+        limit: int | None = None,
+    ) -> JsonObject:
+        """Session catalog via control ``session/list`` (same path as HUD/editors)."""
+        access = self.session_access()
+        if access is None:
+            return {"sessions": [], "total": 0, "matched": 0}
+        return await access.list_sessions(query=query, limit=limit)
+
+    async def _confirm_control_attach(self) -> None:
+        """Verify the live owner speaks our protocol (best-effort)."""
+        client = self.control_client()
+        if client is None:
+            return
+        try:
+            result = await client.initialize()
+            logger.info(
+                "Attached to control owner at %s (protocol %s)",
+                self._control_socket,
+                result.get("protocolVersion"),
+            )
+        except Exception:
+            logger.warning(
+                "Control attach initialize failed at %s",
+                self._control_socket,
+                exc_info=True,
+            )
 
     def control_session_selected(
         self,
         session_dir: Path,
         prompt_index: int | None,
     ) -> None:
-        """Broadcast the session and prompt selected in the TUI."""
-        if self._control_server is not None:
-            self._run_control_broadcast(
-                self._control_server.publish_session_selected(session_dir, prompt_index)
-            )
+        """TUI selection notify (serve broadcasts when notify RPC lands)."""
+        _ = (session_dir, prompt_index)
 
     def control_session_changed(self, session_dir: Path) -> None:
-        """Broadcast a changed trace projection."""
-        if self._control_server is not None:
-            self._run_control_broadcast(self._control_server.publish_session_changed(session_dir))
+        """TUI change notify (serve owns broadcast; no-op as client)."""
+        _ = session_dir
 
     def control_notes_changed(self, session_dir: Path) -> None:
-        """Broadcast a canonical operator-note mutation."""
-        if self._control_server is not None:
-            self._run_control_broadcast(self._control_server.publish_notes_changed(session_dir))
+        """TUI notes notify (serve owns broadcast; no-op as client)."""
+        _ = session_dir
 
     _CACHE_FILE = META_CACHE_FILENAME
 
@@ -1078,6 +1097,87 @@ class TraceEvalApp(App):
             include_host=bool(include_host),
         )
 
+    def _fetch_control_session_list_sync(
+        self,
+        *,
+        query: str = "",
+        limit: int | None = 500,
+    ) -> list[JsonObject]:
+        """Blocking ``session/list`` for attach-mode workers (new event loop)."""
+
+        from ..integrations.control_client import ControlClient
+
+        sock = self._control_socket
+        if sock is None:
+            return []
+
+        async def _run() -> list[JsonObject]:
+            client = ControlClient(sock, client_name="groket-tui")
+            result = await client.session_list(query=query, limit=limit)
+            raw = result.get("sessions") if isinstance(result, dict) else None
+            if not isinstance(raw, list):
+                return []
+            return [as_json_object(r) for r in raw if isinstance(r, dict)]
+
+        return asyncio.run(_run())
+
+    def _load_sessions_via_control(
+        self,
+        gen: int,
+        *,
+        quiet: bool = False,
+        clear_plugins: bool = True,
+    ) -> None:
+        """Populate home list from control ``session/list`` (attach client path).
+
+        :param quiet: Skip scan/loaded notifications (live refresh).
+        :param clear_plugins: When false, keep analysis results for known paths.
+        """
+        from ..session.catalog import session_meta_from_catalog_row
+
+        try:
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-scanning", path="control"),
+                    severity="information",
+                )
+            wire_rows = self._fetch_control_session_list_sync(limit=500)
+            if not self._sessions_load_current(gen):
+                return
+            rows: list[tuple[SessionMeta, str]] = []
+            for raw in wire_rows:
+                meta = session_meta_from_catalog_row(raw)
+                if meta is None:
+                    continue
+                label = str(raw.get("label") or meta.label)
+                rows.append((meta, label))
+            if not self._apply_session_meta_rows(gen, rows, clear_plugins=clear_plugins):
+                return
+            n = len(rows)
+            call_ui(self, self._rebuild_session_filters)
+            call_ui(self, self._populate_session_table, force=True)
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-loaded-sessions", n=n),
+                    severity="information",
+                )
+        except Exception as exc:
+            logger.exception("control session/list failed for attach catalog")
+            if not quiet:
+                # Do not pretend the catalog is empty — this is a control failure.
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-control-list-failed", err=str(exc)[:180]),
+                    severity="error",
+                )
+        finally:
+            call_ui(self, self._finish_sessions_load, gen)
+
     @work(thread=True, exclusive=True, group="sessions-catalog")
     def _load_sessions(
         self,
@@ -1085,9 +1185,16 @@ class TraceEvalApp(App):
         *,
         include_host: bool | None = None,
     ) -> None:
-        """Scan eval (+ optional host) roots and replace the sessions list."""
+        """Scan eval (+ optional host) roots and replace the sessions list.
+
+        When this TUI is attach-only (or already attached as client), load the
+        home catalog via control ``session/list`` instead of a local disk walk.
+        """
         _ = root
         gen = self._begin_sessions_load()
+        if self._control_attach_only or self._control_attached:
+            self._load_sessions_via_control(gen)
+            return
         roots = self._catalog_roots_for_load(include_host=include_host)
         scan_desc = ", ".join(str(r.path) for r in roots)
         try:
@@ -2783,7 +2890,6 @@ class TraceEvalApp(App):
     def _maybe_notify_share_url(self, session_dir: Path, share_url: str) -> None:
         """Share updates are normal workflow (Jobs/Browser/s key); no toast spam."""
         _ = (session_dir, share_url)
-        return
 
     def _scan_live_sessions_into_table(self) -> None:
         """Background-only: discover new sessions + refresh turn status for live ones.
@@ -2796,6 +2902,7 @@ class TraceEvalApp(App):
           ``updates.jsonl`` on the list poll.
         - New sessions only: ``load_session_meta`` once.
         - UI: one ``call_ui`` apply if anything actually changed — no share spam.
+        - Attach client: quiet ``session/list`` refresh (min_gap, keep analysis).
         - Skip entirely while a catalog reload is in flight (toggle/F5 owns the list).
         """
         import time
@@ -2808,6 +2915,21 @@ class TraceEvalApp(App):
 
         now = time.time()
         active_n = int(self.run_manager.active_count or 0)
+        # Attach refresh is a full RPC list: use the slower idle interval, not
+        # the active-run gap, and never wipe plugin results.
+        if self._control_attach_only or self._control_attached:
+            min_gap = LIVE_POLL_FULL_WALK_INTERVAL
+            if now - self._live_sessions_last_scan < min_gap:
+                return
+            self._live_sessions_last_scan = now
+            gen = self._begin_sessions_load()
+            try:
+                self._load_sessions_via_control(gen, quiet=True, clear_plugins=False)
+            finally:
+                # _load_sessions_via_control finishes gen itself; guard double-finish
+                pass
+            return
+
         min_gap = LIVE_POLL_ACTIVE_INTERVAL
         if now - self._live_sessions_last_scan < min_gap:
             return
@@ -3072,6 +3194,9 @@ class TraceEvalApp(App):
         UI callbacks that would block Textual shutdown via ``call_from_thread``.
         """
         self._exiting = True
+        stop = self._control_notify_stop
+        if stop is not None:
+            stop.set()
         for attr in (
             "_run_status_timer",
             "_live_sessions_timer",

@@ -1,4 +1,4 @@
-"""Textual ownership of the local editor control socket."""
+"""TUI attaches as a control client; never owns the socket."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import asyncio
 import json
 import tempfile
 from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 
 import pytest
 from groket.ui.app import TraceEvalApp
-from groket.ui.screens.browser import BrowserScreen
 from textual.pilot import Pilot
 
 
@@ -93,95 +93,55 @@ async def _rpc_call(
 
 
 @pytest.mark.asyncio
-async def test_tui_owns_control_socket_and_opens_catalog_session(tmp_path: Path) -> None:
+async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> None:
+    daemon = import_module("groket.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     session_dir = _write_session(traces)
-    socket_path = _short_sock("tui-control.sock")
-    app = TraceEvalApp(
+    socket_path = _short_sock("tui-attach.sock")
+    owner = daemon.build_domain_control_server(
+        socket_path=socket_path,
         work_dir=work,
         traces_path=traces,
-        control_socket=socket_path,
     )
-
-    async with app.run_test(size=(120, 40)) as pilot:
-        await _wait_until(pilot, socket_path.exists, description="control socket")
-        response = await _rpc_call(
-            socket_path,
-            1,
-            "session/open",
-            {"session": session_dir.name, "promptIndex": 11},
+    await owner.start()
+    try:
+        app = TraceEvalApp(
+            work_dir=work,
+            traces_path=traces,
+            control_socket=socket_path,
+            control_attach_only=True,
         )
-        assert response["result"] == {"opened": True}
-        await _wait_until(
-            pilot,
-            lambda: (
-                isinstance(app.screen, BrowserScreen) and app.screen.selected_prompt_index == 11
-            ),
-            description="socket-selected prompt",
-        )
-        listed = await _rpc_call(
-            socket_path,
-            2,
-            "notes/list",
-            {"session": session_dir.name},
-        )
-        saved = await _rpc_call(
-            socket_path,
-            3,
-            "notes/upsert",
-            {
-                "session": session_dir.name,
-                "expectedRevision": listed["result"]["revision"],
-                "note": {
-                    "id": "n-live-editor",
-                    "turnIndex": 0,
-                    "fields": {"summary": "Live editor note"},
-                    "eventIndices": [],
-                },
-            },
-        )
-        assert saved["result"]["notes"][0]["id"] == "n-live-editor"
-        await _wait_until(
-            pilot,
-            lambda: (
-                isinstance(app.screen, BrowserScreen)
-                and any(note.id == "n-live-editor" for note in app.screen._notes_doc.notes)
-            ),
-            description="BrowserScreen note refresh",
-        )
-
-    assert not socket_path.exists()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _wait_until(pilot, app.is_control_client, description="control client attach")
+            assert not app.is_control_owner()
+            listed = await app.control_session_list()
+            assert listed["matched"] >= 1
+            assert any(
+                row.get("sessionId") == session_dir.name for row in listed.get("sessions", [])
+            )
+            # Headless owner notifies session/selected (no TUI open callback).
+            response = await _rpc_call(
+                socket_path,
+                1,
+                "session/open",
+                {"session": session_dir.name, "promptIndex": 11},
+            )
+            assert response["result"] == {"opened": True}
+            # Stop notify listener before Textual teardown races Header updates.
+            app._prepare_clean_exit()
+            await pilot.pause()
+        assert socket_path.exists()
+    finally:
+        await owner.close()
 
 
 @pytest.mark.asyncio
-async def test_tui_control_helpers_publish_changes(tmp_path: Path) -> None:
-    published: list[tuple[str, Path, int | None]] = []
-
-    class StubServer:
-        async def publish_session_selected(self, path: Path, prompt_index: int | None) -> None:
-            published.append(("selected", path, prompt_index))
-
-        async def publish_session_changed(self, path: Path) -> None:
-            published.append(("session", path, None))
-
-        async def publish_notes_changed(self, path: Path) -> None:
-            published.append(("notes", path, None))
-
+async def test_tui_control_helpers_are_client_noops(tmp_path: Path) -> None:
     app = TraceEvalApp.__new__(TraceEvalApp)
-    app._control_server = StubServer()
-    workers: list = []
-    app.run_worker = lambda coroutine, **_kwargs: workers.append(coroutine)  # type: ignore[method-assign]
     session = tmp_path / "session-publish"
-
+    # Client path: no crash, no owner broadcast.
     app.control_session_selected(session, 9)
     app.control_session_changed(session)
     app.control_notes_changed(session)
-    await asyncio.gather(*workers)
-
-    assert published == [
-        ("selected", session, 9),
-        ("session", session, None),
-        ("notes", session, None),
-    ]
