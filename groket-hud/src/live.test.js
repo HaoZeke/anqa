@@ -1,0 +1,131 @@
+/**
+ * Node test runner: ``node --test src/live.test.js`` (from groket-hud/).
+ */
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  eventFingerprint,
+  hasOpenTurn,
+  isLiveStatus,
+  mergeTimelineByIndex,
+  overviewPaintFingerprint,
+  patchListRowFromMeta,
+  sessionNeedsLivePoll,
+  shouldAutoFollowTimeline,
+  timelineSeekOffset,
+} from "./live.js";
+
+describe("isLiveStatus", () => {
+  it("accepts control list labels", () => {
+    assert.equal(isLiveStatus("running"), true);
+    assert.equal(isLiveStatus("awaiting"), true);
+    assert.equal(isLiveStatus("awaiting_follow_up"), true);
+    assert.equal(isLiveStatus("ending"), true);
+    assert.equal(isLiveStatus("complete"), false);
+    assert.equal(isLiveStatus("cancelled"), false);
+    assert.equal(isLiveStatus("—"), false);
+    assert.equal(isLiveStatus(""), false);
+  });
+});
+
+describe("sessionNeedsLivePoll", () => {
+  it("polls when open turn even if status is complete-ish", () => {
+    assert.equal(sessionNeedsLivePoll("complete", { turns: [{ open: true }] }), true);
+    assert.equal(sessionNeedsLivePoll("complete", { turns: [{ open: false }] }), false);
+    assert.equal(hasOpenTurn({ turns: [{ open: true }] }), true);
+  });
+});
+
+describe("mergeTimelineByIndex", () => {
+  it("appends new indices and skips identical updates", () => {
+    const a = [
+      { index: 0, content: "a" },
+      { index: 1, content: "b" },
+    ];
+    const noop = mergeTimelineByIndex(a, [
+      { index: 0, content: "a" },
+      { index: 1, content: "b" },
+    ]);
+    assert.equal(noop.added, 0);
+    assert.equal(noop.updated, 0);
+    assert.equal(noop.changedIndices.length, 0);
+
+    const r = mergeTimelineByIndex(a, [
+      { index: 1, content: "b2" },
+      { index: 2, content: "c" },
+    ]);
+    assert.equal(r.added, 1);
+    assert.equal(r.updated, 1);
+    assert.equal(r.events.length, 3);
+    assert.equal(r.events[1].content, "b2");
+    assert.equal(r.events[2].content, "c");
+    assert.deepEqual(r.changedIndices, [1, 2]);
+  });
+});
+
+describe("eventFingerprint", () => {
+  it("changes when content grows", () => {
+    const a = eventFingerprint({ index: 1, content: "hi" });
+    const b = eventFingerprint({ index: 1, content: "hi there" });
+    assert.notEqual(a, b);
+  });
+});
+
+describe("shouldAutoFollowTimeline", () => {
+  it("follows when near bottom", () => {
+    assert.equal(shouldAutoFollowTimeline(900, 1000, 100, 120), true);
+    assert.equal(shouldAutoFollowTimeline(0, 1000, 100, 120), false);
+  });
+});
+
+describe("patchListRowFromMeta", () => {
+  it("listPaint only for chrome fields", () => {
+    const rows = [{ sessionId: "s1", status: "running", numEvents: 1 }];
+    const silent = patchListRowFromMeta(rows, "s1", { numEvents: 2 });
+    assert.equal(silent.changed, true);
+    assert.equal(silent.listPaint, false);
+    const paint = patchListRowFromMeta(rows, "s1", { status: "complete", title: "T" });
+    assert.equal(paint.listPaint, true);
+    assert.equal(rows[0].status, "complete");
+    assert.equal(rows[0].title, "T");
+  });
+});
+
+describe("timelineSeekOffset", () => {
+  it("pads before focus and floors at zero", () => {
+    assert.equal(timelineSeekOffset(100, 20), 80);
+    assert.equal(timelineSeekOffset(5, 20), 0);
+    assert.equal(timelineSeekOffset(-1, 20), 0);
+  });
+});
+
+describe("overviewPaintFingerprint", () => {
+  it("stable when only duration would tick", () => {
+    const a = overviewPaintFingerprint({
+      sessionId: "s",
+      meta: { status: "running", numEvents: 3, duration: "1s" },
+      turns: { total: 1, turns: [{ open: true, summary: "x" }] },
+      notes: { count: 0 },
+      findings: { total: 0 },
+      summary: "hi",
+    });
+    const b = overviewPaintFingerprint({
+      sessionId: "s",
+      meta: { status: "running", numEvents: 3, duration: "2s" },
+      turns: { total: 1, turns: [{ open: true, summary: "x" }] },
+      notes: { count: 0 },
+      findings: { total: 0 },
+      summary: "hi",
+    });
+    assert.equal(a, b);
+    const c = overviewPaintFingerprint({
+      sessionId: "s",
+      meta: { status: "running", numEvents: 4, duration: "2s" },
+      turns: { total: 1, turns: [{ open: true, summary: "x" }] },
+      notes: { count: 0 },
+      findings: { total: 0 },
+      summary: "hi",
+    });
+    assert.notEqual(a, c);
+  });
+});
