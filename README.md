@@ -79,7 +79,7 @@ host catalog).
 
 Panes (`[` / `]` or digits **1–5**):
 
-1. **Timeline** — events + detail; `v` filter, `f` flag, `N` new operator note, `O` / palette edit or delete note, `/` search  
+1. **Timeline** — events + detail (Turn column for sequential operator turn); `v` filter, `f` flag, `N` new operator note, `O` / palette edit or delete note, `/` search  
 2. **Summary** — overview, usage, turns (context samples when live)  
 3. **Diff** — workspace changes  
 4. **Findings** — detector / analyzer hits (`i` jumps here)  
@@ -164,7 +164,7 @@ Quitting the TUI does **not** stop the control owner.
 | `session/list` | Catalog rows (`query`, `limit`) from the owner’s domain catalog (same wire for all clients) |
 | `session/get` | Rich session meta (status, context, git, counts, notes revision) |
 | `session/overview` | Meta + turns (with user `summary`) + lazy timeline stub + notes |
-| `session/timeline` | Paged timeline events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`) |
+| `session/timeline` | Paged timeline events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`; each row includes sequential `turnIndex`) |
 | `session/turns` | Turn segments (`summary`, `userEventIndex`, counts, prompt indexes) |
 | `session/usage` | Tool / MCP / skill usage summary |
 | `session/findings` | Cached analysis findings with turn/event links |

@@ -509,6 +509,8 @@ col-status = Status
 
 col-time = Time
 
+col-turn = Turn
+
 col-title = Title
 
 config-name-label = Config name

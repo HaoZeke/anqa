@@ -495,6 +495,34 @@ function stopLivePoll() {
  * @param {Record<string, unknown>} ev
  * @returns {string}
  */
+/**
+ * Compact turn chip for meta (``T3``) or empty when the event is session-level.
+ * @param {Record<string, unknown>} ev
+ * @returns {string}
+ */
+function timelineTurnChip(ev) {
+  if (ev.turnIndex == null || ev.turnIndex === "") return "";
+  const n = Number(ev.turnIndex);
+  if (!Number.isFinite(n)) return "";
+  return `<span class="turn-chip" title="Turn ${escapeHtml(n)}">T${escapeHtml(n)}</span>`;
+}
+
+/**
+ * Section marker when the operator turn changes between consecutive rows.
+ * @param {unknown} turnIndex
+ * @returns {string}
+ */
+function timelineTurnMarkHtml(turnIndex) {
+  const n = Number(turnIndex);
+  if (!Number.isFinite(n)) return "";
+  return `<li class="tl-turn-mark" data-turn="${escapeHtml(n)}" aria-hidden="true"><span>Turn ${escapeHtml(n)}</span></li>`;
+}
+
+/**
+ * HTML for one timeline event row (shared by full paint + surgical live updates).
+ * @param {Record<string, unknown>} ev
+ * @returns {string}
+ */
 function timelineEventLiHtml(ev) {
   const kind = ev.kind || "other";
   const family = ev.toolFamily || "";
@@ -518,12 +546,16 @@ function timelineEventLiHtml(ev) {
   const trunc = ev.contentTruncated
     ? `<div class="content-more muted">…truncated on wire (${escapeHtml(ev.contentLength || "")} chars)</div>`
     : "";
-  return `<li class="ev kind-${escapeHtml(kind)}${err}${focus}" data-index="${escapeHtml(ev.index)}" id="ev-${escapeHtml(ev.index)}">
+  const turnChip = timelineTurnChip(ev);
+  const metaBits = [turnChip, `#${escapeHtml(ev.index)}`, escapeHtml(ev.time || "")]
+    .filter(Boolean)
+    .join(" · ");
+  return `<li class="ev kind-${escapeHtml(kind)}${err}${focus}" data-index="${escapeHtml(ev.index)}" data-turn="${escapeHtml(ev.turnIndex ?? "")}" id="ev-${escapeHtml(ev.index)}">
           <span class="ev-rail" aria-hidden="true"></span>
           <div class="ev-main">
             <div class="et">
               <span><span class="kind-label">${escapeHtml(ev.heading || ev.typeLabel || kind)}</span> ${toolBits}</span>
-              <span class="ev-meta">#${escapeHtml(ev.index)} · ${escapeHtml(ev.time || "")}</span>
+              <span class="ev-meta">${metaBits}</span>
             </div>
             <div class="ep">${bodyHtml}${trunc}</div>
             ${rawHtml ? `<div class="raw">${rawHtml}</div>` : ""}
@@ -975,10 +1007,24 @@ async function loadMoreTimeline() {
       return;
     }
     // Append only new rows — full innerHTML rebuild jumps the scroller.
+    let lastTurn = null;
+    const lastEv = list.querySelector("li.ev:last-of-type");
+    if (lastEv?.dataset.turn != null && lastEv.dataset.turn !== "") {
+      const n = Number(lastEv.dataset.turn);
+      if (Number.isFinite(n)) lastTurn = n;
+    }
     for (let i = beforeLen; i < timelineEvents.length; i++) {
       const ev = timelineEvents[i];
       const ix = Number(ev.index);
       if (list.querySelector(`[data-index="${String(ix)}"]`)) continue;
+      const ti =
+        ev.turnIndex != null && ev.turnIndex !== "" && Number.isFinite(Number(ev.turnIndex))
+          ? Number(ev.turnIndex)
+          : null;
+      if (ti != null && ti !== lastTurn) {
+        list.insertAdjacentHTML("beforeend", timelineTurnMarkHtml(ti));
+        lastTurn = ti;
+      }
       list.insertAdjacentHTML("beforeend", timelineEventLiHtml(ev));
     }
     if (tlSearchMeta) {
@@ -1201,7 +1247,21 @@ function renderTimelineTab() {
       : needle && !timelineIsComplete() && timelineLoadingMore
         ? `<p class="tl-load-more muted">Loading more for search…</p>`
         : "";
-  return `<ul class="event-list">${events.map((ev) => timelineEventLiHtml(ev)).join("")}</ul>${foot}`;
+  // Turn section marks when the sequential operator turn changes between rows.
+  let lastTurn = null;
+  const rows = [];
+  for (const ev of events) {
+    const ti =
+      ev.turnIndex != null && ev.turnIndex !== "" && Number.isFinite(Number(ev.turnIndex))
+        ? Number(ev.turnIndex)
+        : null;
+    if (ti != null && ti !== lastTurn) {
+      rows.push(timelineTurnMarkHtml(ti));
+      lastTurn = ti;
+    }
+    rows.push(timelineEventLiHtml(ev));
+  }
+  return `<ul class="event-list">${rows.join("")}</ul>${foot}`;
 }
 
 /**

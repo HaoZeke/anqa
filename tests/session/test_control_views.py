@@ -152,6 +152,11 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     for e in page["events"]:
         assert "heading" in e
         assert "kind" in e
+        assert "turnIndex" in e
+    # Operator conversation rows belong to sequential turn 0 in the fixture.
+    conv = [e for e in page["events"] if e.get("kind") in ("user", "agent", "tool")]
+    assert conv
+    assert all(e.get("turnIndex") == 0 for e in conv)
 
 
 def test_build_session_findings_maps_events_to_turns(

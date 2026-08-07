@@ -32,6 +32,8 @@ class TimelineTable(DataTable):
     _durations: dict[int, float] = {}
     _call_by_id: dict[str, TraceEvent] = {}
     _result_by_id: dict[str, TraceEvent] = {}
+    #: event.index → sequential operator turn id (0-based); empty when unknown
+    _turn_by_index: dict[int, int] = {}
 
     @property
     def durations(self) -> dict[int, float]:
@@ -41,7 +43,13 @@ class TimelineTable(DataTable):
     def on_mount(self) -> None:
         style_data_table(self)
         self.add_columns(
-            "#", t("col-time"), t("col-dur"), t("col-type"), t("col-tool"), t("col-summary")
+            "#",
+            t("col-turn"),
+            t("col-time"),
+            t("col-dur"),
+            t("col-type"),
+            t("col-tool"),
+            t("col-summary"),
         )
 
     def load_events(
@@ -82,6 +90,7 @@ class TimelineTable(DataTable):
         if flags:
             for fl in flags:
                 self.flags_by_index[fl.event_index] = fl
+        self._rebuild_turn_map()
 
         if not row_ok or not prev:
             self._build_tool_pairs()
@@ -311,8 +320,24 @@ class TimelineTable(DataTable):
             return ""
         return ""
 
-    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str]:
-        """Visible cell values for one event (columns 0–5)."""
+    def _rebuild_turn_map(self) -> None:
+        """Map each loaded event index to its sequential operator turn id."""
+        from ...session.turns import event_display_turn_map, segment_timeline_turns
+
+        if not self.events:
+            self._turn_by_index = {}
+            return
+        self._turn_by_index = event_display_turn_map(segment_timeline_turns(self.events))
+
+    def _turn_cell(self, ev: TraceEvent) -> str:
+        """Compact turn id for the Turn column (or dim dash when session-level)."""
+        ti = self._turn_by_index.get(int(ev.index))
+        if ti is None:
+            return "[dim]—[/]"
+        return f"[cyan]{ti}[/]"
+
+    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str, str]:
+        """Visible cell values for one event (columns 0–6)."""
         from ...session.turns import harness_user_chrome_heading
 
         chrome_heading = harness_user_chrome_heading(ev.content or "")
@@ -345,7 +370,15 @@ class TimelineTable(DataTable):
             sev = getattr(finding.severity, "value", None) or "low"
             prefix += finding_mark(sev) + " "
         summary = prefix + rich_escape(ev.summary_line[: 56 if prefix else 60])
-        return (str(ev.index), ev.time_str, dur_str, type_style, tool_col, summary)
+        return (
+            str(ev.index),
+            self._turn_cell(ev),
+            ev.time_str,
+            dur_str,
+            type_style,
+            tool_col,
+            summary,
+        )
 
     def _add_event_row(self, ev: TraceEvent) -> None:
         """Append one timeline row for *ev*."""

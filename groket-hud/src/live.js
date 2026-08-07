@@ -110,6 +110,7 @@ export function eventFingerprint(ev) {
   if (!ev || typeof ev !== "object") return "";
   return [
     ev.index,
+    ev.turnIndex,
     ev.typeLabel,
     ev.heading,
     ev.kind,

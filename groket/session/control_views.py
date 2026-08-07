@@ -18,6 +18,7 @@ from ..session.sources import classify_session_origin, work_traces_root
 from ..session.tagged_blocks import unwrap_for_display
 from ..session.turns import (
     TurnSegment,
+    event_display_turn_map,
     harness_user_chrome_heading,
     is_operator_user_event,
     operator_prompt_text,
@@ -167,11 +168,13 @@ def timeline_event_mapping(
     event: TraceEvent,
     *,
     content_chars: int = DEFAULT_CONTENT_CHARS,
+    turn_index: int | None = None,
 ) -> JsonObject:
     """Serialize one timeline event for ``session/timeline`` / overview.
 
     Includes ``kind`` / ``toolFamily`` so palette clients can color and unpack
-    the same way as the TUI without re-implementing taxonomy.
+    the same way as the TUI without re-implementing taxonomy. Optional
+    *turn_index* is the sequential operator turn id (0-based) for this event.
     """
     cap = max(0, min(int(content_chars), MAX_CONTENT_CHARS))
     content_raw = event.content if isinstance(event.content, str) else str(event.content or "")
@@ -241,6 +244,7 @@ def timeline_event_mapping(
         "isError": bool(event.is_error),
         "updateIndex": int(event.update_index or 0),
         "promptIndex": event.prompt_index,
+        "turnIndex": int(turn_index) if turn_index is not None else None,
         "preview": preview,
         "rawInput": raw,
     }
@@ -601,6 +605,8 @@ def build_session_timeline(
 ) -> JsonObject:
     """Paged timeline for ``session/timeline``."""
     events = parse_timeline(Path(session_dir))
+    # Sequential operator turn ids for HUD/TUI orientation while scrolling.
+    turn_by_index = event_display_turn_map(segment_timeline_turns(events))
     type_filter = (event_type or "").strip().casefold()
     filtered: list[TraceEvent] = []
     for ev in events:
@@ -619,7 +625,14 @@ def build_session_timeline(
         "total": total,
         "offset": off,
         "limit": lim,
-        "events": [timeline_event_mapping(ev, content_chars=content_chars) for ev in page],
+        "events": [
+            timeline_event_mapping(
+                ev,
+                content_chars=content_chars,
+                turn_index=turn_by_index.get(int(ev.index)),
+            )
+            for ev in page
+        ],
     }
 
 

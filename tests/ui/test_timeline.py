@@ -101,6 +101,54 @@ async def test_timeline_load_and_row_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_timeline_turn_column_maps_events() -> None:
+    """Turn column shows sequential operator turn ids from segmentation."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = [
+            make_trace_event(
+                index=0,
+                event_type="turn_started",
+                content="turn started  turn_number=0",
+                timestamp=1000,
+            ),
+            make_trace_event(
+                index=1,
+                event_type="user_message_chunk",
+                content="hello",
+                timestamp=1001,
+            ),
+            make_trace_event(
+                index=2,
+                event_type="turn_ended",
+                content="turn ended  outcome=success",
+                timestamp=1002,
+            ),
+            make_trace_event(
+                index=3,
+                event_type="turn_started",
+                content="turn started  turn_number=1",
+                timestamp=1003,
+            ),
+            make_trace_event(
+                index=4,
+                event_type="user_message_chunk",
+                content="again",
+                timestamp=1004,
+            ),
+        ]
+        tl.load_events(events)
+        assert tl._turn_by_index.get(1) == 0
+        assert tl._turn_by_index.get(4) == 1
+        # Turn column is index 1 (after #).
+        cells = tl._row_cell_values(events[1])
+        assert "0" in cells[1]
+        cells1 = tl._row_cell_values(events[4])
+        assert "1" in cells1[1]
+
+
+@pytest.mark.asyncio
 async def test_timeline_load_events_appends_without_clear() -> None:
     """Live multi-turn growth appends rows instead of full clear+rebuild."""
     app = _TimelineApp()
