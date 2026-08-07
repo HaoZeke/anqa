@@ -1,5 +1,5 @@
---- Live Groket sessions over the TUI control socket (Neovim 0.9+).
---- Requires a running ``groket`` TUI with the control socket enabled.
+--- Live Groket sessions over the control Unix socket (Neovim 0.9+).
+--- Requires a live control owner: ``groket serve start -d`` or a TUI/auto-serve.
 
 local M = {}
 

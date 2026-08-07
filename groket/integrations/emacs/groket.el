@@ -8,6 +8,9 @@
 
 ;; View a running Groket session as an Org buffer and edit operator notes
 ;; without making the generated trace projection writable.
+;;
+;; Requires a live control owner (``groket serve start -d`` or TUI auto-serve)
+;; on the same Unix socket as other clients (HUD, Vim).
 
 ;;; Code:
 
@@ -208,11 +211,15 @@ A connection whose peer died is dropped so the next command reconnects."
     buffer))
 
 (defun groket--connection-refused-p (err)
-  "Return non-nil when ERR reports a control socket that accepts nothing."
+  "Return non-nil when ERR is a transient control-socket connect failure.
+Matches connection refused, missing path, and macOS EAGAIN
+\(\"Resource temporarily unavailable\" / os error 35\)."
   (or (eq (car err) 'file-error)
       (let ((message (downcase (error-message-string err))))
         (or (string-match-p "connection refused" message)
-            (string-match-p "no such file or directory" message)))))
+            (string-match-p "no such file or directory" message)
+            (string-match-p "resource temporarily unavailable" message)
+            (string-match-p "os error 35" message)))))
 
 (defun groket--connect-retrying (deadline)
   "Connect, retrying refused connections until DEADLINE.

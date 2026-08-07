@@ -71,7 +71,7 @@ async def test_failed_starter_does_not_unlink_live_socket() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_continues_when_control_socket_already_owned(tmp_path: Path) -> None:
+async def test_tui_attaches_when_control_socket_already_owned(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     sock = _short_sock("tui-singleton")
     owner = control.ControlServer(socket_path=sock)
@@ -88,13 +88,11 @@ async def test_tui_continues_when_control_socket_already_owned(tmp_path: Path) -
         async with app.run_test(size=(100, 30)) as pilot:
             for _ in range(200):
                 await pilot.pause()
-                server = app._control_server
-                # Soft-fail clears the app handle, or leaves an unstarted server.
-                if server is None or server._server is None:
+                if app.is_control_client():
                     break
             assert app.is_running
-            server = app._control_server
-            assert server is None or server._server is None
+            assert app.is_control_client()
+            assert not app.is_control_owner()
             # Original owner still holds the socket.
             assert sock.exists()
     finally:

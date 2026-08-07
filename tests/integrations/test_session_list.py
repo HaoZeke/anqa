@@ -37,18 +37,28 @@ def _catalog() -> list[dict]:
 
 
 def test_filter_session_catalog_query_and_limit() -> None:
-    control = import_module("groket.integrations.control")
-    full = control.filter_session_catalog(_catalog())
+    from groket.session.access import filter_session_catalog
+
+    full = filter_session_catalog(_catalog())
     assert full["total"] == 2
     assert full["matched"] == 2
     assert len(full["sessions"]) == 2
 
-    host_only = control.filter_session_catalog(_catalog(), query="host")
+    host_only = filter_session_catalog(_catalog(), query="host")
     assert host_only["total"] == 2
     assert host_only["matched"] == 1
     assert host_only["sessions"][0]["sessionId"] == "beta-host"
 
-    limited = control.filter_session_catalog(_catalog(), limit=1)
+    # Case-insensitive substring (HUD/TUI list query contract).
+    casefold = filter_session_catalog(_catalog(), query="SOCKET")
+    assert casefold["matched"] == 1
+    assert casefold["sessions"][0]["sessionId"] == "alpha-1"
+
+    empty_q = filter_session_catalog(_catalog(), query="")
+    assert empty_q["matched"] == 2
+    assert len(empty_q["sessions"]) == 2
+
+    limited = filter_session_catalog(_catalog(), limit=1)
     assert limited["matched"] == 2
     assert len(limited["sessions"]) == 1
 
