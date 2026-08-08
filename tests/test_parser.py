@@ -2755,7 +2755,7 @@ def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
 
 
 def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -> None:
-    """Parallel parse_timeline for the same stamp runs the body once."""
+    """Parallel parse_timeline for the same session runs the body once."""
     import json
     import threading
     from concurrent.futures import ThreadPoolExecutor

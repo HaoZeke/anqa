@@ -100,9 +100,10 @@ class _UpdatesScanState:
 
 
 _timeline_cache: dict[str, tuple[TimelineStamp, list[TraceEvent], _UpdatesScanState | None]] = {}
-# In-flight parse: concurrent callers for the same session+stamp join one Future
-# instead of re-reading multi‑MB updates.jsonl in parallel (control owner thrash).
-_timeline_inflight: dict[tuple[str, TimelineStamp], Future[list[TraceEvent]]] = {}
+# In-flight parse keyed by session cache_key only (not stamp). Incremental
+# scans mutate shared ``_UpdatesScanState`` in place; only one body may run
+# per session at a time. Waiters re-check stamp after the flight finishes.
+_timeline_inflight: dict[str, Future[list[TraceEvent]]] = {}
 _timeline_inflight_lock = threading.Lock()
 # events.jsonl path -> (mtime_ns, size, markers, turn_outcome, loop_count)
 _runtime_markers_cache: dict[str, tuple[int, int, list[TraceEvent], str, int]] = {}
@@ -770,41 +771,45 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     live context heartbeats do not re-read multi‑MB ``updates.jsonl``. When the
     file only grows, new lines are scanned incrementally.
 
-    Concurrent callers for the same session+stamp **join one in-flight parse**
+    Concurrent callers for the same session **join one in-flight parse**
     (single-flight) so the control owner does not thrash the same multi‑MB file
-    in parallel under HUD overview+timeline+poll pile-ups.
+    in parallel under HUD overview+timeline+poll pile-ups. Flight is per
+    session path (not stamp) because the incremental scan mutates shared
+    scan state; after a flight completes, waiters re-check the stamp.
     """
-    cache_key, stamp = _timeline_stamp_for(session_dir)
-    cached = _timeline_cache.get(cache_key)
-    if cached is not None and cached[0] == stamp:
-        return cached[1]
+    # Loop: join any in-flight body, then re-check stamp (file may have grown).
+    while True:
+        cache_key, stamp = _timeline_stamp_for(session_dir)
+        cached = _timeline_cache.get(cache_key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
 
-    flight_key = (cache_key, stamp)
-    owner = False
-    with _timeline_inflight_lock:
-        fut = _timeline_inflight.get(flight_key)
-        if fut is None:
-            fut = Future()
-            _timeline_inflight[flight_key] = fut
-            owner = True
-
-    if not owner:
-        # Join the in-flight parse (or re-check cache if it already finished).
-        return fut.result()
-
-    try:
-        out = _parse_timeline_body(session_dir, cache_key, stamp)
-    except Exception as exc:
-        if not fut.done():
-            fut.set_exception(exc)
-        raise
-    else:
-        fut.set_result(out)
-        return out
-    finally:
+        owner = False
         with _timeline_inflight_lock:
-            if _timeline_inflight.get(flight_key) is fut:
-                del _timeline_inflight[flight_key]
+            fut = _timeline_inflight.get(cache_key)
+            if fut is None:
+                fut = Future()
+                _timeline_inflight[cache_key] = fut
+                owner = True
+
+        if not owner:
+            # Wait for the owner, then re-check cache/stamp (may need another pass).
+            fut.result()
+            continue
+
+        try:
+            out = _parse_timeline_body(session_dir, cache_key, stamp)
+        except Exception as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        else:
+            fut.set_result(out)
+            return out
+        finally:
+            with _timeline_inflight_lock:
+                if _timeline_inflight.get(cache_key) is fut:
+                    del _timeline_inflight[cache_key]
 
 
 # Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative
