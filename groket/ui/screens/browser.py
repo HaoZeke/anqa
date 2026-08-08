@@ -2492,7 +2492,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 t("ui-span"),
             )
             if turn_rows:
-                for row in turn_rows:
+                seen_turn_keys: set[str] = set()
+                for i, row in enumerate(turn_rows):
                     dur_raw = row.get("duration_s")
                     dur_s = (
                         self._fmt_dur(float(dur_raw)) if isinstance(dur_raw, (int, float)) else "—"
@@ -2500,6 +2501,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     fi, li = (row.get("first_index"), row.get("last_index"))
                     span = f"#{fi}–#{li}" if fi is not None and li is not None else "—"
                     ctx = str(row.get("context") or "").strip() or "—"
+                    # Unique keys even when turn index is missing/duplicated.
+                    tkey = f"turn-{row.get('turn', i)}-{i}"
+                    if tkey in seen_turn_keys:
+                        continue
+                    seen_turn_keys.add(tkey)
                     turns_table.add_row(
                         str(row.get("turn", "")),
                         str(row.get("label", "")),
@@ -2513,7 +2519,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         ctx[:28],
                         str(row.get("top_tools", "—"))[:40],
                         span,
-                        key=f"turn-{row.get('turn')}",
+                        key=tkey,
                     )
             else:
                 turns_table.add_row(

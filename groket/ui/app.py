@@ -1540,12 +1540,18 @@ class TraceEvalApp(App):
         table.clear()
         rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
         search_q = (self._session_search or "").strip().casefold()
+        seen_keys: set[str] = set()
         for meta, label in self._meta_only:
             if self._filter_model and meta.model_display != self._filter_model:
                 continue
             if search_q and search_q not in _session_search_haystack(meta, label):
                 continue
             sd_key = str(meta.session_dir)
+            # Control/catalog glitches (or host+work overlap) must not raise
+            # Textual DuplicateKey and take down the app.
+            if sd_key in seen_keys:
+                continue
+            seen_keys.add(sd_key)
             results = self._plugin_results.get(sd_key)
             rows.append((meta, label, results))
 

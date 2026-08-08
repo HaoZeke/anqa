@@ -98,7 +98,13 @@ class TimelineTable(DataTable):
             return
 
         # Live growth / stream: only the tail can change. O(tail) not O(n).
-        if new_n >= prev_n and self._live_tail_struct_ok(prev, new_events):
+        # Require table row count to match prev (filter / failed paint desync
+        # must take the full rebuild path — else append raises DuplicateKey).
+        if (
+            new_n >= prev_n
+            and self.row_count == prev_n
+            and self._live_tail_struct_ok(prev, new_events)
+        ):
             # Append-only: ignore content-only rewrites of existing rows (agent
             # streaming). Patching every token froze the TUI; new tool rows still
             # appear when len grows. Full paint happens on F5 / open.
@@ -197,6 +203,13 @@ class TimelineTable(DataTable):
         """Add only *new_events* (already assigned into ``self.events``)."""
         for ev in new_events:
             self._add_event_row(ev)
+
+    def _row_key_exists(self, key: str) -> bool:
+        """True when *key* is already a row key in this table."""
+        try:
+            return key in self.rows
+        except Exception:
+            return False
 
     def _patch_rows(self, events: list[TraceEvent]) -> None:
         """Rewrite cells for existing rows (streaming content) without clear()."""
@@ -373,13 +386,25 @@ class TimelineTable(DataTable):
         return (str(ev.index), ev.time_str, dur_str, type_style, tool_col, summary)
 
     def _add_event_row(self, ev: TraceEvent) -> None:
-        """Append one timeline row for *ev*."""
+        """Append one timeline row for *ev*.
+
+        If the key already exists (table/self.events desync after filter, live
+        append, or a failed partial rebuild), update in place instead of
+        raising Textual ``DuplicateKey`` and crashing the app.
+        """
+        key = str(ev.index)
+        if self._row_key_exists(key):
+            self._update_event_row(ev)
+            return
         cells = self._row_cell_values(ev)
-        self.add_row(*cells, key=str(ev.index))
+        self.add_row(*cells, key=key)
 
     def _update_event_row(self, ev: TraceEvent) -> None:
         """Patch an existing row's cells in place (streaming live refresh)."""
         key = str(ev.index)
+        if not self._row_key_exists(key):
+            # Row missing (e.g. filtered view) — skip rather than inventing a row.
+            return
         cells = self._row_cell_values(ev)
         for col_i, value in enumerate(cells):
             update_row_cell(self, key, col_i, value)
@@ -387,7 +412,13 @@ class TimelineTable(DataTable):
     def _refresh_rows(self) -> None:
         with preserving_cursor(self, scroll=False):
             self.clear()
+            # Dedupe by index so a corrupt/coalesced list cannot raise DuplicateKey.
+            seen: set[int] = set()
             for ev in self.events:
+                ix = int(ev.index)
+                if ix in seen:
+                    continue
+                seen.add(ix)
                 self._add_event_row(ev)
 
     def apply_filter(

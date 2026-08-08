@@ -101,6 +101,33 @@ async def test_timeline_load_and_row_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_timeline_add_row_existing_key_updates_not_raises() -> None:
+    """Re-adding an event index must not raise Textual DuplicateKey (crash)."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        evs = [
+            make_trace_event(index=0, event_type="user_message_chunk", content="a", timestamp=1),
+            make_trace_event(index=1, event_type="agent_message_chunk", content="b", timestamp=2),
+        ]
+        tl.load_events(evs)
+        assert tl.row_count == 2
+        # Simulate desync: append path tries to add an index already on the table.
+        tl._add_event_row(
+            make_trace_event(index=1, event_type="agent_message_chunk", content="b2", timestamp=3)
+        )
+        assert tl.row_count == 2
+        # Growth append with overlapping keys still safe.
+        grown = [
+            *evs,
+            make_trace_event(index=1, event_type="agent_message_chunk", content="dup", timestamp=4),
+            make_trace_event(index=2, event_type="user_message_chunk", content="c", timestamp=5),
+        ]
+        tl.load_events(grown)
+        assert tl.row_count >= 2
+
+
+@pytest.mark.asyncio
 async def test_timeline_turn_index_for_maps_events() -> None:
     """turn_index_for exposes sequential operator turn ids for the detail pane."""
     app = _TimelineApp()
