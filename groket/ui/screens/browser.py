@@ -869,7 +869,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         # Coalesce FS storms: one light job per min gap (not a second parse
         # throttle inside the job — that skipped new rows until full reload).
-        min_gap = live_browser_timeline_min_interval(updates_jsonl_size(self.session_dir))
+        size_hint = len(self.timeline or []) * 4096
+        if not self._uses_control_data():
+            size_hint = updates_jsonl_size(self.session_dir)
+        min_gap = live_browser_timeline_min_interval(size_hint)
         now = time.monotonic()
         last_submit = float(getattr(self, "_last_light_submit_at", 0.0) or 0.0)
         if not heartbeat and last_submit > 0 and (now - last_submit) < min_gap:
@@ -931,7 +934,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._light_refresh_heartbeat = False
         if not pending:
             return
-        min_gap = live_browser_timeline_min_interval(updates_jsonl_size(self.session_dir))
+        size_hint = len(self.timeline or []) * 4096
+        if not self._uses_control_data():
+            size_hint = updates_jsonl_size(self.session_dir)
+        min_gap = live_browser_timeline_min_interval(size_hint)
         last_submit = float(getattr(self, "_last_light_submit_at", 0.0) or 0.0)
         elapsed = time.monotonic() - last_submit if last_submit > 0 else min_gap
         if not pending_heartbeat and elapsed < min_gap:
@@ -994,19 +1000,96 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except OSError:
             return 0.0
 
-    def _load_data_light_job(self) -> None:
-        """Reload meta (+ timeline when artifacts changed). Read-only on disk.
+    def _uses_control_data(self) -> bool:
+        """True when this browser must load timeline/meta via the control owner."""
+        app = resolve_ui_app(self)
+        is_client = getattr(app, "is_control_client", None)
+        return bool(callable(is_client) and is_client())
 
-        Always re-parses when the timeline stamp changes (submit path already
-        rate-limits jobs). On heartbeat with unchanged stamps, only reloads
-        meta (context meter) — never rewalks ``updates.jsonl``.
+    def _session_control_ref(self) -> str:
+        """Session id/path for control RPCs."""
+        if self.meta and (self.meta.session_id or "").strip():
+            return str(self.meta.session_id).strip()
+        return self.session_dir.name
+
+    def _fetch_browser_bundle_via_control(
+        self,
+    ) -> tuple[SessionMeta, list[TraceEvent], object]:
+        """Blocking: overview + full timeline over control (worker thread)."""
+        import asyncio
+
+        from ...session.wire_timeline import fetch_session_browser_bundle
+
+        app = resolve_ui_app(self)
+        access = getattr(app, "session_access", lambda: None)()
+        if access is None:
+            raise RuntimeError("control session access unavailable")
+        ref = self._session_control_ref()
+        return asyncio.run(
+            fetch_session_browser_bundle(
+                access,
+                ref,
+                fallback_dir=Path(self.session_dir),
+            )
+        )
+
+    def _load_data_light_job(self) -> None:
+        """Reload meta (+ timeline when changed). Control path when attached.
+
+        Attached: re-fetch overview; full timeline only when event total moves.
+        Offline (no control): disk stamp + parse_timeline as before.
         """
         import time
 
-        from ...parser import session_timeline_stamp
-
         try:
-            # Timeline stamp (not signals.json): context heartbeats must not re-parse.
+            if self._uses_control_data():
+                prev_n = len(self.timeline or [])
+                prev_status = self.meta.list_status_label() if self.meta is not None else ""
+                # Always refresh meta/context via overview (serve-side stamp cache).
+                from ...session.wire_timeline import fetch_timeline_events
+
+                app = resolve_ui_app(self)
+                access = getattr(app, "session_access", lambda: None)()
+                if access is None:
+                    return
+                import asyncio
+
+                ref = self._session_control_ref()
+
+                async def _ov() -> object:
+                    return await access.session_overview(ref)
+
+                overview = asyncio.run(_ov())
+                from ...session.wire_timeline import session_meta_from_overview
+
+                meta = session_meta_from_overview(
+                    overview if isinstance(overview, dict) else {},
+                    fallback_dir=Path(self.session_dir),
+                )
+                self.meta = meta
+                new_n = int(meta.num_events or 0)
+                new_status = meta.list_status_label()
+                timeline_updated = False
+                if new_n != prev_n or not self.timeline:
+                    self.timeline = asyncio.run(fetch_timeline_events(access, ref))
+                    if self.meta is not None:
+                        self.meta.num_events = len(self.timeline or [])
+                    self._last_timeline_parse_at = time.monotonic()
+                    self._rebuild_indices()
+                    timeline_updated = True
+                need_ui = (
+                    timeline_updated
+                    or new_status != prev_status
+                    or bool(getattr(self, "_light_refresh_heartbeat", False))
+                )
+                if not need_ui:
+                    return
+                call_ui(app, self._populate_ui_light)
+                return
+
+            from ...parser import session_timeline_stamp
+
+            # Offline: Timeline stamp (not signals.json): heartbeats must not re-parse.
             stamp = session_timeline_stamp(self.session_dir)
             signals_mtime = self._signals_mtime()
             timeline_unchanged = (
@@ -1016,15 +1099,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
             timeline_updated = False
             if not timeline_unchanged:
-                # Always parse on stamp change. Skipping here (old min-gap) left
-                # new rows invisible until the operator closed and re-opened.
                 self.timeline = parse_timeline(self.session_dir)
                 self._last_trace_mtime = stamp
                 self._last_timeline_parse_at = time.monotonic()
                 self._rebuild_indices()
                 timeline_updated = True
-            # Meta is cheaper than a full parse but still does gate/events work —
-            # skip when neither timeline nor signals moved (pure noise FS tick).
             need_meta = (
                 not timeline_unchanged
                 or signals_mtime != getattr(self, "_last_signals_mtime", None)
@@ -1037,7 +1116,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if self.meta is not None:
                 self.meta.num_events = len(self.timeline or [])
             self._last_signals_mtime = signals_mtime
-            # Skip UI marshalling when nothing for the operator changed.
             if not timeline_updated and not need_meta:
                 return
             app = resolve_ui_app(self)
@@ -1199,20 +1277,27 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             store = getattr(self, "_context_samples", None)
             if store is not None:
                 store.clear()
-            # One timeline parse only — do not also run parse_timeline inside
-            # load_session_meta (that doubled CPU on 100MB+ updates.jsonl opens).
-            self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
-            self.timeline = parse_timeline(self.session_dir)
-            if self.meta is not None:
-                self.meta.num_events = len(self.timeline or [])
-            try:
-                self._last_trace_mtime = session_timeline_stamp(self.session_dir)
-            except Exception:
-                self._last_trace_mtime = None
             import time
 
-            self._last_timeline_parse_at = time.monotonic()
-            self._last_signals_mtime = self._signals_mtime()
+            if self._uses_control_data():
+                # Single path with HUD: serve parses once; we hydrate domain types.
+                self.meta, self.timeline, _ov = self._fetch_browser_bundle_via_control()
+                self._last_timeline_parse_at = time.monotonic()
+                self._last_trace_mtime = None  # control path uses event totals
+            else:
+                # Offline / --no-serve: local disk only.
+                self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
+                self.timeline = parse_timeline(self.session_dir)
+                if self.meta is not None:
+                    self.meta.num_events = len(self.timeline or [])
+                try:
+                    self._last_trace_mtime = session_timeline_stamp(self.session_dir)
+                except Exception:
+                    self._last_trace_mtime = None
+                self._last_timeline_parse_at = time.monotonic()
+                self._last_signals_mtime = self._signals_mtime()
+            if self.meta is not None:
+                self.meta.num_events = len(self.timeline or [])
             self._record_context_sample()
             self._load_flags()
             self._load_notes()

@@ -138,16 +138,15 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_tui_dead_socket_does_not_claim_attach_loads_disk(
+async def test_tui_dead_socket_does_not_claim_attach_or_disk_catalog(
     tmp_path: Path,
 ) -> None:
-    """Dead control socket: not a client; home catalog still from local traces."""
+    """Dead control socket: not a client; no silent disk catalog when socket is set."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    session_dir = _write_session(traces)
-    dead_sock = tmp_path / "no-owner.sock"
-    # No daemon: path does not accept connections.
+    _write_session(traces)
+    dead_sock = _short_sock("dead.sock")
     app = TraceEvalApp(
         work_dir=work,
         traces_path=traces,
@@ -155,17 +154,98 @@ async def test_tui_dead_socket_does_not_claim_attach_loads_disk(
         control_attach_only=True,
     )
     async with app.run_test(size=(120, 40)) as pilot:
+        for _ in range(40):
+            if not app._control_attached:
+                break
+            await pilot.pause()
+        assert not app.is_control_client()
+        assert app._control_attached is False
+        # Product path: control socket configured ⇒ no disk catalog fallback.
+        assert app._meta_only == []
+        app._prepare_clean_exit()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_tui_offline_no_socket_still_loads_disk_catalog(tmp_path: Path) -> None:
+    """Explicit offline (no control socket): local traces catalog."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = _write_session(traces)
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=None,
+        control_attach_only=False,
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
         await _wait_until(
             pilot,
             lambda: bool(app._meta_only),
-            description="disk catalog rows loaded",
+            description="offline disk catalog",
         )
         assert not app.is_control_client()
-        assert app._control_attached is False
         names = {(m.session_id or m.session_dir.name) for m, _ in app._meta_only}
         assert session_dir.name in names
         app._prepare_clean_exit()
         await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_browser_loads_timeline_via_control_when_attached(
+    tmp_path: Path,
+) -> None:
+    """Session browser hydrates timeline from control, not a private disk parse."""
+    from unittest.mock import patch
+
+    from groket.ui.screens.browser import BrowserScreen
+
+    daemon = import_module("groket.integrations.daemon")
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = _write_session(traces)
+    socket_path = _short_sock("tui-browser.sock")
+    owner = daemon.build_domain_control_server(
+        socket_path=socket_path,
+        work_dir=work,
+        traces_path=traces,
+    )
+    await owner.start()
+    try:
+        app = TraceEvalApp(
+            work_dir=work,
+            traces_path=traces,
+            control_socket=socket_path,
+            control_attach_only=True,
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _wait_until(pilot, app.is_control_client, description="attach")
+            with patch(
+                "groket.ui.screens.browser.parse_timeline",
+                side_effect=AssertionError("disk parse forbidden when attached"),
+            ):
+                app.open_session_path(session_dir)
+                await _wait_until(
+                    pilot,
+                    lambda: (
+                        isinstance(app.screen, BrowserScreen)
+                        and bool(getattr(app.screen, "timeline", None))
+                    ),
+                    description="browser timeline via control",
+                )
+            screen = app.screen
+            assert isinstance(screen, BrowserScreen)
+            assert screen._uses_control_data()
+            assert any(
+                "open here" in (e.content or "") or "opened" in (e.content or "")
+                for e in (screen.timeline or [])
+            )
+            app._prepare_clean_exit()
+            await pilot.pause()
+    finally:
+        await owner.close()
 
 
 @pytest.mark.asyncio
@@ -176,7 +256,7 @@ async def test_confirm_control_attach_returns_false_on_dead_socket(
     app = TraceEvalApp(
         work_dir=tmp_path / "w",
         traces_path=tmp_path / "w" / "runs" / "traces",
-        control_socket=tmp_path / "missing.sock",
+        control_socket=_short_sock("missing.sock"),
         control_attach_only=True,
     )
     (tmp_path / "w" / "runs" / "traces").mkdir(parents=True)

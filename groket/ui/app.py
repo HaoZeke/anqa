@@ -1210,15 +1210,26 @@ class TraceEvalApp(App):
         *,
         include_host: bool | None = None,
     ) -> None:
-        """Scan eval (+ optional host) roots and replace the sessions list.
+        """Load the home session list.
 
-        When successfully attached as a control client, load the home catalog
-        via ``session/list``. Otherwise walk local work/traces (and host roots).
+        Normal product path (control socket configured): only ``session/list``
+        after a successful attach. Offline (``control_socket`` None / --no-serve):
+        walk local work/traces. No silent dual path when attach is intended.
         """
         _ = root
         gen = self._begin_sessions_load()
-        if self._control_attached:
-            self._load_sessions_via_control(gen)
+        if self._control_socket is not None:
+            if self._control_attached:
+                self._load_sessions_via_control(gen)
+                return
+            # Socket configured but not yet attached: do not scan disk (would
+            # reintroduce a second catalog stack). Empty list until attach or error.
+            if not self._sessions_load_current(gen):
+                return
+            if self._apply_session_meta_rows(gen, []):
+                call_ui(self, self._rebuild_session_filters)
+                call_ui(self, self._populate_session_table, force=True)
+            call_ui(self, self._finish_sessions_load, gen)
             return
         roots = self._catalog_roots_for_load(include_host=include_host)
         scan_desc = ", ".join(str(r.path) for r in roots)
@@ -2946,8 +2957,10 @@ class TraceEvalApp(App):
 
         now = time.time()
         active_n = int(self.run_manager.active_count or 0)
-        # Control catalog only after a successful attach; otherwise local scan.
-        if self._control_attached:
+        # Product path: quiet session/list only (no local full-walk thrash).
+        if self._control_socket is not None:
+            if not self._control_attached:
+                return
             min_gap = LIVE_POLL_FULL_WALK_INTERVAL
             if now - self._live_sessions_last_scan < min_gap:
                 return
@@ -2956,10 +2969,10 @@ class TraceEvalApp(App):
             try:
                 self._load_sessions_via_control(gen, quiet=True, clear_plugins=False)
             finally:
-                # _load_sessions_via_control finishes gen itself; guard double-finish
                 pass
             return
 
+        # Offline (--no-serve): local traces scan only.
         min_gap = LIVE_POLL_ACTIVE_INTERVAL
         if now - self._live_sessions_last_scan < min_gap:
             return
