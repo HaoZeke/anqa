@@ -1536,23 +1536,30 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return get_analysis_service().analyze_all(session_dir, force=force)
 
         async def _run() -> dict:
-            await access.analysis_run(session_dir.name, force=force)
-            deadline = time_mod.monotonic() + 600.0
-            # Back off: first second is snappy, then ~1s polls (was 0.35s spam).
-            delay = 0.4
-            while time_mod.monotonic() < deadline:
-                status = await access.analysis_status(session_dir.name)
-                state = str(status.get("state") or "")
-                if state in {"done", "error", "idle"}:
-                    if state == "error":
-                        logger.warning(
-                            "control analysis error for %s: %s",
-                            session_dir.name,
-                            status.get("error"),
-                        )
-                    break
-                await asyncio.sleep(delay)
-                delay = min(1.0, delay * 1.25)
+            # One long-lived client for run + status polls (not a connect per tick).
+            client = getattr(access, "_client", None)
+            if client is not None and hasattr(client, "connect"):
+                await client.connect()
+            try:
+                await access.analysis_run(session_dir.name, force=force)
+                deadline = time_mod.monotonic() + 600.0
+                delay = 0.4
+                while time_mod.monotonic() < deadline:
+                    status = await access.analysis_status(session_dir.name)
+                    state = str(status.get("state") or "")
+                    if state in {"done", "error", "idle"}:
+                        if state == "error":
+                            logger.warning(
+                                "control analysis error for %s: %s",
+                                session_dir.name,
+                                status.get("error"),
+                            )
+                        break
+                    await asyncio.sleep(delay)
+                    delay = min(1.0, delay * 1.25)
+            finally:
+                if client is not None and hasattr(client, "close"):
+                    await client.close()
             return get_analysis_service().load_cached_all(session_dir, allow_stale=True)
 
         return asyncio.run(_run())

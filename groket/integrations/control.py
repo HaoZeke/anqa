@@ -522,12 +522,21 @@ class ControlServer:
         return job.as_mapping()
 
     async def _analysis_status(self, params: JsonObject) -> JsonObject:
+        """In-memory job table only — do not resolve/catalog-scan on the poll path.
+
+        Status is polled while analysis holds the GIL on multi‑MB parses; any
+        disk walk here (``resolve_session`` → ``collect_session_dirs``) turns a
+        dict lookup into hundreds of milliseconds.
+        """
         ref = self._session_ref(params)
-        session = self._resolve_session(ref)
-        path_str = str(session) if session is not None else ref
-        sid = session.name if session is not None and session.is_dir() else Path(ref).name
+        # Job keys are directory names; accept id or path basename.
+        try:
+            sid = Path(ref).name if ref else ""
+        except (TypeError, ValueError):
+            sid = ref
+        sid = (sid or ref).strip()
         with self._analysis_lock:
-            return self._analysis_status_unlocked(sid, path_str).as_mapping()
+            return self._analysis_status_unlocked(sid, ref).as_mapping()
 
     async def _handle_client(
         self,
