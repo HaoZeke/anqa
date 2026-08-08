@@ -266,14 +266,32 @@ function applySessionFilter(opts = {}) {
     if (db !== 0) return db;
     return String(a.sessionId || "").localeCompare(String(b.sessionId || ""));
   });
+  let selectionLeftFilter = false;
   if (keepId) {
     const idx = sessions.findIndex((r) => String(r.sessionId || "") === String(keepId));
-    active = idx >= 0 ? idx : 0;
+    if (idx >= 0) {
+      active = idx;
+    } else {
+      active = 0;
+      selectionLeftFilter = true;
+    }
   } else if (active >= sessions.length) {
     active = Math.max(0, sessions.length - 1);
   }
   const changed = prev !== sessions.map((r) => String(r.sessionId || "")).join("\n");
   if (doRender) renderList(opts.listOpts || {});
+  // List search dropped the open session: load the new highlight (or clear detail).
+  if (selectionLeftFilter && opts.syncDetail !== false) {
+    if (sessions.length) {
+      scheduleOverview(true, 0);
+    } else {
+      overviewCache = null;
+      overviewSid = "";
+      overviewPendingSid = "";
+      resetDetailChromeForSessionChange();
+      renderDetail();
+    }
+  }
   return changed;
 }
 
@@ -343,6 +361,7 @@ function renderList(opts = {}) {
 }
 
 function setTab(next) {
+  const prev = tab;
   tab = next;
   for (const btn of tabsEl.querySelectorAll(".tab")) {
     btn.classList.toggle("active", btn.dataset.tab === tab);
@@ -358,6 +377,9 @@ function setTab(next) {
   renderDetail();
   if (tab === "timeline") {
     requestAnimationFrame(() => scrollTimelineFocus());
+  } else if (prev !== tab) {
+    // Overview/Turns/Findings/Notes: always start at the top of the pane.
+    detailEl.scrollTop = 0;
   }
 }
 
@@ -521,10 +543,31 @@ function resetTimelineState() {
   timelineLoading = false;
   timelineLoadingMore = false;
   timelineFocusIndex = null;
+  timelineFocusScrollUntil = 0;
+  timelinePinnedToBottom = true;
+  timelineScrollProgrammatic = false;
   // Invalidate any in-flight ensure (session switch / hard reset).
   timelineGen += 1;
   timelineEnsurePromise = null;
   timelineEnsureSid = "";
+}
+
+/**
+ * Detail chrome that must not leak across sessions: tab, timeline filters,
+ * scroll, and pin state. Call whenever the selected session id changes.
+ */
+function resetDetailChromeForSessionChange() {
+  tab = "overview";
+  for (const btn of tabsEl.querySelectorAll(".tab")) {
+    btn.classList.toggle("active", btn.dataset.tab === "overview");
+  }
+  timelineQuery = "";
+  timelineKindFilter = "all";
+  if (tlQ) tlQ.value = "";
+  if (tlKind) tlKind.value = "all";
+  resetTimelineState();
+  syncTimelineSearchBar();
+  detailEl.scrollTop = 0;
 }
 
 /**
@@ -1693,7 +1736,7 @@ function scheduleOverview(force, delayMs = 90) {
     overviewCache = null;
     overviewSid = "";
     overviewPendingSid = "";
-    resetTimelineState();
+    resetDetailChromeForSessionChange();
     renderDetail();
     return;
   }
@@ -1707,17 +1750,8 @@ function scheduleOverview(force, delayMs = 90) {
     overviewCache = null;
     overviewPaintFp = "";
     liveOverviewGen += 1; // drop in-flight live overview for previous sid
-    resetTimelineState();
-    timelineQuery = "";
-    timelineKindFilter = "all";
-    if (tlQ) tlQ.value = "";
-    if (tlKind) tlKind.value = "all";
-    // New session: always land on Overview (do not keep Timeline/Findings from the prior row).
-    tab = "overview";
-    for (const btn of tabsEl.querySelectorAll(".tab")) {
-      btn.classList.toggle("active", btn.dataset.tab === "overview");
-    }
-    syncTimelineSearchBar();
+    // New session: Overview tab, clear timeline filters, scroll to top.
+    resetDetailChromeForSessionChange();
     renderDetailSkeleton(sid);
   }
   overviewDebounce = window.setTimeout(() => {
@@ -1839,6 +1873,10 @@ async function loadOverview(force = false, opts = {}) {
       overviewPendingSid = "";
       overviewPaintFp = overviewPaintFingerprint(data);
       renderDetail();
+      // First paint after a session switch: do not inherit prior scroll depth.
+      if (tab === "overview" || tab === "turns" || tab === "findings" || tab === "notes") {
+        detailEl.scrollTop = 0;
+      }
       const ms = Math.round(performance.now() - t0);
       const status = data.meta && typeof data.meta === "object" ? data.meta.status : "";
       markControlUp();
@@ -1961,6 +1999,7 @@ async function refreshListFromServer(opts = {}) {
       overviewCache = null;
       overviewSid = "";
       overviewPendingSid = "";
+      resetDetailChromeForSessionChange();
       renderDetail();
     }
   } catch (e) {
@@ -2191,14 +2230,23 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.key === "Tab" && !ev.metaKey && !ev.ctrlKey) {
-    // cycle tabs
-    const order = ["overview", "turns", "timeline", "findings", "notes"];
-    const i = order.indexOf(tab);
-    if (ev.shiftKey) {
+    // Cycle detail tabs when not typing in an input (⌘1–5 also work).
+    const inField =
+      document.activeElement === q ||
+      document.activeElement === tlQ ||
+      document.activeElement === tlKind;
+    if (!inField || ev.shiftKey) {
+      const order = ["overview", "turns", "timeline", "findings", "notes"];
+      const i = Math.max(0, order.indexOf(tab));
       ev.preventDefault();
-      setTab(order[(i - 1 + order.length) % order.length]);
-    } else if (document.activeElement === q) {
-      // let tab leave search into tabs only with shift? keep default for accessibility
+      setTab(
+        order[
+          ev.shiftKey
+            ? (i - 1 + order.length) % order.length
+            : (i + 1) % order.length
+        ],
+      );
+      return;
     }
   }
   if (ev.key === "1" && (ev.metaKey || ev.ctrlKey)) {
@@ -2240,6 +2288,22 @@ window.addEventListener("keydown", (ev) => {
     active = (active - 1 + sessions.length) % sessions.length;
     renderList();
     scheduleOverview(true, 100);
+    return;
+  }
+  if (ev.key === "Home" && document.activeElement !== q && document.activeElement !== tlQ) {
+    ev.preventDefault();
+    if (!sessions.length) return;
+    active = 0;
+    renderList();
+    scheduleOverview(true, 0);
+    return;
+  }
+  if (ev.key === "End" && document.activeElement !== q && document.activeElement !== tlQ) {
+    ev.preventDefault();
+    if (!sessions.length) return;
+    active = sessions.length - 1;
+    renderList();
+    scheduleOverview(true, 0);
     return;
   }
   if (ev.key === "Enter") {
