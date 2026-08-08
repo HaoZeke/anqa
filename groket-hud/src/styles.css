@@ -1182,6 +1182,128 @@ body {
   font-size: 11px;
   font-family: var(--mono);
   color: var(--muted);
+}
+
+/* Create / update operator notes (control notes/upsert) */
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+}
+
+.note-form-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0 0 2px;
+}
+
+.note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.note-field-inline {
+  max-width: 10rem;
+}
+
+.note-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.note-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  outline: none;
+}
+
+.note-input:focus {
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.18);
+}
+
+.note-input-sm {
+  width: 5.5rem;
+}
+
+.note-textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  line-height: 1.4;
+}
+
+.note-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.note-btn {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.note-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.note-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.note-btn-primary {
+  background: rgba(10, 132, 255, 0.28);
+  border-color: rgba(10, 132, 255, 0.45);
+}
+
+.note-btn-primary:hover:not(:disabled) {
+  background: rgba(10, 132, 255, 0.4);
+}
+
+.note-form-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.note-list li.note-card {
+  cursor: pointer;
+}
+
+.note-list li.note-card:hover {
+  border-color: rgba(10, 132, 255, 0.35);
+}
+
+.note-list li.note-selected {
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.2);
+}
   opacity: 0.9;
 }
 

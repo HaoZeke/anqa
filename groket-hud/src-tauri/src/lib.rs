@@ -73,6 +73,15 @@ async fn control_notes_list(session: String) -> Result<serde_json::Value, contro
 }
 
 #[tauri::command]
+async fn control_notes_upsert(
+    session: String,
+    note: serde_json::Value,
+    expected_revision: String,
+) -> Result<serde_json::Value, control::ControlError> {
+    control_blocking(move || control::notes_upsert(&session, note, &expected_revision)).await
+}
+
+#[tauri::command]
 async fn control_session_usage(session: String) -> Result<serde_json::Value, control::ControlError> {
     control_blocking(move || control::session_usage(&session)).await
 }
@@ -140,6 +149,7 @@ pub fn run() {
             control_session_turns,
             control_session_timeline,
             control_notes_list,
+            control_notes_upsert,
             control_session_usage,
             control_socket_path,
             hud_summon_shortcut,

@@ -579,6 +579,7 @@ function resetDetailChromeForSessionChange() {
   if (tlQ) tlQ.value = "";
   if (tlKind) tlKind.value = "all";
   resetTimelineState();
+  resetNoteDraft();
   syncTimelineSearchBar();
   detailEl.scrollTop = 0;
 }
@@ -1618,14 +1619,74 @@ function wireFindingClicks() {
   }
 }
 
+/**
+ * Draft for the Notes form (create or edit). Cleared on session switch.
+ * @type {{ id: string, turnIndex: string, summary: string, detail: string }}
+ */
+let noteDraft = { id: "", turnIndex: "", summary: "", detail: "" };
+let noteSaving = false;
+
+function resetNoteDraft() {
+  noteDraft = { id: "", turnIndex: "", summary: "", detail: "" };
+  noteSaving = false;
+}
+
+/**
+ * Apply a notes/list|upsert snapshot into overviewCache so the Notes tab paints
+ * without waiting for a full session/overview round-trip.
+ * @param {Record<string, unknown>} snap
+ */
+function applyNotesSnapshotToOverview(snap) {
+  if (!overviewCache || !snap || typeof snap !== "object") return;
+  const notes = Array.isArray(snap.notes) ? snap.notes : [];
+  const prev = overviewCache.notes && typeof overviewCache.notes === "object" ? overviewCache.notes : {};
+  overviewCache.notes = {
+    ...prev,
+    revision: snap.revision != null ? String(snap.revision) : prev.revision,
+    count: notes.length,
+    notes,
+    schema: snap.schema != null ? snap.schema : prev.schema,
+  };
+  overviewPaintFp = "";
+}
+
 function renderNotesTab(o) {
   const rawNotes = Array.isArray(o.notes?.notes) ? o.notes.notes.slice() : [];
   const rev = o.notes?.revision ? String(o.notes.revision) : "";
-  if (!rawNotes.length) {
-    return `<p class="empty">No operator notes on this session.</p>`;
-  }
+  const editing = Boolean(noteDraft.id);
+  const form = `<form class="note-form" id="note-form" autocomplete="off">
+    <div class="note-form-title">${editing ? "Update note" : "Add note"}</div>
+    <input type="hidden" name="id" value="${escapeHtml(noteDraft.id)}" />
+    <label class="note-field">
+      <span class="note-field-label">Summary</span>
+      <input name="summary" type="text" class="note-input" maxlength="500"
+        placeholder="Short title" value="${escapeHtml(noteDraft.summary)}" />
+    </label>
+    <label class="note-field">
+      <span class="note-field-label">Detail</span>
+      <textarea name="detail" class="note-input note-textarea" rows="3"
+        placeholder="Optional detail" maxlength="8000">${escapeHtml(noteDraft.detail)}</textarea>
+    </label>
+    <label class="note-field note-field-inline">
+      <span class="note-field-label">Turn</span>
+      <input name="turnIndex" type="number" min="0" step="1" class="note-input note-input-sm"
+        placeholder="session" value="${escapeHtml(noteDraft.turnIndex)}" />
+    </label>
+    <div class="note-form-actions">
+      <button type="submit" class="note-btn note-btn-primary" ${noteSaving ? "disabled" : ""}>
+        ${noteSaving ? "Saving…" : editing ? "Save update" : "Save note"}
+      </button>
+      ${
+        editing
+          ? `<button type="button" class="note-btn" id="note-form-clear">New note</button>`
+          : ""
+      }
+    </div>
+    <p class="note-form-hint">Fields match the operator notes schema (summary / detail). Saved notes fan out to TUI, Emacs, and Vim via control.</p>
+  </form>`;
+
   // Newest update first.
-  const notes = rawNotes.sort((a, b) => {
+  const notes = rawNotes.slice().sort((a, b) => {
     const ta = Date.parse(String(a.updatedAt || a.createdAt || "")) || 0;
     const tb = Date.parse(String(b.updatedAt || b.createdAt || "")) || 0;
     return tb - ta;
@@ -1633,7 +1694,11 @@ function renderNotesTab(o) {
   const head = `<p class="list-meta">${notes.length} note${notes.length === 1 ? "" : "s"}${
     rev ? ` · rev ${escapeHtml(rev.slice(0, 12))}` : ""
   }</p>`;
+  if (!notes.length) {
+    return form + head + `<p class="empty">No operator notes on this session yet.</p>`;
+  }
   return (
+    form +
     head +
     `<ul class="note-list">${notes
       .map((n) => {
@@ -1674,7 +1739,9 @@ function renderNotesTab(o) {
           idShort ? `#${idShort.slice(0, 10)}` : "",
           indices.length ? `events ${indices.join(", ")}` : "",
         ].filter(Boolean);
-        return `<li class="note-card${empty ? " note-empty" : ""}">
+        const nid = escapeHtml(String(n.id || ""));
+        const selected = noteDraft.id && String(n.id || "") === noteDraft.id ? " note-selected" : "";
+        return `<li class="note-card${empty ? " note-empty" : ""}${selected}" data-note-id="${nid}" tabindex="0" role="button" title="Edit note">
           <div class="note-head">
             <span class="note-turn">${turn}</span>
             ${when ? `<span class="note-time">${escapeHtml(when)}</span>` : ""}
@@ -1687,6 +1754,147 @@ function renderNotesTab(o) {
       })
       .join("")}</ul>`
   );
+}
+
+function newNoteId() {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return `n-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    }
+  } catch {
+    /* fall through */
+  }
+  return `n-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Persist the Notes form via control notes/upsert; paint immediately from the
+ * response snapshot so the HUD does not wait on overview notify.
+ * @param {SubmitEvent|Event} ev
+ */
+async function saveNoteFromForm(ev) {
+  ev.preventDefault();
+  const form = /** @type {HTMLFormElement|null} */ (detailEl.querySelector("#note-form"));
+  if (!form || noteSaving) return;
+  const sid = overviewSid;
+  if (!sid || !overviewCache) {
+    setStatus("Select a session before saving a note");
+    return;
+  }
+  const rev =
+    overviewCache.notes && overviewCache.notes.revision != null
+      ? String(overviewCache.notes.revision)
+      : "";
+  const fd = new FormData(form);
+  const summary = String(fd.get("summary") || "").trim();
+  const detail = String(fd.get("detail") || "").trim();
+  const turnRaw = String(fd.get("turnIndex") || "").trim();
+  let id = String(fd.get("id") || noteDraft.id || "").trim();
+  if (!summary && !detail) {
+    setStatus("Enter a summary or detail before saving");
+    return;
+  }
+  if (!id) id = newNoteId();
+  let turnIndex = 0;
+  if (turnRaw !== "") {
+    const n = Number(turnRaw);
+    if (!Number.isFinite(n) || n < 0) {
+      setStatus("Turn must be a non-negative integer");
+      return;
+    }
+    turnIndex = Math.floor(n);
+  }
+  // Preserve extras when editing (schema fields beyond summary/detail).
+  /** @type {Record<string, string>} */
+  let fields = { summary, detail };
+  const existing = Array.isArray(overviewCache.notes?.notes) ? overviewCache.notes.notes : [];
+  const prev = existing.find((n) => String(n.id || "") === id);
+  if (prev && prev.fields && typeof prev.fields === "object") {
+    fields = { ...prev.fields, summary, detail };
+  }
+  const note = {
+    id,
+    turnIndex,
+    fields,
+    eventIndices: Array.isArray(prev?.eventIndices) ? prev.eventIndices : [],
+  };
+  noteSaving = true;
+  noteDraft = {
+    id,
+    turnIndex: turnRaw,
+    summary,
+    detail,
+  };
+  renderDetail();
+  try {
+    const raw = await invoke("control_notes_upsert", {
+      session: sid,
+      note,
+      expectedRevision: rev,
+    });
+    const snap = rpcPayload(raw);
+    if (!snap || typeof snap !== "object") {
+      throw new Error("notes/upsert returned empty result");
+    }
+    applyNotesSnapshotToOverview(/** @type {Record<string, unknown>} */ (snap));
+    resetNoteDraft();
+    markControlUp();
+    setStatus("Note saved");
+    if (tab === "notes") renderDetail();
+  } catch (e) {
+    noteSaving = false;
+    const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+    // Revision conflicts and validation stay "control up"; only transport death
+    // should flip the sticky down banner.
+    const soft =
+      /409|conflict|revision|expectedRevision|note\.id|must match|required/i.test(msg);
+    if (!soft) markControlDown(e);
+    setStatus(`Note save failed: ${msg}`);
+    if (tab === "notes") renderDetail();
+  }
+}
+
+function wireNotesForm() {
+  const form = detailEl.querySelector("#note-form");
+  if (form) {
+    form.addEventListener("submit", (ev) => {
+      void saveNoteFromForm(ev);
+    });
+  }
+  const clearBtn = detailEl.querySelector("#note-form-clear");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      resetNoteDraft();
+      renderDetail();
+    });
+  }
+  for (const li of detailEl.querySelectorAll(".note-card[data-note-id]")) {
+    const load = () => {
+      const nid = li.getAttribute("data-note-id") || "";
+      if (!nid || !overviewCache) return;
+      const rows = Array.isArray(overviewCache.notes?.notes) ? overviewCache.notes.notes : [];
+      const n = rows.find((row) => String(row.id || "") === nid);
+      if (!n) return;
+      const fields = n.fields && typeof n.fields === "object" ? n.fields : {};
+      noteDraft = {
+        id: String(n.id || ""),
+        turnIndex:
+          n.turnIndex != null && n.turnIndex !== "" ? String(n.turnIndex) : "",
+        summary: String(fields.summary ?? fields.title ?? "").trim(),
+        detail: String(fields.detail ?? fields.body ?? "").trim(),
+      };
+      renderDetail();
+      const summaryInput = detailEl.querySelector('input[name="summary"]');
+      if (summaryInput instanceof HTMLElement) summaryInput.focus();
+    };
+    li.addEventListener("click", load);
+    li.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        load();
+      }
+    });
+  }
 }
 
 function renderDetailSkeleton(sid) {
@@ -1727,6 +1935,7 @@ function renderDetail() {
     wireFindingClicks();
   } else {
     detailEl.innerHTML = renderNotesTab(o);
+    wireNotesForm();
   }
 }
 

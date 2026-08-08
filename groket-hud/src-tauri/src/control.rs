@@ -293,6 +293,21 @@ pub fn notes_list(session: &str) -> Result<Value, ControlError> {
     request("notes/list", json!({ "session": session }))
 }
 
+pub fn notes_upsert(
+    session: &str,
+    note: Value,
+    expected_revision: &str,
+) -> Result<Value, ControlError> {
+    request(
+        "notes/upsert",
+        json!({
+            "session": session,
+            "expectedRevision": expected_revision,
+            "note": note,
+        }),
+    )
+}
+
 pub fn session_usage(session: &str) -> Result<Value, ControlError> {
     request("session/usage", json!({ "session": session }))
 }
