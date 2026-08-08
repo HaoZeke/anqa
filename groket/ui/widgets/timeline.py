@@ -34,6 +34,9 @@ class TimelineTable(DataTable):
     _result_by_id: dict[str, TraceEvent] = {}
     #: event.index → sequential operator turn id (0-based); empty when unknown
     _turn_by_index: dict[int, int] = {}
+    #: When True, :meth:`turn_index_for` rebuilds the map (lazy — avoid
+    #: re-segmenting the full timeline on every live ``load_events``).
+    _turn_map_stale: bool = True
 
     @property
     def durations(self) -> dict[int, float]:
@@ -84,7 +87,9 @@ class TimelineTable(DataTable):
         if flags:
             for fl in flags:
                 self.flags_by_index[fl.event_index] = fl
-        self._rebuild_turn_map()
+        # Detail pane asks for turn ids lazily — do not re-segment here (that
+        # froze the UI on large timelines and every live tick).
+        self._turn_map_stale = True
 
         if not row_ok or not prev:
             self._build_tool_pairs()
@@ -320,11 +325,15 @@ class TimelineTable(DataTable):
 
         if not self.events:
             self._turn_by_index = {}
+            self._turn_map_stale = False
             return
         self._turn_by_index = event_display_turn_map(segment_timeline_turns(self.events))
+        self._turn_map_stale = False
 
     def turn_index_for(self, event_index: int) -> int | None:
         """Sequential operator turn id for *event_index*, if the event is in a turn."""
+        if self._turn_map_stale:
+            self._rebuild_turn_map()
         return self._turn_by_index.get(int(event_index))
 
     def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str]:

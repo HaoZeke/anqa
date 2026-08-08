@@ -1133,6 +1133,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         **Never** rebuilds Summary while the Timeline tab is active — that was a
         multi-hundred-ms freeze during live turns.
         """
+        if not self.is_mounted:
+            return
         sampled = self._record_context_sample()
         fp = self._light_refresh_fingerprint()
         prev_fp = getattr(self, "_last_light_fp", None)
@@ -1221,10 +1223,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
                 self._diff_meta = {}
             app = resolve_ui_app(self)
-            call_ui(app, self._populate_ui)
-            call_ui(app, self._schedule_live_refresh)
-            # Analysis is async on the fixed analysis pool — never blocks timeline paint.
-            call_ui(app, self._schedule_analysis)
+            # User may have left the browser while parse ran — never paint
+            # a huge table onto a discarded screen (freezes the UI).
+            if self.is_mounted:
+                call_ui(app, self._populate_ui)
+                call_ui(app, self._schedule_live_refresh)
+                # Analysis is async on the fixed analysis pool — never blocks timeline paint.
+                call_ui(app, self._schedule_analysis)
         finally:
 
             def _release_refresh_lock() -> None:
@@ -1233,7 +1238,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._live_refresh_pending = False
                 pending_heartbeat = self._light_refresh_heartbeat
                 self._light_refresh_heartbeat = False
-                if again:
+                if again and self.is_mounted:
                     self._live_refresh_from_fs(heartbeat=pending_heartbeat)
 
             try:
@@ -1600,6 +1605,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _populate_ui(self) -> None:
         """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""
+        if not self.is_mounted:
+            return
         self._set_title_from_meta()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))

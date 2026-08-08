@@ -139,7 +139,10 @@ async def test_timeline_turn_index_for_maps_events() -> None:
             ),
         ]
         tl.load_events(events)
+        # Map is built lazily on first turn_index_for (not on every load_events).
+        assert tl._turn_map_stale is True
         assert tl.turn_index_for(1) == 0
+        assert tl._turn_map_stale is False
         assert tl.turn_index_for(4) == 1
 
 
