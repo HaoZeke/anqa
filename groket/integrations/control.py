@@ -60,6 +60,10 @@ CAPABILITIES = (
     "analysis/run",
     "analysis/status",
 )
+# Concurrent disk-heavy RPCs (parse/catalog) share this bound so multi-client
+# opens cannot stampede the owner beyond single-flight per session.
+HEAVY_IO_CONCURRENCY = 4
+
 type SessionResolver = Callable[[str], Path | None]
 type SessionLister = Callable[[], list[JsonObject]]
 type OpenSession = Callable[[Path, int | None], Awaitable[bool]]
@@ -292,6 +296,9 @@ class ControlServer:
         )
         self._analysis_futures: dict[str, Future[None]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Cap concurrent disk-heavy access work so many open clients cannot
+        # stampede multi‑MB parses (single-flight still joins per session).
+        self._heavy_sem = asyncio.Semaphore(HEAVY_IO_CONCURRENCY)
 
     async def start(self) -> None:
         """Bind the configured socket and begin accepting connections."""
@@ -753,7 +760,8 @@ class ControlServer:
             except FileNotFoundError as exc:
                 raise ControlError(404, "session not found", {"session": ref}) from exc
 
-        return await asyncio.to_thread(_run)
+        async with self._heavy_sem:
+            return await asyncio.to_thread(_run)
 
     async def _dispatch(
         self,
@@ -777,11 +785,12 @@ class ControlServer:
         access = self._access
         if method == "session/list":
             # Catalog builds resolve paths; keep syscalls off the event loop.
-            return await asyncio.to_thread(
-                access.list_sessions,
-                query=json_as_str(params.get("query")),
-                limit=_optional_int_param(params.get("limit"), name="limit"),
-            )
+            async with self._heavy_sem:
+                return await asyncio.to_thread(
+                    access.list_sessions,
+                    query=json_as_str(params.get("query")),
+                    limit=_optional_int_param(params.get("limit"), name="limit"),
+                )
         if method == "session/get":
             ref = self._session_ref(params)
             return await self._access_call(ref, access.session_get, ref)
@@ -838,7 +847,8 @@ class ControlServer:
                         {"supported": list(SUPPORTED_FORMATS), "format": fmt},
                     ) from exc
 
-            return await asyncio.to_thread(_render)
+            async with self._heavy_sem:
+                return await asyncio.to_thread(_render)
         if method == "session/open":
             raw_prompt = params.get("promptIndex")
             prompt_index = None if raw_prompt is None else json_as_int(raw_prompt)
