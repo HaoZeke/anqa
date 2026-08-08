@@ -1709,7 +1709,15 @@ function scheduleOverview(force, delayMs = 90) {
     liveOverviewGen += 1; // drop in-flight live overview for previous sid
     resetTimelineState();
     timelineQuery = "";
+    timelineKindFilter = "all";
     if (tlQ) tlQ.value = "";
+    if (tlKind) tlKind.value = "all";
+    // New session: always land on Overview (do not keep Timeline/Findings from the prior row).
+    tab = "overview";
+    for (const btn of tabsEl.querySelectorAll(".tab")) {
+      btn.classList.toggle("active", btn.dataset.tab === "overview");
+    }
+    syncTimelineSearchBar();
     renderDetailSkeleton(sid);
   }
   overviewDebounce = window.setTimeout(() => {
