@@ -179,9 +179,10 @@ Quitting the TUI does **not** stop the control owner.
 
 ```bash
 groket serve -d               # or rely on client auto-start
-groket hud                    # cargo build (debug) if missing/stale
+groket hud                    # cargo build --release if missing/stale
+groket hud --debug            # unoptimized cargo debug binary
 groket hud --dev              # npm run dev (hot reload)
-groket hud --rebuild          # force cargo build before launch
+groket hud --rebuild          # force cargo build for selected profile
 # First time only if needed: cd groket-hud && npm install
 # Override binary: GROKET_HUD_BIN=/path/to/groket-hud
 ```

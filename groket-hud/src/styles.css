@@ -281,6 +281,38 @@ body {
   display: none !important;
 }
 
+.tl-kind-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.tl-kind {
+  flex-shrink: 0;
+  max-width: 11rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tl-kind:focus {
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 #tl-q {
   flex: 1;
   min-width: 0;

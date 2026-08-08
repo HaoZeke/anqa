@@ -48,6 +48,15 @@
             <button type="button" data-tab="notes" class="tab" role="tab">Notes</button>
           </nav>
           <div class="tl-search-bar" id="tl-search-bar" hidden>
+            <label class="tl-kind-label" for="tl-kind">Type</label>
+            <select id="tl-kind" class="tl-kind" aria-label="Event type filter">
+              <option value="all" selected>All events</option>
+              <option value="tools">Tools only</option>
+              <option value="user">User messages</option>
+              <option value="asst">Assistant</option>
+              <option value="sess">Session markers</option>
+              <option value="errors">Errors only</option>
+            </select>
             <input
               id="tl-q"
               type="search"

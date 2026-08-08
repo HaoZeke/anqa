@@ -62,9 +62,9 @@ npm run build
 # binary: src-tauri/target/release/groket-hud
 ```
 
-``groket hud`` prefers this release (then debug) binary when present.
-From an editable checkout, ``groket hud`` also auto-runs ``cargo build``
-(debug) when the binary is missing or sources are newer.
+``groket hud`` uses the **release** binary by default and auto-runs
+``cargo build --release`` when it is missing or sources are newer.
+Pass ``groket hud --debug`` for an unoptimized ``cargo build`` binary.
 
 ## Env
 

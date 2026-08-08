@@ -60,7 +60,34 @@ def test_hud_binary_is_stale_when_source_newer(tmp_path: Path) -> None:
     assert hud_binary_is_stale(binary, checkout) is False
 
 
-def test_ensure_hud_binary_rebuilds_when_stale(tmp_path: Path) -> None:
+def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src-tauri" / "src"
+    src.mkdir(parents=True)
+    (checkout / "src-tauri" / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (src / "lib.rs").write_text("x", encoding="utf-8")
+    built = checkout / "src-tauri" / "target" / "release" / "groket-hud"
+    built.parent.mkdir(parents=True)
+
+    def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
+        assert debug is False
+        built.write_text("fresh", encoding="utf-8")
+        built.chmod(0o755)
+        return built
+
+    with (
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
+        patch.dict(os.environ, {}, clear=False),
+    ):
+        os.environ.pop("GROKET_HUD_BIN", None)
+        out = launch_mod.ensure_hud_binary()
+    assert out == built
+    mock_build.assert_called_once()
+    assert mock_build.call_args.kwargs.get("debug") is False
+
+
+def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
     src = checkout / "src-tauri" / "src"
     src.mkdir(parents=True)
@@ -69,21 +96,40 @@ def test_ensure_hud_binary_rebuilds_when_stale(tmp_path: Path) -> None:
     built = checkout / "src-tauri" / "target" / "debug" / "groket-hud"
     built.parent.mkdir(parents=True)
 
-    def fake_build(root: Path | None = None) -> Path | None:
-        built.write_text("fresh", encoding="utf-8")
+    def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
+        assert debug is True
+        built.write_text("dbg", encoding="utf-8")
         built.chmod(0o755)
         return built
 
     with (
         patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
-        patch.object(launch_mod, "find_hud_binary", return_value=None),
-        patch.object(launch_mod, "build_hud_debug", side_effect=fake_build) as mock_build,
+        patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
         os.environ.pop("GROKET_HUD_BIN", None)
-        out = launch_mod.ensure_hud_binary()
+        out = launch_mod.ensure_hud_binary(debug=True)
     assert out == built
     mock_build.assert_called_once()
+    assert mock_build.call_args.kwargs.get("debug") is True
+
+
+def test_launch_tauri_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
+    binary = tmp_path / "groket-hud"
+    binary.write_text("x", encoding="utf-8")
+    binary.chmod(0o755)
+    with (
+        patch.object(launch_mod, "ensure_hud_binary", return_value=binary) as mock_ensure,
+        patch.object(launch_mod, "hud_process_running", return_value=False),
+        patch.object(launch_mod.subprocess, "Popen") as mock_popen,
+    ):
+        mock_popen.return_value.pid = 1
+        code = launch_mod.launch_tauri_hud(
+            socket_path=tmp_path / "c.sock",
+            debug=True,
+        )
+    assert code == 0
+    mock_ensure.assert_called_once_with(rebuild=False, debug=True)
 
 
 def test_launch_tauri_hud_detaches_by_default(tmp_path: Path) -> None:

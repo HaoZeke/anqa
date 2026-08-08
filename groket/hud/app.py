@@ -29,14 +29,16 @@ def run_hud(
     work_dir: Path | None = None,
     auto_serve: bool = True,
     dev: bool = False,
+    debug: bool = False,
     rebuild: bool = False,
     foreground: bool = False,
     restart: bool = False,
 ) -> int:
     """Ensure control owner is live, then launch the Tauri ``groket-hud`` binary.
 
-    In an editable checkout, missing/stale binaries are rebuilt with
-    ``cargo build`` (debug) unless *dev* runs ``npm run dev`` instead.
+    In an editable checkout, missing/stale binaries rebuild with
+    ``cargo build --release`` by default. Pass *debug* for an unoptimized
+    build, or *dev* for ``npm run dev`` (hot reload).
 
     By default the HUD is detached in the background (Sol-style agent: no Dock
     / ⌘Tab on macOS). Pass *foreground* to attach the terminal to the process.
@@ -83,6 +85,7 @@ def run_hud(
     code = launch_tauri_hud(
         socket_path=sock,
         dev=dev,
+        debug=debug,
         rebuild=rebuild,
         foreground=foreground,
         restart=restart,
@@ -90,9 +93,11 @@ def run_hud(
     if code == 127:
         sys.stderr.write(
             "error: groket-hud binary not found.\n"
-            "From a checkout with Rust installed, ``groket hud`` auto-builds debug.\n"
+            "From a checkout with Rust installed, ``groket hud`` auto-builds release.\n"
             "Or:\n"
             "  cd groket-hud && npm install && npm run build\n"
+            "Unoptimized binary:\n"
+            "  groket hud --debug\n"
             "Hot reload:\n"
             "  groket hud --dev\n"
             "Override path with GROKET_HUD_BIN.\n"

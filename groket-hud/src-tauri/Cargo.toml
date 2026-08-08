@@ -18,3 +18,10 @@ tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# Default ``groket hud`` path is release — make that binary as small/fast as practical.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

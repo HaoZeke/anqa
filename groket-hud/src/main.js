@@ -29,6 +29,7 @@ const hotkeyHint = document.getElementById("hotkey-hint");
 const tabsEl = document.getElementById("tabs");
 const tlSearchBar = document.getElementById("tl-search-bar");
 const tlQ = document.getElementById("tl-q");
+const tlKind = document.getElementById("tl-kind");
 const tlSearchMeta = document.getElementById("tl-search-meta");
 
 /** @type {Array<Record<string, unknown>>} */
@@ -70,6 +71,11 @@ let timelineEnsurePromise = null;
 let timelineEnsureSid = "";
 /** Sub-search over loaded events (client-side fzf); triggers fill when needed. */
 let timelineQuery = "";
+/**
+ * Event-type view filter (matches TUI timeline View select).
+ * @type {"all"|"tools"|"user"|"asst"|"sess"|"errors"}
+ */
+let timelineKindFilter = "all";
 let tlSearchDebounce = 0;
 /**
  * When true, live timeline updates may stick the scroller to the bottom.
@@ -97,6 +103,14 @@ let listLiveTick = 0;
 let liveOverviewGen = 0;
 /** Last overview fingerprint painted for the selected session (skip no-op paints). */
 let overviewPaintFp = "";
+/**
+ * Coalesce concurrent overview RPCs for the same session (open + live poll +
+ * notify). Keyed by session id; cleared when the flight finishes.
+ * @type {string}
+ */
+let overviewRpcSid = "";
+/** @type {Promise<boolean|void> | null} */
+let overviewRpcPromise = null;
 
 // Default chrome; overwritten from Rust after resolve (config / env override).
 if (!/Mac|iPhone|iPod|iPad/i.test(navigator.platform)) {
@@ -355,6 +369,36 @@ function syncTimelineSearchBar() {
   if (tlQ && document.activeElement !== tlQ) {
     tlQ.value = timelineQuery;
   }
+  if (tlKind && document.activeElement !== tlKind) {
+    tlKind.value = timelineKindFilter || "all";
+  }
+}
+
+/**
+ * Whether a wire timeline event matches the View filter (TUI-aligned).
+ * Uses control ``kind`` / ``isError`` (not raw Grok sessionUpdate types).
+ * @param {Record<string, unknown>} ev
+ * @param {string} mode
+ * @returns {boolean}
+ */
+function eventMatchesKindFilter(ev, mode) {
+  const m = mode || "all";
+  if (m === "all") return true;
+  const kind = String(ev.kind || "").toLowerCase();
+  if (m === "tools") return kind === "tool" || kind === "tool_result";
+  if (m === "user") return kind === "user";
+  if (m === "asst") return kind === "agent" || kind === "thought";
+  if (m === "sess") {
+    return (
+      kind === "system" ||
+      kind === "session" ||
+      kind === "other" ||
+      kind === "plan" ||
+      kind === "subagent"
+    );
+  }
+  if (m === "errors") return Boolean(ev.isError) || kind === "error";
+  return true;
 }
 
 function eventHay(ev) {
@@ -381,9 +425,10 @@ function eventHay(ev) {
 
 function filteredTimelineEvents() {
   const all = timelineSid === overviewSid ? timelineEvents : [];
+  const byKind = all.filter((ev) => eventMatchesKindFilter(ev, timelineKindFilter));
   const needle = (timelineQuery || "").trim();
-  if (!needle) return all.slice();
-  return fuzzyFilter(needle, all, eventHay);
+  if (!needle) return byKind;
+  return fuzzyFilter(needle, byKind, eventHay);
 }
 
 function timelineIsComplete() {
@@ -624,13 +669,15 @@ function applyTimelineFollowScroll(follow) {
 function paintTimelineLive(merged, scroll) {
   if (tab !== "timeline" || overviewSid !== timelineSid) return;
   const needle = (timelineQuery || "").trim();
+  const kindOn = timelineKindFilter && timelineKindFilter !== "all";
   const follow = Boolean(scroll.follow) && timelinePinnedToBottom;
   const holdFocus =
     !follow &&
     timelineFocusIndex != null &&
     performance.now() < timelineFocusScrollUntil;
-  // Search filter: full re-render is simpler and rare during live watch.
-  if (needle || !detailEl.querySelector(".event-list")) {
+  // Client filters (kind / search): full re-render so live merges cannot
+  // inject rows that fail the active View filter.
+  if (needle || kindOn || !detailEl.querySelector(".event-list")) {
     const top = detailEl.scrollTop;
     renderDetail();
     if (follow) applyTimelineFollowScroll(true);
@@ -1046,7 +1093,10 @@ async function loadMoreTimeline() {
     if (tab !== "timeline" || overviewSid !== timelineSid) return;
     const list = detailEl.querySelector(".event-list");
     const needle = (timelineQuery || "").trim();
-    if (!list || needle) {
+    const kindOn = timelineKindFilter && timelineKindFilter !== "all";
+    // Kind / text filters must re-render via filteredTimelineEvents — surgical
+    // append of raw buffer rows was leaking non-matching events after page 1.
+    if (!list || needle || kindOn) {
       const top = detailEl.scrollTop;
       renderDetail();
       detailEl.scrollTop = top;
@@ -1139,10 +1189,14 @@ function jumpToTimelineEvent(index) {
   timelinePinnedToBottom = false;
   // Keep re-centering through the next paint/live tick after a jump.
   timelineFocusScrollUntil = performance.now() + 2000;
-  // Filter can hide the target row from the DOM even when it is in the buffer.
+  // Filters can hide the target row from the DOM even when it is in the buffer.
   if (timelineQuery) {
     timelineQuery = "";
     if (tlQ) tlQ.value = "";
+  }
+  if (timelineKindFilter !== "all") {
+    timelineKindFilter = "all";
+    if (tlKind) tlKind.value = "all";
   }
   tab = "timeline";
   for (const btn of tabsEl.querySelectorAll(".tab")) {
@@ -1273,24 +1327,34 @@ function renderTimelineTab() {
   }
   const events = filteredTimelineEvents();
   const needle = (timelineQuery || "").trim();
+  const kindOn = timelineKindFilter && timelineKindFilter !== "all";
   if (tlSearchMeta) {
-    tlSearchMeta.textContent = needle
-      ? `${events.length} match`
-      : timelineIsComplete()
+    if (needle || kindOn) {
+      tlSearchMeta.textContent = `${events.length} match`;
+    } else {
+      tlSearchMeta.textContent = timelineIsComplete()
         ? `${all.length}`
         : `${all.length}+`;
+    }
   }
   if (!events.length) {
-    const filling = needle && !timelineIsComplete() && (timelineLoadingMore || timelineLoading);
+    const filling =
+      (needle || kindOn) && !timelineIsComplete() && (timelineLoadingMore || timelineLoading);
     if (filling) {
       return `<p class="loading">Searching timeline…</p>`;
     }
-    return `<p class="empty">No events match “${escapeHtml(needle)}”.</p>`;
+    if (needle) {
+      return `<p class="empty">No events match “${escapeHtml(needle)}”.</p>`;
+    }
+    if (kindOn) {
+      return `<p class="empty">No events for this type filter.</p>`;
+    }
+    return `<p class="empty">No timeline events.</p>`;
   }
   const foot =
-    !needle && !timelineIsComplete()
+    !needle && !kindOn && !timelineIsComplete()
       ? `<p class="tl-load-more muted">${timelineLoadingMore ? "Loading more…" : "Scroll for more"}</p>`
-      : needle && !timelineIsComplete() && timelineLoadingMore
+      : (needle || kindOn) && !timelineIsComplete() && timelineLoadingMore
         ? `<p class="tl-load-more muted">Loading more for search…</p>`
         : "";
   // Turn section marks when the sequential operator turn changes between rows.
@@ -1655,6 +1719,8 @@ function scheduleOverview(force, delayMs = 90) {
 
 /**
  * Load session overview for the selection (or *opts.session* on live ticks).
+ * Concurrent calls for the same session join one control RPC (open + live poll
+ * + notify pile-ups).
  * @param {boolean} [force]
  * @param {{ quiet?: boolean, session?: string }} [opts]
  *   quiet — live poll: no skeleton, soft status on error, fingerprint skip-paint.
@@ -1665,38 +1731,59 @@ async function loadOverview(force = false, opts = {}) {
   if (quiet) {
     const sid = opts.session ? String(opts.session) : "";
     if (!sid) return false;
+    // Join an in-flight user or quiet load for this session.
+    if (overviewRpcPromise && overviewRpcSid === sid) {
+      try {
+        await overviewRpcPromise;
+      } catch {
+        /* owner path reports */
+      }
+      return overviewSid === sid && Boolean(overviewCache);
+    }
     const gen = ++liveOverviewGen;
     const top = detailEl.scrollTop;
-    try {
-      const data = rpcPayload(await invoke("control_session_overview", { session: sid }));
-      if (gen !== liveOverviewGen) return false;
-      if (!data || typeof data !== "object") return false;
-      const row = sessions[active];
-      if (!row?.sessionId || String(row.sessionId) !== sid) return false;
-      if (overviewPendingSid && overviewPendingSid !== sid) return false;
-      overviewCache = data;
-      overviewSid = sid;
-      const meta = data.meta && typeof data.meta === "object" ? data.meta : null;
-      if (meta) {
-        const a = patchListRowFromMeta(allSessions, sid, meta);
-        const b = patchListRowFromMeta(sessions, sid, meta);
-        if (a.listPaint || b.listPaint) {
-          renderList({ scrollActive: false });
+    const run = (async () => {
+      try {
+        const data = rpcPayload(await invoke("control_session_overview", { session: sid }));
+        if (gen !== liveOverviewGen) return false;
+        if (!data || typeof data !== "object") return false;
+        const row = sessions[active];
+        if (!row?.sessionId || String(row.sessionId) !== sid) return false;
+        if (overviewPendingSid && overviewPendingSid !== sid) return false;
+        overviewCache = data;
+        overviewSid = sid;
+        const meta = data.meta && typeof data.meta === "object" ? data.meta : null;
+        if (meta) {
+          const a = patchListRowFromMeta(allSessions, sid, meta);
+          const b = patchListRowFromMeta(sessions, sid, meta);
+          if (a.listPaint || b.listPaint) {
+            renderList({ scrollActive: false });
+          }
         }
+        const fp = overviewPaintFingerprint(data);
+        const paint = fp !== overviewPaintFp;
+        overviewPaintFp = fp;
+        // Timeline body is owned by refreshTimelineTail (avoid scroll jank here).
+        if (paint && tab !== "timeline") {
+          renderDetail();
+          detailEl.scrollTop = top;
+        }
+        markControlUp();
+        return true;
+      } catch (e) {
+        markControlDown(e);
+        return false;
       }
-      const fp = overviewPaintFingerprint(data);
-      const paint = fp !== overviewPaintFp;
-      overviewPaintFp = fp;
-      // Timeline body is owned by refreshTimelineTail (avoid scroll jank here).
-      if (paint && tab !== "timeline") {
-        renderDetail();
-        detailEl.scrollTop = top;
+    })();
+    overviewRpcSid = sid;
+    overviewRpcPromise = run;
+    try {
+      return await run;
+    } finally {
+      if (overviewRpcSid === sid && overviewRpcPromise === run) {
+        overviewRpcSid = "";
+        overviewRpcPromise = null;
       }
-      markControlUp();
-      return true;
-    } catch (e) {
-      markControlDown(e);
-      return false;
     }
   }
 
@@ -1715,6 +1802,16 @@ async function loadOverview(force = false, opts = {}) {
     renderDetail();
     return;
   }
+  // Same session already loading: wait for it instead of a second full parse.
+  if (!force && overviewRpcPromise && overviewRpcSid === sid) {
+    overviewPendingSid = sid;
+    try {
+      await overviewRpcPromise;
+    } catch {
+      /* owner paints error */
+    }
+    return;
+  }
   const gen = ++loadGen;
   liveOverviewGen += 1; // user load wins over live poll
   overviewPendingSid = sid;
@@ -1722,32 +1819,44 @@ async function loadOverview(force = false, opts = {}) {
     renderDetailSkeleton(sid);
   }
   const t0 = performance.now();
-  try {
-    const data = rpcPayload(await invoke("control_session_overview", { session: sid }));
-    if (gen !== loadGen) return;
-    if (!data || typeof data !== "object") {
-      throw new Error("empty session/overview response");
-    }
-    overviewCache = data;
-    overviewSid = sid;
-    overviewPendingSid = "";
-    overviewPaintFp = overviewPaintFingerprint(data);
-    renderDetail();
-    const ms = Math.round(performance.now() - t0);
-    const status = data.meta && typeof data.meta === "object" ? data.meta.status : "";
-    markControlUp();
-    setStatus(`${sid} · ${status || ""} · ${ms}ms`);
-    // Prefetch timeline in background so Turns→jump and Timeline tab are warm.
-    void ensureTimeline(sid);
-  } catch (e) {
-    if (gen !== loadGen) return;
-    overviewCache = null;
-    overviewSid = "";
-    overviewPendingSid = "";
-    overviewPaintFp = "";
-    detailEl.innerHTML = `<p class="err">${escapeHtml(controlDownMessage(e))}</p>
+  const run = (async () => {
+    try {
+      const data = rpcPayload(await invoke("control_session_overview", { session: sid }));
+      if (gen !== loadGen) return;
+      if (!data || typeof data !== "object") {
+        throw new Error("empty session/overview response");
+      }
+      overviewCache = data;
+      overviewSid = sid;
+      overviewPendingSid = "";
+      overviewPaintFp = overviewPaintFingerprint(data);
+      renderDetail();
+      const ms = Math.round(performance.now() - t0);
+      const status = data.meta && typeof data.meta === "object" ? data.meta.status : "";
+      markControlUp();
+      setStatus(`${sid} · ${status || ""} · ${ms}ms`);
+      // Prefetch timeline in background so Turns→jump and Timeline tab are warm.
+      void ensureTimeline(sid);
+    } catch (e) {
+      if (gen !== loadGen) return;
+      overviewCache = null;
+      overviewSid = "";
+      overviewPendingSid = "";
+      overviewPaintFp = "";
+      detailEl.innerHTML = `<p class="err">${escapeHtml(controlDownMessage(e))}</p>
       <p class="muted">Start the control owner: <code>groket serve -d</code></p>`;
-    markControlDown(e);
+      markControlDown(e);
+    }
+  })();
+  overviewRpcSid = sid;
+  overviewRpcPromise = run;
+  try {
+    await run;
+  } finally {
+    if (overviewRpcSid === sid && overviewRpcPromise === run) {
+      overviewRpcSid = "";
+      overviewRpcPromise = null;
+    }
   }
 }
 
@@ -2018,6 +2127,25 @@ if (tlQ) {
   });
 }
 
+if (tlKind) {
+  tlKind.addEventListener("change", () => {
+    const next = String(tlKind.value || "all");
+    timelineKindFilter =
+      next === "tools" ||
+      next === "user" ||
+      next === "asst" ||
+      next === "sess" ||
+      next === "errors"
+        ? next
+        : "all";
+    if (tab === "timeline") {
+      // Kind filter is client-side over already-loaded events only. Do not
+      // pull the whole multi‑k event file here (that was pegging serve).
+      detailEl.innerHTML = renderTimelineTab();
+    }
+  });
+}
+
 tabsEl.addEventListener("click", (ev) => {
   const btn = ev.target.closest(".tab");
   if (!btn?.dataset.tab) return;
@@ -2026,10 +2154,12 @@ tabsEl.addEventListener("click", (ev) => {
 
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
-    if (tab === "timeline" && timelineQuery) {
+    if (tab === "timeline" && (timelineQuery || timelineKindFilter !== "all")) {
       ev.preventDefault();
       timelineQuery = "";
+      timelineKindFilter = "all";
       if (tlQ) tlQ.value = "";
+      if (tlKind) tlKind.value = "all";
       detailEl.innerHTML = renderTimelineTab();
       return;
     }

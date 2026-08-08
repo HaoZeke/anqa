@@ -211,11 +211,18 @@ def cmd_hud(
             help="Run tauri dev (hot reload) in the checkout instead of a built binary.",
         ),
     ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Use unoptimized cargo debug binary (default: release).",
+        ),
+    ] = False,
     rebuild: Annotated[
         bool,
         typer.Option(
             "--rebuild",
-            help="Force cargo build (debug) before launch, even if the binary looks fresh.",
+            help="Force cargo build for the selected profile before launch.",
         ),
     ] = False,
     foreground: Annotated[
@@ -236,8 +243,9 @@ def cmd_hud(
     """Desktop session palette (control client).
 
     Starts in the background by default (macOS: no Dock, no ⌘Tab). Summon with
-    ⌘⇧G. Missing/stale binaries rebuild with ``cargo build`` (debug) from an
-    editable checkout. ``--dev`` hot reload; ``--restart`` replaces a running HUD.
+    ⌘⇧G. Missing/stale binaries rebuild with ``cargo build --release`` from an
+    editable checkout. ``--debug`` for unoptimized; ``--dev`` hot reload;
+    ``--restart`` replaces a running HUD.
     """
     from .hud.app import run_hud
     from .integrations.control import default_socket_path
@@ -248,6 +256,7 @@ def cmd_hud(
         work_dir=path,
         auto_serve=ensure_serve,
         dev=dev,
+        debug=debug,
         rebuild=rebuild,
         foreground=foreground,
         restart=restart,
