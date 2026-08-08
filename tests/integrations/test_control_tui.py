@@ -138,6 +138,87 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> None:
+    """Attach catalog load must not toast ``Scanning control…`` (disk-scan copy)."""
+    daemon = import_module("groket.integrations.daemon")
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = _write_session(traces)
+    socket_path = _short_sock("tui-scan-toast.sock")
+    owner = daemon.build_domain_control_server(
+        socket_path=socket_path,
+        work_dir=work,
+        traces_path=traces,
+    )
+    await owner.start()
+    try:
+        app = TraceEvalApp(
+            work_dir=work,
+            traces_path=traces,
+            control_socket=socket_path,
+            control_attach_only=True,
+        )
+        toasts: list[str] = []
+        real_notify = app.notify
+
+        def _spy(message: object, *args: object, **kwargs: object) -> object:
+            toasts.append(str(message))
+            return real_notify(message, *args, **kwargs)
+
+        app.notify = _spy  # type: ignore[method-assign]
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _wait_until(pilot, app.is_control_client, description="control client attach")
+            await _wait_until(
+                pilot,
+                lambda: any(m.session_dir.name == session_dir.name for m, _ in app._meta_only),
+                description="catalog rows from control",
+            )
+            assert not any("Scanning" in msg for msg in toasts)
+            toasts.clear()
+            app._control_session_changed_ui(session_dir.name)
+            assert app._pending_sessions_reload_quiet is True
+            assert app._sessions_reload_timer is not None
+            assert not any("Scanning" in msg or "Loaded" in msg for msg in toasts)
+            app._prepare_clean_exit()
+            await pilot.pause()
+    finally:
+        await owner.close()
+
+
+def test_sessions_reload_loud_wins_over_quiet(tmp_path: Path) -> None:
+    """F5 (loud) after a live quiet schedule must still toast."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=None,
+        control_attach_only=False,
+    )
+
+    class _Timer:
+        def stop(self) -> None:
+            return None
+
+    fired: list[tuple[float, object]] = []
+
+    def _set_timer(delay: float, callback: object) -> _Timer:
+        fired.append((delay, callback))
+        return _Timer()
+
+    app.set_timer = _set_timer  # type: ignore[method-assign]
+    app._schedule_sessions_reload(quiet=True)
+    assert app._pending_sessions_reload_quiet is True
+    assert fired
+    app._schedule_sessions_reload(quiet=False)
+    assert app._pending_sessions_reload_quiet is False
+    app._schedule_sessions_reload(quiet=True)
+    assert app._pending_sessions_reload_quiet is False
+
+
+@pytest.mark.asyncio
 async def test_tui_dead_socket_does_not_claim_attach_or_disk_catalog(
     tmp_path: Path,
 ) -> None:

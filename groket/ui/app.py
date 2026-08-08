@@ -403,6 +403,7 @@ class TraceEvalApp(App):
         self._sessions_catalog_busy: bool = False
         self._sessions_reload_timer: Timer | None = None
         self._pending_include_host: bool | None = None
+        self._pending_sessions_reload_quiet: bool = False
         self._selected: set[str] = set()
         self._filter_model: str = ""
         self._session_search: str = ""
@@ -681,8 +682,8 @@ class TraceEvalApp(App):
             group="editor-control-notify",
             exclusive=True,
         )
-        # First on_mount catalog may have used disk before attach finished.
-        self._load_sessions(include_host=None)
+        # First on_mount catalog is empty until attach; reload quietly (attach toast).
+        self._load_sessions(include_host=None, quiet=True)
 
     async def _control_notify_loop(self, stop: asyncio.Event) -> None:
         """Background: stay connected for session/notes/analysis notifies."""
@@ -745,7 +746,8 @@ class TraceEvalApp(App):
     def _control_session_changed_ui(self, session_id: str) -> None:
         """Refresh home list and open browser when the changed session is open."""
         if session_id:
-            self._load_sessions()
+            # Live owner notify: debounce, no "Scanning control" / Loaded toasts.
+            self._schedule_sessions_reload(quiet=True)
         screen = self.screen
         if isinstance(screen, BrowserScreen) and session_id:
             try:
@@ -945,12 +947,18 @@ class TraceEvalApp(App):
         if self._sessions_load_current(gen):
             self._sessions_catalog_busy = False
 
-    def _schedule_sessions_reload(self, *, delay: float = 0.15) -> None:
-        """Debounce catalog reloads; snapshot host-pref for the pending fire."""
+    def _schedule_sessions_reload(self, *, delay: float = 0.15, quiet: bool = False) -> None:
+        """Debounce catalog reloads; snapshot host-pref for the pending fire.
+
+        :param quiet: Skip scan/loaded toasts. A later loud request wins.
+        """
+        pending_quiet = True
         if self._sessions_reload_timer is not None:
             with suppress(Exception):
                 self._sessions_reload_timer.stop()
             self._sessions_reload_timer = None
+            pending_quiet = bool(self._pending_sessions_reload_quiet)
+        self._pending_sessions_reload_quiet = bool(quiet and pending_quiet)
         from .prefs import show_host_sessions_enabled
 
         self._pending_include_host = show_host_sessions_enabled()
@@ -960,12 +968,14 @@ class TraceEvalApp(App):
         self._sessions_reload_timer = None
         if self._exiting:
             return
+        quiet = bool(self._pending_sessions_reload_quiet)
+        self._pending_sessions_reload_quiet = False
         include_host = self._pending_include_host
         if include_host is None:
             from .prefs import show_host_sessions_enabled
 
             include_host = show_host_sessions_enabled()
-        self._load_sessions(include_host=bool(include_host))
+        self._load_sessions(include_host=bool(include_host), quiet=quiet)
 
     def _drop_host_session_rows(self) -> None:
         """Drop host-origin rows without waiting for a full rescan."""
@@ -1155,19 +1165,12 @@ class TraceEvalApp(App):
     ) -> None:
         """Populate home list from control ``session/list`` (attach client path).
 
-        :param quiet: Skip scan/loaded notifications (live refresh).
+        :param quiet: Skip loaded/error notifications (live refresh / attach).
         :param clear_plugins: When false, keep analysis results for known paths.
         """
         from ..session.catalog import session_meta_from_catalog_row
 
         try:
-            if not quiet:
-                call_ui(
-                    self,
-                    self.notify,
-                    t("notify-scanning", path="control"),
-                    severity="information",
-                )
             wire_rows = self._fetch_control_session_list_sync(limit=500)
             if not self._sessions_load_current(gen):
                 return
@@ -1209,18 +1212,21 @@ class TraceEvalApp(App):
         root: Path | None = None,
         *,
         include_host: bool | None = None,
+        quiet: bool = False,
     ) -> None:
         """Load the home session list.
 
         Normal product path (control socket configured): only ``session/list``
         after a successful attach. Offline (``control_socket`` None / --no-serve):
         walk local work/traces. No silent dual path when attach is intended.
+
+        :param quiet: Skip scan/loaded toasts (live refresh / attach).
         """
         _ = root
         gen = self._begin_sessions_load()
         if self._control_socket is not None:
             if self._control_attached:
-                self._load_sessions_via_control(gen)
+                self._load_sessions_via_control(gen, quiet=quiet)
                 return
             # Socket configured but not yet attached: do not scan disk (would
             # reintroduce a second catalog stack). Empty list until attach or error.
@@ -1234,12 +1240,13 @@ class TraceEvalApp(App):
         roots = self._catalog_roots_for_load(include_host=include_host)
         scan_desc = ", ".join(str(r.path) for r in roots)
         try:
-            call_ui(
-                self,
-                self.notify,
-                t("notify-scanning", path=scan_desc),
-                severity="information",
-            )
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-scanning", path=scan_desc),
+                    severity="information",
+                )
             from ..session.sources import collect_session_dirs
 
             unique = collect_session_dirs(roots)
@@ -1250,12 +1257,13 @@ class TraceEvalApp(App):
                     self._save_meta_cache([])
                     call_ui(self, self._rebuild_session_filters)
                     call_ui(self, self._populate_session_table, force=True)
-                    call_ui(
-                        self,
-                        self.notify,
-                        t("notify-no-sessions", path=scan_desc),
-                        severity="warning",
-                    )
+                    if not quiet:
+                        call_ui(
+                            self,
+                            self.notify,
+                            t("notify-no-sessions", path=scan_desc),
+                            severity="warning",
+                        )
                 return
 
             cache = self._load_meta_cache()
@@ -1267,12 +1275,13 @@ class TraceEvalApp(App):
             n = len(rows)
             call_ui(self, self._rebuild_session_filters)
             call_ui(self, self._populate_session_table, force=True)
-            call_ui(
-                self,
-                self.notify,
-                t("notify-loaded-sessions", n=n),
-                severity="information",
-            )
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-loaded-sessions", n=n),
+                    severity="information",
+                )
 
             if need_idx and self._sessions_load_current(gen):
                 if self._fill_timeline_counts(rows, need_idx) and self._sessions_load_current(gen):
@@ -3327,7 +3336,7 @@ class TraceEvalApp(App):
                 timeout=12,
             )
         try:
-            self._load_sessions()
+            self._load_sessions(quiet=True)
             self._update_session_paths_banner()
         except Exception:
             pass
