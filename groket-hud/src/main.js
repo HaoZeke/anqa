@@ -711,17 +711,22 @@ async function liveTick() {
     const sid = row?.sessionId ? String(row.sessionId) : "";
     const live = selectedNeedsLivePoll();
     if (sid && live) {
-      // Timeline-focused live watch: prefer tail RPC only (lighter, less paint).
-      // Overview every other tick for status / turns / list pill.
+      // Live session: do not full-parse overview every tick (100MB host traces
+      // were pegging the control owner). Overview every 2nd tick (~6s);
+      // timeline tail more often when that tab is open.
       listLiveTick += 1;
-      const wantOverview = tab !== "timeline" || listLiveTick % 2 === 0;
+      const wantOverview = listLiveTick % 2 === 0;
       if (wantOverview) {
         await loadOverview(false, { quiet: true, session: sid });
       }
-      if (timelineSid === sid || tab === "timeline") {
+      if (tab === "timeline" && (timelineSid === sid || timelineSid === "")) {
         await refreshTimelineTail(sid);
-      } else if (tab === "overview" || tab === "turns") {
-        // keep warm for a quick switch to Timeline
+      } else if (
+        (tab === "overview" || tab === "turns") &&
+        listLiveTick % 4 === 0 &&
+        timelineSid !== sid
+      ) {
+        // Occasional warm prefetch — not every 3s parse of the whole file.
         void ensureTimeline(sid, { force: false });
       }
       // Full catalog rarely — selected row is patched from overview.

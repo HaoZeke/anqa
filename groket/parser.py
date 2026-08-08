@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import re
+import threading
+from concurrent.futures import Future
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -98,6 +100,10 @@ class _UpdatesScanState:
 
 
 _timeline_cache: dict[str, tuple[TimelineStamp, list[TraceEvent], _UpdatesScanState | None]] = {}
+# In-flight parse: concurrent callers for the same session+stamp join one Future
+# instead of re-reading multi‑MB updates.jsonl in parallel (control owner thrash).
+_timeline_inflight: dict[tuple[str, TimelineStamp], Future[list[TraceEvent]]] = {}
+_timeline_inflight_lock = threading.Lock()
 # events.jsonl path -> (mtime_ns, size, markers, turn_outcome, loop_count)
 _runtime_markers_cache: dict[str, tuple[int, int, list[TraceEvent], str, int]] = {}
 
@@ -697,6 +703,52 @@ def _merge_fork_parent_timeline(
     return merged
 
 
+def _timeline_stamp_for(session_dir: Path) -> tuple[str, TimelineStamp]:
+    """Return ``(cache_key, stamp)`` for *session_dir* (includes fork parent)."""
+    sd = Path(session_dir)
+    cache_key = str(sd.resolve()) if sd.exists() else str(sd)
+    from .session.resume import fork_parent_session_dir
+
+    parent = fork_parent_session_dir(sd)
+    stamp = session_timeline_stamp(sd)
+    if parent is not None:
+        parent_stamp = session_timeline_stamp(parent)
+        stamp = (
+            max(stamp[0], parent_stamp[0]),
+            stamp[1],
+            stamp[2],
+            stamp[3],
+        )
+    return cache_key, stamp
+
+
+def _parse_timeline_body(
+    session_dir: Path, cache_key: str, stamp: TimelineStamp
+) -> list[TraceEvent]:
+    """Run the uncached parse path and store the result (caller owns single-flight)."""
+    sd = Path(session_dir)
+    cached = _timeline_cache.get(cache_key)
+    # Another flight may have filled the cache while we waited for the lock.
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+
+    prev_scan = cached[2] if cached is not None else None
+    scan = _scan_updates_jsonl(sd, prev_scan)
+    runtime_markers, _outcome, _loops = parse_runtime_markers(session_dir)
+
+    events = list(scan.events)
+    idx = scan.idx
+    for m in runtime_markers:
+        m.index = idx
+        events.append(m)
+        idx += 1
+
+    out = _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
+    out = _merge_fork_parent_timeline(sd, out)
+    _timeline_cache[cache_key] = (stamp, out, scan)
+    return out
+
+
 def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     """Parse updates.jsonl (+ events.jsonl turn markers) into a linear timeline.
 
@@ -717,40 +769,42 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     Results are cached by :func:`session_timeline_stamp` (not signals.json) so
     live context heartbeats do not re-read multi‑MB ``updates.jsonl``. When the
     file only grows, new lines are scanned incrementally.
-    """
-    sd = Path(session_dir)
-    cache_key = str(sd.resolve()) if sd.exists() else str(sd)
-    from .session.resume import fork_parent_session_dir
 
-    parent = fork_parent_session_dir(sd)
-    stamp = session_timeline_stamp(sd)
-    if parent is not None:
-        parent_stamp = session_timeline_stamp(parent)
-        stamp = (
-            max(stamp[0], parent_stamp[0]),
-            stamp[1],
-            stamp[2],
-            stamp[3],
-        )
+    Concurrent callers for the same session+stamp **join one in-flight parse**
+    (single-flight) so the control owner does not thrash the same multi‑MB file
+    in parallel under HUD overview+timeline+poll pile-ups.
+    """
+    cache_key, stamp = _timeline_stamp_for(session_dir)
     cached = _timeline_cache.get(cache_key)
     if cached is not None and cached[0] == stamp:
         return cached[1]
 
-    prev_scan = cached[2] if cached is not None else None
-    scan = _scan_updates_jsonl(sd, prev_scan)
-    runtime_markers, _outcome, _loops = parse_runtime_markers(session_dir)
+    flight_key = (cache_key, stamp)
+    owner = False
+    with _timeline_inflight_lock:
+        fut = _timeline_inflight.get(flight_key)
+        if fut is None:
+            fut = Future()
+            _timeline_inflight[flight_key] = fut
+            owner = True
 
-    events = list(scan.events)
-    idx = scan.idx
-    for m in runtime_markers:
-        m.index = idx
-        events.append(m)
-        idx += 1
+    if not owner:
+        # Join the in-flight parse (or re-check cache if it already finished).
+        return fut.result()
 
-    out = _prepend_system_prompt(session_dir, _finalize_timeline_order(events))
-    out = _merge_fork_parent_timeline(sd, out)
-    _timeline_cache[cache_key] = (stamp, out, scan)
-    return out
+    try:
+        out = _parse_timeline_body(session_dir, cache_key, stamp)
+    except Exception as exc:
+        if not fut.done():
+            fut.set_exception(exc)
+        raise
+    else:
+        fut.set_result(out)
+        return out
+    finally:
+        with _timeline_inflight_lock:
+            if _timeline_inflight.get(flight_key) is fut:
+                del _timeline_inflight[flight_key]
 
 
 # Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative

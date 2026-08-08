@@ -2754,6 +2754,68 @@ def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
     assert id(msgs2[0]) == first_id
 
 
+def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -> None:
+    """Parallel parse_timeline for the same stamp runs the body once."""
+    import json
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import groket.parser as parser_mod
+    from groket.parser import parse_timeline
+
+    sd = tmp_path / "flight"
+    sd.mkdir()
+    (sd / "events.jsonl").write_text(
+        json.dumps({"ts": 1000, "type": "turn_started", "turn_number": 0}) + "\n",
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1001,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "hi"},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    parser_mod._timeline_cache.clear()
+    parser_mod._timeline_inflight.clear()
+
+    body_calls = 0
+    orig = parser_mod._parse_timeline_body
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def slow_body(session_dir, cache_key, stamp):  # type: ignore[no-untyped-def]
+        nonlocal body_calls
+        body_calls += 1
+        entered.set()
+        assert gate.wait(timeout=5.0)
+        return orig(session_dir, cache_key, stamp)
+
+    parser_mod._parse_timeline_body = slow_body  # type: ignore[assignment]
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = [pool.submit(parse_timeline, sd) for _ in range(4)]
+            assert entered.wait(timeout=5.0)
+            # All four should be waiting on the single flight before we release.
+            gate.set()
+            results = [f.result(timeout=10.0) for f in futs]
+        assert body_calls == 1
+        assert all(len(r) >= 1 for r in results)
+        # Same cached list object after the flight completes.
+        assert all(r is results[0] for r in results)
+    finally:
+        parser_mod._parse_timeline_body = orig  # type: ignore[assignment]
+        parser_mod._timeline_inflight.clear()
+
+
 def test_live_browser_timeline_min_interval_scales() -> None:
     from groket.constants import (
         LIVE_BROWSER_TIMELINE_MIN_INTERVAL,
