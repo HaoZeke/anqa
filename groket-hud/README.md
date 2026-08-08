@@ -6,7 +6,8 @@ Sol-style session **command palette** for the local groket control plane
 
 ## Features
 
-- Floating, frameless, always-on-top palette (centered)
+- Floating, frameless, always-on-top palette (centered). On Linux the window
+  is a GTK dialog so tiling shells (Mosaic and similar) leave it floating.
 - Typeahead over ``session/list``
 - Detail: overview, turns, **live timeline**, findings, notes
 - **Live refresh** while the palette is open: selected running/awaiting turns

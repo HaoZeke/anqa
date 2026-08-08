@@ -52,7 +52,9 @@ async fn control_session_overview(
 }
 
 #[tauri::command]
-async fn control_session_turns(session: String) -> Result<serde_json::Value, control::ControlError> {
+async fn control_session_turns(
+    session: String,
+) -> Result<serde_json::Value, control::ControlError> {
     control_blocking(move || control::session_turns(&session)).await
 }
 
@@ -82,7 +84,9 @@ async fn control_notes_upsert(
 }
 
 #[tauri::command]
-async fn control_session_usage(session: String) -> Result<serde_json::Value, control::ControlError> {
+async fn control_session_usage(
+    session: String,
+) -> Result<serde_json::Value, control::ControlError> {
     control_blocking(move || control::session_usage(&session)).await
 }
 
@@ -115,11 +119,62 @@ fn toggle_palette(app: &AppHandle) {
 fn show_palette(win: &WebviewWindow) {
     // Centered sheet (Finder Go to Folder family). Focus is claimed here; the
     // webview focuses #q on palette-shown so typing works immediately.
+    mark_linux_palette_overlay(win);
     let _ = win.show();
     let _ = win.center();
     let _ = win.set_focus();
     let _ = win.emit("palette-shown", ());
 }
+
+/// Linux tiling shells (Mosaic and similar) only auto-tile ``NORMAL`` windows.
+/// Dialog type + skip pager keeps the palette a floating centered sheet.
+///
+/// GTK window handles must be used on the UI thread. The global shortcut
+/// handler is not that thread — dispatch via Tauri, never glib local idle.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn mark_linux_palette_overlay(win: &WebviewWindow) {
+    let win = win.clone();
+    let _ = win.clone().run_on_main_thread(move || {
+        apply_linux_dialog_hints(&win);
+        let _ = win.center();
+    });
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn apply_linux_dialog_hints(win: &WebviewWindow) {
+    use gtk::prelude::{GtkWindowExt, WidgetExt};
+
+    let Ok(gtk_win) = win.gtk_window() else {
+        return;
+    };
+    gtk_win.set_type_hint(gdk::WindowTypeHint::Dialog);
+    gtk_win.set_skip_taskbar_hint(true);
+    gtk_win.set_skip_pager_hint(true);
+    if let Some(gdk_win) = gtk_win.window() {
+        gdk_win.set_type_hint(gdk::WindowTypeHint::Dialog);
+    }
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+fn mark_linux_palette_overlay(_win: &WebviewWindow) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -171,6 +226,8 @@ pub fn run() {
                 }
             }
             if let Some(win) = app.get_webview_window("palette") {
+                // Dialog hint before first map so tiling shells never take the window.
+                mark_linux_palette_overlay(&win);
                 // Stay hidden until the global hotkey (or first explicit show).
                 let _ = win.hide();
             }

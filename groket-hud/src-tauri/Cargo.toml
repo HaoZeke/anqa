@@ -19,6 +19,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+# Linux: GTK type hint so tiling shells treat the palette as a dialog, not a tile.
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+gdk = "0.18"
+gtk = "0.18"
+
 # Default ``groket hud`` path is release — make that binary as small/fast as practical.
 [profile.release]
 lto = true
