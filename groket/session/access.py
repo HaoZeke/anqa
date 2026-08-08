@@ -165,20 +165,10 @@ class LocalSessionAccess:
     def session_overview(
         self,
         session: str,
-        *,
-        timeline_limit: int = 60,
-        content_chars: int = 500,
     ) -> JsonObject:
-        """Meta + turns + notes + findings sample."""
+        """Meta + turns + notes + findings (timeline rows via session/timeline)."""
         path = self.require_session(session)
-        tl = max(0, min(int(timeline_limit), MAX_TIMELINE_LIMIT))
-        cc = max(0, min(int(content_chars), MAX_CONTENT_CHARS))
-        return build_session_overview(
-            path,
-            work_dir=self._work_dir,
-            timeline_limit=tl,
-            content_chars=cc,
-        )
+        return build_session_overview(path, work_dir=self._work_dir)
 
     def session_timeline(
         self,
@@ -346,15 +336,8 @@ class RemoteSessionAccess:
     async def session_overview(
         self,
         session: str,
-        *,
-        timeline_limit: int = 60,
-        content_chars: int = 500,
     ) -> JsonObject:
-        return await self._client.session_overview(
-            session,
-            timeline_limit=timeline_limit,
-            content_chars=content_chars,
-        )
+        return await self._client.session_overview(session)
 
     async def session_timeline(
         self,

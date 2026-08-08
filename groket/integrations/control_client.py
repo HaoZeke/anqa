@@ -299,18 +299,11 @@ class ControlClient:
     async def session_overview(
         self,
         session: str,
-        *,
-        timeline_limit: int = 60,
-        content_chars: int = 500,
     ) -> JsonObject:
-        """Call ``session/overview`` (meta + turns + sample timeline + notes)."""
+        """Call ``session/overview`` (meta + turns + lazy timeline stub + notes)."""
         result = await self.request(
             "session/overview",
-            {
-                "session": session,
-                "timelineLimit": timeline_limit,
-                "contentChars": content_chars,
-            },
+            {"session": session},
         )
         return as_json_object(result) if isinstance(result, dict) else {}
 

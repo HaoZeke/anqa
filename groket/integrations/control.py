@@ -147,7 +147,6 @@ def _rpc_params_summary(params: JsonObject) -> str:
         "promptIndex",
         "type",
         "eventType",
-        "timelineLimit",
         "contentChars",
     ):
         if key not in params or params[key] is None:
@@ -777,18 +776,8 @@ class ControlServer:
             return await self._access_call(ref, access.session_get, ref)
         if method == "session/overview":
             ref = self._session_ref(params)
-            tl_limit = _optional_int_param(params.get("timelineLimit"), name="timelineLimit")
-            if tl_limit is None:
-                tl_limit = 60
-            raw_cc = _optional_int_param(params.get("contentChars"), name="contentChars")
-            content_chars = 500 if raw_cc is None else raw_cc
-            return await self._access_call(
-                ref,
-                access.session_overview,
-                ref,
-                timeline_limit=int(tl_limit),
-                content_chars=int(content_chars),
-            )
+            # Lazy overview: no embedded events; clients use session/timeline.
+            return await self._access_call(ref, access.session_overview, ref)
         if method == "session/timeline":
             ref = self._session_ref(params)
             offset = _optional_int_param(params.get("offset"), name="offset") or 0

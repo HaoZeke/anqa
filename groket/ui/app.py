@@ -634,11 +634,16 @@ class TraceEvalApp(App):
             )
 
     def _start_control_service(self) -> None:
-        """Attach to the control owner; the TUI never binds the socket."""
+        """Try attach to the control owner; the TUI never binds the socket.
+
+        Does **not** mark attached until :meth:`_attach_control_client` succeeds
+        at ``initialize``. Catalog load uses control only after that.
+        """
         if self._control_socket is None:
             return
+        # Intent: prefer control catalog when attach succeeds (never own socket).
         self._control_attach_only = True
-        self._control_attached = True
+        self._control_attached = False
         self.run_worker(
             self._attach_control_client(),
             name="editor-control-attach",
@@ -647,14 +652,26 @@ class TraceEvalApp(App):
         )
 
     async def _attach_control_client(self) -> None:
-        """Confirm the live owner, then start a notify listener worker."""
-        self._control_attached = True
-        with suppress(Exception):
-            await self._confirm_control_attach()
-        with suppress(Exception):
-            self.notify(t("ui-control-socket-attached"), severity="information", timeout=6)
+        """Confirm the live owner, then start notify + switch catalog to control.
+
+        On initialize failure, leave ``_control_attached`` false so home list
+        stays on the local disk catalog path.
+        """
         if self._control_socket is None:
             return
+        ok = await self._confirm_control_attach()
+        if not ok:
+            self._control_attached = False
+            with suppress(Exception):
+                self.notify(
+                    t("ui-control-socket-attach-failed"),
+                    severity="warning",
+                    timeout=8,
+                )
+            return
+        self._control_attached = True
+        with suppress(Exception):
+            self.notify(t("ui-control-socket-attached"), severity="information", timeout=6)
         stop = asyncio.Event()
         self._control_notify_stop = stop
         # Separate long-lived worker so attach itself can finish cleanly.
@@ -664,6 +681,8 @@ class TraceEvalApp(App):
             group="editor-control-notify",
             exclusive=True,
         )
+        # First on_mount catalog may have used disk before attach finished.
+        self._load_sessions(include_host=None)
 
     async def _control_notify_loop(self, stop: asyncio.Event) -> None:
         """Background: stay connected for session/notes/analysis notifies."""
@@ -765,7 +784,7 @@ class TraceEvalApp(App):
             logger.debug("analysis refresh on analysis/changed failed", exc_info=True)
 
     def is_control_client(self) -> bool:
-        """True when this TUI uses a control owner (never owns the socket)."""
+        """True only after successful control ``initialize`` against a live owner."""
         return bool(self._control_attached and self._control_socket is not None)
 
     def is_control_owner(self) -> bool:
@@ -800,11 +819,15 @@ class TraceEvalApp(App):
             return {"sessions": [], "total": 0, "matched": 0}
         return await access.list_sessions(query=query, limit=limit)
 
-    async def _confirm_control_attach(self) -> None:
-        """Verify the live owner speaks our protocol (best-effort)."""
+    async def _confirm_control_attach(self) -> bool:
+        """Verify the live owner speaks our protocol.
+
+        :returns: True when ``initialize`` succeeds; False when the socket is
+            missing, dead, or the RPC fails.
+        """
         client = self.control_client()
         if client is None:
-            return
+            return False
         try:
             result = await client.initialize()
             logger.info(
@@ -812,12 +835,14 @@ class TraceEvalApp(App):
                 self._control_socket,
                 result.get("protocolVersion"),
             )
+            return True
         except Exception:
             logger.warning(
                 "Control attach initialize failed at %s",
                 self._control_socket,
                 exc_info=True,
             )
+            return False
 
     def control_session_selected(
         self,
@@ -1187,12 +1212,12 @@ class TraceEvalApp(App):
     ) -> None:
         """Scan eval (+ optional host) roots and replace the sessions list.
 
-        When this TUI is attach-only (or already attached as client), load the
-        home catalog via control ``session/list`` instead of a local disk walk.
+        When successfully attached as a control client, load the home catalog
+        via ``session/list``. Otherwise walk local work/traces (and host roots).
         """
         _ = root
         gen = self._begin_sessions_load()
-        if self._control_attach_only or self._control_attached:
+        if self._control_attached:
             self._load_sessions_via_control(gen)
             return
         roots = self._catalog_roots_for_load(include_host=include_host)
@@ -2921,9 +2946,8 @@ class TraceEvalApp(App):
 
         now = time.time()
         active_n = int(self.run_manager.active_count or 0)
-        # Attach refresh is a full RPC list: use the slower idle interval, not
-        # the active-run gap, and never wipe plugin results.
-        if self._control_attach_only or self._control_attached:
+        # Control catalog only after a successful attach; otherwise local scan.
+        if self._control_attached:
             min_gap = LIVE_POLL_FULL_WALK_INTERVAL
             if now - self._live_sessions_last_scan < min_gap:
                 return

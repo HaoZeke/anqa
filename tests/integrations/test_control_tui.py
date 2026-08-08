@@ -138,6 +138,53 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_tui_dead_socket_does_not_claim_attach_loads_disk(
+    tmp_path: Path,
+) -> None:
+    """Dead control socket: not a client; home catalog still from local traces."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = _write_session(traces)
+    dead_sock = tmp_path / "no-owner.sock"
+    # No daemon: path does not accept connections.
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=dead_sock,
+        control_attach_only=True,
+    )
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _wait_until(
+            pilot,
+            lambda: bool(app._meta_only),
+            description="disk catalog rows loaded",
+        )
+        assert not app.is_control_client()
+        assert app._control_attached is False
+        names = {(m.session_id or m.session_dir.name) for m, _ in app._meta_only}
+        assert session_dir.name in names
+        app._prepare_clean_exit()
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_confirm_control_attach_returns_false_on_dead_socket(
+    tmp_path: Path,
+) -> None:
+    """Domain helper: initialize failure is a hard False, not silent success."""
+    app = TraceEvalApp(
+        work_dir=tmp_path / "w",
+        traces_path=tmp_path / "w" / "runs" / "traces",
+        control_socket=tmp_path / "missing.sock",
+        control_attach_only=True,
+    )
+    (tmp_path / "w" / "runs" / "traces").mkdir(parents=True)
+    assert await app._confirm_control_attach() is False
+    assert app._control_attached is False
+
+
+@pytest.mark.asyncio
 async def test_tui_control_helpers_are_client_noops(tmp_path: Path) -> None:
     app = TraceEvalApp.__new__(TraceEvalApp)
     session = tmp_path / "session-publish"

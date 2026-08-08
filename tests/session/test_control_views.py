@@ -130,7 +130,7 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     from groket.session.control_views import build_session_overview
 
     sd = _write_session(tmp_path, "sess-ov")
-    ov = build_session_overview(sd, timeline_limit=20, content_chars=200)
+    ov = build_session_overview(sd)
     assert ov["sessionId"] == "sess-ov"
     assert "meta" in ov
     assert ov["turns"]["total"] >= 1
@@ -236,6 +236,88 @@ def test_timeline_event_kind_and_tool_family() -> None:
     assert m["kind"] == "tool"
     assert m["toolFamily"] == "read"
     assert m["heading"]
+
+
+def test_build_session_timeline_reuses_turn_view_on_warm_pages(tmp_path: Path) -> None:
+    """Second paged timeline call does not re-run full segment/map work."""
+    from unittest.mock import patch
+
+    import groket.session.control_views as cv
+
+    sd = _write_session(tmp_path, "sess-warm-tl")
+    cv._turn_view_cache.clear()
+    cv._overview_cache.clear()
+
+    real_segment = cv.segment_timeline_turns
+    real_map = cv.event_display_turn_map
+    segment_calls = 0
+    map_calls = 0
+
+    def counting_segment(events):  # type: ignore[no-untyped-def]
+        nonlocal segment_calls
+        segment_calls += 1
+        return real_segment(events)
+
+    def counting_map(segs):  # type: ignore[no-untyped-def]
+        nonlocal map_calls
+        map_calls += 1
+        return real_map(segs)
+
+    with (
+        patch.object(cv, "segment_timeline_turns", side_effect=counting_segment),
+        patch.object(cv, "event_display_turn_map", side_effect=counting_map),
+    ):
+        page0 = build_session_timeline(sd, offset=0, limit=1)
+        page1 = build_session_timeline(sd, offset=1, limit=1)
+    assert page0["events"]
+    assert page1["total"] == page0["total"]
+    assert segment_calls == 1
+    assert map_calls == 1
+    # Cache entry present for this session.
+    assert any(sd.name in k or str(sd) in k for k in cv._turn_view_cache)
+
+
+def test_build_session_overview_single_flight_and_cache(tmp_path: Path) -> None:
+    """Parallel overview for one session builds once; warm re-call is cached."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import groket.session.control_views as cv
+
+    sd = _write_session(tmp_path, "sess-flight")
+    cv._overview_cache.clear()
+    cv._overview_inflight.clear()
+
+    body_calls = 0
+    orig = cv._build_session_overview_uncached
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def slow_body(session_dir, *, work_dir=None):  # type: ignore[no-untyped-def]
+        nonlocal body_calls
+        body_calls += 1
+        entered.set()
+        assert gate.wait(timeout=5.0)
+        return orig(session_dir, work_dir=work_dir)
+
+    cv._build_session_overview_uncached = slow_body  # type: ignore[assignment]
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = [pool.submit(build_session_overview, sd) for _ in range(4)]
+            assert entered.wait(timeout=5.0)
+            gate.set()
+            results = [f.result(timeout=15.0) for f in futs]
+        assert body_calls == 1
+        assert all(r["sessionId"] == "sess-flight" for r in results)
+        assert all(r is results[0] for r in results)
+        # Warm hit: no second body call when inputs unchanged.
+        warm = build_session_overview(sd)
+        assert body_calls == 1
+        assert warm is results[0]
+    finally:
+        cv._build_session_overview_uncached = orig  # type: ignore[assignment]
+        cv._overview_inflight.clear()
+        cv._overview_cache.clear()
 
 
 def test_timeline_system_reminder_not_labeled_user() -> None:

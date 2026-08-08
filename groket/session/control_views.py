@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from concurrent.futures import Future
 from pathlib import Path
 
 from .. import event_types as et
 from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent, as_json_object
 from ..notes import notes_snapshot
-from ..parser import load_session_meta, parse_timeline
+from ..parser import (
+    load_session_meta,
+    parse_timeline,
+    session_timeline_stamp,
+)
 from ..session.sources import classify_session_origin, work_traces_root
 from ..session.tagged_blocks import unwrap_for_display
 from ..session.turns import (
@@ -29,6 +35,20 @@ from ..session.usage_stats import SessionUsageStats, collect_session_usage
 from .catalog import session_catalog_row
 
 DEFAULT_FINDINGS_LIMIT = 80
+
+# Concurrent HUD open + live poll + notifies were double-building the same
+# multi‑MB session overview (~12–30s each). Join one flight per path and cache
+# by timeline/notes/findings inputs so warm re-polls stay cheap.
+_OverviewStamp = tuple[object, str, tuple[tuple[str, int, int], ...]]
+_overview_cache: dict[str, tuple[_OverviewStamp, JsonObject]] = {}
+_overview_inflight: dict[str, Future[JsonObject]] = {}
+_overview_inflight_lock = threading.Lock()
+
+# Warm paged session/timeline must not re-segment multi‑k event lists.
+# Keyed by session path; invalidated when session_timeline_stamp changes.
+_TurnViewCache = tuple[object, list[TurnSegment], dict[int, int]]
+_turn_view_cache: dict[str, _TurnViewCache] = {}
+_turn_view_lock = threading.Lock()
 
 # Tool families aligned with ``ui.styles.tool_family`` (domain copy — no UI import).
 _TOOL_FAMILY_READ = frozenset(
@@ -519,29 +539,63 @@ def build_session_findings(
     }
 
 
-def build_session_overview(
+def _session_cache_key(session_dir: Path) -> str:
+    """Stable cache key for a session directory."""
+    sd = Path(session_dir)
+    try:
+        return str(sd.expanduser().resolve())
+    except OSError:
+        return str(sd.expanduser())
+
+
+def _findings_cache_stamp(session_dir: Path) -> tuple[tuple[str, int, int], ...]:
+    """Fingerprint analysis-cache JSON files (name, mtime_ns, size)."""
+    from ..paths import analysis_cache_dir
+
+    sid = (Path(session_dir).name or "").strip()
+    if not sid:
+        return ()
+    cache_dir = analysis_cache_dir() / "analysis" / sid
+    if not cache_dir.is_dir():
+        return ()
+    out: list[tuple[str, int, int]] = []
+    try:
+        paths = sorted(cache_dir.glob("*.json"))
+    except OSError:
+        return ()
+    for path in paths:
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        out.append((path.name, int(st.st_mtime_ns), int(st.st_size)))
+    return tuple(out)
+
+
+def _overview_input_stamp(session_dir: Path) -> _OverviewStamp:
+    """Inputs that must match for a cached overview to be reused."""
+    sd = Path(session_dir)
+    notes_rev = ""
+    try:
+        notes_rev = notes_snapshot(sd).revision
+    except Exception:
+        logger.debug("notes stamp for overview %s", sd, exc_info=True)
+    return (session_timeline_stamp(sd), notes_rev, _findings_cache_stamp(sd))
+
+
+def _build_session_overview_uncached(
     session_dir: Path,
     *,
     work_dir: Path | None = None,
-    timeline_limit: int = 0,
-    content_chars: int = 1500,
 ) -> JsonObject:
-    """Meta + turns + notes + findings for palette clients (timeline lazy).
-
-    Parses the timeline once for turn segmentation and ``numEvents``. Does
-    **not** embed event rows — clients call ``session/timeline`` with
-    offset/limit (and optional type filter) so large sessions stay cheap.
-    *timeline_limit* / *content_chars* are accepted for API compatibility and
-    ignored for event embedding.
-    """
-    _ = (timeline_limit, content_chars)
+    """Build overview without single-flight / result cache."""
     sd = Path(session_dir)
     origin = _session_origin(sd, work_dir)
     meta = load_session_meta(sd, include_timeline_count=False)
     meta.origin = origin
     events = parse_timeline(sd)
     meta.num_events = len(events)
-    segs = segment_timeline_turns(events)
+    segs, _turn_map = _turn_view_for_session(sd, events)
     notes_rev = ""
     notes_count = 0
     notes_rows: list[JsonValue] = []
@@ -594,6 +648,88 @@ def build_session_overview(
     }
 
 
+def build_session_overview(
+    session_dir: Path,
+    *,
+    work_dir: Path | None = None,
+) -> JsonObject:
+    """Meta + turns + notes + findings for palette clients (timeline lazy).
+
+    Parses the timeline once for turn segmentation and ``numEvents``. Does
+    **not** embed event rows — clients call ``session/timeline`` with
+    offset/limit (and optional type filter) so large sessions stay cheap.
+
+    Concurrent callers for the same session **join one in-flight build** and
+    reuse a stamp-keyed result so dual open+live-poll does not thrash multi‑MB
+    host sessions.
+    """
+    sd = Path(session_dir)
+    cache_key = _session_cache_key(sd)
+
+    while True:
+        stamp = _overview_input_stamp(sd)
+        cached = _overview_cache.get(cache_key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+
+        owner = False
+        with _overview_inflight_lock:
+            fut = _overview_inflight.get(cache_key)
+            if fut is None:
+                fut = Future()
+                _overview_inflight[cache_key] = fut
+                owner = True
+
+        if not owner:
+            fut.result()
+            continue
+
+        try:
+            out = _build_session_overview_uncached(sd, work_dir=work_dir)
+            # Stamp after build so a growth mid-flight forces a recheck.
+            done_stamp = _overview_input_stamp(sd)
+            _overview_cache[cache_key] = (done_stamp, out)
+            if not fut.done():
+                fut.set_result(out)
+            return out
+        except Exception as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        finally:
+            with _overview_inflight_lock:
+                if _overview_inflight.get(cache_key) is fut:
+                    del _overview_inflight[cache_key]
+
+
+def _session_path_key(session_dir: Path) -> str:
+    """Stable path key for turn-view and overview caches."""
+    return _session_cache_key(session_dir)
+
+
+def _turn_view_for_session(
+    session_dir: Path,
+    events: list[TraceEvent],
+) -> tuple[list[TurnSegment], dict[int, int]]:
+    """Return (segments, event_index→display_turn) for *events*, stamp-cached.
+
+    Full re-segmentation of multi‑thousand event lists is the thrash path for
+    paged ``session/timeline``; reuse until :func:`session_timeline_stamp` moves.
+    """
+    sd = Path(session_dir)
+    key = _session_path_key(sd)
+    stamp = session_timeline_stamp(sd)
+    with _turn_view_lock:
+        cached = _turn_view_cache.get(key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1], cached[2]
+    segs = segment_timeline_turns(events)
+    turn_by_index = event_display_turn_map(segs)
+    with _turn_view_lock:
+        _turn_view_cache[key] = (stamp, segs, turn_by_index)
+    return segs, turn_by_index
+
+
 def build_session_timeline(
     session_dir: Path,
     *,
@@ -604,9 +740,10 @@ def build_session_timeline(
     content_chars: int = DEFAULT_CONTENT_CHARS,
 ) -> JsonObject:
     """Paged timeline for ``session/timeline``."""
-    events = parse_timeline(Path(session_dir))
+    sd = Path(session_dir)
+    events = parse_timeline(sd)
     # Sequential operator turn ids for HUD/TUI orientation while scrolling.
-    turn_by_index = event_display_turn_map(segment_timeline_turns(events))
+    _segs, turn_by_index = _turn_view_for_session(sd, events)
     type_filter = (event_type or "").strip().casefold()
     filtered: list[TraceEvent] = []
     for ev in events:
@@ -621,7 +758,7 @@ def build_session_timeline(
     lim = DEFAULT_TIMELINE_LIMIT if limit is None else max(0, min(int(limit), MAX_TIMELINE_LIMIT))
     page = filtered[off : off + lim]
     return {
-        "sessionId": Path(session_dir).name,
+        "sessionId": sd.name,
         "total": total,
         "offset": off,
         "limit": lim,
@@ -638,10 +775,11 @@ def build_session_timeline(
 
 def build_session_turns(session_dir: Path) -> JsonObject:
     """Turn segments for ``session/turns``."""
-    events = parse_timeline(Path(session_dir))
-    segs = segment_timeline_turns(events)
+    sd = Path(session_dir)
+    events = parse_timeline(sd)
+    segs, _turn_map = _turn_view_for_session(sd, events)
     return {
-        "sessionId": Path(session_dir).name,
+        "sessionId": sd.name,
         "total": len(segs),
         "turns": [turn_segment_mapping(s) for s in segs],
     }

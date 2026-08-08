@@ -2802,6 +2802,7 @@ ui-origin-work = Eval
 ui-origin-host = Host
 
 ui-control-socket-attached = Attached to existing control owner (catalog and notes via control socket)
+ui-control-socket-attach-failed = Control owner not reachable; loading sessions from local disk
 ui-control-socket-start-failed = Editor control socket could not start; this instance continues without the socket
 
 notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)
