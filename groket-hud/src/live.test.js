@@ -13,6 +13,8 @@ import {
   patchListRowFromMeta,
   sessionNeedsLivePoll,
   shouldAutoFollowTimeline,
+  timelineCoverageComplete,
+  timelineFirstMissingOffset,
   timelineSeekOffset,
 } from "./live.js";
 
@@ -34,6 +36,18 @@ describe("sessionNeedsLivePoll", () => {
     assert.equal(sessionNeedsLivePoll("complete", { turns: [{ open: true }] }), true);
     assert.equal(sessionNeedsLivePoll("complete", { turns: [{ open: false }] }), false);
     assert.equal(hasOpenTurn({ turns: [{ open: true }] }), true);
+  });
+});
+
+describe("timelineCoverageComplete / firstMissingOffset", () => {
+  it("detects head+tail holes as incomplete", () => {
+    // High-water nextOffset at end must not imply complete when count is short.
+    assert.equal(timelineCoverageComplete(5, 100), false);
+    assert.equal(timelineCoverageComplete(100, 100), true);
+    assert.equal(timelineCoverageComplete(0, 0), true);
+    const sparse = [{ index: 0 }, { index: 1 }, { index: 138 }, { index: 139 }];
+    assert.equal(timelineFirstMissingOffset(sparse, 140), 2);
+    assert.equal(timelineFirstMissingOffset([{ index: 0 }, { index: 1 }], 2), 2);
   });
 });
 

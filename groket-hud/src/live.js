@@ -73,6 +73,41 @@ export function timelineSeekOffset(focusIndex, pad = 20) {
 }
 
 /**
+ * True when *events* cover every index in ``0 .. total-1`` (by count).
+ * High-water nextOffset is not enough: head+tail merges leave holes.
+ * @param {number} bufferedCount
+ * @param {number} total
+ * @returns {boolean}
+ */
+export function timelineCoverageComplete(bufferedCount, total) {
+  const n = Number(bufferedCount);
+  const t = Number(total);
+  if (!Number.isFinite(t) || t < 0) return false;
+  if (t === 0) return n === 0;
+  return Number.isFinite(n) && n >= t;
+}
+
+/**
+ * First missing sequential event index in a sparse buffer (unfiltered).
+ * @param {Array<{ index?: unknown }>} events
+ * @param {number} total
+ * @returns {number}
+ */
+export function timelineFirstMissingOffset(events, total) {
+  const t = Number(total);
+  if (!Number.isFinite(t) || t <= 0) return 0;
+  const have = new Set();
+  for (const ev of events || []) {
+    const ix = Number(ev?.index);
+    if (Number.isFinite(ix)) have.add(ix);
+  }
+  for (let i = 0; i < t; i++) {
+    if (!have.has(i)) return i;
+  }
+  return t;
+}
+
+/**
  * Scroll offset that centers a child row inside an overflow scroller.
  *
  * Prefer this over ``scrollIntoView`` for nested overflow panes (WebKit/Tauri

@@ -14,6 +14,8 @@ import {
   patchListRowFromMeta,
   sessionNeedsLivePoll,
   shouldAutoFollowTimeline,
+  timelineCoverageComplete,
+  timelineFirstMissingOffset as firstMissingTimelineOffset,
   timelineSeekOffset,
 } from "./live.js";
 
@@ -453,9 +455,20 @@ function filteredTimelineEvents() {
   return fuzzyFilter(needle, byKind, eventHay);
 }
 
+/**
+ * True when the buffer holds every event for the session.
+ * Do **not** use high-water ``timelineNextOffset`` alone: live tail fetch can
+ * advance nextOffset to the end while leaving a hole after the head page
+ * (kind/search then show e.g. turns 0,1 then 138+ with nothing in between).
+ */
 function timelineIsComplete() {
-  // After the first successful fetch, total is authoritative (may be 0).
-  return Boolean(timelineSid) && timelineNextOffset >= timelineTotal;
+  if (!timelineSid) return false;
+  return timelineCoverageComplete(timelineEvents.length, timelineTotal);
+}
+
+/** First unfiltered offset missing from the buffer (0..total). */
+function timelineFirstMissingOffset() {
+  return firstMissingTimelineOffset(timelineEvents, timelineTotal);
 }
 
 /**
@@ -962,7 +975,9 @@ async function fillTimelineUntil(sid, done, gen = timelineGen) {
     !timelineIsComplete()
   ) {
     timelineLoadingMore = true;
-    await fetchTimelineChunk(sid, timelineNextOffset, { append: true, gen });
+    // Fill gaps (not only high-water nextOffset) so head+tail never leaves holes.
+    const off = timelineFirstMissingOffset();
+    await fetchTimelineChunk(sid, off, { append: true, gen });
     if (gen !== timelineGen) return;
   }
   if (gen === timelineGen) timelineLoadingMore = false;
@@ -1130,7 +1145,7 @@ async function loadMoreTimeline() {
     if (foot) foot.textContent = "Loading more…";
   }
   try {
-    await fetchTimelineChunk(overviewSid, timelineNextOffset, { append: true });
+    await fetchTimelineChunk(overviewSid, timelineFirstMissingOffset(), { append: true });
     if (gen !== timelineGen) return;
     timelineLoadingMore = false;
     if (tab !== "timeline" || overviewSid !== timelineSid) return;
@@ -1190,10 +1205,11 @@ async function loadMoreTimeline() {
 }
 
 /**
- * For search: pull remaining chunks so matches are not limited to the first page.
+ * Pull remaining / missing chunks so kind filter and text search see the full
+ * session (not only head page + live tail).
  * @param {string} sid
  */
-async function ensureTimelineFilledForSearch(sid) {
+async function ensureTimelineFilledForFilter(sid) {
   if (!sid || timelineSid !== sid) return;
   if (timelineIsComplete() || timelineLoading || timelineLoadingMore) return;
   const gen = timelineGen;
@@ -1207,6 +1223,11 @@ async function ensureTimelineFilledForSearch(sid) {
   if (gen === timelineGen && tab === "timeline" && overviewSid === sid) {
     renderDetail();
   }
+}
+
+/** @deprecated use {@link ensureTimelineFilledForFilter} */
+async function ensureTimelineFilledForSearch(sid) {
+  return ensureTimelineFilledForFilter(sid);
 }
 
 function onDetailScroll() {
@@ -1373,7 +1394,10 @@ function renderTimelineTab() {
   const kindOn = timelineKindFilter && timelineKindFilter !== "all";
   if (tlSearchMeta) {
     if (needle || kindOn) {
-      tlSearchMeta.textContent = `${events.length} match`;
+      const partial = !timelineIsComplete()
+        ? ` · ${all.length}/${timelineTotal || "?"} loaded`
+        : "";
+      tlSearchMeta.textContent = `${events.length} match${partial}`;
     } else {
       tlSearchMeta.textContent = timelineIsComplete()
         ? `${all.length}`
@@ -1384,13 +1408,15 @@ function renderTimelineTab() {
     const filling =
       (needle || kindOn) && !timelineIsComplete() && (timelineLoadingMore || timelineLoading);
     if (filling) {
-      return `<p class="loading">Searching timeline…</p>`;
+      return `<p class="loading">Loading full timeline for filter…</p>`;
     }
     if (needle) {
       return `<p class="empty">No events match “${escapeHtml(needle)}”.</p>`;
     }
     if (kindOn) {
-      return `<p class="empty">No events for this type filter.</p>`;
+      return `<p class="empty">No events for this type filter${
+        !timelineIsComplete() ? " in the loaded window" : ""
+      }.</p>`;
     }
     return `<p class="empty">No timeline events.</p>`;
   }
@@ -2155,7 +2181,7 @@ if (tlQ) {
         detailEl.innerHTML = renderTimelineTab();
         // Pull remaining chunks so search is not stuck on the first load window.
         if ((timelineQuery || "").trim() && overviewSid && !timelineIsComplete()) {
-          void ensureTimelineFilledForSearch(overviewSid);
+          void ensureTimelineFilledForFilter(overviewSid);
         }
       }
     }, 40);
@@ -2186,9 +2212,11 @@ if (tlKind) {
         ? next
         : "all";
     if (tab === "timeline") {
-      // Kind filter is client-side over already-loaded events only. Do not
-      // pull the whole multi‑k event file here (that was pegging serve).
       detailEl.innerHTML = renderTimelineTab();
+      // Kind filter is client-side: fill gaps (head+tail is not the whole file).
+      if (timelineKindFilter !== "all" && overviewSid && !timelineIsComplete()) {
+        void ensureTimelineFilledForFilter(overviewSid);
+      }
     }
   });
 }
