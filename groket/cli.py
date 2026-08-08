@@ -378,7 +378,8 @@ def _run_serve_restart(
 
     sock = _serve_socket_option(control_socket)
     st = control_daemon_status(sock)
-    if st.live or st.pid is not None:
+    # Stop live owners, recorded pids, and zombie lock holders (no socket).
+    if st.live or st.pid is not None or st.stale_lock or st.lock_pid is not None:
         code = _run_serve_stop(control_socket=control_socket, timeout=timeout)
         if code != 0 and st.live:
             # Still try start if stop only failed for non-daemon owner messaging.
@@ -417,7 +418,7 @@ def serve_stop(
     control_socket: _ServeSocket = None,
     timeout: _ServeTimeout = 5.0,
 ) -> None:
-    """Stop the control owner (SIGTERM to the recorded pid)."""
+    """Stop the control owner (pid file and/or stale lock holders)."""
     raise typer.Exit(_run_serve_stop(control_socket=control_socket, timeout=timeout))
 
 
@@ -463,6 +464,12 @@ def serve_status(
         typer.echo(f"stopped  socket={status.socket_path}")
         if status.pid is not None and not status.pid_alive:
             typer.echo(f"  stale pid file  pid={status.pid}", err=True)
+        if status.stale_lock:
+            lp = status.lock_pid if status.lock_pid is not None else "?"
+            typer.echo(
+                f"  stale lock  pid={lp}  (run: groket serve stop)",
+                err=True,
+            )
     raise typer.Exit(0 if status.live else 1)
 
 

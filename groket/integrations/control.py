@@ -333,6 +333,10 @@ class ControlServer:
         instances and lets ``close()`` know the socket file is still ours to
         remove. The lock file itself is never unlinked: removing it would
         reopen the race for a third starter.
+
+        After the flock is held, the owner pid is written into the lock file so
+        ``groket serve stop`` can find a zombie that still holds the lock after
+        the socket / ``.pid`` file were lost.
         """
         lock_path = self.socket_path.with_name(self.socket_path.name + ".lock")
         lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
@@ -341,10 +345,21 @@ class ControlServer:
         except OSError as exc:
             os.close(lock_fd)
             raise ControlSocketInUse(self.socket_path) from exc
+        try:
+            os.ftruncate(lock_fd, 0)
+            os.lseek(lock_fd, 0, os.SEEK_SET)
+            os.write(lock_fd, f"{os.getpid()}\n".encode())
+            os.fsync(lock_fd)
+        except OSError:
+            logger.debug("could not write owner pid into %s", lock_path, exc_info=True)
         self._lock_fd = lock_fd
 
     def _release_lock(self) -> None:
         if self._lock_fd is not None:
+            try:
+                os.ftruncate(self._lock_fd, 0)
+            except OSError:
+                pass
             os.close(self._lock_fd)
             self._lock_fd = None
 

@@ -150,9 +150,71 @@ def test_control_daemon_status_and_stop_helpers(tmp_path: Path) -> None:
     assert status.live is False
     assert status.pid is None
     assert status.as_mapping()["live"] is False
-    # stop with no pid and no socket
+    # stop with no pid and no socket → already stopped (exit 0)
     code = daemon.stop_control_daemon(sock, timeout=0.5)
-    assert code == 1
+    assert code == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_kills_zombie_lock_holder_without_pid_or_socket() -> None:
+    """serve stop must clear a process that holds the lock after the socket died."""
+    import subprocess
+    import sys
+    import time
+
+    daemon = import_module("groket.integrations.daemon")
+    control = import_module("groket.integrations.control")
+    sock = _short_sock("zombie.sock")
+    lock = daemon.control_lock_path(sock)
+    # Child holds exclusive flock like ControlServer, then drops the socket path
+    # (simulates crashed owner that still holds the lock file).
+    child_src = f"""
+import fcntl, os, time
+from pathlib import Path
+lock = Path({str(lock)!r})
+lock.parent.mkdir(parents=True, exist_ok=True)
+fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+os.ftruncate(fd, 0)
+os.write(fd, f"{{os.getpid()}}\\n".encode())
+os.fsync(fd)
+# no listen socket — only the lock remains
+time.sleep(30)
+"""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", child_src],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        # Wait until lock file has the child pid.
+        for _ in range(50):
+            if daemon.read_control_lock_pid(sock) == proc.pid:
+                break
+            time.sleep(0.05)
+        assert daemon.read_control_lock_pid(sock) == proc.pid
+        assert daemon.control_socket_accepts(sock) is False
+        st = daemon.control_daemon_status(sock)
+        assert st.live is False
+        assert st.stale_lock is True
+        assert st.lock_pid == proc.pid
+
+        code = daemon.stop_control_daemon(sock, timeout=3.0)
+        assert code == 0
+        assert proc.poll() is not None
+        # New owner can acquire the lock / bind.
+        server = control.ControlServer(socket_path=sock)
+        await server.start()
+        try:
+            assert sock.exists()
+            assert daemon.control_socket_accepts(sock)
+        finally:
+            await server.close()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=2)
 
 
 @pytest.mark.asyncio
@@ -200,7 +262,7 @@ async def test_stop_unlinks_only_dead_stale_socket_file() -> None:
     status = daemon.control_daemon_status(sock)
     assert status.live is False
     code = daemon.stop_control_daemon(sock, timeout=0.5)
-    assert code == 1
+    assert code == 0
     assert not sock.exists()
 
 

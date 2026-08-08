@@ -21,6 +21,7 @@ def _short_sock(name: str) -> Path:
 @pytest.mark.asyncio
 async def test_second_control_server_raises_socket_in_use() -> None:
     control = import_module("groket.integrations.control")
+    daemon = import_module("groket.integrations.daemon")
     sock = _short_sock("singleton")
     first = control.ControlServer(socket_path=sock)
     second = control.ControlServer(socket_path=sock)
@@ -29,6 +30,8 @@ async def test_second_control_server_raises_socket_in_use() -> None:
         with pytest.raises(control.ControlSocketInUse) as exc_info:
             await second.start()
         assert exc_info.value.socket_path == sock
+        # Owner pid is written into the lock file for serve stop discovery.
+        assert daemon.read_control_lock_pid(sock) == __import__("os").getpid()
     finally:
         await first.close()
 

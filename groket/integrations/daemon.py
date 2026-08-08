@@ -66,6 +66,11 @@ class ControlDaemonStatus:
     pid_alive: bool
     live: bool
     pid_path: str
+    #: Pid recorded in the advisory lock file (may differ from ``.pid``).
+    lock_pid: int | None = None
+    #: True when a process still holds the lock but the socket is not accepting
+    #: (zombie owner — ``serve stop`` / restart should clear it).
+    stale_lock: bool = False
 
     def as_mapping(self) -> JsonObject:
         """JSON-serializable mapping for ``--json`` output."""
@@ -76,12 +81,19 @@ class ControlDaemonStatus:
             "pid_alive": self.pid_alive,
             "live": self.live,
             "pid_path": self.pid_path,
+            "lock_pid": self.lock_pid,
+            "stale_lock": self.stale_lock,
         }
 
 
 def control_pid_path(socket_path: Path) -> Path:
     """Return the PID file path paired with *socket_path*."""
     return Path(socket_path).expanduser().with_name(Path(socket_path).name + ".pid")
+
+
+def control_lock_path(socket_path: Path) -> Path:
+    """Return the exclusive ownership lock path next to *socket_path*."""
+    return Path(socket_path).expanduser().with_name(Path(socket_path).name + ".lock")
 
 
 def write_control_pid(socket_path: Path, pid: int | None = None) -> Path:
@@ -122,6 +134,64 @@ def remove_control_pid(socket_path: Path) -> None:
         control_pid_path(socket_path).unlink(missing_ok=True)
     except OSError:
         logger.debug("could not remove pid file for %s", socket_path, exc_info=True)
+
+
+def read_control_lock_pid(socket_path: Path) -> int | None:
+    """Read the owner pid written into the advisory lock file, if any."""
+    path = control_lock_path(socket_path)
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    try:
+        return int(raw.split()[0])
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def lock_holder_pids(socket_path: Path) -> list[int]:
+    """Return live pids that appear to hold the control ownership lock.
+
+    Prefer the pid recorded in the lock file (written on flock). Fall back to
+    ``lsof`` when the file is empty (owners from builds that predate lock pids).
+    """
+    import shutil
+    import subprocess
+
+    found: list[int] = []
+    seen: set[int] = set()
+    me = os.getpid()
+
+    def _add(pid: int | None) -> None:
+        if pid is None or pid <= 0 or pid == me or pid in seen:
+            return
+        if not pid_is_alive(pid):
+            return
+        seen.add(pid)
+        found.append(pid)
+
+    _add(read_control_lock_pid(socket_path))
+    lock_path = control_lock_path(socket_path)
+    if not found and lock_path.is_file() and shutil.which("lsof"):
+        try:
+            proc = subprocess.run(
+                ["lsof", "-t", str(lock_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2.0,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            proc = None
+        if proc is not None:
+            for line in (proc.stdout or "").split():
+                try:
+                    _add(int(line.strip()))
+                except ValueError:
+                    continue
+    return found
 
 
 def pid_is_alive(pid: int) -> bool:
@@ -541,7 +611,9 @@ def control_daemon_status(socket_path: Path | None = None) -> ControlDaemonStatu
 
     ``live`` is true only when a recorded daemon pid is alive, or (without a
     pid file) a connect probe shows a process still accepting on the socket.
-    Path existence alone is not enough.
+    Path existence alone is not enough. ``stale_lock`` means a process still
+    holds the ownership flock but nothing is accepting — start will fail
+    until stop clears the holder.
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
     pid = read_control_pid(sock)
@@ -556,6 +628,11 @@ def control_daemon_status(socket_path: Path | None = None) -> ControlDaemonStatu
     else:
         # No pid (external owner without pid file): live when socket accepts.
         live = accepts
+    holders = lock_holder_pids(sock) if not live else []
+    lock_pid = read_control_lock_pid(sock)
+    if lock_pid is None and holders:
+        lock_pid = holders[0]
+    stale_lock = (not live) and bool(holders)
     return ControlDaemonStatus(
         socket_path=str(sock),
         socket_exists=path_exists,
@@ -563,6 +640,8 @@ def control_daemon_status(socket_path: Path | None = None) -> ControlDaemonStatu
         pid_alive=alive,
         live=live,
         pid_path=str(control_pid_path(sock)),
+        lock_pid=lock_pid,
+        stale_lock=stale_lock,
     )
 
 
@@ -582,6 +661,68 @@ def _unlink_stale_socket_only(sock: Path) -> bool:
     return True
 
 
+def _signal_control_pid(pid: int, sig: int) -> None:
+    """Signal *pid* (process group first when it is the session leader).
+
+    Detached owners use ``start_new_session`` so ``killpg(pid)`` works.
+    Foreground ``serve`` is not a session leader: ``killpg`` returns ESRCH
+    even while the process is alive — fall through to ``kill(pid)``.
+    """
+    try:
+        os.killpg(pid, sig)
+        return
+    except OSError:
+        pass
+    os.kill(pid, sig)
+
+
+def _wait_pids_gone(pids: list[int], *, timeout: float) -> bool:
+    """Wait until none of *pids* are alive (or *timeout*)."""
+    import time
+
+    deadline = time.monotonic() + max(0.1, timeout)
+    while time.monotonic() < deadline:
+        if not any(pid_is_alive(p) for p in pids):
+            return True
+        time.sleep(0.05)
+    return not any(pid_is_alive(p) for p in pids)
+
+
+def _stop_pids(pids: list[int], *, timeout: float, label: str) -> int:
+    """SIGTERM then SIGKILL *pids*. Return 0 when all have exited."""
+    if not pids:
+        return 1
+    for pid in pids:
+        try:
+            _signal_control_pid(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except OSError as exc:
+            sys.stderr.write(f"error: could not signal pid {pid}: {exc}\n")
+            sys.stderr.flush()
+            return 1
+    if _wait_pids_gone(pids, timeout=timeout):
+        sys.stderr.write(f"stopped {label} pid={','.join(str(p) for p in pids)}\n")
+        sys.stderr.flush()
+        return 0
+    for pid in pids:
+        try:
+            _signal_control_pid(pid, signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            pass
+    if _wait_pids_gone(pids, timeout=min(2.0, max(0.2, timeout))):
+        sys.stderr.write(
+            f"stopped {label} pid={','.join(str(p) for p in pids)} (SIGKILL)\n"
+        )
+        sys.stderr.flush()
+        return 0
+    sys.stderr.write(
+        f"error: pid {','.join(str(p) for p in pids)} did not exit within {timeout}s\n"
+    )
+    sys.stderr.flush()
+    return 1
+
+
 def stop_control_daemon(
     socket_path: Path | None = None,
     *,
@@ -593,104 +734,56 @@ def stop_control_daemon(
     Never removes a path that still accepts clients (TUI or other owners
     without a pid file).
 
+    When the socket is not accepting but a process still holds the ownership
+    lock (zombie owner — missing ``.pid`` / socket), that holder is signalled
+    so a subsequent ``serve -d`` can bind.
+
     :param socket_path: Control socket path.
     :param timeout: Seconds to wait for the process to exit.
-    :returns: 0 on success, 1 when no manageable owner / kill failed.
+    :returns: 0 on success or already stopped, 1 when kill failed / live
+        non-daemon owner.
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
     pid = read_control_pid(sock)
-    if pid is None or not pid_is_alive(pid):
-        accepts = control_socket_accepts(sock)
-        if accepts:
-            # Live owner without a manageable daemon pid. Do not unlink the
-            # public path; leave editors connected.
-            if pid is None:
-                sys.stderr.write(
-                    "error: control socket is live but no daemon pid file "
-                    "(owner is not a groket serve process; not stopping)\n"
-                )
-            else:
-                sys.stderr.write(
-                    f"error: pid {pid} is not running but socket still accepts "
-                    "connections; not unlinking live socket\n"
-                )
-                remove_control_pid(sock)
-            sys.stderr.flush()
-            return 1
-        # Dead path / refuse: safe to clear leftovers.
-        _unlink_stale_socket_only(sock)
-        remove_control_pid(sock)
+    accepts = control_socket_accepts(sock)
+
+    if accepts and (pid is None or not pid_is_alive(pid)):
+        # Live owner without a manageable daemon pid. Do not unlink the
+        # public path; leave editors connected.
         if pid is None:
-            sys.stderr.write("error: no control daemon pid file\n")
-            sys.stderr.flush()
-            return 1
-        sys.stderr.write(f"error: process {pid} is not running\n")
+            sys.stderr.write(
+                "error: control socket is live but no daemon pid file "
+                "(owner is not a groket serve process; not stopping)\n"
+            )
+        else:
+            sys.stderr.write(
+                f"error: pid {pid} is not running but socket still accepts "
+                "connections; not unlinking live socket\n"
+            )
+            remove_control_pid(sock)
         sys.stderr.flush()
         return 1
 
-    def _signal_owner(sig: int) -> None:
-        """Signal the owner process (and its group when it is the leader).
+    targets: list[int] = []
+    if pid is not None and pid_is_alive(pid):
+        targets = [pid]
+    elif not accepts:
+        # Zombie / crashed owner: flock held, no accepting socket.
+        targets = lock_holder_pids(sock)
 
-        Detached owners use ``start_new_session`` so ``killpg(pid)`` works.
-        Foreground ``serve`` is not a session leader: ``killpg`` returns
-        ESRCH even while the process is alive — always fall through to
-        ``kill(pid)`` on any ``killpg`` failure. Only ``kill(pid)`` ESRCH
-        means the process is truly gone.
-        """
-        try:
-            os.killpg(pid, sig)
-            return
-        except OSError:
-            pass
-        os.kill(pid, sig)
-
-    try:
-        _signal_owner(signal.SIGTERM)
-    except ProcessLookupError:
-        # Process truly gone (os.kill ESRCH); only unlink if socket is dead.
-        _unlink_stale_socket_only(sock)
-        remove_control_pid(sock)
-        return 0
-    except OSError as exc:
-        sys.stderr.write(f"error: could not signal pid {pid}: {exc}\n")
-        sys.stderr.flush()
-        return 1
-
-    import time
-
-    def _owner_released() -> bool:
-        """True when the process is gone/zombie or the socket no longer accepts."""
-        if not pid_is_alive(pid):
-            return True
-        return not control_socket_accepts(sock)
-
-    deadline = time.monotonic() + max(0.1, timeout)
-    while time.monotonic() < deadline:
-        if _owner_released():
-            # Owner exited or released the plane; only unlink a non-accepting path.
+    if targets:
+        code = _stop_pids(targets, timeout=timeout, label="control daemon")
+        if not control_socket_accepts(sock):
             _unlink_stale_socket_only(sock)
             remove_control_pid(sock)
-            sys.stderr.write(f"stopped control daemon pid={pid}\n")
-            sys.stderr.flush()
-            return 0
-        time.sleep(0.05)
-    # Grace period elapsed — force kill (Unix service managers escalate similarly).
-    try:
-        _signal_owner(signal.SIGKILL)
-    except (ProcessLookupError, OSError):
-        pass
-    force_deadline = time.monotonic() + min(2.0, max(0.2, timeout))
-    while time.monotonic() < force_deadline:
-        if _owner_released():
-            _unlink_stale_socket_only(sock)
-            remove_control_pid(sock)
-            sys.stderr.write(f"stopped control daemon pid={pid} (SIGKILL)\n")
-            sys.stderr.flush()
-            return 0
-        time.sleep(0.05)
-    sys.stderr.write(f"error: pid {pid} did not exit within {timeout}s\n")
+        return code
+
+    # Nothing alive to signal — clear dead leftovers.
+    _unlink_stale_socket_only(sock)
+    remove_control_pid(sock)
+    sys.stderr.write(f"already stopped  socket={sock}\n")
     sys.stderr.flush()
-    return 1
+    return 0
 
 
 def resolve_daemon_work(
@@ -816,6 +909,18 @@ def start_control_daemon_detached(
             socket_path=sock,
         )
 
+    # Zombie owner holds the flock but is not accepting — clear before spawn.
+    if lock_holder_pids(sock):
+        stop_control_daemon(sock, timeout=min(5.0, timeout))
+        if control_socket_accepts(sock):
+            return EnsureDaemonResult(
+                ok=True,
+                already_running=True,
+                spawned=False,
+                pid=read_control_pid(sock),
+                socket_path=sock,
+            )
+
     if work_dir is None and traces_path is None:
         wd, tr = resolve_daemon_work(None)
     elif work_dir is not None:
@@ -916,8 +1021,7 @@ def start_control_daemon_detached(
                         err = (
                             f"control socket {sock} is held by another process "
                             f"that is not accepting connections (stale owner?). "
-                            f"Stop the TUI or run: groket serve stop; "
-                            f"or remove a dead socket after confirming no owner."
+                            f"Run: groket serve stop  then  groket serve -d"
                         )
                     err = f"{err}\nlog tail:\n{tail}"
             except OSError:
@@ -978,11 +1082,14 @@ __all__ = [
     "build_domain_control_server",
     "configure_serve_logging",
     "control_daemon_status",
+    "control_lock_path",
     "control_log_path",
     "control_pid_path",
     "control_socket_accepts",
     "ensure_control_daemon",
+    "lock_holder_pids",
     "pid_is_alive",
+    "read_control_lock_pid",
     "read_control_pid",
     "remove_control_pid",
     "resolve_daemon_work",
