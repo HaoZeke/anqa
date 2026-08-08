@@ -113,6 +113,46 @@ function setStatus(text, isErr = false) {
   statusEl.classList.toggle("err", isErr);
 }
 
+/**
+ * Last known control-owner reachability (null until first probe).
+ * Quiet live polls used to swallow socket death and leave a stale “ready” line.
+ * @type {boolean|null}
+ */
+let controlUp = null;
+
+/**
+ * Operator-facing message when the control Unix socket is unreachable.
+ * @param {unknown} [err]
+ * @returns {string}
+ */
+function controlDownMessage(err) {
+  const s = String(err ?? "").trim();
+  const short = s.length > 140 ? `${s.slice(0, 137)}…` : s;
+  if (
+    !short ||
+    /no such file|connection refused|not found|os error 2|broken pipe|timed out|econnrefused|enoent|resource temporarily unavailable|os error 35/i.test(
+      short,
+    )
+  ) {
+    return "control socket down · run: groket serve -d";
+  }
+  return `control error · ${short}`;
+}
+
+/** Mark control owner healthy (clears sticky down status on next success paint). */
+function markControlUp() {
+  controlUp = true;
+}
+
+/**
+ * Mark control owner unreachable and put a sticky error in the footer.
+ * @param {unknown} [err]
+ */
+function markControlDown(err) {
+  controlUp = false;
+  setStatus(controlDownMessage(err), true);
+}
+
 function sessionHay(row) {
   return [
     row.sessionId,
@@ -680,9 +720,10 @@ async function refreshTimelineTail(sid) {
     if (changed && tab === "timeline" && overviewSid === sid) {
       paintTimelineLive(result, { follow, top });
     }
+    markControlUp();
     return changed;
   } catch (e) {
-    setStatus(String(e), true);
+    markControlDown(e);
     return false;
   }
 }
@@ -966,8 +1007,8 @@ async function ensureTimeline(sid, opts = {}) {
       timelineNextOffset = 0;
       timelineSid = "";
       if (tab === "timeline") {
-        detailEl.innerHTML = `<p class="err">${escapeHtml(e)}</p>`;
-        setStatus(String(e), true);
+        detailEl.innerHTML = `<p class="err">${escapeHtml(controlDownMessage(e))}</p>`;
+        markControlDown(e);
       }
     }
   })();
@@ -1051,7 +1092,7 @@ async function loadMoreTimeline() {
   } catch (e) {
     if (gen !== timelineGen) return;
     timelineLoadingMore = false;
-    setStatus(String(e), true);
+    markControlDown(e);
   }
 }
 
@@ -1651,9 +1692,10 @@ async function loadOverview(force = false, opts = {}) {
         renderDetail();
         detailEl.scrollTop = top;
       }
+      markControlUp();
       return true;
     } catch (e) {
-      setStatus(String(e), true);
+      markControlDown(e);
       return false;
     }
   }
@@ -1693,6 +1735,7 @@ async function loadOverview(force = false, opts = {}) {
     renderDetail();
     const ms = Math.round(performance.now() - t0);
     const status = data.meta && typeof data.meta === "object" ? data.meta.status : "";
+    markControlUp();
     setStatus(`${sid} · ${status || ""} · ${ms}ms`);
     // Prefetch timeline in background so Turns→jump and Timeline tab are warm.
     void ensureTimeline(sid);
@@ -1702,8 +1745,9 @@ async function loadOverview(force = false, opts = {}) {
     overviewSid = "";
     overviewPendingSid = "";
     overviewPaintFp = "";
-    detailEl.innerHTML = `<p class="err">${escapeHtml(e)}</p>`;
-    setStatus(String(e), true);
+    detailEl.innerHTML = `<p class="err">${escapeHtml(controlDownMessage(e))}</p>
+      <p class="muted">Start the control owner: <code>groket serve -d</code></p>`;
+    markControlDown(e);
   }
 }
 
@@ -1740,8 +1784,14 @@ async function refreshListFromServer(opts = {}) {
       if (catalogSig(allSessions) !== prevSig || filterChanged) {
         renderList({ scrollActive: false });
       }
-    } catch {
-      /* soft-fail live poll — do not blank the list */
+      markControlUp();
+      // If we recovered from a sticky down status, clear it with a short ready line.
+      if (controlUp && statusEl.classList.contains("err")) {
+        setStatus(`${allSessions.length} sessions · control ok`);
+      }
+    } catch (e) {
+      // Soft on list content (keep last catalog) but never hide a dead socket.
+      markControlDown(e);
     }
     return;
   }
@@ -1762,6 +1812,7 @@ async function refreshListFromServer(opts = {}) {
     allSessions = rows;
     listLoading = false;
     applySessionFilter();
+    markControlUp();
     const matched =
       listed && typeof listed === "object" && !Array.isArray(listed) && listed.matched != null
         ? Number(listed.matched)
@@ -1782,7 +1833,7 @@ async function refreshListFromServer(opts = {}) {
           ? `No matches for “${needle}”`
           : total > 0
             ? `List empty but server total=${total} (payload shape?)`
-            : "No sessions from control (is groket serve running?)",
+            : "No sessions from control · is groket serve running?",
         !needle && total === 0,
       );
     }
@@ -1804,10 +1855,10 @@ async function refreshListFromServer(opts = {}) {
     } else {
       renderList();
     }
-    setStatus(String(e), true);
+    markControlDown(e);
     if (!allSessions.length) {
-      detailEl.innerHTML = `<p class="err">${escapeHtml(e)}</p>
-      <p class="muted">Run <code>groket serve start -d</code> then <code>groket hud --restart --rebuild</code>.</p>`;
+      detailEl.innerHTML = `<p class="err">${escapeHtml(controlDownMessage(e))}</p>
+      <p class="muted">Start the control owner: <code>groket serve -d</code> · then summon the HUD again.</p>`;
     }
   }
 }
@@ -1919,9 +1970,10 @@ async function boot() {
   try {
     await invoke("control_initialize");
     const path = await invoke("control_socket_path");
+    markControlUp();
     setStatus(`ready · ${path.split("/").pop()}`);
   } catch (e) {
-    setStatus(String(e), true);
+    markControlDown(e);
   }
   await refreshListFromServer();
   focusSearchField();
