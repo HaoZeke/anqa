@@ -60,6 +60,13 @@ CAPABILITIES = (
     "analysis/run",
     "analysis/status",
 )
+# Success path for these is expected to be chatty (polls); keep INFO for run/start/errors.
+_RPC_OK_QUIET_METHODS = frozenset(
+    {
+        "analysis/status",
+        "initialize",
+    }
+)
 
 type SessionResolver = Callable[[str], Path | None]
 type SessionLister = Callable[[], list[JsonObject]]
@@ -694,14 +701,26 @@ class ControlServer:
             await self._send_error(writer, request_id, -32603, f"internal error: {exc}")
             return
         ms = (time.perf_counter() - t0) * 1000
-        logger.info(
-            "control rpc → id=%s method=%s status=ok %.1fms %s result=%s",
-            request_id,
-            method,
-            ms,
-            param_summary,
-            _rpc_result_summary(result),
-        )
+        # High-frequency polls (analysis status, quiet list ticks) must not fill
+        # the serve log at INFO — one long analysis job was ~30+ lines/sec.
+        if method in _RPC_OK_QUIET_METHODS:
+            logger.debug(
+                "control rpc → id=%s method=%s status=ok %.1fms %s result=%s",
+                request_id,
+                method,
+                ms,
+                param_summary,
+                _rpc_result_summary(result),
+            )
+        else:
+            logger.info(
+                "control rpc → id=%s method=%s status=ok %.1fms %s result=%s",
+                request_id,
+                method,
+                ms,
+                param_summary,
+                _rpc_result_summary(result),
+            )
         if request_id is not None:
             await self._send(writer, {"jsonrpc": "2.0", "id": request_id, "result": result})
         # Broadcasts go out after the response so the requesting client can update

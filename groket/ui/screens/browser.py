@@ -1538,6 +1538,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         async def _run() -> dict:
             await access.analysis_run(session_dir.name, force=force)
             deadline = time_mod.monotonic() + 600.0
+            # Back off: first second is snappy, then ~1s polls (was 0.35s spam).
+            delay = 0.4
             while time_mod.monotonic() < deadline:
                 status = await access.analysis_status(session_dir.name)
                 state = str(status.get("state") or "")
@@ -1549,7 +1551,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             status.get("error"),
                         )
                     break
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(delay)
+                delay = min(1.0, delay * 1.25)
             return get_analysis_service().load_cached_all(session_dir, allow_stale=True)
 
         return asyncio.run(_run())
