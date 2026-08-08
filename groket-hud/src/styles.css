@@ -1182,6 +1182,7 @@ body {
   font-size: 11px;
   font-family: var(--mono);
   color: var(--muted);
+  opacity: 0.9;
 }
 
 /* Create / update operator notes (control notes/upsert) */
@@ -1303,8 +1304,6 @@ body {
 .note-list li.note-selected {
   border-color: rgba(10, 132, 255, 0.55);
   box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.2);
-}
-  opacity: 0.9;
 }
 
 .content-wrap.in-note .content-json,

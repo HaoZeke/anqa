@@ -8,6 +8,7 @@ import {
   eventFingerprint,
   hasOpenTurn,
   isLiveStatus,
+  isSoftNotesSaveError,
   mergeTimelineByIndex,
   overviewPaintFingerprint,
   patchListRowFromMeta,
@@ -17,6 +18,30 @@ import {
   timelineFirstMissingOffset,
   timelineSeekOffset,
 } from "./live.js";
+
+describe("isSoftNotesSaveError", () => {
+  it("treats control NotesConflict wire text as soft (not socket-down)", () => {
+    // control.py: JSON-RPC 409 message "operator notes changed", kind notes_conflict
+    assert.equal(isSoftNotesSaveError("operator notes changed"), true);
+    assert.equal(
+      isSoftNotesSaveError({
+        message: "operator notes changed",
+        data: { kind: "notes_conflict", currentRevision: "abc" },
+      }),
+      true,
+    );
+    assert.equal(isSoftNotesSaveError("notes_conflict"), true);
+    assert.equal(isSoftNotesSaveError("RPC error 409: operator notes changed"), true);
+    assert.equal(isSoftNotesSaveError("note.id must match [A-Za-z0-9]"), true);
+  });
+
+  it("does not soft-match transport / socket death", () => {
+    assert.equal(isSoftNotesSaveError("connection refused"), false);
+    assert.equal(isSoftNotesSaveError("no such file or directory"), false);
+    assert.equal(isSoftNotesSaveError("Resource temporarily unavailable (os error 35)"), false);
+    assert.equal(isSoftNotesSaveError(""), false);
+  });
+});
 
 describe("isLiveStatus", () => {
   it("accepts control list labels", () => {

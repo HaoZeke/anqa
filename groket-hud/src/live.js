@@ -261,6 +261,49 @@ export function overviewPaintFingerprint(overview) {
 }
 
 /**
+ * True when a notes/upsert failure is application-level (conflict / validation)
+ * and must not sticky-banner the control owner as down.
+ *
+ * Control maps :class:`~groket.notes.NotesConflict` to JSON-RPC 409 with
+ * message ``operator notes changed`` and data.kind ``notes_conflict``.
+ *
+ * @param {unknown} err — thrown value or message string from Tauri/control
+ * @returns {boolean}
+ */
+export function isSoftNotesSaveError(err) {
+  const msg = (() => {
+    if (err == null) return "";
+    if (typeof err === "string") return err;
+    if (typeof err === "object") {
+      const parts = [];
+      if ("message" in err && err.message != null) parts.push(String(err.message));
+      // Tauri / ControlError may stringify as JSON or nest data.kind.
+      if ("data" in err && err.data && typeof err.data === "object") {
+        const d = /** @type {Record<string, unknown>} */ (err.data);
+        if (d.kind != null) parts.push(String(d.kind));
+        if (d.currentRevision != null) parts.push(String(d.currentRevision));
+      }
+      try {
+        parts.push(JSON.stringify(err));
+      } catch {
+        /* ignore */
+      }
+      return parts.join(" ");
+    }
+    return String(err);
+  })();
+  if (!msg) return false;
+  return (
+    /operator notes changed/i.test(msg) ||
+    /notes_conflict/i.test(msg) ||
+    /\b409\b/.test(msg) ||
+    /notes conflict/i.test(msg) ||
+    /stale.*revision|revision.*stale|expectedRevision/i.test(msg) ||
+    /note\.id|must match|note is required|noteId is required/i.test(msg)
+  );
+}
+
+/**
  * Patch list-row fields that appear in the session list chrome.
  * @param {Array<Record<string, unknown>>} rows
  * @param {string} sessionId

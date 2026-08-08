@@ -9,6 +9,7 @@ import {
   LIVE_POLL_MS,
   centeredScrollTop,
   isLiveStatus,
+  isSoftNotesSaveError,
   mergeTimelineByIndex,
   overviewPaintFingerprint,
   patchListRowFromMeta,
@@ -1844,11 +1845,11 @@ async function saveNoteFromForm(ev) {
   } catch (e) {
     noteSaving = false;
     const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
-    // Revision conflicts and validation stay "control up"; only transport death
-    // should flip the sticky down banner.
-    const soft =
-      /409|conflict|revision|expectedRevision|note\.id|must match|required/i.test(msg);
-    if (!soft) markControlDown(e);
+    // Revision conflicts (control: "operator notes changed" / notes_conflict / 409)
+    // and validation stay "control up"; only transport death sticky-banners down.
+    if (!isSoftNotesSaveError(e) && !isSoftNotesSaveError(msg)) {
+      markControlDown(e);
+    }
     setStatus(`Note save failed: ${msg}`);
     if (tab === "notes") renderDetail();
   }
