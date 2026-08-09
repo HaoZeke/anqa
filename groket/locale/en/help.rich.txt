@@ -22,8 +22,8 @@ H              show host sessions (~/.grok/sessions); again to hide
 [ ] or 1–5     panes (timeline, summary, diff, findings, report)
 v              timeline view filter
 f              flag event
-N              new operator note (turn-linked; schema from ~/.groket/notes_schema.toml)
-O              edit / delete operator note (palette; Delete in modal)
+N              new note
+O              edit or delete note
 n              follow-up prompt · e done (multi-turn)
 x              delete this session (twice)
 s              open share link

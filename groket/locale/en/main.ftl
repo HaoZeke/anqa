@@ -304,13 +304,13 @@ cmd-export-choose-profile = Export with profile…
 
 cmd-export-choose-profile-help = Pick a profile for this export only (does not change the default)
 
-cmd-operator-note = Operator note
+cmd-operator-note = New note
 
-cmd-operator-note-help = Add a turn-linked operator note (configurable fields)
+cmd-operator-note-help = Add a note on the current turn
 
-cmd-edit-operator-note = Edit operator note
+cmd-edit-operator-note = Edit note
 
-cmd-edit-operator-note-help = Edit or delete an existing turn-linked operator note
+cmd-edit-operator-note-help = Edit or delete a note (O)
 
 cmd-copy-detail = Copy selection, finding, or pane
 cmd-copy-detail-help = Browser: yank selection; Findings row Issue box; focused Report/detail body; else whole pane — y / Ctrl+Shift+C
@@ -655,9 +655,9 @@ flags-heading = Flags
 
 flags-only = Flags only
 
-new-note-title = New operator note
+new-note-title = New note
 
-edit-note-title = Edit operator note
+edit-note-title = Edit note
 
 note-saved = Operator note saved (turn { $turn })
 
@@ -665,13 +665,13 @@ note-updated = Operator note updated (turn { $turn })
 
 note-deleted = Operator note deleted
 
-note-none-to-edit = No operator notes to edit — press N to add one
+note-none-to-edit = No notes to edit — press N
 
 note-save-failed = Could not save operator note: { $msg }
 
 note-turn-invalid = Choose a valid turn before saving
 
-notes-blurb = Turn-linked operator notes (N to add; O or command palette to edit or delete). Field layout: ~/.groket/notes_schema.toml. Same store as Emacs, Neovim, and the HUD via the control plane.
+notes-blurb = N add · O edit or delete
 
 notes-empty-preview = (empty)
 
@@ -681,15 +681,13 @@ notes-field-detail = Detail
 
 notes-field-summary = Summary
 
-notes-heading = Operator notes
+notes-heading = Notes
 
 notes-only = Notes only
 
-notes-schema-hint = Schema: { $id }
-
 pick-note-title = Choose a note to edit
 
-tip-no-notes = No operator notes yet — press `N` to add a turn-linked note
+tip-no-notes = No notes yet — press N
 
 turn-label = Turn:
 
