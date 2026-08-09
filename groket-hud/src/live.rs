@@ -324,6 +324,37 @@ pub fn card_marks_from_overview(
 }
 
 /// Keep overview-patched status when a quiet catalog refresh sends a blank label.
+pub fn patch_catalog_delta(
+    prev: &[SessionRow],
+    upserted: Vec<SessionRow>,
+    removed: &[String],
+) -> Vec<SessionRow> {
+    let drop: HashSet<&str> = removed.iter().map(String::as_str).collect();
+    let mut kept: Vec<SessionRow> = prev
+        .iter()
+        .filter(|row| !drop.contains(row.session_id.as_str()))
+        .cloned()
+        .collect();
+    if upserted.is_empty() {
+        return kept;
+    }
+    let patched = merge_catalog_rows(&kept, upserted);
+    let mut by_id: HashMap<String, usize> = kept
+        .iter()
+        .enumerate()
+        .map(|(i, row)| (row.session_id.clone(), i))
+        .collect();
+    for row in patched {
+        if let Some(idx) = by_id.get(&row.session_id).copied() {
+            kept[idx] = row;
+        } else {
+            by_id.insert(row.session_id.clone(), kept.len());
+            kept.push(row);
+        }
+    }
+    kept
+}
+
 pub fn merge_catalog_rows(prev: &[SessionRow], next: Vec<SessionRow>) -> Vec<SessionRow> {
     use crate::format::{is_blank_status, list_status_label};
 
@@ -416,6 +447,31 @@ mod tests {
         };
         assert!(session_needs_live_poll("complete", Some(&open)));
         assert!(!session_needs_live_poll("complete", Some(&closed)));
+    }
+
+    #[test]
+    fn catalog_delta_removes_and_upserts() {
+        use crate::model::SessionRow;
+        let prev = vec![
+            SessionRow {
+                session_id: "a".into(),
+                title: "A".into(),
+                ..SessionRow::default()
+            },
+            SessionRow {
+                session_id: "b".into(),
+                title: "B".into(),
+                ..SessionRow::default()
+            },
+        ];
+        let upserted = vec![SessionRow {
+            session_id: "c".into(),
+            title: "C".into(),
+            ..SessionRow::default()
+        }];
+        let out = patch_catalog_delta(&prev, upserted, &["b".into()]);
+        let ids: Vec<&str> = out.iter().map(|r| r.session_id.as_str()).collect();
+        assert_eq!(ids, ["a", "c"]);
     }
 
     #[test]

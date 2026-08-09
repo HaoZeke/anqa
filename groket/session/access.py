@@ -179,10 +179,28 @@ class LocalSessionAccess:
         query: str = "",
         limit: int | None = None,
         offset: int = 0,
+        since_revision: int | None = None,
     ) -> JsonObject:
         """Catalog snapshot (``sessions`` / ``total`` / ``matched``)."""
+        list_for_rpc = getattr(self._list, "list_for_rpc", None)
+        if callable(list_for_rpc):
+            return list_for_rpc(
+                query=query,
+                limit=limit,
+                offset=offset,
+                since_revision=since_revision,
+            )
         catalog = list(self._list()) if self._list is not None else []
-        return filter_session_catalog(catalog, query=query, limit=limit, offset=offset)
+        out = filter_session_catalog(catalog, query=query, limit=limit, offset=offset)
+        return {
+            "sessions": out["sessions"],
+            "total": out["total"],
+            "matched": out["matched"],
+            "revision": 0,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+        }
 
     def session_get(self, session: str) -> JsonObject:
         """Rich session metadata."""
@@ -355,8 +373,14 @@ class RemoteSessionAccess:
         query: str = "",
         limit: int | None = None,
         offset: int = 0,
+        since_revision: int | None = None,
     ) -> JsonObject:
-        return await self._client.session_list(query=query, limit=limit, offset=offset)
+        return await self._client.session_list(
+            query=query,
+            limit=limit,
+            offset=offset,
+            since_revision=since_revision,
+        )
 
     async def session_get(self, session: str) -> JsonObject:
         return await self._client.session_get(session)

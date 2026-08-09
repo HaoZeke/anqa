@@ -118,6 +118,7 @@ async def test_session_list_query_is_server_substring(tmp_path: Path) -> None:
     )
     await server.start()
     try:
+        getattr(server, "_catalog_cache").get(force=True)  # type: ignore[union-attr]
         client = ControlClient(sock, client_name="q-test", timeout=20)
         all_rows = await client.session_list(limit=50)
         rocket = await client.session_list(query="rocket", limit=50)

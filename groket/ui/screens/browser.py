@@ -172,6 +172,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         self._context_samples = ContextSampleStore()
 
+    def _analysis_svc(self):
+        """Use the app's analysis service (work_dir / config), not a bare default."""
+        app = getattr(self, "_app", None)
+        if app is None:
+            try:
+                app = self.app
+            except Exception:
+                app = None
+        getter = getattr(app, "_analysis_svc", None) if app is not None else None
+        if callable(getter):
+            return getter()
+        return get_analysis_service()
+
     def compose(self) -> ComposeResult:
         yield Header()
         from ..widgets.activity_bar import ActivityBar
@@ -1008,10 +1021,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return bool(callable(is_client) and is_client())
 
     def _session_control_ref(self) -> str:
-        """Session id/path for control RPCs."""
-        if self.meta and (self.meta.session_id or "").strip():
-            return str(self.meta.session_id).strip()
-        return self.session_dir.name
+        """Session path for control RPCs (id lookup is a host-tree walk)."""
+        try:
+            return str(Path(self.session_dir).expanduser().resolve())
+        except OSError:
+            return str(self.session_dir)
 
     def _fetch_browser_bundle_via_control(
         self,
@@ -1353,7 +1367,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _should_auto_analyze(self) -> bool:
         """Whether policy says to run analyzers for this session now."""
-        svc = get_analysis_service()
+        svc = self._analysis_svc()
         when = (svc.config.auto_analyze_when or "session_complete").strip().lower()
         if when == "never":
             return False
@@ -1386,7 +1400,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         cache-only until the operator force-analyzes.
         """
         try:
-            svc = get_analysis_service()
+            svc = self._analysis_svc()
             plugins = [p for p in svc.list_plugins() if p.id != "noop"]
         except Exception:
             return False
@@ -1426,7 +1440,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if not force:
             # Instant paint from disk so opening a session never waits on deferred work.
             try:
-                cached = get_analysis_service().load_cached_all(self.session_dir, allow_stale=True)
+                cached = self._analysis_svc().load_cached_all(self.session_dir, allow_stale=True)
             except Exception:
                 cached = {}
             if cached:
@@ -1525,7 +1539,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 if use_control:
                     results = self._analyze_via_control(session_dir, force=force_run)
                 else:
-                    svc = get_analysis_service()
+                    svc = self._analysis_svc()
                     results = svc.analyze_all(session_dir, force=force_run)
             except Exception as exc:
                 get_activity_log().log("analysis", f"failed {label}: {exc}")
@@ -1547,12 +1561,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         import asyncio
         import time as time_mod
 
-        from ...analysis import get_analysis_service
-
         app = self.app
         access = getattr(app, "session_access", lambda: None)()
         if access is None:
-            return get_analysis_service().analyze_all(session_dir, force=force)
+            return self._analysis_svc().analyze_all(session_dir, force=force)
 
         async def _run() -> dict:
             # One long-lived client for run + status polls (not a connect per tick).
@@ -1579,14 +1591,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             finally:
                 if client is not None and hasattr(client, "close"):
                     await client.close()
-            return get_analysis_service().load_cached_all(session_dir, allow_stale=True)
+            return self._analysis_svc().load_cached_all(session_dir, allow_stale=True)
 
         return asyncio.run(_run())
 
     def _apply_stale_analysis_hints(self, *, repaint: bool = True) -> None:
         """Load stale hints, update banner, optionally repaint findings/report."""
         try:
-            hints = get_analysis_service().stale_analyzer_hints(self.session_dir)
+            hints = self._analysis_svc().stale_analyzer_hints(self.session_dir)
         except Exception:
             hints = []
         self._set_analysis_stale_banner(hints)
@@ -1655,9 +1667,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _enabled_analyzer_ids(self) -> set[str] | None:
         """Ids enabled in the process analysis service (None if unavailable)."""
         try:
-            from ...analysis import get_analysis_service
-
-            return set(get_analysis_service().enabled_ids)
+            return set(self._analysis_svc().enabled_ids)
         except Exception:
             return None
 

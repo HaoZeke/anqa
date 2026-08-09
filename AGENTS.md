@@ -197,8 +197,9 @@ TUI **never owns** the socket: default is detach-start owner if free
 load home catalog via ``session/list``, and listen for notifications.
 TUI exit does not stop the owner.
 ``session/list`` ``query`` is server-side casefold substring; optional
-``offset`` pages the filtered rows (omit it for the first page). Clients that
-need the full catalog drain pages until ``matched``. Do not reimplement
+``offset`` pages the filtered rows (omit it for the first page). Optional
+``sinceRevision`` is a cheap unchanged/delta poll. Clients that need the full
+catalog drain pages until ``matched`` on first paint only. Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
 

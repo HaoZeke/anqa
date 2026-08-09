@@ -18,8 +18,8 @@ use crate::format::{control_down_message, new_note_id};
 use crate::fuzzy::fuzzy_filter;
 use crate::live::{
     card_marks_from_overview, is_soft_notes_save_error, merge_catalog_rows,
-    merge_timeline_by_index, notes_schema_fields, patch_list_row_from_meta, plan_tick,
-    session_needs_live_poll, timeline_coverage_complete, timeline_first_missing_offset,
+    merge_timeline_by_index, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
+    plan_tick, session_needs_live_poll, timeline_coverage_complete, timeline_first_missing_offset,
     timeline_seek_offset, TickInput, LIVE_TAIL_LIMIT, TIMELINE_CHUNK,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
@@ -29,7 +29,8 @@ use crate::shortcut;
 use crate::theme;
 use crate::view;
 use crate::wire::{
-    decode_overview, decode_session_list, decode_timeline_page, NotesBlock, Overview, TimelineEvent,
+    decode_overview, decode_session_list, decode_session_list_response, decode_timeline_page,
+    NotesBlock, Overview, TimelineEvent,
 };
 
 const HUD_W: f32 = 780.0;
@@ -135,6 +136,7 @@ pub struct Hud {
     _hotkeys: Option<GlobalHotKeyManager>,
     notify_q: Arc<Mutex<VecDeque<(String, Value)>>>,
     window_id: Option<window::Id>,
+    catalog_revision: i64,
 }
 
 impl Default for Hud {
@@ -177,6 +179,7 @@ impl Default for Hud {
             theme_name: prefs::theme_name(),
             _hotkeys: None,
             notify_q: Arc::new(Mutex::new(VecDeque::new())),
+            catalog_revision: 0,
             window_id: None,
         }
     }
@@ -303,7 +306,7 @@ impl Hud {
             Task::perform(rpc(control::initialize), |r| {
                 Message::Inited(r.map(|_| String::new()))
             }),
-            fetch_list(false),
+            fetch_list(false, 0),
         ]);
         (hud, boot)
     }
@@ -454,7 +457,19 @@ impl Hud {
             }
             Message::ListLoaded { quiet, result } => {
                 match result {
-                    Ok(v) => self.apply_list(v, quiet),
+                    Ok(v) => {
+                        if quiet {
+                            if let Ok(page) = decode_session_list_response(&v) {
+                                if !page.unchanged
+                                    && !page.delta
+                                    && page.matched > page.sessions.len() as i64
+                                {
+                                    return fetch_list(quiet, 0);
+                                }
+                            }
+                        }
+                        self.apply_list(v, quiet);
+                    }
                     Err(e) => self.mark_down(&e),
                 }
                 if !quiet && self.sessions.is_empty() {
@@ -808,7 +823,30 @@ impl Hud {
     }
 
     fn apply_list(&mut self, listed: Value, quiet: bool) {
-        let incoming = decode_session_list(&listed).unwrap_or_default();
+        let page = decode_session_list_response(&listed).ok();
+        if let Some(ref page) = page {
+            if page.revision > 0 {
+                self.catalog_revision = page.revision;
+            }
+            if quiet && page.unchanged {
+                self.mark_up();
+                return;
+            }
+            if page.delta {
+                let incoming = page.sessions.clone();
+                self.all_sessions =
+                    patch_catalog_delta(&self.all_sessions, incoming, &page.removed);
+                self.rerank_visible();
+                self.mark_up();
+                if !quiet {
+                    self.status = format!("{} sessions · ready", self.all_sessions.len());
+                }
+                return;
+            }
+        }
+        let incoming = page
+            .map(|p| p.sessions)
+            .unwrap_or_else(|| decode_session_list(&listed).unwrap_or_default());
         let rows = merge_catalog_rows(&self.all_sessions, incoming);
         if quiet && rows.is_empty() && !self.all_sessions.is_empty() {
             return;
@@ -1168,7 +1206,7 @@ impl Hud {
             return Task::batch([
                 open.map(|id| Message::WindowId(Some(id))),
                 delayed_focus(0),
-                fetch_list(true),
+                fetch_list(true, self.catalog_revision),
             ]);
         }
         let chrome = match self.window_id {
@@ -1181,7 +1219,11 @@ impl Hud {
             ]),
             None => Task::none(),
         };
-        Task::batch([chrome, delayed_focus(0), fetch_list(true)])
+        Task::batch([
+            chrome,
+            delayed_focus(0),
+            fetch_list(true, self.catalog_revision),
+        ])
     }
 
     fn sync_theme(&mut self) {
@@ -1299,7 +1341,7 @@ impl Hud {
             notes_locked: self.note_compose_lock,
         });
         if plan.fetch_list {
-            cmds.push(fetch_list(true));
+            cmds.push(fetch_list(true, self.catalog_revision));
         }
         if plan.load_overview {
             cmds.push(self.load_overview(true));
@@ -1389,10 +1431,17 @@ impl Hud {
     }
 }
 
-fn fetch_list(quiet: bool) -> Task<Message> {
-    Task::perform(rpc(|| control::session_list_all("")), move |result| {
-        Message::ListLoaded { quiet, result }
-    })
+fn fetch_list(quiet: bool, since: i64) -> Task<Message> {
+    Task::perform(
+        rpc(move || {
+            if quiet && since > 0 {
+                control::session_list("", 10_000, 0, since)
+            } else {
+                control::session_list_all("")
+            }
+        }),
+        move |result| Message::ListLoaded { quiet, result },
+    )
 }
 
 fn fetch_timeline(sid: String, offset: u32, append: bool, gen: u64, limit: u32) -> Task<Message> {

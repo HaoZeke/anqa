@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..models import JsonObject, SessionMeta
+from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import load_session_meta_list, session_trace_mtime
 from ..paths import app_config_path
 from .sources import (
@@ -240,11 +242,12 @@ def catalog_roots_fingerprint(
     traces_path: Path | None = None,
     include_host: bool | None = None,
     host_root: Path | None = None,
-) -> tuple[tuple[str, int, int], ...]:
-    """Cheap identity for catalog roots (path, mtime_ns, entry count).
+) -> tuple[tuple[str, int], ...]:
+    """Cheap identity for catalog roots (path, mtime_ns).
 
-    Used by the headless owner to refresh the warm cache when the tree changes
-    without always waiting for TTL expiry.
+    Directory mtime changes when children are added or removed. In-place file
+    writes inside a session dir do not bump the root; those use FS-watch
+    :meth:`SessionCatalogCache.refresh_rows` instead of a full rescan.
     """
     roots = catalog_scan_roots(
         work_dir,
@@ -252,21 +255,26 @@ def catalog_roots_fingerprint(
         include_host=include_host,
         host_root=host_root,
     )
-    parts: list[tuple[str, int, int]] = []
+    parts: list[tuple[str, int]] = []
     for root in roots:
         path = Path(root.path)
         try:
             st = path.stat()
             mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
         except OSError:
-            parts.append((str(path), 0, 0))
+            parts.append((str(path), 0))
             continue
-        try:
-            n = sum(1 for _ in path.iterdir())
-        except OSError:
-            n = 0
-        parts.append((str(path), mtime_ns, n))
+        parts.append((str(path), mtime_ns))
     return tuple(parts)
+
+
+@dataclass
+class _CatalogDelta:
+    """One catalog revision: upserted rows and removed session ids."""
+
+    revision: int
+    upserted: dict[str, JsonObject] = field(default_factory=dict)
+    removed: list[str] = field(default_factory=list)
 
 
 class SessionCatalogCache:
@@ -276,7 +284,8 @@ class SessionCatalogCache:
     client RPCs share one scan instead of serial full walks.
     """
 
-    DEFAULT_TTL = 20.0
+    DEFAULT_TTL = 300.0
+    _DELTA_KEEP = 48
 
     def __init__(
         self,
@@ -287,6 +296,7 @@ class SessionCatalogCache:
         host_root: Path | None = None,
         ttl: float = DEFAULT_TTL,
     ) -> None:
+        import secrets
         import threading
         import time
 
@@ -299,16 +309,33 @@ class SessionCatalogCache:
         self._rows: list[JsonObject] | None = None
         self._mono = 0.0
         self._host_key: bool | None = None
-        self._fingerprint: tuple[tuple[str, int, int], ...] | None = None
+        self._fingerprint: tuple[tuple[str, int], ...] | None = None
         self._building = False
         self._build_done = threading.Event()
         self._build_done.set()
         self._time = time
+        # High 31 bits identify this owner instance so a restarted serve cannot
+        # treat a client's leftover sinceRevision as "unchanged".
+        self._gen = secrets.randbits(31)
+        self._seq = 0
+        self._revision = 0
+        self._deltas: deque[_CatalogDelta] = deque(maxlen=self._DELTA_KEEP)
+        self._on_rebuilt: object | None = None
+
+    def __call__(self) -> list[JsonObject]:
+        """Return the warm catalog snapshot (``SessionLister``)."""
+        return self.get()
+
+    @property
+    def revision(self) -> int:
+        """Monotonic catalog revision; bumps on full rebuild or row patch."""
+        with self._lock:
+            return int(self._revision)
 
     def _host_key_now(self) -> bool:
         return effective_include_host(self._include_host)
 
-    def _fp_now(self) -> tuple[tuple[str, int, int], ...]:
+    def _fp_now(self) -> tuple[tuple[str, int], ...]:
         return catalog_roots_fingerprint(
             self._work_dir,
             traces_path=self._traces_path,
@@ -316,39 +343,110 @@ class SessionCatalogCache:
             host_root=self._host_root,
         )
 
+    def _bump_locked(
+        self,
+        *,
+        upserted: list[JsonObject] | None = None,
+        removed: list[str] | None = None,
+        clear_deltas: bool = False,
+    ) -> int:
+        self._seq += 1
+        self._revision = (int(self._gen) << 32) | int(self._seq)
+        if clear_deltas:
+            self._deltas.clear()
+        else:
+            by_id: dict[str, JsonObject] = {}
+            for row in upserted or []:
+                sid = str(row.get("sessionId") or "").strip()
+                if sid:
+                    by_id[sid] = row
+            self._deltas.append(
+                _CatalogDelta(
+                    revision=self._revision,
+                    upserted=by_id,
+                    removed=[sid for sid in (removed or []) if sid],
+                )
+            )
+        return self._revision
+
+    def delta_since(self, since_revision: int) -> tuple[list[JsonObject], list[str]] | None:
+        """Rows upserted and ids removed after *since_revision*, or None if gapped."""
+        with self._lock:
+            rev = self._revision
+            if since_revision <= 0:
+                return None
+            if (int(since_revision) >> 32) != int(self._gen):
+                return None
+            if since_revision > rev:
+                return None
+            if since_revision == rev:
+                return [], []
+            if not self._deltas or self._deltas[0].revision > since_revision + 1:
+                return None
+            upserted: dict[str, JsonObject] = {}
+            removed: set[str] = set()
+            for delta in self._deltas:
+                if delta.revision <= since_revision:
+                    continue
+                for sid in delta.removed:
+                    removed.add(sid)
+                    upserted.pop(sid, None)
+                for sid, row in delta.upserted.items():
+                    removed.discard(sid)
+                    upserted[sid] = row
+            return list(upserted.values()), list(removed)
+
     def invalidate(self) -> None:
         """Drop cached rows so the next :meth:`get` rebuilds."""
         with self._lock:
             self._rows = None
             self._mono = 0.0
             self._fingerprint = None
+            self._deltas.clear()
 
-    def get(self, *, force: bool = False) -> list[JsonObject]:
-        """Return catalog rows, rebuilding when stale, forced, or roots changed."""
+    def _is_fresh_locked(
+        self,
+        *,
+        force: bool,
+        host_key: bool,
+        fp: tuple[tuple[str, int], ...],
+        now: float,
+    ) -> bool:
+        return (
+            not force
+            and self._rows is not None
+            and self._host_key is host_key
+            and self._fingerprint == fp
+            and (now - self._mono) < self._ttl
+        )
+
+    def _kick_rebuild(self, *, force: bool = False) -> None:
+        """Start a single-flight rebuild if the snapshot is missing or stale."""
+        import threading
+
         host_key = self._host_key_now()
-        while True:
-            now = self._time.monotonic()
-            fp = self._fp_now()
-            with self._lock:
-                fresh = (
-                    not force
-                    and self._rows is not None
-                    and self._host_key is host_key
-                    and self._fingerprint == fp
-                    and (now - self._mono) < self._ttl
-                )
-                if fresh:
-                    assert self._rows is not None
-                    return list(self._rows)
-                if self._building:
-                    waiter = True
-                else:
-                    self._building = True
-                    self._build_done.clear()
-                    waiter = False
-            if not waiter:
-                break
-            self._build_done.wait(timeout=120.0)
+        fp = self._fp_now()
+        now = self._time.monotonic()
+        with self._lock:
+            if self._is_fresh_locked(force=force, host_key=host_key, fp=fp, now=now):
+                return
+            if self._building:
+                return
+            self._building = True
+            self._build_done.clear()
+        worker = threading.Thread(
+            target=self._run_rebuild,
+            args=(host_key, fp),
+            name="groket-catalog-rebuild",
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_rebuild(
+        self,
+        host_key: bool,
+        fp: tuple[tuple[str, int], ...],
+    ) -> None:
         try:
             rows = list_session_catalog(
                 self._work_dir,
@@ -361,11 +459,67 @@ class SessionCatalogCache:
                 self._mono = self._time.monotonic()
                 self._host_key = host_key
                 self._fingerprint = fp
-            return list(rows)
+                self._bump_locked(clear_deltas=True)
+            cb = self._on_rebuilt
+            if callable(cb):
+                cb()
         finally:
             with self._lock:
                 self._building = False
             self._build_done.set()
+
+    def get(self, *, force: bool = False) -> list[JsonObject]:
+        """Return catalog rows, rebuilding when stale, forced, or roots changed.
+
+        Callers that must not stall (``session/list``) use :meth:`list_for_rpc`.
+        """
+        self._kick_rebuild(force=force)
+        deadline = self._time.monotonic() + 120.0
+        while self._time.monotonic() < deadline:
+            with self._lock:
+                if not self._building:
+                    if self._rows is not None:
+                        return list(self._rows)
+                    break
+            remaining = deadline - self._time.monotonic()
+            if remaining <= 0:
+                break
+            self._build_done.wait(timeout=min(0.25, remaining))
+        with self._lock:
+            return list(self._rows or [])
+
+    def resolve(self, reference: str) -> Path | None:
+        """Map a session id or path to a directory using the warm snapshot.
+
+        Does not wait for a rebuild and does not load session meta. Missing
+        cache or unknown id returns None so callers can fall back to a
+        name-only directory walk.
+        """
+        ref = (reference or "").strip()
+        if not ref:
+            return None
+        candidate = Path(ref).expanduser()
+        if candidate.is_dir():
+            try:
+                return candidate.resolve()
+            except OSError:
+                return candidate
+        with self._lock:
+            rows = list(self._rows) if self._rows is not None else []
+        for row in rows:
+            sid = str(row.get("sessionId") or "").strip()
+            path_raw = str(row.get("path") or "").strip()
+            if not path_raw:
+                continue
+            if sid != ref and path_raw != ref and Path(path_raw).name != ref:
+                continue
+            path = Path(path_raw)
+            if path.is_dir():
+                try:
+                    return path.resolve()
+                except OSError:
+                    return path
+        return None
 
     def refresh_rows(self, session_dirs: list[Path]) -> list[JsonObject]:
         """Rebuild catalog rows for *session_dirs* without a full tree scan.
@@ -381,7 +535,12 @@ class SessionCatalogCache:
         if not dirs:
             return self.get()
         with self._lock:
-            current = None if self._rows is None else list(self._rows)
+            if self._building or self._rows is None:
+                current = None
+                snap_rev = -1
+            else:
+                current = list(self._rows)
+                snap_rev = self._revision
         if current is None:
             return self.get(force=True)
         work = (
@@ -424,10 +583,95 @@ class SessionCatalogCache:
                 str(r.get("sessionId") or ""),
             )
         )
+        upserted = list(replacements.values()) + appended
+        removed_ids = [
+            str(row.get("sessionId") or "").strip()
+            for row in current
+            if str(row.get("path") or "").strip() in drop
+        ]
         with self._lock:
+            if self._building or self._revision != snap_rev:
+                return list(self._rows or rows)
             self._rows = rows
             self._mono = self._time.monotonic()
+            self._bump_locked(upserted=upserted, removed=removed_ids)
         return list(rows)
+
+    def list_for_rpc(
+        self,
+        *,
+        query: str = "",
+        limit: int | None = None,
+        offset: int = 0,
+        since_revision: int | None = None,
+    ) -> JsonObject:
+        """Page or delta ``session/list`` from the current snapshot.
+
+        Never waits for a cold full-tree scan. When the cache is empty or
+        stale, a background rebuild is started and this call returns the
+        current rows (possibly empty) with ``incomplete`` / ``building`` set.
+
+        When *since_revision* matches :attr:`revision`, no rows are transferred.
+        When the client is one or more tracked revisions behind, return only
+        upserted/removed rows (``delta`` true). Older clients omit
+        *since_revision* and get the usual paged snapshot.
+        """
+        from .access import filter_session_catalog
+
+        self._kick_rebuild(force=False)
+        with self._lock:
+            rows = list(self._rows) if self._rows is not None else []
+            rev = int(self._revision)
+            building = bool(self._building)
+            incomplete = self._rows is None or building
+        if since_revision is not None and int(since_revision) > 0:
+            if int(since_revision) == rev:
+                full = filter_session_catalog(rows, query=query, limit=0)
+                return {
+                    "sessions": [],
+                    "total": full["total"],
+                    "matched": full["matched"],
+                    "revision": rev,
+                    "unchanged": True,
+                    "removed": [],
+                    "delta": True,
+                    "building": building,
+                    "incomplete": incomplete,
+                }
+            delta = self.delta_since(int(since_revision))
+            if delta is not None:
+                upserted, removed = delta
+                page = filter_session_catalog(
+                    upserted,
+                    query=query,
+                    limit=max(len(upserted), 1),
+                    offset=0,
+                )
+                full = filter_session_catalog(rows, query=query, limit=0)
+                removed_vals: list[JsonValue] = [sid for sid in removed]
+                return {
+                    "sessions": page["sessions"],
+                    "total": full["total"],
+                    "matched": full["matched"],
+                    "revision": rev,
+                    "unchanged": False,
+                    "removed": removed_vals,
+                    "delta": True,
+                    "building": building,
+                    "incomplete": incomplete,
+                }
+        out = filter_session_catalog(rows, query=query, limit=limit, offset=offset)
+        return {
+            "sessions": out["sessions"],
+            "total": out["total"],
+            "matched": out["matched"],
+            "revision": rev,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+            "building": building,
+            "incomplete": incomplete,
+        }
 
 
 def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
@@ -552,6 +796,9 @@ def resolve_session_reference(
 ) -> Path | None:
     """Resolve a path or catalog session id to an existing session directory.
 
+    Matches an existing directory path, ``root / id``, or a collected
+    session directory **name**. Does not load list-meta for siblings.
+
     :param reference: Absolute/relative path, or a session directory name / id.
     :param work_dir: Work root for catalog roots.
     :param traces_path: Optional traces path override.
@@ -581,15 +828,11 @@ def resolve_session_reference(
                 return direct.resolve()
             except OSError:
                 return direct
-    for session_dir, origin in collect_session_dirs(roots):
-        _ = origin
+    # Directory name only. List-meta for every sibling is a multi-second tax on
+    # each session/overview and session/timeline call. Id≠dirname uses the
+    # warm catalog on the control owner (SessionCatalogCache.resolve).
+    for session_dir, _origin in collect_session_dirs(roots):
         if session_dir.name == ref:
-            try:
-                return session_dir.resolve()
-            except OSError:
-                return session_dir
-        row = session_catalog_row(session_dir, origin=origin)
-        if row is not None and str(row.get("sessionId") or "") == ref:
             try:
                 return session_dir.resolve()
             except OSError:

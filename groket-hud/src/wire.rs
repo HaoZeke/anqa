@@ -62,6 +62,14 @@ pub struct SessionListResponse {
     pub total: i64,
     #[serde(default)]
     pub matched: i64,
+    #[serde(default)]
+    pub revision: i64,
+    #[serde(default)]
+    pub unchanged: bool,
+    #[serde(default)]
+    pub removed: Vec<String>,
+    #[serde(default)]
+    pub delta: bool,
 }
 
 /// ``session_meta_mapping`` / overview ``meta``.
@@ -533,6 +541,7 @@ pub fn decode_session_list_response(value: &Value) -> Result<SessionListResponse
             sessions: items,
             total: n,
             matched: n,
+            ..SessionListResponse::default()
         });
     }
     let mut resp: SessionListResponse =

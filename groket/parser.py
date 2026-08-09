@@ -2012,6 +2012,9 @@ _SKIP_SESSION_WALK_DIRS = frozenset(
         ".groket-resume-seed",
         # Parent /workspace tree for fork restore.
         ".groket-workspace-seed",
+        # Host/eval workspace trees — never session dirs; walking them is the
+        # dominant cost on large ~/.grok/sessions trees.
+        "workspace",
     }
 )
 

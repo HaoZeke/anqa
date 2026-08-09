@@ -24,6 +24,63 @@ def _write_sess(root: Path, name: str, title: str) -> Path:
     return sd
 
 
+def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypatch) -> None:
+    """First session/list must not wait for a cold full tree scan."""
+    import groket.session.catalog as catalog_mod
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    for i in range(5):
+        _write_sess(traces, f"s{i}", f"S{i}")
+    release = threading.Event()
+    started = threading.Event()
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    done: dict[str, object] = {}
+
+    def call() -> None:
+        done["out"] = cache.list_for_rpc(limit=50)
+
+    th = threading.Thread(target=call)
+    th.start()
+    assert started.wait(timeout=2)
+    th.join(0.4)
+    assert not th.is_alive(), "list_for_rpc joined the in-flight catalog scan"
+    out = done["out"]
+    assert isinstance(out, dict)
+    assert out.get("incomplete") is True or out.get("building") is True
+    assert out.get("sessions") == []
+    release.set()
+    th.join(timeout=5)
+    finished = cache.get()
+    assert len(finished) == 5
+    later = cache.list_for_rpc(limit=50)
+    assert later["matched"] == 5
+    assert later.get("incomplete") is not True
+    assert {str(r["sessionId"]) for r in later["sessions"]} == {f"s{i}" for i in range(5)}
+
+
+def test_catalog_rebuild_invokes_on_rebuilt(tmp_path: Path) -> None:
+    """Owner can notify attach clients when a cold scan finishes."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_sess(traces, "one", "One")
+    hits: list[int] = []
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache._on_rebuilt = lambda: hits.append(1)
+    rows = cache.get(force=True)
+    assert len(rows) == 1
+    assert hits == [1]
+
+
 def test_catalog_cache_second_get_is_cached(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

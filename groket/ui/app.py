@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
@@ -34,7 +35,7 @@ from textual.widgets import (
     Static,
 )
 
-from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
+from ..analysis import AnalysisResult, AnalysisService, get_analysis_service
 from ..analysis.base import Finding
 from ..constants import META_CACHE_FILENAME
 from ..integrations.control_client import (
@@ -178,10 +179,11 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
         app = self.app
         config_path = getattr(app, "_config_path", None)
         cfg = load_pipeline_config(self._work_dir, config_path=config_path)
-        from ..analysis import get_analysis_service
-
         try:
-            svc = get_analysis_service()
+            getter = getattr(app, "_analysis_svc", None)
+            svc = getter() if callable(getter) else None
+            if svc is None:
+                raise RuntimeError("no analysis service")
             plugin_list = ", ".join(p.id for p in svc.list_plugins() if p.id != "noop") or "(none)"
         except Exception:
             plugin_list = ", ".join(p.id for p in list_analyzers() if p.id != "noop") or "(none)"
@@ -290,6 +292,18 @@ def _session_search_haystack(meta: SessionMeta, label: str) -> str:
     if meta.git_repo:
         parts.append(meta.git_repo.rstrip("/").rsplit("/", 1)[-1])
     return " ".join(parts).casefold()
+
+
+def first_home_list_fetch() -> dict[str, int | bool]:
+    """First attach ``session/list``: one page, no matched drain."""
+    from ..session.access import DEFAULT_SESSION_LIST_LIMIT
+
+    return {
+        "drain": False,
+        "limit": int(DEFAULT_SESSION_LIST_LIMIT),
+        "offset": 0,
+        "since_revision": 0,
+    }
 
 
 class TraceEvalApp(App):
@@ -411,6 +425,7 @@ class TraceEvalApp(App):
         # When true, load catalog via session/list and never bind the socket.
         self._control_attach_only: bool = bool(control_attach_only)
         self._control_notify_stop: asyncio.Event | None = None
+        self._catalog_revision: int = 0
         self._initial_session = (
             Path(initial_session).expanduser().resolve() if initial_session is not None else None
         )
@@ -557,11 +572,16 @@ class TraceEvalApp(App):
         """Re-apply saved theme, then persist any later theme changes to disk.
 
         Covers Ctrl+P → Change theme and any other path that sets ``App.theme``.
+        Subscribe only while the app is running — ``call_after_refresh`` can
+        fire after a short Pilot unmount.
         """
         self.apply_saved_theme(save=False)
-        if not self._theme_persist:
-            self._theme_persist = True
-            self.theme_changed_signal.subscribe(self, self._on_theme_changed)
+        if self._theme_persist:
+            return
+        if not getattr(self, "is_running", False):
+            return
+        self._theme_persist = True
+        self.theme_changed_signal.subscribe(self, self._on_theme_changed)
 
     def _on_theme_changed(self, theme: Theme) -> None:
         """Persist the active theme name when Textual applies a new theme."""
@@ -580,26 +600,6 @@ class TraceEvalApp(App):
             PersonaStore(self.work_dir).ensure_defaults()
         except Exception:
             logger.debug(t("ui-personastore-initialization-failed"), exc_info=True)
-        try:
-            from ..paths import analysis_cache_dir
-
-            svc = AnalysisService(
-                self.work_dir,
-                traces=Path(self.traces_path) if self.traces_path else None,
-                config_path=self._config_path,
-                cache_root=analysis_cache_dir(),
-            )
-            set_analysis_service(svc)
-            if svc.load_failures:
-                self.notify(
-                    t("notify-failed-plugins", n=len(svc.load_failures))
-                    + ": "
-                    + ", ".join(svc.load_failures),
-                    severity="error",
-                    timeout=15,
-                )
-        except Exception:
-            logger.warning(t("ui-analysis-service-initialization-failed"), exc_info=True)
         self.apply_saved_theme(save=False)
         self.call_after_refresh(self._enable_theme_persist)
         table = self.query_one("#session-table", DataTable)
@@ -620,11 +620,6 @@ class TraceEvalApp(App):
                 t("work-path-line", path=str(self.work_dir)),
                 t("runs-path-line", path=str(self.work_dir / "runs")),
             ]
-            try:
-                n_plugins = len([p for p in self._analysis_svc().list_plugins() if p.id != "noop"])
-                bits.append(t("ui-plugins-count", n=n_plugins))
-            except Exception:
-                pass
             self.sub_title = "  ·  ".join(bits)
         except Exception:
             pass
@@ -761,9 +756,8 @@ class TraceEvalApp(App):
 
     def _control_session_changed_ui(self, session_id: str) -> None:
         """Refresh home list and open browser when the changed session is open."""
-        if session_id:
-            # Live owner notify: debounce, no "Scanning control" / Loaded toasts.
-            self._schedule_sessions_reload(quiet=True)
+        # Empty sessionId: catalog rebuild finished (cold serve warm).
+        self._schedule_sessions_reload(quiet=True)
         screen = self.screen
         if isinstance(screen, BrowserScreen) and session_id:
             try:
@@ -790,9 +784,7 @@ class TraceEvalApp(App):
         try:
             if screen.session_dir.name != session_id:
                 return
-            from ..analysis import get_analysis_service
-
-            cached = get_analysis_service().load_cached_all(screen.session_dir, allow_stale=True)
+            cached = self._analysis_svc().load_cached_all(screen.session_dir, allow_stale=True)
             if cached:
                 screen.plugin_results = cached
                 screen._collect_findings()
@@ -1149,28 +1141,107 @@ class TraceEvalApp(App):
             include_host=bool(include_host),
         )
 
-    def _fetch_control_session_list_sync(
+    def _fetch_control_catalog_sync(
         self,
         *,
         query: str = "",
-    ) -> list[JsonObject]:
-        """Blocking paged ``session/list`` for attach-mode workers."""
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> JsonObject:
+        """Blocking ``session/list`` (one page, delta poll, or full drain)."""
 
         from ..integrations.control_client import ControlClient
+        from ..session.access import DEFAULT_SESSION_LIST_LIMIT
 
         sock = self._control_socket
         if sock is None:
-            return []
+            return {
+                "sessions": [],
+                "total": 0,
+                "matched": 0,
+                "revision": 0,
+                "unchanged": False,
+                "removed": [],
+                "delta": False,
+            }
 
-        async def _run() -> list[JsonObject]:
+        async def _run() -> JsonObject:
             client = ControlClient(sock, client_name="groket-tui", timeout=HEAVY_RPC_TIMEOUT)
-            result = await client.session_list_all(query=query)
-            raw = result.get("sessions") if isinstance(result, dict) else None
-            if not isinstance(raw, list):
-                return []
-            return [as_json_object(r) for r in raw if isinstance(r, dict)]
+            if since_revision > 0 and not drain:
+                return await client.session_list(
+                    query=query,
+                    limit=limit if limit is not None else 10_000,
+                    offset=offset,
+                    since_revision=since_revision,
+                )
+            if drain:
+                return await client.session_list_all(query=query)
+            return await client.session_list(
+                query=query,
+                limit=DEFAULT_SESSION_LIST_LIMIT if limit is None else limit,
+                offset=offset,
+            )
 
         return asyncio.run(_run())
+
+    def _rows_from_catalog_wire(self, wire_rows: list[JsonObject]) -> list[tuple[SessionMeta, str]]:
+        from ..session.catalog import session_meta_from_catalog_row
+
+        rows: list[tuple[SessionMeta, str]] = []
+        for raw in wire_rows:
+            meta = session_meta_from_catalog_row(raw)
+            if meta is None:
+                continue
+            label = str(raw.get("label") or meta.label)
+            rows.append((meta, label))
+        return rows
+
+    def _merge_control_catalog_rows(
+        self,
+        incoming: list[JsonObject],
+        removed: list[str],
+    ) -> list[tuple[SessionMeta, str]]:
+        drop = {sid for sid in removed if sid}
+        merged = [
+            (meta, label)
+            for meta, label in self._meta_only
+            if meta.session_id not in drop and meta.session_dir.name not in drop
+        ]
+        by_id = {meta.session_id: i for i, (meta, _label) in enumerate(merged)}
+        for meta, label in self._rows_from_catalog_wire(incoming):
+            idx = by_id.get(meta.session_id)
+            if idx is None:
+                by_id[meta.session_id] = len(merged)
+                merged.append((meta, label))
+            else:
+                merged[idx] = (meta, label)
+        return merged
+
+    def _await_complete_catalog(self, gen: int, first: JsonObject) -> JsonObject:
+        """Poll ``session/list`` until the owner scan finishes (or timeout).
+
+        First paint already happened. This runs on the catalog worker so the
+        UI stays interactive while serve warms a cold tree.
+        """
+        result = first
+        deadline = time.monotonic() + 120.0
+        while bool(result.get("incomplete") or result.get("building")):
+            if not self._sessions_load_current(gen):
+                return result
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return result
+            time.sleep(min(0.15, remaining))
+            page = first_home_list_fetch()
+            result = self._fetch_control_catalog_sync(
+                since_revision=int(page["since_revision"]),
+                drain=bool(page["drain"]),
+                limit=int(page["limit"]),
+                offset=int(page["offset"]),
+            )
+        return result
 
     def _load_sessions_via_control(
         self,
@@ -1181,27 +1252,103 @@ class TraceEvalApp(App):
     ) -> None:
         """Populate home list from control ``session/list`` (attach client path).
 
+        Quiet/live polls send ``sinceRevision`` so an unchanged owner returns no
+        rows and the table is not rebuilt.
+
         :param quiet: Skip loaded/error notifications (live refresh / attach).
         :param clear_plugins: When false, keep analysis results for known paths.
         """
-        from ..session.catalog import session_meta_from_catalog_row
-
         try:
-            wire_rows = self._fetch_control_session_list_sync()
+            since = int(self._catalog_revision or 0)
+            use_delta = bool(quiet and since > 0)
+            if use_delta:
+                result = self._fetch_control_catalog_sync(
+                    since_revision=since,
+                    drain=False,
+                )
+            else:
+                first = first_home_list_fetch()
+                result = self._fetch_control_catalog_sync(
+                    since_revision=int(first["since_revision"]),
+                    drain=bool(first["drain"]),
+                    limit=int(first["limit"]),
+                    offset=int(first["offset"]),
+                )
             if not self._sessions_load_current(gen):
                 return
-            rows: list[tuple[SessionMeta, str]] = []
-            for raw in wire_rows:
-                meta = session_meta_from_catalog_row(raw)
-                if meta is None:
-                    continue
-                label = str(raw.get("label") or meta.label)
-                rows.append((meta, label))
-            if not self._apply_session_meta_rows(gen, rows, clear_plugins=clear_plugins):
+            rev_raw = result.get("revision")
+            same_rev = isinstance(rev_raw, int) and rev_raw == since
+            if result.get("unchanged") and same_rev:
+                return
+            is_delta = bool(result.get("delta")) and isinstance(rev_raw, int) and rev_raw > 0
+            if use_delta and not is_delta:
+                result = self._fetch_control_catalog_sync(drain=True)
+                if not self._sessions_load_current(gen):
+                    return
+                rev_raw = result.get("revision")
+                is_delta = False
+            if isinstance(rev_raw, int) and rev_raw > 0:
+                self._catalog_revision = rev_raw
+            raw = result.get("sessions")
+            wire_rows = (
+                [as_json_object(r) for r in raw if isinstance(r, dict)]
+                if isinstance(raw, list)
+                else []
+            )
+            removed_raw = result.get("removed")
+            removed = (
+                [str(x) for x in removed_raw if str(x)] if isinstance(removed_raw, list) else []
+            )
+            if is_delta:
+                rows = self._merge_control_catalog_rows(wire_rows, removed)
+                replace_plugins = False
+            else:
+                rows = self._rows_from_catalog_wire(wire_rows)
+                replace_plugins = clear_plugins
+            if not self._apply_session_meta_rows(gen, rows, clear_plugins=replace_plugins):
                 return
             n = len(rows)
             call_ui(self, self._rebuild_session_filters)
             call_ui(self, self._populate_session_table, force=True)
+            if bool(result.get("incomplete") or result.get("building")):
+                result = self._await_complete_catalog(gen, result)
+                if not self._sessions_load_current(gen):
+                    return
+                rev_raw = result.get("revision")
+                if isinstance(rev_raw, int) and rev_raw > 0:
+                    self._catalog_revision = rev_raw
+                raw = result.get("sessions")
+                wire_rows = (
+                    [as_json_object(r) for r in raw if isinstance(r, dict)]
+                    if isinstance(raw, list)
+                    else []
+                )
+                rows = self._rows_from_catalog_wire(wire_rows)
+                if not self._apply_session_meta_rows(gen, rows, clear_plugins=False):
+                    return
+                n = len(rows)
+                call_ui(self, self._rebuild_session_filters)
+                call_ui(self, self._populate_session_table, force=True)
+            matched_raw = result.get("matched")
+            matched = int(matched_raw) if isinstance(matched_raw, int) else n
+            incomplete = bool(result.get("incomplete") or result.get("building"))
+            if not use_delta and not is_delta and not incomplete and matched > n:
+                more = self._fetch_control_catalog_sync(drain=True)
+                if self._sessions_load_current(gen):
+                    rev2 = more.get("revision")
+                    if isinstance(rev2, int) and rev2 > 0:
+                        self._catalog_revision = rev2
+                    raw2 = more.get("sessions")
+                    extra = (
+                        [as_json_object(r) for r in raw2 if isinstance(r, dict)]
+                        if isinstance(raw2, list)
+                        else []
+                    )
+                    rows = self._rows_from_catalog_wire(extra)
+                    if self._apply_session_meta_rows(gen, rows, clear_plugins=False):
+                        n = len(rows)
+                        call_ui(self, self._rebuild_session_filters)
+                        call_ui(self, self._populate_session_table, force=True)
             if not quiet:
                 call_ui(
                     self,
@@ -1212,7 +1359,6 @@ class TraceEvalApp(App):
         except Exception as exc:
             logger.exception("control session/list failed for attach catalog")
             if not quiet:
-                # Do not pretend the catalog is empty — this is a control failure.
                 call_ui(
                     self,
                     self.notify,
@@ -1311,7 +1457,12 @@ class TraceEvalApp(App):
             call_ui(self, self._finish_sessions_load, gen)
 
     def _analysis_svc(self) -> AnalysisService:
-        return get_analysis_service(self.work_dir)
+        """Lazy process-wide service; constructed on first Analyze / settings."""
+        return get_analysis_service(
+            self.work_dir,
+            traces=Path(self.traces_path) if self.traces_path else None,
+            config_path=self._config_path,
+        )
 
     def _analyze_one(
         self,
@@ -1751,12 +1902,13 @@ class TraceEvalApp(App):
             )
         existing = self._table_row_keys(table)
         new_keys = [key for key, _cells in painted]
-        if existing == new_keys and existing:
-            self._patch_session_table_rows(table, painted)
-            if restore_key:
-                restore_cursor(table, restore_key, scroll=False)
-        else:
-            self._rebuild_session_table_rows(table, painted, restore_key)
+        with preserving_scroll(table):
+            if existing == new_keys and existing:
+                self._patch_session_table_rows(table, painted)
+                if restore_key:
+                    restore_cursor(table, restore_key, scroll=False)
+            else:
+                self._rebuild_session_table_rows(table, painted, restore_key)
         if restore_key or existing:
             self._sessions_table_primed = True
         elif not self._sessions_table_primed:

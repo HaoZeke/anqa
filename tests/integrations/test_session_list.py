@@ -36,6 +36,17 @@ def _catalog() -> list[dict]:
     ]
 
 
+def test_emacs_and_vim_list_helpers_keep_query_limit() -> None:
+    """Editors still call session/list with query/limit only (first page)."""
+    root = Path(__file__).resolve().parents[2]
+    el = (root / "groket/integrations/emacs/groket.el").read_text(encoding="utf-8")
+    assert "(defun groket--session-list (&optional query limit)" in el
+    assert ":limit limit" in el
+    lua = (root / "groket/integrations/vim/lua/groket/init.lua").read_text(encoding="utf-8")
+    assert "function M.list_sessions(query, limit)" in lua
+    assert "params.limit = limit" in lua
+
+
 def test_filter_session_catalog_query_and_limit() -> None:
     from groket.session.access import filter_session_catalog
 
@@ -195,7 +206,9 @@ async def test_control_server_session_list_empty_without_lister() -> None:
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
         listed = await _request(reader, writer, 1, "session/list", {})
-        assert listed["result"] == {"sessions": [], "total": 0, "matched": 0}
+        assert listed["result"]["sessions"] == []
+        assert listed["result"]["total"] == 0
+        assert listed["result"]["matched"] == 0
         writer.close()
         await writer.wait_closed()
     finally:

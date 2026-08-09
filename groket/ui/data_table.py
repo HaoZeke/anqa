@@ -103,6 +103,12 @@ def preserving_scroll(table: DataTable) -> Iterator[None]:
 
     def _restore() -> None:
         with suppress(Exception):
+            cur_x = getattr(table, "scroll_x", 0)
+            cur_y = getattr(table, "scroll_y", 0)
+            # A stale call_after_refresh from an earlier paint must not
+            # overwrite a newer explicit scroll (Pilot / live tick race).
+            if (cur_x and cur_x != x) or (cur_y and cur_y != y):
+                return
             if hasattr(table, "scroll_to"):
                 table.scroll_to(x, y, animate=False)
             else:

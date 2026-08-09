@@ -80,7 +80,8 @@ serve_app = typer.Typer(
         "Control owner: owns the local JSON-RPC Unix socket.\n\n"
         "With no subcommand: start in the foreground. "
         "[cyan]-d[/cyan] detaches. "
-        "Lifecycle: [cyan]stop[/cyan] · [cyan]restart[/cyan] · [cyan]status[/cyan]."
+        "Lifecycle: [cyan]stop[/cyan] · [cyan]restart[/cyan] · [cyan]status[/cyan]. "
+        "TUI and HUD attach as clients; leave serve running across launches."
     ),
     no_args_is_help=False,
     invoke_without_command=True,

@@ -145,6 +145,7 @@ def _rpc_params_summary(params: JsonObject) -> str:
         "query",
         "limit",
         "offset",
+        "sinceRevision",
         "force",
         "format",
         "noteId",
@@ -799,6 +800,9 @@ class ControlServer:
                     query=json_as_str(params.get("query")),
                     limit=_optional_int_param(params.get("limit"), name="limit"),
                     offset=_optional_int_param(params.get("offset"), name="offset") or 0,
+                    since_revision=_optional_int_param(
+                        params.get("sinceRevision"), name="sinceRevision"
+                    ),
                 )
         if method == "session/get":
             ref = self._session_ref(params)

@@ -158,14 +158,15 @@ groket --no-socket           # TUI offline (no control plane)
 groket hud                   # palette; same serve auto-start by default
 ```
 
-Quitting the TUI does **not** stop the control owner.
+Quitting the TUI does **not** stop the control owner. Leave ``groket serve -d``
+running; do not restart serve on every TUI or HUD launch.
 
 **What clients can do**
 
 | Method | Role |
 |--------|------|
 | `initialize` | Protocol version, capabilities, `renderFormats` |
-| `session/list` | Catalog rows (`query`, `limit`, `offset`) from the owner’s domain catalog (same wire for all clients) |
+| `session/list` | Catalog rows (`query`, `limit`, `offset`, optional `sinceRevision`) from the owner’s warm catalog. Omitting `limit`/`offset` is the first page. `sinceRevision` matching the owner’s `revision` returns no rows (`unchanged`). |
 | `session/get` | Rich session meta (status, context, git, counts, notes revision) |
 | `session/overview` | Meta + turns (with user `summary`) + lazy timeline stub + notes |
 | `session/timeline` | Paged timeline events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`; each row includes sequential `turnIndex`) |
@@ -232,10 +233,11 @@ quitting the agent leaves ``groket serve`` running. Build details:
 **List search contract.** ``session/list`` ``query`` is a **case-insensitive
 substring** over id/title/label/model/status/outcome/origin (not the filesystem
 path — ``gro`` must not match every ``~/.grok/sessions`` row). Applied on the
-control owner after the warm domain catalog is built. HUD and the TUI drain
-``session/list`` pages (``limit`` 200, ``offset`` advancing) until
-``matched``, then the HUD ranks locally; editors that pass ``query`` use the
-same server filter. Omitting ``offset`` still returns the first page.
+control owner after the warm domain catalog is built. First HUD/TUI paint
+drains ``session/list`` pages until ``matched``; later quiet polls send
+``sinceRevision`` and skip the table when the owner reports ``unchanged``.
+Editors that pass ``query`` use the same server filter. Omitting ``offset``
+still returns the first page.
 
 **Daemon catalog warm.** Headless ``serve`` rebuilds the session catalog in the
 background at start and on a short interval (and when scan roots change) so

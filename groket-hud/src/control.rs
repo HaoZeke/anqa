@@ -291,13 +291,21 @@ pub fn initialize() -> Result<Value, ControlError> {
 
 pub const SESSION_LIST_PAGE: u32 = 200;
 
-pub fn session_list(query: &str, limit: u32, offset: u32) -> Result<Value, ControlError> {
+pub fn session_list(
+    query: &str,
+    limit: u32,
+    offset: u32,
+    since_revision: i64,
+) -> Result<Value, ControlError> {
     let mut params = json!({ "limit": limit });
     if !query.is_empty() {
         params["query"] = json!(query);
     }
     if offset > 0 {
         params["offset"] = json!(offset);
+    }
+    if since_revision > 0 {
+        params["sinceRevision"] = json!(since_revision);
     }
     request("session/list", params)
 }
@@ -306,16 +314,20 @@ pub fn session_list_all(query: &str) -> Result<Value, ControlError> {
     use crate::live::catalog_drain_next;
     use crate::wire::decode_session_list_response;
 
-    let first = decode_session_list_response(&session_list(query, SESSION_LIST_PAGE, 0)?)
+    let first = decode_session_list_response(&session_list(query, SESSION_LIST_PAGE, 0, 0)?)
         .map_err(ControlError::Message)?;
     let mut total = first.total;
     let mut matched = first.matched;
+    let mut revision = first.revision;
     let mut sessions = first.sessions;
     if sessions.is_empty() {
         return Ok(json!({
             "sessions": sessions,
             "total": total,
             "matched": matched,
+            "revision": revision,
+            "unchanged": false,
+            "delta": false,
         }));
     }
     let first_id = sessions[0].session_id.clone();
@@ -331,13 +343,20 @@ pub fn session_list_all(query: &str) -> Result<Value, ControlError> {
             "sessions": sessions,
             "total": total,
             "matched": matched,
+            "revision": revision,
+            "unchanged": false,
+            "delta": false,
         }));
     };
     loop {
-        let page = decode_session_list_response(&session_list(query, SESSION_LIST_PAGE, offset)?)
-            .map_err(ControlError::Message)?;
+        let page =
+            decode_session_list_response(&session_list(query, SESSION_LIST_PAGE, offset, 0)?)
+                .map_err(ControlError::Message)?;
         total = page.total;
         matched = page.matched;
+        if page.revision > 0 {
+            revision = page.revision;
+        }
         if page.sessions.is_empty() {
             break;
         }
@@ -361,6 +380,9 @@ pub fn session_list_all(query: &str) -> Result<Value, ControlError> {
         "sessions": sessions,
         "total": total,
         "matched": matched,
+        "revision": revision,
+        "unchanged": false,
+        "delta": false,
     }))
 }
 

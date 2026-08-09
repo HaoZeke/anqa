@@ -8,10 +8,33 @@ On-disk origin codes remain ``work`` / ``host``; the TUI labels them Eval / Host
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..parser import find_sessions
+
+_HOST_SKIP_DIR_NAMES = frozenset(
+    {
+        "groket-plugins",
+        "groket-skills",
+        "subagents",
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "target",
+        "dist",
+        "build",
+        ".cache",
+        ".tox",
+        ".groket-resume-seed",
+        ".groket-workspace-seed",
+        "workspace",
+        "runs",
+    }
+)
 
 ORIGIN_WORK = "work"
 ORIGIN_HOST = "host"
@@ -119,6 +142,91 @@ def session_scan_roots(
     return out
 
 
+def is_encoded_cwd_name(name: str) -> bool:
+    """True for URL-encoded absolute paths used as Grok host session buckets."""
+    n = (name or "").casefold()
+    return n.startswith("%2f") or "%2f" in n
+
+
+def is_host_skip_dir_name(name: str) -> bool:
+    """Host-tree names that must not be descended (workspace / staging junk)."""
+    low = (name or "").casefold()
+    if not low:
+        return True
+    if low in _HOST_SKIP_DIR_NAMES or low.endswith(".stage"):
+        return True
+    return False
+
+
+def _dir_is_session(path: Path) -> bool:
+    """True when *path* itself is a session directory (no recursion)."""
+    names: set[str] = set()
+    try:
+        with os.scandir(path) as it:
+            for ent in it:
+                if not ent.is_file(follow_symlinks=False):
+                    continue
+                names.add(ent.name)
+                if names & {"summary.json", "updates.jsonl"}:
+                    return True
+    except OSError:
+        return False
+    if "events.jsonl" in names:
+        try:
+            return (path / "events.jsonl").stat().st_size > 0
+        except OSError:
+            return False
+    return False
+
+
+def _immediate_session_children(path: Path) -> list[Path]:
+    """Session dirs that are direct children of *path* (no deeper walk)."""
+    out: list[Path] = []
+    try:
+        with os.scandir(path) as it:
+            children = list(it)
+    except OSError:
+        return out
+    for ent in children:
+        if not ent.is_dir(follow_symlinks=False):
+            continue
+        if is_host_skip_dir_name(ent.name):
+            continue
+        child = Path(ent.path)
+        if _dir_is_session(child):
+            out.append(child)
+    return out
+
+
+def collect_host_session_dirs(root: Path) -> list[Path]:
+    """Host sessions: shallow children, or one level under encoded-cwd buckets.
+
+    Does not walk ``workspace`` / staging junk or recurse into a session.
+    """
+    path = Path(root).expanduser()
+    if not path.is_dir():
+        return []
+    found: list[Path] = []
+    try:
+        with os.scandir(path) as it:
+            tops = list(it)
+    except OSError:
+        return found
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False):
+            continue
+        name = ent.name
+        if is_host_skip_dir_name(name):
+            continue
+        child = Path(ent.path)
+        if _dir_is_session(child):
+            found.append(child)
+            continue
+        if is_encoded_cwd_name(name):
+            found.extend(_immediate_session_children(child))
+    return found
+
+
 def collect_session_dirs(
     roots: list[SessionScanRoot],
 ) -> list[tuple[Path, SessionOrigin]]:
@@ -129,15 +237,10 @@ def collect_session_dirs(
         path = root.path
         if not path.exists():
             continue
-        session_dirs = find_sessions(path)
-        if not session_dirs and path.is_dir():
-            try:
-                children = sorted(path.iterdir())
-            except OSError:
-                children = []
-            for sub in children:
-                if sub.is_dir():
-                    session_dirs.extend(find_sessions(sub))
+        if root.origin == ORIGIN_HOST:
+            session_dirs = collect_host_session_dirs(path)
+        else:
+            session_dirs = find_sessions(path)
         for sd in session_dirs:
             try:
                 key = str(sd.resolve())
@@ -156,8 +259,11 @@ __all__ = [
     "SessionOrigin",
     "SessionScanRoot",
     "classify_session_origin",
+    "collect_host_session_dirs",
     "collect_session_dirs",
     "host_grok_sessions_root",
+    "is_encoded_cwd_name",
+    "is_host_skip_dir_name",
     "is_host_grok_sessions_root",
     "is_under_host_grok_sessions",
     "session_scan_roots",

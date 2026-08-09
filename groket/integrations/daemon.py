@@ -262,10 +262,10 @@ def build_domain_control_server(
         host_root=host_root,
     )
 
-    def list_sessions() -> list[JsonObject]:
-        return catalog_cache.get()
-
     def resolve_session(reference: str) -> Path | None:
+        found = catalog_cache.resolve(reference)
+        if found is not None:
+            return found
         return resolve_session_reference(
             reference,
             wd,
@@ -285,7 +285,7 @@ def build_domain_control_server(
     server = ControlServer(
         socket_path=socket_path,
         resolve_session=resolve_session,
-        list_sessions=list_sessions,
+        list_sessions=catalog_cache,
         open_session=open_session,
         notes_changed=notes_changed,
         work_dir=wd,
@@ -309,7 +309,7 @@ async def _catalog_warm_loop(
     while True:
         try:
             await asyncio.sleep(max(5.0, float(interval)))
-            await asyncio.to_thread(lambda: cache.get(force=True))
+            await asyncio.to_thread(cache.get)
             logger.debug("control catalog refresh complete")
         except asyncio.CancelledError:
             raise
@@ -447,6 +447,17 @@ async def serve_control_forever(
     uniq_roots: list[Path] = []
     if isinstance(cache, SessionCatalogCache):
         uniq_roots = control_watch_roots(cache)
+
+        def _catalog_ready() -> None:
+            async def _pub() -> None:
+                try:
+                    await server.notify("session/changed", {"sessionId": ""})
+                except Exception:
+                    logger.debug("publish catalog ready failed", exc_info=True)
+
+            asyncio.run_coroutine_threadsafe(_pub(), loop)
+
+        cache._on_rebuilt = _catalog_ready
 
     def _on_paths(paths: list[str]) -> None:
         sessions: list[Path] = []

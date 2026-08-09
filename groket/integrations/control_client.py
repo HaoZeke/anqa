@@ -273,8 +273,9 @@ class ControlClient:
         query: str = "",
         limit: int | None = None,
         offset: int = 0,
+        since_revision: int | None = None,
     ) -> JsonObject:
-        """Call ``session/list`` and return one catalog page."""
+        """Call ``session/list`` and return one catalog page or a delta."""
         params: JsonObject = {}
         if query:
             params["query"] = query
@@ -282,6 +283,8 @@ class ControlClient:
             params["limit"] = limit
         if offset:
             params["offset"] = offset
+        if since_revision:
+            params["sinceRevision"] = since_revision
         result = await self.request("session/list", params)
         return as_json_object(result) if isinstance(result, dict) else {}
 
@@ -296,11 +299,15 @@ class ControlClient:
         offset = 0
         total = 0
         matched = 0
+        revision = 0
         first_id = ""
         while True:
             result = await self.session_list(query=query, limit=page, offset=offset)
             raw = result.get("sessions")
             batch = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+            rev_raw = result.get("revision")
+            if isinstance(rev_raw, int):
+                revision = rev_raw
             if not batch:
                 break
             total_raw = result.get("total")
@@ -318,7 +325,15 @@ class ControlClient:
             if nxt is None:
                 break
             offset = nxt
-        return {"sessions": sessions, "total": total, "matched": matched}
+        return {
+            "sessions": sessions,
+            "total": total,
+            "matched": matched,
+            "revision": revision,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+        }
 
     async def session_render(
         self,
