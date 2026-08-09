@@ -50,7 +50,14 @@ from .bindings import (
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
-from .data_table import cursor_row_key, restore_cursor, set_marker_column, style_data_table
+from .data_table import (
+    cursor_row_key,
+    preserving_scroll,
+    restore_cursor,
+    set_marker_column,
+    style_data_table,
+    update_row_cell,
+)
 from .i18n import join_ui, setup_i18n, t
 from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
@@ -380,6 +387,7 @@ class TraceEvalApp(App):
         self._share_notified: set[str] = set()
         self._populate_busy = False
         self._sessions_table_primed = False
+        self._session_row_fp: dict[str, str] = {}
         self._exiting = False
         self._config_path = Path(config_path).expanduser() if config_path else None
         self._control_socket = (
@@ -586,18 +594,13 @@ class TraceEvalApp(App):
         table.add_columns(
             " ",
             t("ui-origin"),
-            t("ui-session-id"),
-            t("ui-model"),
-            t("ui-task"),
             t("ui-title"),
-            t("ui-turn"),
+            t("ui-model"),
+            t("ui-status"),
             t("ui-duration"),
             t("ui-context"),
             t("ui-events"),
             t("ui-findings-1"),
-            t("ui-high-1"),
-            t("ui-med"),
-            t("ui-label"),
         )
         try:
             bits = [
@@ -1578,107 +1581,172 @@ class TraceEvalApp(App):
         finally:
             self._populate_busy = False
 
-    def _populate_session_table_inner(self, *, restore_key: str | None = None) -> None:
-        table = self.query_one("#session-table", DataTable)
-        if restore_key is None:
-            restore_key = self._session_row_key_at_cursor(table)
-        table.clear()
-        rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
+    def _filtered_session_rows(
+        self,
+    ) -> list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]]:
         search_q = (self._session_search or "").strip().casefold()
         seen_keys: set[str] = set()
+        rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
         for meta, label in self._meta_only:
             if self._filter_model and meta.model_display != self._filter_model:
                 continue
             if search_q and search_q not in _session_search_haystack(meta, label):
                 continue
             sd_key = str(meta.session_dir)
-            # Control/catalog glitches (or host+work overlap) must not raise
-            # Textual DuplicateKey and take down the app.
             if sd_key in seen_keys:
                 continue
             seen_keys.add(sd_key)
-            results = self._plugin_results.get(sd_key)
-            rows.append((meta, label, results))
+            rows.append((meta, label, self._plugin_results.get(sd_key)))
 
-        def sort_key(item):
+        def sort_key(
+            item: tuple[SessionMeta, str, dict[str, AnalysisResult] | None],
+        ) -> tuple[float, str, str, str]:
             meta, _label, _results = item
-            ts = self._session_sort_ts(meta)
-            return (-ts, meta.model_display, meta.task_id or "", meta.session_id or "")
+            return (
+                -self._session_sort_ts(meta),
+                meta.model_display,
+                meta.task_id or "",
+                meta.session_id or "",
+            )
 
         rows.sort(key=sort_key)
+        return rows
+
+    @staticmethod
+    def _session_home_fp(cells: tuple[str | Text, ...]) -> str:
+        return "\u0001".join(str(c) for c in cells)
+
+    @staticmethod
+    def _session_status_cell(meta: SessionMeta) -> Text:
+        from .styles import status_rich_style
+
+        status = meta.list_status_label()
+        if status == "awaiting":
+            return Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
+        if status == "ending":
+            return Text(t("status-ending"), style=status_rich_style("ending"))
+        if status == "running":
+            return Text(t("status-running"), style=status_rich_style("running"))
+        if status == "cancelled":
+            return Text(t("status-cancelled"), style=status_rich_style("failed"))
+        if status == "complete":
+            return Text(t("status-complete"), style=status_rich_style("completed"))
+        return Text(
+            status if status != "—" else t("status-unknown"),
+            style=status_rich_style("idle"),
+        )
+
+    @staticmethod
+    def _session_findings_cell(
+        results: dict[str, AnalysisResult] | None,
+    ) -> tuple[Text, int, int]:
+        if results is None:
+            return Text("--", style="dim"), 0, 0
+        high = sum(r.high_count for r in results.values())
+        med = sum(r.medium_count for r in results.values())
+        count = sum(r.finding_count for r in results.values())
+        cell = Text(str(count))
+        if high:
+            cell.append(f" {high}H", style="bold red")
+        if med:
+            cell.append(f" {med}M", style="yellow")
+        return cell, count, high
+
+    def _session_home_cells(
+        self,
+        meta: SessionMeta,
+        results: dict[str, AnalysisResult] | None,
+        *,
+        selected: bool,
+    ) -> tuple[str | Text, ...]:
+        from ..session.sources import ORIGIN_HOST
+
+        origin = (meta.origin or "work").strip().lower()
+        origin_text = (
+            Text(t("ui-origin-host"), style="magenta")
+            if origin == ORIGIN_HOST
+            else Text(t("ui-origin-work"), style="dim")
+        )
+        findings, _count, _high = self._session_findings_cell(results)
+        return (
+            Text("*", style="bold green") if selected else Text(" "),
+            origin_text,
+            (meta.label or meta.session_id)[:40],
+            meta.model_display[:40],
+            self._session_status_cell(meta),
+            meta.duration_str,
+            (meta.context_usage_compact or "—")[:24],
+            str(meta.num_events),
+            findings,
+        )
+
+    def _table_row_keys(self, table: DataTable) -> list[str]:
+        with suppress(Exception):
+            return [str(k.value) for k in table.rows.keys()]
+        return []
+
+    def _patch_session_table_rows(
+        self, table: DataTable, painted: list[tuple[str, tuple[str | Text, ...]]]
+    ) -> None:
+        for key, cells in painted:
+            fp = self._session_home_fp(cells)
+            if self._session_row_fp.get(key) == fp:
+                continue
+            for i, cell in enumerate(cells):
+                update_row_cell(table, key, i, cell)
+            self._session_row_fp[key] = fp
+
+    def _rebuild_session_table_rows(
+        self,
+        table: DataTable,
+        painted: list[tuple[str, tuple[str | Text, ...]]],
+        restore_key: str | None,
+    ) -> None:
+        with preserving_scroll(table):
+            table.clear()
+            self._session_row_fp.clear()
+            for key, cells in painted:
+                try:
+                    table.add_row(*cells, key=key)
+                    self._session_row_fp[key] = self._session_home_fp(cells)
+                except Exception:
+                    logger.debug(t("ui-failed-to-add-row-for-s"), key, exc_info=True)
+            if restore_key:
+                restore_cursor(table, restore_key, scroll=False)
+
+    def _populate_session_table_inner(self, *, restore_key: str | None = None) -> None:
+        table = self.query_one("#session-table", DataTable)
+        if restore_key is None:
+            restore_key = self._session_row_key_at_cursor(table)
+        rows = self._filtered_session_rows()
+        painted: list[tuple[str, tuple[str | Text, ...]]] = []
         total_findings = 0
         total_high = 0
         analyzed_count = 0
-        for meta, label, results in rows:
+        for meta, _label, results in rows:
             sd_key = str(meta.session_dir)
-            sel = Text("*", style="bold green") if sd_key in self._selected else Text(" ")
-            finding_count: int | str
             if results is not None:
                 analyzed_count += 1
-                high = sum(r.high_count for r in results.values())
-                med = sum(r.medium_count for r in results.values())
-                finding_count = sum(r.finding_count for r in results.values())
-                total_findings += int(finding_count)
+                _cell, count, high = self._session_findings_cell(results)
+                total_findings += count
                 total_high += high
-                high_text = Text(str(high), style="bold red") if high else Text("0")
-                med_text = Text(str(med), style="yellow") if med else Text("0")
-            else:
-                finding_count = "--"
-                high_text = Text("--", style="dim")
-                med_text = Text("--", style="dim")
-            task_text = Text(meta.task_id[:20], style="cyan") if meta.task_id else Text("")
-            from .styles import status_rich_style
-
-            status = meta.list_status_label()
-            if status == "awaiting":
-                turn_text = Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
-            elif status == "ending":
-                turn_text = Text(t("status-ending"), style=status_rich_style("ending"))
-            elif status == "running":
-                turn_text = Text(t("status-running"), style=status_rich_style("running"))
-            elif status == "cancelled":
-                turn_text = Text(t("status-cancelled"), style=status_rich_style("failed"))
-            elif status == "complete":
-                turn_text = Text(t("status-complete"), style=status_rich_style("completed"))
-            else:
-                turn_text = Text(
-                    status if status != "—" else t("status-unknown"),
-                    style=status_rich_style("idle"),
+            painted.append(
+                (
+                    sd_key,
+                    self._session_home_cells(meta, results, selected=sd_key in self._selected),
                 )
-            try:
-                from ..session.sources import ORIGIN_HOST
-
-                ctx = meta.context_usage_compact or "—"
-                origin = (meta.origin or "work").strip().lower()
-                origin_text = (
-                    Text(t("ui-origin-host"), style="magenta")
-                    if origin == ORIGIN_HOST
-                    else Text(t("ui-origin-work"), style="dim")
-                )
-                table.add_row(
-                    sel,
-                    origin_text,
-                    meta.session_id[:20],
-                    meta.model_display[:40],
-                    task_text,
-                    meta.label[:40],
-                    turn_text,
-                    meta.duration_str,
-                    ctx[:24],
-                    str(meta.num_events),
-                    str(finding_count),
-                    high_text,
-                    med_text,
-                    label,
-                    key=sd_key,
-                )
-            except Exception:
-                logger.debug(t("ui-failed-to-add-row-for-s"), sd_key, exc_info=True)
-        if restore_key:
-            self._restore_cursor(table, restore_key)
+            )
+        existing = self._table_row_keys(table)
+        new_keys = [key for key, _cells in painted]
+        if existing == new_keys and existing:
+            self._patch_session_table_rows(table, painted)
+            if restore_key:
+                restore_cursor(table, restore_key, scroll=False)
+        else:
+            self._rebuild_session_table_rows(table, painted, restore_key)
+        if restore_key or existing:
             self._sessions_table_primed = True
         elif not self._sessions_table_primed:
-            # Only steal focus on first populate — live polls must not yank focus.
             focus_primary_list(table)
             self._sessions_table_primed = True
         pending = len(self._meta_only) - analyzed_count

@@ -68,12 +68,14 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `Ctrl+P` | Command palette (theme, tips, analysis, …) |
 | `q` | Quit |
 
-Columns include **Src** (`Eval` = sessions groket launched under
-`work/runs/traces`, `Host` = native Grok under `~/.grok/sessions`), turn status
-(`running` / `awaiting` / `ending` / `complete`), and **context** fill from
-`signals.json` when present. Subagent session dirs are hidden so each eval is
-one row. Prefs live in `~/.groket/config.json` (`show_host_sessions` for the
-host catalog).
+Columns: select, **Src** (`Eval` = groket launches under `work/runs/traces`,
+`Host` = native Grok under `~/.grok/sessions`), title, model, status
+(`running` / `awaiting` / `ending` / `complete` / `cancelled`), duration,
+context fill from `signals.json` when present, event count, and findings
+(count plus high/medium after analysis). Task id from batch YAML is still
+searchable (`/`) but is not a list column. Subagent session dirs are hidden
+so each eval is one row. Prefs live in `~/.groket/config.json`
+(`show_host_sessions` for the host catalog).
 
 ### Session browser
 
