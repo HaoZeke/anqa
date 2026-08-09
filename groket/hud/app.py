@@ -41,7 +41,7 @@ def run_hud(
     for an unoptimized build, or *dev* for hot reload.
 
     By default the HUD is detached in the background (Sol-style agent: no Dock
-    / ⌘Tab on macOS). Pass *foreground* to attach the terminal to the process.
+    / Cmd+Tab on macOS). Pass *foreground* to attach the terminal to the process.
 
     The HUD is always a **client**. A live TUI or ``groket serve`` already
     holding the socket is success (attach), not an error.

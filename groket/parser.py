@@ -1655,23 +1655,11 @@ def load_session_meta_list(
 ) -> SessionMeta:
     """Metadata for the sessions home list.
 
-    Host rows: summary + signals only (no ``events.jsonl``). Eval rows: light
-    meta including turn markers, without coalesced timeline parse.
+    Light meta (turn markers, no coalesced timeline parse) for both eval and
+    host rows so catalog ``status`` matches a clicked overview. Missing
+    ``events.jsonl`` is fine (empty markers).
     """
     origin_key = (origin or "work").strip().lower() or "work"
-    if origin_key == "host":
-        meta = SessionMeta(
-            session_id=Path(session_dir).name,
-            session_dir=Path(session_dir),
-            origin="host",
-        )
-        _load_summary(meta, Path(session_dir))
-        _load_signals(meta, Path(session_dir))
-        if not meta.num_events and meta.num_messages:
-            meta.num_events = int(meta.num_messages)
-        return meta
-    # List path: skip full coalesced parse_timeline, but still expose an Events
-    # column via summary num_messages (same proxy host rows already use).
     meta = load_session_meta(session_dir, include_timeline_count=False)
     meta.origin = origin_key
     if not meta.num_events and meta.num_messages:

@@ -196,7 +196,9 @@ TUI **never owns** the socket: default is detach-start owner if free
 (``--no-serve`` skips spawn; ``--no-socket`` runs offline), then attach,
 load home catalog via ``session/list``, and listen for notifications.
 TUI exit does not stop the owner.
-``session/list`` ``query`` is server-side casefold substring; do not reimplement
+``session/list`` ``query`` is server-side casefold substring; optional
+``offset`` pages the filtered rows (omit it for the first page). Clients that
+need the full catalog drain pages until ``matched``. Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
 
@@ -206,7 +208,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, ``hud.log``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
@@ -439,10 +441,13 @@ keys and/or **Ctrl+P**.
 | File | Role |
 |------|------|
 | [`ui/bindings.py`](groket/ui/bindings.py) | Bindings |
+| [`ui/keys.py`](groket/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+G``) |
 | [`ui/commands.py`](groket/ui/commands.py) | Ctrl+P palette |
 | Fluent / ``ui/text`` / ``help.rich.txt`` | Labels and help |
 
-No ad-hoc key legends in banners (``"save [ctrl+s]"``).
+No ad-hoc key legends in banners (``"save [ctrl+s]"``). Footer, tips, HUD,
+CLI, and README use the same words: ``Ctrl+S``, ``Shift+Tab``, ``Esc`` —
+never caret (``^s``) or glyphs (``⌘⇧``).
 
 ### 6.1 Focus
 

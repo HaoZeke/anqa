@@ -14,18 +14,22 @@ from pathlib import Path
 from typing import Self
 
 from ..models import JsonObject, JsonValue, as_json_object, json_as_str
+from ..session.access import DEFAULT_SESSION_LIST_LIMIT, catalog_list_next_offset
 from .control import PROTOCOL_VERSION, ControlError, default_socket_path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT_TIMEOUT = 5.0
+# Catalog / timeline / overview pages can take 12–30s on cold disk (HUD I/O
+# budget is 45s). TUI attach uses this for those RPCs; liveness stays short.
+HEAVY_RPC_TIMEOUT = 45.0
 # Budget for connect-only retries (EAGAIN / refused while owner binds).
 CONNECT_RETRY_BUDGET = 3.0
 CONNECT_RETRY_INITIAL = 0.02
 CONNECT_RETRY_MAX = 0.2
 # Default asyncio StreamReader limit is 64 KiB — too small for session/list
-# with hundreds of rich catalog rows (TUI attach uses limit=500). One JSON
-# line can be several MB; keep a hard ceiling for runaway peers.
+# with hundreds of rich catalog rows. One JSON line can be several MB; keep
+# a hard ceiling for runaway peers.
 STREAM_READ_LIMIT = 16 * 1024 * 1024
 
 # Transient errno values for Unix-domain connect (Linux EAGAIN=11, macOS=35).
@@ -268,15 +272,53 @@ class ControlClient:
         *,
         query: str = "",
         limit: int | None = None,
+        offset: int = 0,
     ) -> JsonObject:
-        """Call ``session/list`` and return the catalog snapshot."""
+        """Call ``session/list`` and return one catalog page."""
         params: JsonObject = {}
         if query:
             params["query"] = query
         if limit is not None:
             params["limit"] = limit
+        if offset:
+            params["offset"] = offset
         result = await self.request("session/list", params)
         return as_json_object(result) if isinstance(result, dict) else {}
+
+    async def session_list_all(
+        self,
+        *,
+        query: str = "",
+        page: int = DEFAULT_SESSION_LIST_LIMIT,
+    ) -> JsonObject:
+        """Drain ``session/list`` pages until ``matched`` (or a stalled owner)."""
+        sessions: list[JsonValue] = []
+        offset = 0
+        total = 0
+        matched = 0
+        first_id = ""
+        while True:
+            result = await self.session_list(query=query, limit=page, offset=offset)
+            raw = result.get("sessions")
+            batch = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+            if not batch:
+                break
+            total_raw = result.get("total")
+            matched_raw = result.get("matched")
+            total = int(total_raw) if isinstance(total_raw, int) else total
+            matched = int(matched_raw) if isinstance(matched_raw, int) else matched
+            batch_first = str(batch[0].get("sessionId") or "")
+            stalled = bool(offset and first_id and batch_first == first_id)
+            if stalled:
+                break
+            if offset == 0:
+                first_id = batch_first
+            sessions.extend(batch)
+            nxt = catalog_list_next_offset(offset, len(batch), page, matched)
+            if nxt is None:
+                break
+            offset = nxt
+        return {"sessions": sessions, "total": total, "matched": matched}
 
     async def session_render(
         self,
@@ -517,6 +559,7 @@ __all__ = [
     "CONNECT_RETRY_BUDGET",
     "ControlClient",
     "DEFAULT_CLIENT_TIMEOUT",
+    "HEAVY_RPC_TIMEOUT",
     "control_socket_is_live",
     "is_transient_unix_connect_error",
     "listen_control_notifications",

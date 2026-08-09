@@ -46,10 +46,32 @@ type SessionLister = Callable[[], list[JsonObject]]
 DEFAULT_SESSION_LIST_LIMIT = 200
 
 
+def catalog_list_next_offset(
+    offset: int,
+    batch_len: int,
+    page: int,
+    matched: int,
+    *,
+    stalled: bool = False,
+) -> int | None:
+    """Next ``session/list`` offset, or ``None`` when the drain is done.
+
+    Stops on an empty or short page, a repeated first row (owner ignored
+    ``offset``), or when accumulated rows cover ``matched``.
+    """
+    if stalled or batch_len <= 0 or page <= 0:
+        return None
+    nxt = offset + batch_len
+    if batch_len < page:
+        return None
+    if matched > 0 and nxt >= matched:
+        return None
+    return nxt
+
+
 def _session_list_haystack(entry: JsonObject) -> str:
     parts = (
         json_as_str(entry.get("sessionId")),
-        json_as_str(entry.get("path")),
         json_as_str(entry.get("title")),
         json_as_str(entry.get("label")),
         json_as_str(entry.get("model")),
@@ -65,15 +87,18 @@ def filter_session_catalog(
     *,
     query: str = "",
     limit: int | None = None,
+    offset: int = 0,
 ) -> JsonObject:
-    """Filter and cap a catalog snapshot for ``session/list``.
+    """Filter and page a catalog snapshot for ``session/list``.
 
-    Casefold substring over session id/path/title/label/model/status/outcome/origin.
+    Casefold substring over session id/title/label/model/status/outcome/origin.
     HUD client fuzzy ranking is presentation-only on the returned page.
 
     :param sessions: Full catalog rows (already shaped for the wire).
     :param query: Case-insensitive substring across list haystack fields.
-    :param limit: Max rows to return after filtering; ``None`` means default cap.
+    :param limit: Page size after filtering; ``None`` means default cap.
+    :param offset: Rows to skip after filtering (default 0). Unknown to
+        older clients; omitting it keeps the first page.
     :returns: Mapping with ``sessions``, ``total``, and ``matched``.
     """
     needle = (query or "").strip().casefold()
@@ -83,7 +108,8 @@ def filter_session_catalog(
         matched = list(sessions)
     # Preserve catalog newest-first order (do not re-rank by path/id here).
     cap = DEFAULT_SESSION_LIST_LIMIT if limit is None else max(0, limit)
-    sessions_out: list[JsonValue] = list(matched[:cap])
+    start = max(0, int(offset))
+    sessions_out: list[JsonValue] = list(matched[start : start + cap])
     return {
         "sessions": sessions_out,
         "total": len(sessions),
@@ -152,10 +178,11 @@ class LocalSessionAccess:
         *,
         query: str = "",
         limit: int | None = None,
+        offset: int = 0,
     ) -> JsonObject:
         """Catalog snapshot (``sessions`` / ``total`` / ``matched``)."""
         catalog = list(self._list()) if self._list is not None else []
-        return filter_session_catalog(catalog, query=query, limit=limit)
+        return filter_session_catalog(catalog, query=query, limit=limit, offset=offset)
 
     def session_get(self, session: str) -> JsonObject:
         """Rich session metadata."""
@@ -327,8 +354,9 @@ class RemoteSessionAccess:
         *,
         query: str = "",
         limit: int | None = None,
+        offset: int = 0,
     ) -> JsonObject:
-        return await self._client.session_list(query=query, limit=limit)
+        return await self._client.session_list(query=query, limit=limit, offset=offset)
 
     async def session_get(self, session: str) -> JsonObject:
         return await self._client.session_get(session)
@@ -406,6 +434,7 @@ __all__ = [
     "RemoteSessionAccess",
     "SessionLister",
     "SessionResolver",
+    "catalog_list_next_offset",
     "filter_session_catalog",
     "notes_snapshot_mapping",
 ]

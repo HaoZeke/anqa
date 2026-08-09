@@ -349,3 +349,22 @@ async def test_host_footer_label_flips_with_h(tmp_path: Path) -> None:
         await pilot.pause()
         assert show_host_sessions_enabled() is False
         assert _host_desc() == t("bind-show-host")
+
+
+def test_tui_control_client_uses_heavy_rpc_timeout(tmp_path: Path) -> None:
+    from groket.integrations.control_client import HEAVY_RPC_TIMEOUT
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    client = app.control_client()
+    assert client is not None
+    assert client.timeout == HEAVY_RPC_TIMEOUT

@@ -13,6 +13,11 @@ from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEven
 from .catalog import session_meta_from_catalog_row
 from .control_views import MAX_CONTENT_CHARS, MAX_TIMELINE_LIMIT
 
+# One RPC must finish inside HEAVY_RPC_TIMEOUT. HUD uses 200 × 12k; the TUI
+# used MAX_TIMELINE_LIMIT × MAX_CONTENT_CHARS and hit the 5s client timeout.
+TIMELINE_RPC_LIMIT = 200
+TIMELINE_RPC_CHARS = 12_000
+
 
 def trace_event_from_wire(row: JsonObject) -> TraceEvent:
     """Hydrate one :class:`TraceEvent` from a ``session/timeline`` event object."""
@@ -105,8 +110,8 @@ async def fetch_timeline_events(
     access: object,
     session_ref: str,
     *,
-    content_chars: int = MAX_CONTENT_CHARS,
-    page_limit: int = MAX_TIMELINE_LIMIT,
+    content_chars: int = TIMELINE_RPC_CHARS,
+    page_limit: int = TIMELINE_RPC_LIMIT,
 ) -> list[TraceEvent]:
     """Page ``session/timeline`` until complete; return domain events.
 
@@ -170,6 +175,8 @@ async def fetch_session_browser_bundle(
 
 
 __all__ = [
+    "TIMELINE_RPC_CHARS",
+    "TIMELINE_RPC_LIMIT",
     "fetch_session_browser_bundle",
     "fetch_timeline_events",
     "session_meta_from_overview",

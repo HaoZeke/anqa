@@ -584,6 +584,28 @@ def test_system_reminder_before_operator_in_same_turn_skipped_for_summary() -> N
     assert row["assistantEventIndex"] == 3
 
 
+def test_assistant_summary_keeps_long_markdown() -> None:
+    """Turn cards must keep enough assistant markdown to render lists/fences."""
+    from groket.models import TraceEvent
+    from groket.session.control_views import turn_segment_mapping
+    from groket.session.turns import segment_timeline_turns
+
+    body = "Intro paragraph\n\n1. first item\n2. second item\n\n```rust\nfn x() {}\n```\n\n" + (
+        "word " * 400
+    )
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="write it"),
+        TraceEvent(index=2, event_type="agent_message_chunk", content=body),
+        TraceEvent(index=3, event_type="turn_ended", content="Turn ended outcome=completed"),
+    ]
+    row = turn_segment_mapping(segment_timeline_turns(tl)[0])
+    summary = str(row["assistantSummary"])
+    assert "1. first item" in summary
+    assert "```rust" in summary
+    assert len(summary) > 800
+
+
 def test_open_background_tail_keeps_parent_open() -> None:
     """Merging an open background-only segment marks the parent open."""
     from groket.models import TraceEvent

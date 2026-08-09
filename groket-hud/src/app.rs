@@ -18,9 +18,9 @@ use crate::format::{control_down_message, new_note_id};
 use crate::fuzzy::fuzzy_filter;
 use crate::live::{
     card_marks_from_overview, is_soft_notes_save_error, merge_catalog_rows,
-    merge_timeline_by_index, notes_schema_fields, patch_list_row_from_meta,
+    merge_timeline_by_index, notes_schema_fields, patch_list_row_from_meta, plan_tick,
     session_needs_live_poll, timeline_coverage_complete, timeline_first_missing_offset,
-    timeline_seek_offset, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK,
+    timeline_seek_offset, TickInput, LIVE_TAIL_LIMIT, TIMELINE_CHUNK,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -240,6 +240,7 @@ pub fn app_window_settings() -> window::Settings {
 }
 
 pub fn run() -> iced::Result {
+    crate::log::info(&format!("hud start log={}", crate::log::path().display()));
     iced::daemon("groket", Hud::update, Hud::view)
         .subscription(Hud::subscription)
         .theme(Hud::theme)
@@ -272,13 +273,19 @@ impl Hud {
         match GlobalHotKeyManager::new() {
             Ok(mgr) => {
                 if let Err(err) = mgr.register(hk) {
-                    eprintln!("groket-hud: failed to register shortcut {label}: {err}");
+                    let msg = format!("failed to register shortcut {label}: {err}");
+                    crate::log::error(&msg);
+                    eprintln!("groket-hud: {msg}");
                 } else {
                     eprintln!("groket-hud: summon shortcut {label}");
                 }
                 hud._hotkeys = Some(mgr);
             }
-            Err(err) => eprintln!("groket-hud: global hotkey unavailable: {err}"),
+            Err(err) => {
+                let msg = format!("global hotkey unavailable: {err}");
+                crate::log::error(&msg);
+                eprintln!("groket-hud: {msg}");
+            }
         }
         let q = hud.notify_q.clone();
         let _ = control::spawn_notify_listener(move |method, params| {
@@ -296,7 +303,7 @@ impl Hud {
             Task::perform(rpc(control::initialize), |r| {
                 Message::Inited(r.map(|_| String::new()))
             }),
-            fetch_list(hud.query.clone(), false),
+            fetch_list(false),
         ]);
         (hud, boot)
     }
@@ -324,7 +331,8 @@ impl Hud {
         match message {
             Message::SearchChanged(q) => {
                 self.query = q;
-                fetch_list(self.query.clone(), false)
+                self.rerank_visible();
+                Task::none()
             }
             Message::SelectSession(i) => {
                 if i >= self.sessions.len() {
@@ -569,6 +577,8 @@ impl Hud {
                     Err(e) => {
                         if !is_soft_notes_save_error(&e) {
                             self.mark_down(&e);
+                        } else {
+                            crate::log::error(&format!("note save (soft): {e}"));
                         }
                         self.status = format!("Note save failed: {e}");
                         self.status_err = true;
@@ -590,6 +600,8 @@ impl Hud {
                     Err(e) => {
                         if !is_soft_notes_save_error(&e) {
                             self.mark_down(&e);
+                        } else {
+                            crate::log::error(&format!("note delete (soft): {e}"));
                         }
                         self.status = format!("Note delete failed: {e}");
                         self.status_err = true;
@@ -773,6 +785,7 @@ impl Hud {
     }
 
     fn mark_down(&mut self, err: &str) {
+        crate::log::error(err);
         self.status_err = true;
         self.status = control_down_message(err);
     }
@@ -800,13 +813,31 @@ impl Hud {
         if quiet && rows.is_empty() && !self.all_sessions.is_empty() {
             return;
         }
+        self.all_sessions = rows;
+        self.rerank_visible();
+        self.mark_up();
+        if !quiet {
+            if self.sessions.is_empty() {
+                self.status = if self.query.trim().is_empty() {
+                    self.status_err = true;
+                    crate::log::error("no sessions from control");
+                    "No sessions from control · is groket serve running?".into()
+                } else {
+                    format!("No matches for “{}”", self.query.trim())
+                };
+            } else {
+                self.status = format!("{} sessions · ready", self.all_sessions.len());
+            }
+        }
+    }
+
+    fn rerank_visible(&mut self) {
         let keep = self
             .sessions
             .get(self.active)
             .map(|r| r.session_id.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.overview_sid.clone());
-        self.all_sessions = rows;
         let mut ranked = if self.query.trim().is_empty() {
             self.all_sessions.clone()
         } else {
@@ -827,19 +858,6 @@ impl Hud {
             }
         } else if self.active >= self.sessions.len() {
             self.active = self.sessions.len().saturating_sub(1);
-        }
-        self.mark_up();
-        if !quiet {
-            if self.sessions.is_empty() {
-                self.status = if self.query.trim().is_empty() {
-                    self.status_err = true;
-                    "No sessions from control · is groket serve running?".into()
-                } else {
-                    format!("No matches for “{}”", self.query.trim())
-                };
-            } else {
-                self.status = format!("{} sessions · ready", self.all_sessions.len());
-            }
         }
     }
 
@@ -1150,7 +1168,7 @@ impl Hud {
             return Task::batch([
                 open.map(|id| Message::WindowId(Some(id))),
                 delayed_focus(0),
-                fetch_list(self.query.clone(), true),
+                fetch_list(true),
             ]);
         }
         let chrome = match self.window_id {
@@ -1163,11 +1181,7 @@ impl Hud {
             ]),
             None => Task::none(),
         };
-        Task::batch([
-            chrome,
-            delayed_focus(0),
-            fetch_list(self.query.clone(), true),
-        ])
+        Task::batch([chrome, delayed_focus(0), fetch_list(true)])
     }
 
     fn sync_theme(&mut self) {
@@ -1251,50 +1265,52 @@ impl Hud {
         } else {
             vec![]
         };
-        for (method, params) in notifies {
-            let sid = params
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let selected = self.selected_sid().unwrap_or_default();
-            let mine = !sid.is_empty() && (sid == self.overview_sid || sid == selected);
-            if method == "session/changed" || method == "session/selected" {
-                cmds.push(fetch_list(self.query.clone(), true));
-                if mine {
-                    cmds.push(self.load_overview(true));
-                }
-            }
-            if mine
-                && (method == "notes/changed" || method == "analysis/changed")
-                && !self.note_compose_lock
-            {
-                cmds.push(self.load_overview(true));
+        let notify_pairs: Vec<(String, String)> = notifies
+            .iter()
+            .map(|(method, params)| {
+                let sid = params
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                (method.clone(), sid)
+            })
+            .collect();
+        let selected = self.selected_sid().unwrap_or_default();
+        let live = session_needs_live_poll(
+            &self.selected_status(),
+            self.overview.as_ref().map(|o| &o.turns),
+        );
+        let any_live = live
+            || self
+                .sessions
+                .iter()
+                .any(|r| session_needs_live_poll(&r.status, None));
+        let elapsed = self.last_live.elapsed().as_millis() as u64;
+        let plan = plan_tick(TickInput {
+            notifies: &notify_pairs,
+            selected_sid: &selected,
+            overview_sid: &self.overview_sid,
+            palette_live: self.palette_live && self.visible,
+            list_elapsed_ms: elapsed,
+            selected_live: live,
+            any_live,
+            on_timeline: self.tab == Tab::Timeline,
+            notes_locked: self.note_compose_lock,
+        });
+        if plan.fetch_list {
+            cmds.push(fetch_list(true));
+        }
+        if plan.load_overview {
+            cmds.push(self.load_overview(true));
+        }
+        if plan.refresh_timeline {
+            if let Some(sid) = self.selected_sid() {
+                cmds.push(self.refresh_timeline_tail(sid));
             }
         }
-        if self.palette_live && self.visible {
-            cmds.push(fetch_list(self.query.clone(), true));
-            let live = session_needs_live_poll(
-                &self.selected_status(),
-                self.overview.as_ref().map(|o| &o.turns),
-            );
-            let any_live = live
-                || self
-                    .sessions
-                    .iter()
-                    .any(|r| session_needs_live_poll(&r.status, None));
-            let interval = if any_live { LIVE_POLL_MS } else { IDLE_POLL_MS };
-            if self.last_live.elapsed() >= Duration::from_millis(interval) {
-                self.last_live = Instant::now();
-                if let Some(sid) = self.selected_sid() {
-                    if live {
-                        cmds.push(self.load_overview(true));
-                        if self.tab == Tab::Timeline {
-                            cmds.push(self.refresh_timeline_tail(sid));
-                        }
-                    }
-                }
-            }
+        if plan.fetch_list || plan.load_overview || plan.refresh_timeline {
+            self.last_live = Instant::now();
         }
         Task::batch(cmds)
     }
@@ -1373,12 +1389,10 @@ impl Hud {
     }
 }
 
-fn fetch_list(query: String, quiet: bool) -> Task<Message> {
-    let limit = if query.trim().is_empty() { 300 } else { 200 };
-    Task::perform(
-        rpc(move || control::session_list(query.trim(), limit)),
-        move |result| Message::ListLoaded { quiet, result },
-    )
+fn fetch_list(quiet: bool) -> Task<Message> {
+    Task::perform(rpc(|| control::session_list_all("")), move |result| {
+        Message::ListLoaded { quiet, result }
+    })
 }
 
 fn fetch_timeline(sid: String, offset: u32, append: bool, gen: u64, limit: u32) -> Task<Message> {

@@ -293,7 +293,7 @@ def _turn_user_prompt_preview(
 def _turn_assistant_preview(
     seg: TurnSegment,
     *,
-    max_chars: int = 800,
+    max_chars: int = 12_000,
 ) -> tuple[str, int | None]:
     """Last non-empty assistant message in *seg* (the turn wrap-up)."""
     last_text = ""

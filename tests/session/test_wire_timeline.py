@@ -6,8 +6,15 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.session.control_views import build_session_overview, build_session_timeline
+from groket.session.control_views import (
+    MAX_CONTENT_CHARS,
+    MAX_TIMELINE_LIMIT,
+    build_session_overview,
+    build_session_timeline,
+)
 from groket.session.wire_timeline import (
+    TIMELINE_RPC_CHARS,
+    TIMELINE_RPC_LIMIT,
     fetch_timeline_events,
     session_meta_from_overview,
     trace_event_from_wire,
@@ -86,3 +93,10 @@ async def test_fetch_timeline_events_pages(tmp_path: Path) -> None:
     events = await fetch_timeline_events(_Local(), "w3", page_limit=1)
     assert len(events) >= 2
     assert any("hello" in (e.content or "") for e in events)
+
+
+def test_timeline_rpc_pages_are_smaller_than_server_max() -> None:
+    assert TIMELINE_RPC_LIMIT < MAX_TIMELINE_LIMIT
+    assert TIMELINE_RPC_CHARS < MAX_CONTENT_CHARS
+    assert TIMELINE_RPC_LIMIT == 200
+    assert TIMELINE_RPC_CHARS == 12_000

@@ -257,6 +257,15 @@ class TestKeyChip:
         t = key_chip("slash")
         assert "/" in t.plain
 
+    def test_ctrl_chord_uses_words(self):
+        t = key_chip("ctrl+s")
+        assert "Ctrl+S" in t.plain
+        assert "^" not in t.plain
+
+    def test_space_named(self):
+        t = key_chip("space")
+        assert "Space" in t.plain
+
     def test_empty(self):
         t = key_chip("")
         assert "?" in t.plain
@@ -266,7 +275,7 @@ class TestKeysRich:
     def test_inline_keys(self):
         t = keys_rich("`s` select · `space` toggle")
         assert "s" in t.plain
-        assert "space" in t.plain
+        assert "Space" in t.plain
 
 
 class TestAdmonitionAliases:

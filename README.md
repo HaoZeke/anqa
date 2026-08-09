@@ -31,7 +31,7 @@ uv tool upgrade groket   # later
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.groket` | `config.json`, personas, detectors, rules, analysis plugins, prefs |
+| Config home | `~/.groket` | `config.json`, `hud.log`, personas, detectors, rules, analysis plugins, prefs |
 | Work root | `~/.groket/work` | `runs/traces/`, recipes, Docker build contexts, batch results |
 
 ```bash
@@ -143,8 +143,10 @@ The headless process answers ``initialize``, session/notes/analysis methods, and
 publishes change notifications. A second ``serve -d`` reports already running.
 
 **Serve log** (detached): next to the socket, e.g. ``~/.groket/run/control.sock.log``.
-Each RPC is logged at **INFO** (method, status, ms, session/query summary). Set
-``GROKET_SERVE_LOG_LEVEL=DEBUG`` for param-level lines before dispatch.
+HUD control and decode errors: ``~/.groket/hud.log`` (override ``GROKET_HUD_LOG``).
+Successful RPCs log at **DEBUG** (method, status, ms, session/query summary).
+Errors and conflicts log at **INFO**. Set ``GROKET_SERVE_LOG_LEVEL=DEBUG``
+before ``groket serve restart`` for a full click-around trace.
 
 **TUI / HUD (clients — never own the socket)**
 
@@ -163,7 +165,7 @@ Quitting the TUI does **not** stop the control owner.
 | Method | Role |
 |--------|------|
 | `initialize` | Protocol version, capabilities, `renderFormats` |
-| `session/list` | Catalog rows (`query`, `limit`) from the owner’s domain catalog (same wire for all clients) |
+| `session/list` | Catalog rows (`query`, `limit`, `offset`) from the owner’s domain catalog (same wire for all clients) |
 | `session/get` | Rich session meta (status, context, git, counts, notes revision) |
 | `session/overview` | Meta + turns (with user `summary`) + lazy timeline stub + notes |
 | `session/timeline` | Paged timeline events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`; each row includes sequential `turnIndex`) |
@@ -207,7 +209,7 @@ same way as the TUI. While the palette is open, a **live poll** re-reads
 overview and the timeline tail for running/awaiting turns (~2s) so a mid-turn
 Timeline tab updates without reopening the HUD. The HUD does not start evals,
 recipes, or Docker. ``groket hud`` **detaches** like Sol
-(background agent); on macOS it is **not** in the Dock or **⌘Tab** when accessory policy applies. Default hotkey **⌘⇧G** (macOS) / **Ctrl+Shift+G**
+(background agent); on macOS it is **not** in the Dock or **Cmd+Tab** when accessory policy applies. Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G**
 (Linux/Windows); override in ``~/.groket/config.json``::
 
 ```json
@@ -228,10 +230,12 @@ quitting the agent leaves ``groket serve`` running. Build details:
 ``groket-hud/README.md``.
 
 **List search contract.** ``session/list`` ``query`` is a **case-insensitive
-substring** over id/path/title/label/model/status/outcome/origin, applied on
-the control owner after the warm domain catalog is built. HUD may **rank** the
-returned page with client fuzzy scoring for display only—it must not invent a
-second discovery path. Editors that pass ``query`` use the same server filter.
+substring** over id/title/label/model/status/outcome/origin (not the filesystem
+path — ``gro`` must not match every ``~/.grok/sessions`` row). Applied on the
+control owner after the warm domain catalog is built. HUD and the TUI drain
+``session/list`` pages (``limit`` 200, ``offset`` advancing) until
+``matched``, then the HUD ranks locally; editors that pass ``query`` use the
+same server filter. Omitting ``offset`` still returns the first page.
 
 **Daemon catalog warm.** Headless ``serve`` rebuilds the session catalog in the
 background at start and on a short interval (and when scan roots change) so

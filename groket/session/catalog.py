@@ -16,7 +16,13 @@ from pathlib import Path
 from ..models import JsonObject, SessionMeta
 from ..parser import load_session_meta_list, session_trace_mtime
 from ..paths import app_config_path
-from .sources import SessionScanRoot, collect_session_dirs, session_scan_roots
+from .sources import (
+    SessionScanRoot,
+    classify_session_origin,
+    collect_session_dirs,
+    session_scan_roots,
+    work_traces_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +366,68 @@ class SessionCatalogCache:
             with self._lock:
                 self._building = False
             self._build_done.set()
+
+    def refresh_rows(self, session_dirs: list[Path]) -> list[JsonObject]:
+        """Rebuild catalog rows for *session_dirs* without a full tree scan.
+
+        Used on filesystem watches so a live ``updates.jsonl`` write updates
+        that session's status immediately. Missing dirs are dropped; new dirs
+        are appended. Falls back to a full :meth:`get` when the cache is empty.
+
+        :param session_dirs: Session directories that changed.
+        :returns: Updated catalog snapshot (newest-first).
+        """
+        dirs = [Path(p).expanduser() for p in session_dirs if str(p).strip()]
+        if not dirs:
+            return self.get()
+        with self._lock:
+            current = None if self._rows is None else list(self._rows)
+        if current is None:
+            return self.get(force=True)
+        work = (
+            Path(self._traces_path).expanduser()
+            if self._traces_path is not None
+            else work_traces_root(self._work_dir)
+        )
+        known_paths = {str(row.get("path") or "").strip() for row in current}
+        drop: set[str] = set()
+        replacements: dict[str, JsonObject] = {}
+        appended: list[JsonObject] = []
+        for session_dir in dirs:
+            try:
+                resolved = str(session_dir.resolve())
+            except OSError:
+                resolved = str(session_dir)
+            origin = classify_session_origin(
+                session_dir,
+                work_traces=work,
+                host_root=self._host_root,
+            )
+            row = session_catalog_row(session_dir, origin=origin)
+            if row is None:
+                drop.add(resolved)
+                continue
+            if resolved in known_paths:
+                replacements[resolved] = row
+            else:
+                appended.append(row)
+                known_paths.add(resolved)
+        rows = [
+            replacements.get(str(row.get("path") or "").strip(), row)
+            for row in current
+            if str(row.get("path") or "").strip() not in drop
+        ]
+        rows.extend(appended)
+        rows.sort(
+            key=lambda r: (
+                -catalog_row_sort_epoch(r),
+                str(r.get("sessionId") or ""),
+            )
+        )
+        with self._lock:
+            self._rows = rows
+            self._mono = self._time.monotonic()
+        return list(rows)
 
 
 def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:

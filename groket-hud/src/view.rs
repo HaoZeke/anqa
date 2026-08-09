@@ -17,7 +17,7 @@ use crate::app::{Hud, Message};
 use crate::brand;
 use crate::format::{
     event_role, format_note_time, list_status_label, looks_like_json, looks_like_markdown,
-    message_md_hard_breaks, note_fields_view, pretty_json, sanitize_console_text, status_tone,
+    message_markdown_source, note_fields_view, pretty_json, sanitize_console_text, status_tone,
     timeline_body_text, EventRole,
 };
 use crate::live::CardMark;
@@ -75,7 +75,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             }
         },
         Space::with_width(Length::Fill),
-        text("↑↓ list  ·  tab fields  ·  ctrl+1–5 panes  ·  / events  ·  esc")
+        text("Up/Down list  ·  Tab fields  ·  Ctrl+1–5 panes  ·  / events  ·  Esc")
             .size(typo::META)
             .color(tok.muted),
     ]
@@ -327,7 +327,31 @@ fn md_body(
     if !looks_like_markdown(&cut) {
         return text(cut).size(size).font(typo::UI).into();
     }
-    let key = md_key(&cut, max_chars);
+    md_parsed(&cut, max_chars, size, style)
+}
+
+/// Chat messages: always markdown (numbered lists, fences) with hard breaks.
+fn md_message(
+    src: &str,
+    max_chars: usize,
+    size: u16,
+    style: markdown::Style,
+) -> Element<'static, Message> {
+    let cut: String = src.chars().take(max_chars).collect();
+    let prepared = message_markdown_source(&cut);
+    if prepared.trim().is_empty() {
+        return Space::with_height(0).into();
+    }
+    md_parsed(&prepared, max_chars, size, style)
+}
+
+fn md_parsed(
+    src: &str,
+    max_chars: usize,
+    size: u16,
+    style: markdown::Style,
+) -> Element<'static, Message> {
+    let key = md_key(src, max_chars);
     MD_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.len() > 80 {
@@ -335,7 +359,7 @@ fn md_body(
         }
         let items = cache
             .entry(key)
-            .or_insert_with(|| markdown::parse(&cut).collect());
+            .or_insert_with(|| markdown::parse(src).collect());
         md_column(items, markdown::Settings::with_text_size(size), style)
     })
 }
@@ -550,7 +574,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     .color(hud.tokens().muted),
             );
         } else {
-            body = body.push(md_body(&summary, 1200, typo::BODY, md_style(hud)));
+            body = body.push(md_message(&summary, 12_000, typo::BODY, md_style(hud)));
         }
         if !assistant.is_empty() {
             let asst_head: Element<'_, Message> = if let Some(ix) = assistant_jump {
@@ -566,7 +590,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     .into()
             };
             body = body.push(asst_head);
-            body = body.push(md_body(&assistant, 1600, typo::BODY, md_style(hud)));
+            body = body.push(md_message(&assistant, 12_000, typo::BODY, md_style(hud)));
         }
         col = col.push(
             container(
@@ -1021,12 +1045,7 @@ fn render_payload_text(
     }
     let max = if expanded { 12_000 } else { 400 };
     let rendered: Element<'static, Message> = match kind {
-        "user" | "agent" | "subagent" => md_body(
-            &message_md_hard_breaks(body),
-            max,
-            typo::BODY,
-            md_style(hud),
-        ),
+        "user" | "agent" | "subagent" => md_message(body, max, typo::BODY, md_style(hud)),
         "thought" => text(body.to_string())
             .size(typo::BODY)
             .font(typo::UI_ITALIC)

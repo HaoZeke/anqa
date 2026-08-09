@@ -10,6 +10,64 @@ pub const IDLE_POLL_MS: u64 = 15_000;
 pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 200;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TickPlan {
+    pub fetch_list: bool,
+    pub load_overview: bool,
+    pub refresh_timeline: bool,
+}
+
+/// Inputs for [`plan_tick`] (notify drain + live poll).
+pub struct TickInput<'a> {
+    pub notifies: &'a [(String, String)],
+    pub selected_sid: &'a str,
+    pub overview_sid: &'a str,
+    pub palette_live: bool,
+    pub list_elapsed_ms: u64,
+    pub selected_live: bool,
+    pub any_live: bool,
+    pub on_timeline: bool,
+    pub notes_locked: bool,
+}
+
+/// Coalesce notify + poll into at most one list fetch and one overview load.
+pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
+    let mut plan = TickPlan::default();
+    for (method, sid) in input.notifies {
+        let mine = !sid.is_empty() && (sid == input.overview_sid || sid == input.selected_sid);
+        if method == "session/changed" || method == "session/selected" {
+            plan.fetch_list = true;
+            if mine {
+                plan.load_overview = true;
+            }
+        }
+        if mine
+            && (method == "notes/changed" || method == "analysis/changed")
+            && !input.notes_locked
+        {
+            plan.load_overview = true;
+        }
+    }
+    if !input.palette_live {
+        return plan;
+    }
+    let interval = if input.any_live {
+        LIVE_POLL_MS
+    } else {
+        IDLE_POLL_MS
+    };
+    if input.list_elapsed_ms >= interval {
+        plan.fetch_list = true;
+        if input.selected_live {
+            plan.load_overview = true;
+            if input.on_timeline {
+                plan.refresh_timeline = true;
+            }
+        }
+    }
+    plan
+}
+
 const LIVE_STATUS: &[&str] = &[
     "running",
     "ending",
@@ -39,6 +97,27 @@ pub fn has_open_turn(turns: &TurnsBlock) -> bool {
 
 pub fn session_needs_live_poll(status: &str, turns: Option<&TurnsBlock>) -> bool {
     is_live_status(status) || turns.is_some_and(has_open_turn)
+}
+
+/// Next ``session/list`` offset, or ``None`` when the catalog drain is done.
+pub fn catalog_drain_next(
+    offset: u32,
+    batch_len: usize,
+    page: u32,
+    matched: i64,
+    stalled: bool,
+) -> Option<u32> {
+    if stalled || batch_len == 0 || page == 0 {
+        return None;
+    }
+    let next = offset.saturating_add(batch_len as u32);
+    if (batch_len as u32) < page {
+        return None;
+    }
+    if matched > 0 && i64::from(next) >= matched {
+        return None;
+    }
+    Some(next)
 }
 
 pub fn timeline_seek_offset(focus_index: i64, pad: i64) -> u32 {
@@ -340,6 +419,16 @@ mod tests {
     }
 
     #[test]
+    fn catalog_pages() {
+        assert_eq!(catalog_drain_next(0, 200, 200, 450, false), Some(200));
+        assert_eq!(catalog_drain_next(200, 200, 200, 450, false), Some(400));
+        assert_eq!(catalog_drain_next(400, 50, 200, 450, false), None);
+        assert_eq!(catalog_drain_next(0, 200, 200, 200, false), None);
+        assert_eq!(catalog_drain_next(200, 200, 200, 450, true), None);
+        assert_eq!(catalog_drain_next(0, 0, 200, 10, false), None);
+    }
+
+    #[test]
     fn timeline_holes() {
         assert!(!timeline_coverage_complete(5, 100));
         assert!(timeline_coverage_complete(100, 100));
@@ -367,6 +456,82 @@ mod tests {
         ));
         assert!(!is_soft_notes_save_error("connection refused"));
         assert!(!is_soft_notes_save_error(""));
+    }
+
+    #[test]
+    fn catalog_refresh_applies_newer_live_status() {
+        use crate::model::SessionRow;
+        let prev = vec![SessionRow {
+            session_id: "s1".into(),
+            status: "complete".into(),
+            outcome: "success".into(),
+            ..SessionRow::default()
+        }];
+        let next = vec![SessionRow {
+            session_id: "s1".into(),
+            status: "running".into(),
+            outcome: "running".into(),
+            ..SessionRow::default()
+        }];
+        let merged = merge_catalog_rows(&prev, next);
+        assert_eq!(merged[0].status, "running");
+    }
+
+    #[test]
+    fn tick_plan_coalesces_session_changed_into_one_list_fetch() {
+        let notifies = vec![
+            ("session/changed".into(), "a".into()),
+            ("session/changed".into(), "b".into()),
+            ("session/changed".into(), "a".into()),
+        ];
+        let plan = plan_tick(TickInput {
+            notifies: &notifies,
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: true,
+            list_elapsed_ms: 0,
+            selected_live: true,
+            any_live: true,
+            on_timeline: false,
+            notes_locked: false,
+        });
+        assert!(plan.fetch_list);
+        assert!(plan.load_overview);
+        assert!(!plan.refresh_timeline);
+    }
+
+    #[test]
+    fn tick_plan_skips_list_fetch_on_quiet_tick() {
+        let plan = plan_tick(TickInput {
+            notifies: &[],
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: true,
+            list_elapsed_ms: 500,
+            selected_live: true,
+            any_live: true,
+            on_timeline: false,
+            notes_locked: false,
+        });
+        assert!(!plan.fetch_list);
+        assert!(!plan.load_overview);
+    }
+
+    #[test]
+    fn tick_plan_idle_poll_refreshes_list() {
+        let plan = plan_tick(TickInput {
+            notifies: &[],
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: true,
+            list_elapsed_ms: IDLE_POLL_MS,
+            selected_live: false,
+            any_live: false,
+            on_timeline: false,
+            notes_locked: false,
+        });
+        assert!(plan.fetch_list);
+        assert!(!plan.load_overview);
     }
 
     #[test]

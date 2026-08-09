@@ -21,11 +21,11 @@ Sol-style session **command palette** for the local groket control plane
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
-- Typeahead over ``session/list``
+- Typeahead over the drained ``session/list`` catalog
 - Detail: overview, turns, live timeline, findings, notes
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview and the timeline tail about every 3s (idle sessions slower).
-- Global hotkey: **⌘⇧G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;
+- Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;
   override with ``~/.groket/config.json`` ``hud.global_shortcut`` or env
   ``GROKET_HUD_SHORTCUT``
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
@@ -71,3 +71,4 @@ window loop, and the Unix socket client are omitted from that floor).
 | ``GROKET_HUD_FOREGROUND`` | Attach the HUD to this terminal |
 | ``GROKET_HUD_DEV`` | Same as ``--dev`` |
 | ``GROKET_HUD_DEBUG`` | Same as ``--debug`` |
+| ``GROKET_HUD_LOG`` | Append-only error log path (default ``~/.groket/hud.log``) |

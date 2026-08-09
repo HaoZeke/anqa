@@ -414,14 +414,13 @@ impl SessionListItem {
 
     pub fn haystack(&self) -> String {
         format!(
-            "{} {} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {}",
             self.session_id,
             self.title,
             self.label,
             self.model,
             self.status,
             self.origin,
-            self.path,
             self.outcome
         )
     }
@@ -513,27 +512,39 @@ impl TurnsBlock {
 }
 
 /// Decode ``session/list`` (bare result, wrapped ``result``, or a raw array).
-pub fn decode_session_list(value: &Value) -> Result<Vec<SessionListItem>, String> {
-    if let Some(result) = value.get("result") {
+pub fn decode_session_list_response(value: &Value) -> Result<SessionListResponse, String> {
+    let body = if let Some(result) = value.get("result") {
         if result.get("sessions").is_some() || result.is_array() {
-            return decode_session_list(result);
+            result
+        } else {
+            value
         }
-    }
-    if value.is_array() {
+    } else {
+        value
+    };
+    if body.is_array() {
         let mut items: Vec<SessionListItem> =
-            serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+            serde_json::from_value(body.clone()).map_err(|e| e.to_string())?;
         for row in &mut items {
             row.ensure_sort_epoch();
         }
-        return Ok(items);
+        let n = i64::try_from(items.len()).unwrap_or(i64::MAX);
+        return Ok(SessionListResponse {
+            sessions: items,
+            total: n,
+            matched: n,
+        });
     }
-    let resp: SessionListResponse =
-        serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
-    let mut items = resp.sessions;
-    for row in &mut items {
+    let mut resp: SessionListResponse =
+        serde_json::from_value(body.clone()).map_err(|e| e.to_string())?;
+    for row in &mut resp.sessions {
         row.ensure_sort_epoch();
     }
-    Ok(items)
+    Ok(resp)
+}
+
+pub fn decode_session_list(value: &Value) -> Result<Vec<SessionListItem>, String> {
+    Ok(decode_session_list_response(value)?.sessions)
 }
 
 pub fn decode_overview(value: &Value) -> Result<Overview, String> {
@@ -643,6 +654,11 @@ mod tests {
         row.session_id = "sid".into();
         assert_eq!(row.display_title(), "sid");
         assert!(row.haystack().contains("sid"));
+        row.path = "/home/ali/.grok/sessions/sid".into();
+        assert!(
+            !row.haystack().contains(".grok/sessions"),
+            "path must not be in the search haystack"
+        );
 
         let wrapped = serde_json::json!({
             "result": {
@@ -658,6 +674,9 @@ mod tests {
         let decoded = decode_session_list(&wrapped).expect("wrapped");
         assert_eq!(decoded[0].session_id, "w1");
         assert_eq!(decoded[0].status, "awaiting");
+        let page = decode_session_list_response(&wrapped).expect("page");
+        assert_eq!(page.matched, 1);
+        assert_eq!(page.total, 1);
 
         let arr = serde_json::json!([{"sessionId": "a1", "status": "running"}]);
         let decoded = decode_session_list(&arr).expect("array");

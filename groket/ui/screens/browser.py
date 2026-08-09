@@ -38,6 +38,7 @@ from ...analysis.base import AnalysisResult, Finding
 from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_turn
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
+from ...integrations.control import ControlError
 from ...models import Flag, SessionMeta, TraceEvent
 from ...notes import (
     NoteEntry,
@@ -1033,6 +1034,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
         )
 
+    def _on_control_browser_error(self, exc: BaseException, *, notify: bool) -> None:
+        """Log a failed control hydrate; toast only on the full browser load."""
+        if notify:
+            logger.exception("control browser load failed")
+        else:
+            logger.warning("control browser refresh failed: %s", exc)
+        if notify and getattr(self, "is_mounted", False):
+            call_ui(
+                resolve_ui_app(self),
+                self.notify,
+                t("notify-control-session-failed", err=str(exc)[:180]),
+                severity="error",
+            )
+
     def _load_data_light_job(self) -> None:
         """Reload meta (+ timeline when changed). Control path when attached.
 
@@ -1120,6 +1135,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 return
             app = resolve_ui_app(self)
             call_ui(app, self._populate_ui_light)
+        except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
+            self._on_control_browser_error(exc, notify=False)
         finally:
             try:
                 call_ui(resolve_ui_app(self), self._live_refresh_worker_done)
@@ -1315,6 +1332,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 call_ui(app, self._schedule_live_refresh)
                 # Analysis is async on the fixed analysis pool — never blocks timeline paint.
                 call_ui(app, self._schedule_analysis)
+        except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
+            self._on_control_browser_error(exc, notify=True)
         finally:
 
             def _release_refresh_lock() -> None:

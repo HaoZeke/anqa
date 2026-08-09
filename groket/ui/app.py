@@ -16,6 +16,7 @@ from pathlib import Path
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult, SystemCommand
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen, Screen
@@ -36,7 +37,11 @@ from textual.widgets import (
 from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
 from ..analysis.base import Finding
 from ..constants import META_CACHE_FILENAME
-from ..integrations.control_client import ControlClient, listen_control_notifications
+from ..integrations.control_client import (
+    HEAVY_RPC_TIMEOUT,
+    ControlClient,
+    listen_control_notifications,
+)
 from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
 from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
 from ..paths import app_config_path
@@ -59,6 +64,7 @@ from .data_table import (
     update_row_cell,
 )
 from .i18n import join_ui, setup_i18n, t
+from .keys import format_key_chord
 from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .screens.rules import RulesScreen
@@ -293,8 +299,15 @@ class TraceEvalApp(App):
     SUB_TITLE = t("ui-trace-evaluation-error-hunting")
     CSS_PATH = "app.tcss"
     BINDINGS = [*APP_GLOBAL_PRIORITY, *APP_SESSIONS]
+    COMMAND_PALETTE_DISPLAY = "Ctrl+P"
     # Textual text selection (drag) + OSC 52 copy; default is True but be explicit.
     ALLOW_SELECT = True
+
+    def get_key_display(self, binding: Binding) -> str:
+        """Footer / key panel: Ctrl+S, not caret ^s or unicode glyphs."""
+        if binding.key_display:
+            return binding.key_display
+        return format_key_chord(binding.key)
 
     def get_system_commands(self, screen: Screen):
         """Populate Ctrl+P palette with context-aware actions."""
@@ -803,6 +816,7 @@ class TraceEvalApp(App):
         return ControlClient(
             self._control_socket,
             client_name="groket-tui",
+            timeout=HEAVY_RPC_TIMEOUT,
         )
 
     def session_access(self) -> RemoteSessionAccess | None:
@@ -1139,9 +1153,8 @@ class TraceEvalApp(App):
         self,
         *,
         query: str = "",
-        limit: int | None = 500,
     ) -> list[JsonObject]:
-        """Blocking ``session/list`` for attach-mode workers (new event loop)."""
+        """Blocking paged ``session/list`` for attach-mode workers."""
 
         from ..integrations.control_client import ControlClient
 
@@ -1150,8 +1163,8 @@ class TraceEvalApp(App):
             return []
 
         async def _run() -> list[JsonObject]:
-            client = ControlClient(sock, client_name="groket-tui")
-            result = await client.session_list(query=query, limit=limit)
+            client = ControlClient(sock, client_name="groket-tui", timeout=HEAVY_RPC_TIMEOUT)
+            result = await client.session_list_all(query=query)
             raw = result.get("sessions") if isinstance(result, dict) else None
             if not isinstance(raw, list):
                 return []
@@ -1174,7 +1187,7 @@ class TraceEvalApp(App):
         from ..session.catalog import session_meta_from_catalog_row
 
         try:
-            wire_rows = self._fetch_control_session_list_sync(limit=500)
+            wire_rows = self._fetch_control_session_list_sync()
             if not self._sessions_load_current(gen):
                 return
             rows: list[tuple[SessionMeta, str]] = []

@@ -227,6 +227,54 @@ async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_first_rpc_result_is_not_a_broadcast(tmp_path: Path) -> None:
+    """One-shot HUD sockets must not see session/changed before their reply."""
+    control = import_module("groket.integrations.control")
+    session_dir = tmp_path / "session-oneshot"
+    _write_session(session_dir)
+    server = control.ControlServer(socket_path=_short_sock("oneshot.sock"))
+    await server.start()
+    entered = asyncio.Event()
+    orig = server._dispatch
+
+    async def slow_dispatch(
+        method: str,
+        params: dict,
+        after_send: list,
+    ) -> object:
+        if method == "session/list":
+            entered.set()
+            await asyncio.sleep(0.15)
+        return await orig(method, params, after_send)
+
+    server._dispatch = slow_dispatch  # type: ignore[method-assign]
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        writer.write(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "session/list",
+                    "params": {"limit": 10},
+                }
+            ).encode("utf-8")
+            + b"\n"
+        )
+        await writer.drain()
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        await server.publish_session_changed(session_dir)
+        first = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert first.get("id") == 1
+        assert "result" in first
+        assert first["result"]["matched"] == 0
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     session_dir = tmp_path / "session-notes"

@@ -34,6 +34,8 @@ from rich.text import Text
 from textual.widget import Widget
 from textual.widgets import Static
 
+from .keys import format_key_chord
+
 TIP_SURFACE_CLASS = "tip-surface"
 EMPTY_STATE_CLASS = "empty-state"
 
@@ -172,19 +174,7 @@ def key_chip(key: str) -> Text:
     ``0 1`` (spaces), transparent background — same look as the app Footer.
     """
     label = (key or "").strip() or "?"
-    display = {
-        "slash": "/",
-        "left_square_bracket": "[",
-        "right_square_bracket": "]",
-        "ctrl+s": "ctrl+s",
-        "ctrl+enter": "ctrl+enter",
-        "space": "space",
-        "enter": "enter",
-        "escape": "esc",
-        "esc": "esc",
-        "[": "[",
-        "]": "]",
-    }.get(label.lower(), label)
+    display = format_key_chord(label)
     style = _footer_key_rich_style()
     t = Text()
     t.append(f" {display} ", style=style)

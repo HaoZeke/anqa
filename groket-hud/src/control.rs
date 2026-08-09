@@ -7,6 +7,16 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(unix)]
+use std::sync::Mutex;
+
+#[cfg(unix)]
+static RPC_STREAM: Mutex<Option<std::os::unix::net::UnixStream>> = Mutex::new(None);
+#[cfg(unix)]
+static RPC_ID: AtomicU64 = AtomicU64::new(1);
+
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).
 const REQUEST_BUDGET: Duration = Duration::from_secs(30);
 const CONNECT_BUDGET: Duration = Duration::from_secs(5);
@@ -159,49 +169,78 @@ fn connect_unix(path: &Path) -> Result<std::os::unix::net::UnixStream, ControlEr
 
 #[cfg(unix)]
 fn request_once(path: &Path, method: &str, params: &Value) -> Result<Value, ControlError> {
-    use std::os::unix::net::UnixStream;
-
-    let mut stream: UnixStream = connect_unix(path)?;
+    let mut slot = RPC_STREAM
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut stream = match slot.take() {
+        Some(existing) => existing,
+        None => connect_unix(path)?,
+    };
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
         .map_err(|e| ControlError::Message(format!("set read timeout: {e}")))?;
     stream
         .set_write_timeout(Some(IO_TIMEOUT))
         .map_err(|e| ControlError::Message(format!("set write timeout: {e}")))?;
+    let request_id = json!(RPC_ID.fetch_add(1, Ordering::Relaxed));
     let payload = json!({
         "jsonrpc": "2.0",
-        "id": 1,
+        "id": request_id,
         "method": method,
         "params": params,
     });
     let line = serde_json::to_string(&payload).map_err(ControlError::Json)? + "\n";
-    stream
+    if let Err(e) = stream
         .write_all(line.as_bytes())
-        .map_err(|e| ControlError::Message(format!("write {method}: {e}")))?;
-    stream
-        .flush()
-        .map_err(|e| ControlError::Message(format!("flush {method}: {e}")))?;
-    let mut reader = BufReader::new(stream);
+        .and_then(|_| stream.flush())
+    {
+        return Err(ControlError::Message(format!("write {method}: {e}")));
+    }
+    let mut reader = BufReader::new(&mut stream);
     let mut response = String::new();
-    reader.read_line(&mut response).map_err(|e| {
-        // macOS SO_RCVTIMEO often returns EAGAIN (35) instead of ETIMEDOUT.
-        ControlError::Message(format!("read {method} from {}: {e}", path.display()))
-    })?;
-    if response.trim().is_empty() {
-        return Err(ControlError::Message(format!(
-            "empty control response for {method} ({})",
-            path.display()
-        )));
+    let reply = loop {
+        response.clear();
+        reader.read_line(&mut response).map_err(|e| {
+            // macOS SO_RCVTIMEO often returns EAGAIN (35) instead of ETIMEDOUT.
+            ControlError::Message(format!("read {method} from {}: {e}", path.display()))
+        })?;
+        if response.trim().is_empty() {
+            return Err(ControlError::Message(format!(
+                "empty control response for {method} ({})",
+                path.display()
+            )));
+        }
+        let value: Value = serde_json::from_str(&response).map_err(ControlError::Json)?;
+        match take_rpc_reply(&request_id, &value) {
+            Some(out) => break out,
+            None => continue,
+        }
+    };
+    *slot = Some(stream);
+    reply
+}
+
+/// Pick the JSON-RPC reply for *request_id*.
+///
+/// Notifications (`session/changed`, …) have no ``id`` and can land on a
+/// one-shot HUD socket while ``session/timeline`` is still parsing. Skip
+/// those; only a matching ``id`` is the call's result.
+pub fn take_rpc_reply(request_id: &Value, value: &Value) -> Option<Result<Value, ControlError>> {
+    match value.get("id") {
+        None => None,
+        Some(id) if id != request_id => None,
+        Some(_) => {
+            if let Some(err) = value.get("error") {
+                let msg = err
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("control error");
+                Some(Err(ControlError::Message(msg.to_string())))
+            } else {
+                Some(Ok(value.get("result").cloned().unwrap_or(Value::Null)))
+            }
+        }
     }
-    let value: Value = serde_json::from_str(&response).map_err(ControlError::Json)?;
-    if let Some(err) = value.get("error") {
-        let msg = err
-            .get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("control error");
-        return Err(ControlError::Message(msg.to_string()));
-    }
-    Ok(value.get("result").cloned().unwrap_or(Value::Null))
 }
 
 fn request(method: &str, params: Value) -> Result<Value, ControlError> {
@@ -250,12 +289,79 @@ pub fn initialize() -> Result<Value, ControlError> {
     )
 }
 
-pub fn session_list(query: &str, limit: u32) -> Result<Value, ControlError> {
+pub const SESSION_LIST_PAGE: u32 = 200;
+
+pub fn session_list(query: &str, limit: u32, offset: u32) -> Result<Value, ControlError> {
     let mut params = json!({ "limit": limit });
     if !query.is_empty() {
         params["query"] = json!(query);
     }
+    if offset > 0 {
+        params["offset"] = json!(offset);
+    }
     request("session/list", params)
+}
+
+pub fn session_list_all(query: &str) -> Result<Value, ControlError> {
+    use crate::live::catalog_drain_next;
+    use crate::wire::decode_session_list_response;
+
+    let first = decode_session_list_response(&session_list(query, SESSION_LIST_PAGE, 0)?)
+        .map_err(ControlError::Message)?;
+    let mut total = first.total;
+    let mut matched = first.matched;
+    let mut sessions = first.sessions;
+    if sessions.is_empty() {
+        return Ok(json!({
+            "sessions": sessions,
+            "total": total,
+            "matched": matched,
+        }));
+    }
+    let first_id = sessions[0].session_id.clone();
+    let Some(mut offset) = catalog_drain_next(0, sessions.len(), SESSION_LIST_PAGE, matched, false)
+    else {
+        if matched <= 0 {
+            matched = i64::try_from(sessions.len()).unwrap_or(i64::MAX);
+        }
+        if total <= 0 {
+            total = matched;
+        }
+        return Ok(json!({
+            "sessions": sessions,
+            "total": total,
+            "matched": matched,
+        }));
+    };
+    loop {
+        let page = decode_session_list_response(&session_list(query, SESSION_LIST_PAGE, offset)?)
+            .map_err(ControlError::Message)?;
+        total = page.total;
+        matched = page.matched;
+        if page.sessions.is_empty() {
+            break;
+        }
+        if page.sessions[0].session_id == first_id {
+            break;
+        }
+        let n = page.sessions.len();
+        sessions.extend(page.sessions);
+        match catalog_drain_next(offset, n, SESSION_LIST_PAGE, matched, false) {
+            Some(next) => offset = next,
+            None => break,
+        }
+    }
+    if matched <= 0 {
+        matched = i64::try_from(sessions.len()).unwrap_or(i64::MAX);
+    }
+    if total <= 0 {
+        total = matched;
+    }
+    Ok(json!({
+        "sessions": sessions,
+        "total": total,
+        "matched": matched,
+    }))
 }
 
 pub fn session_overview(session: &str) -> Result<Value, ControlError> {
@@ -309,8 +415,8 @@ pub fn notes_delete(
 /// Spawn a background thread that holds a persistent control socket and
 /// forwards JSON-RPC notifications to *on_notify*.
 ///
-/// Requests stay on short-lived connections (:func:`request`); this stream is
-/// notify-only so it never fights concurrent RPC readers.
+/// Requests reuse one RPC stream (:func:`request`); this stream is notify-only
+/// so it never fights concurrent RPC readers.
 #[cfg(unix)]
 pub fn spawn_notify_listener<F>(on_notify: F) -> std::thread::JoinHandle<()>
 where
@@ -412,8 +518,34 @@ where
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{is_transient_control_error, is_transient_io_error, ControlError};
+    use super::{is_transient_control_error, is_transient_io_error, take_rpc_reply, ControlError};
+    use serde_json::json;
     use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn take_rpc_reply_skips_notifications_and_other_ids() {
+        let id = json!(42);
+        assert!(take_rpc_reply(
+            &id,
+            &json!({"jsonrpc": "2.0", "method": "session/changed", "params": {"sessionId": "s"}})
+        )
+        .is_none());
+        assert!(take_rpc_reply(&id, &json!({"jsonrpc": "2.0", "id": 2, "result": {}})).is_none());
+        let ok = take_rpc_reply(
+            &id,
+            &json!({"jsonrpc": "2.0", "id": 42, "result": {"total": 3, "events": []}}),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(ok["total"], 3);
+        let err = take_rpc_reply(
+            &id,
+            &json!({"jsonrpc": "2.0", "id": 42, "error": {"message": "session not found"}}),
+        )
+        .unwrap()
+        .unwrap_err();
+        assert!(err.to_string().contains("session not found"));
+    }
 
     #[test]
     fn eagain_os_error_35_is_transient() {

@@ -14,7 +14,11 @@ from pathlib import Path
 
 from ..models import JsonObject
 from ..paths import default_work_dir, resolve_work_and_traces
-from ..session.catalog import SessionCatalogCache, resolve_session_reference
+from ..session.catalog import (
+    SessionCatalogCache,
+    catalog_scan_roots,
+    resolve_session_reference,
+)
 from .control import (
     ControlServer,
     ControlSocketInUse,
@@ -313,6 +317,62 @@ async def _catalog_warm_loop(
             logger.debug("control catalog refresh failed", exc_info=True)
 
 
+def control_watch_roots(cache: SessionCatalogCache) -> list[Path]:
+    """Directories the owner watches for catalog / ``session/changed`` events.
+
+    Follows the same scan roots as ``session/list`` (work traces plus host
+    when that catalog is included).
+    """
+    roots = catalog_scan_roots(
+        cache._work_dir,
+        traces_path=cache._traces_path,
+        include_host=cache._include_host,
+        host_root=cache._host_root,
+    )
+    out: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        path = Path(root.path).expanduser()
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_dir():
+            out.append(path)
+    return out
+
+
+def apply_fs_catalog_events(
+    cache: SessionCatalogCache,
+    paths: list[str],
+    roots: list[Path],
+) -> tuple[list[Path], list[Path]]:
+    """Patch dirty catalog rows after a coalesced filesystem watch fire.
+
+    :param cache: Warm session catalog.
+    :param paths: Absolute paths from the watch callback.
+    :param roots: Catalog roots being watched.
+    :returns: ``(changed_sessions, notes_sessions)``.
+    """
+    sessions = _session_dirs_from_event_paths(paths, roots=roots)
+    notes_sessions = [
+        s
+        for s in sessions
+        if any(Path(p).name == "operator_notes.toml" for p in paths)
+        or any("operator_notes.toml" in p for p in paths)
+    ]
+    if sessions:
+        try:
+            cache.refresh_rows(sessions)
+        except Exception:
+            logger.debug("catalog row refresh after FS event failed", exc_info=True)
+            try:
+                cache.get(force=True)
+            except Exception:
+                logger.debug("catalog force refresh after FS event failed", exc_info=True)
+    return sessions, notes_sessions
+
+
 def _session_dirs_from_event_paths(
     paths: list[str],
     *,
@@ -381,44 +441,26 @@ async def serve_control_forever(
 
         asyncio.create_task(asyncio.to_thread(_warm))
 
-    # FS watch → catalog warm + session/changed so attach clients stay live.
+    # FS watch: incremental catalog row refresh + session/changed.
     watches: list[TraceTreeWatch] = []
     loop = asyncio.get_running_loop()
-    watch_roots: list[Path] = []
-    if isinstance(cache, SessionCatalogCache):
-        try:
-            tr = getattr(cache, "_traces_path", None) or getattr(cache, "traces_path", None)
-            if tr is not None:
-                watch_roots.append(Path(tr))
-            wd = getattr(cache, "_work_dir", None) or getattr(cache, "work_dir", None)
-            if wd is not None:
-                watch_roots.append(Path(wd) / "runs" / "traces")
-        except Exception:
-            pass
-    # De-dupe roots
     uniq_roots: list[Path] = []
-    seen: set[str] = set()
-    for root in watch_roots:
-        key = str(root)
-        if key in seen:
-            continue
-        seen.add(key)
-        if root.is_dir():
-            uniq_roots.append(root)
+    if isinstance(cache, SessionCatalogCache):
+        uniq_roots = control_watch_roots(cache)
 
     def _on_paths(paths: list[str]) -> None:
-        sessions = _session_dirs_from_event_paths(paths, roots=uniq_roots)
-        notes_sessions = {
-            s
-            for s in sessions
-            if any(Path(p).name == "operator_notes.toml" for p in paths)
-            or any("operator_notes.toml" in p for p in paths)
-        }
+        sessions: list[Path] = []
+        notes_sessions: list[Path] = []
         if isinstance(cache, SessionCatalogCache):
-            try:
-                cache.get(force=True)
-            except Exception:
-                logger.debug("catalog force refresh after FS event failed", exc_info=True)
+            sessions, notes_sessions = apply_fs_catalog_events(cache, paths, uniq_roots)
+        else:
+            sessions = _session_dirs_from_event_paths(paths, roots=uniq_roots)
+            notes_sessions = [
+                s
+                for s in sessions
+                if any(Path(p).name == "operator_notes.toml" for p in paths)
+                or any("operator_notes.toml" in p for p in paths)
+            ]
 
         async def _publish() -> None:
             for session in sessions:
@@ -711,9 +753,7 @@ def _stop_pids(pids: list[int], *, timeout: float, label: str) -> int:
         except (ProcessLookupError, OSError):
             pass
     if _wait_pids_gone(pids, timeout=min(2.0, max(0.2, timeout))):
-        sys.stderr.write(
-            f"stopped {label} pid={','.join(str(p) for p in pids)} (SIGKILL)\n"
-        )
+        sys.stderr.write(f"stopped {label} pid={','.join(str(p) for p in pids)} (SIGKILL)\n")
         sys.stderr.flush()
         return 0
     sys.stderr.write(

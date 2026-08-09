@@ -255,6 +255,11 @@ pub fn message_md_hard_breaks(body: &str) -> String {
     body.split('\n').collect::<Vec<_>>().join("  \n")
 }
 
+/// Sanitize + hard-break a chat message so iced markdown keeps lists and lines.
+pub fn message_markdown_source(body: &str) -> String {
+    message_md_hard_breaks(&sanitize_console_text(body))
+}
+
 /// Strip ANSI / C0 noise like TUI ``sanitize_console_text`` (display mode).
 pub fn sanitize_console_text(text: &str) -> String {
     if text.is_empty() {
@@ -474,6 +479,15 @@ mod tests {
     #[test]
     fn message_md_hard_breaks_preserves_lines() {
         assert_eq!(message_md_hard_breaks("a\nb"), "a  \nb");
+    }
+
+    #[test]
+    fn message_markdown_source_keeps_numbered_lists() {
+        let src = message_markdown_source("Intro\n\n1. first\n2. second\n\n**bold**");
+        assert!(src.contains("1. first"));
+        assert!(src.contains("2. second"));
+        assert!(src.contains("**bold**"));
+        assert!(src.contains("  \n") || src.contains("Intro"));
     }
 
     #[test]

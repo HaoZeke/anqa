@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from groket.session.access import LocalSessionAccess, filter_session_catalog
+from groket.session.access import (
+    LocalSessionAccess,
+    catalog_list_next_offset,
+    filter_session_catalog,
+)
 
 
 def test_filter_session_catalog_query_and_limit() -> None:
@@ -47,6 +51,90 @@ def test_filter_session_catalog_query_and_limit() -> None:
     limited = filter_session_catalog(rows, limit=1)
     assert len(limited["sessions"]) == 1
     assert limited["matched"] == 2
+
+
+def test_filter_session_catalog_offset_pages() -> None:
+    rows = [
+        {
+            "sessionId": "a",
+            "title": "Alpha",
+            "label": "",
+            "model": "grok",
+            "status": "complete",
+            "outcome": "",
+            "origin": "eval",
+        },
+        {
+            "sessionId": "b",
+            "title": "Beta",
+            "label": "",
+            "model": "grok",
+            "status": "complete",
+            "outcome": "",
+            "origin": "eval",
+        },
+        {
+            "sessionId": "c",
+            "title": "Gamma",
+            "label": "",
+            "model": "grok",
+            "status": "complete",
+            "outcome": "",
+            "origin": "eval",
+        },
+    ]
+    first = filter_session_catalog(rows, limit=2, offset=0)
+    assert [r["sessionId"] for r in first["sessions"]] == ["a", "b"]
+    assert first["matched"] == 3
+    second = filter_session_catalog(rows, limit=2, offset=2)
+    assert [r["sessionId"] for r in second["sessions"]] == ["c"]
+    assert second["matched"] == 3
+    past = filter_session_catalog(rows, limit=2, offset=9)
+    assert past["sessions"] == []
+    assert past["matched"] == 3
+
+
+def test_catalog_list_next_offset() -> None:
+    assert catalog_list_next_offset(0, 200, 200, 450) == 200
+    assert catalog_list_next_offset(200, 200, 200, 450) == 400
+    assert catalog_list_next_offset(400, 50, 200, 450) is None
+    assert catalog_list_next_offset(0, 200, 200, 200) is None
+    assert catalog_list_next_offset(200, 200, 200, 450, stalled=True) is None
+    assert catalog_list_next_offset(0, 0, 200, 10) is None
+
+
+def test_filter_session_catalog_query_ignores_path() -> None:
+    """Substring search must not match the filesystem path (``~/.grok/sessions``)."""
+    rows = [
+        {
+            "sessionId": "019abc",
+            "path": "/home/ali/.grok/sessions/019abc",
+            "title": "Fix the palette",
+            "label": "",
+            "model": "other",
+            "status": "complete",
+            "outcome": "success",
+            "origin": "host",
+        },
+        {
+            "sessionId": "work-1",
+            "path": "/tmp/work/runs/traces/work-1",
+            "title": "Review",
+            "label": "",
+            "model": "other",
+            "status": "running",
+            "outcome": "",
+            "origin": "work",
+        },
+    ]
+    by_path = filter_session_catalog(rows, query=".grok/sessions")
+    assert by_path["matched"] == 0
+    by_title = filter_session_catalog(rows, query="palette")
+    assert by_title["matched"] == 1
+    assert by_title["sessions"][0]["sessionId"] == "019abc"
+    by_id = filter_session_catalog(rows, query="019abc")
+    assert by_id["matched"] == 1
+    assert by_id["sessions"][0]["sessionId"] == "019abc"
 
 
 def test_local_access_list_and_missing_session(tmp_path: Path) -> None:

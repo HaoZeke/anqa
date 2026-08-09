@@ -62,6 +62,10 @@ def test_filter_session_catalog_query_and_limit() -> None:
     assert limited["matched"] == 2
     assert len(limited["sessions"]) == 1
 
+    paged = filter_session_catalog(_catalog(), limit=1, offset=1)
+    assert paged["matched"] == 2
+    assert paged["sessions"][0]["sessionId"] == "beta-host"
+
 
 async def _request(
     reader: asyncio.StreamReader,
@@ -215,6 +219,10 @@ async def test_control_server_session_list_rejects_bad_limit() -> None:
         ok = await _request(reader, writer, 2, "session/list", {"limit": 1})
         assert len(ok["result"]["sessions"]) == 1
         assert ok["result"]["matched"] == 2
+
+        page2 = await _request(reader, writer, 3, "session/list", {"limit": 1, "offset": 1})
+        assert page2["result"]["sessions"][0]["sessionId"] == "beta-host"
+        assert page2["result"]["matched"] == 2
 
         writer.close()
         await writer.wait_closed()

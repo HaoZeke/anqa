@@ -15,9 +15,9 @@ pub fn default_hotkey() -> HotKey {
 
 pub fn default_shortcut_label() -> &'static str {
     if cfg!(target_os = "macos") {
-        "⌘⇧G"
+        "Cmd+Shift+G"
     } else {
-        "Ctrl⇧G"
+        "Ctrl+Shift+G"
     }
 }
 
@@ -194,40 +194,31 @@ fn digit_code(c: char) -> Result<Code, String> {
 
 fn format_label(mods: Modifiers, key: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if cfg!(target_os = "macos") {
-        if mods.contains(Modifiers::CONTROL) {
-            parts.push("⌃".into());
-        }
-        if mods.contains(Modifiers::ALT) {
-            parts.push("⌥".into());
-        }
-        if mods.contains(Modifiers::SHIFT) {
-            parts.push("⇧".into());
-        }
-        if mods.contains(Modifiers::SUPER) {
-            parts.push("⌘".into());
-        }
-    } else {
-        if mods.contains(Modifiers::CONTROL) {
-            parts.push("Ctrl".into());
-        }
-        if mods.contains(Modifiers::ALT) {
-            parts.push("Alt".into());
-        }
-        if mods.contains(Modifiers::SHIFT) {
-            parts.push("⇧".into());
-        }
-        if mods.contains(Modifiers::SUPER) {
+    if mods.contains(Modifiers::CONTROL) {
+        parts.push("Ctrl".into());
+    }
+    if mods.contains(Modifiers::ALT) {
+        parts.push("Alt".into());
+    }
+    if mods.contains(Modifiers::SUPER) {
+        if cfg!(target_os = "macos") {
+            parts.push("Cmd".into());
+        } else {
             parts.push("Super".into());
         }
+    }
+    if mods.contains(Modifiers::SHIFT) {
+        parts.push("Shift".into());
     }
     let key_label = match key.to_ascii_lowercase().as_str() {
         "space" => "Space".to_string(),
         "escape" | "esc" => "Esc".to_string(),
         "enter" | "return" => "Enter".to_string(),
+        "tab" => "Tab".to_string(),
         other => other.to_ascii_uppercase(),
     };
-    format!("{}{}", parts.join(""), key_label)
+    parts.push(key_label);
+    parts.join("+")
 }
 
 #[cfg(test)]
@@ -238,12 +229,29 @@ mod tests {
     fn parse_cmd_shift_g() {
         let (_sc, label) = parse_shortcut("Cmd+Shift+G").unwrap();
         assert!(label.contains('G'));
+        assert!(label.is_ascii());
+        if cfg!(target_os = "macos") {
+            assert_eq!(label, "Cmd+Shift+G");
+        } else {
+            assert_eq!(label, "Super+Shift+G");
+        }
     }
 
     #[test]
     fn parse_control_shift_space() {
         let (_sc, label) = parse_shortcut("Control+Shift+Space").unwrap();
-        assert!(label.to_ascii_lowercase().contains("space") || label.contains("Space"));
+        assert_eq!(label, "Ctrl+Shift+Space");
+    }
+
+    #[test]
+    fn default_label_is_words_not_glyphs() {
+        let label = default_shortcut_label();
+        assert!(label.is_ascii());
+        if cfg!(target_os = "macos") {
+            assert_eq!(label, "Cmd+Shift+G");
+        } else {
+            assert_eq!(label, "Ctrl+Shift+G");
+        }
     }
 
     #[test]

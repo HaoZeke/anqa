@@ -146,12 +146,49 @@ async def test_control_client_session_list_beyond_default_stream_limit(
     await server.start()
     try:
         client = client_mod.ControlClient(sock, client_name="tui-attach", timeout=30.0)
-        # Same shape as TraceEvalApp._fetch_control_session_list_sync (limit 500).
         listed = await client.session_list(limit=500)
         assert listed["matched"] == 280
         assert len(listed["sessions"]) == 280
         assert listed["sessions"][0]["sessionId"].startswith("sess-0000-")
         assert listed["sessions"][-1]["sessionId"].startswith("sess-0279-")
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_client_session_list_all_drains_pages(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    client_mod = import_module("groket.integrations.control_client")
+    catalog = [
+        {
+            "sessionId": f"s{i}",
+            "path": str(tmp_path / f"s{i}"),
+            "title": f"Title {i}",
+            "label": "",
+            "model": "grok",
+            "status": "complete",
+            "outcome": "success",
+            "origin": "work",
+        }
+        for i in range(5)
+    ]
+    sock = _short_sock("paged.sock")
+    server = control.ControlServer(socket_path=sock, list_sessions=lambda: catalog)
+    await server.start()
+    try:
+        client = client_mod.ControlClient(sock, client_name="drain")
+        listed = await client.session_list_all(page=2)
+        assert listed["matched"] == 5
+        assert listed["total"] == 5
+        assert [row["sessionId"] for row in listed["sessions"]] == [
+            "s0",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+        ]
+        first = await client.session_list(limit=2)
+        assert [row["sessionId"] for row in first["sessions"]] == ["s0", "s1"]
     finally:
         await server.close()
 

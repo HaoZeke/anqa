@@ -291,7 +291,7 @@ def launch_tauri_hud(
         env.update(extra_env)
 
     attach = bool(foreground) if foreground is not None else _truthy_env("GROKET_HUD_FOREGROUND")
-    chord_hint = env.get("GROKET_HUD_SHORTCUT", "").strip() or "⌘⇧G / Ctrl+Shift+G"
+    chord_hint = env.get("GROKET_HUD_SHORTCUT", "").strip() or "Cmd+Shift+G / Ctrl+Shift+G"
 
     if restart:
         n = stop_hud_processes()
@@ -306,6 +306,8 @@ def launch_tauri_hud(
 
     logger.info("launching HUD binary %s (foreground=%s)", binary, attach)
     sys.stderr.write(f"groket hud: {binary}\n")
+    hud_log = Path.home() / ".groket" / "hud.log"
+    sys.stderr.write(f"groket hud: errors → {hud_log}\n")
     if env.get("GROKET_HUD_SHORTCUT"):
         sys.stderr.write(f"groket hud: GROKET_HUD_SHORTCUT={env['GROKET_HUD_SHORTCUT']}\n")
     sys.stderr.flush()
@@ -331,7 +333,7 @@ def launch_tauri_hud(
         sys.stderr.write(f"error: could not launch {binary}: {exc}\n")
         return 1
     sys.stderr.write(
-        f"groket hud: background pid {child.pid} (summon: {chord_hint}; not in Dock or ⌘Tab)\n"
+        f"groket hud: background pid {child.pid} (summon: {chord_hint}; not in Dock or Cmd+Tab)\n"
     )
     return 0
 

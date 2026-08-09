@@ -2997,3 +2997,27 @@ def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     assert meta.title == "Hello"
     assert meta.num_messages == 9
     assert meta.num_events == 9  # proxy from messages
+
+
+def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
+    """Host catalog rows must expose the same turn status as a full meta load."""
+    from groket.parser import load_session_meta, load_session_meta_list
+
+    sd = tmp_path / "host-live"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"session_id":"host-live","generated_title":"Live host","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text(
+        json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    listed = load_session_meta_list(sd, origin="host")
+    full = load_session_meta(sd, include_timeline_count=False)
+    assert listed.origin == "host"
+    assert listed.list_status_label() == "complete"
+    assert listed.list_status_label() == full.list_status_label()

@@ -75,6 +75,56 @@ def test_catalog_cache_single_flight(tmp_path: Path) -> None:
     assert results == [8, 8, 8, 8]
 
 
+def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
+    """Watch callback patches the dirty session instead of a full catalog scan."""
+    from groket.integrations.daemon import apply_fs_catalog_events
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    _write_sess(traces, "two", "Two")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    (one / "events.jsonl").write_text(
+        json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    sessions, notes = apply_fs_catalog_events(cache, [str(one / "events.jsonl")], [traces])
+    assert one.resolve() in [p.resolve() for p in sessions]
+    assert notes == []
+    by_id = {str(r["sessionId"]): r for r in cache.get()}
+    assert by_id["one"]["status"] == "complete"
+
+
+def test_catalog_cache_refresh_rows_updates_one_status(tmp_path: Path) -> None:
+    """FS watch must patch the dirty session instead of rescanning the tree."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    _write_sess(traces, "two", "Two")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    first = cache.get(force=True)
+    by_id = {str(r["sessionId"]): r for r in first}
+    assert "one" in by_id
+    (one / "events.jsonl").write_text(
+        json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    updated = cache.refresh_rows([one])
+    by_id = {str(r["sessionId"]): r for r in updated}
+    assert by_id["one"]["status"] == "complete"
+    assert by_id["two"]["sessionId"] == "two"
+    assert len(updated) == 2
+    cached = cache.get()
+    assert {str(r["sessionId"]): r["status"] for r in cached}["one"] == "complete"
+
+
 def test_session_meta_from_catalog_row_status() -> None:
     meta = session_meta_from_catalog_row(
         {

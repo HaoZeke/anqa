@@ -6,6 +6,7 @@ pub mod control;
 pub mod format;
 pub mod fuzzy;
 pub mod live;
+pub mod log;
 pub mod macoswin;
 pub mod model;
 pub mod place;

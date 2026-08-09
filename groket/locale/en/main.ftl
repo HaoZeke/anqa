@@ -1022,7 +1022,7 @@ tip-blm-models = `space` mark models · none marked = each recipe's saved models
 
 tip-findings-row = Select a row to focus the matching timeline events
 
-tip-mcp-pick = Search; `s` / `space` select · `r` registry · `l` local · `ctrl+s` done
+tip-mcp-pick = Search; `s` / `space` select · `r` registry · `l` local · `Ctrl+S` done
 
 tip-no-analysis = No analysis yet — run analysis with `a` on the sessions list
 
@@ -1030,9 +1030,9 @@ tip-no-flags = No flags yet — select a Timeline event, then press `f`
 
 tip-no-personas = No personas — press `n` to create one.
 
-tip-persona-editor = `[` `]` panes · `1`–`6` jump · `ctrl+s` save · `esc` cancel
+tip-persona-editor = `[` `]` panes · `1`–`6` jump · `Ctrl+S` save · `Esc` cancel
 
-tip-plugins-pick = `s` / `space` select · ↑↓ detail · `ctrl+s` done · `esc` cancel
+tip-plugins-pick = `s` / `space` select · `Up` / `Down` detail · `Ctrl+S` done · `Esc` cancel
 
 tip-rc-has-marked = `w` launches the marked recipes
 
@@ -1040,13 +1040,13 @@ tip-rc-none-marked = `s` / `space` mark rows · `S` all/none · `w` runs marked 
 
 tip-report-filter = Use Filter above (same as Timeline) — All, Flags, or one plugin
 
-tip-runner-models = `space` toggle models · `f5` refresh catalog
+tip-runner-models = `space` toggle models · `F5` refresh catalog
 
-tip-runner-toolbar = `ctrl+enter` / `ctrl+j` launch · `ctrl+s` save · `[` `]` panes · `j` jobs · `p` personas · `esc` back
+tip-runner-toolbar = `Ctrl+Enter` / `Ctrl+J` launch · `Ctrl+S` save · `[` `]` panes · `j` jobs · `p` personas · `Esc` back
 
 tip-share-url = Press `s` to open the share URL
 
-tip-skills-pick = `s` / `space` select · `ctrl+s` done · `esc` cancel
+tip-skills-pick = `s` / `space` select · `Ctrl+S` done · `Esc` cancel
 
 tips-off = Tips & callouts: off (hidden)
 
@@ -1246,7 +1246,7 @@ ui-create-companion-skill = Create companion skill
 
 ui-created = Created
 
-ui-ctrl-t-self-test = ctrl+t self-test
+ui-ctrl-t-self-test = Ctrl+T self-test
 
 ui-danger = danger
 
@@ -2673,6 +2673,7 @@ tool-empty-output = (empty)
 notify-scanning = Scanning { $path }…
 notify-no-sessions = No sessions found in { $path }
 notify-control-list-failed = Control catalog failed: { $err }
+notify-control-session-failed = Control session load failed: { $err }
 notify-loaded-sessions = Loaded { $n } sessions
 notify-analyzing = Analyzing { $n } sessions ({ $plugins } plugins)…
 notify-analysis-complete = Analysis complete — { $n } sessions

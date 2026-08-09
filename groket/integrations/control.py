@@ -141,6 +141,7 @@ def _rpc_params_summary(params: JsonObject) -> str:
     bits: list[str] = []
     for key in (
         "session",
+        "sessionId",
         "query",
         "limit",
         "offset",
@@ -550,6 +551,8 @@ class ControlServer:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        peer = id(writer)
+        logger.debug("control client connect id=%s", peer)
         try:
             while not reader.at_eof():
                 try:
@@ -574,14 +577,19 @@ class ControlServer:
                 if len(message) > MAX_MESSAGE_BYTES:
                     await self._send_error(writer, None, -32600, "message exceeds size limit")
                     break
-                # Broadcast only once the client's framing is known; a
-                # notification sent earlier would use a framing the peer may
-                # not speak and desynchronize it permanently.
-                self._writers.add(writer)
+                # Framing is known. Add to the broadcast set only after this
+                # request finishes so a slow one-shot (HUD session/timeline)
+                # does not read session/changed as its JSON-RPC result.
                 await self._handle_line(message, writer)
+                self._writers.add(writer)
         finally:
             self._writers.discard(writer)
             self._writer_framing.pop(writer, None)
+            logger.debug(
+                "control client disconnect id=%s remaining_writers=%s",
+                peer,
+                len(self._writers),
+            )
             writer.close()
             try:
                 await writer.wait_closed()
@@ -790,6 +798,7 @@ class ControlServer:
                     access.list_sessions,
                     query=json_as_str(params.get("query")),
                     limit=_optional_int_param(params.get("limit"), name="limit"),
+                    offset=_optional_int_param(params.get("offset"), name="offset") or 0,
                 )
         if method == "session/get":
             ref = self._session_ref(params)
@@ -936,7 +945,14 @@ class ControlServer:
         callers awaiting them.
         """
         message: JsonObject = {"jsonrpc": "2.0", "method": method, "params": params}
-        for writer in list(self._writers):
+        writers = list(self._writers)
+        logger.debug(
+            "control notify → method=%s writers=%s %s",
+            method,
+            len(writers),
+            _rpc_params_summary(params),
+        )
+        for writer in writers:
             try:
                 await asyncio.wait_for(self._send(writer, message), timeout=NOTIFY_TIMEOUT_SECONDS)
             except (TimeoutError, ConnectionError, OSError):

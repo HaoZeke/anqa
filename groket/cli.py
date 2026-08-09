@@ -242,8 +242,8 @@ def cmd_hud(
 ) -> None:
     """Desktop session palette (control client).
 
-    Starts in the background by default (macOS: no Dock, no ⌘Tab). Summon with
-    ⌘⇧G. Launches the iced ``groket-hud`` binary (rebuilds from an editable
+    Starts in the background by default (macOS: no Dock, no Cmd+Tab). Summon with
+    Cmd+Shift+G. Launches the iced ``groket-hud`` binary (rebuilds from an editable)
     checkout when missing or stale). ``--debug`` for unoptimized; ``--dev``
     cargo run; ``--restart`` replaces a running HUD.
     """
