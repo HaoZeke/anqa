@@ -1,4 +1,4 @@
-"""Desktop HUD: launches the Tauri session palette against the control plane."""
+"""Desktop HUD: launches the iced session palette against the control plane."""
 
 from __future__ import annotations
 

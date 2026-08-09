@@ -19,14 +19,14 @@ make install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
 groket              # interactive TUI (or: uv run groket)
 make test           # pytest (default unit suite; no Docker daemon)
 make lint           # ruff + mypy + fluent/typing policy scripts
-make ci             # lint + schema-check + test  (matches GitHub Actions)
+make ci             # lint + schema-check + hud-check + test  (matches GitHub Actions)
 ```
 
 | CLI | Role |
 |-----|------|
 | ``groket`` / ``groket tui`` / ``groket PATH`` | Interactive TUI (control client) |
 | ``groket serve`` | Control owner (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
-| ``groket hud`` | Desktop palette (Tauri; control client) |
+| ``groket hud`` | Desktop palette (iced; control client) |
 | ``groket doctor`` | Host checks (Docker, Grok auth, paths) — no TUI |
 | ``groket editor …`` | Packaged Emacs / Neovim client paths |
 | ``groket gen …`` | Scaffold under ``~/.groket/`` (detector, rule, plugin, tasks) |
@@ -150,9 +150,9 @@ groket/
   notes.py               # configurable operator notes (TOML schema + session store)
   integrations/          # control Unix JSON-RPC, daemon (``groket serve``),
                          #   ControlClient, emacs/vim packages
-  hud/                   # launches Tauri palette binary
+  hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
-# Sibling: groket-hud/     # Tauri Sol-style palette (not part of Python package)
+# Sibling: groket-hud/     # iced Sol-style palette (not part of Python package)
   diagnostics/           # host self-test
   analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
   engine/                # detectors, rules loader, runner, rule_schema
@@ -317,7 +317,10 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``make schema`` | Regenerate ``schemas/*.schema.json`` |
 | ``make schema-check`` | Fail if schemas drift |
 | ``make examples-check`` | Validate ``examples/`` packs (hard contract) |
-| ``make ci`` | ``lint`` + ``schema-check`` + ``examples-check`` + ``test`` |
+| ``make ci`` | ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
+| ``make hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
+| ``make hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed) |
+| ``make brand`` | Rebuild ``brand/anqa`` from ``source/approved.jpg`` (``uv`` ``brand`` group) |
 | ``make clean`` | caches / build artefacts |
 
 Published schemas (also under ``schemas/``; GitHub Pages via

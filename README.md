@@ -177,35 +177,37 @@ Quitting the TUI does **not** stop the control owner.
 | `analysis/status` | Poll job state (`idle` / `running` / `done` / `error`) |
 | notifications | `session/selected`, `session/changed`, `notes/changed`, `analysis/changed` |
 
-**Desktop HUD** (Sol-style palette — Tauri)
+**Desktop HUD** (Sol-style palette — iced)
 
 ```bash
-groket serve -d               # or rely on client auto-start
-groket hud                    # cargo build --release if missing/stale
-groket hud --debug            # unoptimized cargo debug binary
-groket hud --dev              # npm run dev (hot reload)
-groket hud --rebuild          # force cargo build for selected profile
-# First time only if needed: cd groket-hud && npm install
+uv run groket serve -d        # or rely on client auto-start
+uv run groket hud             # auto-builds iced release binary if stale
+uv run groket hud --restart   # replace the running HUD
+uv run groket hud --rebuild   # force cargo rebuild then start
+uv run groket hud --dev       # cargo run (debug)
+uv run groket hud --debug     # unoptimized binary
 # Override binary: GROKET_HUD_BIN=/path/to/groket-hud
 ```
 
-**Linux build deps** (Tauri WebKitGTK; once per machine — not shipped by the
+**Linux build deps** (iced graphics; once per machine — not shipped by the
 Python package)::
 
 ```bash
-sudo apt install libwebkit2gtk-4.1-dev \
-  libjavascriptcoregtk-4.1-dev \
-  libsoup-3.0-dev
+sudo apt install libxkbcommon-dev libwayland-dev pkg-config
 ```
 
 See ``groket-hud/README.md`` for the full prerequisite list.
 
-Floating, frameless, always-on-top command palette (search sessions, detail
-pane). While the palette is open, a **live poll** re-reads overview and the
-timeline tail for running/awaiting turns (~2s) so a mid-turn Timeline tab
-updates without reopening the HUD. ``groket hud`` **detaches** like Sol
-(background agent); on macOS it uses accessory activation so it is **not** in
-the Dock or **⌘Tab**. Default hotkey **⌘⇧G** (macOS) / **Ctrl+Shift+G**
+Floating, frameless, always-on-top command palette (search sessions; overview,
+turns, timeline, findings, notes). Launch is always the overlay; the pop-out icon in the
+search bar opens a decorated desktop window. Close that window to keep the
+HUD process running; the summon hotkey brings the overlay back. Create, edit,
+and delete operator notes the
+same way as the TUI. While the palette is open, a **live poll** re-reads
+overview and the timeline tail for running/awaiting turns (~2s) so a mid-turn
+Timeline tab updates without reopening the HUD. The HUD does not start evals,
+recipes, or Docker. ``groket hud`` **detaches** like Sol
+(background agent); on macOS it is **not** in the Dock or **⌘Tab** when accessory policy applies. Default hotkey **⌘⇧G** (macOS) / **Ctrl+Shift+G**
 (Linux/Windows); override in ``~/.groket/config.json``::
 
 ```json

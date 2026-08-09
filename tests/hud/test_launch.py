@@ -1,4 +1,4 @@
-"""Locate / stale-detect Tauri HUD binary (no GUI, no cargo)."""
+"""Locate / stale-detect iced HUD binary (no GUI, no cargo)."""
 
 from __future__ import annotations
 
@@ -15,46 +15,44 @@ from groket.hud.launch import (
 )
 
 
+class _Proc:
+    def __init__(self, returncode: int = 0) -> None:
+        self.returncode = returncode
+
+
 def test_find_hud_binary_release_or_none() -> None:
-    """When the Tauri release binary is built, it is discoverable."""
+    """When the release binary is built, it is discoverable."""
     found = find_hud_binary()
     release = (
-        Path(__file__).resolve().parents[2]
-        / "groket-hud"
-        / "src-tauri"
-        / "target"
-        / "release"
-        / "groket-hud"
+        Path(__file__).resolve().parents[2] / "groket-hud" / "target" / "release" / "groket-hud"
     )
     if release.is_file():
         assert found is not None
         assert found.name == "groket-hud"
         assert found.is_file()
     else:
-        # CI without a Rust build: acceptable absence.
         assert found is None or found.is_file()
 
 
 def test_hud_checkout_dir_in_repo() -> None:
     checkout = hud_checkout_dir()
     assert checkout is not None
-    assert (checkout / "src-tauri" / "Cargo.toml").is_file()
+    assert (checkout / "Cargo.toml").is_file()
+    assert (checkout / "src" / "main.rs").is_file()
 
 
 def test_hud_binary_is_stale_when_source_newer(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
-    src = checkout / "src-tauri" / "src"
+    src = checkout / "src"
     src.mkdir(parents=True)
-    (src / "lib.rs").write_text("// old\n", encoding="utf-8")
-    binary = checkout / "src-tauri" / "target" / "debug" / "groket-hud"
+    (src / "main.rs").write_text("// old\n", encoding="utf-8")
+    binary = checkout / "target" / "debug" / "groket-hud"
     binary.parent.mkdir(parents=True)
     binary.write_text("bin", encoding="utf-8")
     binary.chmod(0o755)
-    # Source newer than binary
     time.sleep(0.05)
-    (src / "lib.rs").write_text("// new\n", encoding="utf-8")
+    (src / "main.rs").write_text("// new\n", encoding="utf-8")
     assert hud_binary_is_stale(binary, checkout) is True
-    # Touch binary so it is fresher
     time.sleep(0.05)
     binary.write_text("bin2", encoding="utf-8")
     assert hud_binary_is_stale(binary, checkout) is False
@@ -62,11 +60,11 @@ def test_hud_binary_is_stale_when_source_newer(tmp_path: Path) -> None:
 
 def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
-    src = checkout / "src-tauri" / "src"
+    src = checkout / "src"
     src.mkdir(parents=True)
-    (checkout / "src-tauri" / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
-    (src / "lib.rs").write_text("x", encoding="utf-8")
-    built = checkout / "src-tauri" / "target" / "release" / "groket-hud"
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (src / "main.rs").write_text("x", encoding="utf-8")
+    built = checkout / "target" / "release" / "groket-hud"
     built.parent.mkdir(parents=True)
 
     def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
@@ -89,11 +87,11 @@ def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
 
 def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
-    src = checkout / "src-tauri" / "src"
+    src = checkout / "src"
     src.mkdir(parents=True)
-    (checkout / "src-tauri" / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
-    (src / "lib.rs").write_text("x", encoding="utf-8")
-    built = checkout / "src-tauri" / "target" / "debug" / "groket-hud"
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (src / "main.rs").write_text("x", encoding="utf-8")
+    built = checkout / "target" / "debug" / "groket-hud"
     built.parent.mkdir(parents=True)
 
     def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
@@ -204,3 +202,49 @@ def test_launch_tauri_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
     assert code == 0
     mock_stop.assert_called_once()
     mock_popen.assert_called_once()
+
+
+def test_launch_hud_dev_runs_cargo(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    checkout.mkdir()
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (checkout / "src").mkdir()
+    (checkout / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+    sock = tmp_path / "c.sock"
+    with (
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_hud_shortcut_env", return_value={}),
+        patch.object(launch_mod.shutil, "which", return_value="/usr/bin/cargo"),
+        patch.object(launch_mod.subprocess, "run", return_value=_Proc(0)) as mock_run,
+    ):
+        code = launch_mod.launch_hud_dev(socket_path=sock)
+    assert code == 0
+    mock_run.assert_called_once()
+    cmd = mock_run.call_args.args[0]
+    assert cmd[0] == "/usr/bin/cargo"
+    assert cmd[1:3] == ["run", "--manifest-path"]
+    env = mock_run.call_args.kwargs["env"]
+    assert env["GROKET_CONTROL_SOCKET"] == str(sock)
+
+
+def test_build_hud_runs_cargo_only(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src"
+    src.mkdir(parents=True)
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    binary = checkout / "target" / "release" / "groket-hud"
+    binary.parent.mkdir(parents=True)
+
+    def fake_cargo(cmd: list[str], **kwargs: object) -> _Proc:
+        del kwargs
+        assert "cargo" in cmd[0]
+        binary.write_text("bin", encoding="utf-8")
+        binary.chmod(0o755)
+        return _Proc(0)
+
+    with (
+        patch.object(launch_mod.shutil, "which", return_value="/usr/bin/cargo"),
+        patch.object(launch_mod.subprocess, "run", side_effect=fake_cargo),
+    ):
+        out = launch_mod.build_hud(checkout, debug=False)
+    assert out == binary

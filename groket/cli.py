@@ -208,7 +208,7 @@ def cmd_hud(
         bool,
         typer.Option(
             "--dev",
-            help="Run tauri dev (hot reload) in the checkout instead of a built binary.",
+            help="Run cargo run (debug) in the checkout instead of a built binary.",
         ),
     ] = False,
     debug: Annotated[
@@ -222,7 +222,7 @@ def cmd_hud(
         bool,
         typer.Option(
             "--rebuild",
-            help="Force cargo build for the selected profile before launch.",
+            help="Force Rust rebuild for the selected profile before launch.",
         ),
     ] = False,
     foreground: Annotated[
@@ -243,9 +243,9 @@ def cmd_hud(
     """Desktop session palette (control client).
 
     Starts in the background by default (macOS: no Dock, no ⌘Tab). Summon with
-    ⌘⇧G. Missing/stale binaries rebuild with ``cargo build --release`` from an
-    editable checkout. ``--debug`` for unoptimized; ``--dev`` hot reload;
-    ``--restart`` replaces a running HUD.
+    ⌘⇧G. Launches the iced ``groket-hud`` binary (rebuilds from an editable
+    checkout when missing or stale). ``--debug`` for unoptimized; ``--dev``
+    cargo run; ``--restart`` replaces a running HUD.
     """
     from .hud.app import run_hud
     from .integrations.control import default_socket_path

@@ -29,6 +29,17 @@ jobs:
         run: make lint
       - name: Tasks / rules JSON Schema drift
         run: make schema-check
+      - name: HUD theme map + Rust tests
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: HUD system libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
+      - run: make hud-check
       - name: Examples contract
         run: make examples-check
 

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .. import event_types as et
 from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent, as_json_object
-from ..notes import notes_snapshot
+from ..notes import load_schema, notes_snapshot
 from ..parser import (
     load_session_meta,
     parse_timeline,
@@ -290,9 +290,33 @@ def _turn_user_prompt_preview(
     return "", None
 
 
+def _turn_assistant_preview(
+    seg: TurnSegment,
+    *,
+    max_chars: int = 800,
+) -> tuple[str, int | None]:
+    """Last non-empty assistant message in *seg* (the turn wrap-up)."""
+    last_text = ""
+    last_idx: int | None = None
+    for event in seg.events:
+        if event.event_type not in et.AGENT_TYPES:
+            continue
+        raw = unwrap_for_display(event.content or "").strip()
+        if not raw:
+            continue
+        last_text = raw
+        last_idx = int(event.index)
+    if not last_text:
+        return "", None
+    if len(last_text) > max_chars:
+        last_text = last_text[: max_chars - 1] + "…"
+    return last_text, last_idx
+
+
 def turn_segment_mapping(seg: TurnSegment, *, include_event_indexes: bool = True) -> JsonObject:
     """Serialize one turn segment for ``session/turns`` / overview turns."""
     summary, user_index = _turn_user_prompt_preview(seg)
+    assistant, assistant_index = _turn_assistant_preview(seg)
     row: JsonObject = {
         "turnIndex": int(seg.turn_index),
         "turnNumber": seg.turn_number,
@@ -302,6 +326,8 @@ def turn_segment_mapping(seg: TurnSegment, *, include_event_indexes: bool = True
         "label": seg.label,
         "summary": summary,
         "userEventIndex": user_index,
+        "assistantSummary": assistant,
+        "assistantEventIndex": assistant_index,
         "eventCount": int(seg.event_count),
         "toolCallCount": int(seg.tool_call_count),
         "toolErrorCount": int(seg.tool_error_count),
@@ -643,8 +669,26 @@ def _build_session_overview_uncached(
             "revision": notes_rev,
             "count": notes_count,
             "notes": notes_rows,
+            "schema": _notes_schema_mapping(),
         },
         "findings": findings_block,
+    }
+
+
+def _notes_schema_mapping() -> JsonObject:
+    """Operator notes schema for HUD/TUI forms (same shape as notes/list)."""
+    schema = load_schema()
+    return {
+        "id": schema.schema_id,
+        "fields": [
+            {
+                "id": field.id,
+                "label": field.label or field.id,
+                "choices": list(field.choices),
+                "pick": field.pick,
+            }
+            for field in schema.fields
+        ],
     }
 
 

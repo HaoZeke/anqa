@@ -1,4 +1,4 @@
-"""Locate, auto-build, and launch the Tauri groket-hud binary."""
+"""Locate, auto-build, and launch the iced groket-hud binary."""
 
 from __future__ import annotations
 
@@ -14,13 +14,9 @@ logger = logging.getLogger(__name__)
 
 _SOURCE_GLOBS = (
     "src/**/*",
-    "src-tauri/src/**/*",
-    "src-tauri/Cargo.toml",
-    "src-tauri/Cargo.lock",
-    "src-tauri/tauri.conf.json",
-    "src-tauri/build.rs",
-    "package.json",
-    "package-lock.json",
+    "assets/**/*",
+    "Cargo.toml",
+    "Cargo.lock",
 )
 
 
@@ -30,19 +26,19 @@ def _repo_root() -> Path:
 
 
 def hud_checkout_dir() -> Path | None:
-    """Return the ``groket-hud`` package dir in an editable checkout, if present."""
+    """Return the ``groket-hud`` crate dir in an editable checkout, if present."""
     cand = _repo_root() / "groket-hud"
-    if (cand / "src-tauri" / "Cargo.toml").is_file():
+    if (cand / "Cargo.toml").is_file() and (cand / "src" / "main.rs").is_file():
         return cand
     return None
 
 
 def _debug_binary(checkout: Path) -> Path:
-    return checkout / "src-tauri" / "target" / "debug" / "groket-hud"
+    return checkout / "target" / "debug" / "groket-hud"
 
 
 def _release_binary(checkout: Path) -> Path:
-    return checkout / "src-tauri" / "target" / "release" / "groket-hud"
+    return checkout / "target" / "release" / "groket-hud"
 
 
 def find_hud_binary(*, debug: bool = False) -> Path | None:
@@ -97,7 +93,7 @@ def hud_binary_is_stale(binary: Path, checkout: Path) -> bool:
 def build_hud(checkout: Path | None = None, *, debug: bool = False) -> Path | None:
     """Build ``groket-hud`` with cargo; **release** by default, debug when *debug*.
 
-    :param checkout: ``groket-hud`` package root (editable checkout).
+    :param checkout: ``groket-hud`` crate root (editable checkout).
     :param debug: When True, ``cargo build`` (unoptimized). When False (default),
         ``cargo build --release``.
     :returns: Path to the built binary, or None when cargo is missing / build fails.
@@ -109,19 +105,14 @@ def build_hud(checkout: Path | None = None, *, debug: bool = False) -> Path | No
     if cargo is None:
         sys.stderr.write("error: cargo not found on PATH; install Rust to auto-build groket-hud\n")
         return None
-    tauri_dir = root / "src-tauri"
-    cmd = [cargo, "build", "--manifest-path", str(tauri_dir / "Cargo.toml")]
+    cmd = [cargo, "build", "--manifest-path", str(root / "Cargo.toml")]
     if not debug:
         cmd.append("--release")
     profile = "debug" if debug else "release"
     sys.stderr.write(f"groket hud: building {profile} groket-hud ({' '.join(cmd[1:])})…\n")
     sys.stderr.flush()
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(tauri_dir),
-            check=False,
-        )
+        proc = subprocess.run(cmd, cwd=str(root), check=False)
     except OSError as exc:
         sys.stderr.write(f"error: cargo build failed to start: {exc}\n")
         return None
@@ -159,8 +150,6 @@ def ensure_hud_binary(*, rebuild: bool = False, debug: bool = False) -> Path | N
     if checkout is None:
         return find_hud_binary(debug=debug)
 
-    # Editable checkout: always use the profile binary under this tree so
-    # dogfood rebuilds release (or debug) rather than a random PATH hit.
     expected = _debug_binary(checkout) if debug else _release_binary(checkout)
     found = expected if expected.is_file() and os.access(expected, os.X_OK) else None
     need_build = rebuild or found is None or hud_binary_is_stale(found, checkout)
@@ -171,39 +160,39 @@ def ensure_hud_binary(*, rebuild: bool = False, debug: bool = False) -> Path | N
     return built or found
 
 
-def launch_tauri_dev(
+def launch_hud_dev(
     *,
     socket_path: Path,
     extra_env: dict[str, str] | None = None,
 ) -> int:
-    """Run ``npm run dev`` / ``tauri dev`` in the checkout (hot reload).
+    """Run ``groket hud --dev`` (``cargo run`` debug) in the checkout.
 
-    :returns: Process exit code, or 127 when the checkout or npm is unavailable.
+    :returns: Process exit code, or 127 when the checkout or cargo is unavailable.
     """
     checkout = hud_checkout_dir()
     if checkout is None:
         sys.stderr.write("error: groket-hud checkout not found (editable install only)\n")
         return 127
-    npm = shutil.which("npm")
-    if npm is None:
-        sys.stderr.write("error: npm not found on PATH (needed for groket hud --dev)\n")
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        sys.stderr.write("error: cargo not found on PATH\n")
         return 127
     env = os.environ.copy()
     env["GROKET_CONTROL_SOCKET"] = str(socket_path)
     env.update(_hud_shortcut_env())
     if extra_env:
         env.update(extra_env)
-    sys.stderr.write(f"groket hud: tauri dev in {checkout}\n")
+    sys.stderr.write(f"groket hud: cargo run (debug) in {checkout}\n")
     sys.stderr.flush()
     try:
         proc = subprocess.run(
-            [npm, "run", "dev"],
+            [cargo, "run", "--manifest-path", str(checkout / "Cargo.toml")],
             cwd=str(checkout),
             env=env,
             check=False,
         )
     except OSError as exc:
-        sys.stderr.write(f"error: could not start npm run dev: {exc}\n")
+        sys.stderr.write(f"error: could not start cargo run: {exc}\n")
         return 1
     return int(proc.returncode)
 
@@ -254,7 +243,6 @@ def stop_hud_processes(*, wait_s: float = 1.5) -> int:
     pids = [p for p in (listed.stdout or "").split() if p.isdigit()]
     if not pids:
         return 0
-    # Exact name only (-x): does not match the parent shell argv.
     subprocess.run(["kill"] + pids, check=False, capture_output=True)
     deadline = time.monotonic() + max(0.1, wait_s)
     while time.monotonic() < deadline and hud_process_running():
@@ -275,16 +263,14 @@ def launch_tauri_hud(
     foreground: bool | None = None,
     restart: bool = False,
 ) -> int:
-    """Launch the Tauri palette (built binary, or ``tauri dev`` when *dev*).
+    """Launch the iced palette (built binary, or ``cargo run`` when *dev*).
 
     When not *dev*, ensures a **release** binary for an editable checkout
     (auto ``cargo build --release`` if missing or sources are newer). Pass
     *debug* for an unoptimized ``cargo build`` binary instead.
 
-    By default the binary is **detached** (Sol-style agent): ``groket hud``
-    returns after spawn; the palette stays out of the Dock / ⌘Tab via macOS
-    accessory activation. Use *foreground* / ``GROKET_HUD_FOREGROUND=1`` to
-    attach the terminal to the process (useful for debugging).
+    By default the binary is **detached**. Use *foreground* /
+    ``GROKET_HUD_FOREGROUND=1`` to attach the terminal to the process.
 
     *restart* stops any existing ``groket-hud`` first, then starts a new one.
 
@@ -292,7 +278,7 @@ def launch_tauri_hud(
         or 127 if unavailable.
     """
     if dev or _truthy_env("GROKET_HUD_DEV"):
-        return launch_tauri_dev(socket_path=socket_path, extra_env=extra_env)
+        return launch_hud_dev(socket_path=socket_path, extra_env=extra_env)
 
     want_debug = bool(debug) or _truthy_env("GROKET_HUD_DEBUG")
     binary = ensure_hud_binary(rebuild=rebuild, debug=want_debug)
@@ -332,7 +318,6 @@ def launch_tauri_hud(
             return 1
         return int(proc.returncode)
 
-    # Detach: new session, no inherited stdio — agent stays until killed.
     try:
         child = subprocess.Popen(
             [str(binary)],
@@ -359,7 +344,7 @@ __all__ = [
     "hud_binary_is_stale",
     "hud_checkout_dir",
     "hud_process_running",
-    "launch_tauri_dev",
+    "launch_hud_dev",
     "launch_tauri_hud",
     "stop_hud_processes",
 ]

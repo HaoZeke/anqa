@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>anqa — identity guidelines 1.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Plus+Jakarta+Sans:wght@400;500;600;800&amp;display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --ink: #0B0D0C;
+    --cream: #F4EFE6;
+    --cyan: #11CBBD;
+    --gold: #F5A81A;
+    --pink: #F14764;
+    --teal: #0E6B64;
+    --line: rgba(11,13,12,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--cream); color: var(--ink);
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-weight: 400;
+    font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 64px 32px 120px; }
+  h1 { font-weight: 800; font-size: 56px; letter-spacing: -0.04em; line-height: 1; margin: 0 0 12px; }
+  h2 { font-weight: 800; font-size: 28px; letter-spacing: -0.03em; margin: 72px 0 16px; }
+  h3 { font-weight: 600; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; margin: 32px 0 12px; }
+  p { max-width: 68ch; }
+  .lede { font-size: 20px; font-weight: 500; max-width: 52ch; }
+  .meta { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; opacity: .7; }
+  .rule { border: 0; border-top: 1px solid var(--line); margin: 48px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 800px) { .grid2, .grid3, .grid4 { grid-template-columns: 1fr; } }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .card.dark { background: var(--ink); color: #fff; }
+  .card img, .card svg { display: block; width: 100%; height: auto; }
+  .swatch { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  .swatch .chip { height: 88px; }
+  .swatch .info { padding: 12px 14px; background: #fff; font-size: 13px; }
+  .swatch code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; opacity: .65; font-weight: 600; }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; }
+  .specimen { font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+  .clear { position: relative; display: inline-block; padding: 28px; outline: 1px dashed var(--pink); }
+  .dont { opacity: .85; }
+  .dont img { filter: grayscale(.15); }
+  footer { margin-top: 80px; font-size: 13px; opacity: .65; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="meta">anqa identity · version 1.1 · August 2026 · truck-art painting</p>
+<h1>anqa</h1>
+<p class="lede">Long-necked bird you almost never see. The mark is the approved Pakistani truck-art painting: black probe-neck, cyan eye, mango and rose wings, floral inlay. Use that file. Do not substitute a geometric redraw. Typeset the name in product chrome with Plus Jakarta Sans ExtraBold.</p>
+
+<hr class="rule"/>
+
+<h2>1. Primary lockups</h2>
+<p>Use the painted stacked lockup when there is room. Use the clean stacked or horizontal lockup (bird + typeset word) in dense chrome (README header, HUD about, site nav).</p>
+<div class="grid2">
+  <div class="card"><img src="png/anqa-lockup-stacked.png" alt="Stacked painted lockup"/><p class="meta">Stacked · painting · <span class="mono">png/anqa-lockup-stacked.png</span></p></div>
+  <div class="card"><img src="png/anqa-lockup-stacked-clean.png" alt="Stacked lockup clean"/><p class="meta">Stacked · typeset word · <span class="mono">png/anqa-lockup-stacked-clean.png</span></p></div>
+  <div class="card" style="grid-column:1/-1"><img src="png/anqa-lockup-horizontal.png" alt="Horizontal lockup"/><p class="meta">Horizontal · typeset word · <span class="mono">png/anqa-lockup-horizontal.png</span></p></div>
+</div>
+
+<h2>2. Mark only</h2>
+<p>The cyan eye is required. It is the identifier at small sizes. Never fill it with gold or pink. Duo and mono are remaps of the same painting (not a second drawing).</p>
+<div class="grid4">
+  <div class="card"><img src="png/anqa-mark.png" alt="Full colour mark"/><p class="meta">Colour</p></div>
+  <div class="card"><img src="png/anqa-mark-duo.png" alt="Ink and cyan mark"/><p class="meta">Duo · ink + cyan</p></div>
+  <div class="card"><img src="png/anqa-mark-mono.png" alt="Mono mark"/><p class="meta">Mono · eye knocks out</p></div>
+  <div class="card dark"><img src="png/anqa-mark-reverse.png" alt="Reverse mark"/><p class="meta">Reverse · on ink</p></div>
+</div>
+
+<h2>3. Wordmark</h2>
+<p>When the name is typeset (clean lockups, UI, docs) the letters are outlined Plus Jakarta Sans ExtraBold (weight 800), tracking <span class="mono">−40</span> (that is −0.04&nbsp;em). Do not substitute another face. The decorated letters in the painted stacked lockup are part of the artwork, not a font.</p>
+<div class="grid2">
+  <div class="card"><img src="png/anqa-wordmark.png" alt="Wordmark"/><p class="meta"><span class="mono">svg/anqa-wordmark.svg</span> · typeset</p></div>
+  <div class="card"><img src="png/anqa-wordmark-ornament.png" alt="Painted word"/><p class="meta"><span class="mono">png/anqa-wordmark-ornament.png</span> · from the painting</p></div>
+</div>
+
+<h2>4. App icon and favicon</h2>
+<div class="grid3">
+  <div class="card"><img src="png/anqa-app-icon-512.png" alt="Light app icon"/><p class="meta">Light dock / HUD · 1024 / 512 / 256</p></div>
+  <div class="card dark"><img src="png/anqa-app-icon-dark-1024.png" alt="Dark app icon"/><p class="meta">Dark dock</p></div>
+  <div class="card"><img src="png/anqa-favicon-64.png" alt="Favicon" style="width:64px"/><p class="meta">Favicon 64 / 32 / 16</p></div>
+</div>
+
+<h2>5. Colour</h2>
+<p>Sampled from the approved truck-art painting, then snapped to even hex. Screen uses hex / sRGB. Print uses the CMYK and Pantone approximations below — proof on paper before a run.</p>
+<div class="grid4">
+  <div class="swatch"><div class="chip" style="background:#0B0D0C"></div><div class="info"><strong>Ink</strong><br/><code>#0B0D0C</code><br/>RGB 11 13 12<br/>CMYK 70 60 60 90<br/>Pantone Black 6 C</div></div>
+  <div class="swatch"><div class="chip" style="background:#11CBBD"></div><div class="info"><strong>Cyan (eye)</strong><br/><code>#11CBBD</code><br/>RGB 17 203 189<br/>CMYK 70 0 35 0<br/>Pantone 3262 C</div></div>
+  <div class="swatch"><div class="chip" style="background:#F5A81A"></div><div class="info"><strong>Mango</strong><br/><code>#F5A81A</code><br/>RGB 245 168 26<br/>CMYK 0 35 95 0<br/>Pantone 1235 C</div></div>
+  <div class="swatch"><div class="chip" style="background:#F14764"></div><div class="info"><strong>Rose</strong><br/><code>#F14764</code><br/>RGB 241 71 100<br/>CMYK 0 85 50 0<br/>Pantone 1785 C</div></div>
+</div>
+<div class="grid4" style="margin-top:12px">
+  <div class="swatch"><div class="chip" style="background:#F4EFE6;border-bottom:1px solid var(--line)"></div><div class="info"><strong>Cream</strong><br/><code>#F4EFE6</code><br/>RGB 244 239 230<br/>CMYK 3 5 10 0<br/>Pantone 7527 C</div></div>
+  <div class="swatch"><div class="chip" style="background:#0E6B64"></div><div class="info"><strong>Deep teal</strong><br/><code>#0E6B64</code><br/>RGB 14 107 100<br/>vein only, never large fill</div></div>
+  <div class="swatch"><div class="chip" style="background:#FFFFFF;border-bottom:1px solid var(--line)"></div><div class="info"><strong>Paper white</strong><br/><code>#FFFFFF</code><br/>mono knockout / reverse</div></div>
+  <div class="swatch"><div class="chip" style="background:#0B0D0C"></div><div class="info"><strong>HUD canvas</strong><br/>use Ink, not a true black</div></div>
+</div>
+<p>Duo palette (TUI / HUD chrome when you cannot spare four inks): Ink + Cyan. The eye stays Cyan.</p>
+
+<h2>6. Type</h2>
+<p>The word <em>anqa</em> in every lockup is <strong>Plus Jakarta Sans ExtraBold</strong>, SIL Open Font License 1.1, by Tokotype. Files live in <span class="mono">fonts/</span>. Do not fake ExtraBold by stroking Regular. Do not use a variable-font instance other than weight 800 for the wordmark.</p>
+<table>
+  <tr><th>Role</th><th>Face</th><th>Weight</th><th>Tracking</th><th>Case</th></tr>
+  <tr><td>Wordmark</td><td>Plus Jakarta Sans</td><td>800 ExtraBold</td><td>−40 (−0.04 em)</td><td>lowercase only</td></tr>
+  <tr><td>UI / guidelines / site</td><td>Plus Jakarta Sans</td><td>400 / 500 / 600</td><td>0</td><td>sentence</td></tr>
+  <tr><td>Code, HUD, hex labels</td><td>JetBrains Mono</td><td>400 / 500</td><td>0</td><td>as written</td></tr>
+</table>
+<p>Install: <span class="mono">fonts/PlusJakartaSans-ExtraBold.ttf</span> (and Regular / Medium). Variable file <span class="mono">PlusJakartaSans[wght].ttf</span> axis <span class="mono">wght 200–800</span>. License: <span class="mono">fonts/OFL.txt</span>. Google Fonts CSS:</p>
+<p class="mono" style="background:#fff;border:1px solid var(--line);padding:12px 14px;border-radius:8px">
+https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap
+</p>
+<p class="specimen" style="font-size:72px;margin:24px 0 8px">anqa</p>
+<p class="specimen" style="font-size:36px;font-weight:500;letter-spacing:0">Plus Jakarta Sans · 500</p>
+<p class="mono" style="font-size:18px;margin-top:8px">JetBrains Mono · anqa serve −d</p>
+
+<h2>7. Clear space and minimum size</h2>
+<p>Clear space on every side equals <strong>one eye</strong> (the cyan disc). Call that unit <span class="mono">E</span>. Nothing (type, rules, other marks) enters that margin.</p>
+<p>Digital minima (CSS pixels, mark height):</p>
+<table>
+  <tr><th>Asset</th><th>Minimum</th><th>Preferred</th></tr>
+  <tr><td>Mark only</td><td>24 px</td><td>32 px+</td></tr>
+  <tr><td>Duo / mono mark</td><td>20 px</td><td>28 px+</td></tr>
+  <tr><td>Stacked clean</td><td>48 px tall</td><td>72 px+</td></tr>
+  <tr><td>Stacked with ornaments</td><td>80 px tall</td><td>120 px+</td></tr>
+  <tr><td>Horizontal</td><td>28 px tall</td><td>40 px+</td></tr>
+  <tr><td>Wordmark</td><td>18 px cap</td><td>24 px+</td></tr>
+  <tr><td>App icon</td><td>32 px</td><td>64 px+</td></tr>
+  <tr><td>Favicon</td><td>16 px</td><td>32 px</td></tr>
+</table>
+<p>Print minima: mark 8&nbsp;mm tall; stacked lockup 16&nbsp;mm; ornaments 24&nbsp;mm.</p>
+
+<h2>8. Which file, which job</h2>
+<table>
+  <tr><th>Job</th><th>File</th><th>Notes</th></tr>
+  <tr><td>README, site header</td><td><span class="mono">png/anqa-lockup-horizontal.png</span></td><td>cream or white page</td></tr>
+  <tr><td>Poster, sticker, merch</td><td><span class="mono">png/anqa-lockup-stacked.png</span></td><td>the painting</td></tr>
+  <tr><td>HUD about / splash</td><td><span class="mono">png/anqa-lockup-stacked-clean.png</span></td><td>or mark on Ink</td></tr>
+  <tr><td>macOS / Linux dock, HUD app</td><td><span class="mono">png/anqa-app-icon-1024.png</span></td><td>also 512 / 256</td></tr>
+  <tr><td>Dark dock / dark HUD</td><td><span class="mono">png/anqa-app-icon-dark-1024.png</span></td><td></td></tr>
+  <tr><td>Browser tab</td><td><span class="mono">png/anqa-favicon-32.png</span></td><td>also 64 / 16</td></tr>
+  <tr><td>GitHub social</td><td>app icon 512 on Cream</td><td></td></tr>
+  <tr><td>Terminal / one-bit</td><td><span class="mono">png/anqa-mark-mono.png</span></td><td>or duo if 256-colour</td></tr>
+  <tr><td>Print 1-colour</td><td>mono mark, black on Cream or white</td><td>eye knocks out</td></tr>
+  <tr><td>Print 4-colour</td><td>colour mark, CMYK as table</td><td>proof Cyan on uncoated</td></tr>
+</table>
+
+<h2>9. Backgrounds</h2>
+<p>Preferred: Cream, Paper white, Ink. Colour mark may sit on Cyan or Mango only if contrast on the black neck still holds — never on Rose (the tail vanishes). Photography: only quiet, out-of-focus fields; keep full clear space.</p>
+
+<h2>10. Incorrect use</h2>
+<ul>
+  <li>Do not set the word in any face except Plus Jakarta Sans ExtraBold 800.</li>
+  <li>Do not uppercase the wordmark. It is <span class="mono">anqa</span>, never ANQA in the lockup.</li>
+  <li>Do not stretch, outline, or add a drop shadow.</li>
+  <li>Do not recolour the eye. Cyan only (or knockout in mono).</li>
+  <li>Do not rotate the bird or flip it to face left.</li>
+  <li>Do not place the painted word on the horizontal lockup or below 80&nbsp;px stacked.</li>
+  <li>Do not replace the bird with a new drawing. Recrop <span class="mono">source/approved.jpg</span>.</li>
+  <li>Do not put the four-colour mark on a busy truck-art field — the mark already is the art.</li>
+</ul>
+
+<h2>11. Files</h2>
+<p class="mono" style="white-space:pre;background:#fff;border:1px solid var(--line);padding:16px;border-radius:8px;line-height:1.45">brand/anqa/
+  source/approved.jpg      ← master painting
+  guidelines.html          ← this book
+  README.md
+  build.py                 ← crop, remap, lockups, rasters
+  fonts/
+    PlusJakartaSans-ExtraBold.ttf
+    PlusJakartaSans-Medium.ttf
+    PlusJakartaSans-Regular.ttf
+    PlusJakartaSans[wght].ttf
+    OFL.txt
+  png/                     ← usable rasters
+  svg/                     ← typeset wordmark + PNG wrappers
+</p>
+<p>Regenerate after replacing the painting: <span class="mono">make brand</span> or <span class="mono">uv run --group brand python brand/anqa/build.py</span>. Needs the <span class="mono">brand</span> uv group (<span class="mono">fonttools</span>, <span class="mono">numpy</span>, <span class="mono">pillow</span>) and <span class="mono">rsvg-convert</span> (librsvg) for the typeset wordmark.</p>
+
+<footer>
+  anqa 1.0 · truck-art mark · Plus Jakarta Sans © Tokotype, SIL OFL 1.1 · JetBrains Mono © JetBrains, SIL OFL 1.1
+</footer>
+</div>
+</body>
+</html>

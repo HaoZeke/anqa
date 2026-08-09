@@ -114,6 +114,7 @@ ignore = [
 "examples/**" = ["T20"]
 "scripts/**" = ["T20"]
 "plugins/**" = ["T20"]
+"brand/**" = ["T20"]
 
 [tool.ruff.lint.isort]
 required-imports = ["from __future__ import annotations"]
@@ -168,6 +169,11 @@ dev = [
     "types-PyYAML>=6.0",
     "ruff>=0.9",
     {include-group = "test"},
+]
+brand = [
+    "fonttools>=4.55",
+    "numpy>=2.0",
+    "pillow>=11.0",
 ]
 
 

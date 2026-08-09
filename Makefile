@@ -1,6 +1,6 @@
 # Local development targets (uv-first), shaped after alisaifee/coredis.
 
-.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check examples-check
+.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check examples-check hud-themes hud-themes-check hud-check hud-cov brand
 
 help:
 	@echo "groket development targets"
@@ -10,10 +10,15 @@ help:
 	@echo "  lint-complexity  size limits only (args/returns/branches/statements/methods); debt report"
 	@echo "  schema           regenerate schemas/*.schema.json from Pydantic"
 	@echo "  schema-check     fail if committed schemas are out of date"
+	@echo "  hud-themes       regenerate groket-hud/assets/textual-themes.json"
+	@echo "  hud-themes-check fail if HUD Textual theme map is stale"
+	@echo "  hud-check        theme map + rustfmt + clippy + HUD cargo test (+ cov if installed)"
+	@echo "  hud-cov          cargo llvm-cov fail-under on non-paint HUD logic (optional)"
 	@echo "  examples-check   validate examples/ packs (schema + import contract)"
 	@echo "  test             pytest"
 	@echo "  test-cov         pytest with coverage report"
-	@echo "  ci               lint + schema-check + examples-check + test"
+	@echo "  brand            rebuild brand/anqa from source/approved.jpg"
+	@echo "  ci               lint + schema-check + hud-check + examples-check + test"
 	@echo "  clean            caches and build artefacts"
 
 install:
@@ -66,13 +71,48 @@ schema-check:
 examples-check:
 	uv run python scripts/check_examples.py
 
+hud-themes:
+	uv run python scripts/gen_textual_themes.py
+
+hud-themes-check:
+	@tmp=$$(mktemp) && \
+	  uv run python scripts/gen_textual_themes.py "$$tmp" && \
+	  diff -q "$$tmp" groket-hud/assets/textual-themes.json >/dev/null || \
+	  (echo "groket-hud/assets/textual-themes.json is stale — run make hud-themes and commit" >&2; rm -f "$$tmp"; exit 1) && \
+	  rm -f "$$tmp"
+
+hud-check: hud-themes-check
+	cargo fmt --check --manifest-path groket-hud/Cargo.toml
+	cargo clippy --manifest-path groket-hud/Cargo.toml --all-targets -- -D warnings
+	cargo test --manifest-path groket-hud/Cargo.toml
+	@$(MAKE) hud-cov
+
+# Paint/window files are omitted from the fail-under (iced view/app loop).
+# Paint/window loop and Unix-socket transport are omitted from fail-under.
+HUD_COV_OMIT := src/(app|view|style|typo|main|x11focus|control)\.rs
+HUD_COV_FAIL_UNDER := 70
+
+hud-cov:
+	@if cargo llvm-cov --version >/dev/null 2>&1; then \
+	  cargo llvm-cov --manifest-path groket-hud/Cargo.toml --lib \
+	    --fail-under-lines $(HUD_COV_FAIL_UNDER) \
+	    --ignore-filename-regex '$(HUD_COV_OMIT)' \
+	    --summary-only; \
+	else \
+	  echo "hud-cov: cargo-llvm-cov not installed; skip fail-under (fmt/clippy/test already ran)"; \
+	fi
+
+# Logo pack (fonttools/numpy/pillow in the brand group; rsvg-convert from librsvg).
+brand:
+	uv run --group brand python brand/anqa/build.py
+
 test:
 	uv run pytest tests/ -q --tb=short
 
 test-cov:
 	uv run pytest tests/ --cov=groket --cov-report=term-missing --cov-report=html
 
-ci: lint schema-check examples-check test
+ci: lint schema-check hud-check examples-check test
 
 clean:
 	rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ \

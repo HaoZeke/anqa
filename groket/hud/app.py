@@ -1,4 +1,4 @@
-"""Launch the Tauri Sol-style session palette (control-plane client only)."""
+"""Launch the iced Sol-style session palette (control-plane client only)."""
 
 from __future__ import annotations
 
@@ -34,11 +34,11 @@ def run_hud(
     foreground: bool = False,
     restart: bool = False,
 ) -> int:
-    """Ensure control owner is live, then launch the Tauri ``groket-hud`` binary.
+    """Ensure control owner is live, then launch the iced ``groket-hud`` binary.
 
     In an editable checkout, missing/stale binaries rebuild with
-    ``cargo build --release`` by default. Pass *debug* for an unoptimized
-    build, or *dev* for ``npm run dev`` (hot reload).
+    ``cargo build --release`` by default (Vite frontend first). Pass *debug*
+    for an unoptimized build, or *dev* for hot reload.
 
     By default the HUD is detached in the background (Sol-style agent: no Dock
     / ⌘Tab on macOS). Pass *foreground* to attach the terminal to the process.
@@ -93,13 +93,10 @@ def run_hud(
     if code == 127:
         sys.stderr.write(
             "error: groket-hud binary not found.\n"
-            "From a checkout with Rust installed, ``groket hud`` auto-builds release.\n"
-            "Or:\n"
-            "  cd groket-hud && npm install && npm run build\n"
-            "Unoptimized binary:\n"
-            "  groket hud --debug\n"
-            "Hot reload:\n"
-            "  groket hud --dev\n"
+            "From a checkout with Rust installed, ``groket hud`` auto-builds.\n"
+            "  groket hud --rebuild\n"
+            "Unoptimized binary: groket hud --debug\n"
+            "Debug cargo run: groket hud --dev\n"
             "Override path with GROKET_HUD_BIN.\n"
         )
         return 127

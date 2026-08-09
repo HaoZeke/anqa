@@ -554,6 +554,8 @@ def test_system_reminder_turns_do_not_become_operator_turns() -> None:
     row0 = turn_segment_mapping(segs[0])
     row1 = turn_segment_mapping(segs[1])
     assert row0["summary"] == "fix the flaky test"
+    assert row0["assistantSummary"] == "working"
+    assert row0["assistantEventIndex"] == 2
     assert row1["summary"] == "and then push"
     assert "<system-reminder>" not in str(row0["summary"])
     assert "<system-reminder>" not in str(row1["summary"])
@@ -578,6 +580,8 @@ def test_system_reminder_before_operator_in_same_turn_skipped_for_summary() -> N
     row = turn_segment_mapping(segs[0])
     assert row["summary"] == "say meow"
     assert row["userEventIndex"] == 2
+    assert row["assistantSummary"] == "meow"
+    assert row["assistantEventIndex"] == 3
 
 
 def test_open_background_tail_keeps_parent_open() -> None:

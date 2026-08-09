@@ -116,6 +116,8 @@ def test_build_session_turns(tmp_path: Path) -> None:
     assert "eventCount" in row
     assert row.get("summary") == "hello user"
     assert row.get("userEventIndex") is not None
+    assert row.get("assistantSummary") == "hello agent"
+    assert row.get("assistantEventIndex") is not None
 
 
 def test_build_session_usage(tmp_path: Path) -> None:
@@ -143,6 +145,9 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     assert ov["timeline"]["events"] == []
     assert ov["timeline"].get("lazy") is True
     assert "notes" in ov
+    assert "schema" in ov["notes"]
+    assert ov["notes"]["schema"]["fields"]
+    assert {f["id"] for f in ov["notes"]["schema"]["fields"]} >= {"summary", "detail"}
     assert "findings" in ov
     assert ov["findings"]["total"] == 0
     page = build_session_timeline(sd, offset=0, limit=50)
