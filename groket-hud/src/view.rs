@@ -21,7 +21,8 @@ use crate::format::{
     status_tone, timeline_body_text, EventRole,
 };
 use crate::live::{
-    visible_range_covering, wheel_scroll, CardMark, LIST_ROW_H, TIMELINE_ROW_H, VIRT_OVERSCAN,
+    rail_visible_range, visible_range, wheel_scroll, CardMark, LIST_ROW_H, TIMELINE_OVERSCAN,
+    TIMELINE_ROW_H,
 };
 use crate::model::{KindFilter, Tab};
 use crate::scroll::ScrollRail;
@@ -29,26 +30,23 @@ use crate::style;
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
 
-#[allow(clippy::too_many_arguments)]
 fn virt_pane<'a>(
     body: Element<'a, Message>,
     content: f32,
     viewport: f32,
     scroll: f32,
-    row_h: f32,
     on_scroll: impl Fn(f32) -> Message + Copy + 'a,
-    tok: crate::theme::Tokens,
 ) -> Element<'a, Message> {
     let max = (content - viewport).max(0.0);
-    let body = mouse_area(body).on_scroll(move |d| on_scroll(wheel_scroll(d, scroll, row_h, max)));
+    let body = mouse_area(body).on_scroll(move |d| on_scroll(wheel_scroll(d, scroll, max)));
     if content <= viewport {
         return body.into();
     }
     row![
         body,
-        Element::from(ScrollRail::new(content, viewport, scroll, on_scroll, tok)),
+        Element::from(ScrollRail::new(content, viewport, scroll, on_scroll)),
     ]
-    .height(Length::Fill)
+    .height(viewport)
     .into()
 }
 
@@ -139,17 +137,7 @@ fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         col = col.push(text("No sessions").size(typo::BODY).color(tok.muted));
         return col.into();
     }
-    let win = visible_range_covering(
-        hud.list_scroll_y(),
-        viewport,
-        LIST_ROW_H,
-        n,
-        VIRT_OVERSCAN,
-        Some(hud.active()),
-    );
-    if win.pad_top > 0.0 {
-        col = col.push(Space::with_height(win.pad_top));
-    }
+    let win = rail_visible_range(hud.list_scroll_y(), viewport, LIST_ROW_H, n);
     for (i, row) in hud.sessions()[win.start..win.end].iter().enumerate() {
         let i = win.start + i;
         let selected = i == hud.active();
@@ -186,21 +174,16 @@ fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .on_press(Message::SelectSession(i)),
         );
     }
-    if win.pad_bottom > 0.0 {
-        col = col.push(Space::with_height(win.pad_bottom));
-    }
     let scroll = hud.list_scroll_y();
     virt_pane(
         col.into(),
         n as f32 * LIST_ROW_H,
         viewport,
         scroll,
-        LIST_ROW_H,
         move |y| Message::ListScroll {
             y,
             height: viewport,
         },
-        tok,
     )
 }
 
@@ -241,25 +224,19 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         }
     };
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
-        stack = stack.push(responsive(move |size| {
-            let viewport = size.height.max(1.0);
-            let n = hud.filtered_timeline().len();
-            virt_pane(
-                container(timeline_tab(hud, viewport))
+        stack = stack.push(
+            scrollable(
+                container(timeline_tab(hud, hud.tl_view_h()))
                     .padding([16, 20])
-                    .width(Length::Fill)
-                    .into(),
-                n as f32 * TIMELINE_ROW_H,
-                viewport,
-                hud.tl_scroll_y(),
-                TIMELINE_ROW_H,
-                move |y| Message::TimelineScroll {
-                    y,
-                    height: viewport,
-                },
-                hud.tokens(),
+                    .width(Length::Fill),
             )
-        }));
+            .id(hud.timeline_scroll_id())
+            .height(Length::Fill)
+            .on_scroll(|vp| Message::TimelineScroll {
+                y: vp.absolute_offset().y,
+                height: vp.bounds().height,
+            }),
+        );
     } else {
         stack = stack.push(
             scrollable(container(body).padding([16, 20]).width(Length::Fill))
@@ -716,13 +693,12 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let (_, ev_marks) = hud.card_marks();
     let focus = hud.timeline_focus();
     let n = events.len();
-    let win = visible_range_covering(
+    let win = visible_range(
         hud.tl_scroll_y(),
         viewport,
         TIMELINE_ROW_H,
         n,
-        VIRT_OVERSCAN,
-        hud.timeline_focus_pos(),
+        TIMELINE_OVERSCAN,
     );
     let start = win.start.min(n);
     let end = win.end.min(n).max(start);
@@ -811,6 +787,7 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             )
             .on_press(Message::SelectTimeline(ix_click)),
         );
+        col = col.push(Space::with_height(12));
     }
     if win.pad_bottom > 0.0 {
         col = col.push(Space::with_height(win.pad_bottom));

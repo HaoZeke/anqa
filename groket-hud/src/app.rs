@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use iced::keyboard::{key::Named, Key, Modifiers as KeyMods};
+use iced::widget::scrollable::{self, AbsoluteOffset};
 use iced::widget::text_input;
 use iced::window::{self, Mode};
 use iced::{
@@ -17,12 +18,12 @@ use crate::control::{self, ControlError};
 use crate::format::{control_down_message, new_note_id};
 use crate::fuzzy::fuzzy_filter;
 use crate::live::{
-    card_marks_from_overview, index_outside_visible, is_soft_notes_save_error, merge_catalog_rows,
-    merge_timeline_by_index, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
-    plan_tick, session_needs_live_poll, session_rpc_ref, should_continue_timeline,
-    should_fetch_timeline, timeline_coverage_complete, timeline_first_missing_offset,
-    timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT,
-    TIMELINE_CHUNK, TIMELINE_ROW_H, VIRT_OVERSCAN,
+    card_marks_from_overview, clamp_scroll, index_outside_visible, is_soft_notes_save_error,
+    merge_catalog_rows, merge_timeline_by_index, notes_schema_fields, patch_catalog_delta,
+    patch_list_row_from_meta, plan_tick, session_needs_live_poll, session_rpc_ref,
+    should_continue_timeline, should_fetch_timeline, timeline_coverage_complete,
+    timeline_first_missing_offset, timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H,
+    LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -155,6 +156,7 @@ pub struct Hud {
     list_view_h: f32,
     tl_scroll_y: f32,
     tl_view_h: f32,
+    tl_scroll_id: scrollable::Id,
 }
 
 impl Default for Hud {
@@ -203,6 +205,7 @@ impl Default for Hud {
             list_view_h: 400.0,
             tl_scroll_y: 0.0,
             tl_view_h: 400.0,
+            tl_scroll_id: scrollable::Id::new("hud-timeline"),
         }
     }
 }
@@ -419,10 +422,17 @@ impl Hud {
                 self.tab = Tab::Timeline;
                 self.timeline_query.clear();
                 self.timeline_kind = KindFilter::All;
+                let y = self
+                    .timeline_focus_pos()
+                    .map(|pos| pos as f32 * TIMELINE_ROW_H)
+                    .unwrap_or(0.0);
+                self.tl_scroll_y = y;
+                let jump =
+                    scrollable::scroll_to(self.tl_scroll_id.clone(), AbsoluteOffset { x: 0.0, y });
                 if let Some(sid) = self.selected_sid() {
-                    return self.ensure_timeline(sid, true);
+                    return Task::batch([jump, self.ensure_timeline(sid, true)]);
                 }
-                Task::none()
+                jump
             }
             Message::SelectTimeline(ix) => {
                 if self.timeline_focus == Some(ix) {
@@ -472,24 +482,27 @@ impl Hud {
             Message::PopOutWindow => self.pop_out_window(),
             Message::Hotkey => self.on_hotkey(),
             Message::ListScroll { y, height } => {
-                self.list_scroll_y = y.max(0.0);
                 if height > 1.0 {
                     self.list_view_h = height;
                 }
+                let content = self.sessions.len() as f32 * LIST_ROW_H;
+                self.list_scroll_y = clamp_scroll(y, content, self.list_view_h);
                 Task::none()
             }
             Message::TimelineScroll { y, height } => {
-                self.tl_scroll_y = y.max(0.0);
                 if height > 1.0 {
                     self.tl_view_h = height;
                 }
+                // Iced's scrollable owns the pixel range (cards wrap). Do not
+                // clamp to n * TIMELINE_ROW_H or the thumb fights real height.
+                self.tl_scroll_y = y.max(0.0);
                 if let Some(pos) = self.timeline_focus_pos() {
                     if index_outside_visible(
                         self.tl_scroll_y,
                         self.tl_view_h,
                         TIMELINE_ROW_H,
                         self.filtered_timeline().len(),
-                        VIRT_OVERSCAN,
+                        TIMELINE_OVERSCAN,
                         pos,
                     ) {
                         self.timeline_focus = None;
@@ -888,6 +901,14 @@ impl Hud {
 
     pub fn tl_scroll_y(&self) -> f32 {
         self.tl_scroll_y
+    }
+
+    pub fn tl_view_h(&self) -> f32 {
+        self.tl_view_h
+    }
+
+    pub fn timeline_scroll_id(&self) -> scrollable::Id {
+        self.tl_scroll_id.clone()
     }
 
     pub fn timeline_focus_pos(&self) -> Option<usize> {

@@ -11,13 +11,21 @@ pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 200;
 /// Session-row height (padding + title + meta). Rows are uniform; timeline cards are not.
 pub const LIST_ROW_H: f32 = 60.0;
-/// Collapsed timeline card (padding + head + title + one-line body + hint).
-pub const TIMELINE_ROW_H: f32 = 128.0;
+/// Collapsed timeline card plus the 12px gap. Used as the unmounted-pad
+/// estimate for iced's scrollable. Mounted cards use their real height
+/// (titles wrap). Prefer overestimate so we do not skip a card still on screen.
+pub const TIMELINE_ROW_H: f32 = 160.0;
+/// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
+pub const TIMELINE_OVERSCAN: usize = 1;
+/// Iced's own scrollable uses 60px per wheel line, not a full row.
+pub const WHEEL_LINE_PX: f32 = 60.0;
 pub const VIRT_OVERSCAN: usize = 4;
 /// Minimum scrollbar handle. Iced's own scroller floors at 2px.
 pub const SCROLL_HANDLE_MIN: f32 = 24.0;
-/// Rail and handle width.
-pub const SCROLL_RAIL_WIDTH: f32 = 12.0;
+/// Rail and handle width (iced [`Scrollbar`] default).
+pub const SCROLL_RAIL_WIDTH: f32 = 10.0;
+/// Handle/track corner radius (iced `scrollable::default`).
+pub const SCROLL_RADIUS: f32 = 2.0;
 
 /// Window into a fixed-height virtual list.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,6 +58,37 @@ pub fn visible_range(
     let visible = ((view_h / row_h).ceil() as usize).max(1);
     let start = first.saturating_sub(overscan).min(count);
     let end = (first + visible + overscan).min(count).max(start);
+    VisibleRange {
+        start,
+        end,
+        pad_top: start as f32 * row_h,
+        pad_bottom: (count.saturating_sub(end)) as f32 * row_h,
+    }
+}
+
+/// Viewport window for a rail that clips its body (no overscan, no pads).
+///
+/// Overscan rows stacked in a clipped pane show up as empty slivers.
+pub fn rail_visible_range(
+    scroll_y: f32,
+    viewport_h: f32,
+    row_h: f32,
+    count: usize,
+) -> VisibleRange {
+    if count == 0 || row_h <= 0.0 {
+        return VisibleRange {
+            start: 0,
+            end: 0,
+            pad_top: 0.0,
+            pad_bottom: 0.0,
+        };
+    }
+    let view_h = viewport_h.max(1.0);
+    let y = scroll_y.max(0.0);
+    let first = (y / row_h).floor() as usize;
+    let slots = ((view_h / row_h).ceil() as usize).max(1);
+    let start = first.min(count);
+    let end = (start + slots).min(count).max(start);
     VisibleRange {
         start,
         end,
@@ -134,13 +173,18 @@ pub fn scroll_from_rail(
     (thumb_y.clamp(0.0, usable) / usable) * max_scroll
 }
 
-/// Wheel delta to a clamped content offset (same step as icedtea lists).
-pub fn wheel_scroll(delta: iced::mouse::ScrollDelta, scroll: f32, row_h: f32, max: f32) -> f32 {
+/// Wheel delta to a clamped content offset (iced scrollable: 60px per line).
+pub fn wheel_scroll(delta: iced::mouse::ScrollDelta, scroll: f32, max: f32) -> f32 {
     let dy = match delta {
-        iced::mouse::ScrollDelta::Lines { y, .. } => -y * row_h,
+        iced::mouse::ScrollDelta::Lines { y, .. } => -y * WHEEL_LINE_PX,
         iced::mouse::ScrollDelta::Pixels { y, .. } => -y,
     };
     (scroll + dy).clamp(0.0, max)
+}
+
+/// Clamp a rail/wheel offset so the window stays on content.
+pub fn clamp_scroll(y: f32, content: f32, viewport: f32) -> f32 {
+    y.clamp(0.0, (content - viewport).max(0.0))
 }
 
 /// Control `session` argument: live directory path, else id.
@@ -807,18 +851,52 @@ mod tests {
     }
 
     #[test]
-    fn wheel_scroll_steps_by_row_and_clamps() {
+    fn clamp_scroll_keeps_offset_on_content() {
+        assert_eq!(clamp_scroll(-10.0, 600.0, 400.0), 0.0);
+        assert_eq!(clamp_scroll(50.0, 600.0, 400.0), 50.0);
+        assert_eq!(clamp_scroll(500.0, 600.0, 400.0), 200.0);
+        assert_eq!(clamp_scroll(50.0, 100.0, 400.0), 0.0);
+    }
+
+    #[test]
+    fn rail_window_does_not_need_pad_spacers() {
+        // Pads sized the full list for iced's scrollable. A rail list that
+        // inserts pad_top as a widget shows an empty viewport when scrolled.
+        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
+        assert!(r.pad_top > 0.0);
+        assert!(r.start > 0);
+        assert!(r.end - r.start < 40);
+    }
+
+    #[test]
+    fn rail_visible_range_is_only_the_viewport() {
+        let r = rail_visible_range(0.0, 400.0, 60.0, 200);
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 7);
+        let mid = rail_visible_range(600.0, 400.0, 60.0, 200);
+        assert_eq!(mid.start, 10);
+        assert_eq!(mid.end, 17);
+        let tall = rail_visible_range(0.0, 400.0, 160.0, 50);
+        assert_eq!(tall.start, 0);
+        assert_eq!(tall.end, 3);
+        assert!(tall.end <= 3);
+        let past = rail_visible_range(200.0 * 160.0, 400.0, 160.0, 20);
+        assert_eq!(past.start, 20);
+        assert_eq!(past.end, 20);
+    }
+
+    #[test]
+    fn wheel_scroll_matches_iced_line_step() {
         let d = iced::mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 };
-        assert_eq!(wheel_scroll(d, 0.0, 60.0, 600.0), 60.0);
+        assert_eq!(wheel_scroll(d, 0.0, 600.0), 60.0);
         let up = iced::mouse::ScrollDelta::Lines { x: 0.0, y: 3.0 };
-        assert_eq!(wheel_scroll(up, 40.0, 60.0, 600.0), 0.0);
+        assert_eq!(wheel_scroll(up, 40.0, 600.0), 0.0);
         let px = iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -20.0 };
-        assert_eq!(wheel_scroll(px, 0.0, 60.0, 600.0), 20.0);
+        assert_eq!(wheel_scroll(px, 0.0, 600.0), 20.0);
         assert_eq!(
             wheel_scroll(
                 iced::mouse::ScrollDelta::Lines { x: 0.0, y: -10.0 },
                 500.0,
-                60.0,
                 600.0
             ),
             600.0
