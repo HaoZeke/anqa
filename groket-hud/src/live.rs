@@ -9,6 +9,104 @@ pub const LIVE_POLL_MS: u64 = 3000;
 pub const IDLE_POLL_MS: u64 = 15_000;
 pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 200;
+/// Session-row height (padding + title + meta). Rows are uniform; timeline cards are not.
+pub const LIST_ROW_H: f32 = 60.0;
+/// Collapsed timeline card (padding + head + title + one-line body + hint).
+pub const TIMELINE_ROW_H: f32 = 128.0;
+pub const VIRT_OVERSCAN: usize = 4;
+
+/// Window into a fixed-height virtual list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VisibleRange {
+    pub start: usize,
+    pub end: usize,
+    pub pad_top: f32,
+    pub pad_bottom: f32,
+}
+
+/// Rows to mount for a scroll offset (plus overscan). Empty when *count* is 0.
+pub fn visible_range(
+    scroll_y: f32,
+    viewport_h: f32,
+    row_h: f32,
+    count: usize,
+    overscan: usize,
+) -> VisibleRange {
+    if count == 0 || row_h <= 0.0 {
+        return VisibleRange {
+            start: 0,
+            end: 0,
+            pad_top: 0.0,
+            pad_bottom: 0.0,
+        };
+    }
+    let view_h = viewport_h.max(1.0);
+    let y = scroll_y.max(0.0);
+    let first = (y / row_h).floor() as usize;
+    let visible = ((view_h / row_h).ceil() as usize).max(1);
+    let start = first.saturating_sub(overscan).min(count);
+    let end = (first + visible + overscan).min(count).max(start);
+    VisibleRange {
+        start,
+        end,
+        pad_top: start as f32 * row_h,
+        pad_bottom: (count.saturating_sub(end)) as f32 * row_h,
+    }
+}
+
+/// Like [`visible_range`], but always mounts *cover* (selected row) when in range.
+pub fn visible_range_covering(
+    scroll_y: f32,
+    viewport_h: f32,
+    row_h: f32,
+    count: usize,
+    overscan: usize,
+    cover: Option<usize>,
+) -> VisibleRange {
+    let mut r = visible_range(scroll_y, viewport_h, row_h, count, overscan);
+    let Some(i) = cover else {
+        return r;
+    };
+    if i >= count {
+        return r;
+    }
+    if i < r.start {
+        r.start = i;
+    }
+    if i >= r.end {
+        r.end = i + 1;
+    }
+    r.pad_top = r.start as f32 * row_h;
+    r.pad_bottom = (count.saturating_sub(r.end)) as f32 * row_h;
+    r
+}
+
+/// True when *index* is not in the collapsed-height window (ignore covering).
+pub fn index_outside_visible(
+    scroll_y: f32,
+    viewport_h: f32,
+    row_h: f32,
+    count: usize,
+    overscan: usize,
+    index: usize,
+) -> bool {
+    let r = visible_range(scroll_y, viewport_h, row_h, count, overscan);
+    index < r.start || index >= r.end
+}
+
+/// Control `session` argument: live directory path, else id.
+pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
+    let path = path.trim();
+    if !path.is_empty() && std::path::Path::new(path).is_dir() {
+        return path.to_string();
+    }
+    session_id.trim().to_string()
+}
+
+/// Timeline pages are fetched only while that tab is showing.
+pub fn should_fetch_timeline(on_timeline_tab: bool) -> bool {
+    on_timeline_tab
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TickPlan {
@@ -132,6 +230,11 @@ pub fn timeline_coverage_complete(buffered: usize, total: u32) -> bool {
         return buffered == 0;
     }
     buffered >= total as usize
+}
+
+/// Keep paging while the Timeline tab is open and the buffer is short.
+pub fn should_continue_timeline(on_timeline: bool, complete: bool, loading: bool) -> bool {
+    on_timeline && !complete && !loading
 }
 
 pub fn timeline_first_missing_offset(events: &[TimelineEvent], total: u32) -> u32 {
@@ -571,6 +674,93 @@ mod tests {
         });
         assert!(!plan.fetch_list);
         assert!(!plan.load_overview);
+    }
+
+    #[test]
+    fn visible_range_empty_and_first_page() {
+        assert_eq!(
+            visible_range(0.0, 400.0, 60.0, 0, 3),
+            VisibleRange {
+                start: 0,
+                end: 0,
+                pad_top: 0.0,
+                pad_bottom: 0.0
+            }
+        );
+        let r = visible_range(0.0, 400.0, 60.0, 200, 3);
+        assert_eq!(r.start, 0);
+        assert!(r.end <= 12, "end={}", r.end);
+        assert!(r.end >= 7);
+        assert_eq!(r.pad_top, 0.0);
+        assert!(r.pad_bottom > 0.0);
+    }
+
+    #[test]
+    fn visible_range_clamps_scroll_past_short_buffer() {
+        // First timeline page is 120 rows; leftover scroll from a longer list
+        // used to panic: events[138..120].
+        let r = visible_range(138.0 * 128.0, 400.0, 128.0, 120, 4);
+        assert!(r.start <= r.end);
+        assert!(r.end <= 120);
+        assert_eq!(r.start, 120);
+        assert_eq!(r.end, 120);
+    }
+
+    #[test]
+    fn visible_range_scrolls_with_overscan_and_pads() {
+        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
+        assert_eq!(r.start, 10 - 3);
+        assert_eq!(r.end, 20);
+        assert_eq!(r.pad_top, r.start as f32 * 60.0);
+        assert_eq!(r.pad_bottom, (200 - r.end) as f32 * 60.0);
+    }
+
+    #[test]
+    fn index_outside_visible_matches_window() {
+        assert!(!index_outside_visible(600.0, 400.0, 60.0, 200, 3, 12));
+        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 5));
+        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 80));
+    }
+
+    #[test]
+    fn visible_range_covering_keeps_selected_row_without_mounting_all() {
+        let r = visible_range_covering(600.0, 400.0, 60.0, 200, 3, Some(5));
+        assert_eq!(r.start, 5);
+        assert_eq!(r.end, 20);
+        assert!(r.end - r.start < 40);
+        let inside = visible_range_covering(600.0, 400.0, 60.0, 200, 3, Some(12));
+        assert_eq!(inside.start, 7);
+        assert_eq!(inside.end, 20);
+    }
+
+    #[test]
+    fn session_rpc_ref_uses_path_only_when_directory_exists() {
+        let dir = std::env::temp_dir().join("groket-hud-rpc-ref");
+        let _ = std::fs::create_dir_all(&dir);
+        assert_eq!(
+            session_rpc_ref(dir.to_str().unwrap(), "uuid"),
+            dir.to_str().unwrap()
+        );
+        assert_eq!(
+            session_rpc_ref("/no/such/groket-hud-session", "uuid"),
+            "uuid"
+        );
+        assert_eq!(session_rpc_ref("", "uuid"), "uuid");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn should_fetch_timeline_only_on_that_tab() {
+        assert!(should_fetch_timeline(true));
+        assert!(!should_fetch_timeline(false));
+    }
+
+    #[test]
+    fn should_continue_timeline_while_short() {
+        assert!(should_continue_timeline(true, false, false));
+        assert!(!should_continue_timeline(true, true, false));
+        assert!(!should_continue_timeline(true, false, true));
+        assert!(!should_continue_timeline(false, false, false));
     }
 
     #[test]

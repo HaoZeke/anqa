@@ -213,6 +213,7 @@ def timeline_event_mapping(
                 raw = as_json_object(inner)
     except Exception:
         raw = {}
+    raw = _capped_raw_input(raw, cap)
     kind = et.event_kind(event.event_type)
     tname = (event.tool_name or "").strip()
     family = tool_family(tname) if kind in ("tool", "tool_result") or tname else ""
@@ -268,6 +269,19 @@ def timeline_event_mapping(
         "preview": preview,
         "rawInput": raw,
     }
+
+
+def _capped_raw_input(raw: JsonValue, max_chars: int) -> JsonValue:
+    """Bound ``rawInput`` so one timeline page cannot carry multi‑MB tool bags."""
+    if not raw or max_chars <= 0:
+        return {}
+    try:
+        dumped = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return {}
+    if len(dumped) <= max_chars:
+        return raw
+    return {"_truncated": True, "preview": dumped[:max_chars]}
 
 
 def _turn_user_prompt_preview(

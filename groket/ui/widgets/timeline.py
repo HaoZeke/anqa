@@ -46,7 +46,12 @@ class TimelineTable(DataTable):
     def on_mount(self) -> None:
         style_data_table(self)
         self.add_columns(
-            "#", t("col-time"), t("col-dur"), t("col-type"), t("col-tool"), t("col-summary")
+            t("col-index"),
+            t("col-time"),
+            t("col-dur"),
+            t("col-type"),
+            t("col-tool"),
+            t("col-summary"),
         )
 
     def load_events(

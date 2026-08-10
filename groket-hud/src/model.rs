@@ -62,6 +62,17 @@ impl KindFilter {
             KindFilter::Errors => "Errors only",
         }
     }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            KindFilter::All => "All",
+            KindFilter::Tools => "Tools",
+            KindFilter::User => "User",
+            KindFilter::Asst => "Assistant",
+            KindFilter::Sess => "Session",
+            KindFilter::Errors => "Errors",
+        }
+    }
 }
 
 impl std::fmt::Display for KindFilter {
@@ -119,6 +130,9 @@ mod tests {
         assert_eq!(Tab::Overview.label(), "Overview");
         assert_eq!(Tab::Turns.label(), "Turns");
         assert_eq!(Tab::Timeline.label(), "Timeline");
+        assert_eq!(KindFilter::User.short_label(), "User");
+        assert_eq!(KindFilter::Asst.short_label(), "Assistant");
+        assert_eq!(KindFilter::Errors.short_label(), "Errors");
         assert_eq!(Tab::Findings.label(), "Findings");
         assert_eq!(Tab::Notes.label(), "Notes");
         assert_eq!(Tab::ALL.len(), 5);

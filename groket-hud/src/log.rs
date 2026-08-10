@@ -52,6 +52,26 @@ pub fn info(msg: &str) {
     write("info", msg);
 }
 
+/// Write panics to the HUD log (detached processes have no terminal).
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "?".into());
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            info.to_string()
+        };
+        error(&format!("panic at {loc}: {msg}"));
+        previous(info);
+    }));
+}
+
 fn unix_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

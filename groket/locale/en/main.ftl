@@ -1069,7 +1069,9 @@ user-messages = User messages
 
 verdict-label = Verdict:
 
-col-dur = Dur
+col-index = Index
+
+col-dur = Duration
 
 col-type = Type
 
@@ -1138,7 +1140,7 @@ ui-args = args
 
 ui-assistant = Assistant
 
-ui-asst = Asst
+ui-asst = Assistant
 
 ui-asst-1 =   asst=
 
@@ -1302,7 +1304,7 @@ ui-done-1 = [black on green bold]  DONE [/]
 
 ui-down = Down
 
-ui-dur = Dur
+ui-dur = Duration
 
 ui-duration = Duration
 
@@ -2421,7 +2423,7 @@ ui-tool-1 = Tool
 
 ui-tool-2 = [bold cyan]Tool[/]
 
-ui-tool-err = Tool err
+ui-tool-err = Tool errors
 
 ui-tool-err-1 =  tool err)
 
@@ -2796,7 +2798,7 @@ cmd-show-host-sessions-help = Include native ~/.grok/sessions on the sessions li
 cmd-hide-host-sessions = Hide host sessions
 cmd-hide-host-sessions-help = Hide native ~/.grok/sessions from the sessions list
 
-ui-origin = Src
+ui-origin = Origin
 ui-origin-work = Eval
 ui-origin-host = Host
 

@@ -9,13 +9,28 @@ use thiserror::Error;
 
 #[cfg(unix)]
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(unix)]
 use std::sync::Mutex;
 
 #[cfg(unix)]
 static RPC_STREAM: Mutex<Option<std::os::unix::net::UnixStream>> = Mutex::new(None);
 #[cfg(unix)]
 static RPC_ID: AtomicU64 = AtomicU64::new(1);
+static NOTIFY_WAKE: Mutex<Option<std::sync::mpsc::SyncSender<()>>> = Mutex::new(None);
+
+/// Register the iced tick sender so control notifies wake the palette.
+pub fn set_notify_wake(tx: std::sync::mpsc::SyncSender<()>) {
+    if let Ok(mut slot) = NOTIFY_WAKE.lock() {
+        *slot = Some(tx);
+    }
+}
+
+fn ping_notify_wake() {
+    if let Ok(slot) = NOTIFY_WAKE.lock() {
+        if let Some(tx) = slot.as_ref() {
+            let _ = tx.try_send(());
+        }
+    }
+}
 
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).
 const REQUEST_BUDGET: Duration = Duration::from_secs(30);
@@ -516,6 +531,7 @@ where
                         }
                         let params = value.get("params").cloned().unwrap_or(Value::Null);
                         on_notify(method, params);
+                        ping_notify_wake();
                     }
                     Err(e) if is_transient_io_error(&e) => {
                         // idle timeout — keep listening

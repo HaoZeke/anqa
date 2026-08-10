@@ -2602,7 +2602,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             style_data_table(turns_table)
             turns_table.clear(columns=True)
             turns_table.add_columns(
-                "#",
+                t("col-index"),
                 t("ui-label"),
                 t("ui-outcome"),
                 t("ui-events"),

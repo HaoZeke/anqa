@@ -241,6 +241,24 @@ def test_timeline_event_kind_and_tool_family() -> None:
     assert m["kind"] == "tool"
     assert m["toolFamily"] == "read"
     assert m["heading"]
+    assert m["rawInput"] == {"target_file": "/tmp/x"}
+
+
+def test_timeline_event_mapping_caps_huge_raw_input() -> None:
+    from groket.models import TraceEvent
+    from groket.session.control_views import timeline_event_mapping
+
+    ev = TraceEvent(
+        index=1,
+        event_type="tool_call",
+        tool_name="read_file",
+        raw_input={"blob": "x" * 80_000},
+    )
+    m = timeline_event_mapping(ev, content_chars=200)
+    raw = m["rawInput"]
+    assert isinstance(raw, dict)
+    assert raw.get("_truncated") is True
+    assert len(str(raw.get("preview") or "")) <= 200
 
 
 def test_build_session_timeline_reuses_turn_view_on_warm_pages(tmp_path: Path) -> None:

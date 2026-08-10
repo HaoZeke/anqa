@@ -4,6 +4,39 @@ use serde_json::Value;
 
 use crate::model::KindFilter;
 
+/// Cut *s* to *max_chars* (Unicode scalar values) and mark truncation.
+pub fn capped_display(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let count = s.chars().count();
+    if count <= max_chars {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max_chars).collect();
+    out.push('…');
+    out
+}
+
+/// Compact JSON (or the string itself), then apply [`capped_display`].
+pub fn capped_json(value: &Value, max_chars: usize) -> String {
+    let s = match value {
+        Value::String(s) => s.clone(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    };
+    capped_display(&s, max_chars)
+}
+
+/// Same labels as TUI ``ui-origin-work`` / ``ui-origin-host``.
+pub fn origin_label(origin: &str) -> &'static str {
+    match origin.trim().to_ascii_lowercase().as_str() {
+        "host" => "Host",
+        "work" | "eval" => "Eval",
+        "" => "—",
+        _ => "Eval",
+    }
+}
+
 pub fn is_blank_status(status: &str) -> bool {
     let t = status.trim();
     t.is_empty() || t == "—" || t == "-" || t == "–"
@@ -454,6 +487,25 @@ mod tests {
         );
         assert_eq!(timeline_body_text(preview, content, true, 80), content);
         assert_eq!(timeline_body_text("", "abcdef", false, 3), "abc");
+    }
+
+    #[test]
+    fn capped_display_and_json() {
+        assert_eq!(capped_display("abcd", 10), "abcd");
+        assert_eq!(capped_display("abcdef", 3), "abc…");
+        assert_eq!(capped_display("x", 0), "");
+        let v = serde_json::json!({"a": "bbbb"});
+        let s = capped_json(&v, 8);
+        assert!(s.chars().count() <= 9);
+        assert!(s.ends_with('…') || s.len() <= 8);
+    }
+
+    #[test]
+    fn origin_label_matches_tui() {
+        assert_eq!(origin_label("host"), "Host");
+        assert_eq!(origin_label("work"), "Eval");
+        assert_eq!(origin_label("eval"), "Eval");
+        assert_eq!(origin_label(""), "—");
     }
 
     #[test]

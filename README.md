@@ -68,7 +68,7 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `Ctrl+P` | Command palette (theme, tips, analysis, …) |
 | `q` | Quit |
 
-Columns: select, **Src** (`Eval` = groket launches under `work/runs/traces`,
+Columns: select, **Origin** (`Eval` = groket launches under `work/runs/traces`,
 `Host` = native Grok under `~/.grok/sessions`), title, model, status
 (`running` / `awaiting` / `ending` / `complete` / `cancelled`), duration,
 context fill from `signals.json` when present, event count, and findings

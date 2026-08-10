@@ -11,14 +11,14 @@ use iced::widget::{
     text, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::app::{Hud, Message};
 use crate::brand;
 use crate::format::{
-    event_role, format_note_time, list_status_label, looks_like_json, looks_like_markdown,
-    message_markdown_source, note_fields_view, pretty_json, sanitize_console_text, status_tone,
-    timeline_body_text, EventRole,
+    capped_display, capped_json, event_role, format_note_time, list_status_label, looks_like_json,
+    looks_like_markdown, note_fields_view, origin_label, pretty_json, sanitize_console_text,
+    status_tone, timeline_body_text, EventRole,
 };
 use crate::live::CardMark;
 use crate::model::{KindFilter, Tab};
@@ -96,50 +96,67 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
 
 fn session_list(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
-    let mut col = column![].spacing(2).padding(8);
+    let mut col = column![].spacing(0).padding(8);
     if hud.sessions().is_empty() {
         col = col.push(text("No sessions").size(typo::BODY).color(tok.muted));
+    } else {
+        let win = hud.list_visible_range();
+        if win.pad_top > 0.0 {
+            col = col.push(Space::with_height(win.pad_top));
+        }
+        for (i, row) in hud.sessions()[win.start..win.end].iter().enumerate() {
+            let i = win.start + i;
+            let selected = i == hud.active();
+            let status = list_status_label(&row.status, &row.outcome);
+            let tone = status_tone(&status);
+            let sub = format!(
+                "{} · {}{}",
+                status,
+                row.model,
+                if row.context_usage_compact.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", row.context_usage_compact)
+                }
+            );
+            let title_font = if selected { typo::UI_BOLD } else { typo::UI };
+            let title_c = tok.text;
+            let sub_c = tone_color(tone, tok);
+            let label = column![
+                text(row.display_title())
+                    .size(typo::BODY)
+                    .font(title_font)
+                    .color(title_c),
+                text(sub).size(typo::META).color(sub_c),
+            ]
+            .spacing(4);
+            col = col.push(
+                mouse_area(
+                    container(label)
+                        .width(Length::Fill)
+                        .padding([10, 12])
+                        .style(move |_| style::list_row(tok, selected)),
+                )
+                .on_press(Message::SelectSession(i)),
+            );
+        }
+        if win.pad_bottom > 0.0 {
+            col = col.push(Space::with_height(win.pad_bottom));
+        }
     }
-    for (i, row) in hud.sessions().iter().enumerate() {
-        let selected = i == hud.active();
-        let status = list_status_label(&row.status, &row.outcome);
-        let tone = status_tone(&status);
-        let sub = format!(
-            "{} · {}{}",
-            status,
-            row.model,
-            if row.context_usage_compact.is_empty() {
-                String::new()
-            } else {
-                format!(" · {}", row.context_usage_compact)
-            }
-        );
-        let title_font = if selected { typo::UI_BOLD } else { typo::UI };
-        let title_c = tok.text;
-        let sub_c = tone_color(tone, tok);
-        let label = column![
-            text(row.display_title())
-                .size(typo::BODY)
-                .font(title_font)
-                .color(title_c),
-            text(sub).size(typo::META).color(sub_c),
-        ]
-        .spacing(4);
-        col = col.push(
-            mouse_area(
-                container(label)
-                    .width(Length::Fill)
-                    .padding([10, 12])
-                    .style(move |_| style::list_row(tok, selected)),
-            )
-            .on_press(Message::SelectSession(i)),
-        );
-    }
-    container(scrollable(col).height(Length::Fill))
-        .width(Length::Fixed(260.0))
-        .height(Length::Fill)
-        .style(move |_| style::fill(tok.panel, tok.text))
-        .into()
+    container(
+        scrollable(col)
+            .id(hud.list_scroll_id())
+            .height(Length::Fill)
+            .on_scroll(|vp| Message::ListScroll {
+                y: vp.absolute_offset().y,
+                height: vp.bounds().height,
+            }),
+    )
+    .width(Length::Fixed(260.0))
+    .height(Length::Fill)
+    .style(move |_| style::fill(tok.panel, tok.text))
+    .into()
 }
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
@@ -179,7 +196,13 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         }
     };
     stack = stack.push(
-        scrollable(container(body).padding([16, 20]).width(Length::Fill)).height(Length::Fill),
+        scrollable(container(body).padding([16, 20]).width(Length::Fill))
+            .id(hud.timeline_scroll_id())
+            .height(Length::Fill)
+            .on_scroll(|vp| Message::TimelineScroll {
+                y: vp.absolute_offset().y,
+                height: vp.bounds().height,
+            }),
     );
     container(stack)
         .width(Length::Fill)
@@ -235,11 +258,14 @@ fn overview_tab(hud: &Hud) -> Element<'static, Message> {
     let tone = status_tone(&status);
     let hero = format!(
         "{} · {} · {} · {}",
-        meta.model, meta.origin, meta.duration, ctx
+        meta.model,
+        origin_label(&meta.origin),
+        meta.duration,
+        ctx,
     );
     let id = meta.session_id.clone();
     let events = meta.num_events.to_string();
-    let tools = format!("{} ({} err)", meta.tool_call_count, meta.error_count);
+    let tools = format!("{} ({} errors)", meta.tool_call_count, meta.error_count);
     let turns_n = o.turns.total.to_string();
     let findings_n = if o.findings.total > 0 {
         o.findings.total.to_string()
@@ -283,7 +309,7 @@ fn overview_tab(hud: &Hud) -> Element<'static, Message> {
     } else if summary == "No summary text for this session." {
         col = col.push(text(summary).size(typo::BODY).color(tok.muted));
     }
-    col.push(kv(hud, "id", id, true))
+    col.push(kv(hud, "session", id, true))
         .push(kv(hud, "events", events, false))
         .push(kv(hud, "tools", tools, false))
         .push(kv(hud, "turns", turns_n, false))
@@ -328,21 +354,6 @@ fn md_body(
         return text(cut).size(size).font(typo::UI).into();
     }
     md_parsed(&cut, max_chars, size, style)
-}
-
-/// Chat messages: always markdown (numbered lists, fences) with hard breaks.
-fn md_message(
-    src: &str,
-    max_chars: usize,
-    size: u16,
-    style: markdown::Style,
-) -> Element<'static, Message> {
-    let cut: String = src.chars().take(max_chars).collect();
-    let prepared = message_markdown_source(&cut);
-    if prepared.trim().is_empty() {
-        return Space::with_height(0).into();
-    }
-    md_parsed(&prepared, max_chars, size, style)
 }
 
 fn md_parsed(
@@ -528,7 +539,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             t.label.clone()
         };
         let meta = format!(
-            "prompt {} · events {} · tools {} ({} err){}{} · idx {}–{}",
+            "prompt {} · events {} · tools {} ({} errors){}{} · index {}–{}",
             t.prompt_index
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "—".into()),
@@ -574,7 +585,11 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     .color(hud.tokens().muted),
             );
         } else {
-            body = body.push(md_message(&summary, 12_000, typo::BODY, md_style(hud)));
+            body = body.push(
+                text(sanitize_console_text(&summary))
+                    .size(typo::BODY)
+                    .font(typo::UI),
+            );
         }
         if !assistant.is_empty() {
             let asst_head: Element<'_, Message> = if let Some(ix) = assistant_jump {
@@ -590,7 +605,11 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     .into()
             };
             body = body.push(asst_head);
-            body = body.push(md_message(&assistant, 12_000, typo::BODY, md_style(hud)));
+            body = body.push(
+                text(sanitize_console_text(&assistant))
+                    .size(typo::BODY)
+                    .font(typo::UI),
+            );
         }
         col = col.push(
             container(
@@ -617,6 +636,12 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     }
     let events = hud.filtered_timeline();
     if events.is_empty() {
+        if hud.timeline_loading() || !hud.timeline_complete() {
+            return text("Loading matching events…")
+                .size(typo::BODY)
+                .color(hud.tokens().muted)
+                .into();
+        }
         return text("No events in this filter.")
             .size(typo::BODY)
             .color(hud.tokens().muted)
@@ -624,8 +649,15 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     }
     let (_, ev_marks) = hud.card_marks();
     let focus = hud.timeline_focus();
-    let mut col = column![].spacing(12);
-    for ev in events {
+    let n = events.len();
+    let win = hud.timeline_visible_range(n);
+    let start = win.start.min(n);
+    let end = win.end.min(n).max(start);
+    let mut col = column![].spacing(0);
+    if win.pad_top > 0.0 {
+        col = col.push(Space::with_height(win.pad_top));
+    }
+    for ev in events[start..end].iter().copied() {
         let ix = ev.index;
         let turn = ev.turn_index.map(|n| n.to_string()).unwrap_or_default();
         let heading = if ev.heading.is_empty() {
@@ -642,7 +674,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         };
         let is_error = ev.is_error;
         let type_color = role_color(event_role(&kind, is_error), hud.tokens());
-        let idx_s = format!("#{}", ev.index);
+        let idx_s = ev.index.to_string();
         let time_s = ev.time.clone();
         let tok = hud.tokens();
         let head = row![
@@ -707,12 +739,18 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             .on_press(Message::SelectTimeline(ix_click)),
         );
     }
-    if !hud.timeline_loading() && !hud.timeline_complete() {
+    if win.pad_bottom > 0.0 {
+        col = col.push(Space::with_height(win.pad_bottom));
+    }
+    if !hud.timeline_complete() {
         col = col.push(
-            button("Load more")
-                .on_press(Message::LoadMoreTimeline)
-                .style(style::quiet(hud.tokens()))
-                .padding([8, 12]),
+            text(if hud.timeline_loading() {
+                "Loading more events…"
+            } else {
+                "More events available — scroll or wait"
+            })
+            .size(typo::META)
+            .color(hud.tokens().muted),
         );
     }
     col.into()
@@ -1016,11 +1054,7 @@ fn event_payload(ev: &TimelineEvent, selected: bool, hud: &Hud) -> Element<'stat
         let raw = &ev.raw_input;
         if !raw.is_null() && raw != &json!({}) {
             col = col.push(text("Input").size(typo::META).color(tok.muted));
-            let dumped = match raw {
-                Value::String(s) => s.clone(),
-                other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
-            };
-            col = col.push(code_block(&dumped, hud));
+            col = col.push(code_block(&capped_json(raw, 2_000), hud));
         }
         if !body.trim().is_empty() {
             col = col.push(text("Output").size(typo::META).color(tok.muted));
@@ -1043,36 +1077,29 @@ fn render_payload_text(
     if trimmed.is_empty() {
         return text("empty").size(typo::META).color(tok.muted).into();
     }
-    let max = if expanded { 12_000 } else { 400 };
+    let max = if expanded { 4_000 } else { 400 };
+    let cut = capped_display(body, max);
+    if !expanded {
+        return text(cut)
+            .size(typo::BODY)
+            .font(typo::UI)
+            .color(tok.muted)
+            .into();
+    }
+    // Plain text only: iced markdown on a multi‑k body freezes or aborts
+    // the palette on large host sessions.
     let rendered: Element<'static, Message> = match kind {
-        "user" | "agent" | "subagent" => md_message(body, max, typo::BODY, md_style(hud)),
-        "thought" => text(body.to_string())
+        "thought" => text(cut)
             .size(typo::BODY)
             .font(typo::UI_ITALIC)
             .color(tok.muted)
             .into(),
-        "plan" => text(body.to_string())
-            .size(typo::BODY)
-            .color(tok.accent)
-            .into(),
-        "session" | "task" => text(body.to_string())
-            .size(typo::BODY)
-            .color(tok.warning)
-            .into(),
-        "error" => text(body.to_string())
-            .size(typo::BODY)
-            .color(tok.error)
-            .into(),
-        "system" => text(body.to_string())
-            .size(typo::BODY)
-            .color(tok.accent)
-            .into(),
-        _ if looks_like_json(trimmed) => return code_block(trimmed, hud),
-        _ if looks_like_markdown(body) => md_body(body, max, typo::BODY, md_style(hud)),
-        _ => text(body.to_string())
-            .size(typo::BODY)
-            .font(typo::UI)
-            .into(),
+        "plan" => text(cut).size(typo::BODY).color(tok.accent).into(),
+        "session" | "task" => text(cut).size(typo::BODY).color(tok.warning).into(),
+        "error" => text(cut).size(typo::BODY).color(tok.error).into(),
+        "system" => text(cut).size(typo::BODY).color(tok.accent).into(),
+        _ if looks_like_json(trimmed) => return code_block(&cut, hud),
+        _ => text(cut).size(typo::BODY).font(typo::UI).into(),
     };
     if expanded
         && (kind == "user" || kind == "agent" || kind == "subagent" || looks_like_markdown(body))
@@ -1089,6 +1116,7 @@ fn code_block(src: &str, hud: &Hud) -> Element<'static, Message> {
     } else {
         src.to_string()
     };
+    let pretty = capped_display(&pretty, 2_000);
     let tok = hud.tokens();
     container(
         text(pretty)

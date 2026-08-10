@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use iced::keyboard::{key::Named, Key, Modifiers as KeyMods};
+use iced::widget::scrollable::{self, AbsoluteOffset};
 use iced::widget::text_input;
 use iced::window::{self, Mode};
 use iced::{
@@ -17,10 +18,12 @@ use crate::control::{self, ControlError};
 use crate::format::{control_down_message, new_note_id};
 use crate::fuzzy::fuzzy_filter;
 use crate::live::{
-    card_marks_from_overview, is_soft_notes_save_error, merge_catalog_rows,
+    card_marks_from_overview, index_outside_visible, is_soft_notes_save_error, merge_catalog_rows,
     merge_timeline_by_index, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
-    plan_tick, session_needs_live_poll, timeline_coverage_complete, timeline_first_missing_offset,
-    timeline_seek_offset, TickInput, LIVE_TAIL_LIMIT, TIMELINE_CHUNK,
+    plan_tick, session_needs_live_poll, session_rpc_ref, should_continue_timeline,
+    should_fetch_timeline, timeline_coverage_complete, timeline_first_missing_offset,
+    timeline_seek_offset, visible_range_covering, TickInput, VisibleRange, IDLE_POLL_MS,
+    LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_ROW_H, VIRT_OVERSCAN,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -95,6 +98,18 @@ pub enum Message {
     },
     Hide,
     MdLink(String),
+    ListScroll {
+        y: f32,
+        height: f32,
+    },
+    TimelineScroll {
+        y: f32,
+        height: f32,
+    },
+    ContinueTimeline {
+        sid: String,
+        gen: u64,
+    },
 }
 
 pub struct Hud {
@@ -137,6 +152,12 @@ pub struct Hud {
     notify_q: Arc<Mutex<VecDeque<(String, Value)>>>,
     window_id: Option<window::Id>,
     catalog_revision: i64,
+    list_scroll_y: f32,
+    list_view_h: f32,
+    list_scroll_id: scrollable::Id,
+    tl_scroll_y: f32,
+    tl_view_h: f32,
+    tl_scroll_id: scrollable::Id,
 }
 
 impl Default for Hud {
@@ -181,6 +202,12 @@ impl Default for Hud {
             notify_q: Arc::new(Mutex::new(VecDeque::new())),
             catalog_revision: 0,
             window_id: None,
+            list_scroll_y: 0.0,
+            list_view_h: 400.0,
+            list_scroll_id: scrollable::Id::new("hud-list"),
+            tl_scroll_y: 0.0,
+            tl_view_h: 400.0,
+            tl_scroll_id: scrollable::Id::new("hud-timeline"),
         }
     }
 }
@@ -317,15 +344,27 @@ impl Hud {
 
     fn subscription(&self) -> Subscription<Message> {
         let mut subs = vec![
-            event::listen().map(Message::RawEvent),
+            event::listen_with(interesting_hud_event),
             hotkey_subscription(),
+            notify_subscription(),
             keyboard::on_key_press(|key, _mods| match key {
                 Key::Named(Named::Escape) => Some(Message::Hide),
                 _ => None,
             }),
         ];
         if self.visible {
-            subs.push(time::every(Duration::from_secs(2)).map(|_| Message::Tick));
+            let any_live = session_needs_live_poll(
+                &self.selected_status(),
+                self.overview.as_ref().map(|o| &o.turns),
+            ) || self
+                .sessions
+                .iter()
+                .any(|r| session_needs_live_poll(&r.status, None));
+            let poll = if any_live { LIVE_POLL_MS } else { IDLE_POLL_MS };
+            subs.push(time::every(Duration::from_millis(poll)).map(|_| Message::Tick));
+        }
+        if self.note_delete_until.is_some() {
+            subs.push(time::every(Duration::from_millis(250)).map(|_| Message::Tick));
         }
         Subscription::batch(subs)
     }
@@ -437,6 +476,38 @@ impl Hud {
             Message::RequestDelete(nid) => self.request_delete(nid),
             Message::PopOutWindow => self.pop_out_window(),
             Message::Hotkey => self.on_hotkey(),
+            Message::ListScroll { y, height } => {
+                self.list_scroll_y = y.max(0.0);
+                if height > 1.0 {
+                    self.list_view_h = height;
+                }
+                Task::none()
+            }
+            Message::TimelineScroll { y, height } => {
+                self.tl_scroll_y = y.max(0.0);
+                if height > 1.0 {
+                    self.tl_view_h = height;
+                }
+                if let Some(pos) = self.timeline_focus_pos() {
+                    if index_outside_visible(
+                        self.tl_scroll_y,
+                        self.tl_view_h,
+                        TIMELINE_ROW_H,
+                        self.filtered_timeline().len(),
+                        VIRT_OVERSCAN,
+                        pos,
+                    ) {
+                        self.timeline_focus = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::ContinueTimeline { sid, gen } => {
+                if gen != self.timeline_gen {
+                    return Task::none();
+                }
+                self.fill_timeline(sid)
+            }
             Message::Tick => self.on_tick(),
             Message::FocusSearch(attempt) => self.on_focus_search(attempt),
             Message::RawEvent(ev) => self.on_event(ev),
@@ -507,7 +578,7 @@ impl Hud {
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
                         self.mark_up();
-                        if self.tab == Tab::Timeline || self.timeline.is_empty() {
+                        if should_fetch_timeline(self.tab == Tab::Timeline) {
                             return Task::batch([
                                 self.ensure_timeline(sid, false),
                                 if quiet {
@@ -558,13 +629,17 @@ impl Hud {
                         } else {
                             self.timeline_total
                         };
-                        if append && self.timeline_sid == sid && !self.timeline.is_empty() {
-                            let merged = merge_timeline_by_index(&self.timeline, &batch);
-                            self.timeline = merged.events;
-                        } else {
-                            self.timeline = batch.clone();
-                        }
-                        self.timeline_sid = sid;
+                        let added =
+                            if append && self.timeline_sid == sid && !self.timeline.is_empty() {
+                                let merged = merge_timeline_by_index(&self.timeline, &batch);
+                                let n = merged.added;
+                                self.timeline = merged.events;
+                                n
+                            } else {
+                                self.timeline = batch.clone();
+                                batch.len()
+                            };
+                        self.timeline_sid = sid.clone();
                         self.timeline_total = total;
                         self.timeline_next = self
                             .timeline_next
@@ -573,6 +648,14 @@ impl Hud {
                             self.timeline_next = self.timeline_next.min(self.timeline_total);
                         }
                         self.mark_up();
+                        if should_continue_timeline(
+                            self.tab == Tab::Timeline,
+                            self.timeline_complete(),
+                            self.timeline_loading,
+                        ) && added > 0
+                        {
+                            return queue_timeline_continue(sid, self.timeline_gen);
+                        }
                     }
                     Err(e) => self.mark_down(&e),
                 }
@@ -782,6 +865,79 @@ impl Hud {
             .filter(|s| !s.is_empty())
     }
 
+    fn selected_rpc_ref(&self) -> Option<String> {
+        let row = self.sessions.get(self.active)?;
+        let r = session_rpc_ref(&row.path, &row.session_id);
+        if r.is_empty() {
+            None
+        } else {
+            Some(r)
+        }
+    }
+
+    fn overview_rpc_ref(&self) -> String {
+        if let Some(o) = &self.overview {
+            let r = session_rpc_ref(&o.meta.path, &self.overview_sid);
+            if !r.is_empty() {
+                return r;
+            }
+        }
+        self.selected_rpc_ref()
+            .or_else(|| self.selected_sid())
+            .unwrap_or_default()
+    }
+
+    pub fn list_scroll_id(&self) -> scrollable::Id {
+        self.list_scroll_id.clone()
+    }
+
+    pub fn timeline_scroll_id(&self) -> scrollable::Id {
+        self.tl_scroll_id.clone()
+    }
+
+    pub fn timeline_focus_pos(&self) -> Option<usize> {
+        let focus = self.timeline_focus?;
+        self.filtered_timeline()
+            .iter()
+            .position(|ev| ev.index == focus)
+    }
+
+    pub fn timeline_visible_range(&self, count: usize) -> VisibleRange {
+        visible_range_covering(
+            self.tl_scroll_y,
+            self.tl_view_h,
+            TIMELINE_ROW_H,
+            count,
+            VIRT_OVERSCAN,
+            self.timeline_focus_pos(),
+        )
+    }
+
+    pub fn list_visible_range(&self) -> VisibleRange {
+        visible_range_covering(
+            self.list_scroll_y,
+            self.list_view_h,
+            LIST_ROW_H,
+            self.sessions.len(),
+            VIRT_OVERSCAN,
+            Some(self.active),
+        )
+    }
+
+    fn ensure_active_visible(&mut self) -> Task<Message> {
+        let view_h = self.list_view_h.max(80.0);
+        let top = self.active as f32 * LIST_ROW_H;
+        let bot = top + LIST_ROW_H;
+        let mut y = self.list_scroll_y;
+        if top < y {
+            y = top;
+        } else if bot > y + view_h {
+            y = (bot - view_h).max(0.0);
+        }
+        self.list_scroll_y = y;
+        scrollable::scroll_to(self.list_scroll_id.clone(), AbsoluteOffset { x: 0.0, y })
+    }
+
     fn selected_status(&self) -> String {
         if let Some(o) = &self.overview {
             let s = o.meta.status_label();
@@ -813,6 +969,7 @@ impl Hud {
         self.timeline_sid.clear();
         self.timeline_total = 0;
         self.timeline_next = 0;
+        self.tl_scroll_y = 0.0;
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.note_draft = NoteDraft::default();
@@ -906,12 +1063,14 @@ impl Hud {
             self.overview_pending.clear();
             return Task::none();
         };
+        let Some(rpc_ref) = self.selected_rpc_ref() else {
+            return Task::none();
+        };
         self.overview_pending = sid.clone();
         self.overview_gen += 1;
         let gen = self.overview_gen;
-        let sid_rpc = sid.clone();
         Task::perform(
-            rpc(move || control::session_overview(&sid_rpc)),
+            rpc(move || control::session_overview(&rpc_ref)),
             move |result| Message::OverviewLoaded {
                 gen,
                 sid: sid.clone(),
@@ -933,12 +1092,14 @@ impl Hud {
             self.timeline.clear();
             self.timeline_total = 0;
             self.timeline_next = 0;
+            self.tl_scroll_y = 0.0;
         }
         let seed = self
             .timeline_focus
             .map(|i| timeline_seek_offset(i, 20))
             .unwrap_or(0);
-        fetch_timeline(sid, seed, false, gen, 120)
+        let rpc_ref = self.overview_rpc_ref();
+        fetch_timeline(rpc_ref, sid, seed, false, gen, 120)
     }
 
     fn fill_timeline(&mut self, sid: String) -> Task<Message> {
@@ -948,7 +1109,8 @@ impl Hud {
         let off = timeline_first_missing_offset(&self.timeline, self.timeline_total);
         let gen = self.timeline_gen;
         self.timeline_loading = true;
-        fetch_timeline(sid, off, true, gen, TIMELINE_CHUNK)
+        let rpc_ref = self.overview_rpc_ref();
+        fetch_timeline(rpc_ref, sid, off, true, gen, TIMELINE_CHUNK)
     }
 
     fn load_more_timeline(&mut self) -> Task<Message> {
@@ -976,7 +1138,8 @@ impl Hud {
         }
         let gen = self.timeline_gen;
         let offset = self.timeline_next.saturating_sub(4);
-        fetch_timeline(sid, offset, true, gen, LIVE_TAIL_LIMIT)
+        let rpc_ref = self.overview_rpc_ref();
+        fetch_timeline(rpc_ref, sid, offset, true, gen, LIVE_TAIL_LIMIT)
     }
 
     fn open_note(&mut self, nid: &str) {
@@ -1015,7 +1178,7 @@ impl Hud {
     }
 
     fn save_note(&mut self) -> Task<Message> {
-        let sid = self.overview_sid.clone();
+        let sid = self.overview_rpc_ref();
         let Some(o) = &self.overview else {
             self.status = "Select a session before saving a note".into();
             return Task::none();
@@ -1093,7 +1256,7 @@ impl Hud {
     }
 
     fn delete_note(&mut self, nid: String) -> Task<Message> {
-        let sid = self.overview_sid.clone();
+        let sid = self.overview_rpc_ref();
         let Some(o) = &self.overview else {
             return Task::none();
         };
@@ -1408,22 +1571,22 @@ impl Hud {
             Key::Named(Named::ArrowDown) if !self.sessions.is_empty() => {
                 self.active = (self.active + 1) % self.sessions.len();
                 self.reset_detail_chrome();
-                self.load_overview(false)
+                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::ArrowUp) if !self.sessions.is_empty() => {
                 self.active = (self.active + self.sessions.len() - 1) % self.sessions.len();
                 self.reset_detail_chrome();
-                self.load_overview(false)
+                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::Home) if !self.sessions.is_empty() => {
                 self.active = 0;
                 self.reset_detail_chrome();
-                self.load_overview(false)
+                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::End) if !self.sessions.is_empty() => {
                 self.active = self.sessions.len() - 1;
                 self.reset_detail_chrome();
-                self.load_overview(false)
+                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::Enter) => self.load_overview(false),
             _ => Task::none(),
@@ -1444,10 +1607,28 @@ fn fetch_list(quiet: bool, since: i64) -> Task<Message> {
     )
 }
 
-fn fetch_timeline(sid: String, offset: u32, append: bool, gen: u64, limit: u32) -> Task<Message> {
-    let sid_rpc = sid.clone();
+fn queue_timeline_continue(sid: String, gen: u64) -> Task<Message> {
     Task::perform(
-        rpc(move || control::session_timeline(&sid_rpc, offset, limit)),
+        async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        },
+        move |()| Message::ContinueTimeline {
+            sid: sid.clone(),
+            gen,
+        },
+    )
+}
+
+fn fetch_timeline(
+    rpc_ref: String,
+    sid: String,
+    offset: u32,
+    append: bool,
+    gen: u64,
+    limit: u32,
+) -> Task<Message> {
+    Task::perform(
+        rpc(move || control::session_timeline(&rpc_ref, offset, limit)),
         move |result| Message::TimelineLoaded {
             gen,
             sid: sid.clone(),
@@ -1456,6 +1637,46 @@ fn fetch_timeline(sid: String, offset: u32, append: bool, gen: u64, limit: u32) 
             result,
         },
     )
+}
+
+fn interesting_hud_event(event: Event, status: event::Status, _id: window::Id) -> Option<Message> {
+    match event {
+        Event::Window(window::Event::CloseRequested) => Some(Message::RawEvent(event)),
+        Event::Keyboard(keyboard::Event::KeyPressed { .. }) if status == event::Status::Ignored => {
+            Some(Message::RawEvent(event))
+        }
+        _ => None,
+    }
+}
+
+fn notify_subscription() -> Subscription<Message> {
+    Subscription::run(notify_stream)
+}
+
+fn notify_stream() -> impl iced::futures::Stream<Item = Message> {
+    iced::stream::channel(8, |mut output| async move {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<()>(64);
+        control::set_notify_wake(tx);
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        loop {
+            let rx = rx.clone();
+            let got = tokio::task::spawn_blocking(move || {
+                rx.lock().ok().and_then(|guard| guard.recv().ok())
+            })
+            .await
+            .ok()
+            .flatten();
+            if got.is_none() {
+                break;
+            }
+            if iced::futures::SinkExt::send(&mut output, Message::Tick)
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    })
 }
 
 async fn rpc<F>(f: F) -> Result<Value, String>
@@ -1518,6 +1739,29 @@ mod tests {
         assert!(w.icon.is_some());
         #[cfg(target_os = "linux")]
         assert!(w.platform_specific.override_redirect);
+    }
+
+    #[test]
+    fn interesting_hud_event_ignores_mouse_motion() {
+        let ev = Event::Mouse(iced::mouse::Event::CursorMoved {
+            position: Point::new(1.0, 1.0),
+        });
+        assert!(interesting_hud_event(ev, event::Status::Ignored, window::Id::unique()).is_none());
+        let key = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Named(Named::ArrowDown),
+            modified_key: Key::Named(Named::ArrowDown),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::ArrowDown),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: None,
+        });
+        assert!(
+            interesting_hud_event(key.clone(), event::Status::Ignored, window::Id::unique())
+                .is_some()
+        );
+        assert!(
+            interesting_hud_event(key, event::Status::Captured, window::Id::unique()).is_none()
+        );
     }
 
     #[test]
