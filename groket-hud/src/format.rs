@@ -422,6 +422,245 @@ pub fn control_down_message(err: &str) -> String {
     }
 }
 
+/// One TUI-aligned tool input field (HUD inspect, not a JSON dump).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolField {
+    pub id: String,
+    pub label: String,
+    pub value: String,
+}
+
+/// Strip Grok ``N→`` / ``N->`` prefixes from a ``read_file`` body.
+pub fn strip_inline_line_prefixes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        out.push_str(&strip_one_line_prefix(line));
+    }
+    out
+}
+
+fn strip_one_line_prefix(line: &str) -> String {
+    let rest = line.trim_start();
+    let indent_len = line.len() - rest.len();
+    let indent = &line[..indent_len];
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return line.to_string();
+    }
+    let after = &rest[digits..];
+    let stripped = if let Some(s) = after.strip_prefix('→') {
+        s.strip_prefix(' ').unwrap_or(s)
+    } else if let Some(s) = after.strip_prefix("->") {
+        s.strip_prefix(' ').unwrap_or(s)
+    } else {
+        return line.to_string();
+    };
+    format!("{indent}{stripped}")
+}
+
+/// True when *text* looks like a numbered Grok ``read_file`` dump.
+pub fn looks_like_numbered_file(text: &str) -> bool {
+    let mut hits = 0;
+    let mut lines = 0;
+    for line in text.lines().take(12) {
+        lines += 1;
+        let rest = line.trim_start();
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            continue;
+        }
+        let after = &rest[digits..];
+        if after.starts_with('→') || after.starts_with("->") {
+            hits += 1;
+            if hits >= 2 {
+                return true;
+            }
+        }
+    }
+    hits == 1 && lines <= 1
+}
+
+/// Display body: strip numbered prefixes on file dumps.
+pub fn display_tool_output(text: &str, tool_name: &str) -> String {
+    if tool_name.trim() == "read_file" || looks_like_numbered_file(text) {
+        strip_inline_line_prefixes(text)
+    } else {
+        text.to_string()
+    }
+}
+
+/// Path from ``image_gen`` / ``image_edit`` result JSON.
+pub fn image_result_path(content: &str) -> String {
+    let s = content.trim();
+    if s.is_empty() || !(s.starts_with('{') || s.starts_with('[')) {
+        return String::new();
+    }
+    let Ok(v) = serde_json::from_str::<Value>(s) else {
+        return String::new();
+    };
+    v.get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn json_str_field(v: &Value, key: &str) -> String {
+    match v.get(key) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) if !other.is_null() => other.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn take_field(map: &serde_json::Map<String, Value>, keys: &[&str]) -> String {
+    for key in keys {
+        let s = json_str_field(&Value::Object(map.clone()), key);
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    String::new()
+}
+
+/// Fields for HUD inspect from ``rawInput`` (same keys as the TUI).
+pub fn tool_fields_from_raw(tool_name: &str, raw: &Value, max_chars: usize) -> Vec<ToolField> {
+    let Some(obj) = raw.as_object() else {
+        return Vec::new();
+    };
+    let mut fields = Vec::new();
+    let cut = |s: String| -> String {
+        if max_chars > 0 && s.chars().count() > max_chars {
+            s.chars().take(max_chars).collect()
+        } else {
+            s
+        }
+    };
+    let push = |fields: &mut Vec<ToolField>, id: &str, label: &str, value: String| {
+        if !value.is_empty() {
+            fields.push(ToolField {
+                id: id.into(),
+                label: label.into(),
+                value: cut(value),
+            });
+        }
+    };
+    let extra_except = |skip: &[&str]| -> String {
+        let mut leftover = serde_json::Map::new();
+        for (k, v) in obj {
+            if !skip.contains(&k.as_str()) {
+                leftover.insert(k.clone(), v.clone());
+            }
+        }
+        if leftover.is_empty() {
+            return String::new();
+        }
+        serde_json::to_string_pretty(&Value::Object(leftover)).unwrap_or_default()
+    };
+    match tool_name.trim() {
+        "search_replace" => {
+            push(
+                &mut fields,
+                "file_path",
+                "File",
+                take_field(obj, &["file_path", "target_file"]),
+            );
+            push(
+                &mut fields,
+                "old_string",
+                "old_string",
+                json_str_field(raw, "old_string"),
+            );
+            push(
+                &mut fields,
+                "new_string",
+                "new_string",
+                json_str_field(raw, "new_string"),
+            );
+            push(
+                &mut fields,
+                "extra",
+                "extra",
+                extra_except(&["file_path", "target_file", "old_string", "new_string"]),
+            );
+        }
+        "run_terminal_command" => {
+            push(
+                &mut fields,
+                "command",
+                "command",
+                json_str_field(raw, "command"),
+            );
+            push(&mut fields, "extra", "extra", extra_except(&["command"]));
+        }
+        "read_file" => {
+            push(
+                &mut fields,
+                "target_file",
+                "target_file",
+                take_field(obj, &["target_file", "file_path"]),
+            );
+            push(
+                &mut fields,
+                "extra",
+                "extra",
+                extra_except(&["target_file", "file_path"]),
+            );
+        }
+        "list_dir" => {
+            push(
+                &mut fields,
+                "target_directory",
+                "target_directory",
+                take_field(obj, &["target_directory", "path"]),
+            );
+            push(
+                &mut fields,
+                "extra",
+                "extra",
+                extra_except(&["target_directory", "path"]),
+            );
+        }
+        "grep" => {
+            push(
+                &mut fields,
+                "pattern",
+                "pattern",
+                json_str_field(raw, "pattern"),
+            );
+            push(&mut fields, "extra", "extra", extra_except(&["pattern"]));
+        }
+        "web_search" => {
+            push(&mut fields, "query", "query", json_str_field(raw, "query"));
+            push(&mut fields, "url", "url", json_str_field(raw, "url"));
+            push(
+                &mut fields,
+                "extra",
+                "extra",
+                extra_except(&["query", "url", "variant", "backend"]),
+            );
+        }
+        _ => {
+            for key in [
+                "command",
+                "query",
+                "pattern",
+                "target_file",
+                "file_path",
+                "path",
+                "prompt",
+            ] {
+                push(&mut fields, key, key, json_str_field(raw, key));
+            }
+        }
+    }
+    fields
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,6 +779,65 @@ mod tests {
         assert!(src.contains("2. second"));
         assert!(src.contains("**bold**"));
         assert!(src.contains("  \n") || src.contains("Intro"));
+    }
+
+    #[test]
+    fn strip_inline_line_prefixes_drops_grok_arrows() {
+        let raw = "1→from pathlib import Path\n10→x = 1\n";
+        let out = strip_inline_line_prefixes(raw);
+        assert!(!out.contains('→'));
+        assert!(out.starts_with("from pathlib"));
+        assert!(out.contains("x = 1"));
+        assert_eq!(strip_inline_line_prefixes("plain"), "plain");
+    }
+
+    #[test]
+    fn display_tool_output_strips_read_file() {
+        let raw = "1→fn main() {}\n2→// hi\n";
+        let out = display_tool_output(raw, "read_file");
+        assert_eq!(out, "fn main() {}\n// hi\n");
+        assert!(looks_like_numbered_file(raw));
+    }
+
+    #[test]
+    fn image_result_path_reads_json() {
+        let body = r#"{"path":"/tmp/img.jpg","filename":"img.jpg","message":"saved"}"#;
+        assert_eq!(image_result_path(body), "/tmp/img.jpg");
+        assert_eq!(image_result_path("not json"), "");
+    }
+
+    #[test]
+    fn tool_fields_search_replace_and_command_not_one_json_bag() {
+        let raw = serde_json::json!({
+            "file_path": "a.py",
+            "old_string": "aaa",
+            "new_string": "bbb extra long would still be a field",
+        });
+        let fields = tool_fields_from_raw("search_replace", &raw, 8_000);
+        let ids: Vec<&str> = fields.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["file_path", "old_string", "new_string"]);
+        assert_eq!(fields[1].value, "aaa");
+        let cmd = tool_fields_from_raw(
+            "run_terminal_command",
+            &serde_json::json!({"command": "ls -la", "timeout": 30}),
+            100,
+        );
+        assert_eq!(cmd[0].id, "command");
+        assert_eq!(cmd[0].value, "ls -la");
+        assert!(cmd.iter().all(|f| f.id != "json"));
+        let ws = tool_fields_from_raw(
+            "web_search",
+            &serde_json::json!({
+                "variant": "WebSearch",
+                "backend": true,
+                "query": "xAI logo",
+                "url": "https://x.ai/"
+            }),
+            200,
+        );
+        let ids: Vec<&str> = ws.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["query", "url"]);
+        assert_eq!(ws[0].value, "xAI logo");
     }
 
     #[test]

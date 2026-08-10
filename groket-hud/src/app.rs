@@ -780,6 +780,10 @@ impl Hud {
     pub fn timeline_focus(&self) -> Option<i64> {
         self.timeline_focus
     }
+
+    pub fn timeline_events(&self) -> &[crate::wire::TimelineEvent] {
+        &self.timeline
+    }
     pub fn timeline_loading(&self) -> bool {
         self.timeline_loading
     }

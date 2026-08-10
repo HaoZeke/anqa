@@ -27,6 +27,7 @@ from .models import (
     json_as_str,
 )
 from .paths import RUN_PREFIXES, is_run_dir_name, strip_run_prefix
+from .tool_display import web_search_from_raw_output
 
 logger = logging.getLogger(__name__)
 
@@ -480,7 +481,21 @@ def _extract_raw_output_text(raw_output: object) -> str:
         text = _stringify_tool_payload(raw_output.get(key))
         if text:
             return text
-    return ""
+    action_text, _query, _url = web_search_from_raw_output(raw_output)
+    return action_text
+
+
+def _merge_search_into_bag(bag: ToolInputBag, query: str, url: str = "") -> ToolInputBag:
+    """Copy *bag* and set ``query`` / ``url`` when the host left rawInput empty."""
+    data = bag.raw()
+    changed = False
+    if query.strip() and not json_as_str(data.get("query")).strip():
+        data["query"] = query.strip()
+        changed = True
+    if url.strip() and not json_as_str(data.get("url")).strip():
+        data["url"] = url.strip()
+        changed = True
+    return ToolInputBag(data) if changed else bag
 
 
 def _apply_tool_result_meta(tc: ToolCall, update: dict) -> None:
@@ -488,6 +503,9 @@ def _apply_tool_result_meta(tc: ToolCall, update: dict) -> None:
     raw_output = update.get("rawOutput")
     if isinstance(raw_output, dict):
         body = _extract_raw_output_text(raw_output)
+        _action_body, query, page_url = web_search_from_raw_output(raw_output)
+        if query or page_url:
+            tc.raw_input = _merge_search_into_bag(tc.inputs(), query, page_url)
         if body:
             ofp = (
                 raw_output.get("output_for_prompt")
@@ -663,9 +681,13 @@ def _coalesce_tool_result(
     is_error = update.get("isError")
     status = update.get("status", "")
     result_text = _extract_tool_update_text(update.get("content", ""))
+    raw_output = update.get("rawOutput")
     # MCP and some host tools put the body only in rawOutput (content is null).
     if not result_text:
-        result_text = _extract_raw_output_text(update.get("rawOutput"))
+        result_text = _extract_raw_output_text(raw_output)
+    search_body, search_query, search_url = web_search_from_raw_output(raw_output)
+    if search_body and (not result_text or result_text.strip() in ("", "{}")):
+        result_text = search_body
     failed = is_error is True or status == "failed"
     terminal = failed or status in ("completed", "failed")
 
@@ -673,10 +695,23 @@ def _coalesce_tool_result(
         return idx
 
     tool_name = ""
+    call_input = ToolInputBag()
     if call_id in pending_tools:
-        tool_name = pending_tools[call_id].tool_name
+        pending = pending_tools[call_id]
+        tool_name = pending.tool_name
+        if search_query or search_url:
+            pending.raw_input = _merge_search_into_bag(
+                pending.raw_input
+                if isinstance(pending.raw_input, ToolInputBag)
+                else ToolInputBag(),
+                search_query,
+                search_url,
+            )
+        call_input = (
+            pending.raw_input if isinstance(pending.raw_input, ToolInputBag) else ToolInputBag()
+        )
         if failed:
-            pending_tools[call_id].is_error = True
+            pending.is_error = True
 
     if call_id in result_by_call:
         ev = events[result_by_call[call_id]]
@@ -689,6 +724,8 @@ def _coalesce_tool_result(
             ev.is_error = True
         if tool_name and not ev.tool_name:
             ev.tool_name = tool_name
+        if call_input.raw() and not ev.raw_input.raw():
+            ev.raw_input = call_input
     elif result_text or failed:
         ev = TraceEvent(
             index=idx,
@@ -697,6 +734,7 @@ def _coalesce_tool_result(
             content=result_text,
             tool_call_id=call_id,
             tool_name=tool_name,
+            raw_input=call_input,
             is_error=failed,
             update_index=line_no,
         )

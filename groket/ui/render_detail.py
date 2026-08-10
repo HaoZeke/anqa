@@ -18,6 +18,11 @@ from textual.app import App
 from .. import event_types as et
 from ..analysis.base import Finding
 from ..models import Flag, JsonObject, JsonValue, ToolInputBag, TraceEvent
+from ..tool_display import (
+    display_tool_output,
+    image_result_message,
+    image_result_path,
+)
 from ..utils import fmt_duration
 from .i18n import t
 from .styles import severity_style
@@ -355,7 +360,7 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
     if tname in ("web_search", "spawn_subagent", "ask_user_question"):
-        for key in ("query", "prompt", "description", "question"):
+        for key in ("query", "url", "prompt", "description", "question"):
             if key in ri and isinstance(ri[key], str) and ri[key].strip():
                 parts.append(Text(f"{key}:", style="bright_blue"))
                 val = _cap_str(str(ri[key]), 4000, truncate=truncate)
@@ -366,15 +371,15 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
         extra = {
             k: v
             for k, v in ri.items()
-            if k not in ("query", "prompt", "description", "question") or not isinstance(v, str)
-        }
-        extra = {
-            k: v
-            for k, v in ri.items()
-            if not (
-                k in ("query", "prompt", "description", "question")
-                and isinstance(v, str)
-                and v.strip()
+            if k
+            not in (
+                "query",
+                "url",
+                "prompt",
+                "description",
+                "question",
+                "variant",
+                "backend",
             )
         }
         if extra:
@@ -389,13 +394,32 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
     return parts
 
 
+def _render_image_result(out: str) -> list:
+    """Path + message only (no pixel render in the TUI)."""
+    path = image_result_path(out)
+    message = image_result_message(out)
+    parts: list = [Rule(t("tool-output-rule", n=len(out or "")), style="bright_black")]
+    if path:
+        parts.append(Text(t("tool-image-path", path=path), style="cyan"))
+    if message:
+        parts.append(Text(message))
+    if not path and not message:
+        parts.append(Text(out or t("tool-empty-output"), style="dim italic"))
+    return parts
+
+
 def _render_tool_output(out: str, tname: str, path_hint: str, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool output (trace_viewer output block)."""
+    if tname in ("image_gen", "image_edit") and (
+        image_result_path(out) or image_result_message(out)
+    ):
+        return _render_image_result(out)
     parts: list = []
+    source = display_tool_output(out or "", tool_name=tname)
     raw_len = len(out or "")
-    cleaned = sanitize_console_text(out or "")
-    if not cleaned and out:
-        cleaned = sanitize_console_text(out, for_display=False) or t("tool-binary-output")
+    cleaned = sanitize_console_text(source)
+    if not cleaned and source:
+        cleaned = sanitize_console_text(source, for_display=False) or t("tool-binary-output")
     n_out = len(cleaned)
     out_disp = _truncate_mid(cleaned, truncate=truncate)
     if raw_len and n_out < raw_len * 0.9:

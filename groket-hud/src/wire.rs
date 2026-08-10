@@ -254,6 +254,22 @@ pub struct TimelineEvent {
     pub preview: String,
     #[serde(default)]
     pub raw_input: Value,
+    #[serde(default)]
+    pub tool_fields: Vec<ToolFieldRow>,
+    #[serde(default)]
+    pub image_path: String,
+}
+
+/// One ``toolFields`` row from ``session/timeline``.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolFieldRow {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub value: String,
 }
 
 /// ``session/timeline`` page.

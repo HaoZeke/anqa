@@ -32,6 +32,12 @@ from ..session.turns import (
     turn_index_for_event,
 )
 from ..session.usage_stats import SessionUsageStats, collect_session_usage
+from ..tool_display import (
+    display_tool_output,
+    image_result_path,
+    preserve_primary_raw_input,
+    tool_input_fields,
+)
 from .catalog import session_catalog_row
 
 DEFAULT_FINDINGS_LIMIT = 80
@@ -200,6 +206,8 @@ def timeline_event_mapping(
     content_raw = event.content if isinstance(event.content, str) else str(event.content or "")
     # Strip outer harness tags for display (keep raw length for truncation meta).
     content = unwrap_for_display(content_raw)
+    tname = (event.tool_name or "").strip()
+    content = display_tool_output(content, tool_name=tname)
     truncated = len(content) > cap
     body = content[:cap] if cap else ""
     raw: JsonValue = {}
@@ -215,7 +223,6 @@ def timeline_event_mapping(
         raw = {}
     raw = _capped_raw_input(raw, cap)
     kind = et.event_kind(event.event_type)
-    tname = (event.tool_name or "").strip()
     family = tool_family(tname) if kind in ("tool", "tool_result") or tname else ""
     chrome_heading = (
         harness_user_chrome_heading(content_raw)
@@ -247,6 +254,12 @@ def timeline_event_mapping(
         heading = event.type_label
     type_label = chrome_heading.lower() if chrome_heading else event.type_label
     preview = body.split("\n", 1)[0][:200] if body else event.summary_line
+    raw_map = as_json_object(raw) if isinstance(raw, dict) else {}
+    fields = tool_input_fields(tname, raw_map, max_chars=cap) if raw_map else []
+    tool_fields: list[JsonValue] = list(fields)
+    img_path = image_result_path(content_raw, None) if tname in ("image_gen", "image_edit") else ""
+    if not img_path and tname in ("image_gen", "image_edit"):
+        img_path = image_result_path(body)
     return {
         "index": int(event.index),
         "type": event.event_type or "",
@@ -268,20 +281,18 @@ def timeline_event_mapping(
         "turnIndex": int(turn_index) if turn_index is not None else None,
         "preview": preview,
         "rawInput": raw,
+        "toolFields": tool_fields,
+        "imagePath": img_path,
     }
 
 
 def _capped_raw_input(raw: JsonValue, max_chars: int) -> JsonValue:
-    """Bound ``rawInput`` so one timeline page cannot carry multi‑MB tool bags."""
+    """Bound ``rawInput``; keep command / old-new / path / pattern / query."""
     if not raw or max_chars <= 0:
         return {}
-    try:
-        dumped = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
-    except (TypeError, ValueError):
+    if not isinstance(raw, dict):
         return {}
-    if len(dumped) <= max_chars:
-        return raw
-    return {"_truncated": True, "preview": dumped[:max_chars]}
+    return preserve_primary_raw_input(as_json_object(raw), max_chars)
 
 
 def _turn_user_prompt_preview(

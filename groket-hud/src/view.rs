@@ -11,14 +11,14 @@ use iced::widget::{
     scrollable, text, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
-use serde_json::json;
 
 use crate::app::{Hud, Message};
 use crate::brand;
 use crate::format::{
-    capped_display, capped_json, event_role, format_note_time, list_status_label, looks_like_json,
-    looks_like_markdown, note_fields_view, origin_label, pretty_json, sanitize_console_text,
-    status_tone, timeline_body_text, EventRole,
+    capped_display, display_tool_output, event_role, format_note_time, image_result_path,
+    list_status_label, looks_like_json, looks_like_markdown, note_fields_view, origin_label,
+    pretty_json, sanitize_console_text, status_tone, timeline_body_text, tool_fields_from_raw,
+    EventRole, ToolField,
 };
 use crate::live::{
     rail_visible_range, visible_range, wheel_scroll, CardMark, LIST_ROW_H, TIMELINE_OVERSCAN,
@@ -1068,13 +1068,52 @@ fn tone_color(tone: &str, tok: crate::theme::Tokens) -> Color {
     }
 }
 
+fn paired_tool<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> (&'a TimelineEvent, &'a TimelineEvent) {
+    let id = ev.tool_call_id.trim();
+    if id.is_empty() {
+        return (ev, ev);
+    }
+    let mut call = ev;
+    let mut result = ev;
+    for other in hud.timeline_events() {
+        if other.tool_call_id != ev.tool_call_id {
+            continue;
+        }
+        if other.kind == "tool" || other.event_type == "tool_call" {
+            call = other;
+        }
+        if other.kind == "tool_result"
+            || other.event_type == "tool_call_update"
+            || other.event_type == "tool_result"
+        {
+            result = other;
+        }
+    }
+    (call, result)
+}
+
+fn inspect_fields(call: &TimelineEvent) -> Vec<ToolField> {
+    if !call.tool_fields.is_empty() {
+        return call
+            .tool_fields
+            .iter()
+            .map(|f| ToolField {
+                id: f.id.clone(),
+                label: f.label.clone(),
+                value: f.value.clone(),
+            })
+            .collect();
+    }
+    tool_fields_from_raw(&call.tool_name, &call.raw_input, 8_000)
+}
+
 fn event_payload(ev: &TimelineEvent, selected: bool, hud: &Hud) -> Element<'static, Message> {
     let kind = ev.kind.clone();
     let tool = ev.tool_name.clone();
     let preview = ev.preview.clone();
     let content = ev.content.clone();
     let raw_body = timeline_body_text(&preview, &content, selected, 240);
-    let body = sanitize_console_text(&raw_body);
+    let body = sanitize_console_text(&display_tool_output(&raw_body, &tool));
     let tok = hud.tokens();
     if !selected {
         return render_payload_text(&body, &kind, hud, false);
@@ -1101,19 +1140,78 @@ fn event_payload(ev: &TimelineEvent, selected: bool, hud: &Hud) -> Element<'stat
         );
     }
     if kind == "tool" || kind == "tool_result" {
-        let raw = &ev.raw_input;
-        if !raw.is_null() && raw != &json!({}) {
+        let (call, result) = paired_tool(hud, ev);
+        let fields = inspect_fields(call);
+        if !fields.is_empty() {
             col = col.push(text("Input").size(typo::META).color(tok.muted));
-            col = col.push(code_block(&capped_json(raw, 2_000), hud));
+            for field in fields {
+                col = col.push(
+                    text(format!("{}:", field.label))
+                        .size(typo::META)
+                        .color(tok.muted),
+                );
+                col = col.push(field_body(&field.id, &field.value, hud));
+            }
         }
-        if !body.trim().is_empty() {
+        let out_tool = if result.tool_name.is_empty() {
+            tool.as_str()
+        } else {
+            result.tool_name.as_str()
+        };
+        let out_body = sanitize_console_text(&display_tool_output(&result.content, out_tool));
+        let img = if !result.image_path.is_empty() {
+            result.image_path.clone()
+        } else {
+            image_result_path(&result.content)
+        };
+        if !img.is_empty() {
             col = col.push(text("Output").size(typo::META).color(tok.muted));
-            col = col.push(render_payload_text(&body, &kind, hud, true));
+            col = col.push(
+                text(img.clone())
+                    .size(typo::META)
+                    .font(typo::MONO)
+                    .color(tok.accent),
+            );
+            if std::path::Path::new(&img).is_file() {
+                col = col.push(
+                    iced::widget::image(iced::widget::image::Handle::from_path(&img))
+                        .width(Length::Fill),
+                );
+            }
+        } else if !out_body.trim().is_empty() {
+            col = col.push(text("Output").size(typo::META).color(tok.muted));
+            col = col.push(render_payload_text(&out_body, &result.kind, hud, true));
         }
     } else {
         col = col.push(render_payload_text(&body, &kind, hud, true));
     }
     col.into()
+}
+
+fn field_body(id: &str, value: &str, hud: &Hud) -> Element<'static, Message> {
+    let tok = hud.tokens();
+    let is_patch = id == "old_string" || id == "new_string" || id == "command";
+    let color = if id == "old_string" {
+        tok.error
+    } else if id == "new_string" {
+        tok.accent
+    } else {
+        tok.text
+    };
+    container(
+        text(value.to_string())
+            .size(typo::META)
+            .font(if is_patch || id == "pattern" {
+                typo::MONO
+            } else {
+                typo::UI
+            })
+            .color(color),
+    )
+    .padding(8)
+    .width(Length::Fill)
+    .style(move |_| style::inset(tok))
+    .into()
 }
 
 fn render_payload_text(

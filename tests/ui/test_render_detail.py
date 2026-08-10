@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from groket.ui.render_detail import (
     _guess_lexer,
     _lang_from_path,
@@ -809,6 +811,38 @@ class TestRenderToolOutputBranches:
             output='{"key":"value","n":1}',
         )
         assert isinstance(result, Group)
+
+    def test_read_file_numbered_prefixes_not_in_highlight(self) -> None:
+        result = render_tool_detail(
+            index=0,
+            tool_name="read_file",
+            raw_input={"target_file": "mod.py"},
+            output="1→from pathlib import Path\n2→import os\n",
+        )
+        plain = rich_plain(result)
+        assert "→" not in plain
+        assert "from pathlib import Path" in plain
+        assert "import os" in plain
+
+    def test_image_gen_output_is_path_text_not_pixels(self) -> None:
+        body = json.dumps(
+            {
+                "path": "/tmp/img.jpg",
+                "filename": "img.jpg",
+                "message": "Image generated and saved to /tmp/img.jpg.",
+            }
+        )
+        result = render_tool_detail(
+            index=0,
+            tool_name="image_gen",
+            raw_input={"prompt": "a mark"},
+            output=body,
+        )
+        plain = rich_plain(result)
+        assert "/tmp/img.jpg" in plain
+        assert "Image generated" in plain
+        assert "PIL" not in plain
+        assert "sixel" not in plain.lower()
 
 
 class TestRenderToolDetailFromEventExitCode:

@@ -2672,6 +2672,7 @@ tool-field-new-string = new_string:
 tool-no-input = (no input)
 tool-binary-output = (binary / control-only output)
 tool-empty-output = (empty)
+tool-image-path = Saved image: { $path }
 notify-scanning = Scanning { $path }…
 notify-no-sessions = No sessions found in { $path }
 notify-control-list-failed = Control catalog failed: { $err }
