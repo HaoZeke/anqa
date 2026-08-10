@@ -107,6 +107,18 @@ _timeline_inflight: dict[str, Future[list[TraceEvent]]] = {}
 _timeline_inflight_lock = threading.Lock()
 # events.jsonl path -> (mtime_ns, size, markers, turn_outcome, loop_count)
 _runtime_markers_cache: dict[str, tuple[int, int, list[TraceEvent], str, int]] = {}
+# events.jsonl path -> (mtime_ns, size, turn_outcome, loop_count, open_after_completed)
+_list_runtime_cache: dict[str, tuple[int, int, str, int, bool]] = {}
+_LIST_MARKER_NEEDLES = (
+    '"turn_started"',
+    '"turn_ended"',
+    '"loop_started"',
+    '"session_error"',
+    '"turn_error"',
+    '"fatal_error"',
+    '"type":"error"',
+    '"type": "error"',
+)
 
 # Wrapper tool ids whose real target lives in ``rawInput.tool_name`` (MCP bridge).
 # Compare with :func:`_tool_id_key` so ``use-tool`` / ``UseTool`` match ``use_tool``.
@@ -319,6 +331,93 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
     markers = started + ended
     _runtime_markers_cache[cache_key] = (mtime_ns, size, markers, turn_outcome, loop_count)
     return markers, turn_outcome, loop_count
+
+
+def _line_may_be_list_marker(line: str) -> bool:
+    """True when *line* might be a turn/loop/error marker (skip fat tool JSON)."""
+    return any(needle in line for needle in _LIST_MARKER_NEEDLES)
+
+
+def _apply_list_runtime_event(
+    ev: JsonObject,
+    turn_outcome: str,
+    loop_count: int,
+    open_starts: int,
+    ended: int,
+) -> tuple[str, int, int, int]:
+    """Fold one events.jsonl object into list-status counters."""
+    et = ev.get("type") or ""
+    if et == "turn_started":
+        return turn_outcome, loop_count, open_starts + 1, ended
+    if et == "turn_ended":
+        return (
+            str(ev.get("outcome") or ev.get("status") or "unknown"),
+            loop_count,
+            max(0, open_starts - 1),
+            ended + 1,
+        )
+    if et == "loop_started":
+        try:
+            li = ev.get("loop_index", 0)
+            n = int(li) + 1 if isinstance(li, (int, float, str)) else 0
+        except (TypeError, ValueError):
+            n = 0
+        return turn_outcome, max(loop_count, n), open_starts, ended
+    if et in ("error", "session_error", "turn_error", "fatal_error") and not turn_outcome:
+        return "error", loop_count, open_starts, ended
+    return turn_outcome, loop_count, open_starts, ended
+
+
+def _list_runtime_status(session_dir: Path) -> tuple[str, int, bool]:
+    """Home-list turn status from ``events.jsonl`` in one pass.
+
+    Returns ``(turn_outcome, loop_count, open_after_completed)``. Does not
+    build marker events. Lines that cannot be turn/loop/error markers are
+    not JSON-parsed (those are the multi‑MB tool payloads).
+    """
+    events_file = session_dir / "events.jsonl"
+    try:
+        if not events_file.is_file():
+            return "", 0, False
+        st = events_file.stat()
+        mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+        size = int(st.st_size)
+        cache_key = str(events_file.resolve())
+    except OSError:
+        return "", 0, False
+
+    cached = _list_runtime_cache.get(cache_key)
+    if cached is not None and cached[0] == mtime_ns and cached[1] == size:
+        return cached[2], cached[3], cached[4]
+
+    turn_outcome = ""
+    loop_count = 0
+    open_starts = 0
+    ended = 0
+    try:
+        with events_file.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not _line_may_be_list_marker(line):
+                    continue
+                ev = json_object_line(line)
+                if ev is None:
+                    continue
+                turn_outcome, loop_count, open_starts, ended = _apply_list_runtime_event(
+                    ev, turn_outcome, loop_count, open_starts, ended
+                )
+    except OSError:
+        return "", 0, False
+
+    open_after = ended > 0 and open_starts > 0
+    _list_runtime_cache[cache_key] = (mtime_ns, size, turn_outcome, loop_count, open_after)
+    return turn_outcome, loop_count, open_after
+
+
+def _session_has_turn_gate(session_dir: Path) -> bool:
+    """True when this session's traces volume has a ``.groket-turn`` directory."""
+    from .session.turn_gate import turn_gate_dirs_for_session
+
+    return bool(turn_gate_dirs_for_session(session_dir))
 
 
 def _stringify_tool_payload(value: object) -> str:
@@ -1655,15 +1754,43 @@ def load_session_meta_list(
 ) -> SessionMeta:
     """Metadata for the sessions home list.
 
-    Light meta (turn markers, no coalesced timeline parse) for both eval and
-    host rows so catalog ``status`` matches a clicked overview. Missing
-    ``events.jsonl`` is fine (empty markers).
+    Reads ``summary.json`` / ``signals.json`` and one cheap ``events.jsonl``
+    pass for turn status. Does not parse ``updates.jsonl``, does not build
+    marker events, and does not consult the turn gate unless a gate directory
+    exists (eval sessions). Missing ``events.jsonl`` is fine.
     """
     origin_key = (origin or "work").strip().lower() or "work"
-    meta = load_session_meta(session_dir, include_timeline_count=False)
-    meta.origin = origin_key
+    meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
+    _load_summary(meta, session_dir)
+    _load_signals(meta, session_dir)
+    outcome, loop_count, open_after = _list_runtime_status(session_dir)
+    if outcome:
+        meta.turn_outcome = outcome
+    if loop_count:
+        meta.loop_count = loop_count
+    if not meta.turn_outcome:
+        inferred = _infer_incomplete_turn_outcome(session_dir)
+        if inferred:
+            meta.turn_outcome = inferred
+    if _session_has_turn_gate(session_dir):
+        try:
+            override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
+            if override is not None:
+                meta.turn_outcome = override
+            elif open_after:
+                meta.turn_outcome = "running"
+        except Exception:
+            logger.debug("turn gate status for list %s", session_dir, exc_info=True)
+            if open_after:
+                meta.turn_outcome = "running"
+    elif open_after:
+        meta.turn_outcome = "running"
+    if meta.turn_failed and not meta.error_count:
+        meta.error_count = max(meta.error_count, 1)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
+    _load_run_meta(meta, session_dir)
+    meta.origin = origin_key
     return meta
 
 

@@ -217,8 +217,9 @@ def list_session_catalog(
     dirs = list(collect_session_dirs(roots))
     if not dirs:
         return []
-    # Cap workers: enough for disk latency, not enough to thrash a laptop.
-    workers = min(16, max(4, (len(dirs) + 7) // 8))
+    # Cap workers: list meta is mostly sequential file reads; extra threads
+    # only fight the GIL and the disk on a large host catalog.
+    workers = min(4, max(1, len(dirs)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         built = list(
             pool.map(

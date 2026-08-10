@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from groket.models import JsonValue
 from groket.parser import (
     extract_prompt,
@@ -3021,3 +3022,170 @@ def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
     assert listed.origin == "host"
     assert listed.list_status_label() == "complete"
     assert listed.list_status_label() == full.list_status_label()
+
+
+def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> None:
+    """Catalog status is running when a later turn_started has no turn_ended."""
+    from groket.parser import load_session_meta, load_session_meta_list
+
+    sd = tmp_path / "host-next"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Next turn","num_messages":3}',
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0}),
+                json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"}),
+                json.dumps({"ts": 3, "type": "turn_started", "turn_number": 1}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    listed = load_session_meta_list(sd, origin="host")
+    full = load_session_meta(sd, include_timeline_count=False)
+    assert listed.list_status_label() == "running"
+    assert listed.list_status_label() == full.list_status_label()
+
+
+def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
+    """Eval list rows still honour an awaiting turn gate."""
+    from groket.parser import load_session_meta_list
+
+    container = tmp_path / "groket-eval1"
+    sd = container / "cwd" / "sess-gate"
+    sd.mkdir(parents=True)
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Gated","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started"})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "success"})
+        + "\n",
+        encoding="utf-8",
+    )
+    gate = container / ".groket-turn"
+    gate.mkdir()
+    (gate / "status.json").write_text(
+        json.dumps({"state": "awaiting_follow_up", "session_id": "sess-gate"}) + "\n",
+        encoding="utf-8",
+    )
+    listed = load_session_meta_list(sd, origin="work")
+    assert listed.list_status_label() == "awaiting"
+
+
+def test_load_session_meta_list_skips_gate_when_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Home-list meta must not walk the turn gate when no gate directory exists."""
+    import groket.parser as parser_mod
+    from groket.parser import load_session_meta_list
+
+    sd = tmp_path / "host-nogate"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"No gate","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started"})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    calls = {"n": 0}
+    real = parser_mod._gate_override_turn_outcome
+
+    def tracked(session_dir: Path, marker_outcome: str = "") -> str | None:
+        calls["n"] += 1
+        return real(session_dir, marker_outcome)
+
+    monkeypatch.setattr(parser_mod, "_gate_override_turn_outcome", tracked)
+    meta = load_session_meta_list(sd, origin="host")
+    assert meta.list_status_label() == "complete"
+    assert calls["n"] == 0
+
+
+def test_load_session_meta_list_reads_events_jsonl_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catalog list may read events.jsonl once; a second full parse is wasted."""
+    import io
+
+    from groket.parser import load_session_meta_list
+
+    sd = tmp_path / "host-once"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Once","num_messages":2}',
+        encoding="utf-8",
+    )
+    events = sd / "events.jsonl"
+    events.write_text(
+        json.dumps({"type": "turn_started"})
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "success"})
+        + "\n",
+        encoding="utf-8",
+    )
+    opens = {"n": 0}
+    real_open = io.open
+
+    def wrapped(path: object, *args: object, **kwargs: object) -> object:
+        try:
+            name = Path(path).name  # type: ignore[arg-type]
+        except TypeError:
+            name = ""
+        if name == "events.jsonl":
+            opens["n"] += 1
+        return real_open(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(io, "open", wrapped)
+    meta = load_session_meta_list(sd, origin="host")
+    assert meta.list_status_label() == "complete"
+    assert opens["n"] == 1
+
+
+def test_load_session_meta_list_skips_non_turn_event_payloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fat tool-call lines in events.jsonl must not be JSON-parsed for the list."""
+    import groket.parser as parser_mod
+    from groket.parser import load_session_meta_list
+
+    sd = tmp_path / "host-fat-line"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Fat line","num_messages":2}',
+        encoding="utf-8",
+    )
+    blob = "x" * 80_000
+    fat = json.dumps({"type": "tool_call", "payload": blob})
+    (sd / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started"})
+        + "\n"
+        + fat
+        + "\n"
+        + json.dumps({"type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    parsed_fat = {"n": 0}
+    real_loads = parser_mod.json_loads
+
+    def tracked(data: object) -> object:
+        text = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
+        if blob[:32] in text:
+            parsed_fat["n"] += 1
+        return real_loads(data)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(parser_mod, "json_loads", tracked)
+    meta = load_session_meta_list(sd, origin="host")
+    assert meta.list_status_label() == "complete"
+    assert parsed_fat["n"] == 0

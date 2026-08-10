@@ -62,6 +62,7 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
     )
     await server.start()
     try:
+        getattr(server, "_catalog_cache").get(force=True)
         client = client_mod.ControlClient(sock, client_name="test-daemon")
         init = await client.initialize()
         assert init["protocolVersion"] == 1
@@ -770,3 +771,29 @@ def test_launch_tui_no_serve_does_not_spawn(tmp_path: Path) -> None:
     assert captured[0]["control_attach_only"] is True
     assert not sock.exists()
     assert not daemon_mod.control_socket_accepts(sock)
+
+
+def test_domain_server_defers_analysis_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Serve must bind without constructing AnalysisService or loading plugins."""
+    daemon = import_module("groket.integrations.daemon")
+    constructed: list[str] = []
+
+    class Probe:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            constructed.append("analysis")
+
+    monkeypatch.setattr("groket.analysis.service.AnalysisService", Probe)
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_session(traces, "s1")
+    sock = _short_sock("defer-analysis.sock")
+    server = daemon.build_domain_control_server(
+        socket_path=sock,
+        work_dir=work,
+        traces_path=traces,
+    )
+    assert constructed == []
+    assert server._analysis_service is None
+    assert server._work_dir == work

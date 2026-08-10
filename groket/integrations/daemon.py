@@ -274,14 +274,6 @@ def build_domain_control_server(
             host_root=host_root,
         )
 
-    from ..analysis.service import AnalysisService
-    from ..paths import analysis_cache_dir
-
-    analysis_service = AnalysisService(
-        wd,
-        traces=tr,
-        cache_root=analysis_cache_dir(),
-    )
     server = ControlServer(
         socket_path=socket_path,
         resolve_session=resolve_session,
@@ -289,7 +281,7 @@ def build_domain_control_server(
         open_session=open_session,
         notes_changed=notes_changed,
         work_dir=wd,
-        analysis_service=analysis_service,
+        analysis_traces=tr,
     )
     server._catalog_cache = catalog_cache  # type: ignore[attr-defined]
     return server

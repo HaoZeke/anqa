@@ -273,6 +273,7 @@ class ControlServer:
         notes_changed: NotesChanged | None = None,
         work_dir: Path | None = None,
         analysis_service: object | None = None,
+        analysis_traces: Path | None = None,
     ) -> None:
         self.socket_path = Path(socket_path or default_socket_path()).expanduser()
         self._resolve_session = resolve_session or _default_resolve_session
@@ -281,6 +282,9 @@ class ControlServer:
         self._notes_changed = notes_changed
         self._work_dir = Path(work_dir).expanduser() if work_dir is not None else None
         self._analysis_service = analysis_service
+        self._analysis_traces = (
+            Path(analysis_traces).expanduser() if analysis_traces is not None else None
+        )
         self._access = LocalSessionAccess(
             resolve_session=self._resolve_session,
             list_sessions=list_sessions,
@@ -522,8 +526,24 @@ class ControlServer:
                 loop,
             )
 
+    def _ensure_analysis_service(self) -> object | None:
+        """Construct the analysis facade on first ``analysis/run``, not at serve start."""
+        if self._analysis_service is not None:
+            return self._analysis_service
+        if self._work_dir is None:
+            return None
+        from ..analysis.service import AnalysisService
+        from ..paths import analysis_cache_dir
+
+        self._analysis_service = AnalysisService(
+            self._work_dir,
+            traces=self._analysis_traces,
+            cache_root=analysis_cache_dir(),
+        )
+        return self._analysis_service
+
     async def _analysis_run(self, params: JsonObject) -> JsonObject:
-        if self._analysis_service is None:
+        if self._ensure_analysis_service() is None:
             raise ControlError(501, "analysis is unavailable")
         session = self._session(params)
         force = bool(params.get("force"))
