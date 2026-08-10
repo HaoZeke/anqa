@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use iced::keyboard::{key::Named, Key, Modifiers as KeyMods};
-use iced::widget::scrollable::{self, AbsoluteOffset};
 use iced::widget::text_input;
 use iced::window::{self, Mode};
 use iced::{
@@ -22,8 +21,8 @@ use crate::live::{
     merge_timeline_by_index, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
     plan_tick, session_needs_live_poll, session_rpc_ref, should_continue_timeline,
     should_fetch_timeline, timeline_coverage_complete, timeline_first_missing_offset,
-    timeline_seek_offset, visible_range_covering, TickInput, VisibleRange, IDLE_POLL_MS,
-    LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_ROW_H, VIRT_OVERSCAN,
+    timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT,
+    TIMELINE_CHUNK, TIMELINE_ROW_H, VIRT_OVERSCAN,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -154,10 +153,8 @@ pub struct Hud {
     catalog_revision: i64,
     list_scroll_y: f32,
     list_view_h: f32,
-    list_scroll_id: scrollable::Id,
     tl_scroll_y: f32,
     tl_view_h: f32,
-    tl_scroll_id: scrollable::Id,
 }
 
 impl Default for Hud {
@@ -204,10 +201,8 @@ impl Default for Hud {
             window_id: None,
             list_scroll_y: 0.0,
             list_view_h: 400.0,
-            list_scroll_id: scrollable::Id::new("hud-list"),
             tl_scroll_y: 0.0,
             tl_view_h: 400.0,
-            tl_scroll_id: scrollable::Id::new("hud-timeline"),
         }
     }
 }
@@ -887,12 +882,12 @@ impl Hud {
             .unwrap_or_default()
     }
 
-    pub fn list_scroll_id(&self) -> scrollable::Id {
-        self.list_scroll_id.clone()
+    pub fn list_scroll_y(&self) -> f32 {
+        self.list_scroll_y
     }
 
-    pub fn timeline_scroll_id(&self) -> scrollable::Id {
-        self.tl_scroll_id.clone()
+    pub fn tl_scroll_y(&self) -> f32 {
+        self.tl_scroll_y
     }
 
     pub fn timeline_focus_pos(&self) -> Option<usize> {
@@ -900,28 +895,6 @@ impl Hud {
         self.filtered_timeline()
             .iter()
             .position(|ev| ev.index == focus)
-    }
-
-    pub fn timeline_visible_range(&self, count: usize) -> VisibleRange {
-        visible_range_covering(
-            self.tl_scroll_y,
-            self.tl_view_h,
-            TIMELINE_ROW_H,
-            count,
-            VIRT_OVERSCAN,
-            self.timeline_focus_pos(),
-        )
-    }
-
-    pub fn list_visible_range(&self) -> VisibleRange {
-        visible_range_covering(
-            self.list_scroll_y,
-            self.list_view_h,
-            LIST_ROW_H,
-            self.sessions.len(),
-            VIRT_OVERSCAN,
-            Some(self.active),
-        )
     }
 
     fn ensure_active_visible(&mut self) -> Task<Message> {
@@ -935,7 +908,7 @@ impl Hud {
             y = (bot - view_h).max(0.0);
         }
         self.list_scroll_y = y;
-        scrollable::scroll_to(self.list_scroll_id.clone(), AbsoluteOffset { x: 0.0, y })
+        Task::none()
     }
 
     fn selected_status(&self) -> String {

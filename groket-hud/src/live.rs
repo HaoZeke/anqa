@@ -14,6 +14,10 @@ pub const LIST_ROW_H: f32 = 60.0;
 /// Collapsed timeline card (padding + head + title + one-line body + hint).
 pub const TIMELINE_ROW_H: f32 = 128.0;
 pub const VIRT_OVERSCAN: usize = 4;
+/// Minimum scrollbar handle. Iced's own scroller floors at 2px.
+pub const SCROLL_HANDLE_MIN: f32 = 24.0;
+/// Rail and handle width.
+pub const SCROLL_RAIL_WIDTH: f32 = 12.0;
 
 /// Window into a fixed-height virtual list.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -92,6 +96,51 @@ pub fn index_outside_visible(
 ) -> bool {
     let r = visible_range(scroll_y, viewport_h, row_h, count, overscan);
     index < r.start || index >= r.end
+}
+
+/// Thumb offset and length on a rail. `min_handle` keeps the grab usable
+/// when `content` is much taller than `viewport` (iced floors at 2px).
+pub fn scroller_span(
+    content: f32,
+    viewport: f32,
+    scroll: f32,
+    rail: f32,
+    min_handle: f32,
+) -> (f32, f32) {
+    if rail <= 0.0 {
+        return (0.0, 0.0);
+    }
+    if content <= viewport {
+        return (0.0, rail);
+    }
+    let handle = (rail * (viewport / content)).max(min_handle).min(rail);
+    let max_scroll = (content - viewport).max(1.0);
+    let usable = (rail - handle).max(0.0);
+    let t = (scroll.max(0.0) / max_scroll).clamp(0.0, 1.0);
+    (usable * t, handle)
+}
+
+/// Scroll offset that puts the thumb at `thumb_y` on the rail.
+pub fn scroll_from_rail(
+    content: f32,
+    viewport: f32,
+    thumb_y: f32,
+    rail: f32,
+    min_handle: f32,
+) -> f32 {
+    let (_, handle) = scroller_span(content, viewport, 0.0, rail, min_handle);
+    let max_scroll = (content - viewport).max(0.0);
+    let usable = (rail - handle).max(1.0);
+    (thumb_y.clamp(0.0, usable) / usable) * max_scroll
+}
+
+/// Wheel delta to a clamped content offset (same step as icedtea lists).
+pub fn wheel_scroll(delta: iced::mouse::ScrollDelta, scroll: f32, row_h: f32, max: f32) -> f32 {
+    let dy = match delta {
+        iced::mouse::ScrollDelta::Lines { y, .. } => -y * row_h,
+        iced::mouse::ScrollDelta::Pixels { y, .. } => -y,
+    };
+    (scroll + dy).clamp(0.0, max)
 }
 
 /// Control `session` argument: live directory path, else id.
@@ -731,6 +780,49 @@ mod tests {
         let inside = visible_range_covering(600.0, 400.0, 60.0, 200, 3, Some(12));
         assert_eq!(inside.start, 7);
         assert_eq!(inside.end, 20);
+    }
+
+    #[test]
+    fn scroller_keeps_a_usable_handle_on_tall_content() {
+        let (y, h) = scroller_span(900.0 * 60.0, 400.0, 0.0, 400.0, SCROLL_HANDLE_MIN);
+        assert_eq!(h, SCROLL_HANDLE_MIN);
+        assert_eq!(y, 0.0);
+        let max_scroll = 900.0 * 60.0 - 400.0;
+        let (end, h2) = scroller_span(900.0 * 60.0, 400.0, max_scroll, 400.0, SCROLL_HANDLE_MIN);
+        assert_eq!(h2, SCROLL_HANDLE_MIN);
+        assert!((end - (400.0 - SCROLL_HANDLE_MIN)).abs() < 0.01);
+        let mid = scroll_from_rail(900.0 * 60.0, 400.0, 188.0, 400.0, SCROLL_HANDLE_MIN);
+        assert!(mid > 0.0 && mid < max_scroll);
+        let (y0, full) = scroller_span(100.0, 400.0, 0.0, 400.0, SCROLL_HANDLE_MIN);
+        assert_eq!(y0, 0.0);
+        assert_eq!(full, 400.0);
+        assert_eq!(
+            scroller_span(100.0, 50.0, 0.0, 0.0, SCROLL_HANDLE_MIN),
+            (0.0, 0.0)
+        );
+        assert_eq!(
+            scroll_from_rail(100.0, 400.0, 10.0, 400.0, SCROLL_HANDLE_MIN),
+            0.0
+        );
+    }
+
+    #[test]
+    fn wheel_scroll_steps_by_row_and_clamps() {
+        let d = iced::mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 };
+        assert_eq!(wheel_scroll(d, 0.0, 60.0, 600.0), 60.0);
+        let up = iced::mouse::ScrollDelta::Lines { x: 0.0, y: 3.0 };
+        assert_eq!(wheel_scroll(up, 40.0, 60.0, 600.0), 0.0);
+        let px = iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -20.0 };
+        assert_eq!(wheel_scroll(px, 0.0, 60.0, 600.0), 20.0);
+        assert_eq!(
+            wheel_scroll(
+                iced::mouse::ScrollDelta::Lines { x: 0.0, y: -10.0 },
+                500.0,
+                60.0,
+                600.0
+            ),
+            600.0
+        );
     }
 
     #[test]

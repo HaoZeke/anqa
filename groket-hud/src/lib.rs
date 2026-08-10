@@ -11,6 +11,7 @@ pub mod macoswin;
 pub mod model;
 pub mod place;
 pub mod prefs;
+pub mod scroll;
 pub mod shortcut;
 pub mod style;
 pub mod theme;

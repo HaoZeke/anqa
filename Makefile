@@ -89,7 +89,7 @@ hud-check: hud-themes-check
 
 # Paint/window files are omitted from the fail-under (iced view/app loop).
 # Paint/window loop and Unix-socket transport are omitted from fail-under.
-HUD_COV_OMIT := src/(app|view|style|typo|main|x11focus|control)\.rs
+HUD_COV_OMIT := src/(app|view|style|typo|main|x11focus|control|scroll)\.rs
 HUD_COV_FAIL_UNDER := 70
 
 hud-cov:

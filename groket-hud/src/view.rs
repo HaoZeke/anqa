@@ -7,8 +7,8 @@ use std::hash::{Hash, Hasher};
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
 use iced::widget::{
-    button, column, container, image, markdown, mouse_area, pick_list, rich_text, row, scrollable,
-    text, text_input, Space,
+    button, column, container, image, markdown, mouse_area, pick_list, responsive, rich_text, row,
+    scrollable, text, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use serde_json::json;
@@ -20,11 +20,37 @@ use crate::format::{
     looks_like_markdown, note_fields_view, origin_label, pretty_json, sanitize_console_text,
     status_tone, timeline_body_text, EventRole,
 };
-use crate::live::CardMark;
+use crate::live::{
+    visible_range_covering, wheel_scroll, CardMark, LIST_ROW_H, TIMELINE_ROW_H, VIRT_OVERSCAN,
+};
 use crate::model::{KindFilter, Tab};
+use crate::scroll::ScrollRail;
 use crate::style;
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
+
+#[allow(clippy::too_many_arguments)]
+fn virt_pane<'a>(
+    body: Element<'a, Message>,
+    content: f32,
+    viewport: f32,
+    scroll: f32,
+    row_h: f32,
+    on_scroll: impl Fn(f32) -> Message + Copy + 'a,
+    tok: crate::theme::Tokens,
+) -> Element<'a, Message> {
+    let max = (content - viewport).max(0.0);
+    let body = mouse_area(body).on_scroll(move |d| on_scroll(wheel_scroll(d, scroll, row_h, max)));
+    if content <= viewport {
+        return body.into();
+    }
+    row![
+        body,
+        Element::from(ScrollRail::new(content, viewport, scroll, on_scroll, tok)),
+    ]
+    .height(Length::Fill)
+    .into()
+}
 
 fn rule(tok: crate::theme::Tokens) -> Element<'static, Message> {
     container(Space::with_height(1))
@@ -96,67 +122,86 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
 
 fn session_list(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
-    let mut col = column![].spacing(0).padding(8);
-    if hud.sessions().is_empty() {
-        col = col.push(text("No sessions").size(typo::BODY).color(tok.muted));
-    } else {
-        let win = hud.list_visible_range();
-        if win.pad_top > 0.0 {
-            col = col.push(Space::with_height(win.pad_top));
-        }
-        for (i, row) in hud.sessions()[win.start..win.end].iter().enumerate() {
-            let i = win.start + i;
-            let selected = i == hud.active();
-            let status = list_status_label(&row.status, &row.outcome);
-            let tone = status_tone(&status);
-            let sub = format!(
-                "{} · {}{}",
-                status,
-                row.model,
-                if row.context_usage_compact.is_empty() {
-                    String::new()
-                } else {
-                    format!(" · {}", row.context_usage_compact)
-                }
-            );
-            let title_font = if selected { typo::UI_BOLD } else { typo::UI };
-            let title_c = tok.text;
-            let sub_c = tone_color(tone, tok);
-            let label = column![
-                text(row.display_title())
-                    .size(typo::BODY)
-                    .font(title_font)
-                    .color(title_c),
-                text(sub).size(typo::META).color(sub_c),
-            ]
-            .spacing(4);
-            col = col.push(
-                mouse_area(
-                    container(label)
-                        .width(Length::Fill)
-                        .padding([10, 12])
-                        .style(move |_| style::list_row(tok, selected)),
-                )
-                .on_press(Message::SelectSession(i)),
-            );
-        }
-        if win.pad_bottom > 0.0 {
-            col = col.push(Space::with_height(win.pad_bottom));
-        }
-    }
-    container(
-        scrollable(col)
-            .id(hud.list_scroll_id())
-            .height(Length::Fill)
-            .on_scroll(|vp| Message::ListScroll {
-                y: vp.absolute_offset().y,
-                height: vp.bounds().height,
-            }),
-    )
+    container(responsive(move |size| {
+        session_list_at(hud, size.height.max(1.0))
+    }))
     .width(Length::Fixed(260.0))
     .height(Length::Fill)
     .style(move |_| style::fill(tok.panel, tok.text))
     .into()
+}
+
+fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
+    let tok = hud.tokens();
+    let n = hud.sessions().len();
+    let mut col = column![].spacing(0).padding(8);
+    if n == 0 {
+        col = col.push(text("No sessions").size(typo::BODY).color(tok.muted));
+        return col.into();
+    }
+    let win = visible_range_covering(
+        hud.list_scroll_y(),
+        viewport,
+        LIST_ROW_H,
+        n,
+        VIRT_OVERSCAN,
+        Some(hud.active()),
+    );
+    if win.pad_top > 0.0 {
+        col = col.push(Space::with_height(win.pad_top));
+    }
+    for (i, row) in hud.sessions()[win.start..win.end].iter().enumerate() {
+        let i = win.start + i;
+        let selected = i == hud.active();
+        let status = list_status_label(&row.status, &row.outcome);
+        let tone = status_tone(&status);
+        let sub = format!(
+            "{} · {}{}",
+            status,
+            row.model,
+            if row.context_usage_compact.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", row.context_usage_compact)
+            }
+        );
+        let title_font = if selected { typo::UI_BOLD } else { typo::UI };
+        let title_c = tok.text;
+        let sub_c = tone_color(tone, tok);
+        let label = column![
+            text(row.display_title())
+                .size(typo::BODY)
+                .font(title_font)
+                .color(title_c),
+            text(sub).size(typo::META).color(sub_c),
+        ]
+        .spacing(4);
+        col = col.push(
+            mouse_area(
+                container(label)
+                    .width(Length::Fill)
+                    .padding([10, 12])
+                    .style(move |_| style::list_row(tok, selected)),
+            )
+            .on_press(Message::SelectSession(i)),
+        );
+    }
+    if win.pad_bottom > 0.0 {
+        col = col.push(Space::with_height(win.pad_bottom));
+    }
+    let scroll = hud.list_scroll_y();
+    virt_pane(
+        col.into(),
+        n as f32 * LIST_ROW_H,
+        viewport,
+        scroll,
+        LIST_ROW_H,
+        move |y| Message::ListScroll {
+            y,
+            height: viewport,
+        },
+        tok,
+    )
 }
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
@@ -190,20 +235,41 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         match hud.tab() {
             Tab::Overview => overview_tab(hud),
             Tab::Turns => turns_tab(hud),
-            Tab::Timeline => timeline_tab(hud),
+            Tab::Timeline => column![].into(),
             Tab::Findings => findings_tab(hud),
             Tab::Notes => notes_tab(hud),
         }
     };
-    stack = stack.push(
-        scrollable(container(body).padding([16, 20]).width(Length::Fill))
-            .id(hud.timeline_scroll_id())
-            .height(Length::Fill)
-            .on_scroll(|vp| Message::TimelineScroll {
-                y: vp.absolute_offset().y,
-                height: vp.bounds().height,
-            }),
-    );
+    if hud.tab() == Tab::Timeline && hud.overview().is_some() {
+        stack = stack.push(responsive(move |size| {
+            let viewport = size.height.max(1.0);
+            let n = hud.filtered_timeline().len();
+            virt_pane(
+                container(timeline_tab(hud, viewport))
+                    .padding([16, 20])
+                    .width(Length::Fill)
+                    .into(),
+                n as f32 * TIMELINE_ROW_H,
+                viewport,
+                hud.tl_scroll_y(),
+                TIMELINE_ROW_H,
+                move |y| Message::TimelineScroll {
+                    y,
+                    height: viewport,
+                },
+                hud.tokens(),
+            )
+        }));
+    } else {
+        stack = stack.push(
+            scrollable(container(body).padding([16, 20]).width(Length::Fill))
+                .height(Length::Fill)
+                .on_scroll(|vp| Message::TimelineScroll {
+                    y: vp.absolute_offset().y,
+                    height: vp.bounds().height,
+                }),
+        );
+    }
     container(stack)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -627,7 +693,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     col.into()
 }
 
-fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
+fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     if hud.timeline_loading() && hud.filtered_timeline().is_empty() {
         return text("Loading timeline…")
             .size(typo::BODY)
@@ -650,7 +716,14 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     let (_, ev_marks) = hud.card_marks();
     let focus = hud.timeline_focus();
     let n = events.len();
-    let win = hud.timeline_visible_range(n);
+    let win = visible_range_covering(
+        hud.tl_scroll_y(),
+        viewport,
+        TIMELINE_ROW_H,
+        n,
+        VIRT_OVERSCAN,
+        hud.timeline_focus_pos(),
+    );
     let start = win.start.min(n);
     let end = win.end.min(n).max(start);
     let mut col = column![].spacing(0);
