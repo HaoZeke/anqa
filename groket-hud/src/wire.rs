@@ -70,6 +70,10 @@ pub struct SessionListResponse {
     pub removed: Vec<String>,
     #[serde(default)]
     pub delta: bool,
+    #[serde(default)]
+    pub incomplete: bool,
+    #[serde(default)]
+    pub building: bool,
 }
 
 /// ``session_meta_mapping`` / overview ``meta``.

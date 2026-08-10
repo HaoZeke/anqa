@@ -87,7 +87,9 @@ pub fn rail_visible_range(
     let y = scroll_y.max(0.0);
     let first = (y / row_h).floor() as usize;
     let slots = ((view_h / row_h).ceil() as usize).max(1);
-    let start = first.min(count);
+    // Scrolled past a shorter list (catalog page replace / leftover y) must
+    // still show the last page — start==count paints an empty rail.
+    let start = first.min(count.saturating_sub(slots));
     let end = (start + slots).min(count).max(start);
     VisibleRange {
         start,
@@ -95,6 +97,26 @@ pub fn rail_visible_range(
         pad_top: start as f32 * row_h,
         pad_bottom: (count.saturating_sub(end)) as f32 * row_h,
     }
+}
+
+/// True when a non-delta ``session/list`` body is a page, not a full snapshot.
+pub fn is_partial_list_page(
+    incoming_len: usize,
+    matched: i64,
+    delta: bool,
+    incomplete: bool,
+    building: bool,
+) -> bool {
+    if delta {
+        return false;
+    }
+    if incoming_len == 0 {
+        return incomplete || building;
+    }
+    if incomplete || building {
+        return matched <= 0 || incoming_len < matched as usize;
+    }
+    matched > incoming_len as i64
 }
 
 /// Like [`visible_range`], but always mounts *cover* (selected row) when in range.
@@ -881,8 +903,20 @@ mod tests {
         assert_eq!(tall.end, 3);
         assert!(tall.end <= 3);
         let past = rail_visible_range(200.0 * 160.0, 400.0, 160.0, 20);
-        assert_eq!(past.start, 20);
+        assert!(past.start < past.end, "{past:?}");
         assert_eq!(past.end, 20);
+        assert!(past.start <= 17, "start={}", past.start);
+    }
+
+    #[test]
+    fn partial_list_page_is_not_a_full_snapshot() {
+        assert!(is_partial_list_page(0, 0, false, true, true));
+        assert!(is_partial_list_page(1, 964, false, false, false));
+        assert!(is_partial_list_page(200, 964, false, false, false));
+        assert!(!is_partial_list_page(964, 964, false, false, false));
+        assert!(!is_partial_list_page(1, 1, true, false, false));
+        assert!(!is_partial_list_page(0, 0, false, false, false));
+        assert!(!is_partial_list_page(0, 0, false, false, false));
     }
 
     #[test]

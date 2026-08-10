@@ -18,10 +18,10 @@ use crate::control::{self, ControlError};
 use crate::format::{control_down_message, new_note_id};
 use crate::fuzzy::fuzzy_filter;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, index_outside_visible, is_soft_notes_save_error,
-    merge_catalog_rows, merge_timeline_by_index, notes_schema_fields, patch_catalog_delta,
-    patch_list_row_from_meta, plan_tick, session_needs_live_poll, session_rpc_ref,
-    should_continue_timeline, should_fetch_timeline, timeline_coverage_complete,
+    card_marks_from_overview, clamp_scroll, index_outside_visible, is_partial_list_page,
+    is_soft_notes_save_error, merge_catalog_rows, merge_timeline_by_index, notes_schema_fields,
+    patch_catalog_delta, patch_list_row_from_meta, plan_tick, session_needs_live_poll,
+    session_rpc_ref, should_continue_timeline, should_fetch_timeline, timeline_coverage_complete,
     timeline_first_missing_offset, timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H,
     LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
 };
@@ -1000,10 +1000,31 @@ impl Hud {
             }
         }
         let incoming = page
-            .map(|p| p.sessions)
+            .as_ref()
+            .map(|p| p.sessions.clone())
             .unwrap_or_else(|| decode_session_list(&listed).unwrap_or_default());
+        let matched = page.as_ref().map(|p| p.matched).unwrap_or(0);
+        let incomplete = page.as_ref().is_some_and(|p| p.incomplete || p.building);
+        let delta = page.as_ref().is_some_and(|p| p.delta);
+        if !self.all_sessions.is_empty()
+            && is_partial_list_page(
+                incoming.len(),
+                matched,
+                delta,
+                page.as_ref().is_some_and(|p| p.incomplete),
+                page.as_ref().is_some_and(|p| p.building),
+            )
+        {
+            if incoming.is_empty() {
+                return;
+            }
+            self.all_sessions = patch_catalog_delta(&self.all_sessions, incoming, &[]);
+            self.rerank_visible();
+            self.mark_up();
+            return;
+        }
         let rows = merge_catalog_rows(&self.all_sessions, incoming);
-        if quiet && rows.is_empty() && !self.all_sessions.is_empty() {
+        if (quiet || incomplete) && rows.is_empty() && !self.all_sessions.is_empty() {
             return;
         }
         self.all_sessions = rows;
@@ -1052,6 +1073,8 @@ impl Hud {
         } else if self.active >= self.sessions.len() {
             self.active = self.sessions.len().saturating_sub(1);
         }
+        let content = self.sessions.len() as f32 * LIST_ROW_H;
+        self.list_scroll_y = clamp_scroll(self.list_scroll_y, content, self.list_view_h.max(1.0));
     }
 
     fn load_overview(&mut self, quiet: bool) -> Task<Message> {
