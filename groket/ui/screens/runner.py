@@ -20,8 +20,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -195,10 +193,9 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
         return self._run_manager
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        from ..widgets.activity_bar import ActivityBar
+        from ..brand_mark import AppChrome, AppFooter
 
-        yield ActivityBar()
+        yield AppChrome()
         with Vertical(id="runner-screen"):
             with Vertical(id="runner-main"):
                 yield Static(f"[bold]{U.runner_title()}[/bold]", id="runner-title")
@@ -333,7 +330,7 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                     yield Button(U.launch(), variant="primary", id="launch-btn")
                     yield Button(U.save_config(), id="save-config-btn")
                 yield TipSurface(U.tip_runner_toolbar(), id="runner-toolbar-hint")
-        yield Footer()
+        yield AppFooter()
 
     def on_mount(self) -> None:
         if self.prefill:

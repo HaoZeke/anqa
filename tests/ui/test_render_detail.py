@@ -60,11 +60,11 @@ class TestSanitizeConsoleText:
 
 class TestToolStyle:
     def test_known_tools(self):
-        # Family palette: shell=yellow, read=cyan, write=green, agent=white
-        assert tool_style("run_terminal_command") == "yellow"
-        assert tool_style("read_file") == "cyan"
-        assert tool_style("grep") == "cyan"
-        assert tool_style("search_replace") == "green"
+        # Family palette: shell=running, read=cream, write=complete
+        assert tool_style("run_terminal_command") == "#D79921"
+        assert tool_style("read_file") == "#FBF1C7"
+        assert tool_style("grep") == "#FBF1C7"
+        assert tool_style("search_replace") == "#98971A"
 
     def test_unknown_tool(self):
         assert tool_style("some_random_tool") == "dim"

@@ -23,18 +23,12 @@ TextArea {
 
 /* ── Header / Footer ──────────────────────────────────────────────────── */
 
-Header {
-    dock: top;
-    background: $primary;
-    color: $text;
-}
-
 ActivityBar,
 #activity-bar {
-    dock: top;
+    dock: none;
     height: 1;
-    width: 100%;
-    background: $boost;
+    width: 1fr;
+    background: $panel;
     color: $text-muted;
     padding: 0 1;
     content-align: right middle;
@@ -43,6 +37,32 @@ ActivityBar,
 
 Footer {
     dock: bottom;
+    height: 1;
+    background: $panel;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+Footer FooterKey .footer-key--key {
+    color: $text;
+    text-style: bold;
+    padding: 0;
+}
+
+Footer FooterKey .footer-key--description {
+    color: $text-muted;
+    padding: 0 0 0 1;
+}
+
+Footer KeyGroup.-compact {
+    margin: 0 1 0 0;
+    padding-left: 1;
+    border-left: vkey $secondary;
+}
+
+Footer FooterKey.-command-palette {
+    border-left: vkey $secondary;
+    padding-right: 0;
 }
 
 /* ── Self-test modal ─────────────────────────────────────────────────── */
@@ -221,10 +241,8 @@ TabPane {
 
 #session-paths {
     padding: 0 1;
-    height: auto;
+    height: 1;
     color: $text-muted;
-    background: $surface;
-    border-bottom: solid $primary-background;
 }
 
 #session-summary {

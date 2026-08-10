@@ -19,9 +19,12 @@ from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import load_session_meta_list, session_trace_mtime
 from ..paths import app_config_path
 from .sources import (
+    ORIGIN_HOST,
+    ORIGIN_WORK,
     SessionScanRoot,
     classify_session_origin,
     collect_session_dirs,
+    is_under_host_grok_sessions,
     session_scan_roots,
     work_traces_root,
 )
@@ -687,10 +690,17 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     if not path_raw and not sid:
         return None
     session_dir = Path(path_raw) if path_raw else Path(sid)
+    raw_origin = str(row.get("origin") or "").strip().lower()
+    if is_under_host_grok_sessions(session_dir):
+        origin = ORIGIN_HOST
+    elif raw_origin == ORIGIN_HOST:
+        origin = ORIGIN_HOST
+    else:
+        origin = raw_origin or ORIGIN_WORK
     meta = SessionMeta(
         session_id=sid or session_dir.name,
         session_dir=session_dir,
-        origin=str(row.get("origin") or "work").strip() or "work",
+        origin=origin,
     )
     title = str(row.get("title") or "").strip()
     if title:

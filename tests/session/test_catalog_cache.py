@@ -215,3 +215,20 @@ def test_session_meta_from_catalog_row_status() -> None:
     assert meta.context_tokens_used == 1200
     assert meta.context_window_tokens == 128_000
     assert "35" in meta.context_usage_compact
+    assert meta.origin == "host"
+
+
+def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> None:
+    host = tmp_path / "sessions"
+    sess = host / "%2Fproj" / "019fe503-d45c-7320-904e-cfa8836c361c"
+    sess.mkdir(parents=True)
+    monkeypatch.setattr("groket.session.sources.host_grok_sessions_root", lambda: host)
+    meta = session_meta_from_catalog_row(
+        {
+            "sessionId": "019fe503-d45c-7320-904e-cfa8836c361c",
+            "path": str(sess),
+            "origin": "work",
+        }
+    )
+    assert meta is not None
+    assert meta.origin == "host"

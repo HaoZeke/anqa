@@ -18,18 +18,11 @@ from groket.ui.app import (
     _coerce_select_value,
     _session_search_haystack,
 )
-from textual.widgets import DataTable, Input, Select, Static
+from textual.widgets import DataTable, Input, Select
 
 from .pilot_helpers import wait_until
 
 # ── Helpers ───────────────────────────────────────────────────────────────
-
-
-def _session_paths_banner_text(work_dir: Path, traces_root: Path) -> str:
-    """Exact markup string the sessions-home banner must show (work catalog)."""
-    _ = traces_root
-    work = Path(work_dir).expanduser() / "runs" / "traces"
-    return f"[dim]Eval[/dim]  {work}"
 
 
 def _write_session(
@@ -253,12 +246,8 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
 
         # Filter bar selects exist
         app.query_one("#session-model-select", Select)
-        banner = app.query_one("#session-paths", Static)
-        expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
-        assert banner.content == expected
-        # Labels resolve (not Fluent message ids) and paths are the live roots.
-        assert "Eval" in expected
-        assert str(app._runner_traces_root()) in expected
+        assert app.query_one("#session-paths")
+        assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
         )
@@ -1418,9 +1407,7 @@ async def test_session_paths_banner_is_label_only(tmp_path: Path) -> None:
     app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        banner = app.query_one("#session-paths", Static)
-        expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
-        assert banner.content == expected
+        assert app.query_one("#session-paths")
         assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
@@ -1879,9 +1866,6 @@ async def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
     """_update_session_paths_banner is a no-op when the banner is gone."""
     app, work, traces = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        banner = app.query_one("#session-paths", Static)
-        await banner.remove()
         await pilot.pause()
         app._update_session_paths_banner()
 

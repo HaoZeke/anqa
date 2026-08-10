@@ -717,6 +717,12 @@ jobs-tab = Jobs
 
 keyboard-help-title = Help
 
+help-brand-name = groket
+
+help-brand-tagline = Evaluate Grok Build sessions
+
+chrome-folder = { $label }  { $path }
+
 launch = Launch
 
 launch-btn = launch

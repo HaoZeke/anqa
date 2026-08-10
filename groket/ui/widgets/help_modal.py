@@ -8,11 +8,13 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, Static
+from textual.widgets import Button
 
 from .. import text as U
+from ..brand_mark import HelpBrand
 from ..i18n import t
 from ..quit_actions import QuitActions
+from ..selectable_static import SelectableStatic
 from ..text import help_markup as _help_markup
 
 
@@ -49,17 +51,9 @@ class HelpModal(QuitActions, ModalScreen[None]):
         min-width: 40;
         min-height: 12;
         layout: vertical;
-        border: tall $accent;
+        border: tall $primary;
         background: $panel;
         padding: 1 2;
-    }
-
-    #help-modal-title {
-        height: auto;
-        dock: top;
-        text-style: bold;
-        color: $text;
-        margin: 0 0 1 0;
     }
 
     #help-modal-body {
@@ -73,12 +67,12 @@ class HelpModal(QuitActions, ModalScreen[None]):
     #help-modal-text {
         width: 100%;
         height: auto;
-        padding: 0 1 0 0;
+        padding: 0;
     }
 
     #help-modal-actions {
         height: auto;
-        min-height: 3;
+        min-height: 2;
         dock: bottom;
         width: 100%;
         align: right middle;
@@ -99,9 +93,9 @@ class HelpModal(QuitActions, ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="help-modal"):
-            yield Static(f"[bold]{U.keyboard_help_title()}[/bold]", id="help-modal-title")
+            yield HelpBrand()
             with VerticalScroll(id="help-modal-body"):
-                yield Static(help_markup(), id="help-modal-text")
+                yield SelectableStatic(help_markup(), id="help-modal-text")
             with Horizontal(id="help-modal-actions"):
                 yield Button(U.close(), variant="primary", id="help-close")
 

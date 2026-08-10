@@ -19,6 +19,7 @@ from textual import on, work
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen, Screen
 from textual.theme import Theme
@@ -27,8 +28,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -56,6 +55,7 @@ from .bindings import (
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
+from .brand_mark import AppChrome, AppFooter, paths_banner
 from .data_table import (
     cursor_row_key,
     preserving_scroll,
@@ -310,7 +310,7 @@ class TraceEvalApp(App):
     """groket — Trace evaluation TUI for hunting bad model behaviors."""
 
     TITLE = "groket"
-    SUB_TITLE = t("ui-trace-evaluation-error-hunting")
+    SUB_TITLE = ""
     CSS_PATH = "app.tcss"
     BINDINGS = [*APP_GLOBAL_PRIORITY, *APP_SESSIONS]
     COMMAND_PALETTE_DISPLAY = "Ctrl+P"
@@ -448,21 +448,19 @@ class TraceEvalApp(App):
         self._delete_row_keys_snapshot: list[str] | None = None
         self._config: JsonObject = self._load_config()
         self._theme_persist = False
+        from .theme import register_brand_themes
+
+        register_brand_themes(self)
         early = str(self._config.get("theme") or "").strip()
-        if early:
-            try:
-                self.theme = early
-            except Exception:
-                logger.debug(t("ui-failed-to-apply-saved-theme-r"), early)
+        try:
+            self.theme = early or "groket"
+        except Exception:
+            logger.debug(t("ui-failed-to-apply-saved-theme-r"), early or "groket")
         self._traces_root_for_reload = traces_root_for_reload
 
     def compose(self) -> ComposeResult:
-        from .widgets.activity_bar import ActivityBar
-
-        yield Header()
-        yield ActivityBar()
+        yield AppChrome()
         with Vertical():
-            yield Static("", id="session-paths")
             yield Static("", id="session-summary")
             with Horizontal(id="session-filter-bar", classes=FILTER_BAR_CLASS):
                 yield Static(U.filter_label(), classes=FILTER_LABEL_CLASS)
@@ -478,7 +476,7 @@ class TraceEvalApp(App):
                     id="session-search-input",
                 )
             yield DataTable(id="session-table")
-        yield Footer()
+        yield AppFooter()
 
     def _session_traces_root(self) -> Path:
         """Traces directory fixed for this process (CLI / constructor only)."""
@@ -499,10 +497,9 @@ class TraceEvalApp(App):
         if show_host_sessions_enabled():
             from ..session.sources import host_grok_sessions_root
 
-            host = host_grok_sessions_root()
-            banner.update(f"[dim]Eval[/dim]  {work}  ·  [dim]Host[/dim]  {host}")
+            banner.update(paths_banner(work, host_grok_sessions_root()))
         else:
-            banner.update(f"[dim]Eval[/dim]  {work}")
+            banner.update(paths_banner(work))
 
     def _load_config(self) -> JsonObject:
         """Load ``~/.groket/config.json`` (empty mapping when missing or invalid)."""
@@ -615,14 +612,7 @@ class TraceEvalApp(App):
             t("ui-events"),
             t("ui-findings-1"),
         )
-        try:
-            bits = [
-                t("work-path-line", path=str(self.work_dir)),
-                t("runs-path-line", path=str(self.work_dir / "runs")),
-            ]
-            self.sub_title = "  ·  ".join(bits)
-        except Exception:
-            pass
+        self.sub_title = ""
         try:
             (self.work_dir / "runs" / "traces").mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -932,6 +922,15 @@ class TraceEvalApp(App):
             (self.work_dir / self._CACHE_FILE).write_text(json.dumps(cache, indent=2))
         except Exception:
             pass
+
+    def _origin_for_dir(self, session_dir: Path) -> str:
+        """Eval vs Host from the directory, not a stored default."""
+        from ..session.sources import classify_session_origin, work_traces_root
+
+        return classify_session_origin(
+            session_dir,
+            work_traces=work_traces_root(self.work_dir),
+        )
 
     def _label_for_session(self, session_dir: Path, origin: str) -> str:
         """Display path fragment relative to the catalog root for *origin*."""
@@ -1825,7 +1824,7 @@ class TraceEvalApp(App):
     ) -> tuple[str | Text, ...]:
         from ..session.sources import ORIGIN_HOST
 
-        origin = (meta.origin or "work").strip().lower()
+        origin = self._origin_for_dir(Path(meta.session_dir))
         origin_text = (
             Text(t("ui-origin-host"), style="magenta")
             if origin == ORIGIN_HOST
@@ -1879,7 +1878,10 @@ class TraceEvalApp(App):
                 restore_cursor(table, restore_key, scroll=False)
 
     def _populate_session_table_inner(self, *, restore_key: str | None = None) -> None:
-        table = self.query_one("#session-table", DataTable)
+        try:
+            table = self.query_one("#session-table", DataTable)
+        except NoMatches:
+            return
         if restore_key is None:
             restore_key = self._session_row_key_at_cursor(table)
         rows = self._filtered_session_rows()
@@ -2878,20 +2880,8 @@ class TraceEvalApp(App):
         self.update_run_status()
 
     def update_run_status(self) -> None:
-        """Reflect background eval status in the app title when possible."""
-        try:
-            n = self.run_manager.active_count
-            batches = self._run_manager_batch_ids()
-            if batches:
-                self.title = t("title-groket-batch", batch=batches[0][:12], n=n)
-            elif n:
-                cur = self.run_manager.latest()
-                rid = cur.run_id if cur else "?"
-                self.title = t("title-groket-runs", n=n, id=rid)
-            else:
-                self.title = "groket"
-        except Exception:
-            logger.debug(t("ui-failed-to-update-title-bar"), exc_info=True)
+        """Keep the window title as the wordmark; the activity strip owns status."""
+        self.title = t("help-brand-name")
 
     def _schedule_run_status_update(self) -> None:
         """Debounce title updates (batch runs finish containers rapidly)."""
@@ -3307,8 +3297,9 @@ class TraceEvalApp(App):
                     meta = load_session_meta(sd_res)
                 except Exception:
                     continue
-                meta.origin = "work"
-                label = self._label_for_session(sd_res, "work")
+                origin = self._origin_for_dir(sd_res)
+                meta.origin = origin
+                label = self._label_for_session(sd_res, origin)
                 self._session_mtimes[key] = mtime
                 new_metas.append((key, meta, label))
                 continue
@@ -3352,8 +3343,9 @@ class TraceEvalApp(App):
                             if str(meta0.session_dir) == key:
                                 fresh.num_events = meta0.num_events
                                 break
-                    fresh.origin = "work"
-                    label = self._label_for_session(sd_res, "work")
+                    origin = self._origin_for_dir(sd_res)
+                    fresh.origin = origin
+                    label = self._label_for_session(sd_res, origin)
                     new_metas.append((key, fresh, label))  # replace existing row in _apply
                 except Exception:
                     if outcome != prev_outcome.get(key):
@@ -3445,8 +3437,9 @@ class TraceEvalApp(App):
                 meta = load_session_meta(sd_res)
             except Exception:
                 continue
-            meta.origin = "work"
-            label = self._label_for_session(sd_res, "work")
+            origin = self._origin_for_dir(sd_res)
+            meta.origin = origin
+            label = self._label_for_session(sd_res, origin)
             self._meta_only.append((meta, label))
             existing.add(key)
             added = True

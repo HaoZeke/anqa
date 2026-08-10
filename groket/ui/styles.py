@@ -14,16 +14,23 @@ from contextlib import suppress
 
 from textual.app import App
 
+# Brand hex (same as brand/build.py). Caps = complete / failed / running.
+COMPLETE = "#98971A"
+FAILED = "#CC241D"
+RUNNING = "#D79921"
+CANCELLED = "#928374"
+CREAM = "#FBF1C7"
+
 SEVERITY_STYLE: dict[str, str] = {
-    "high": "red bold",
-    "medium": "dark_orange bold",
-    "low": "yellow",
+    "high": f"{FAILED} bold",
+    "medium": f"{RUNNING} bold",
+    "low": RUNNING,
 }
 
 SEVERITY_LABEL: dict[str, str] = {
-    "high": "[red bold]High[/]",
-    "medium": "[dark_orange bold]Medium[/]",
-    "low": "[yellow]Low[/]",
+    "high": f"[{FAILED} bold]High[/]",
+    "medium": f"[{RUNNING} bold]Medium[/]",
+    "low": f"[{RUNNING}]Low[/]",
 }
 
 
@@ -35,40 +42,40 @@ def finding_mark(severity: str) -> str:
 
 
 # Small palette by *role* (not a rainbow per label):
-#   white  = human input
-#   cyan   = model / tools stream (call vs result = bold vs dim)
-#   yellow = session runtime
-#   red    = error (also applied as underline in the timeline widget)
+#   cream  = human input / model stream
+#   complete green = tools / writes
+#   running yellow = session runtime
+#   failed red = error
 
 # Grok sessionUpdate / events.jsonl type → Rich style (identity keys).
 EVENT_TYPE_STYLE: dict[str, str] = {
-    "user_message_chunk": "bold white",
-    "agent_message_chunk": "cyan",
-    "agent_thought_chunk": "dim cyan italic",
-    "plan": "cyan",
-    "tool_call": "bold cyan",
-    "tool_call_update": "dim cyan",
-    "task_backgrounded": "bold yellow",
-    "task_completed": "yellow",
-    "turn_completed": "yellow",
-    "subagent_spawned": "cyan",
-    "subagent_finished": "cyan",
-    "current_mode_update": "dim yellow",
-    "retry_state": "dim yellow",
-    "turn_started": "yellow",
-    "turn_ended": "yellow",
-    "session_error": "bold red",
-    "error": "bold red",
-    "turn_error": "bold red",
-    "fatal_error": "bold red",
-    "system": "bold magenta",
+    "user_message_chunk": f"bold {CREAM}",
+    "agent_message_chunk": CREAM,
+    "agent_thought_chunk": f"dim {CREAM} italic",
+    "plan": CREAM,
+    "tool_call": f"bold {COMPLETE}",
+    "tool_call_update": f"dim {COMPLETE}",
+    "task_backgrounded": f"bold {RUNNING}",
+    "task_completed": RUNNING,
+    "turn_completed": RUNNING,
+    "subagent_spawned": CREAM,
+    "subagent_finished": CREAM,
+    "current_mode_update": f"dim {RUNNING}",
+    "retry_state": f"dim {RUNNING}",
+    "turn_started": RUNNING,
+    "turn_ended": RUNNING,
+    "session_error": f"bold {FAILED}",
+    "error": f"bold {FAILED}",
+    "turn_error": f"bold {FAILED}",
+    "fatal_error": f"bold {FAILED}",
+    "system": CANCELLED,
     # legacy pre-taxonomy names (cached / old tests)
-    "user": "bold white",
-    "assistant": "cyan",
-    "thought": "dim cyan italic",
-    "tool_result": "dim cyan",
-    "subagent": "cyan",
-    "session": "yellow",
+    "user": f"bold {CREAM}",
+    "assistant": CREAM,
+    "thought": f"dim {CREAM} italic",
+    "tool_result": f"dim {COMPLETE}",
+    "subagent": CREAM,
+    "session": RUNNING,
 }
 
 # Type column uses Grok identifiers (spaces from underscores in type_label).
@@ -77,10 +84,10 @@ EVENT_TYPE_LABEL: dict[str, str] = {
 }
 
 # Color by *action family*, not per-tool identity (keeps the column scannable):
-#   cyan   = read / search / inspect
-#   green  = write / edit / mutate workspace
-#   yellow = shell / process / wait
-#   white  = agent / UI / plan / other (default)
+#   cream  = read / search / inspect
+#   complete green = write / edit / mutate workspace
+#   running yellow = shell / process / wait
+#   cream  = agent / UI / plan / other (default)
 
 _TOOL_FAMILY_READ = frozenset(
     {
@@ -131,11 +138,11 @@ _TOOL_FAMILY_AGENT = frozenset(
 )
 
 TOOL_FAMILY_STYLE: dict[str, str] = {
-    "read": "cyan",
-    "write": "green",
-    "shell": "yellow",
-    "agent": "white",
-    "mcp": "magenta",
+    "read": CREAM,
+    "write": COMPLETE,
+    "shell": RUNNING,
+    "agent": CREAM,
+    "mcp": CANCELLED,
     "other": "dim",
 }
 
@@ -186,13 +193,13 @@ def format_tool_display(name: str) -> str:
 # Run / container lifecycle — one palette for tables, activity bar, labels.
 STATUS_RICH_STYLE: dict[str, str] = {
     "pending": "dim",
-    "building": "bold cyan",
-    "running": "bold yellow",
-    "ending": "bold magenta",
-    "awaiting": "bold cyan",
-    "extracting": "bold cyan",
-    "completed": "bold green",
-    "failed": "bold red",
+    "building": f"bold {RUNNING}",
+    "running": f"bold {RUNNING}",
+    "ending": f"bold {CANCELLED}",
+    "awaiting": f"bold {CANCELLED}",
+    "extracting": f"bold {RUNNING}",
+    "completed": f"bold {COMPLETE}",
+    "failed": f"bold {FAILED}",
     "idle": "dim",
 }
 

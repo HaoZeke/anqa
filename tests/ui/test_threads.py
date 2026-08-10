@@ -37,6 +37,22 @@ def test_call_ui_runtime_error_falls_back_inline() -> None:
     assert call_ui(_App(), lambda: 7) == 7  # type: ignore[arg-type]
 
 
+def test_call_ui_skips_when_app_not_running() -> None:
+    class _App:
+        def call_from_thread(self, callback, *args, **kwargs):
+            raise RuntimeError("App is not running")
+
+    called = False
+
+    def _cb() -> int:
+        nonlocal called
+        called = True
+        return 1
+
+    assert call_ui(_App(), _cb) is None  # type: ignore[arg-type]
+    assert called is False
+
+
 def test_call_ui_other_error_falls_back_or_none() -> None:
     class _App:
         def call_from_thread(self, callback, *args, **kwargs):

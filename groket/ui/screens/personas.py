@@ -20,8 +20,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -1366,10 +1364,9 @@ class PersonasScreen(ChromeActions):
 
     def compose(self) -> ComposeResult:
         root = personas_dir(self.work_dir)
-        yield Header()
-        from ..widgets.activity_bar import ActivityBar
+        from ..brand_mark import AppChrome, AppFooter
 
-        yield ActivityBar()
+        yield AppChrome()
         with Vertical(id="personas-screen"):
             yield Static(
                 join_ui(t("ui-persona-builder"), root, t("ui-github-mcp-skills-footer-for-keys")),
@@ -1383,7 +1380,7 @@ class PersonasScreen(ChromeActions):
                 yield Button(U.edit(), id="pb-edit")
                 yield Button(U.delete(), variant="error", id="pb-delete")
                 yield Button(U.open_folder_path(), id="pb-path")
-        yield Footer()
+        yield AppFooter()
 
     def on_mount(self) -> None:
         self._store.ensure_defaults()

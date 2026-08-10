@@ -23,8 +23,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
-    Header,
     Input,
     Select,
     Static,
@@ -186,10 +184,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return get_analysis_service()
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        from ..widgets.activity_bar import ActivityBar
+        from ..brand_mark import AppChrome, AppFooter
 
-        yield ActivityBar()
+        yield AppChrome()
         yield Static("", id="analysis-stale-banner", classes="tip-surface")
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
@@ -301,7 +298,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             yield SelectableStatic(id="report-notes-content")
                             yield EmptyState(U.tip_no_notes(), id="report-notes-empty")
                         yield Vertical(id="report-sections-host")
-        yield Footer()
+        yield AppFooter()
 
     def on_mount(self) -> None:
         if self._load_started:

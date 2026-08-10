@@ -8,7 +8,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.coordinate import Coordinate
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Static
 
 from ...engine import get_all_rules, set_rule_enabled
 from .. import text as U
@@ -25,10 +25,9 @@ class RulesScreen(ChromeActions):
     BINDINGS = list(RULES)
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        from ..widgets.activity_bar import ActivityBar
+        from ..brand_mark import AppChrome, AppFooter
 
-        yield ActivityBar()
+        yield AppChrome()
         with Vertical():
             yield Static(f"[bold]{U.rules_title()}[/bold]")
             yield DataTable(id="rule-table")
@@ -36,7 +35,7 @@ class RulesScreen(ChromeActions):
             with Horizontal():
                 yield Button(U.enable_all_btn(), variant="primary", id="enable-all-btn")
                 yield Button(U.disable_all_btn(), variant="error", id="disable-all-btn")
-        yield Footer()
+        yield AppFooter()
 
     def on_mount(self) -> None:
         self._populate_table()
