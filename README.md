@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="brand/png/groket-lockup-horizontal.png" alt="groket" width="520" />
+</p>
+
 # groket
 
 **groket** (grok evaluation tool) is a [Textual](https://github.com/Textualize/textual)

@@ -17,7 +17,7 @@ help:
 	@echo "  examples-check   validate examples/ packs (schema + import contract)"
 	@echo "  test             pytest"
 	@echo "  test-cov         pytest with coverage report"
-	@echo "  brand            rebuild brand/anqa from source/approved.jpg"
+	@echo "  brand            rebuild brand/ from the geometric mark"
 	@echo "  ci               lint + schema-check + hud-check + examples-check + test"
 	@echo "  clean            caches and build artefacts"
 
@@ -102,9 +102,9 @@ hud-cov:
 	  echo "hud-cov: cargo-llvm-cov not installed; skip fail-under (fmt/clippy/test already ran)"; \
 	fi
 
-# Logo pack (fonttools/numpy/pillow in the brand group; rsvg-convert from librsvg).
+# Logo pack (fonttools/pillow in the brand group; rsvg-convert from librsvg).
 brand:
-	uv run --group brand python brand/anqa/build.py
+	uv run --group brand python brand/build.py
 
 test:
 	uv run pytest tests/ -q --tb=short

@@ -1,4 +1,4 @@
-//! anqa identity for the HUD (window / Dock icon and in-chrome mark).
+//! groket identity for the HUD (window / Dock icon and in-chrome mark).
 
 use std::sync::OnceLock;
 
@@ -7,17 +7,17 @@ use iced::window::icon;
 use iced::Length;
 
 /// Dock / window icon. Brand: macOS / Linux dock, HUD app.
-pub const APP_ICON_PNG: &[u8] = include_bytes!("../../brand/anqa/png/anqa-app-icon-1024.png");
+pub const APP_ICON_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-1024.png");
 
 /// Colour mark (transparent). Light ``$surface``.
-pub const MARK_PNG: &[u8] = include_bytes!("../../brand/anqa/png/anqa-mark.png");
+pub const MARK_PNG: &[u8] = include_bytes!("../../brand/png/groket-mark.png");
 
-/// Reverse mark (ink field). Dark ``$surface`` after knocking out near-black.
-pub const MARK_REVERSE_PNG: &[u8] = include_bytes!("../../brand/anqa/png/anqa-mark-reverse.png");
+/// Reverse mark (cream rocket on an ink field). Dark chrome knocks the field out.
+pub const MARK_REVERSE_PNG: &[u8] = include_bytes!("../../brand/png/groket-mark-reverse.png");
 
-/// Mark viewBox 536×445. Height is the brand preferred chrome size.
+/// Mark viewBox 900×380. Height is the brand preferred chrome size.
 pub const MARK_H: f32 = 32.0;
-pub const MARK_W: f32 = MARK_H * 536.0 / 445.0;
+pub const MARK_W: f32 = MARK_H * 900.0 / 380.0;
 
 /// Decode the app icon for the window titlebar / taskbar / Dock.
 pub fn window_icon() -> Option<iced::window::Icon> {
@@ -53,13 +53,13 @@ fn reverse_chrome_handle() -> image::Handle {
     HANDLE.get_or_init(knocked_out_reverse).clone()
 }
 
-/// Reverse PNG is a solid ink field. Drop near-black so the bird sits on
-/// ``$surface`` (gruvbox grey, not only true black).
+/// Reverse PNG is cream + caps on an ink field. Drop ink so the rocket sits
+/// on ``$surface`` (gruvbox grey, not only true black). Ink is ``#282828``.
 fn knocked_out_reverse() -> image::Handle {
-    let decoded = icon::from_file_data(MARK_REVERSE_PNG, None).expect("anqa-mark-reverse.png");
+    let decoded = icon::from_file_data(MARK_REVERSE_PNG, None).expect("groket-mark-reverse.png");
     let (mut rgba, size) = decoded.into_raw();
     for px in rgba.chunks_exact_mut(4) {
-        if px[0] < 24 && px[1] < 24 && px[2] < 24 {
+        if px[0] < 48 && px[1] < 48 && px[2] < 48 {
             px[3] = 0;
         }
     }
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn app_icon_decodes_1024() {
-        let icon = window_icon().expect("anqa-app-icon-1024.png");
+        let icon = window_icon().expect("groket-app-icon-1024.png");
         let (rgba, size) = icon.into_raw();
         assert_eq!(size.width, 1024);
         assert_eq!(size.height, 1024);
@@ -96,8 +96,8 @@ mod tests {
                 pixels,
                 ..
             } => {
-                assert_eq!(width, 536);
-                assert_eq!(height, 445);
+                assert_eq!(width, 1200);
+                assert_eq!(height, 507);
                 let n = pixels.len() / 4;
                 let clear = pixels.chunks_exact(4).filter(|p| p[3] == 0).count();
                 assert!(clear * 2 > n, "expected most of the ink field transparent");

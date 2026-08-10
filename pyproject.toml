@@ -172,7 +172,6 @@ dev = [
 ]
 brand = [
     "fonttools>=4.55",
-    "numpy>=2.0",
     "pillow>=11.0",
 ]
 

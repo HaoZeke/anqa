@@ -117,7 +117,7 @@ fn set_app_icon_macos(app: &objc2_app_kit::NSApplication) {
 
     let data = NSData::with_bytes(crate::brand::APP_ICON_PNG);
     let Some(img) = NSImage::initWithData(NSImage::alloc(), &data) else {
-        eprintln!("groket-hud: NSImage from anqa app icon failed");
+        eprintln!("groket-hud: NSImage from groket app icon failed");
         return;
     };
     // SAFETY: NSApplication is on the main thread; icon is retained by AppKit.

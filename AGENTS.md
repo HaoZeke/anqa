@@ -323,7 +323,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``make ci`` | ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``make hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
 | ``make hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed) |
-| ``make brand`` | Rebuild ``brand/anqa`` from ``source/approved.jpg`` (``uv`` ``brand`` group) |
+| ``make brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
 | ``make clean`` | caches / build artefacts |
 
 Published schemas (also under ``schemas/``; GitHub Pages via
