@@ -322,9 +322,13 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``make examples-check`` | Validate ``examples/`` packs (hard contract) |
 | ``make ci`` | ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``make hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
-| ``make hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed) |
+| ``make hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
 | ``make brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
-| ``make clean`` | caches / build artefacts |
+| ``make clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
+
+HUD Cargo trees: a passing ``make hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
+``groket hud`` (release) deletes ``target/debug`` and coverage leftovers.
+``--dev`` / ``--debug`` keep debug objects. ``make clean`` runs ``cargo clean``.
 
 Published schemas (also under ``schemas/``; GitHub Pages via
 ``.github/workflows/pages.yml``):

@@ -85,6 +85,23 @@ pub fn status_tone(status: &str) -> &'static str {
     }
 }
 
+/// Same compact duration as the TUI (`<1s`, `12s`, `2m05s`, `1h04m`).
+pub fn fmt_duration(secs: f64) -> String {
+    let s = secs.max(0.0) as u64;
+    if s < 1 {
+        return "<1s".into();
+    }
+    if s < 60 {
+        return format!("{s}s");
+    }
+    let (m, s) = (s / 60, s % 60);
+    if m < 60 {
+        return format!("{m}m{s:02}s");
+    }
+    let (h, m) = (m / 60, m % 60);
+    format!("{h}h{m:02}m")
+}
+
 pub fn format_note_time(iso: &str) -> String {
     let s = iso.trim();
     if s.is_empty() {
@@ -210,6 +227,259 @@ pub enum EventRole {
     Other,
 }
 
+/// TUI ``EVENT_TYPE_STYLE`` brand role (cream / complete / running / failed / cancelled).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrandRole {
+    Cream,
+    Complete,
+    Running,
+    Failed,
+    Cancelled,
+}
+
+/// How an expanded body should paint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyPaint {
+    Empty,
+    Plain,
+    Markdown,
+    Json,
+    Image,
+}
+
+/// One timeline search hit: event index, field name, snippet containing the needle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimelineHit {
+    pub index: i64,
+    pub field: String,
+    pub snippet: String,
+}
+
+/// Identity keys from TUI ``EVENT_TYPE_STYLE``.
+pub fn event_type_brand_role(event_type: &str) -> BrandRole {
+    match event_type.trim() {
+        "user_message_chunk"
+        | "agent_message_chunk"
+        | "agent_thought_chunk"
+        | "plan"
+        | "subagent_spawned"
+        | "subagent_finished"
+        | "user"
+        | "assistant"
+        | "thought"
+        | "subagent" => BrandRole::Cream,
+        "tool_call" | "tool_call_update" | "tool_result" => BrandRole::Complete,
+        "task_backgrounded"
+        | "task_completed"
+        | "turn_completed"
+        | "current_mode_update"
+        | "retry_state"
+        | "turn_started"
+        | "turn_ended"
+        | "session" => BrandRole::Running,
+        "session_error" | "error" | "turn_error" | "fatal_error" => BrandRole::Failed,
+        "system" => BrandRole::Cancelled,
+        other => kind_brand_role(other),
+    }
+}
+
+fn kind_brand_role(kind: &str) -> BrandRole {
+    match kind {
+        "user" | "agent" | "thought" | "plan" | "subagent" => BrandRole::Cream,
+        "tool" | "tool_result" => BrandRole::Complete,
+        "session" | "task" => BrandRole::Running,
+        "error" => BrandRole::Failed,
+        "system" => BrandRole::Cancelled,
+        _ => BrandRole::Cancelled,
+    }
+}
+
+/// Brand role for a timeline row: identity type, then kind, then error flag.
+pub fn event_brand_role(event_type: &str, kind: &str, is_error: bool) -> BrandRole {
+    if is_error || kind == "error" || event_type.ends_with("_error") || event_type == "error" {
+        return BrandRole::Failed;
+    }
+    if !event_type.trim().is_empty() {
+        return event_type_brand_role(event_type);
+    }
+    kind_brand_role(kind)
+}
+
+/// Snippet around *start* (char index) that includes the needle.
+pub fn snippet_around(text: &str, start: usize, needle_chars: usize, radius: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return String::new();
+    }
+    let lo = start.saturating_sub(radius);
+    let hi = (start + needle_chars.saturating_add(radius)).min(chars.len());
+    let mut chunk: String = chars[lo..hi].iter().collect();
+    chunk = chunk.replace(['\n', '\r'], " ");
+    if lo > 0 {
+        chunk.insert(0, '…');
+    }
+    if hi < chars.len() {
+        chunk.push('…');
+    }
+    chunk
+}
+
+fn field_hit(text: &str, needle: &str) -> Option<String> {
+    if text.is_empty() || needle.is_empty() {
+        return None;
+    }
+    let lower = text.to_ascii_lowercase();
+    let pos = lower.find(needle)?;
+    // ``find`` is byte-based on the lowercased UTF-8; map back to char index.
+    let start = lower[..pos].chars().count();
+    Some(snippet_around(text, start, needle.chars().count(), 40))
+}
+
+/// First field on *ev* that contains *query* (casefold substring).
+pub fn timeline_query_hit(ev: &crate::wire::TimelineEvent, query: &str) -> Option<TimelineHit> {
+    let needle = query.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+    if !ev.match_field.is_empty()
+        && !ev.match_snippet.is_empty()
+        && ev.match_snippet.to_ascii_lowercase().contains(&needle)
+    {
+        return Some(TimelineHit {
+            index: ev.index,
+            field: ev.match_field.clone(),
+            snippet: ev.match_snippet.clone(),
+        });
+    }
+    let preview = ev.preview.clone();
+    let fields: [(&str, &str); 6] = [
+        ("type", ev.event_type.as_str()),
+        ("type_label", ev.type_label.as_str()),
+        ("tool", ev.tool_name.as_str()),
+        ("heading", ev.heading.as_str()),
+        ("preview", preview.as_str()),
+        ("content", ev.content.as_str()),
+    ];
+    for (field, text) in fields {
+        if let Some(snippet) = field_hit(text, &needle) {
+            return Some(TimelineHit {
+                index: ev.index,
+                field: field.to_string(),
+                snippet,
+            });
+        }
+    }
+    None
+}
+
+/// Complete match set for *query* over *events* (order preserved).
+pub fn timeline_search<'a>(
+    events: impl IntoIterator<Item = &'a crate::wire::TimelineEvent>,
+    query: &str,
+) -> Vec<TimelineHit> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    events
+        .into_iter()
+        .filter_map(|ev| timeline_query_hit(ev, query))
+        .collect()
+}
+
+/// Paint path for an expanded timeline / turn body.
+pub fn body_paint(kind: &str, body: &str, expanded: bool) -> BodyPaint {
+    if body.trim().is_empty() {
+        return BodyPaint::Empty;
+    }
+    if !expanded {
+        return BodyPaint::Plain;
+    }
+    if looks_like_json(body) {
+        return BodyPaint::Json;
+    }
+    if looks_like_markdown(body) {
+        return BodyPaint::Markdown;
+    }
+    let _ = kind;
+    BodyPaint::Plain
+}
+
+/// Assistant turn body: markdown when the source has markdown cues.
+pub fn turn_assistant_paint(body: &str) -> BodyPaint {
+    body_paint("agent", body, true)
+}
+
+/// Plain text for a turn card (paste into a report).
+pub fn extract_turn(label: &str, user: &str, assistant: &str) -> String {
+    let mut out = String::new();
+    if !label.is_empty() {
+        out.push_str(label.trim());
+        out.push('\n');
+    }
+    if !user.trim().is_empty() {
+        out.push_str("User\n");
+        out.push_str(user.trim());
+        out.push('\n');
+    }
+    if !assistant.trim().is_empty() {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("Assistant\n");
+        out.push_str(assistant.trim());
+        out.push('\n');
+    }
+    out
+}
+
+/// Plain text for a timeline event (heading, tool fields, body).
+pub fn extract_event(ev: &crate::wire::TimelineEvent) -> String {
+    let mut out = String::new();
+    let head = if ev.heading.is_empty() {
+        ev.type_label.as_str()
+    } else {
+        ev.heading.as_str()
+    };
+    out.push_str(&format!("#{} {head}\n", ev.index));
+    if !ev.tool_name.is_empty() {
+        out.push_str(&ev.tool_name);
+        out.push('\n');
+    }
+    let fields = if ev.tool_fields.is_empty() {
+        tool_fields_from_raw(&ev.tool_name, &ev.raw_input, 8_000)
+    } else {
+        ev.tool_fields
+            .iter()
+            .map(|f| ToolField {
+                id: f.id.clone(),
+                label: f.label.clone(),
+                value: f.value.clone(),
+            })
+            .collect()
+    };
+    for field in fields {
+        if field.value.is_empty() {
+            continue;
+        }
+        out.push_str(&field.label);
+        out.push_str(": ");
+        out.push_str(&field.value);
+        out.push('\n');
+    }
+    let body = if ev.content.is_empty() {
+        ev.preview.as_str()
+    } else {
+        ev.content.as_str()
+    };
+    let body = sanitize_console_text(&display_tool_output(body, &ev.tool_name));
+    if !body.trim().is_empty() {
+        out.push('\n');
+        out.push_str(body.trim());
+        out.push('\n');
+    }
+    out
+}
+
 /// Map control ``kind`` (+ error flag) onto the same roles as the TUI type column.
 pub fn event_role(kind: &str, is_error: bool) -> EventRole {
     if is_error || kind == "error" {
@@ -223,6 +493,16 @@ pub fn event_role(kind: &str, is_error: bool) -> EventRole {
         "system" => EventRole::System,
         _ => EventRole::Other,
     }
+}
+
+/// Open-card body only (no heading). Yank uses [`extract_event`].
+pub fn event_body_text(ev: &crate::wire::TimelineEvent) -> String {
+    let raw = if ev.content.is_empty() {
+        ev.preview.as_str()
+    } else {
+        ev.content.as_str()
+    };
+    sanitize_console_text(&display_tool_output(raw, &ev.tool_name))
 }
 
 /// Collapsed cards use the one-line preview; the open card uses full ``content``.
@@ -666,6 +946,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn duration_matches_tui_thresholds() {
+        assert_eq!(fmt_duration(0.4), "<1s");
+        assert_eq!(fmt_duration(12.0), "12s");
+        assert_eq!(fmt_duration(125.0), "2m05s");
+        assert_eq!(fmt_duration(3840.0), "1h04m");
+    }
+
+    #[test]
     fn soft_control_down_copy() {
         assert_eq!(
             control_down_message("connection refused"),
@@ -714,6 +1002,153 @@ mod tests {
         assert_eq!(event_role("agent", true), EventRole::Error);
         assert_eq!(event_role("error", false), EventRole::Error);
         assert_eq!(event_role("other", false), EventRole::Other);
+    }
+
+    #[test]
+    fn event_type_style_keys_map_to_brand_roles() {
+        let cream = [
+            "user_message_chunk",
+            "agent_message_chunk",
+            "agent_thought_chunk",
+            "plan",
+            "subagent_spawned",
+            "subagent_finished",
+            "user",
+            "assistant",
+            "thought",
+            "subagent",
+        ];
+        let complete = ["tool_call", "tool_call_update", "tool_result"];
+        let running = [
+            "task_backgrounded",
+            "task_completed",
+            "turn_completed",
+            "current_mode_update",
+            "retry_state",
+            "turn_started",
+            "turn_ended",
+            "session",
+        ];
+        let failed = ["session_error", "error", "turn_error", "fatal_error"];
+        let cancelled = ["system"];
+        for k in cream {
+            assert_eq!(event_type_brand_role(k), BrandRole::Cream, "{k}");
+        }
+        for k in complete {
+            assert_eq!(event_type_brand_role(k), BrandRole::Complete, "{k}");
+        }
+        for k in running {
+            assert_eq!(event_type_brand_role(k), BrandRole::Running, "{k}");
+        }
+        for k in failed {
+            assert_eq!(event_type_brand_role(k), BrandRole::Failed, "{k}");
+        }
+        for k in cancelled {
+            assert_eq!(event_type_brand_role(k), BrandRole::Cancelled, "{k}");
+        }
+        assert_eq!(
+            event_brand_role("tool_call", "tool", false),
+            BrandRole::Complete
+        );
+        assert_eq!(
+            event_brand_role("agent_message_chunk", "agent", true),
+            BrandRole::Failed
+        );
+    }
+
+    #[test]
+    fn extract_turn_and_event_are_paste_ready() {
+        let turn = extract_turn("turn 3", "please fix it", "# Done\n\n**ok**");
+        assert!(turn.contains("turn 3"));
+        assert!(turn.contains("User\nplease fix it"));
+        assert!(turn.contains("Assistant\n# Done"));
+        assert!(turn.contains("**ok**"));
+        let ev = crate::wire::TimelineEvent {
+            index: 12,
+            heading: "read_file".into(),
+            kind: "tool".into(),
+            tool_name: "read_file".into(),
+            content: "1→fn main() {}\n".into(),
+            raw_input: serde_json::json!({"target_file": "src/main.rs"}),
+            ..crate::wire::TimelineEvent::default()
+        };
+        let got = extract_event(&ev);
+        assert!(got.contains("#12 read_file"));
+        assert!(got.contains("src/main.rs"));
+        assert!(got.contains("fn main()"));
+        assert!(!got.contains('→'));
+    }
+
+    #[test]
+    fn assistant_markdown_cues_take_the_markdown_path() {
+        let md = "# Heading\n\nSee **bold** and a fence:\n```\ncode\n```";
+        assert_eq!(turn_assistant_paint(md), BodyPaint::Markdown);
+        assert_eq!(body_paint("agent", md, true), BodyPaint::Markdown);
+        assert_eq!(body_paint("agent", md, false), BodyPaint::Plain);
+        assert_ne!(turn_assistant_paint(md), BodyPaint::Plain);
+        assert_eq!(
+            turn_assistant_paint("plain sentence with no cues"),
+            BodyPaint::Plain
+        );
+        assert_eq!(
+            body_paint("tool_result", "{\"a\":1}", true),
+            BodyPaint::Json
+        );
+    }
+
+    fn synth_event(index: i64, content: &str) -> crate::wire::TimelineEvent {
+        crate::wire::TimelineEvent {
+            index,
+            event_type: "agent_message_chunk".into(),
+            kind: "agent".into(),
+            content: content.into(),
+            preview: content
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(200)
+                .collect(),
+            ..crate::wire::TimelineEvent::default()
+        }
+    }
+
+    #[test]
+    fn timeline_search_page_matches_full_fixture_prefix() {
+        let mut events = Vec::with_capacity(8000);
+        for i in 0..8000 {
+            let content = if i % 19 == 0 {
+                format!("row {i} carries needle-token in the body")
+            } else {
+                format!("ordinary row {i}")
+            };
+            events.push(synth_event(i, &content));
+        }
+        let full = timeline_search(&events, "needle-token");
+        assert!(full.len() > 40, "expected many hits, got {}", full.len());
+        assert!(full.len() < 8000);
+        let page = full.iter().take(40).cloned().collect::<Vec<_>>();
+        assert_eq!(
+            page.iter().map(|h| h.index).collect::<Vec<_>>(),
+            full.iter().take(40).map(|h| h.index).collect::<Vec<_>>()
+        );
+        for hit in &full {
+            assert!(
+                hit.field == "preview" || hit.field == "content",
+                "{}",
+                hit.field
+            );
+            assert!(
+                hit.snippet.to_ascii_lowercase().contains("needle-token"),
+                "{}",
+                hit.snippet
+            );
+        }
+        let first_page_only = timeline_search(&events[..40], "needle-token");
+        assert!(
+            first_page_only.len() < full.len(),
+            "searching a raw first page must not be the complete set"
+        );
     }
 
     #[test]

@@ -161,4 +161,25 @@ mod tests {
             vec![0, 1, 2]
         );
     }
+
+    #[test]
+    fn ranking_3000_catalog_rows_stays_interactive() {
+        use crate::model::SessionRow;
+        let rows: Vec<SessionRow> = (0..3000)
+            .map(|i| SessionRow {
+                session_id: format!("sess-{i:04}"),
+                title: if i % 40 == 0 {
+                    format!("needle host {i}")
+                } else {
+                    format!("other {i}")
+                },
+                ..SessionRow::default()
+            })
+            .collect();
+        let start = std::time::Instant::now();
+        let hits = fuzzy_filter("needle", &rows, SessionRow::haystack);
+        let elapsed = start.elapsed();
+        assert_eq!(hits.len(), 75);
+        assert!(elapsed.as_millis() < 750, "catalog rank took {elapsed:?}");
+    }
 }

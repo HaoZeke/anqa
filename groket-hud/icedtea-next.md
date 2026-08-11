@@ -1,0 +1,48 @@
+# icedtea pin
+
+The HUD uses crates.io ``icedtea`` 0.3.0 (expander peek, ``command_bar``,
+``list_detail``, ``visible_range_var``). Overlay, hotkey, ``iced::daemon``,
+and the Textual ``config.json`` → ``tea_tokens`` map stay groket-owned.
+
+## Done on this pin
+
+- Detail panes use `themed_scroll` (timeline keeps its scroll id).
+- `ListScroll` stores the window and `scroll_to` the list id.
+- Escape hide goes through `icedtea::window::should_hide`.
+- Timeline type is `themed_pick_list`; event filter is
+  `themed_text_input`.
+- Loading / empty / control-down use `placeholder_skeleton`,
+  `status_page`, and `info_bar`.
+- JSON/code uses `code_block`; saved images use `image_slot`.
+- Overview status is a `badge`.
+- Session list search is the jump path.
+- Context bar on tiles and ring + reading on Overview.
+- Findings expanders by severity with a timeline command.
+- Awaiting banner with follow-up / Done (`session/follow_up`, `session/done`).
+- Catalog warmup uses `busy_overlay`. Toasts for save, copy, errors.
+- Copy path lives on the overview command row.
+- Timeline loads one page (40 rows). Scroll fetches more. Type/text
+  filters run on the owner over the full session, not the local buffer.
+
+## Still groket-owned
+
+Session list tiles (`tea_list_view` / `tea_two_line`): icedtea
+`list_view` paints a flat `list_row`. Keep the card + 8px inset until
+icedtea grows a tile / row-chrome mode.
+
+macOS placement stays in `place.rs` (AppKit y-up → winit). Do not
+swap in `place_centered` without that flip.
+
+Search stays a custom row (rocket, field, hotkey, pop-out).
+
+## After icedtea grows tiles
+
+Call `icedtea::widget::list_view` with `"No sessions"`, a status-tone
+`meta_color`, and `hud.list_scroll_id()`. Delete `tea_list_view` /
+`tea_two_line`.
+
+## Do not
+
+- Pin a local checkout by path.
+- Drop overlay / hotkey / daemon into `icedtea::run!`.
+- Treat gallery-only pages (keys, colors) as HUD work.

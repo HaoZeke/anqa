@@ -25,11 +25,11 @@ pub const MONO: Font = Font::with_name("JetBrains Mono");
 pub const UI_BYTES: &[u8] = include_bytes!("../assets/fonts/FiraSans-Regular.ttf");
 pub const MONO_BYTES: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
 
-/// Page title (overview heading).
-pub const PAGE: u16 = 18;
+/// Page title (overview heading). Matches icedtea::typo.
+pub const PAGE: u32 = icedtea::typo::PAGE;
 /// Section / card title.
-pub const TITLE: u16 = 15;
+pub const TITLE: u32 = icedtea::typo::TITLE;
 /// Body copy (also iced default_text_size).
-pub const BODY: u16 = 14;
+pub const BODY: u32 = icedtea::typo::BODY;
 /// Meta, tabs, footer, kv keys.
-pub const META: u16 = 12;
+pub const META: u32 = icedtea::typo::META;

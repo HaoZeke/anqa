@@ -406,17 +406,56 @@ pub fn session_overview(session: &str) -> Result<Value, ControlError> {
     request("session/overview", json!({ "session": session }))
 }
 
-pub fn session_timeline(session: &str, offset: u32, limit: u32) -> Result<Value, ControlError> {
+pub struct TimelineRequest<'a> {
+    pub session: &'a str,
+    pub offset: u32,
+    pub limit: u32,
+    pub content_chars: u32,
+    pub kind: &'a str,
+    pub query: &'a str,
+    pub around_index: Option<i64>,
+    pub at_index: Option<i64>,
+}
+
+pub fn session_timeline(req: TimelineRequest<'_>) -> Result<Value, ControlError> {
+    let mut params = json!({
+        "session": req.session,
+        "limit": req.limit,
+        "offset": req.offset,
+        "contentChars": req.content_chars,
+    });
+    if !req.kind.is_empty() {
+        params["kind"] = json!(req.kind);
+    }
+    if !req.query.is_empty() {
+        params["query"] = json!(req.query);
+    }
+    if let Some(ix) = req.around_index {
+        params["aroundIndex"] = json!(ix);
+    }
+    if let Some(ix) = req.at_index {
+        params["atIndex"] = json!(ix);
+    }
+    request("session/timeline", params)
+}
+
+pub fn session_follow_up(
+    session: &str,
+    prompt: &str,
+    final_turn: bool,
+) -> Result<Value, ControlError> {
     request(
-        "session/timeline",
+        "session/follow_up",
         json!({
             "session": session,
-            "limit": limit,
-            "offset": offset,
-            // Enough for clean markdown fences in agent turns (server caps).
-            "contentChars": 12_000,
+            "prompt": prompt,
+            "final": final_turn,
         }),
     )
+}
+
+pub fn session_done(session: &str) -> Result<Value, ControlError> {
+    request("session/done", json!({ "session": session }))
 }
 
 pub fn notes_upsert(

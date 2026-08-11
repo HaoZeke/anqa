@@ -1,5 +1,7 @@
 //! macOS activation and window collection for overlay vs desktop chrome.
 
+use iced::window::raw_window_handle::HasWindowHandle;
+#[cfg(target_os = "macos")]
 use iced::window::raw_window_handle::WindowHandle;
 
 /// `NSWindowCollectionBehavior` bits (same values as AppKit).
@@ -26,7 +28,10 @@ pub fn collection_mask(overlay: bool) -> u64 {
 }
 
 /// Apply overlay or desktop native chrome. Returns whether a window was found.
-pub fn apply(handle: WindowHandle<'_>, overlay: bool) -> bool {
+pub fn apply(handle: &dyn HasWindowHandle, overlay: bool) -> bool {
+    let Ok(handle) = handle.window_handle() else {
+        return false;
+    };
     #[cfg(target_os = "macos")]
     let ok = apply_macos(handle, overlay);
     #[cfg(not(target_os = "macos"))]

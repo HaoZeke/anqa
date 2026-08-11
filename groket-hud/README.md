@@ -2,7 +2,7 @@
 
 Sol-style session **command palette** for the local groket control plane
 (JSON-RPC over Unix socket). Not a second session owner — talk to
-``groket serve``. Drawn with **iced** (Rust, no JavaScript).
+``groket serve``. Drawn with **iced** and **icedtea** 0.3 (Rust, no JavaScript).
 
 ## Features
 
@@ -25,6 +25,11 @@ Sol-style session **command palette** for the local groket control plane
   rest fills in the background; empty search does not clone the catalog)
 - Detail: overview, turns, live timeline, findings, notes. Turns and timeline
   mount only the visible cards.
+  Timeline type labels use the TUI brand colors (cream / complete / running /
+  failed / cancelled). Search hits show the matching field and a snippet.
+  Timeline events and turn User/Assistant sections use the same
+  disclosure drawer (▸ / ▾). An open body is selectable; copy with
+  **Ctrl+C** (or **y** / **Ctrl+Shift+C** for the focused event).
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview and the timeline tail about every 3s (idle sessions slower).
 - Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;
@@ -74,7 +79,11 @@ uv run groket hud --debug     # unoptimized cargo binary
 ``make hud-check`` (from the repo root) checks the Textual theme map, rustfmt,
 clippy (``-D warnings``), and ``cargo test``. When ``cargo llvm-cov`` is
 installed it also applies a line fail-under on non-paint HUD logic (view,
-window loop, and the Unix socket client are omitted from that floor).
+window loop, and the Unix socket client are omitted from that floor), then
+deletes the instrumented ``target/llvm-cov-target`` tree. ``make clean``
+runs ``cargo clean`` on this crate. ``groket hud`` (release) drops
+``target/debug`` and coverage leftovers; ``--dev`` / ``--debug`` keep
+debug objects.
 
 ## Env
 

@@ -248,3 +248,87 @@ def test_build_hud_runs_cargo_only(tmp_path: Path) -> None:
     ):
         out = launch_mod.build_hud(checkout, debug=False)
     assert out == binary
+
+
+def test_build_hud_release_drops_debug_and_coverage_trees(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src"
+    src.mkdir(parents=True)
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    binary = checkout / "target" / "release" / "groket-hud"
+    binary.parent.mkdir(parents=True)
+    debug_obj = checkout / "target" / "debug" / "deps" / "old.rlib"
+    debug_obj.parent.mkdir(parents=True)
+    debug_obj.write_text("old", encoding="utf-8")
+    cov = checkout / "target" / "llvm-cov-target" / "debug"
+    cov.mkdir(parents=True)
+    (cov / "junk").write_text("c", encoding="utf-8")
+
+    def fake_cargo(cmd: list[str], **kwargs: object) -> _Proc:
+        del kwargs
+        binary.write_text("bin", encoding="utf-8")
+        binary.chmod(0o755)
+        return _Proc(0)
+
+    with (
+        patch.object(launch_mod.shutil, "which", return_value="/usr/bin/cargo"),
+        patch.object(launch_mod.subprocess, "run", side_effect=fake_cargo),
+    ):
+        out = launch_mod.build_hud(checkout, debug=False)
+    assert out == binary
+    assert binary.is_file()
+    assert not (checkout / "target" / "debug").exists()
+    assert not (checkout / "target" / "llvm-cov-target").exists()
+
+
+def test_build_hud_debug_keeps_debug_drops_coverage(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src"
+    src.mkdir(parents=True)
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    binary = checkout / "target" / "debug" / "groket-hud"
+    binary.parent.mkdir(parents=True)
+    cov = checkout / "target" / "llvm-cov-target" / "debug"
+    cov.mkdir(parents=True)
+    (cov / "junk").write_text("c", encoding="utf-8")
+
+    def fake_cargo(cmd: list[str], **kwargs: object) -> _Proc:
+        del kwargs
+        binary.write_text("bin", encoding="utf-8")
+        binary.chmod(0o755)
+        return _Proc(0)
+
+    with (
+        patch.object(launch_mod.shutil, "which", return_value="/usr/bin/cargo"),
+        patch.object(launch_mod.subprocess, "run", side_effect=fake_cargo),
+    ):
+        out = launch_mod.build_hud(checkout, debug=True)
+    assert out == binary
+    assert binary.is_file()
+    assert not (checkout / "target" / "llvm-cov-target").exists()
+
+
+def test_ensure_hud_binary_prunes_when_release_is_fresh(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src"
+    src.mkdir(parents=True)
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (src / "main.rs").write_text("x", encoding="utf-8")
+    built = checkout / "target" / "release" / "groket-hud"
+    built.parent.mkdir(parents=True)
+    built.write_text("fresh", encoding="utf-8")
+    built.chmod(0o755)
+    debug_obj = checkout / "target" / "debug" / "deps" / "old.rlib"
+    debug_obj.parent.mkdir(parents=True)
+    debug_obj.write_text("old", encoding="utf-8")
+
+    with (
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "build_hud") as mock_build,
+        patch.dict(os.environ, {}, clear=False),
+    ):
+        os.environ.pop("GROKET_HUD_BIN", None)
+        out = launch_mod.ensure_hud_binary()
+    assert out == built
+    mock_build.assert_not_called()
+    assert not (checkout / "target" / "debug").exists()

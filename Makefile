@@ -21,7 +21,7 @@ help:
 	@echo "  ext              optional Limited API listwalk (remote builder only)"
 	@echo "  native-check     cargo test groket-core (remote builder; not this laptop)"
 	@echo "  ci               lint + schema-check + hud-check + examples-check + test"
-	@echo "  clean            caches and build artefacts"
+	@echo "  clean            Python caches plus groket-hud cargo target"
 
 install:
 	# Editable project + test/dev groups in .venv (uv run pytest / make test).
@@ -85,21 +85,22 @@ hud-themes-check:
 
 hud-check: hud-themes-check
 	cargo fmt --check --manifest-path groket-hud/Cargo.toml
-	cargo clippy --manifest-path groket-hud/Cargo.toml --all-targets -- -D warnings
-	cargo test --manifest-path groket-hud/Cargo.toml
+	CARGO_INCREMENTAL=0 cargo clippy --manifest-path groket-hud/Cargo.toml --all-targets -- -D warnings
+	CARGO_INCREMENTAL=0 cargo test --manifest-path groket-hud/Cargo.toml
 	@$(MAKE) hud-cov
 
 # Paint/window files are omitted from the fail-under (iced view/app loop).
 # Paint/window loop and Unix-socket transport are omitted from fail-under.
-HUD_COV_OMIT := src/(app|view|style|typo|main|x11focus|control|scroll)\.rs
+HUD_COV_OMIT := src/(app|view|typo|main|x11focus|control)\.rs
 HUD_COV_FAIL_UNDER := 70
 
 hud-cov:
 	@if cargo llvm-cov --version >/dev/null 2>&1; then \
-	  cargo llvm-cov --manifest-path groket-hud/Cargo.toml --lib \
+	  CARGO_INCREMENTAL=0 cargo llvm-cov --manifest-path groket-hud/Cargo.toml --lib \
 	    --fail-under-lines $(HUD_COV_FAIL_UNDER) \
 	    --ignore-filename-regex '$(HUD_COV_OMIT)' \
-	    --summary-only; \
+	    --summary-only && \
+	  rm -rf groket-hud/target/llvm-cov-target groket-hud/target/llvm-cov; \
 	else \
 	  echo "hud-cov: cargo-llvm-cov not installed; skip fail-under (fmt/clippy/test already ran)"; \
 	fi
@@ -129,3 +130,4 @@ clean:
 	rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ \
 		htmlcov/ .coverage coverage.json docs/_build/
 	find . -type d -name __pycache__ -not -path './.venv/*' -exec rm -rf {} + 2>/dev/null || true
+	-cargo clean --manifest-path groket-hud/Cargo.toml

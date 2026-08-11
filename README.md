@@ -210,8 +210,9 @@ sudo apt install libxkbcommon-dev libwayland-dev pkg-config
 
 See ``groket-hud/README.md`` for the full prerequisite list.
 
-Floating, frameless, always-on-top command palette (search sessions; overview,
-turns, timeline, findings, notes). Launch is always the overlay; the pop-out icon in the
+Floating, frameless, always-on-top session palette (search sessions; overview,
+turns, timeline, findings, notes). Awaiting sessions get a follow-up field and Done. Timeline pages stay
+capped so a large host session remains usable. Launch is always the overlay; the pop-out icon in the
 search bar opens a decorated desktop window. Close that window to keep the
 HUD process running; the summon hotkey or the tray **Show HUD** item brings
 the overlay back. Linux registers a StatusNotifier tray icon (Swaybar / Waybar).

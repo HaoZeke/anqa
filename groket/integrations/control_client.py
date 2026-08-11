@@ -371,7 +371,11 @@ class ControlClient:
         offset: int = 0,
         limit: int | None = None,
         event_type: str = "",
+        kind: str = "",
+        query: str = "",
         prompt_index: int | None = None,
+        around_index: int | None = None,
+        at_index: int | None = None,
         content_chars: int | None = None,
     ) -> JsonObject:
         """Call ``session/timeline`` (paged events)."""
@@ -380,8 +384,16 @@ class ControlClient:
             params["limit"] = limit
         if event_type:
             params["type"] = event_type
+        if kind:
+            params["kind"] = kind
+        if query:
+            params["query"] = query
         if prompt_index is not None:
             params["promptIndex"] = prompt_index
+        if around_index is not None:
+            params["aroundIndex"] = around_index
+        if at_index is not None:
+            params["atIndex"] = at_index
         if content_chars is not None:
             params["contentChars"] = content_chars
         result = await self.request("session/timeline", params)
@@ -462,6 +474,21 @@ class ControlClient:
     async def analysis_status(self, session: str) -> JsonObject:
         """Call ``analysis/status`` for *session*."""
         result = await self.request("analysis/status", {"session": session})
+        return as_json_object(result) if isinstance(result, dict) else {}
+
+    async def session_follow_up(
+        self, session: str, prompt: str, *, final: bool = False
+    ) -> JsonObject:
+        """Call ``session/follow_up``."""
+        result = await self.request(
+            "session/follow_up",
+            {"session": session, "prompt": prompt, "final": bool(final)},
+        )
+        return as_json_object(result) if isinstance(result, dict) else {}
+
+    async def session_done(self, session: str) -> JsonObject:
+        """Call ``session/done``."""
+        result = await self.request("session/done", {"session": session})
         return as_json_object(result) if isinstance(result, dict) else {}
 
 

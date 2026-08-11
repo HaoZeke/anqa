@@ -98,6 +98,23 @@ def test_build_session_timeline_pages(tmp_path: Path) -> None:
         assert len(second["events"]) == 1
         assert second["offset"] == 1
         assert second["events"][0]["index"] != page["events"][0]["index"]
+    tools = build_session_timeline(sd, offset=0, limit=50, kind="tools")
+    assert tools["total"] >= 1
+    assert all(ev.get("kind") in {"tool", "tool_result"} for ev in tools["events"])
+    users = build_session_timeline(sd, offset=0, limit=50, kind="user")
+    assert users["total"] >= 1
+    assert all(ev.get("kind") == "user" for ev in users["events"])
+    hit = build_session_timeline(sd, offset=0, limit=50, query="hello user")
+    assert hit["total"] >= 1
+    assert any("hello" in str(ev.get("content") or "").lower() for ev in hit["events"])
+    for ev in hit["events"]:
+        assert ev.get("matchField")
+        assert "hello" in str(ev.get("matchSnippet") or "").casefold()
+    around = build_session_timeline(sd, offset=0, limit=1, around_index=1)
+    assert around["events"]
+    at = build_session_timeline(sd, offset=0, limit=50, at_index=1, content_chars=4000)
+    assert len(at["events"]) == 1
+    assert at["events"][0]["index"] == 1
     short = build_session_timeline(sd, offset=0, limit=50, content_chars=4)
     for ev in short["events"]:
         body = str(ev.get("content") or "")
@@ -140,6 +157,7 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     t0 = ov["turns"]["turns"][0]
     assert "eventCount" in t0
     assert t0.get("summary") == "hello user"
+    assert "eventIndexes" not in t0
     # Timeline is lazy: total only; clients call session/timeline for rows.
     assert ov["timeline"]["total"] >= 1
     assert ov["timeline"]["events"] == []
@@ -380,3 +398,42 @@ def test_timeline_system_reminder_not_labeled_user() -> None:
     assert real["kind"] == "user"
     assert real["heading"] == "User"
     assert real["harnessChrome"] is False
+
+
+def test_timeline_query_page_matches_full_fixture_prefix(tmp_path: Path) -> None:
+    """Server query: first page of hits is a prefix of the complete match set."""
+    sd = tmp_path / "big-tl"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        json.dumps({"info": {"id": "big-tl"}, "generated_title": "Big"}),
+        encoding="utf-8",
+    )
+    lines: list[str] = []
+    for i in range(6000):
+        text = f"row {i} carries needle-token in the body" if i % 19 == 0 else f"ordinary row {i}"
+        kind = "user_message_chunk" if i % 2 == 0 else "agent_message_chunk"
+        lines.append(
+            json.dumps(
+                {
+                    "timestamp": 1000 + i,
+                    "params": {
+                        "update": {
+                            "sessionUpdate": kind,
+                            "content": {"type": "text", "text": text},
+                        }
+                    },
+                }
+            )
+        )
+    (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (sd / "events.jsonl").write_text("{}\n", encoding="utf-8")
+    full = build_session_timeline(sd, offset=0, limit=8000, query="needle-token")
+    page = build_session_timeline(sd, offset=0, limit=40, query="needle-token")
+    full_ids = [ev["index"] for ev in full["events"]]
+    page_ids = [ev["index"] for ev in page["events"]]
+    assert full["total"] == len(full_ids)
+    assert full["total"] > 40
+    assert page_ids == full_ids[:40]
+    for ev in full["events"]:
+        assert ev.get("matchField")
+        assert "needle-token" in str(ev.get("matchSnippet") or "").casefold()

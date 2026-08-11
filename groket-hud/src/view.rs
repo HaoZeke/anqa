@@ -6,60 +6,214 @@ use std::hash::{Hash, Hasher};
 
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
+use iced::widget::text::{LineHeight, Wrapping};
 use iced::widget::{
-    button, column, container, image, markdown, mouse_area, pick_list, responsive, rich_text, row,
-    scrollable, text, text_input, Space,
+    button, column, container, image, markdown, mouse_area, responsive, row, scrollable, text,
+    text_editor, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
+use icedtea::a11y::{A11y, Role};
+use icedtea::collection::{ListModel, Selection, Tabs, VisibleWindow};
+use icedtea::toast::ToastKind;
+use icedtea::variant::Variant;
 
-use crate::app::{Hud, Message};
+use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
-    capped_display, display_tool_output, event_role, format_note_time, image_result_path,
-    list_status_label, looks_like_json, looks_like_markdown, note_fields_view, origin_label,
-    pretty_json, sanitize_console_text, status_tone, timeline_body_text, tool_fields_from_raw,
-    EventRole, ToolField,
+    body_paint, capped_display, display_tool_output, event_brand_role, fmt_duration,
+    format_note_time, image_result_path, looks_like_json, looks_like_markdown, note_fields_view,
+    origin_label, pretty_json, sanitize_console_text, status_tone, timeline_body_text,
+    timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
-    rail_visible_range, visible_range, wheel_scroll, CardMark, LIST_ROW_H, TIMELINE_OVERSCAN,
-    TIMELINE_ROW_H, TURN_ROW_H,
+    context_fraction, finding_severity_rank, finding_severity_title, visible_range, CardMark,
+    SESSION_LIST_W, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
 };
 use crate::model::{KindFilter, Tab};
-use crate::scroll::ScrollRail;
-use crate::style;
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
 
-fn virt_pane<'a>(
-    body: Element<'a, Message>,
-    content: f32,
-    viewport: f32,
-    scroll: f32,
-    on_scroll: impl Fn(f32) -> Message + Copy + 'a,
-) -> Element<'a, Message> {
-    let max = (content - viewport).max(0.0);
-    let body = mouse_area(body).on_scroll(move |d| on_scroll(wheel_scroll(d, scroll, max)));
-    if content <= viewport {
-        return body.into();
-    }
-    row![
-        body,
-        Element::from(ScrollRail::new(content, viewport, scroll, on_scroll)),
+fn context_meter(frac: f32, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let filled = (frac.clamp(0.0, 1.0) * 100.0).round() as u16;
+    let empty = 100u16.saturating_sub(filled);
+    let track = tea.panel;
+    let bar = tea.primary;
+    let meter = if filled == 0 {
+        container(Space::new())
+            .width(Length::Fill)
+            .height(3)
+            .style(move |_| icedtea::style::fill(track, tea.text))
+            .into()
+    } else if empty == 0 {
+        container(Space::new())
+            .width(Length::Fill)
+            .height(3)
+            .style(move |_| icedtea::style::fill(bar, tea.text))
+            .into()
+    } else {
+        row![
+            container(Space::new())
+                .width(Length::FillPortion(filled))
+                .height(3)
+                .style(move |_| icedtea::style::fill(bar, tea.text)),
+            container(Space::new())
+                .width(Length::FillPortion(empty))
+                .height(3)
+                .style(move |_| icedtea::style::fill(track, tea.text)),
+        ]
+        .into()
+    };
+    icedtea::a11y::attach(meter, &A11y::new("context", Role::Progress))
+}
+
+fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
+}
+
+fn empty_sessions(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    icedtea::pattern::status_page("No sessions", "Is groket serve running?", None, tea)
+}
+
+fn loading_session(sid: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    column![
+        icedtea::widget::placeholder_skeleton(tea, A11y::new("Loading", Role::Progress)),
+        icedtea::pattern::status_page("Loading", sid.to_string(), None, tea),
     ]
-    .height(viewport)
+    .spacing(12)
     .into()
 }
 
-fn rule(tok: crate::theme::Tokens) -> Element<'static, Message> {
-    container(Space::with_height(1))
-        .width(Length::Fill)
-        .height(1)
-        .style(move |_| style::hairline(tok))
+fn select_session(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    icedtea::pattern::status_page("Select a session", "", None, tea)
+}
+
+fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    column![
+        icedtea::widget::banner(
+            "Session is awaiting a follow-up",
+            Some(("Done".into(), Message::MarkDone)),
+            tea,
+            A11y::new("awaiting", Role::Status),
+        ),
+        container(icedtea::widget::themed_text_input(
+            "Follow-up prompt",
+            hud.follow_draft(),
+            Message::FollowDraft,
+            Some(Message::SendFollow),
+            tea,
+            A11y::new("follow-up", Role::TextBox),
+            None,
+        ))
+        .width(Length::Fill),
+        icedtea::widget::themed_button(
+            "Send follow-up",
+            Some(Message::SendFollow),
+            tea,
+            Variant::Primary,
+            A11y::button("Send follow-up"),
+        ),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn status_copy(text: &str, err: bool, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let a11y = A11y::new(text.to_string(), Role::Status);
+    if err {
+        icedtea::widget::info_bar(ToastKind::Danger, text.to_string(), tea, a11y)
+    } else {
+        icedtea::widget::meta(text.to_string(), tea, a11y)
+    }
+}
+
+fn tone_variant(tone: &str) -> Variant {
+    match tone {
+        "complete" => Variant::Success,
+        "running" => Variant::Primary,
+        "awaiting" | "ending" => Variant::Warning,
+        "cancelled" => Variant::Danger,
+        _ => Variant::Quiet,
+    }
+}
+
+fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let a11y = A11y::new(path.to_string(), Role::Image);
+    if std::path::Path::new(path).is_file() {
+        icedtea::widget::image_slot(
+            icedtea::widget::ImageSlot::Ready {
+                handle: iced::widget::image::Handle::from_path(path),
+                fit: iced::ContentFit::Contain,
+            },
+            Length::Fill,
+            Length::Fixed(240.0),
+            tea,
+            a11y,
+        )
+    } else {
+        icedtea::widget::image_slot(
+            icedtea::widget::ImageSlot::Error(path.to_string()),
+            Length::Fill,
+            Length::Fixed(80.0),
+            tea,
+            a11y,
+        )
+    }
+}
+
+fn flat_editor_style(
+    tok: icedtea::theme::Tokens,
+) -> impl Fn(&iced::Theme, text_editor::Status) -> text_editor::Style {
+    move |_t, _s| text_editor::Style {
+        background: iced::Background::Color(tok.canvas),
+        border: iced::Border {
+            color: iced::Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
+        },
+        placeholder: tok.muted,
+        value: tok.text,
+        selection: tok.selection,
+    }
+}
+
+fn selectable<'a>(
+    hud: &'a Hud,
+    key: ExtractKey,
+    fallback: &str,
+    tea: icedtea::theme::Tokens,
+    font: iced::Font,
+) -> Element<'a, Message> {
+    let Some(buf) = hud.extract(key) else {
+        return text(fallback.to_string())
+            .size(typo::BODY)
+            .font(font)
+            .into();
+    };
+    text_editor(buf)
+        .padding(0)
+        .size(typo::BODY)
+        .font(font)
+        .style(flat_editor_style(tea))
+        .on_action(move |action| Message::ExtractAction { key, action })
         .into()
+}
+
+fn code_inset(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let pretty = if looks_like_json(src) {
+        pretty_json(src)
+    } else {
+        src.to_string()
+    };
+    icedtea::widget::code_block(
+        capped_display(&pretty, 2_000),
+        tea,
+        A11y::new("code", Role::Group),
+    )
 }
 
 pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
+    let tea = hud.tea_tokens();
     let mut search = row![
         image(brand::chrome_handle(tok.canvas_is_dark()))
             .width(brand::chrome_width())
@@ -70,7 +224,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             .size(typo::BODY)
             .on_input(Message::SearchChanged)
             .padding([8, 10])
-            .style(style::search(tok))
+            .style(icedtea::style::search_style(tea))
             .width(Length::Fill),
         text(hud.hotkey_hint())
             .size(typo::META)
@@ -80,122 +234,219 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     .spacing(12)
     .align_y(Alignment::Center);
     if !hud.window_mode() {
-        search = search.push(pop_out_control(tok));
+        search = search.push(pop_out_control(tok, tea));
     }
     let search = search.padding(Padding::from([12, 16]));
 
     let list = session_list(hud);
     let detail = detail_pane(hud);
-
-    let body = row![list, detail].spacing(0).height(Length::Fill);
+    let body =
+        icedtea::pattern::list_detail(list, detail, icedtea::layout::fixed(SESSION_LIST_W), tea);
 
     let foot = row![
-        {
-            let t = text(hud.status()).size(typo::META).font(typo::UI);
-            if hud.status_err() {
-                t.color(tok.error)
-            } else {
-                t.color(tok.muted)
-            }
-        },
-        Space::with_width(Length::Fill),
-        text("Up/Down list  ·  Tab fields  ·  Ctrl+1–5 panes  ·  / events  ·  Esc")
-            .size(typo::META)
-            .color(tok.muted),
+        status_copy(hud.status(), hud.status_err(), tea),
+        Space::new().width(Length::Fill),
+        icedtea::widget::meta(
+            "Tab fields  ·  Ctrl+1–5 panes  ·  Esc",
+            tea,
+            A11y::new("keys", Role::Status),
+        ),
     ]
     .spacing(12)
     .align_y(Alignment::Center)
     .padding(Padding::from([8, 16]));
     let foot = container(foot)
         .width(Length::Fill)
-        .style(move |_| style::footer(tok));
+        .style(move |_| icedtea::style::footer(tea));
 
-    container(column![search, rule(tok), body, rule(tok), foot])
+    let mut stack = column![search, rule(tea), body, rule(tea), foot];
+    for t in hud.toasts().iter() {
+        let id = t.id;
+        stack = stack.push(icedtea::widget::toast_view(
+            t,
+            Message::ToastDismiss(id),
+            tea,
+            A11y::new(t.text.clone(), Role::Status),
+        ));
+    }
+    let shell = container(stack)
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(1)
-        .style(move |_| style::shell(tok))
-        .into()
+        .style(move |_| icedtea::style::shell(tea));
+    let busy = icedtea::widget::busy_overlay(
+        shell.into(),
+        hud.catalog_busy(),
+        hud.spin_phase(),
+        tea,
+        A11y::new("Catalog", Role::Progress),
+    );
+    busy
 }
 
 fn session_list(hud: &Hud) -> Element<'_, Message> {
-    let tok = hud.tokens();
-    container(responsive(move |size| {
-        session_list_at(hud, size.height.max(1.0))
-    }))
-    .width(Length::Fixed(260.0))
-    .height(Length::Fill)
-    .style(move |_| style::fill(tok.panel, tok.text))
-    .into()
+    responsive(move |size| session_list_at(hud, size.height.max(1.0))).into()
 }
 
 fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let tok = hud.tokens();
-    let n = hud.sessions().len();
-    let mut col = column![].spacing(0).padding(8);
-    if n == 0 {
-        col = col.push(text("No sessions").size(typo::BODY).color(tok.muted));
-        return col.into();
+    if hud.sessions().is_empty() {
+        return empty_sessions(hud.tea_tokens());
     }
-    let win = rail_visible_range(hud.list_scroll_y(), viewport, LIST_ROW_H, n);
-    for (i, row) in hud.sessions()[win.start..win.end].iter().enumerate() {
-        let i = win.start + i;
-        let selected = i == hud.active();
-        let status = list_status_label(&row.status, &row.outcome);
-        let tone = status_tone(&status);
-        let sub = format!(
-            "{} · {}{}",
-            status,
-            row.model,
-            if row.context_usage_compact.is_empty() {
-                String::new()
-            } else {
-                format!(" · {}", row.context_usage_compact)
-            }
-        );
-        let title_font = if selected { typo::UI_BOLD } else { typo::UI };
-        let title_c = tok.text;
-        let sub_c = tone_color(tone, tok);
-        let label = column![
-            text(row.display_title())
-                .size(typo::BODY)
-                .font(title_font)
-                .color(title_c),
-            text(sub).size(typo::META).color(sub_c),
-        ]
-        .spacing(4);
-        col = col.push(
-            mouse_area(
-                container(label)
-                    .width(Length::Fill)
-                    .padding([10, 12])
-                    .style(move |_| style::list_row(tok, selected)),
-            )
-            .on_press(Message::SelectSession(i)),
-        );
-    }
-    let scroll = hud.list_scroll_y();
-    virt_pane(
-        col.into(),
-        n as f32 * LIST_ROW_H,
-        viewport,
-        scroll,
-        move |y| Message::ListScroll {
-            y,
-            height: viewport,
-        },
+    let mut window = hud.list_window();
+    window.viewport = viewport.max(1.0);
+    tea_list_view(
+        hud,
+        &Selection::Single(hud.active()),
+        Message::SelectSession,
+        hud.tea_tokens(),
+        window,
+        Message::ListScroll,
+        Some(hud.list_scroll_id()),
+        A11y::new("Sessions", Role::List),
+        tok,
     )
 }
 
+fn tea_two_line<'a>(
+    title: &str,
+    meta_s: Option<&str>,
+    selected: bool,
+    tea: icedtea::theme::Tokens,
+    meta_color: Color,
+    ctx: f32,
+) -> Element<'a, Message> {
+    let mut col = column![text(title.to_string())
+        .size(typo::BODY)
+        .color(tea.text)
+        .font(if selected { typo::UI_BOLD } else { typo::UI })
+        .width(Length::Fill)
+        .wrapping(Wrapping::Word)]
+    .spacing(2)
+    .width(Length::Fill);
+    if let Some(m) = meta_s.filter(|s| !s.is_empty()) {
+        col = col.push(
+            text(m.to_string())
+                .size(typo::META)
+                .color(meta_color)
+                .width(Length::Fill)
+                .wrapping(Wrapping::Word),
+        );
+    }
+    if ctx > 0.0 {
+        col = col.push(context_meter(ctx, tea));
+    }
+    let tile = container(col)
+        .width(Length::Fill)
+        .padding([8, 12])
+        .style(move |_| icedtea::style::card(tea, selected));
+    container(tile)
+        .width(Length::Fill)
+        .padding(Padding {
+            top: 2.0,
+            right: 0.0,
+            bottom: 2.0,
+            left: 0.0,
+        })
+        .into()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn tea_list_view<'a>(
+    model: &'a Hud,
+    selection: &Selection,
+    on_select: impl Fn(usize) -> Message + Copy + 'a,
+    tea: icedtea::theme::Tokens,
+    window: VisibleWindow,
+    on_scroll: impl Fn(VisibleWindow) -> Message + Copy + 'a,
+    id: Option<iced::widget::Id>,
+    a11y: A11y,
+    hud_tok: crate::theme::Tokens,
+) -> Element<'a, Message> {
+    let mut col = column![].spacing(0).padding(8);
+    if model.is_empty() {
+        col = col.push(empty_sessions(tea));
+    } else {
+        let n = model.len();
+        let heights: Vec<f32> = (0..n).map(|i| model.session_tile_height(i)).collect();
+        let mut range = icedtea::collection::visible_range_var(
+            window.scroll,
+            window.viewport.max(1.0),
+            &heights,
+        );
+        if !range.is_empty() {
+            range.start = range.start.saturating_sub(1);
+            range.end = (range.end + 1).min(n);
+        }
+        let off = icedtea::collection::row_offsets(&heights);
+        let pad_top = off.get(range.start).copied().unwrap_or(0.0);
+        let pad_bottom =
+            off.get(n).copied().unwrap_or(0.0) - off.get(range.end).copied().unwrap_or(0.0);
+        if pad_top > 0.0 {
+            col = col.push(Space::new().height(pad_top));
+        }
+        for i in range {
+            let selected = selection.contains(i);
+            let title = model.title(i);
+            let meta_s = model.meta(i);
+            let status = model
+                .sessions()
+                .get(i)
+                .map(|r| crate::format::list_status_label(&r.status, &r.outcome))
+                .unwrap_or_default();
+            let meta_color = tone_color(status_tone(&status), hud_tok);
+            let name = title.to_string();
+            let ctx = model
+                .sessions()
+                .get(i)
+                .map(|r| context_fraction(r.context_window_usage_pct, &r.context_usage_compact))
+                .unwrap_or(0.0);
+            col = col.push(icedtea::a11y::attach(
+                mouse_area(tea_two_line(title, meta_s, selected, tea, meta_color, ctx))
+                    .on_press(on_select(i))
+                    .into(),
+                &A11y::new(name, Role::ListItem).with_checked(selected),
+            ));
+        }
+        if pad_bottom > 0.0 {
+            col = col.push(Space::new().height(pad_bottom));
+        }
+    }
+    let mut next = window;
+    next.start = 0;
+    next.end = model.len();
+    let mut s = scrollable(col)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .direction(scrollable::Direction::Vertical(
+            scrollable::Scrollbar::new()
+                .width(icedtea::chrome::SCROLL_RAIL_WIDTH)
+                .scroller_width(icedtea::chrome::SCROLL_RAIL_WIDTH),
+        ))
+        .style(icedtea::style::scroll_style(tea))
+        .on_scroll(move |vp| {
+            let mut win = next;
+            win.scroll = vp.absolute_offset().y.max(0.0);
+            win.viewport = vp.bounds().height.max(1.0);
+            on_scroll(win)
+        });
+    if let Some(id) = id {
+        s = s.id(id);
+    }
+    icedtea::a11y::attach(s.into(), &a11y)
+}
+
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
-    let tabs = row(Tab::ALL.iter().copied().map(|t| {
-        button(text(t.label()).size(typo::META))
-            .on_press(Message::SetTab(t))
-            .padding([8, 12])
-            .style(style::tab(hud.tokens(), hud.tab() == t))
-            .into()
-    }))
-    .spacing(4)
+    let mut tabs = Tabs::new(Tab::ALL.iter().map(|t| t.label().to_string()));
+    tabs.closable = false;
+    tabs.active = Tab::ALL.iter().position(|t| *t == hud.tab()).unwrap_or(0);
+    let tabs = container(icedtea::widget::tab_bar(
+        &tabs,
+        |i| Message::SetTab(Tab::ALL[i]),
+        |_| Message::SetTab(Tab::Overview),
+        hud.tea_tokens(),
+        A11y::new("Panes", Role::Tab),
+    ))
     .padding(Padding::from([8, 12]));
 
     let mut stack = column![tabs].spacing(0).height(Length::Fill);
@@ -204,52 +455,44 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     }
     let body: Element<'_, Message> = if hud.overview().is_none() {
         if !hud.overview_pending().is_empty() {
-            text(format!("Loading {}…", hud.overview_pending()))
-                .size(typo::BODY)
-                .color(hud.tokens().muted)
-                .into()
+            loading_session(hud.overview_pending(), hud.tea_tokens())
         } else {
-            text("Select a session")
-                .size(typo::BODY)
-                .color(hud.tokens().muted)
-                .into()
+            select_session(hud.tea_tokens())
         }
     } else {
         match hud.tab() {
             Tab::Overview => overview_tab(hud),
-            Tab::Turns => column![].into(),
+            Tab::Turns => turns_tab(hud),
             Tab::Timeline => column![].into(),
             Tab::Findings => findings_tab(hud),
             Tab::Notes => notes_tab(hud),
         }
     };
+    let tea = hud.tea_tokens();
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
-        stack = stack.push(
-            scrollable(
-                container(timeline_tab(hud, hud.tl_view_h()))
-                    .padding([16, 20])
-                    .width(Length::Fill),
-            )
-            .id(hud.timeline_scroll_id())
-            .height(Length::Fill)
-            .on_scroll(|vp| Message::TimelineScroll {
+        stack = stack.push(icedtea::widget::themed_scroll(
+            container(timeline_tab(hud, hud.tl_view_h()))
+                .padding([16, 20])
+                .width(Length::Fill)
+                .into(),
+            tea,
+            A11y::new("Timeline", Role::Group),
+            false,
+            Some(hud.timeline_scroll_id()),
+            Some(|vp: scrollable::Viewport| Message::TimelineScroll {
                 y: vp.absolute_offset().y,
                 height: vp.bounds().height,
             }),
-        );
-    } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
-        stack = stack.push(
-            container(responsive(move |size| {
-                turns_tab_at(hud, size.height.max(1.0))
-            }))
-            .padding([16, 20])
-            .width(Length::Fill)
-            .height(Length::Fill),
-        );
+        ));
     } else {
-        stack = stack.push(
-            scrollable(container(body).padding([16, 20]).width(Length::Fill)).height(Length::Fill),
-        );
+        stack = stack.push(icedtea::widget::themed_scroll(
+            container(body).padding([16, 20]).width(Length::Fill).into(),
+            tea,
+            A11y::new("Detail", Role::Group),
+            false,
+            None,
+            None::<fn(scrollable::Viewport) -> Message>,
+        ));
     }
     container(stack)
         .width(Length::Fill)
@@ -258,27 +501,27 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
-    let tok = hud.tokens();
+    let tea = hud.tea_tokens();
     row![
-        text("Type").size(typo::META).color(tok.muted),
-        pick_list(
+        icedtea::widget::meta("Type", tea, A11y::new("Type", Role::Header)),
+        icedtea::widget::themed_pick_list(
             &KindFilter::ALL[..],
             Some(hud.timeline_kind()),
-            Message::TimelineKind
-        )
-        .padding([6, 8])
-        .text_size(typo::META)
-        .font(typo::UI)
-        .style(style::picker(tok)),
-        text_input("Filter events", hud.timeline_query())
-            .id(hud.tl_search_id())
-            .font(typo::UI)
-            .size(typo::BODY)
-            .on_input(Message::TimelineQuery)
-            .padding(8)
-            .style(style::search(tok))
-            .width(Length::Fill),
-        text(hud.timeline_meta()).size(typo::META).color(tok.muted),
+            Message::TimelineKind,
+            tea,
+            A11y::new("Type", Role::ComboBox),
+        ),
+        container(icedtea::widget::themed_text_input(
+            "Filter events",
+            hud.timeline_query_draft(),
+            Message::TimelineQuery,
+            None,
+            tea,
+            A11y::new("Filter events", Role::TextBox),
+            Some(hud.tl_search_id()),
+        ))
+        .width(Length::Fill),
+        icedtea::widget::meta(hud.timeline_meta(), tea, A11y::new("count", Role::Status),),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
@@ -286,7 +529,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     .into()
 }
 
-fn overview_tab(hud: &Hud) -> Element<'static, Message> {
+fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let meta = &o.meta;
     let mut title = meta.title.clone();
@@ -303,11 +546,16 @@ fn overview_tab(hud: &Hud) -> Element<'static, Message> {
     let ctx = meta.context_compact().to_string();
     let status = meta.status_label();
     let tone = status_tone(&status);
+    let taken = if meta.duration.is_empty() {
+        fmt_duration(meta.duration_seconds)
+    } else {
+        meta.duration.clone()
+    };
     let hero = format!(
         "{} · {} · {} · {}",
         meta.model,
         origin_label(&meta.origin),
-        meta.duration,
+        taken,
         ctx,
     );
     let id = meta.session_id.clone();
@@ -332,29 +580,55 @@ fn overview_tab(hud: &Hud) -> Element<'static, Message> {
     };
     let path = meta.path.clone();
     let tok = hud.tokens();
+    let tea = hud.tea_tokens();
+    let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
     let mut col = column![
         text(title.clone())
             .size(typo::PAGE)
             .font(typo::UI_BOLD)
             .color(tok.text),
         row![
-            text(if status.is_empty() {
-                "—".into()
-            } else {
-                status
-            })
-            .size(typo::META)
-            .font(typo::UI_BOLD)
-            .color(tone_color(tone, tok)),
-            text(format!(" · {hero}")).size(typo::META).color(tok.muted),
+            icedtea::widget::badge(
+                if status.is_empty() {
+                    "—".to_string()
+                } else {
+                    status
+                },
+                tea,
+                tone_variant(tone),
+                A11y::new("status", Role::Status),
+            ),
+            icedtea::widget::meta(hero, tea, A11y::new("meta", Role::Status)),
         ]
-        .spacing(0),
+        .spacing(8)
+        .align_y(Alignment::Center),
+        context_meter(ctx_frac, tea),
     ]
     .spacing(8);
+    if hud.selected_awaiting() {
+        col = col.push(awaiting_banner(hud, tea));
+    }
+    if o.findings.count > 0 || o.findings.total > 0 {
+        let n = if o.findings.total > 0 {
+            o.findings.total
+        } else {
+            o.findings.count
+        };
+        col = col.push(icedtea::widget::banner(
+            format!("{n} findings — open the Findings pane"),
+            Some(("Findings".into(), Message::SetTab(Tab::Findings))),
+            tea,
+            A11y::new("findings", Role::Status),
+        ));
+    }
     if summary != title && summary != "No summary text for this session." {
-        col = col.push(md_body(&summary, 4000, typo::BODY, md_style(hud)));
+        col = col.push(md_body(&summary, 4000, hud.tea_tokens()));
     } else if summary == "No summary text for this session." {
-        col = col.push(text(summary).size(typo::BODY).color(tok.muted));
+        col = col.push(icedtea::widget::meta(
+            summary,
+            hud.tea_tokens(),
+            A11y::new("summary", Role::Status),
+        ));
     }
     col.push(kv(hud, "session", id, true))
         .push(kv(hud, "events", events, false))
@@ -364,187 +638,125 @@ fn overview_tab(hud: &Hud) -> Element<'static, Message> {
         .push(kv(hud, "notes", notes_n, false))
         .push(kv(hud, "git", git, false))
         .push(kv(hud, "path", path, true))
+        .push(
+            row![
+                Space::new().width(Length::Fill),
+                card_actions(overview_commands(), tea),
+            ]
+            .align_y(Alignment::Center),
+        )
         .into()
 }
 
-fn md_style(hud: &Hud) -> markdown::Style {
-    let tok = hud.tokens();
-    let mut style =
-        markdown::Style::from_palette(crate::theme::iced_theme(hud.theme_name()).palette());
-    style.inline_code_color = tok.accent;
-    style.link_color = tok.primary;
-    style
+fn overview_commands() -> Vec<icedtea::action::Action<Message>> {
+    vec![icedtea::action::Action::new(
+        "session.copy",
+        "Copy path",
+        Message::CopyPath,
+    )]
 }
 
 thread_local! {
-    static MD_CACHE: RefCell<HashMap<u64, Vec<markdown::Item>>> = RefCell::new(HashMap::new());
+    static MD_ITEMS: RefCell<HashMap<u64, &'static [markdown::Item]>> = RefCell::new(HashMap::new());
 }
 
-fn md_key(src: &str, max_chars: usize) -> u64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    max_chars.hash(&mut h);
-    src.hash(&mut h);
-    h.finish()
-}
-
-fn md_body(
-    src: &str,
-    max_chars: usize,
-    size: u16,
-    style: markdown::Style,
-) -> Element<'static, Message> {
-    let cut: String = src.chars().take(max_chars).collect();
-    if cut.trim().is_empty() {
-        return Space::with_height(0).into();
-    }
-    if !looks_like_markdown(&cut) {
-        return text(cut).size(size).font(typo::UI).into();
-    }
-    md_parsed(&cut, max_chars, size, style)
-}
-
-fn md_parsed(
-    src: &str,
-    max_chars: usize,
-    size: u16,
-    style: markdown::Style,
-) -> Element<'static, Message> {
-    let key = md_key(src, max_chars);
-    MD_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if cache.len() > 80 {
-            cache.clear();
+fn intern_md(src: &str) -> &'static [markdown::Item] {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    src.hash(&mut hasher);
+    let key = hasher.finish();
+    MD_ITEMS.with(|map| {
+        let mut map = map.borrow_mut();
+        if let Some(items) = map.get(&key) {
+            return *items;
         }
-        let items = cache
-            .entry(key)
-            .or_insert_with(|| markdown::parse(src).collect());
-        md_column(items, markdown::Settings::with_text_size(size), style)
+        let leaked: &'static [markdown::Item] =
+            Box::leak(icedtea::widget::parse(src).items.into_boxed_slice());
+        map.insert(key, leaked);
+        leaked
     })
 }
 
-fn md_column(
-    items: &[markdown::Item],
-    settings: markdown::Settings,
-    style: markdown::Style,
-) -> Element<'static, Message> {
-    let children: Vec<Element<'static, Message>> = items
-        .iter()
-        .map(|item| md_item(item, settings, style))
-        .collect();
-    column(children)
-        .spacing(settings.text_size.0 * 0.4)
-        .width(Length::Fill)
-        .into()
-}
-
-fn md_item(
-    item: &markdown::Item,
-    settings: markdown::Settings,
-    style: markdown::Style,
-) -> Element<'static, Message> {
-    let text_size = settings.text_size;
-    match item {
-        markdown::Item::Heading(level, heading) => {
-            let size = match level {
-                markdown::HeadingLevel::H1 => settings.h1_size,
-                markdown::HeadingLevel::H2 => settings.h2_size,
-                markdown::HeadingLevel::H3 => settings.h3_size,
-                markdown::HeadingLevel::H4 => settings.h4_size,
-                markdown::HeadingLevel::H5 => settings.h5_size,
-                markdown::HeadingLevel::H6 => settings.h6_size,
-            };
-            Element::<markdown::Url>::from(rich_text(heading.spans(style)).size(size))
-                .map(|url| Message::MdLink(url.to_string()))
-        }
-        markdown::Item::Paragraph(paragraph) => {
-            Element::<markdown::Url>::from(rich_text(paragraph.spans(style)).size(text_size))
-                .map(|url| Message::MdLink(url.to_string()))
-        }
-        markdown::Item::CodeBlock(code) => container(
-            Element::<markdown::Url>::from(
-                rich_text(code.spans(style))
-                    .font(typo::MONO)
-                    .size(settings.code_size),
-            )
-            .map(|url| Message::MdLink(url.to_string())),
-        )
-        .padding(6)
-        .width(Length::Fill)
-        .into(),
-        markdown::Item::List { start, items } => {
-            let rows: Vec<Element<'static, Message>> = items
-                .iter()
-                .enumerate()
-                .map(|(i, nested)| {
-                    let bullet = match start {
-                        Some(n) => format!("{}.", *n + i as u64),
-                        None => "•".into(),
-                    };
-                    row![
-                        text(bullet).size(text_size),
-                        md_column(nested, settings, style),
-                    ]
-                    .spacing(8)
-                    .into()
-                })
-                .collect();
-            column(rows).spacing(text_size.0 * 0.3).into()
-        }
+fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let cut: String = src.chars().take(max_chars).collect();
+    if cut.trim().is_empty() {
+        return Space::new().height(0).into();
     }
+    if !looks_like_markdown(&cut) {
+        return text(cut).size(typo::BODY).font(typo::UI).into();
+    }
+    icedtea::widget::markdown_view(
+        intern_md(&cut),
+        tea,
+        |url| Message::MdLink(url.to_string()),
+        A11y::new("markdown", Role::Group),
+    )
 }
 
-fn kv(hud: &Hud, k: &'static str, v: String, mono: bool) -> Element<'static, Message> {
-    let tok = hud.tokens();
-    let val = if mono {
-        text(v).size(typo::META).font(typo::MONO).color(tok.text)
+fn kv<'a>(hud: &'a Hud, k: &'static str, v: String, copy: bool) -> Element<'a, Message> {
+    let value: Element<'a, Message> = if copy {
+        selectable(
+            hud,
+            ExtractKey::Overview(k),
+            &v,
+            hud.tea_tokens(),
+            typo::MONO,
+        )
     } else {
-        text(v).size(typo::BODY).font(typo::UI).color(tok.text)
+        text(v).size(typo::BODY).color(hud.tokens().text).into()
     };
     row![
         text(k)
             .size(typo::META)
-            .color(tok.muted)
+            .color(hud.tokens().muted)
             .width(Length::Fixed(80.0)),
-        val
+        value,
     ]
     .spacing(8)
+    .align_y(Alignment::Center)
     .into()
 }
 
-fn marks_row(
+fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    button(text(label).size(typo::META))
+        .on_press(msg)
+        .padding([3, 6])
+        .style(icedtea::style::button_style(tea, Variant::Chip))
+        .into()
+}
+
+fn card_chips(
     hud: &Hud,
     mark: Option<CardMark>,
-    turn: String,
-    event: String,
+    note: Option<Message>,
+    jump: Option<Message>,
 ) -> Element<'static, Message> {
+    let tea = hud.tea_tokens();
     let tok = hud.tokens();
     let mut r = row![].spacing(4);
     if let Some(m) = mark {
         if m.findings > 0 {
             let ev = m.first_finding_event;
-            r = r.push(
-                button(text(format!("f{}", m.findings)).size(typo::META))
-                    .on_press(if let Some(ix) = ev {
-                        Message::JumpTimeline(ix)
-                    } else {
-                        Message::SetTab(Tab::Findings)
-                    })
-                    .padding([3, 6])
-                    .style(style::chip(tok)),
-            );
+            r = r.push(chip_btn(
+                format!("f{}", m.findings),
+                if let Some(ix) = ev {
+                    Message::JumpTimeline(ix)
+                } else {
+                    Message::SetTab(Tab::Findings)
+                },
+                tea,
+            ));
         }
         if m.notes > 0 {
             let nid = m.first_note_id;
-            r = r.push(
-                button(text(format!("n{}", m.notes)).size(typo::META))
-                    .on_press(if nid.is_empty() {
-                        Message::SetTab(Tab::Notes)
-                    } else {
-                        Message::OpenNote(nid)
-                    })
-                    .padding([3, 6])
-                    .style(style::chip(tok)),
-            );
+            r = r.push(chip_btn(
+                format!("n{}", m.notes),
+                if nid.is_empty() {
+                    Message::SetTab(Tab::Notes)
+                } else {
+                    Message::OpenNote(nid)
+                },
+                tea,
+            ));
         }
         if m.errors > 0 {
             r = r.push(
@@ -554,16 +766,283 @@ fn marks_row(
             );
         }
     }
-    r = r.push(
-        button(text("Add note").size(typo::META))
-            .on_press(Message::StartNote { turn, event })
-            .padding([3, 6])
-            .style(style::chip(tok)),
-    );
+    if let Some(msg) = note {
+        r = r.push(chip_btn("Add note".into(), msg, tea));
+    }
+    if let Some(msg) = jump {
+        r = r.push(chip_btn("Timeline".into(), msg, tea));
+    }
     r.into()
 }
 
-fn turns_tab_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
+fn card_actions(
+    actions: Vec<icedtea::action::Action<Message>>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    icedtea::pattern::command_bar(actions, tea, icedtea::i18n::Direction::Ltr)
+}
+
+fn expand_card<'a>(
+    title: String,
+    child: Element<'a, Message>,
+    open: bool,
+    on_toggle: impl Fn(bool) -> Message + 'a,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    icedtea::widget::expander(
+        title.clone(),
+        child,
+        icedtea::widget::Peek::Lines(2),
+        open,
+        on_toggle,
+        tea,
+        A11y::new(title, Role::Group),
+    )
+}
+
+fn turn_title(t: &TurnRow) -> String {
+    let label = if t.label.is_empty() {
+        format!("turn {}", t.turn_index)
+    } else {
+        t.label.clone()
+    };
+    match t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
+        Some(d) => format!("{label}  ·  {d}"),
+        None => label,
+    }
+}
+
+fn turn_meta(t: &TurnRow) -> String {
+    format!(
+        "prompt {} · events {} · tools {} ({} errors){}{}",
+        t.prompt_index
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "—".into()),
+        t.event_count,
+        t.tool_call_count,
+        t.tool_error_count,
+        if t.outcome.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", t.outcome)
+        },
+        if t.open { " · open" } else { "" },
+    )
+}
+
+fn turn_note(t: &TurnRow) -> Message {
+    Message::StartNote {
+        turn: t.turn_index.to_string(),
+        event: String::new(),
+    }
+}
+
+fn turn_jump(t: &TurnRow) -> Message {
+    t.user_event_index
+        .or(t.first_index)
+        .map(Message::JumpTimeline)
+        .unwrap_or(Message::SetTab(Tab::Timeline))
+}
+
+fn event_note(ev: &TimelineEvent) -> Message {
+    Message::StartNote {
+        turn: ev.turn_index.map(|n| n.to_string()).unwrap_or_default(),
+        event: ev.index.to_string(),
+    }
+}
+
+fn event_kind(ev: &TimelineEvent) -> &str {
+    if ev.type_label.is_empty() {
+        ev.kind.as_str()
+    } else {
+        ev.type_label.as_str()
+    }
+}
+
+fn event_title(ev: &TimelineEvent) -> String {
+    let kind = event_kind(ev);
+    if ev.time.is_empty() {
+        format!("{}  {kind}", ev.index)
+    } else {
+        format!("{}  {kind}  ·  {}", ev.index, ev.time)
+    }
+}
+
+fn event_face(ev: &TimelineEvent, ink: Color) -> Element<'static, Message> {
+    let preview = if ev.preview.is_empty() {
+        ev.content.as_str()
+    } else {
+        ev.preview.as_str()
+    };
+    let face = if ev.heading.is_empty() {
+        preview
+    } else {
+        ev.heading.as_str()
+    };
+    prompt_face(face, ink)
+}
+
+fn event_body<'a>(
+    hud: &'a Hud,
+    ev: &'a TimelineEvent,
+    mark: Option<CardMark>,
+) -> Element<'a, Message> {
+    let tok = hud.tokens();
+    let type_color =
+        crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
+    let mut col = column![text(event_kind(ev))
+        .size(typo::META)
+        .font(typo::UI_BOLD)
+        .color(type_color)]
+    .spacing(8);
+    if !ev.heading.is_empty() {
+        col = col.push(
+            text(ev.heading.clone())
+                .size(typo::TITLE)
+                .font(typo::UI_BOLD)
+                .color(tok.text),
+        );
+    }
+    if let Some(hit) = timeline_query_hit(ev, hud.timeline_query()) {
+        col = col.push(
+            text(format!("matched in {}: {}", hit.field, hit.snippet))
+                .size(typo::META)
+                .color(tok.muted),
+        );
+    }
+    col = col.push(event_payload(ev, true, hud));
+    if ev.content_truncated {
+        col = col.push(
+            text("Content truncated by control")
+                .size(typo::META)
+                .color(tok.muted),
+        );
+    }
+    col.push(card_chips(hud, mark, Some(event_note(ev)), None))
+        .into()
+}
+
+fn finding_jump(f: &FindingRow) -> Message {
+    f.primary_event_index
+        .or_else(|| f.event_indices.first().copied())
+        .map(Message::JumpTimeline)
+        .unwrap_or(Message::SetTab(Tab::Timeline))
+}
+
+fn note_when(n: &NoteRow) -> String {
+    if n.updated_at.is_empty() {
+        format_note_time(&n.created_at)
+    } else {
+        format_note_time(&n.updated_at)
+    }
+}
+
+fn note_body<'a>(
+    hud: &'a Hud,
+    n: &'a NoteRow,
+    body: &str,
+    extras: Vec<(String, String)>,
+) -> Element<'a, Message> {
+    let tea = hud.tea_tokens();
+    let turn = n.turn_index.map(|i| i.to_string()).unwrap_or_default();
+    let where_when = format!(
+        "{} · {}",
+        if turn.is_empty() || turn == "null" {
+            "Session".into()
+        } else {
+            format!("Turn {turn}")
+        },
+        note_when(n),
+    );
+    let mut card = column![text(where_when).size(typo::META).color(hud.tokens().muted)].spacing(8);
+    if !body.is_empty() {
+        card = card.push(md_body(body, 4000, tea));
+    }
+    for (k, v) in extras.into_iter().take(8) {
+        card = card.push(
+            text(format!("{k}: {v}"))
+                .size(typo::META)
+                .color(hud.tokens().muted),
+        );
+    }
+    card.push(
+        row![
+            Space::new().width(Length::Fill),
+            card_actions(note_commands(&n.id, hud.note_delete_armed()), tea),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .into()
+}
+
+fn note_commands(id: &str, delete_armed: &str) -> Vec<icedtea::action::Action<Message>> {
+    vec![
+        icedtea::action::Action::new("note.edit", "Edit", Message::OpenNote(id.to_string())),
+        icedtea::action::Action::new(
+            "note.delete",
+            if delete_armed == id {
+                "Delete?"
+            } else {
+                "Delete"
+            },
+            Message::RequestDelete(id.to_string()),
+        ),
+    ]
+}
+
+fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Element<'a, Message> {
+    let idx = t.turn_index;
+    let tea = hud.tea_tokens();
+    let mut col = column![if t.summary.is_empty() {
+        text("No user prompt in this turn")
+            .size(typo::BODY)
+            .color(hud.tokens().muted)
+            .into()
+    } else {
+        selectable(hud, ExtractKey::TurnUser(idx), &t.summary, tea, typo::UI)
+    }]
+    .spacing(8);
+    if !t.assistant_summary.is_empty() {
+        col = col.push(text("Assistant").size(typo::META).color(hud.tokens().muted));
+        col = col.push(selectable(
+            hud,
+            ExtractKey::TurnAsst(idx),
+            &t.assistant_summary,
+            tea,
+            typo::UI,
+        ));
+    }
+    col.push(
+        row![
+            text(turn_meta(t))
+                .size(typo::META)
+                .color(hud.tokens().muted),
+            Space::new().width(Length::Fill),
+            card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .into()
+}
+
+fn prompt_face(summary: &str, muted: iced::Color) -> Element<'static, Message> {
+    let copy = if summary.is_empty() {
+        "No user prompt in this turn".to_string()
+    } else {
+        summary.to_string()
+    };
+    text(copy)
+        .size(typo::BODY)
+        .line_height(LineHeight::Relative(1.3))
+        .width(Length::Fill)
+        .wrapping(Wrapping::Word)
+        .color(muted)
+        .into()
+}
+
+fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
     let (turn_marks, _) = hud.card_marks();
@@ -573,130 +1052,36 @@ fn turns_tab_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .color(hud.tokens().muted)
             .into();
     }
-    let n = turns.len();
-    let win = visible_range(
-        hud.turn_scroll_y(),
-        viewport,
-        TURN_ROW_H,
-        n,
-        TIMELINE_OVERSCAN + 1,
-    );
-    let mut col = column![].spacing(0);
-    for t in &turns[win.start..win.end] {
-        let idx = t.turn_index;
-        let jump = t.user_event_index.or(t.first_index);
-        let summary = t.summary.clone();
-        let assistant = t.assistant_summary.clone();
-        let assistant_jump = t.assistant_event_index;
-        let label = if t.label.is_empty() {
-            format!("turn {idx}")
+    let tea = hud.tea_tokens();
+    let mut col = column![].spacing(8);
+    for t in turns {
+        let turn = t.turn_index;
+        let open = hud.turn_expanded(turn);
+        let mark = turn_marks.get(&turn).cloned();
+        let child = if open {
+            turn_body(hud, t, mark)
         } else {
-            t.label.clone()
+            column![
+                prompt_face(&t.summary, hud.tokens().text),
+                card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
+            ]
+            .spacing(6)
+            .into()
         };
-        let meta = format!(
-            "prompt {} · events {} · tools {} ({} errors){}{} · index {}–{}",
-            t.prompt_index
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "—".into()),
-            t.event_count,
-            t.tool_call_count,
-            t.tool_error_count,
-            if t.outcome.is_empty() {
-                String::new()
-            } else {
-                format!(" · {}", t.outcome)
-            },
-            if t.open { " · open" } else { "" },
-            t.first_index
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "—".into()),
-            t.last_index
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "—".into()),
-        );
-        let head = row![
-            button(text(label).size(typo::TITLE).font(typo::UI_BOLD))
-                .on_press(
-                    jump.map(Message::JumpTimeline)
-                        .unwrap_or(Message::SetTab(Tab::Timeline))
-                )
-                .padding([4, 8])
-                .style(style::quiet(hud.tokens())),
-            Space::with_width(Length::Fill),
-            marks_row(
-                hud,
-                turn_marks.get(&idx).cloned(),
-                idx.to_string(),
-                String::new()
-            ),
-        ]
-        .align_y(Alignment::Center);
-        let mut body = column![].spacing(8);
-        body = body.push(text("User").size(typo::META).color(hud.tokens().muted));
-        if summary.is_empty() {
-            body = body.push(
-                text("No user prompt in this turn")
-                    .size(typo::BODY)
-                    .color(hud.tokens().muted),
-            );
-        } else {
-            body = body.push(
-                text(sanitize_console_text(&summary))
-                    .size(typo::BODY)
-                    .font(typo::UI),
-            );
-        }
-        if !assistant.is_empty() {
-            let asst_head: Element<'_, Message> = if let Some(ix) = assistant_jump {
-                button(text("Assistant").size(typo::META))
-                    .on_press(Message::JumpTimeline(ix))
-                    .padding([2, 0])
-                    .style(style::quiet(hud.tokens()))
-                    .into()
-            } else {
-                text("Assistant")
-                    .size(typo::META)
-                    .color(hud.tokens().muted)
-                    .into()
-            };
-            body = body.push(asst_head);
-            body = body.push(
-                text(sanitize_console_text(&assistant))
-                    .size(typo::BODY)
-                    .font(typo::UI),
-            );
-        }
-        col = col.push(
-            container(
-                column![
-                    head,
-                    body,
-                    text(meta).size(typo::META).color(hud.tokens().muted)
-                ]
-                .spacing(10),
-            )
-            .padding(16)
-            .style(move |_| style::card(hud.tokens(), false)),
-        );
+        col = col.push(expand_card(
+            turn_title(t),
+            child,
+            open,
+            move |next| Message::TurnExpand { turn, open: next },
+            tea,
+        ));
     }
-    virt_pane(
-        col.into(),
-        n as f32 * TURN_ROW_H,
-        viewport,
-        hud.turn_scroll_y(),
-        move |y| Message::TurnScroll {
-            y,
-            height: viewport,
-        },
-    )
+    col.into()
 }
 
 fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     if hud.timeline_loading() && hud.filtered_indices().is_empty() {
-        return text("Loading timeline…")
-            .size(typo::BODY)
-            .color(hud.tokens().muted)
-            .into();
+        return loading_session("timeline", hud.tea_tokens());
     }
     let idxs = hud.filtered_indices();
     if idxs.is_empty() {
@@ -712,7 +1097,6 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .into();
     }
     let (_, ev_marks) = hud.card_marks();
-    let focus = hud.timeline_focus();
     let n = idxs.len();
     let win = visible_range(
         hud.tl_scroll_y(),
@@ -725,97 +1109,38 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let end = win.end.min(n).max(start);
     let mut col = column![].spacing(0);
     if win.pad_top > 0.0 {
-        col = col.push(Space::with_height(win.pad_top));
+        col = col.push(Space::new().height(win.pad_top));
     }
+    let tea = hud.tea_tokens();
     let source = hud.timeline_events();
     for &src_i in &idxs[start..end] {
         let Some(ev) = source.get(src_i) else {
             continue;
         };
         let ix = ev.index;
-        let turn = ev.turn_index.map(|n| n.to_string()).unwrap_or_default();
-        let heading = if ev.heading.is_empty() {
-            ev.type_label.clone()
+        let open = hud.is_timeline_expanded(ix);
+        let mark = ev_marks.get(&ix).cloned();
+        let child = if open {
+            event_body(hud, ev, mark)
         } else {
-            ev.heading.clone()
+            column![
+                event_face(ev, hud.tokens().text),
+                card_chips(hud, mark, Some(event_note(ev)), None),
+            ]
+            .spacing(6)
+            .into()
         };
-        let selected = focus == Some(ix);
-        let kind = ev.kind.clone();
-        let type_label = if ev.type_label.is_empty() {
-            kind.clone()
-        } else {
-            ev.type_label.clone()
-        };
-        let is_error = ev.is_error;
-        let type_color = role_color(event_role(&kind, is_error), hud.tokens());
-        let idx_s = ev.index.to_string();
-        let time_s = ev.time.clone();
-        let tok = hud.tokens();
-        let head = row![
-            container(
-                text(idx_s)
-                    .size(typo::META)
-                    .font(typo::MONO)
-                    .color(tok.muted)
-            )
-            .width(Length::Fixed(56.0)),
-            container(
-                text(type_label)
-                    .size(typo::META)
-                    .font(typo::UI_BOLD)
-                    .color(type_color)
-            )
-            .width(Length::FillPortion(3)),
-            container(
-                text(time_s)
-                    .size(typo::META)
-                    .font(typo::MONO)
-                    .color(tok.muted)
-            )
-            .width(Length::FillPortion(2)),
-            marks_row(hud, ev_marks.get(&ix).cloned(), turn, ix.to_string(),),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center);
-        let mut card = column![
-            head,
-            text(heading)
-                .size(typo::TITLE)
-                .font(typo::UI_BOLD)
-                .color(hud.tokens().text)
-        ]
-        .spacing(8);
-        card = card.push(event_payload(ev, selected, hud));
-        card = card.push(
-            text(if selected {
-                "Click to collapse"
-            } else {
-                "Click to expand"
-            })
-            .size(typo::META)
-            .color(tok.muted),
-        );
-        if selected && ev.content_truncated {
-            card = card.push(
-                text("Content truncated by control")
-                    .size(typo::META)
-                    .color(tok.muted),
-            );
-        }
-        let ix_click = ix;
-        col = col.push(
-            mouse_area(
-                container(card)
-                    .padding(16)
-                    .width(Length::Fill)
-                    .style(move |_| style::card(hud.tokens(), selected)),
-            )
-            .on_press(Message::SelectTimeline(ix_click)),
-        );
-        col = col.push(Space::with_height(12));
+        col = col.push(expand_card(
+            event_title(ev),
+            child,
+            open,
+            move |_| Message::SelectTimeline(ix),
+            tea,
+        ));
+        col = col.push(Space::new().height(8));
     }
     if win.pad_bottom > 0.0 {
-        col = col.push(Space::with_height(win.pad_bottom));
+        col = col.push(Space::new().height(win.pad_bottom));
     }
     if !hud.timeline_complete() {
         col = col.push(
@@ -834,75 +1159,96 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let findings: &[FindingRow] = &o.findings.findings;
+    let tea = hud.tea_tokens();
     if findings.is_empty() {
-        return column![
-            text("No analysis findings in cache for this session.")
-                .size(typo::BODY)
-                .color(hud.tokens().muted),
-            text("Run analysis in the TUI so results land under ~/.groket/cache/analysis.")
-                .size(typo::META)
-                .color(hud.tokens().muted),
-        ]
-        .spacing(6)
-        .into();
-    }
-    let total = if o.findings.total > 0 {
-        o.findings.total as u64
-    } else {
-        findings.len() as u64
-    };
-    let mut col = column![text(format!(
-        "{}{} findings",
-        findings.len(),
-        if total as usize > findings.len() {
-            format!(" of {total}")
-        } else {
-            String::new()
-        }
-    ))
-    .size(typo::META)
-    .color(hud.tokens().muted)]
-    .spacing(10);
-    for f in findings {
-        let sev = f.severity.clone();
-        let title = if f.title.is_empty() {
-            "Finding".into()
-        } else {
-            f.title.clone()
-        };
-        let detail = f.detail.clone();
-        let primary = f
-            .primary_event_index
-            .or_else(|| f.event_indices.first().copied());
-        let mut card = column![
-            text(format!("{} {} {}", sev, f.plugin_id, f.category))
-                .size(typo::META)
-                .color(severity_color(&sev, hud.tokens())),
-            button(
-                text(title)
-                    .size(typo::TITLE)
-                    .font(typo::UI_BOLD)
-                    .color(hud.tokens().text),
-            )
-            .on_press(
-                primary
-                    .map(Message::JumpTimeline)
-                    .unwrap_or(Message::SetTab(Tab::Timeline))
-            )
-            .style(style::quiet(hud.tokens()))
-            .padding([4, 8]),
-        ]
-        .spacing(4);
-        if !detail.is_empty() {
-            card = card.push(md_body(&detail, 2500, typo::BODY, md_style(hud)));
-        }
-        col = col.push(
-            container(card)
-                .padding(16)
-                .style(move |_| style::card(hud.tokens(), false)),
+        return icedtea::pattern::status_page(
+            "No findings",
+            "Run analysis in the TUI so results land in the analysis cache.",
+            None,
+            tea,
         );
     }
+    let mut buckets: [Vec<&FindingRow>; 4] = [vec![], vec![], vec![], vec![]];
+    for f in findings {
+        let r = finding_severity_rank(&f.severity) as usize;
+        buckets[r.min(3)].push(f);
+    }
+    let mut col = column![icedtea::widget::meta(
+        format!("{} findings", findings.len()),
+        tea,
+        A11y::new("findings-count", Role::Status),
+    )]
+    .spacing(8);
+    for (rank, group) in buckets.iter().enumerate() {
+        if group.is_empty() {
+            continue;
+        }
+        col = col.push(icedtea::widget::meta(
+            format!("{}  ({})", finding_severity_title(rank as u8), group.len()),
+            tea,
+            A11y::new(finding_severity_title(rank as u8), Role::Header),
+        ));
+        for f in group {
+            let id = finding_key(f);
+            let open = hud.finding_expanded(&id);
+            let title = if f.title.is_empty() {
+                "Finding".into()
+            } else {
+                f.title.clone()
+            };
+            let child = if open {
+                finding_body(f, tea)
+            } else {
+                column![
+                    prompt_face(&f.detail, hud.tokens().text),
+                    chip_btn("Timeline".into(), finding_jump(f), tea),
+                ]
+                .spacing(6)
+                .into()
+            };
+            col = col.push(expand_card(
+                title,
+                child,
+                open,
+                {
+                    let id = id.clone();
+                    move |next| Message::FindingExpand {
+                        id: id.clone(),
+                        open: next,
+                    }
+                },
+                tea,
+            ));
+        }
+    }
     col.into()
+}
+
+fn finding_key(f: &FindingRow) -> String {
+    if !f.id.is_empty() {
+        return f.id.clone();
+    }
+    format!(
+        "{}|{}|{}",
+        f.severity,
+        f.title,
+        f.primary_event_index.unwrap_or(-1)
+    )
+}
+
+fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let mut card = column![icedtea::widget::badge(
+        f.severity.clone(),
+        tea,
+        tone_variant(status_tone(&f.severity)),
+        A11y::new(f.severity.clone(), Role::Status),
+    )]
+    .spacing(8);
+    if !f.detail.is_empty() {
+        card = card.push(md_body(&f.detail, 1200, tea));
+    }
+    card.push(chip_btn("Timeline".into(), finding_jump(f), tea))
+        .into()
 }
 
 fn notes_tab(hud: &Hud) -> Element<'_, Message> {
@@ -934,7 +1280,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                     value: v,
                 })
                 .padding(8)
-                .style(style::search(hud.tokens())),
+                .style(icedtea::style::search_style(hud.tea_tokens())),
         );
     }
     form = form.push(text("Turn").size(typo::META).color(hud.tokens().muted));
@@ -944,7 +1290,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             .size(typo::BODY)
             .on_input(Message::NoteTurn)
             .padding(8)
-            .style(style::search(hud.tokens()))
+            .style(icedtea::style::search_style(hud.tea_tokens()))
             .width(Length::Fixed(120.0)),
     );
     if !hud.note_draft().event_index.is_empty() {
@@ -962,7 +1308,10 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         "Save note"
     })
     .on_press(Message::SaveNote)
-    .style(style::quiet(hud.tokens()))
+    .style(icedtea::style::button_style(
+        hud.tea_tokens(),
+        Variant::Quiet
+    ))
     .padding([8, 12])]
     .spacing(8);
     if editing {
@@ -975,13 +1324,19 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         actions = actions.push(
             button(del)
                 .on_press(Message::RequestDelete(nid))
-                .style(style::danger(hud.tokens()))
+                .style(icedtea::style::button_style(
+                    hud.tea_tokens(),
+                    Variant::Danger,
+                ))
                 .padding([8, 12]),
         );
         actions = actions.push(
             button("New note")
                 .on_press(Message::ResetDraft)
-                .style(style::quiet(hud.tokens()))
+                .style(icedtea::style::button_style(
+                    hud.tea_tokens(),
+                    Variant::Quiet,
+                ))
                 .padding([8, 12]),
         );
     }
@@ -1014,69 +1369,30 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         for n in notes {
             let id = n.id.clone();
             let (title, body, extras) = note_fields_view(&n.fields);
-            let turn = n.turn_index.map(|i| i.to_string()).unwrap_or_default();
-            let when = {
-                if n.updated_at.is_empty() {
-                    format_note_time(&n.created_at)
-                } else {
-                    format_note_time(&n.updated_at)
-                }
-            };
-            let mut card = column![
-                text(format!(
-                    "{} · {}",
-                    if turn.is_empty() || turn == "null" {
-                        "Session".into()
-                    } else {
-                        format!("Turn {turn}")
-                    },
-                    when
-                ))
-                .size(typo::META)
-                .color(hud.tokens().muted),
-                text(if title.is_empty() {
-                    "Empty note".into()
-                } else {
-                    title
-                })
-                .size(typo::TITLE)
-                .font(typo::UI_BOLD)
-                .color(hud.tokens().text),
-            ]
-            .spacing(4);
-            if !body.is_empty() {
-                card = card.push(md_body(&body, 4000, typo::BODY, md_style(hud)));
-            }
-            for (k, v) in extras.into_iter().take(8) {
-                card = card.push(
-                    text(format!("{k}: {v}"))
-                        .size(typo::META)
-                        .color(hud.tokens().muted),
-                );
-            }
-            let del_label = if hud.note_delete_armed() == id {
-                "Delete?"
+            let heading = if title.is_empty() {
+                "Empty note".into()
             } else {
-                "Delete"
+                title
             };
-            card = card.push(
-                row![
-                    button("Edit")
-                        .on_press(Message::OpenNote(id.clone()))
-                        .style(style::quiet(hud.tokens()))
-                        .padding([6, 10]),
-                    button(del_label)
-                        .on_press(Message::RequestDelete(id))
-                        .style(style::danger(hud.tokens()))
-                        .padding([6, 10]),
-                ]
-                .spacing(6),
-            );
-            col = col.push(
-                container(card)
-                    .padding(16)
-                    .style(move |_| style::card(hud.tokens(), false)),
-            );
+            let open = hud.note_expanded(&id);
+            let child = if open {
+                note_body(hud, n, &body, extras)
+            } else {
+                prompt_face(&body, hud.tokens().text)
+            };
+            col = col.push(expand_card(
+                heading,
+                child,
+                open,
+                {
+                    let id = id.clone();
+                    move |next| Message::NoteExpand {
+                        id: id.clone(),
+                        open: next,
+                    }
+                },
+                hud.tea_tokens(),
+            ));
         }
     }
     col.into()
@@ -1132,7 +1448,7 @@ fn inspect_fields(call: &TimelineEvent) -> Vec<ToolField> {
     tool_fields_from_raw(&call.tool_name, &call.raw_input, 8_000)
 }
 
-fn event_payload(ev: &TimelineEvent, selected: bool, hud: &Hud) -> Element<'static, Message> {
+fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Element<'a, Message> {
     let kind = ev.kind.clone();
     let tool = ev.tool_name.clone();
     let preview = ev.preview.clone();
@@ -1191,22 +1507,24 @@ fn event_payload(ev: &TimelineEvent, selected: bool, hud: &Hud) -> Element<'stat
         };
         if !img.is_empty() {
             col = col.push(text("Output").size(typo::META).color(tok.muted));
-            col = col.push(
-                text(img.clone())
-                    .size(typo::META)
-                    .font(typo::MONO)
-                    .color(tok.accent),
-            );
-            if std::path::Path::new(&img).is_file() {
-                col = col.push(
-                    iced::widget::image(iced::widget::image::Handle::from_path(&img))
-                        .width(Length::Fill),
-                );
-            }
+            col = col.push(icedtea::widget::meta(
+                img.clone(),
+                hud.tea_tokens(),
+                A11y::new(img.clone(), Role::Status),
+            ));
+            col = col.push(tool_image(&img, hud.tea_tokens()));
         } else if !out_body.trim().is_empty() {
             col = col.push(text("Output").size(typo::META).color(tok.muted));
             col = col.push(render_payload_text(&out_body, &result.kind, hud, true));
         }
+    } else if selected {
+        col = col.push(selectable(
+            hud,
+            ExtractKey::Event(ev.index),
+            &body,
+            hud.tea_tokens(),
+            typo::UI,
+        ));
     } else {
         col = col.push(render_payload_text(&body, &kind, hud, true));
     }
@@ -1223,6 +1541,7 @@ fn field_body(id: &str, value: &str, hud: &Hud) -> Element<'static, Message> {
     } else {
         tok.text
     };
+    let tea = hud.tea_tokens();
     container(
         text(value.to_string())
             .size(typo::META)
@@ -1235,7 +1554,7 @@ fn field_body(id: &str, value: &str, hud: &Hud) -> Element<'static, Message> {
     )
     .padding(8)
     .width(Length::Fill)
-    .style(move |_| style::inset(tok))
+    .style(move |_| icedtea::style::card(tea, false))
     .into()
 }
 
@@ -1247,7 +1566,8 @@ fn render_payload_text(
 ) -> Element<'static, Message> {
     let tok = hud.tokens();
     let trimmed = body.trim();
-    if trimmed.is_empty() {
+    let paint = body_paint(kind, trimmed, expanded);
+    if paint == BodyPaint::Empty {
         return text("empty").size(typo::META).color(tok.muted).into();
     }
     let max = if expanded { 4_000 } else { 400 };
@@ -1259,93 +1579,62 @@ fn render_payload_text(
             .color(tok.muted)
             .into();
     }
-    // Plain text only: iced markdown on a multi‑k body freezes or aborts
-    // the palette on large host sessions.
-    let rendered: Element<'static, Message> = match kind {
-        "thought" => text(cut)
-            .size(typo::BODY)
-            .font(typo::UI_ITALIC)
-            .color(tok.muted)
-            .into(),
-        "plan" => text(cut).size(typo::BODY).color(tok.accent).into(),
-        "session" | "task" => text(cut).size(typo::BODY).color(tok.warning).into(),
-        "error" => text(cut).size(typo::BODY).color(tok.error).into(),
-        "system" => text(cut).size(typo::BODY).color(tok.accent).into(),
-        _ if looks_like_json(trimmed) => return code_block(&cut, hud),
-        _ => text(cut).size(typo::BODY).font(typo::UI).into(),
-    };
-    if expanded
-        && (kind == "user" || kind == "agent" || kind == "subagent" || looks_like_markdown(body))
-    {
-        inset_body(rendered, hud)
-    } else {
-        rendered
+    match paint {
+        BodyPaint::Json => code_inset(&cut, hud.tea_tokens()),
+        BodyPaint::Markdown => inset_body(md_body(&cut, max, hud.tea_tokens()), hud),
+        BodyPaint::Image => tool_image(trimmed, hud.tea_tokens()),
+        _ => {
+            let rendered: Element<'static, Message> = match kind {
+                "thought" => text(cut)
+                    .size(typo::BODY)
+                    .font(typo::UI_ITALIC)
+                    .color(tok.muted)
+                    .into(),
+                "plan" => text(cut).size(typo::BODY).color(tok.accent).into(),
+                "session" | "task" => text(cut).size(typo::BODY).color(tok.warning).into(),
+                "error" => text(cut).size(typo::BODY).color(tok.error).into(),
+                "system" => text(cut).size(typo::BODY).color(tok.accent).into(),
+                _ => text(cut).size(typo::BODY).font(typo::UI).into(),
+            };
+            if kind == "user" || kind == "agent" || kind == "subagent" {
+                inset_body(rendered, hud)
+            } else {
+                rendered
+            }
+        }
     }
-}
-
-fn code_block(src: &str, hud: &Hud) -> Element<'static, Message> {
-    let pretty = if looks_like_json(src) {
-        pretty_json(src)
-    } else {
-        src.to_string()
-    };
-    let pretty = capped_display(&pretty, 2_000);
-    let tok = hud.tokens();
-    container(
-        text(pretty)
-            .size(typo::META)
-            .font(typo::MONO)
-            .color(tok.text),
-    )
-    .padding(8)
-    .width(Length::Fill)
-    .style(move |_| style::inset(tok))
-    .into()
 }
 
 fn inset_body(inner: Element<'static, Message>, hud: &Hud) -> Element<'static, Message> {
-    let tok = hud.tokens();
+    let tea = hud.tea_tokens();
     container(inner)
         .padding(10)
         .width(Length::Fill)
-        .style(move |_| style::inset(tok))
+        .style(move |_| icedtea::style::card(tea, false))
         .into()
-}
-
-fn role_color(role: EventRole, tok: crate::theme::Tokens) -> Color {
-    match role {
-        EventRole::User => tok.text,
-        EventRole::Model => tok.primary,
-        EventRole::ModelDim => crate::theme::mix(tok.primary, tok.canvas, 0.55),
-        EventRole::Session => tok.warning,
-        EventRole::Error => tok.error,
-        EventRole::System => tok.accent,
-        EventRole::Other => tok.muted,
-    }
-}
-
-fn severity_color(sev: &str, tok: crate::theme::Tokens) -> Color {
-    match sev.to_ascii_lowercase().as_str() {
-        "high" | "error" | "critical" => tok.error,
-        "medium" | "warn" | "warning" => tok.warning,
-        "low" | "info" => tok.accent,
-        _ => tok.muted,
-    }
 }
 
 const POP_OUT_PX: f32 = 16.0;
 
-fn pop_out_control(tok: crate::theme::Tokens) -> Element<'static, Message> {
-    mouse_area(
-        container(
-            Canvas::new(PopOutIcon { color: tok.muted })
-                .width(Length::Fixed(POP_OUT_PX))
-                .height(Length::Fixed(POP_OUT_PX)),
+fn pop_out_control(
+    tok: crate::theme::Tokens,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    icedtea::widget::tooltip_wrap(
+        mouse_area(
+            container(
+                Canvas::new(PopOutIcon { color: tok.muted })
+                    .width(Length::Fixed(POP_OUT_PX))
+                    .height(Length::Fixed(POP_OUT_PX)),
+            )
+            .padding([6, 8]),
         )
-        .padding([6, 8]),
+        .on_press(Message::PopOutWindow)
+        .into(),
+        "Open a desktop window",
+        tea,
+        A11y::new("Pop out", Role::Button),
     )
-    .on_press(Message::PopOutWindow)
-    .into()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1418,5 +1707,96 @@ mod tests {
         assert!(box_tl.x + box_sz.width <= size);
         assert!(box_tl.y + box_sz.height <= size);
         assert!(tip.x > tail.x && tip.y < tail.y);
+    }
+
+    #[test]
+    fn closed_turn_peek_is_two_full_prompt_lines() {
+        let h = icedtea::widget::Peek::Lines(2).height();
+        let line = icedtea::widget::Peek::body_line();
+        assert!(h >= line * 2.0 + icedtea::widget::Peek::DESCENT);
+        assert!(h > line * 2.0);
+    }
+
+    fn tea() -> icedtea::theme::Tokens {
+        icedtea::theme::named("dark").tokens
+    }
+
+    #[test]
+    fn empty_loading_and_select_use_icedtea_status() {
+        let _ = empty_sessions(tea());
+        let _ = loading_session("sess-1", tea());
+        let _ = select_session(tea());
+        let _ = status_copy("control socket down · run: groket serve -d", true, tea());
+        let _ = status_copy("12 sessions · ready", false, tea());
+    }
+
+    #[test]
+    fn timeline_filter_and_empty_list_build_from_hud() {
+        let hud = Hud::default();
+        assert!(hud.sessions().is_empty());
+        let _ = timeline_filter(&hud);
+        let _ = session_list_at(&hud, 400.0);
+        let _ = layout(&hud);
+    }
+
+    #[test]
+    fn code_inset_pretty_prints_json_through_icedtea() {
+        let _ = code_inset(r#"{"a":1}"#, tea());
+        let _ = code_inset("not json", tea());
+    }
+
+    #[test]
+    fn tool_image_uses_slot_for_missing_and_present_files() {
+        let missing = tool_image("/no/such/groket-hud-image.png", tea());
+        let _ = missing;
+        let path = std::env::temp_dir().join("groket-hud-tool-image.txt");
+        std::fs::write(&path, b"px").expect("temp image stand-in");
+        let _ = tool_image(path.to_str().expect("utf8 path"), tea());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn session_tiles_stay_cards_not_list_view() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod source");
+        assert!(prod.contains("fn tea_two_line"));
+        assert!(prod.contains("Wrapping::Word"));
+        assert!(prod.contains("SESSION_LIST_W"));
+        assert!(prod.contains("icedtea::style::card(tea, selected)"));
+        assert!(prod.contains("pattern::list_detail"));
+        assert!(prod.contains("visible_range_var"));
+        assert!(prod.contains("widget::rule_h"));
+        assert!(prod.contains("widget::tooltip_wrap"));
+        assert!(!prod.contains("widget::list_view("));
+        assert!(prod.contains("icedtea::widget::themed_pick_list"));
+        assert!(prod.contains("icedtea::widget::themed_text_input"));
+        assert!(prod.contains("icedtea::widget::code_block"));
+        assert!(prod.contains("icedtea::widget::image_slot"));
+        assert!(prod.contains("icedtea::widget::placeholder_skeleton"));
+        assert!(prod.contains("icedtea::pattern::status_page"));
+        assert!(prod.contains("icedtea::widget::info_bar"));
+        assert!(prod.contains("icedtea::widget::markdown_view"));
+        assert!(prod.contains("fn expand_card"));
+        assert!(prod.contains("fn card_actions"));
+        assert!(prod.contains("fn card_chips"));
+        assert!(prod.contains("Add note"));
+        assert!(prod.contains("pattern::command_bar"));
+        assert!(prod.contains("fn turn_note"));
+        assert!(prod.contains("fn overview_commands"));
+        assert!(!prod.contains("command_palette_view"));
+        assert!(prod.contains("fn event_body"));
+        assert!(!prod.contains("time_picker"));
+        assert!(!prod.contains("fn drawer"));
+        assert!(!prod.contains("fn disclosure"));
+        assert!(prod.contains("fn selectable"));
+        assert!(!prod.contains("visual_lines("));
+        assert!(!prod.contains(".height(height)"));
+        assert!(prod.contains("matched in {}:"));
+        assert!(prod.contains("brand_role_color"));
+        assert!(!prod.contains("accordion_view"));
+        assert!(prod.contains("widget::expander"));
+        assert!(prod.contains("TurnExpand"));
+        assert!(prod.contains("FindingExpand"));
+        assert!(prod.contains("NoteExpand"));
     }
 }

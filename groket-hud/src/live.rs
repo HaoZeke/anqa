@@ -8,13 +8,20 @@ use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnsBlock};
 pub const LIVE_POLL_MS: u64 = 3000;
 pub const IDLE_POLL_MS: u64 = 15_000;
 pub const LIVE_TAIL_LIMIT: u32 = 24;
-pub const TIMELINE_CHUNK: u32 = 200;
-/// Session-row height (padding + title + meta). Rows are uniform; timeline cards are not.
-pub const LIST_ROW_H: f32 = 60.0;
+pub const TIMELINE_CHUNK: u32 = 80;
+/// Hard cap on buffered timeline rows. Host sessions of 5k–10k stay in memory.
+pub const TIMELINE_BUFFER_CAP: usize = 10_000;
+/// Preview bytes per row on a page. Opened cards refetch a larger slice.
+pub const TIMELINE_PREVIEW_CHARS: u32 = 720;
+pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
+/// Session rail width. Cards inside it grow with wrapped title and meta.
+pub const SESSION_LIST_W: f32 = 260.0;
 /// Collapsed timeline card plus the 12px gap. Used as the unmounted-pad
 /// estimate for iced's scrollable. Mounted cards use their real height
 /// (titles wrap). Prefer overestimate so we do not skip a card still on screen.
 pub const TIMELINE_ROW_H: f32 = 160.0;
+/// Collapsed turn card plus gap. Mounted cards use real height.
+pub const TURNS_ROW_H: f32 = 220.0;
 /// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
 pub const TIMELINE_OVERSCAN: usize = 1;
 /// Turn-card pad estimate. High so a wrapped prompt does not fall
@@ -23,12 +30,10 @@ pub const TURN_ROW_H: f32 = 360.0;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
 pub const WHEEL_LINE_PX: f32 = 60.0;
 pub const VIRT_OVERSCAN: usize = 4;
-/// Minimum scrollbar handle. Iced's own scroller floors at 2px.
-pub const SCROLL_HANDLE_MIN: f32 = 24.0;
-/// Rail and handle width (iced [`Scrollbar`] default).
-pub const SCROLL_RAIL_WIDTH: f32 = 10.0;
-/// Handle/track corner radius (iced `scrollable::default`).
-pub const SCROLL_RADIUS: f32 = 2.0;
+/// Minimum scrollbar handle (icedtea rail). Iced's own scroller floors at 2px.
+pub const SCROLL_HANDLE_MIN: f32 = icedtea::chrome::SCROLL_HANDLE_MIN;
+/// Rail and handle width from icedtea.
+pub const SCROLL_RAIL_WIDTH: f32 = icedtea::chrome::SCROLL_RAIL_WIDTH;
 
 /// Window into a fixed-height virtual list.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -162,8 +167,7 @@ pub fn index_outside_visible(
     index < r.start || index >= r.end
 }
 
-/// Thumb offset and length on a rail. `min_handle` keeps the grab usable
-/// when `content` is much taller than `viewport` (iced floors at 2px).
+/// Thumb offset and length on a rail. Delegates to icedtea.
 pub fn scroller_span(
     content: f32,
     viewport: f32,
@@ -171,17 +175,7 @@ pub fn scroller_span(
     rail: f32,
     min_handle: f32,
 ) -> (f32, f32) {
-    if rail <= 0.0 {
-        return (0.0, 0.0);
-    }
-    if content <= viewport {
-        return (0.0, rail);
-    }
-    let handle = (rail * (viewport / content)).max(min_handle).min(rail);
-    let max_scroll = (content - viewport).max(1.0);
-    let usable = (rail - handle).max(0.0);
-    let t = (scroll.max(0.0) / max_scroll).clamp(0.0, 1.0);
-    (usable * t, handle)
+    icedtea::collection::scroller_span(content, viewport, scroll, rail, min_handle)
 }
 
 /// Scroll offset that puts the thumb at `thumb_y` on the rail.
@@ -192,10 +186,100 @@ pub fn scroll_from_rail(
     rail: f32,
     min_handle: f32,
 ) -> f32 {
-    let (_, handle) = scroller_span(content, viewport, 0.0, rail, min_handle);
-    let max_scroll = (content - viewport).max(0.0);
-    let usable = (rail - handle).max(1.0);
-    (thumb_y.clamp(0.0, usable) / usable) * max_scroll
+    icedtea::collection::scroll_from_rail(content, viewport, thumb_y, rail, min_handle)
+}
+
+fn wrap_line_count(s: &str, cols: usize) -> usize {
+    let cols = cols.max(1);
+    let mut n = 0;
+    for line in s.lines() {
+        let w = line.chars().count().max(1);
+        n += w.div_ceil(cols);
+    }
+    n.max(1)
+}
+
+/// Pixel height of one session tile in the 260px rail.
+pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
+    // 8+8 list pad, 12+12 card pad; ~7px at 14px Fira.
+    let cols = 28usize;
+    let mut h = 20.0;
+    h += wrap_line_count(title, cols) as f32 * 18.0;
+    if !meta.is_empty() {
+        h += 2.0 + wrap_line_count(meta, cols) as f32 * 16.0;
+    }
+    if has_ctx {
+        h += 5.0;
+    }
+    h
+}
+
+/// Total scrollable height of the session rail (column pad + tiles).
+pub fn session_list_content_height<'a>(
+    rows: impl IntoIterator<Item = (&'a str, &'a str, bool)>,
+) -> f32 {
+    let mut h = 16.0;
+    for (title, meta, has_ctx) in rows {
+        h += session_card_height(title, meta, has_ctx);
+    }
+    h
+}
+
+/// Second line for an icedtea session row (status, model, context).
+pub fn session_row_meta(row: &SessionRow) -> String {
+    let status = crate::format::list_status_label(&row.status, &row.outcome);
+    let mut line = format!("{} · {}", status, row.model);
+    if !row.context_usage_compact.is_empty() {
+        line.push_str(" · ");
+        line.push_str(&row.context_usage_compact);
+    }
+    line
+}
+
+/// icedtea [`ListModel`] over catalog rows (owned meta lines for tests).
+pub struct SessionList<'a> {
+    pub rows: &'a [SessionRow],
+    pub metas: Vec<String>,
+}
+
+impl SessionList<'_> {
+    pub fn from_rows(rows: &[SessionRow]) -> SessionList<'_> {
+        SessionList {
+            rows,
+            metas: rows.iter().map(session_row_meta).collect(),
+        }
+    }
+}
+
+impl icedtea::collection::ListModel for SessionList<'_> {
+    fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    fn id(&self, index: usize) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.rows
+            .get(index)
+            .map(|r| r.session_id.as_str())
+            .unwrap_or("")
+            .hash(&mut h);
+        h.finish()
+    }
+
+    fn title(&self, index: usize) -> &str {
+        self.rows
+            .get(index)
+            .map(SessionRow::display_title)
+            .unwrap_or("")
+    }
+
+    fn meta(&self, index: usize) -> Option<&str> {
+        self.metas
+            .get(index)
+            .map(String::as_str)
+            .filter(|s| !s.is_empty())
+    }
 }
 
 /// Wheel delta to a clamped content offset (iced scrollable: 60px per line).
@@ -387,6 +471,79 @@ pub fn timeline_seek_offset(focus_index: i64, pad: i64) -> u32 {
     (focus_index - pad.max(0)).max(0) as u32
 }
 
+/// Pager copy for a loaded window into the filtered timeline.
+///
+/// *offset* is the owner's filtered-list index of the first buffered row
+/// (0 when reading from the start; ``hit-8`` after a jump). *buffered* is
+/// how many rows we have, not a position. A jump to a late turn must not
+/// keep showing ``60 of 7663`` from an earlier prefix.
+pub fn timeline_range_label(offset: u32, buffered: usize, total: u32) -> String {
+    if buffered == 0 {
+        return if total == 0 {
+            String::new()
+        } else {
+            format!("0 of {total}")
+        };
+    }
+    let start = offset.saturating_add(1);
+    let end = offset.saturating_add(buffered as u32);
+    let end = if total > 0 { end.min(total) } else { end };
+    if total > 0 && offset == 0 && end >= total {
+        return format!("{total}");
+    }
+    if total == 0 {
+        return format!("{start}-{end}");
+    }
+    format!("{start}-{end} of {total}")
+}
+
+/// Start of the loaded window after a page lands.
+pub fn timeline_window_start(
+    prev_offset: u32,
+    page_offset: u32,
+    replace: bool,
+    advance: bool,
+) -> u32 {
+    if !advance {
+        return prev_offset;
+    }
+    if replace {
+        return page_offset;
+    }
+    prev_offset.min(page_offset)
+}
+
+/// Near the top of a jumped window: fetch earlier filtered rows.
+pub fn should_load_previous_timeline(scroll_y: f32, window_offset: u32, loading: bool) -> bool {
+    !loading && window_offset > 0 && scroll_y < TIMELINE_ROW_H * 3.0
+}
+
+/// Owner ``offset``/``limit`` for the page before the current window.
+pub fn previous_timeline_page(window_offset: u32, chunk: u32) -> Option<(u32, u32)> {
+    if window_offset == 0 || chunk == 0 {
+        return None;
+    }
+    let limit = chunk.min(window_offset);
+    Some((window_offset - limit, limit))
+}
+
+/// Keep the same cards on screen after earlier rows are prepended.
+pub fn scroll_after_prepend(scroll_y: f32, added: usize, row_h: f32) -> f32 {
+    scroll_y + added as f32 * row_h.max(0.0)
+}
+
+/// Next filtered offset after a page the owner actually returned.
+///
+/// Jump/around replies often have ``page.offset != request offset``. Paging
+/// must continue from the returned window, not the request, or a later fill
+/// inserts earlier rows in front of the visible list.
+pub fn timeline_page_next(page_offset: u32, batch_len: u32, prev_next: u32, advance: bool) -> u32 {
+    if !advance {
+        return prev_next;
+    }
+    prev_next.max(page_offset.saturating_add(batch_len))
+}
+
 pub fn timeline_coverage_complete(buffered: usize, total: u32) -> bool {
     if total == 0 {
         return buffered == 0;
@@ -394,9 +551,87 @@ pub fn timeline_coverage_complete(buffered: usize, total: u32) -> bool {
     buffered >= total as usize
 }
 
-/// Keep paging while the Timeline tab is open and the buffer is short.
-pub fn should_continue_timeline(on_timeline: bool, complete: bool, loading: bool) -> bool {
-    on_timeline && !complete && !loading
+/// Keep paging while the Timeline tab is open and the buffer is under *cap*.
+pub fn should_continue_timeline(
+    on_timeline: bool,
+    complete: bool,
+    loading: bool,
+    buffered: usize,
+    cap: usize,
+) -> bool {
+    on_timeline && !complete && !loading && buffered < cap
+}
+
+/// Accordion expand: same index collapses; a different index replaces the open set.
+pub fn toggle_expand_set(expanded: &mut HashSet<i64>, index: i64) {
+    if expanded.contains(&index) {
+        expanded.clear();
+        return;
+    }
+    expanded.clear();
+    expanded.insert(index);
+}
+
+/// True when *index* is in the expanded set.
+pub fn is_expanded(expanded: &HashSet<i64>, index: i64) -> bool {
+    expanded.contains(&index)
+}
+
+/// Keep at most *cap* events around *pivot* (focus index, or the middle).
+pub fn trim_timeline_buffer(
+    events: Vec<crate::wire::TimelineEvent>,
+    pivot: Option<i64>,
+    cap: usize,
+) -> Vec<crate::wire::TimelineEvent> {
+    if cap == 0 {
+        return vec![];
+    }
+    if events.len() <= cap {
+        return events;
+    }
+    let mut evs = events;
+    evs.sort_by_key(|e| e.index);
+    let mid = pivot.unwrap_or_else(|| evs[evs.len() / 2].index);
+    let pos = evs
+        .iter()
+        .position(|e| e.index >= mid)
+        .unwrap_or(evs.len().saturating_sub(1));
+    let half = cap / 2;
+    let start = pos.saturating_sub(half);
+    let end = (start + cap).min(evs.len());
+    let start = end.saturating_sub(cap);
+    evs.drain(start..end).collect()
+}
+
+/// Context fill 0..=1 from a percent field or a ``12%`` compact string.
+pub fn context_fraction(pct: Option<f64>, compact: &str) -> f32 {
+    if let Some(p) = pct {
+        return (p as f32 / 100.0).clamp(0.0, 1.0);
+    }
+    let s = compact.trim().trim_end_matches('%').trim();
+    s.parse::<f32>()
+        .ok()
+        .map(|v| (v / 100.0).clamp(0.0, 1.0))
+        .unwrap_or(0.0)
+}
+
+/// Severity bucket for findings (0 = highest).
+pub fn finding_severity_rank(sev: &str) -> u8 {
+    match sev.to_ascii_lowercase().as_str() {
+        "high" | "error" | "critical" => 0,
+        "medium" | "warn" | "warning" => 1,
+        "low" | "info" => 2,
+        _ => 3,
+    }
+}
+
+pub fn finding_severity_title(rank: u8) -> &'static str {
+    match rank {
+        0 => "High",
+        1 => "Medium",
+        2 => "Low",
+        _ => "Other",
+    }
 }
 
 pub fn timeline_first_missing_offset(events: &[TimelineEvent], total: u32) -> u32 {
@@ -946,8 +1181,20 @@ mod tests {
     }
 
     #[test]
-    fn scroller_keeps_a_usable_handle_on_tall_content() {
-        let (y, h) = scroller_span(900.0 * 60.0, 400.0, 0.0, 400.0, SCROLL_HANDLE_MIN);
+    fn scroller_matches_icedtea_and_keeps_a_usable_handle() {
+        assert_eq!(SCROLL_HANDLE_MIN, icedtea::chrome::SCROLL_HANDLE_MIN);
+        assert_eq!(SCROLL_RAIL_WIDTH, icedtea::chrome::SCROLL_RAIL_WIDTH);
+        assert_eq!(SCROLL_HANDLE_MIN, 24.0);
+        let ours = scroller_span(900.0 * 60.0, 400.0, 0.0, 400.0, SCROLL_HANDLE_MIN);
+        let tea = icedtea::collection::scroller_span(
+            900.0 * 60.0,
+            400.0,
+            0.0,
+            400.0,
+            icedtea::chrome::SCROLL_HANDLE_MIN,
+        );
+        assert_eq!(ours, tea);
+        let (y, h) = ours;
         assert_eq!(h, SCROLL_HANDLE_MIN);
         assert_eq!(y, 0.0);
         let max_scroll = 900.0 * 60.0 - 400.0;
@@ -1032,6 +1279,46 @@ mod tests {
             ),
             600.0
         );
+        assert_eq!(WHEEL_LINE_PX, 60.0);
+    }
+
+    #[test]
+    fn session_list_title_and_meta_are_two_lines() {
+        use icedtea::collection::ListModel;
+        let mut row = SessionRow {
+            session_id: "abc".into(),
+            title: "Fix the rail".into(),
+            model: "grok-4".into(),
+            status: "running".into(),
+            context_usage_compact: "12%".into(),
+            ..SessionRow::default()
+        };
+        assert_eq!(session_row_meta(&row), "running · grok-4 · 12%");
+        row.context_usage_compact.clear();
+        let list = SessionList::from_rows(std::slice::from_ref(&row));
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.title(0), "Fix the rail");
+        assert_eq!(list.meta(0), Some("running · grok-4"));
+        assert_eq!(list.title(9), "");
+        assert_eq!(list.meta(9), None);
+        assert_eq!(
+            list.id(0),
+            SessionList::from_rows(std::slice::from_ref(&row)).id(0)
+        );
+    }
+
+    #[test]
+    fn session_card_grows_when_the_title_wraps() {
+        let short = session_card_height("Fix the rail", "running · grok-4", false);
+        let long = session_card_height(
+            "Rewrite the session catalog filter and keep the host path readable",
+            "running · grok-4 · 12%",
+            true,
+        );
+        assert!(short >= 50.0, "{short}");
+        assert!(long > short + 10.0, "short={short} long={long}");
+        let total = session_list_content_height([("A", "", false), ("B", "meta", true)]);
+        assert!(total > session_card_height("A", "", false));
     }
 
     #[test]
@@ -1057,11 +1344,119 @@ mod tests {
     }
 
     #[test]
+    fn previous_page_starts_before_the_jumped_window() {
+        assert_eq!(previous_timeline_page(1192, 80), Some((1112, 80)));
+        assert_eq!(previous_timeline_page(40, 80), Some((0, 40)));
+        assert_eq!(previous_timeline_page(0, 80), None);
+        assert!(should_load_previous_timeline(0.0, 1192, false));
+        assert!(!should_load_previous_timeline(0.0, 0, false));
+        assert!(!should_load_previous_timeline(0.0, 1192, true));
+        assert!(!should_load_previous_timeline(5_000.0, 1192, false));
+        assert_eq!(scroll_after_prepend(0.0, 80, 160.0), 12_800.0);
+    }
+
+    #[test]
+    fn timeline_range_label_uses_owner_window_not_buffer_count() {
+        assert_eq!(timeline_range_label(0, 60, 7663), "1-60 of 7663");
+        assert_eq!(timeline_range_label(1192, 40, 7663), "1193-1232 of 7663");
+        assert_eq!(timeline_range_label(0, 7663, 7663), "7663");
+        assert_eq!(timeline_range_label(0, 0, 7663), "0 of 7663");
+        assert_eq!(timeline_window_start(0, 1192, true, true), 1192);
+        assert_eq!(timeline_window_start(1192, 1232, false, true), 1192);
+        assert_eq!(timeline_window_start(1192, 1192, false, false), 1192);
+    }
+
+    #[test]
+    fn timeline_page_next_uses_owner_offset_not_request() {
+        assert_eq!(timeline_page_next(12, 40, 0, true), 52);
+        assert_eq!(timeline_page_next(0, 40, 0, true), 40);
+        assert_eq!(timeline_page_next(12, 1, 40, false), 40);
+        assert_eq!(timeline_page_next(50, 1, 40, true), 51);
+    }
+
+    #[test]
     fn should_continue_timeline_while_short() {
-        assert!(should_continue_timeline(true, false, false));
-        assert!(!should_continue_timeline(true, true, false));
-        assert!(!should_continue_timeline(true, false, true));
-        assert!(!should_continue_timeline(false, false, false));
+        assert!(should_continue_timeline(true, false, false, 10, 320));
+        assert!(!should_continue_timeline(true, true, false, 10, 320));
+        assert!(!should_continue_timeline(true, false, true, 10, 320));
+        assert!(!should_continue_timeline(false, false, false, 10, 320));
+        assert!(!should_continue_timeline(true, false, false, 320, 320));
+        assert!(!should_continue_timeline(true, false, false, 400, 320));
+    }
+
+    #[test]
+    fn toggle_expand_then_collapse_same_index() {
+        let mut set = HashSet::new();
+        toggle_expand_set(&mut set, 12);
+        assert!(is_expanded(&set, 12));
+        toggle_expand_set(&mut set, 12);
+        assert!(!is_expanded(&set, 12));
+        assert!(set.is_empty());
+        toggle_expand_set(&mut set, 12);
+        toggle_expand_set(&mut set, 44);
+        assert!(!is_expanded(&set, 12));
+        assert!(is_expanded(&set, 44));
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn turns_window_over_144_only_mounts_the_visible_slice() {
+        let n = 144;
+        let win = visible_range(0.0, 480.0, TURNS_ROW_H, n, TIMELINE_OVERSCAN);
+        assert!(win.end > win.start);
+        assert!(
+            win.end - win.start < 8,
+            "mounted {} turn cards",
+            win.end - win.start
+        );
+        assert_eq!(win.pad_top, 0.0);
+        assert!(win.pad_bottom > 0.0);
+    }
+
+    #[test]
+    fn virtual_window_over_8000_only_mounts_the_visible_slice() {
+        let n = 8000;
+        let scroll = 320.0;
+        let view_h = 480.0;
+        let row_h = TIMELINE_ROW_H;
+        let win = visible_range(scroll, view_h, row_h, n, TIMELINE_OVERSCAN);
+        assert!(win.end > win.start);
+        assert!(
+            win.end - win.start < 20,
+            "mounted {} rows",
+            win.end - win.start
+        );
+        let ids: Vec<i64> = (0..n as i64).collect();
+        let shown = ids[win.start..win.end].to_vec();
+        let mut grown = ids.clone();
+        grown.extend(8000..8500);
+        let after = visible_range(scroll, view_h, row_h, grown.len(), TIMELINE_OVERSCAN);
+        assert_eq!(after.start, win.start);
+        assert_eq!(after.pad_top, win.pad_top);
+        assert_eq!(&grown[win.start..win.end], shown.as_slice());
+        assert_eq!(ids[win.start], shown[0]);
+    }
+
+    #[test]
+    fn trim_timeline_keeps_a_window_around_the_pivot() {
+        let ev = |i: i64| crate::wire::TimelineEvent {
+            index: i,
+            ..crate::wire::TimelineEvent::default()
+        };
+        let all: Vec<_> = (0..800).map(ev).collect();
+        let kept = trim_timeline_buffer(all, Some(400), 100);
+        assert_eq!(kept.len(), 100);
+        assert!(kept.first().expect("start").index <= 400);
+        assert!(kept.last().expect("end").index >= 400);
+        assert!(kept.iter().any(|e| e.index == 400));
+    }
+
+    #[test]
+    fn context_fraction_reads_pct_and_compact() {
+        assert!((context_fraction(Some(12.0), "") - 0.12).abs() < 0.001);
+        assert!((context_fraction(None, "48%") - 0.48).abs() < 0.001);
+        assert_eq!(context_fraction(None, ""), 0.0);
+        assert_eq!(context_fraction(Some(200.0), ""), 1.0);
     }
 
     #[test]

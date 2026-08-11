@@ -73,6 +73,17 @@ impl KindFilter {
             KindFilter::Errors => "Errors",
         }
     }
+
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            KindFilter::All => "",
+            KindFilter::Tools => "tools",
+            KindFilter::User => "user",
+            KindFilter::Asst => "asst",
+            KindFilter::Sess => "sess",
+            KindFilter::Errors => "errors",
+        }
+    }
 }
 
 impl std::fmt::Display for KindFilter {
@@ -136,6 +147,8 @@ mod tests {
         assert_eq!(Tab::Findings.label(), "Findings");
         assert_eq!(Tab::Notes.label(), "Notes");
         assert_eq!(Tab::ALL.len(), 5);
+        assert_eq!(KindFilter::Tools.wire_name(), "tools");
+        assert_eq!(KindFilter::All.wire_name(), "");
         assert_eq!(KindFilter::All.label(), "All events");
         assert_eq!(KindFilter::Asst.to_string(), "Assistant");
         assert_eq!(KindFilter::Sess.label(), "Session markers");

@@ -262,6 +262,10 @@ pub struct TimelineEvent {
     pub tool_fields: Vec<ToolFieldRow>,
     #[serde(default)]
     pub image_path: String,
+    #[serde(default)]
+    pub match_field: String,
+    #[serde(default)]
+    pub match_snippet: String,
 }
 
 /// One ``toolFields`` row from ``session/timeline``.
@@ -659,6 +663,23 @@ mod tests {
         assert!(!page.events[2].matches_kind(KindFilter::Asst));
         assert!(page.events[1].haystack().contains("hello agent"));
         assert!(!page.events[1].fingerprint().is_empty());
+        let with_hit = decode_timeline_page(&serde_json::json!({
+            "sessionId": "s",
+            "total": 1,
+            "offset": 0,
+            "limit": 1,
+            "events": [{
+                "index": 3,
+                "type": "agent_message_chunk",
+                "kind": "agent",
+                "content": "see needle-token here",
+                "matchField": "content",
+                "matchSnippet": "see needle-token here"
+            }]
+        }))
+        .expect("hit page");
+        assert_eq!(with_hit.events[0].match_field, "content");
+        assert!(with_hit.events[0].match_snippet.contains("needle-token"));
     }
 
     #[test]

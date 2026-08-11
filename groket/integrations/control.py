@@ -59,6 +59,8 @@ CAPABILITIES = (
     "notes/delete",
     "analysis/run",
     "analysis/status",
+    "session/follow_up",
+    "session/done",
 )
 # Concurrent disk-heavy RPCs (parse/catalog) share this bound so multi-client
 # opens cannot stampede the owner beyond single-flight per session.
@@ -838,6 +840,10 @@ class ControlServer:
             raw_chars = _optional_int_param(params.get("contentChars"), name="contentChars")
             prompt_index = _optional_int_param(params.get("promptIndex"), name="promptIndex")
             event_type = json_as_str(params.get("type") or params.get("eventType"))
+            kind = json_as_str(params.get("kind"))
+            query = json_as_str(params.get("query"))
+            around = _optional_int_param(params.get("aroundIndex"), name="aroundIndex")
+            at_index = _optional_int_param(params.get("atIndex"), name="atIndex")
             return await self._access_call(
                 ref,
                 access.session_timeline,
@@ -845,7 +851,11 @@ class ControlServer:
                 offset=offset,
                 limit=limit,
                 event_type=event_type,
+                kind=kind,
+                query=query,
                 prompt_index=prompt_index,
+                around_index=around,
+                at_index=at_index,
                 content_chars=raw_chars,
             )
         if method == "session/turns":
@@ -959,6 +969,14 @@ class ControlServer:
             return await self._analysis_run(params)
         if method == "analysis/status":
             return await self._analysis_status(params)
+        if method == "session/follow_up":
+            ref = self._session_ref(params)
+            prompt = json_as_str(params.get("prompt"))
+            final = bool(params.get("final"))
+            return await self._access_call(ref, access.session_follow_up, ref, prompt, final=final)
+        if method == "session/done":
+            ref = self._session_ref(params)
+            return await self._access_call(ref, access.session_done, ref)
         raise ControlError(-32601, "method not found", {"method": method})
 
     async def notify(self, method: str, params: JsonObject) -> None:

@@ -4,6 +4,26 @@ use iced::theme::{Palette, Theme};
 use iced::Color;
 use serde_json::Value;
 
+use crate::format::BrandRole;
+
+/// TUI brand hex (``COMPLETE`` / ``FAILED`` / ``RUNNING`` / ``CANCELLED`` / ``CREAM``).
+pub const BRAND_CREAM: Color = Color::from_rgb8(0xFB, 0xF1, 0xC7);
+pub const BRAND_COMPLETE: Color = Color::from_rgb8(0x98, 0x97, 0x1A);
+pub const BRAND_RUNNING: Color = Color::from_rgb8(0xD7, 0x99, 0x21);
+pub const BRAND_FAILED: Color = Color::from_rgb8(0xCC, 0x24, 0x1D);
+pub const BRAND_CANCELLED: Color = Color::from_rgb8(0x92, 0x83, 0x74);
+
+/// Color for a TUI ``EVENT_TYPE_STYLE`` brand role.
+pub fn brand_role_color(role: BrandRole) -> Color {
+    match role {
+        BrandRole::Cream => BRAND_CREAM,
+        BrandRole::Complete => BRAND_COMPLETE,
+        BrandRole::Running => BRAND_RUNNING,
+        BrandRole::Failed => BRAND_FAILED,
+        BrandRole::Cancelled => BRAND_CANCELLED,
+    }
+}
+
 const CATALOG: &str = include_str!("../assets/textual-themes.json");
 
 /// Subset of Textual ColorSystem tokens the HUD paints with.
@@ -151,9 +171,30 @@ pub fn iced_theme(name: &str) -> Theme {
             text: t.text,
             primary: t.primary,
             success: t.success,
+            warning: t.warning,
             danger: t.error,
         },
     )
+}
+
+/// icedtea tokens from the same groket ``config.json`` theme name.
+pub fn tea_tokens(name: &str) -> icedtea::theme::Tokens {
+    let t = tokens(name);
+    icedtea::theme::Tokens {
+        canvas: t.canvas,
+        surface: t.canvas,
+        panel: t.panel,
+        text: t.text,
+        muted: t.muted,
+        primary: t.primary,
+        accent: t.accent,
+        success: t.success,
+        warning: t.warning,
+        danger: t.error,
+        border: t.border,
+        selection: t.selected,
+        selection_text: t.selected_text,
+    }
 }
 
 #[cfg(test)]
@@ -219,5 +260,35 @@ mod tests {
         let m = mix(a, b, 0.5);
         assert!((m.r - 0.5).abs() < 0.01);
         assert_eq!(m.a, 1.0);
+    }
+
+    #[test]
+    fn brand_role_colors_match_tui_hex() {
+        use crate::format::BrandRole;
+        assert_eq!(brand_role_color(BrandRole::Cream), BRAND_CREAM);
+        assert_eq!(brand_role_color(BrandRole::Complete), BRAND_COMPLETE);
+        assert_eq!(brand_role_color(BrandRole::Running), BRAND_RUNNING);
+        assert_eq!(brand_role_color(BrandRole::Failed), BRAND_FAILED);
+        assert_eq!(brand_role_color(BrandRole::Cancelled), BRAND_CANCELLED);
+        assert_eq!(BRAND_CREAM, Color::from_rgb8(0xFB, 0xF1, 0xC7));
+        assert_eq!(BRAND_COMPLETE, Color::from_rgb8(0x98, 0x97, 0x1A));
+        assert_eq!(BRAND_RUNNING, Color::from_rgb8(0xD7, 0x99, 0x21));
+        assert_eq!(BRAND_FAILED, Color::from_rgb8(0xCC, 0x24, 0x1D));
+        assert_eq!(BRAND_CANCELLED, Color::from_rgb8(0x92, 0x83, 0x74));
+    }
+
+    #[test]
+    fn tea_tokens_follow_groket_config_theme() {
+        let g = tokens("textual-dark");
+        let t = tea_tokens("textual-dark");
+        assert_eq!(t.canvas, g.canvas);
+        assert_eq!(t.panel, g.panel);
+        assert_eq!(t.primary, g.primary);
+        assert_eq!(t.selection, g.selected);
+        assert_eq!(t.selection_text, g.selected_text);
+        assert_eq!(t.danger, g.error);
+        assert_eq!(t.warning, g.warning);
+        let light = tea_tokens("solarized-light");
+        assert_ne!(light.canvas, t.canvas);
     }
 }

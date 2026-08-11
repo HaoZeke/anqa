@@ -36,6 +36,7 @@ from ..session.control_views import (
     build_session_turns,
     build_session_usage,
 )
+from ..session.turn_gate import write_done_for_session, write_follow_up_for_session
 
 if TYPE_CHECKING:
     from ..integrations.control_client import ControlClient
@@ -222,7 +223,11 @@ class LocalSessionAccess:
         offset: int = 0,
         limit: int | None = None,
         event_type: str = "",
+        kind: str = "",
+        query: str = "",
         prompt_index: int | None = None,
+        around_index: int | None = None,
+        at_index: int | None = None,
         content_chars: int | None = None,
     ) -> JsonObject:
         """Paged timeline events."""
@@ -240,7 +245,11 @@ class LocalSessionAccess:
             offset=max(0, int(offset)),
             limit=lim,
             event_type=event_type,
+            kind=kind,
+            query=query,
             prompt_index=prompt_index,
+            around_index=around_index,
+            at_index=at_index,
             content_chars=cc,
         )
 
@@ -256,6 +265,18 @@ class LocalSessionAccess:
         """Cached analysis findings."""
         lim = 80 if limit is None else max(0, min(int(limit), 200))
         return build_session_findings(self.require_session(session), limit=lim)
+
+    def session_follow_up(self, session: str, prompt: str, *, final: bool = False) -> JsonObject:
+        """Stage or queue a follow-up prompt on the session gate."""
+        path = self.require_session(session)
+        how = write_follow_up_for_session(path, prompt, final=final)
+        return {"ok": True, "how": how}
+
+    def session_done(self, session: str) -> JsonObject:
+        """Ask a live entrypoint to stop."""
+        path = self.require_session(session)
+        write_done_for_session(path)
+        return {"ok": True}
 
     def session_render(self, session: str, *, format: str = "org") -> JsonObject:
         """Editor projection document."""
@@ -398,7 +419,11 @@ class RemoteSessionAccess:
         offset: int = 0,
         limit: int | None = None,
         event_type: str = "",
+        kind: str = "",
+        query: str = "",
         prompt_index: int | None = None,
+        around_index: int | None = None,
+        at_index: int | None = None,
         content_chars: int | None = None,
     ) -> JsonObject:
         return await self._client.session_timeline(
@@ -406,7 +431,11 @@ class RemoteSessionAccess:
             offset=offset,
             limit=limit,
             event_type=event_type,
+            kind=kind,
+            query=query,
             prompt_index=prompt_index,
+            around_index=around_index,
+            at_index=at_index,
             content_chars=content_chars,
         )
 
@@ -418,6 +447,14 @@ class RemoteSessionAccess:
 
     async def session_findings(self, session: str, *, limit: int | None = None) -> JsonObject:
         return await self._client.session_findings(session, limit=limit)
+
+    async def session_follow_up(
+        self, session: str, prompt: str, *, final: bool = False
+    ) -> JsonObject:
+        return await self._client.session_follow_up(session, prompt, final=final)
+
+    async def session_done(self, session: str) -> JsonObject:
+        return await self._client.session_done(session)
 
     async def session_render(self, session: str, *, format: str = "org") -> JsonObject:
         return await self._client.session_render(session, format=format)

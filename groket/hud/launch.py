@@ -41,6 +41,23 @@ def _release_binary(checkout: Path) -> Path:
     return checkout / "target" / "release" / "groket-hud"
 
 
+def _prune_target(checkout: Path, *, keep_debug: bool) -> None:
+    """Remove Cargo trees the current HUD profile does not need.
+
+    Coverage always goes. Debug goes after a release build so a normal
+    ``groket hud`` does not keep a second iced graph next to release.
+    """
+    target = checkout / "target"
+    for name in ("llvm-cov-target", "llvm-cov"):
+        path = target / name
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+    if not keep_debug:
+        debug = target / "debug"
+        if debug.is_dir():
+            shutil.rmtree(debug, ignore_errors=True)
+
+
 def find_hud_binary(*, debug: bool = False) -> Path | None:
     """Return path to a built ``groket-hud`` binary, if any.
 
@@ -121,6 +138,7 @@ def build_hud(checkout: Path | None = None, *, debug: bool = False) -> Path | No
         return None
     binary = _debug_binary(root) if debug else _release_binary(root)
     if binary.is_file() and os.access(binary, os.X_OK):
+        _prune_target(root, keep_debug=debug)
         return binary
     sys.stderr.write(f"error: build finished but binary missing: {binary}\n")
     return None
@@ -154,6 +172,7 @@ def ensure_hud_binary(*, rebuild: bool = False, debug: bool = False) -> Path | N
     found = expected if expected.is_file() and os.access(expected, os.X_OK) else None
     need_build = rebuild or found is None or hud_binary_is_stale(found, checkout)
     if not need_build:
+        _prune_target(checkout, keep_debug=debug)
         return found
 
     built = build_hud(checkout, debug=debug)
@@ -194,6 +213,8 @@ def launch_hud_dev(
     except OSError as exc:
         sys.stderr.write(f"error: could not start cargo run: {exc}\n")
         return 1
+    if proc.returncode == 0:
+        _prune_target(checkout, keep_debug=True)
     return int(proc.returncode)
 
 

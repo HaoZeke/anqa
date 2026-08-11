@@ -88,11 +88,6 @@
         "durationSeconds": 2.0,
         "errorEventCount": 0,
         "eventCount": 3,
-        "eventIndexes": [
-          0,
-          1,
-          2
-        ],
         "firstIndex": 0,
         "label": "turn 0 (open)",
         "lastIndex": 2,

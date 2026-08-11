@@ -681,7 +681,7 @@ def _build_session_overview_uncached(
         "summary": summary,
         "turns": {
             "total": len(segs),
-            "turns": [turn_segment_mapping(s, include_event_indexes=True) for s in segs],
+            "turns": [turn_segment_mapping(s, include_event_indexes=False) for s in segs],
         },
         "timeline": {
             "total": len(events),
@@ -800,13 +800,77 @@ def _turn_view_for_session(
     return segs, turn_by_index
 
 
+def _timeline_kind_matches(event: TraceEvent, kind: str) -> bool:
+    """HUD kind filter: all / tools / user / asst / sess / errors."""
+    mode = (kind or "").strip().casefold()
+    if not mode or mode == "all":
+        return True
+    mapped = et.event_kind(event.event_type)
+    if mode == "tools":
+        return mapped in {"tool", "tool_result"}
+    if mode == "user":
+        return mapped == "user"
+    if mode in {"asst", "assistant", "agent"}:
+        return mapped in {"agent", "thought"}
+    if mode in {"sess", "session"}:
+        return mapped in {"system", "session", "error"}
+    if mode in {"errors", "error"}:
+        return bool(event.is_error) or mapped == "error"
+    return True
+
+
+def _snippet_around(text: str, start: int, needle_len: int, radius: int = 40) -> str:
+    """One display line around *start* (character index in *text*)."""
+    lo = max(0, start - radius)
+    hi = min(len(text), start + max(needle_len, 1) + radius)
+    chunk = text[lo:hi].replace("\n", " ").replace("\r", " ")
+    if lo > 0:
+        chunk = f"…{chunk}"
+    if hi < len(text):
+        chunk = f"{chunk}…"
+    return chunk
+
+
+def timeline_query_hit(event: TraceEvent, query: str) -> tuple[str, str] | None:
+    """First field that contains *query*, plus a snippet that includes the needle."""
+    needle = (query or "").strip().casefold()
+    if not needle:
+        return None
+    body = event.content if isinstance(event.content, str) else str(event.content or "")
+    fields = (
+        ("type", event.event_type or ""),
+        ("type_label", event.type_label or ""),
+        ("tool", event.tool_name or ""),
+        ("heading", event.summary_line or ""),
+        ("preview", (body.split("\n", 1)[0] if body else "")[:200]),
+        ("content", body[:8_000]),
+    )
+    for field, text in fields:
+        pos = text.casefold().find(needle)
+        if pos >= 0:
+            return field, _snippet_around(text, pos, len(needle))
+    return None
+
+
+def _timeline_query_matches(event: TraceEvent, query: str) -> bool:
+    """Casefold substring on type, tool, heading, and body."""
+    needle = (query or "").strip()
+    if not needle:
+        return True
+    return timeline_query_hit(event, query) is not None
+
+
 def build_session_timeline(
     session_dir: Path,
     *,
     offset: int = 0,
     limit: int | None = None,
     event_type: str = "",
+    kind: str = "",
+    query: str = "",
     prompt_index: int | None = None,
+    around_index: int | None = None,
+    at_index: int | None = None,
     content_chars: int = DEFAULT_CONTENT_CHARS,
 ) -> JsonObject:
     """Paged timeline for ``session/timeline``."""
@@ -820,26 +884,53 @@ def build_session_timeline(
         if type_filter and type_filter not in (ev.event_type or "").casefold():
             if type_filter not in (ev.type_label or "").casefold():
                 continue
+        if not _timeline_kind_matches(ev, kind):
+            continue
+        if not _timeline_query_matches(ev, query):
+            continue
         if prompt_index is not None and ev.prompt_index != prompt_index:
             continue
         filtered.append(ev)
     total = len(filtered)
     off = max(0, int(offset))
     lim = DEFAULT_TIMELINE_LIMIT if limit is None else max(0, min(int(limit), MAX_TIMELINE_LIMIT))
-    page = filtered[off : off + lim]
+    if at_index is not None:
+        target = int(at_index)
+        hit = next((i for i, ev in enumerate(filtered) if int(ev.index) == target), None)
+        if hit is None:
+            off = 0
+            lim = 0
+        else:
+            off = hit
+            lim = 1
+    elif around_index is not None:
+        target = int(around_index)
+        hit = next((i for i, ev in enumerate(filtered) if int(ev.index) >= target), None)
+        if hit is None and filtered:
+            hit = len(filtered) - 1
+        if hit is not None:
+            off = max(0, hit - 8)
+    page = filtered[off : off + lim] if lim else []
+    q = (query or "").strip()
+    events_out: list[JsonObject] = []
+    for ev in page:
+        row = timeline_event_mapping(
+            ev,
+            content_chars=content_chars,
+            turn_index=turn_by_index.get(int(ev.index)),
+        )
+        if q:
+            hit = timeline_query_hit(ev, q)
+            if hit is not None:
+                row["matchField"] = hit[0]
+                row["matchSnippet"] = hit[1]
+        events_out.append(row)
     return {
         "sessionId": sd.name,
         "total": total,
         "offset": off,
         "limit": lim,
-        "events": [
-            timeline_event_mapping(
-                ev,
-                content_chars=content_chars,
-                turn_index=turn_by_index.get(int(ev.index)),
-            )
-            for ev in page
-        ],
+        "events": events_out,
     }
 
 
@@ -876,6 +967,7 @@ __all__ = [
     "build_session_timeline",
     "build_session_turns",
     "build_session_usage",
+    "timeline_query_hit",
     "finding_mapping",
     "session_meta_mapping",
     "timeline_event_mapping",
