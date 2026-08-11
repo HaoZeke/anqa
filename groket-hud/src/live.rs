@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::model::{SchemaField, SessionRow};
+use crate::model::{KindFilter, SchemaField, SessionRow};
 use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnsBlock};
 
 pub const LIVE_POLL_MS: u64 = 3000;
@@ -17,6 +17,9 @@ pub const LIST_ROW_H: f32 = 60.0;
 pub const TIMELINE_ROW_H: f32 = 160.0;
 /// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
 pub const TIMELINE_OVERSCAN: usize = 1;
+/// Turn-card pad estimate. High so a wrapped prompt does not fall
+/// out of the mounted window. Mounted cards use their real height.
+pub const TURN_ROW_H: f32 = 360.0;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
 pub const WHEEL_LINE_PX: f32 = 60.0;
 pub const VIRT_OVERSCAN: usize = 4;
@@ -312,6 +315,25 @@ pub fn session_needs_live_poll(status: &str, turns: Option<&TurnsBlock>) -> bool
     is_live_status(status) || turns.is_some_and(has_open_turn)
 }
 
+/// Indices into *events* after kind + typeahead filter.
+///
+/// Hits stay in timeline order. A non-empty query drops non-matches
+/// via [`crate::fuzzy::fzf_score`] and does not clone the events.
+pub fn filter_timeline_indices(
+    events: &[TimelineEvent],
+    kind: KindFilter,
+    query: &str,
+) -> Vec<usize> {
+    let needle = query.trim();
+    events
+        .iter()
+        .enumerate()
+        .filter(|(_, ev)| ev.matches_kind(kind))
+        .filter(|(_, ev)| needle.is_empty() || crate::fuzzy::fzf_score(needle, &ev.haystack()) > 0)
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// Next ``session/list`` offset, or ``None`` when the catalog drain is done.
 pub fn catalog_drain_next(
     offset: u32,
@@ -331,6 +353,31 @@ pub fn catalog_drain_next(
         return None;
     }
     Some(next)
+}
+
+/// First HUD ``session/list``: one page, no ``sinceRevision`` drain.
+///
+/// :returns: ``(limit, offset, since)`` for the first catalog RPC.
+pub fn first_list_fetch() -> (u32, u32, i64) {
+    (200, 0, 0)
+}
+
+/// Next catalog page after a painted list, or ``None`` when the drain is done.
+///
+/// Wraps [`catalog_drain_next`] from offset 0 with *have* accumulated rows.
+/// Stops when ``matched`` is not greater than *have*, or when *incomplete*
+/// (including an empty incomplete first page).
+///
+/// :param have: Rows already applied to the HUD catalog.
+/// :param page: Page size (``SESSION_LIST_PAGE``).
+/// :param matched: Owner ``matched`` count from the last page.
+/// :param incomplete: Owner still building, or drain should stall.
+/// :returns: Offset for the next ``session/list``, if any.
+pub fn next_list_offset(have: usize, page: u32, matched: i64, incomplete: bool) -> Option<u32> {
+    if matched <= i64::try_from(have).unwrap_or(i64::MAX) {
+        return None;
+    }
+    catalog_drain_next(0, have, page, matched, incomplete)
 }
 
 pub fn timeline_seek_offset(focus_index: i64, pad: i64) -> u32 {
@@ -700,6 +747,56 @@ mod tests {
         assert_eq!(catalog_drain_next(0, 200, 200, 200, false), None);
         assert_eq!(catalog_drain_next(200, 200, 200, 450, true), None);
         assert_eq!(catalog_drain_next(0, 0, 200, 10, false), None);
+    }
+
+    #[test]
+    fn first_list_fetch_is_one_page() {
+        let (limit, offset, since) = first_list_fetch();
+        assert_eq!(limit, 200);
+        assert_eq!(offset, 0);
+        assert_eq!(since, 0);
+    }
+
+    #[test]
+    fn next_list_offset_wraps_catalog_drain() {
+        assert_eq!(next_list_offset(200, 200, 450, false), Some(200));
+        assert_eq!(next_list_offset(400, 200, 450, false), Some(400));
+        assert_eq!(next_list_offset(450, 200, 450, false), None);
+        assert_eq!(next_list_offset(200, 200, 200, false), None);
+        assert_eq!(next_list_offset(200, 200, 450, true), None);
+        assert_eq!(next_list_offset(0, 200, 10, false), None);
+        assert_eq!(next_list_offset(0, 200, 10, true), None);
+    }
+
+    #[test]
+    fn filter_timeline_indices_keeps_order_without_query() {
+        let events = vec![
+            ev(0, "user", "hello"),
+            ev(1, "tool", "run"),
+            ev(2, "agent", "ok"),
+        ];
+        assert_eq!(
+            filter_timeline_indices(&events, KindFilter::All, ""),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            filter_timeline_indices(&events, KindFilter::Tools, ""),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn filter_timeline_indices_keeps_time_order_for_query() {
+        let events = vec![
+            ev(0, "user", "also hud"),
+            ev(1, "user", "hud window"),
+            ev(2, "user", "other"),
+        ];
+        assert_eq!(
+            filter_timeline_indices(&events, KindFilter::All, "hud"),
+            vec![0, 1]
+        );
+        assert!(filter_timeline_indices(&events, KindFilter::Tools, "hud").is_empty());
     }
 
     #[test]

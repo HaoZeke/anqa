@@ -5,7 +5,7 @@ imports that class (must implement :class:`~groket.analysis.base.Analyzer`),
 instantiates it, and calls :func:`register_analyzer`. No module-level
 ``ANALYZER`` export, no ``register()`` side effect.
 
-Built-ins still call :func:`register_analyzer` at package import.
+Built-ins register on first :func:`get_analyzer` / :func:`list_analyzers`.
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ _NOOP = NoopAnalyzer()
 # When set, :func:`register_analyzer` appends each registered id (for config loads).
 _registration_sink: list[str] | None = None
 
-# Always-on analyzers registered at package import (see ``analysis.__init__``).
+# Always-on analyzers registered on first analyze / list (see ensure_builtins).
 BUILTIN_ANALYZER_IDS: frozenset[str] = frozenset({"basic", "engine"})
+_builtins_ready = False
 
 
 @runtime_checkable
@@ -34,6 +35,21 @@ class AnalyzerClass(Protocol):
     """Callable class type that constructs an :class:`Analyzer` instance."""
 
     def __call__(self) -> Analyzer: ...
+
+
+def ensure_builtins() -> None:
+    """Register ``basic`` and ``engine`` when missing."""
+    global _builtins_ready
+    if _builtins_ready and "basic" in _REGISTRY and "engine" in _REGISTRY:
+        return
+    from .basic import BasicAnalyzer
+    from .plugins.engine.analyzer import EngineDetectorAnalyzer
+
+    if "basic" not in _REGISTRY:
+        register_analyzer(BasicAnalyzer(), default=(_DEFAULT_ID == "noop"))
+    if "engine" not in _REGISTRY:
+        register_analyzer(EngineDetectorAnalyzer())
+    _builtins_ready = True
 
 
 def register_analyzer(analyzer: Analyzer, *, default: bool = False) -> None:
@@ -54,6 +70,7 @@ def set_default_analyzer(analyzer_id: str) -> None:
 
 
 def get_analyzer(analyzer_id: str | None = None) -> Analyzer:
+    ensure_builtins()
     aid = analyzer_id or _DEFAULT_ID
     if aid == "noop":
         return _NOOP
@@ -61,6 +78,7 @@ def get_analyzer(analyzer_id: str | None = None) -> Analyzer:
 
 
 def list_analyzers() -> list[AnalyzerInfo]:
+    ensure_builtins()
     infos = [a.info for a in _REGISTRY.values()]
     ids = {i.id for i in infos}
     if "noop" not in ids:

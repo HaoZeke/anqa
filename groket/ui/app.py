@@ -13,6 +13,7 @@ import time
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual import on, work
@@ -34,19 +35,25 @@ from textual.widgets import (
     Static,
 )
 
-from ..analysis import AnalysisResult, AnalysisService, get_analysis_service
-from ..analysis.base import Finding
+from ..analysis.base import AnalysisResult, Finding
 from ..constants import META_CACHE_FILENAME
+
+if TYPE_CHECKING:
+    from ..analysis.service import AnalysisService
 from ..integrations.control_client import (
     HEAVY_RPC_TIMEOUT,
     ControlClient,
     listen_control_notifications,
 )
 from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
-from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
+from ..parser import extract_prompt, find_sessions, load_session_meta
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
-from ..session.access import RemoteSessionAccess
+from ..session.access import (
+    DEFAULT_SESSION_LIST_LIMIT,
+    RemoteSessionAccess,
+    catalog_list_next_offset,
+)
 from . import text as U
 from .bindings import (
     APP_GLOBAL_PRIORITY,
@@ -235,13 +242,8 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
         self._persist()
 
     def _persist(self) -> None:
-        from ..analysis import (
-            AnalysisPipelineConfig,
-            AnalysisService,
-            load_pipeline_config,
-            save_pipeline_config,
-            set_analysis_service,
-        )
+        from ..analysis import AnalysisPipelineConfig, load_pipeline_config, save_pipeline_config
+        from ..analysis.service import AnalysisService, set_analysis_service
         from .prefs import set_show_tips
 
         auto = self.query_one("#as-auto-analyze", Checkbox).value
@@ -296,8 +298,6 @@ def _session_search_haystack(meta: SessionMeta, label: str) -> str:
 
 def first_home_list_fetch() -> dict[str, int | bool]:
     """First attach ``session/list``: one page, no matched drain."""
-    from ..session.access import DEFAULT_SESSION_LIST_LIMIT
-
     return {
         "drain": False,
         "limit": int(DEFAULT_SESSION_LIST_LIMIT),
@@ -1152,7 +1152,6 @@ class TraceEvalApp(App):
         """Blocking ``session/list`` (one page, delta poll, or full drain)."""
 
         from ..integrations.control_client import ControlClient
-        from ..session.access import DEFAULT_SESSION_LIST_LIMIT
 
         sock = self._control_socket
         if sock is None:
@@ -1242,6 +1241,42 @@ class TraceEvalApp(App):
             )
         return result
 
+    def _fill_remaining_catalog_pages(self, gen: int, listed: JsonObject, offset: int) -> None:
+        """Fetch later ``session/list`` pages after first paint. Never drains."""
+        page = int(DEFAULT_SESSION_LIST_LIMIT)
+        raw = listed.get("sessions")
+        batch_len = len(raw) if isinstance(raw, list) else 0
+        matched_raw = listed.get("matched")
+        matched = matched_raw if isinstance(matched_raw, int) else 0
+        stalled = bool(listed.get("incomplete") or listed.get("building"))
+        while True:
+            nxt = catalog_list_next_offset(offset, batch_len, page, matched, stalled=stalled)
+            if nxt is None or not self._sessions_load_current(gen):
+                return
+            nxt_listed = self._fetch_control_catalog_sync(drain=False, limit=page, offset=nxt)
+            nxt_raw = nxt_listed.get("sessions")
+            wire = (
+                [as_json_object(r) for r in nxt_raw if isinstance(r, dict)]
+                if isinstance(nxt_raw, list)
+                else []
+            )
+            if not wire:
+                return
+            rows = self._merge_control_catalog_rows(wire, [])
+            if not self._apply_session_meta_rows(gen, rows, clear_plugins=False):
+                return
+            call_ui(self, self._rebuild_session_filters)
+            call_ui(self, self._populate_session_table, force=True)
+            rev_raw = nxt_listed.get("revision")
+            if isinstance(rev_raw, int) and rev_raw > 0:
+                self._catalog_revision = rev_raw
+            offset = nxt
+            batch_len = len(wire)
+            nxt_matched = nxt_listed.get("matched")
+            if isinstance(nxt_matched, int):
+                matched = nxt_matched
+            stalled = bool(nxt_listed.get("incomplete") or nxt_listed.get("building"))
+
     def _load_sessions_via_control(
         self,
         gen: int,
@@ -1328,26 +1363,9 @@ class TraceEvalApp(App):
                 n = len(rows)
                 call_ui(self, self._rebuild_session_filters)
                 call_ui(self, self._populate_session_table, force=True)
-            matched_raw = result.get("matched")
-            matched = int(matched_raw) if isinstance(matched_raw, int) else n
-            incomplete = bool(result.get("incomplete") or result.get("building"))
-            if not use_delta and not is_delta and not incomplete and matched > n:
-                more = self._fetch_control_catalog_sync(drain=True)
-                if self._sessions_load_current(gen):
-                    rev2 = more.get("revision")
-                    if isinstance(rev2, int) and rev2 > 0:
-                        self._catalog_revision = rev2
-                    raw2 = more.get("sessions")
-                    extra = (
-                        [as_json_object(r) for r in raw2 if isinstance(r, dict)]
-                        if isinstance(raw2, list)
-                        else []
-                    )
-                    rows = self._rows_from_catalog_wire(extra)
-                    if self._apply_session_meta_rows(gen, rows, clear_plugins=False):
-                        n = len(rows)
-                        call_ui(self, self._rebuild_session_filters)
-                        call_ui(self, self._populate_session_table, force=True)
+            if not use_delta:
+                self._fill_remaining_catalog_pages(gen, result, int(first["offset"]))
+                n = len(self._meta_only)
             if not quiet:
                 call_ui(
                     self,
@@ -1457,6 +1475,8 @@ class TraceEvalApp(App):
 
     def _analysis_svc(self) -> AnalysisService:
         """Lazy process-wide service; constructed on first Analyze / settings."""
+        from ..analysis.service import get_analysis_service
+
         return get_analysis_service(
             self.work_dir,
             traces=Path(self.traces_path) if self.traces_path else None,
@@ -3025,6 +3045,7 @@ class TraceEvalApp(App):
         Uses per-session inflight locks so browser light reloads coalesce safely.
         Never writes ``_meta_cache.json`` or session artifacts.
         """
+        from .. import parser as parser_mod
         from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
         updates: list[tuple[str, SessionMeta, str]] = []
@@ -3036,7 +3057,7 @@ class TraceEvalApp(App):
                     request_rerun(KIND_REFRESH, sd)
                     continue
                 try:
-                    fresh = load_session_meta(sd, include_timeline_count=False)
+                    fresh = parser_mod.load_session_meta(sd, include_timeline_count=False)
                     fresh.num_events = meta.num_events
                     try:
                         key = str(sd.resolve())
@@ -3181,6 +3202,7 @@ class TraceEvalApp(App):
         """
         import time
 
+        from .. import parser as parser_mod
         from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
         from ..parser import session_trace_mtime
 
@@ -3315,7 +3337,7 @@ class TraceEvalApp(App):
                     changed_sessions[key] = sd_res
                 self._session_mtimes[key] = mtime
             try:
-                outcome = list_turn_outcome_for_dir(sd_res)
+                outcome = parser_mod.list_turn_outcome_for_dir(sd_res)
             except Exception:
                 continue
             oc = (outcome or "").strip().lower().replace(" ", "_")
@@ -3330,7 +3352,7 @@ class TraceEvalApp(App):
             # without restarting the app (outcome-only probe skips summary.json).
             if live_oc:
                 try:
-                    fresh = load_session_meta(sd_res, include_timeline_count=False)
+                    fresh = parser_mod.load_session_meta(sd_res, include_timeline_count=False)
                     # List probe is authoritative for live turn status (gate/freshness).
                     if outcome:
                         fresh.turn_outcome = outcome

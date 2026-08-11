@@ -65,7 +65,13 @@ async def test_selecting_gh_persona_via_widget_shows_gh_on(tmp_path: Path) -> No
         await pilot.pause()
         sel = scr.query_one("#persona-select", Select)
         sel.value = persona_select_value("gh-p")
-        await pilot.pause()
+        # Select.Changed is async; a single pause can return before the handler
+        # rebuilds the runtime panel (CI flake under load).
+        await wait_until(
+            pilot,
+            lambda: scr._persona_id == "gh-p",
+            description="persona gh-p selected",
+        )
         assert scr._persona_id_from_form() == "gh-p"
         panel = scr.query_one("#runtime-launch-panel", Static)
         text = assert_static_contains(panel, "gh on", msg="runtime-launch-panel after select")

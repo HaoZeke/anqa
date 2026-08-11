@@ -15,6 +15,7 @@ htmlcov/
 .mypy_cache/
 __pycache__/
 *.py[cod]
+*.so
 .pytest_cache/
 # Python
 # Repo-root runtime (traces, local overrides — not package sources)
@@ -27,6 +28,9 @@ traces/
 *.swp
 # iced HUD crate
 groket-hud/target/
+# updates.jsonl scan leaf
+native/groket-core/target/
+native/groket-core/Cargo.lock
 groket-hud/node_modules/
 groket-hud/dist/
 .superpowers/

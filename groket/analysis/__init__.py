@@ -29,7 +29,6 @@ from .registry import (
     register_analyzer,
     set_default_analyzer,
 )
-from .service import AnalysisService, get_analysis_service, set_analysis_service
 
 __all__ = [
     "AnalysisPipelineConfig",
@@ -53,13 +52,20 @@ __all__ = [
     "set_default_analyzer",
 ]
 
-
-def _register_builtins() -> None:
-    from .basic import BasicAnalyzer
-    from .plugins.engine.analyzer import EngineDetectorAnalyzer
-
-    register_analyzer(BasicAnalyzer(), default=True)
-    register_analyzer(EngineDetectorAnalyzer())
+_SERVICE_EXPORTS = frozenset({"AnalysisService", "get_analysis_service", "set_analysis_service"})
 
 
-_register_builtins()
+def __getattr__(name: str) -> object:
+    """Load the service façade and built-in plugins on first use."""
+    if name in _SERVICE_EXPORTS:
+        from . import service as _service
+        from .registry import ensure_builtins
+
+        ensure_builtins()
+        return getattr(_service, name)
+    import importlib
+
+    try:
+        return importlib.import_module(f"{__name__}.{name}")
+    except ModuleNotFoundError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc

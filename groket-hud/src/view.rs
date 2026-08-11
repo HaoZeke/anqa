@@ -22,7 +22,7 @@ use crate::format::{
 };
 use crate::live::{
     rail_visible_range, visible_range, wheel_scroll, CardMark, LIST_ROW_H, TIMELINE_OVERSCAN,
-    TIMELINE_ROW_H,
+    TIMELINE_ROW_H, TURN_ROW_H,
 };
 use crate::model::{KindFilter, Tab};
 use crate::scroll::ScrollRail;
@@ -217,7 +217,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     } else {
         match hud.tab() {
             Tab::Overview => overview_tab(hud),
-            Tab::Turns => turns_tab(hud),
+            Tab::Turns => column![].into(),
             Tab::Timeline => column![].into(),
             Tab::Findings => findings_tab(hud),
             Tab::Notes => notes_tab(hud),
@@ -237,14 +237,18 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
                 height: vp.bounds().height,
             }),
         );
+    } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
+        stack = stack.push(
+            container(responsive(move |size| {
+                turns_tab_at(hud, size.height.max(1.0))
+            }))
+            .padding([16, 20])
+            .width(Length::Fill)
+            .height(Length::Fill),
+        );
     } else {
         stack = stack.push(
-            scrollable(container(body).padding([16, 20]).width(Length::Fill))
-                .height(Length::Fill)
-                .on_scroll(|vp| Message::TimelineScroll {
-                    y: vp.absolute_offset().y,
-                    height: vp.bounds().height,
-                }),
+            scrollable(container(body).padding([16, 20]).width(Length::Fill)).height(Length::Fill),
         );
     }
     container(stack)
@@ -559,7 +563,7 @@ fn marks_row(
     r.into()
 }
 
-fn turns_tab(hud: &Hud) -> Element<'_, Message> {
+fn turns_tab_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
     let (turn_marks, _) = hud.card_marks();
@@ -569,8 +573,16 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             .color(hud.tokens().muted)
             .into();
     }
-    let mut col = column![].spacing(12);
-    for t in turns {
+    let n = turns.len();
+    let win = visible_range(
+        hud.turn_scroll_y(),
+        viewport,
+        TURN_ROW_H,
+        n,
+        TIMELINE_OVERSCAN + 1,
+    );
+    let mut col = column![].spacing(0);
+    for t in &turns[win.start..win.end] {
         let idx = t.turn_index;
         let jump = t.user_event_index.or(t.first_index);
         let summary = t.summary.clone();
@@ -667,18 +679,27 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             .style(move |_| style::card(hud.tokens(), false)),
         );
     }
-    col.into()
+    virt_pane(
+        col.into(),
+        n as f32 * TURN_ROW_H,
+        viewport,
+        hud.turn_scroll_y(),
+        move |y| Message::TurnScroll {
+            y,
+            height: viewport,
+        },
+    )
 }
 
 fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
-    if hud.timeline_loading() && hud.filtered_timeline().is_empty() {
+    if hud.timeline_loading() && hud.filtered_indices().is_empty() {
         return text("Loading timeline…")
             .size(typo::BODY)
             .color(hud.tokens().muted)
             .into();
     }
-    let events = hud.filtered_timeline();
-    if events.is_empty() {
+    let idxs = hud.filtered_indices();
+    if idxs.is_empty() {
         if hud.timeline_loading() || !hud.timeline_complete() {
             return text("Loading matching events…")
                 .size(typo::BODY)
@@ -692,7 +713,7 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     }
     let (_, ev_marks) = hud.card_marks();
     let focus = hud.timeline_focus();
-    let n = events.len();
+    let n = idxs.len();
     let win = visible_range(
         hud.tl_scroll_y(),
         viewport,
@@ -706,7 +727,11 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     if win.pad_top > 0.0 {
         col = col.push(Space::with_height(win.pad_top));
     }
-    for ev in events[start..end].iter().copied() {
+    let source = hud.timeline_events();
+    for &src_i in &idxs[start..end] {
+        let Some(ev) = source.get(src_i) else {
+            continue;
+        };
         let ix = ev.index;
         let turn = ev.turn_index.map(|n| n.to_string()).unwrap_or_default();
         let heading = if ev.heading.is_empty() {

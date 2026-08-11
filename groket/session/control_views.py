@@ -16,6 +16,7 @@ from .. import event_types as et
 from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent, as_json_object
 from ..notes import load_schema, notes_snapshot
 from ..parser import (
+    TimelineStamp,
     load_session_meta,
     parse_timeline,
     session_timeline_stamp,
@@ -45,14 +46,14 @@ DEFAULT_FINDINGS_LIMIT = 80
 # Concurrent HUD open + live poll + notifies were double-building the same
 # multi‑MB session overview (~12–30s each). Join one flight per path and cache
 # by timeline/notes/findings inputs so warm re-polls stay cheap.
-_OverviewStamp = tuple[object, str, tuple[tuple[str, int, int], ...]]
+_OverviewStamp = tuple[TimelineStamp, str, tuple[tuple[str, int, int], ...]]
 _overview_cache: dict[str, tuple[_OverviewStamp, JsonObject]] = {}
 _overview_inflight: dict[str, Future[JsonObject]] = {}
 _overview_inflight_lock = threading.Lock()
 
 # Warm paged session/timeline must not re-segment multi‑k event lists.
 # Keyed by session path; invalidated when session_timeline_stamp changes.
-_TurnViewCache = tuple[object, list[TurnSegment], dict[int, int]]
+_TurnViewCache = tuple[TimelineStamp, list[TurnSegment], dict[int, int]]
 _turn_view_cache: dict[str, _TurnViewCache] = {}
 _turn_view_lock = threading.Lock()
 

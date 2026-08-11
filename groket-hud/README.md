@@ -21,14 +21,21 @@ Sol-style session **command palette** for the local groket control plane
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
-- Typeahead over the drained ``session/list`` catalog
-- Detail: overview, turns, live timeline, findings, notes
+- Typeahead over the ``session/list`` catalog (first paint is one page; the
+  rest fills in the background; empty search does not clone the catalog)
+- Detail: overview, turns, live timeline, findings, notes. Turns and timeline
+  mount only the visible cards.
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview and the timeline tail about every 3s (idle sessions slower).
 - Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;
   override with ``~/.groket/config.json`` ``hud.global_shortcut`` or env
   ``GROKET_HUD_SHORTCUT``
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
+- Linux StatusNotifier tray (Swaybar, Waybar, and other SNI hosts): left-click
+  or **Show HUD** reveals and focuses the palette. **Quit Groket HUD** exits
+  the HUD process only; ``groket serve`` stays up. Escape hides the overlay
+  and leaves the tray item in place. A missing tray host is logged; the
+  HUD stays up (summon hotkey and pop-out still work).
 - Desktop notifications (awaiting / complete / cancelled / failed, and
   analysis done or error) go to the host daemon: dunst, mako, fnott, or
   swaync on Linux (org.freedesktop.Notifications), Notification Center on
@@ -41,6 +48,8 @@ Sol-style session **command palette** for the local groket control plane
   (yabai, i3, sway) tiles it and a stacking desktop just shows it.
   Closing the window does not stop the HUD process. Tiling shells unfocus
   a new overlay on map, so blur does not hide it.
+  On Wayland (Sway) the compositor owns focus: the HUD does not X11-grab
+  or remap an already-visible overlay (tray Show is idempotent).
 
 ## Prerequisites
 
@@ -77,4 +86,5 @@ window loop, and the Unix socket client are omitted from that floor).
 | ``GROKET_HUD_DEV`` | Same as ``--dev`` |
 | ``GROKET_HUD_DEBUG`` | Same as ``--debug`` |
 | ``GROKET_HUD_LOG`` | Append-only error log path (default ``~/.groket/hud.log``) |
+| ``GROKET_HUD_SHOW_ON_START`` | Show and focus the palette when the process starts (``1`` / ``true`` / ``yes``) |
 | ``GROKET_HUD_NOTIFY`` | ``0`` / ``false`` / ``no`` disables desktop notifications |

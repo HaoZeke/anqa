@@ -111,6 +111,27 @@ where
     scored.into_iter().map(|(_, t)| t).collect()
 }
 
+/// Same rank as [`fuzzy_filter`], but returns source indices and does not clone *items*.
+pub fn fuzzy_filter_indices<T, F>(query: &str, items: &[T], mut text_fn: F) -> Vec<usize>
+where
+    F: FnMut(&T) -> String,
+{
+    let q = query.trim();
+    if q.is_empty() {
+        return (0..items.len()).collect();
+    }
+    let mut scored: Vec<(i32, usize)> = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let text = text_fn(item);
+        let score = fzf_score(q, &text);
+        if score > 0 {
+            scored.push((score, i));
+        }
+    }
+    scored.sort_by_key(|b| std::cmp::Reverse(b.0));
+    scored.into_iter().map(|(_, i)| i).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +147,18 @@ mod tests {
         let items = ["zzz", "hud window", "session"];
         let out = fuzzy_filter("hud", &items, |s| (*s).to_string());
         assert_eq!(out, vec!["hud window"]);
+    }
+
+    #[test]
+    fn filter_indices_match_owned_filter() {
+        let items = ["zzz", "hud window", "session"];
+        let owned = fuzzy_filter("hud", &items, |s| (*s).to_string());
+        let idxs = fuzzy_filter_indices("hud", &items, |s| (*s).to_string());
+        let via_idx: Vec<&str> = idxs.iter().map(|&i| items[i]).collect();
+        assert_eq!(via_idx, owned);
+        assert_eq!(
+            fuzzy_filter_indices("", &items, |s| (*s).to_string()),
+            vec![0, 1, 2]
+        );
     }
 }

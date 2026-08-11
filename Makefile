@@ -1,6 +1,6 @@
 # Local development targets (uv-first), shaped after alisaifee/coredis.
 
-.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check examples-check hud-themes hud-themes-check hud-check hud-cov brand
+.PHONY: help lint lint-fix lint-complexity test test-cov clean ci install schema schema-check examples-check hud-themes hud-themes-check hud-check hud-cov brand ext native-check
 
 help:
 	@echo "groket development targets"
@@ -18,6 +18,8 @@ help:
 	@echo "  test             pytest"
 	@echo "  test-cov         pytest with coverage report"
 	@echo "  brand            rebuild brand/ from the geometric mark"
+	@echo "  ext              optional Limited API listwalk (remote builder only)"
+	@echo "  native-check     cargo test groket-core (remote builder; not this laptop)"
 	@echo "  ci               lint + schema-check + hud-check + examples-check + test"
 	@echo "  clean            caches and build artefacts"
 
@@ -105,6 +107,15 @@ hud-cov:
 # Logo pack (fonttools/pillow in the brand group; rsvg-convert from librsvg).
 brand:
 	uv run --group brand python brand/build.py
+
+# Optional CPython Limited API extension (groket._listwalk).
+# Must be run on the remote builder. Do not compile on the laptop.
+ext:
+	GROKET_BUILD_EXT=1 uv sync --reinstall-package groket
+
+# Rust scan leaf. Must be run on the remote builder. Do not compile here.
+native-check:
+	cargo test --manifest-path native/groket-core/Cargo.toml
 
 test:
 	uv run pytest tests/ -q --tb=short
