@@ -16,15 +16,15 @@ use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
 use crate::format::{control_down_message, new_note_id};
-use crate::fuzzy::fuzzy_filter;
+use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, first_list_fetch, index_outside_visible,
-    is_partial_list_page, is_soft_notes_save_error, merge_catalog_rows, merge_timeline_by_index,
-    next_list_offset, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
-    plan_tick, session_needs_live_poll, session_rpc_ref, should_continue_timeline,
-    should_fetch_timeline, timeline_coverage_complete, timeline_first_missing_offset,
-    timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT,
-    TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
+    card_marks_from_overview, clamp_scroll, filter_timeline_indices, first_list_fetch,
+    index_outside_visible, is_partial_list_page, is_soft_notes_save_error, merge_catalog_rows,
+    merge_timeline_by_index, next_list_offset, notes_schema_fields, patch_catalog_delta,
+    patch_list_row_from_meta, plan_tick, session_needs_live_poll, session_rpc_ref,
+    should_continue_timeline, should_fetch_timeline, timeline_coverage_complete,
+    timeline_first_missing_offset, timeline_seek_offset, CardMark, TickInput, IDLE_POLL_MS,
+    LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -162,6 +162,9 @@ pub struct Hud {
     tl_scroll_y: f32,
     tl_view_h: f32,
     tl_scroll_id: scrollable::Id,
+    tl_filter: Vec<usize>,
+    turn_marks: std::collections::HashMap<i64, CardMark>,
+    event_marks: std::collections::HashMap<i64, CardMark>,
 }
 
 impl Default for Hud {
@@ -211,6 +214,9 @@ impl Default for Hud {
             tl_scroll_y: 0.0,
             tl_view_h: 400.0,
             tl_scroll_id: scrollable::Id::new("hud-timeline"),
+            tl_filter: vec![],
+            turn_marks: std::collections::HashMap::new(),
+            event_marks: std::collections::HashMap::new(),
         }
     }
 }
@@ -360,7 +366,7 @@ impl Hud {
                 &self.selected_status(),
                 self.overview.as_ref().map(|o| &o.turns),
             ) || self
-                .sessions
+                .all_sessions
                 .iter()
                 .any(|r| session_needs_live_poll(&r.status, None));
             let poll = if any_live { LIVE_POLL_MS } else { IDLE_POLL_MS };
@@ -380,7 +386,7 @@ impl Hud {
                 Task::none()
             }
             Message::SelectSession(i) => {
-                if i >= self.sessions.len() {
+                if i >= self.sessions().len() {
                     return self.focus_overlay();
                 }
                 let same = self.active == i && self.overview.is_some();
@@ -406,6 +412,7 @@ impl Hud {
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query = q;
+                self.rebuild_tl_filter();
                 if !self.timeline_query.trim().is_empty() && !self.timeline_complete() {
                     if let Some(sid) = self.selected_sid() {
                         return self.fill_timeline(sid);
@@ -415,6 +422,7 @@ impl Hud {
             }
             Message::TimelineKind(k) => {
                 self.timeline_kind = k;
+                self.rebuild_tl_filter();
                 if k != KindFilter::All && !self.timeline_complete() {
                     if let Some(sid) = self.selected_sid() {
                         return self.fill_timeline(sid);
@@ -427,6 +435,7 @@ impl Hud {
                 self.tab = Tab::Timeline;
                 self.timeline_query.clear();
                 self.timeline_kind = KindFilter::All;
+                self.rebuild_tl_filter();
                 let y = self
                     .timeline_focus_pos()
                     .map(|pos| pos as f32 * TIMELINE_ROW_H)
@@ -490,7 +499,7 @@ impl Hud {
                 if height > 1.0 {
                     self.list_view_h = height;
                 }
-                let content = self.sessions.len() as f32 * LIST_ROW_H;
+                let content = self.sessions().len() as f32 * LIST_ROW_H;
                 self.list_scroll_y = clamp_scroll(y, content, self.list_view_h);
                 Task::none()
             }
@@ -506,7 +515,7 @@ impl Hud {
                         self.tl_scroll_y,
                         self.tl_view_h,
                         TIMELINE_ROW_H,
-                        self.filtered_timeline().len(),
+                        self.tl_filter.len(),
                         TIMELINE_OVERSCAN,
                         pos,
                     ) {
@@ -609,6 +618,8 @@ impl Hud {
                         self.overview = Some(ov);
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
+                        self.rebuild_marks();
+                        self.rebuild_tl_filter();
                         self.mark_up();
                         if should_fetch_timeline(self.tab == Tab::Timeline) {
                             return Task::batch([
@@ -679,6 +690,7 @@ impl Hud {
                         if self.timeline_total > 0 {
                             self.timeline_next = self.timeline_next.min(self.timeline_total);
                         }
+                        self.rebuild_tl_filter();
                         self.mark_up();
                         if should_continue_timeline(
                             self.tab == Tab::Timeline,
@@ -778,7 +790,11 @@ impl Hud {
         &self.query
     }
     pub fn sessions(&self) -> &[SessionRow] {
-        &self.sessions
+        if self.query.trim().is_empty() {
+            &self.all_sessions
+        } else {
+            &self.sessions
+        }
     }
     pub fn active(&self) -> usize {
         self.active
@@ -847,30 +863,20 @@ impl Hud {
     pub fn notes_schema(&self) -> Vec<SchemaField> {
         notes_schema_fields(self.overview.as_ref())
     }
+    pub fn filtered_indices(&self) -> &[usize] {
+        &self.tl_filter
+    }
     pub fn filtered_timeline(&self) -> Vec<&TimelineEvent> {
-        if self.timeline_sid != self.overview_sid {
-            return vec![];
-        }
-        let mut out: Vec<&TimelineEvent> = self
-            .timeline
+        self.tl_filter
             .iter()
-            .filter(|ev| ev.matches_kind(self.timeline_kind))
-            .collect();
-        let needle = self.timeline_query.trim();
-        if needle.is_empty() {
-            return out;
-        }
-        let owned: Vec<TimelineEvent> = out.iter().map(|v| (*v).clone()).collect();
-        let filtered = fuzzy_filter(needle, &owned, TimelineEvent::haystack);
-        let want: std::collections::HashSet<i64> = filtered.iter().map(|e| e.index).collect();
-        out.retain(|e| want.contains(&e.index));
-        out
+            .filter_map(|&i| self.timeline.get(i))
+            .collect()
     }
     pub fn timeline_meta(&self) -> String {
         if self.overview_sid.is_empty() {
             return String::new();
         }
-        let shown = self.filtered_timeline().len();
+        let shown = self.tl_filter.len();
         if self.timeline_complete() {
             format!("{shown}")
         } else {
@@ -880,13 +886,10 @@ impl Hud {
     pub fn card_marks(
         &self,
     ) -> (
-        std::collections::HashMap<i64, crate::live::CardMark>,
-        std::collections::HashMap<i64, crate::live::CardMark>,
+        &std::collections::HashMap<i64, CardMark>,
+        &std::collections::HashMap<i64, CardMark>,
     ) {
-        match &self.overview {
-            Some(o) => card_marks_from_overview(o),
-            None => (Default::default(), Default::default()),
-        }
+        (&self.turn_marks, &self.event_marks)
     }
 
     pub fn timeline_complete(&self) -> bool {
@@ -895,14 +898,14 @@ impl Hud {
     }
 
     fn selected_sid(&self) -> Option<String> {
-        self.sessions
+        self.sessions()
             .get(self.active)
             .map(|r| r.session_id.clone())
             .filter(|s| !s.is_empty())
     }
 
     fn selected_rpc_ref(&self) -> Option<String> {
-        let row = self.sessions.get(self.active)?;
+        let row = self.sessions().get(self.active)?;
         let r = session_rpc_ref(&row.path, &row.session_id);
         if r.is_empty() {
             None
@@ -941,9 +944,9 @@ impl Hud {
 
     pub fn timeline_focus_pos(&self) -> Option<usize> {
         let focus = self.timeline_focus?;
-        self.filtered_timeline()
+        self.tl_filter
             .iter()
-            .position(|ev| ev.index == focus)
+            .position(|&i| self.timeline.get(i).is_some_and(|ev| ev.index == focus))
     }
 
     fn ensure_active_visible(&mut self) -> Task<Message> {
@@ -967,7 +970,7 @@ impl Hud {
                 return s;
             }
         }
-        self.sessions
+        self.sessions()
             .get(self.active)
             .map(|r| r.status.clone())
             .unwrap_or_default()
@@ -999,6 +1002,32 @@ impl Hud {
         self.typing_notes = false;
         self.overview = None;
         self.overview_sid.clear();
+        self.tl_filter.clear();
+        self.turn_marks.clear();
+        self.event_marks.clear();
+    }
+
+    fn rebuild_tl_filter(&mut self) {
+        if self.timeline_sid != self.overview_sid {
+            self.tl_filter.clear();
+            return;
+        }
+        self.tl_filter =
+            filter_timeline_indices(&self.timeline, self.timeline_kind, &self.timeline_query);
+    }
+
+    fn rebuild_marks(&mut self) {
+        match &self.overview {
+            Some(o) => {
+                let (turns, events) = card_marks_from_overview(o);
+                self.turn_marks = turns;
+                self.event_marks = events;
+            }
+            None => {
+                self.turn_marks.clear();
+                self.event_marks.clear();
+            }
+        }
     }
 
     fn apply_list(&mut self, listed: Value, quiet: bool) {
@@ -1055,7 +1084,7 @@ impl Hud {
         self.rerank_visible();
         self.mark_up();
         if !quiet {
-            if self.sessions.is_empty() {
+            if self.sessions().is_empty() {
                 self.status = if self.query.trim().is_empty() {
                     self.status_err = true;
                     crate::log::error("no sessions from control");
@@ -1089,33 +1118,42 @@ impl Hud {
 
     fn rerank_visible(&mut self) {
         let keep = self
-            .sessions
+            .sessions()
             .get(self.active)
             .map(|r| r.session_id.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.overview_sid.clone());
-        let mut ranked = if self.query.trim().is_empty() {
-            self.all_sessions.clone()
+        if self.query.trim().is_empty() {
+            self.sessions.clear();
         } else {
-            fuzzy_filter(self.query.trim(), &self.all_sessions, SessionRow::haystack)
-        };
-        ranked.sort_by(|a, b| {
-            b.sort_epoch
-                .partial_cmp(&a.sort_epoch)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.session_id.cmp(&b.session_id))
-        });
-        self.sessions = ranked;
-        if !keep.is_empty() {
-            if let Some(idx) = self.sessions.iter().position(|r| r.session_id == keep) {
-                self.active = idx;
-            } else {
-                self.active = 0;
-            }
-        } else if self.active >= self.sessions.len() {
-            self.active = self.sessions.len().saturating_sub(1);
+            let idxs =
+                fuzzy_filter_indices(self.query.trim(), &self.all_sessions, SessionRow::haystack);
+            let mut ranked: Vec<SessionRow> = idxs
+                .into_iter()
+                .filter_map(|i| self.all_sessions.get(i).cloned())
+                .collect();
+            ranked.sort_by(|a, b| {
+                b.sort_epoch
+                    .partial_cmp(&a.sort_epoch)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.session_id.cmp(&b.session_id))
+            });
+            self.sessions = ranked;
         }
-        let content = self.sessions.len() as f32 * LIST_ROW_H;
+        let n = self.sessions().len();
+        let keep_at = if keep.is_empty() {
+            None
+        } else {
+            self.sessions().iter().position(|r| r.session_id == keep)
+        };
+        if let Some(idx) = keep_at {
+            self.active = idx;
+        } else if !keep.is_empty() {
+            self.active = 0;
+        } else if self.active >= n {
+            self.active = n.saturating_sub(1);
+        }
+        let content = n as f32 * LIST_ROW_H;
         self.list_scroll_y = clamp_scroll(self.list_scroll_y, content, self.list_view_h.max(1.0));
     }
 
@@ -1156,6 +1194,7 @@ impl Hud {
             self.timeline_total = 0;
             self.timeline_next = 0;
             self.tl_scroll_y = 0.0;
+            self.tl_filter.clear();
         }
         let seed = self
             .timeline_focus
@@ -1337,12 +1376,15 @@ impl Hud {
     }
 
     fn apply_notes_snapshot(&mut self, snap: &Value) {
-        let Some(o) = self.overview.as_mut() else {
-            return;
-        };
-        if let Some(block) = NotesBlock::from_control_snapshot(snap, &o.notes) {
-            o.notes = block;
+        {
+            let Some(o) = self.overview.as_mut() else {
+                return;
+            };
+            if let Some(block) = NotesBlock::from_control_snapshot(snap, &o.notes) {
+                o.notes = block;
+            }
         }
+        self.rebuild_marks();
     }
 
     fn win_task(&self, f: impl FnOnce(window::Id) -> Task<Message>) -> Task<Message> {
@@ -1551,7 +1593,7 @@ impl Hud {
         );
         let any_live = live
             || self
-                .sessions
+                .all_sessions
                 .iter()
                 .any(|r| session_needs_live_poll(&r.status, None));
         let elapsed = self.last_live.elapsed().as_millis() as u64;
@@ -1631,23 +1673,24 @@ impl Hud {
             return self.update(Message::SetTab(Tab::ALL[next]));
         }
         match key {
-            Key::Named(Named::ArrowDown) if !self.sessions.is_empty() => {
-                self.active = (self.active + 1) % self.sessions.len();
+            Key::Named(Named::ArrowDown) if !self.sessions().is_empty() => {
+                self.active = (self.active + 1) % self.sessions().len();
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
-            Key::Named(Named::ArrowUp) if !self.sessions.is_empty() => {
-                self.active = (self.active + self.sessions.len() - 1) % self.sessions.len();
+            Key::Named(Named::ArrowUp) if !self.sessions().is_empty() => {
+                let n = self.sessions().len();
+                self.active = (self.active + n - 1) % n;
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
-            Key::Named(Named::Home) if !self.sessions.is_empty() => {
+            Key::Named(Named::Home) if !self.sessions().is_empty() => {
                 self.active = 0;
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
-            Key::Named(Named::End) if !self.sessions.is_empty() => {
-                self.active = self.sessions.len() - 1;
+            Key::Named(Named::End) if !self.sessions().is_empty() => {
+                self.active = self.sessions().len() - 1;
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
@@ -1802,6 +1845,58 @@ fn hotkey_stream() -> impl iced::futures::Stream<Item = Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timeline_filter_cache_avoids_per_frame_scan() {
+        let mut hud = Hud {
+            overview_sid: "s".into(),
+            timeline_sid: "s".into(),
+            timeline: vec![
+                TimelineEvent {
+                    index: 0,
+                    kind: "user".into(),
+                    content: "hello".into(),
+                    ..TimelineEvent::default()
+                },
+                TimelineEvent {
+                    index: 1,
+                    kind: "tool".into(),
+                    content: "run".into(),
+                    ..TimelineEvent::default()
+                },
+                TimelineEvent {
+                    index: 2,
+                    kind: "agent".into(),
+                    content: "ok".into(),
+                    ..TimelineEvent::default()
+                },
+            ],
+            ..Hud::default()
+        };
+        hud.rebuild_tl_filter();
+        assert_eq!(hud.filtered_indices(), &[0, 1, 2]);
+        hud.timeline_kind = KindFilter::Tools;
+        hud.rebuild_tl_filter();
+        assert_eq!(hud.filtered_indices(), &[1]);
+        assert_eq!(hud.filtered_timeline().len(), 1);
+    }
+
+    #[test]
+    fn empty_search_uses_all_sessions_without_a_second_copy() {
+        let mut hud = Hud {
+            all_sessions: vec![SessionRow {
+                session_id: "a".into(),
+                title: "Alpha".into(),
+                ..SessionRow::default()
+            }],
+            query: String::new(),
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        assert_eq!(hud.sessions().len(), 1);
+        assert!(hud.sessions.is_empty());
+        assert_eq!(hud.sessions()[0].session_id, "a");
+    }
 
     #[test]
     fn palette_settings_are_fixed_overlay() {

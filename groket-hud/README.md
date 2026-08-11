@@ -21,8 +21,10 @@ Sol-style session **command palette** for the local groket control plane
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
-- Typeahead over the ``session/list`` catalog (first paint is one page; the rest fills in the background)
-- Detail: overview, turns, live timeline, findings, notes
+- Typeahead over the ``session/list`` catalog (first paint is one page; the
+  rest fills in the background; empty search does not clone the catalog)
+- Detail: overview, turns, live timeline, findings, notes. Turns and timeline
+  mount only the visible cards.
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview and the timeline tail about every 3s (idle sessions slower).
 - Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;

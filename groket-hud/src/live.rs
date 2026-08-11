@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::model::{SchemaField, SessionRow};
+use crate::model::{KindFilter, SchemaField, SessionRow};
 use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnsBlock};
 
 pub const LIVE_POLL_MS: u64 = 3000;
@@ -17,6 +17,8 @@ pub const LIST_ROW_H: f32 = 60.0;
 pub const TIMELINE_ROW_H: f32 = 160.0;
 /// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
 pub const TIMELINE_OVERSCAN: usize = 1;
+/// Estimated turn card (padding + title + user/assistant + meta).
+pub const TURN_ROW_H: f32 = 200.0;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
 pub const WHEEL_LINE_PX: f32 = 60.0;
 pub const VIRT_OVERSCAN: usize = 4;
@@ -310,6 +312,37 @@ pub fn has_open_turn(turns: &TurnsBlock) -> bool {
 
 pub fn session_needs_live_poll(status: &str, turns: Option<&TurnsBlock>) -> bool {
     is_live_status(status) || turns.is_some_and(has_open_turn)
+}
+
+/// Indices into *events* after kind + typeahead filter.
+///
+/// Empty *query* keeps timeline order. A non-empty query ranks by
+/// [`crate::fuzzy::fzf_score`] and does not clone the events.
+pub fn filter_timeline_indices(
+    events: &[TimelineEvent],
+    kind: KindFilter,
+    query: &str,
+) -> Vec<usize> {
+    let kinded: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, ev)| ev.matches_kind(kind))
+        .map(|(i, _)| i)
+        .collect();
+    let needle = query.trim();
+    if needle.is_empty() {
+        return kinded;
+    }
+    let mut scored: Vec<(i32, usize)> = Vec::new();
+    for i in kinded {
+        let text = events[i].haystack();
+        let score = crate::fuzzy::fzf_score(needle, &text);
+        if score > 0 {
+            scored.push((score, i));
+        }
+    }
+    scored.sort_unstable_by_key(|b| std::cmp::Reverse(b.0));
+    scored.into_iter().map(|(_, i)| i).collect()
 }
 
 /// Next ``session/list`` offset, or ``None`` when the catalog drain is done.
@@ -744,6 +777,37 @@ mod tests {
         assert_eq!(next_list_offset(200, 200, 450, true), None);
         assert_eq!(next_list_offset(0, 200, 10, false), None);
         assert_eq!(next_list_offset(0, 200, 10, true), None);
+    }
+
+    #[test]
+    fn filter_timeline_indices_keeps_order_without_query() {
+        let events = vec![
+            ev(0, "user", "hello"),
+            ev(1, "tool", "run"),
+            ev(2, "agent", "ok"),
+        ];
+        assert_eq!(
+            filter_timeline_indices(&events, KindFilter::All, ""),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            filter_timeline_indices(&events, KindFilter::Tools, ""),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn filter_timeline_indices_ranks_query_without_cloning_order_source() {
+        let events = vec![
+            ev(0, "user", "alpha"),
+            ev(1, "user", "hud window"),
+            ev(2, "user", "other"),
+        ];
+        assert_eq!(
+            filter_timeline_indices(&events, KindFilter::All, "hud"),
+            vec![1]
+        );
+        assert!(filter_timeline_indices(&events, KindFilter::Tools, "hud").is_empty());
     }
 
     #[test]
