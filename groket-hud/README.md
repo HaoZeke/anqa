@@ -39,7 +39,8 @@ Sol-style session **command palette** for the local groket control plane
 - Desktop notifications (awaiting / complete / cancelled / failed, and
   analysis done or error) go to the host daemon: dunst, mako, fnott, or
   swaync on Linux (org.freedesktop.Notifications), Notification Center on
-  macOS, toasts on Windows. ``GROKET_HUD_NOTIFY=0`` or
+  macOS, toasts on Windows. The packaged 32px mark is attached when it
+  can be written under ``~/.groket``. ``GROKET_HUD_NOTIFY=0`` or
   ``hud.desktop_notifications: false`` turns them off.
 - Overlay: hides on **Esc** or the summon hotkey. It is a floating card
   (macOS system dialog / Linux override-redirect) so a tiler does not

@@ -262,11 +262,27 @@ fn icon_file() -> Option<String> {
     let path = std::path::PathBuf::from(home)
         .join(".groket")
         .join("hud-notify.png");
-    if !path.is_file() {
-        let _ = std::fs::create_dir_all(path.parent()?);
-        let _ = std::fs::write(&path, ICON_PNG);
+    match ensure_icon_file(&path) {
+        Ok(()) => Some(path.to_string_lossy().into_owned()),
+        Err(err) => {
+            crate::log::error(&format!("desktop notify icon: {err}"));
+            None
+        }
     }
-    path.is_file().then(|| path.to_string_lossy().into_owned())
+}
+
+fn ensure_icon_file(path: &std::path::Path) -> std::io::Result<()> {
+    if path.is_file() {
+        return Ok(());
+    }
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "notify icon path has no parent",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::write(path, ICON_PNG)
 }
 
 fn display_name(title: &str, sid: &str) -> String {
@@ -409,5 +425,33 @@ mod tests {
         assert!(take_analysis_notice(&mut seen, &done, "T").is_none());
         let err = serde_json::json!({"sessionId": "s1", "state": "error", "error": "boom"});
         assert!(take_analysis_notice(&mut seen, &err, "T").is_some());
+    }
+
+    #[test]
+    fn ensure_icon_writes_then_skips() {
+        let dir =
+            std::env::temp_dir().join(format!("groket-hud-notify-icon-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hud-notify.png");
+        ensure_icon_file(&path).unwrap();
+        assert!(path.is_file());
+        let first_len = std::fs::metadata(&path).unwrap().len();
+        ensure_icon_file(&path).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), first_len);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_icon_fails_when_parent_is_a_file() {
+        let dir =
+            std::env::temp_dir().join(format!("groket-hud-notify-icon-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let blocker = dir.join("not-a-dir");
+        std::fs::write(&blocker, b"x").unwrap();
+        let path = blocker.join("hud-notify.png");
+        assert!(ensure_icon_file(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
