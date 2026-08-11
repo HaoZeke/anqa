@@ -31,7 +31,6 @@ from textual.widgets import (
 )
 
 from ... import event_types as et
-from ...analysis import get_analysis_service
 from ...analysis.base import AnalysisResult, Finding
 from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_turn
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
@@ -181,6 +180,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         getter = getattr(app, "_analysis_svc", None) if app is not None else None
         if callable(getter):
             return getter()
+        from ...analysis.service import get_analysis_service
+
         return get_analysis_service()
 
     def compose(self) -> ComposeResult:
@@ -880,7 +881,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         # Coalesce FS storms: one light job per min gap (not a second parse
         # throttle inside the job — that skipped new rows until full reload).
-        size_hint = len(self.timeline or []) * 4096
+        size_hint = len(getattr(self, "timeline", None) or []) * 4096
         if not self._uses_control_data():
             size_hint = updates_jsonl_size(self.session_dir)
         min_gap = live_browser_timeline_min_interval(size_hint)
@@ -945,7 +946,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._light_refresh_heartbeat = False
         if not pending:
             return
-        size_hint = len(self.timeline or []) * 4096
+        size_hint = len(getattr(self, "timeline", None) or []) * 4096
         if not self._uses_control_data():
             size_hint = updates_jsonl_size(self.session_dir)
         min_gap = live_browser_timeline_min_interval(size_hint)

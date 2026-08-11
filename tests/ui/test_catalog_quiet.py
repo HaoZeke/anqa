@@ -8,6 +8,35 @@ from groket.models import SessionMeta
 from groket.ui.app import TraceEvalApp
 
 
+def test_importing_trace_eval_app_does_not_import_analysis_service() -> None:
+    """Cold ``import groket.ui.app`` must not pull AnalysisService / builtins."""
+    import sys
+
+    saved = {
+        name: sys.modules[name]
+        for name in list(sys.modules)
+        if name == "groket.analysis" or name.startswith("groket.analysis.")
+    }
+    for name in list(saved):
+        del sys.modules[name]
+    ui_app = sys.modules.pop("groket.ui.app", None)
+    try:
+        import groket.ui.app as app_mod
+
+        assert "groket.analysis.service" not in sys.modules
+        assert "groket.analysis.basic" not in sys.modules
+        assert "groket.analysis.plugins.engine.analyzer" not in sys.modules
+        assert "groket.analysis.plugins.engine" not in sys.modules
+        assert app_mod.TraceEvalApp is not None
+    finally:
+        if ui_app is not None:
+            sys.modules["groket.ui.app"] = ui_app
+        for name in list(sys.modules):
+            if name == "groket.analysis" or name.startswith("groket.analysis."):
+                del sys.modules[name]
+        sys.modules.update(saved)
+
+
 def test_tui_on_mount_does_not_construct_analysis_service() -> None:
     """Opening the TUI must not construct AnalysisService or load plugins."""
     source = Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.py"
@@ -100,6 +129,73 @@ def test_initial_control_load_fetches_first_page_only(tmp_path: Path, monkeypatc
     assert fetches[0]["limit"] == DEFAULT_SESSION_LIST_LIMIT
     assert fetches[0]["offset"] == 0
     assert not any(f.get("drain") is True for f in fetches)
+
+
+def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, monkeypatch) -> None:
+    """First paint stays on one page even when ``matched`` is larger."""
+    from groket.session.access import DEFAULT_SESSION_LIST_LIMIT
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    fetches: list[dict[str, object]] = []
+    page_rows = [
+        {
+            "sessionId": f"s{i}",
+            "path": str(traces / f"s{i}"),
+            "title": f"S{i}",
+            "label": f"S{i}",
+            "origin": "work",
+        }
+        for i in range(3)
+    ]
+
+    def fake_fetch(
+        *,
+        query: str = "",
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        fetches.append({"drain": drain, "limit": limit, "offset": offset})
+        if drain:
+            return {
+                "sessions": page_rows + page_rows,
+                "total": 450,
+                "matched": 450,
+                "revision": 4,
+                "unchanged": False,
+                "removed": [],
+                "delta": False,
+            }
+        return {
+            "sessions": page_rows,
+            "total": 450,
+            "matched": 450,
+            "revision": 4,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+            "incomplete": False,
+        }
+
+    monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
+    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=False)
+    assert fetches == [
+        {"drain": False, "limit": DEFAULT_SESSION_LIST_LIMIT, "offset": 0},
+    ]
+    ids = {meta.session_id for meta, _label in app._meta_only}
+    assert ids == {"s0", "s1", "s2"}
 
 
 def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monkeypatch) -> None:

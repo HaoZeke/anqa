@@ -31,6 +31,8 @@ groket
 uv tool upgrade groket   # later
 ```
 
+Optional `groket._listwalk` Limited API extension accelerates session discovery; the Python walk remains when the module is absent.
+
 ### Paths
 
 | Root | Default | Holds |
@@ -162,8 +164,11 @@ groket --no-socket           # TUI offline (no control plane)
 groket hud                   # palette; same serve auto-start by default
 ```
 
-Quitting the TUI does **not** stop the control owner. Leave ``groket serve -d``
-running; do not restart serve on every TUI or HUD launch.
+Quitting the TUI or HUD does **not** stop the control owner. Leave
+``groket serve -d`` running across TUI/HUD launches. A warm owner serves
+the catalog from RAM; killing serve on every client start pays the cold
+walk again. First TUI/HUD paint uses one ``session/list`` page; do not
+restart serve to “refresh” the list.
 
 **What clients can do**
 
