@@ -31,6 +31,8 @@ groket
 uv tool upgrade groket   # later
 ```
 
+Optional `groket._listwalk` Limited API extension accelerates session discovery; the Python walk remains when the module is absent.
+
 ### Paths
 
 | Root | Default | Holds |

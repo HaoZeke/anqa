@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import cast
 
 from .constants import INCOMPLETE_STALE_SECONDS, INTERRUPTED_MARKER_FILENAME
+from .core_scan import keep_updates_line as keep_updates_line_native
+from .core_scan import keep_updates_line_py
 from .models import (
     ChatMessage,
     JsonObject,
@@ -951,15 +953,15 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
 
 # Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative
 # shell output). Skip full JSON parse unless the line looks terminal.
-_TU_BYTES = b"tool_call_update"
-_TERM_BYTES = (
-    b'"status":"completed"',
-    b'"status": "completed"',
-    b'"status":"failed"',
-    b'"status": "failed"',
-    b'"isError":true',
-    b'"isError": true',
-)
+# Needles live in :mod:`groket.core_scan` (Python twin + optional Rust leaf).
+
+
+def _keep_updates_line(line: bytes) -> bool:
+    """True when *line* should be JSON-parsed."""
+    native = keep_updates_line_native(line)
+    if native is not None:
+        return native
+    return keep_updates_line_py(line)
 
 
 def _scan_updates_jsonl(session_dir: Path, previous: _UpdatesScanState | None) -> _UpdatesScanState:
@@ -1014,7 +1016,7 @@ def _scan_updates_jsonl(session_dir: Path, previous: _UpdatesScanState | None) -
 
 def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -> None:
     """Apply one complete ``updates.jsonl`` line into *state*."""
-    if _TU_BYTES in line and not any(m in line for m in _TERM_BYTES):
+    if not _keep_updates_line(line):
         return
 
     raw = json_object_line(line)
@@ -2259,11 +2261,21 @@ def find_sessions(root: Path) -> list[Path]:
     (workspaces under a session are not nested sessions). Descending was the
     dominant cost on large ``~/.grok/sessions`` trees (tens of seconds).
     """
+    from .native import find_sessions as native_find_sessions
     from .session.resume import is_resume_seed_path
 
     sessions: list[Path] = []
     if not root.exists():
         return sessions
+    native = native_find_sessions(root)
+    if native is not None:
+        for path in native:
+            if _is_subagent_session_dir(path):
+                continue
+            if is_resume_seed_path(path):
+                continue
+            sessions.append(path)
+        return _drop_subagent_mirror_sessions(sessions)
     # followlinks=False avoids symlink cycles into huge trees from host sessions.
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         _prune_session_walk_dirs(dirnames)

@@ -238,13 +238,8 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
         self._persist()
 
     def _persist(self) -> None:
-        from ..analysis import (
-            AnalysisPipelineConfig,
-            AnalysisService,
-            load_pipeline_config,
-            save_pipeline_config,
-            set_analysis_service,
-        )
+        from ..analysis import AnalysisPipelineConfig, load_pipeline_config, save_pipeline_config
+        from ..analysis.service import AnalysisService, set_analysis_service
         from .prefs import set_show_tips
 
         auto = self.query_one("#as-auto-analyze", Checkbox).value

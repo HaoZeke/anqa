@@ -2211,6 +2211,10 @@ def test_model_from_run_json_resolve_error(tmp_path: Path):
 
 def test_find_sessions_stat_oserror_on_events(tmp_path: Path):
     """find_sessions handles OSError on events.jsonl stat gracefully."""
+    from groket.native import listwalk
+
+    if listwalk is not None:
+        pytest.skip("C walker uses libc stat, not Path.stat")
     sd = tmp_path / "sess"
     sd.mkdir()
     ef = sd / "events.jsonl"
