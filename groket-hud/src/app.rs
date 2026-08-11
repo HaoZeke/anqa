@@ -25,6 +25,7 @@ use crate::live::{
     should_continue_timeline, should_fetch_timeline, timeline_coverage_complete,
     timeline_first_missing_offset, timeline_seek_offset, CardMark, TickInput, IDLE_POLL_MS,
     LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
+    TURN_ROW_H,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -111,6 +112,10 @@ pub enum Message {
         y: f32,
         height: f32,
     },
+    TurnScroll {
+        y: f32,
+        height: f32,
+    },
     ContinueTimeline {
         sid: String,
         gen: u64,
@@ -162,6 +167,8 @@ pub struct Hud {
     tl_scroll_y: f32,
     tl_view_h: f32,
     tl_scroll_id: scrollable::Id,
+    turn_scroll_y: f32,
+    turn_view_h: f32,
     tl_filter: Vec<usize>,
     turn_marks: std::collections::HashMap<i64, CardMark>,
     event_marks: std::collections::HashMap<i64, CardMark>,
@@ -214,6 +221,8 @@ impl Default for Hud {
             tl_scroll_y: 0.0,
             tl_view_h: 400.0,
             tl_scroll_id: scrollable::Id::new("hud-timeline"),
+            turn_scroll_y: 0.0,
+            turn_view_h: 400.0,
             tl_filter: vec![],
             turn_marks: std::collections::HashMap::new(),
             event_marks: std::collections::HashMap::new(),
@@ -522,6 +531,18 @@ impl Hud {
                         self.timeline_focus = None;
                     }
                 }
+                Task::none()
+            }
+            Message::TurnScroll { y, height } => {
+                if height > 1.0 {
+                    self.turn_view_h = height;
+                }
+                let n = self
+                    .overview
+                    .as_ref()
+                    .map(|o| o.turns.turns.len())
+                    .unwrap_or(0);
+                self.turn_scroll_y = clamp_scroll(y, n as f32 * TURN_ROW_H, self.turn_view_h);
                 Task::none()
             }
             Message::ContinueTimeline { sid, gen } => {
@@ -938,6 +959,10 @@ impl Hud {
         self.tl_view_h
     }
 
+    pub fn turn_scroll_y(&self) -> f32 {
+        self.turn_scroll_y
+    }
+
     pub fn timeline_scroll_id(&self) -> scrollable::Id {
         self.tl_scroll_id.clone()
     }
@@ -995,6 +1020,7 @@ impl Hud {
         self.timeline_total = 0;
         self.timeline_next = 0;
         self.tl_scroll_y = 0.0;
+        self.turn_scroll_y = 0.0;
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.note_draft = NoteDraft::default();
@@ -1896,6 +1922,20 @@ mod tests {
         assert_eq!(hud.sessions().len(), 1);
         assert!(hud.sessions.is_empty());
         assert_eq!(hud.sessions()[0].session_id, "a");
+    }
+
+    #[test]
+    fn turn_scroll_does_not_move_timeline() {
+        let mut hud = Hud {
+            tl_scroll_y: 400.0,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::TurnScroll {
+            y: 80.0,
+            height: 400.0,
+        });
+        assert!((hud.tl_scroll_y() - 400.0).abs() < f32::EPSILON);
+        assert!((hud.turn_scroll_y() - 0.0).abs() < f32::EPSILON);
     }
 
     #[test]

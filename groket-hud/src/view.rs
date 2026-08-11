@@ -579,7 +579,7 @@ fn turns_tab_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .into();
     }
     let n = turns.len();
-    let win = rail_visible_range(hud.tl_scroll_y(), viewport, TURN_ROW_H, n);
+    let win = rail_visible_range(hud.turn_scroll_y(), viewport, TURN_ROW_H, n);
     let mut col = column![].spacing(0);
     for t in &turns[win.start..win.end] {
         let idx = t.turn_index;
@@ -682,8 +682,8 @@ fn turns_tab_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         col.into(),
         n as f32 * TURN_ROW_H,
         viewport,
-        hud.tl_scroll_y(),
-        move |y| Message::TimelineScroll {
+        hud.turn_scroll_y(),
+        move |y| Message::TurnScroll {
             y,
             height: viewport,
         },
