@@ -316,33 +316,21 @@ pub fn session_needs_live_poll(status: &str, turns: Option<&TurnsBlock>) -> bool
 
 /// Indices into *events* after kind + typeahead filter.
 ///
-/// Empty *query* keeps timeline order. A non-empty query ranks by
-/// [`crate::fuzzy::fzf_score`] and does not clone the events.
+/// Hits stay in timeline order. A non-empty query drops non-matches
+/// via [`crate::fuzzy::fzf_score`] and does not clone the events.
 pub fn filter_timeline_indices(
     events: &[TimelineEvent],
     kind: KindFilter,
     query: &str,
 ) -> Vec<usize> {
-    let kinded: Vec<usize> = events
+    let needle = query.trim();
+    events
         .iter()
         .enumerate()
         .filter(|(_, ev)| ev.matches_kind(kind))
+        .filter(|(_, ev)| needle.is_empty() || crate::fuzzy::fzf_score(needle, &ev.haystack()) > 0)
         .map(|(i, _)| i)
-        .collect();
-    let needle = query.trim();
-    if needle.is_empty() {
-        return kinded;
-    }
-    let mut scored: Vec<(i32, usize)> = Vec::new();
-    for i in kinded {
-        let text = events[i].haystack();
-        let score = crate::fuzzy::fzf_score(needle, &text);
-        if score > 0 {
-            scored.push((score, i));
-        }
-    }
-    scored.sort_unstable_by_key(|b| std::cmp::Reverse(b.0));
-    scored.into_iter().map(|(_, i)| i).collect()
+        .collect()
 }
 
 /// Next ``session/list`` offset, or ``None`` when the catalog drain is done.
@@ -797,15 +785,15 @@ mod tests {
     }
 
     #[test]
-    fn filter_timeline_indices_ranks_query_without_cloning_order_source() {
+    fn filter_timeline_indices_keeps_time_order_for_query() {
         let events = vec![
-            ev(0, "user", "alpha"),
+            ev(0, "user", "also hud"),
             ev(1, "user", "hud window"),
             ev(2, "user", "other"),
         ];
         assert_eq!(
             filter_timeline_indices(&events, KindFilter::All, "hud"),
-            vec![1]
+            vec![0, 1]
         );
         assert!(filter_timeline_indices(&events, KindFilter::Tools, "hud").is_empty());
     }
