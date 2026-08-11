@@ -29,6 +29,11 @@ Sol-style session **command palette** for the local groket control plane
   override with ``~/.groket/config.json`` ``hud.global_shortcut`` or env
   ``GROKET_HUD_SHORTCUT``
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
+- Desktop notifications (awaiting / complete / cancelled / failed, and
+  analysis done or error) go to the host daemon: dunst, mako, fnott, or
+  swaync on Linux (org.freedesktop.Notifications), Notification Center on
+  macOS, toasts on Windows. ``GROKET_HUD_NOTIFY=0`` or
+  ``hud.desktop_notifications: false`` turns them off.
 - Overlay: hides on **Esc** or the summon hotkey. It is a floating card
   (macOS system dialog / Linux override-redirect) so a tiler does not
   insert it. Decorated window: stays open until you close it; the summon
@@ -72,3 +77,4 @@ window loop, and the Unix socket client are omitted from that floor).
 | ``GROKET_HUD_DEV`` | Same as ``--dev`` |
 | ``GROKET_HUD_DEBUG`` | Same as ``--debug`` |
 | ``GROKET_HUD_LOG`` | Append-only error log path (default ``~/.groket/hud.log``) |
+| ``GROKET_HUD_NOTIFY`` | ``0`` / ``false`` / ``no`` disables desktop notifications |
