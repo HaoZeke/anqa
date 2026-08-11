@@ -47,10 +47,13 @@ from ..integrations.control_client import (
 )
 from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
 from ..parser import extract_prompt, find_sessions, load_session_meta
-from ..parser import list_turn_outcome_for_dir as list_turn_outcome_for_dir  # noqa: F401
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
-from ..session.access import RemoteSessionAccess
+from ..session.access import (
+    DEFAULT_SESSION_LIST_LIMIT,
+    RemoteSessionAccess,
+    catalog_list_next_offset,
+)
 from . import text as U
 from .bindings import (
     APP_GLOBAL_PRIORITY,
@@ -295,8 +298,6 @@ def _session_search_haystack(meta: SessionMeta, label: str) -> str:
 
 def first_home_list_fetch() -> dict[str, int | bool]:
     """First attach ``session/list``: one page, no matched drain."""
-    from ..session.access import DEFAULT_SESSION_LIST_LIMIT
-
     return {
         "drain": False,
         "limit": int(DEFAULT_SESSION_LIST_LIMIT),
@@ -1151,7 +1152,6 @@ class TraceEvalApp(App):
         """Blocking ``session/list`` (one page, delta poll, or full drain)."""
 
         from ..integrations.control_client import ControlClient
-        from ..session.access import DEFAULT_SESSION_LIST_LIMIT
 
         sock = self._control_socket
         if sock is None:
@@ -1243,12 +1243,11 @@ class TraceEvalApp(App):
 
     def _fill_remaining_catalog_pages(self, gen: int, listed: JsonObject, offset: int) -> None:
         """Fetch later ``session/list`` pages after first paint. Never drains."""
-        from ..session.access import DEFAULT_SESSION_LIST_LIMIT, catalog_list_next_offset
-
         page = int(DEFAULT_SESSION_LIST_LIMIT)
         raw = listed.get("sessions")
         batch_len = len(raw) if isinstance(raw, list) else 0
-        matched = int(listed.get("matched") or 0)
+        matched_raw = listed.get("matched")
+        matched = matched_raw if isinstance(matched_raw, int) else 0
         stalled = bool(listed.get("incomplete") or listed.get("building"))
         while True:
             nxt = catalog_list_next_offset(offset, batch_len, page, matched, stalled=stalled)
@@ -1273,7 +1272,9 @@ class TraceEvalApp(App):
                 self._catalog_revision = rev_raw
             offset = nxt
             batch_len = len(wire)
-            matched = int(nxt_listed.get("matched") or matched)
+            nxt_matched = nxt_listed.get("matched")
+            if isinstance(nxt_matched, int):
+                matched = nxt_matched
             stalled = bool(nxt_listed.get("incomplete") or nxt_listed.get("building"))
 
     def _load_sessions_via_control(

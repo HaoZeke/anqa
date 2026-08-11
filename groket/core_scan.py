@@ -10,7 +10,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Same needles as ``parser._TU_BYTES`` / ``parser._TERM_BYTES``.
+# Terminal ``tool_call_update`` needles (Python path when the crate is absent).
 _TU_BYTES = b"tool_call_update"
 _TERM_BYTES = (
     b'"status":"completed"',

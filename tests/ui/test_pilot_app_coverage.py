@@ -1667,10 +1667,6 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
         app._session_mtimes[key] = 1.0  # same mtime path still refreshes live outcomes
 
         monkeypatch.setattr(
-            "groket.ui.app.list_turn_outcome_for_dir",
-            lambda _sd: "running",
-        )
-        monkeypatch.setattr(
             "groket.parser.list_turn_outcome_for_dir",
             lambda _sd: "running",
         )

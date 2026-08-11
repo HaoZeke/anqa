@@ -158,3 +158,14 @@ def test_native_find_sessions_optional_or_matches_python(tmp_path: Path) -> None
     assert native.listwalk.find_sessions(str(root))
     assert native.listwalk.looks_like_session_dir(str(root / "sess")) is True
     assert native.listwalk.looks_like_session_dir(str(root / "empty-ev")) is False
+
+
+def test_c_skip_dirs_match_python_walk_skip_dirs() -> None:
+    """listwalk.c SKIP_DIRS must match :data:`WALK_SKIP_DIRS`."""
+    import re
+
+    src = Path(__file__).resolve().parents[1] / "native" / "listwalk.c"
+    text = src.read_text(encoding="utf-8")
+    block = text.split("SKIP_DIRS[]", 1)[1].split("};", 1)[0]
+    names = set(re.findall(r'"([^"]+)"', block))
+    assert names == WALK_SKIP_DIRS

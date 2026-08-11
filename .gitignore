@@ -30,6 +30,7 @@ traces/
 groket-hud/target/
 # updates.jsonl scan leaf
 native/groket-core/target/
+native/groket-core/Cargo.lock
 groket-hud/node_modules/
 groket-hud/dist/
 .superpowers/

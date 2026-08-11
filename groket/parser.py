@@ -28,6 +28,8 @@ from .models import (
     as_json_object,
     json_as_str,
 )
+from .native import find_sessions as native_find_sessions
+from .native import skip_dir_name
 from .paths import RUN_PREFIXES, is_run_dir_name, strip_run_prefix
 from .tool_display import web_search_from_raw_output
 
@@ -2159,48 +2161,29 @@ def _model_from_run_parent(session_dir: Path) -> str:
     return ""
 
 
-# Host staging / noise under traces/ — never real Grok session dirs.
-_SKIP_SESSION_WALK_DIRS = frozenset(
-    {
-        "groket-plugins",
-        "groket-skills",
-        "subagents",
-        ".git",
-        "node_modules",
-        "__pycache__",
-        ".venv",
-        "venv",
-        "target",
-        "dist",
-        "build",
-        ".cache",
-        ".tox",
-        # Resume history substrate (see :mod:`groket.session.resume`).
-        ".groket-resume-seed",
-        # Parent /workspace tree for fork restore.
-        ".groket-workspace-seed",
-        # Host/eval workspace trees — never session dirs; walking them is the
-        # dominant cost on large ~/.grok/sessions trees.
-        "workspace",
-    }
-)
-
-
 def _prune_session_walk_dirs(dirnames: list[str]) -> None:
     """In-place: do not descend into eval staging, subagent trees, or VCS noise.
 
     Container dirs are named ``groket-<id>-<model>`` and **must** be walked;
     only explicit staging folder names are skipped.
     """
-    kept: list[str] = []
-    for d in dirnames:
-        if d in _SKIP_SESSION_WALK_DIRS:
-            continue
-        # Sibling stage dir: traces/groket-foo-model.stage/
-        if d.endswith(".stage"):
-            continue
-        kept.append(d)
-    dirnames[:] = kept
+    dirnames[:] = [d for d in dirnames if not skip_dir_name(d)]
+
+
+def _native_hit_is_listed(root: Path, path: Path) -> bool:
+    """Apply the Python walk policy to one native ``find_sessions`` hit."""
+    # session/__init__ imports sources, which import find_sessions.
+    from .session.resume import is_resume_seed_path
+
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        rel = path
+    if any(skip_dir_name(part) for part in rel.parts):
+        return False
+    if _is_subagent_session_dir(path):
+        return False
+    return not is_resume_seed_path(path)
 
 
 def _is_subagent_session_dir(path: Path) -> bool:
@@ -2261,21 +2244,16 @@ def find_sessions(root: Path) -> list[Path]:
     (workspaces under a session are not nested sessions). Descending was the
     dominant cost on large ``~/.grok/sessions`` trees (tens of seconds).
     """
-    from .native import find_sessions as native_find_sessions
-    from .session.resume import is_resume_seed_path
-
     sessions: list[Path] = []
     if not root.exists():
         return sessions
     native = native_find_sessions(root)
     if native is not None:
-        for path in native:
-            if _is_subagent_session_dir(path):
-                continue
-            if is_resume_seed_path(path):
-                continue
-            sessions.append(path)
+        sessions = [path for path in native if _native_hit_is_listed(root, path)]
         return _drop_subagent_mirror_sessions(sessions)
+    # session/__init__ imports sources, which import find_sessions.
+    from .session.resume import is_resume_seed_path
+
     # followlinks=False avoids symlink cycles into huge trees from host sessions.
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         _prune_session_walk_dirs(dirnames)
