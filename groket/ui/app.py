@@ -13,6 +13,7 @@ import time
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual import on, work
@@ -34,9 +35,11 @@ from textual.widgets import (
     Static,
 )
 
-from ..analysis import AnalysisResult, AnalysisService, get_analysis_service
-from ..analysis.base import Finding
+from ..analysis.base import AnalysisResult, Finding
 from ..constants import META_CACHE_FILENAME
+
+if TYPE_CHECKING:
+    from ..analysis.service import AnalysisService
 from ..integrations.control_client import (
     HEAVY_RPC_TIMEOUT,
     ControlClient,
@@ -1328,26 +1331,6 @@ class TraceEvalApp(App):
                 n = len(rows)
                 call_ui(self, self._rebuild_session_filters)
                 call_ui(self, self._populate_session_table, force=True)
-            matched_raw = result.get("matched")
-            matched = int(matched_raw) if isinstance(matched_raw, int) else n
-            incomplete = bool(result.get("incomplete") or result.get("building"))
-            if not use_delta and not is_delta and not incomplete and matched > n:
-                more = self._fetch_control_catalog_sync(drain=True)
-                if self._sessions_load_current(gen):
-                    rev2 = more.get("revision")
-                    if isinstance(rev2, int) and rev2 > 0:
-                        self._catalog_revision = rev2
-                    raw2 = more.get("sessions")
-                    extra = (
-                        [as_json_object(r) for r in raw2 if isinstance(r, dict)]
-                        if isinstance(raw2, list)
-                        else []
-                    )
-                    rows = self._rows_from_catalog_wire(extra)
-                    if self._apply_session_meta_rows(gen, rows, clear_plugins=False):
-                        n = len(rows)
-                        call_ui(self, self._rebuild_session_filters)
-                        call_ui(self, self._populate_session_table, force=True)
             if not quiet:
                 call_ui(
                     self,
@@ -1457,6 +1440,8 @@ class TraceEvalApp(App):
 
     def _analysis_svc(self) -> AnalysisService:
         """Lazy process-wide service; constructed on first Analyze / settings."""
+        from ..analysis.service import get_analysis_service
+
         return get_analysis_service(
             self.work_dir,
             traces=Path(self.traces_path) if self.traces_path else None,

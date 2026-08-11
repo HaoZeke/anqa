@@ -79,11 +79,14 @@ reopen while serve stays up: catalog I/O should not be the delay — import
 - Quiet TUI/HUD polls send `sinceRevision`; unchanged owner → no row
   transfer, no table rebuild. Revision is owner-scoped (restart is a gap,
   full snapshot).
-- First TUI/HUD paint still pages until `matched`.
+- First TUI attach paints one `session/list` page (`drain=False`) and
+  does not drain `matched` on that first paint. Quiet poll after a serve
+  restart still drains. HUD first fetch is one page; remaining rows
+  fill in the background.
 - Timeline inspect is paged (200 events, 12 k chars); TUI control timeout
   is 45 s; timeout is a toast, not a worker crash.
 - Catalog I/O for the home list runs on `@work(thread=True)`, not the
-  Textual message pump. First table paint is still on the UI thread.
+  Textual message pump. First table paint is the first page only.
 
 ## Remaining goals
 
@@ -96,13 +99,12 @@ reopen while serve stays up: catalog I/O should not be the delay — import
    in the background; `session/list` should return the warm cache (or an
    honest empty/partial page) instead of stalling the client on a 160 s
    walk.
-3. **First table paint.** After a 696-row drain, building the DataTable
-   still hits the UI thread. Keep that off the critical path or paint a
-   first page.
-4. **Import / mount.** 19 s cold import of `TraceEvalApp` and
-   `AnalysisService` in `on_mount` are launch cost with a small catalog.
-   Defer analysis plugin load until a session is opened or Analyze is
-   pressed.
+3. **First table paint.** First attach no longer drains `matched` before
+   the home table is shown. Remaining work is virtualizing a large local
+   filter set, not a second drain on first paint.
+4. **Import / mount.** `TraceEvalApp` no longer imports `AnalysisService`
+   at module load. Plugin registration waits until Analyze / settings.
+   Remaining cost is Textual itself.
 5. **Keep serve up.** Document and default: TUI/HUD attach to a long-lived
    `groket serve`; quitting the TUI does not stop the owner (already
    true). Launch advice should not imply restarting serve each time.

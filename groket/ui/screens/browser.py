@@ -31,7 +31,6 @@ from textual.widgets import (
 )
 
 from ... import event_types as et
-from ...analysis import get_analysis_service
 from ...analysis.base import AnalysisResult, Finding
 from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_turn
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
@@ -181,6 +180,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         getter = getattr(app, "_analysis_svc", None) if app is not None else None
         if callable(getter):
             return getter()
+        from ...analysis.service import get_analysis_service
+
         return get_analysis_service()
 
     def compose(self) -> ComposeResult:
