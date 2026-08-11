@@ -18,12 +18,13 @@ use crate::control::{self, ControlError};
 use crate::format::{control_down_message, new_note_id};
 use crate::fuzzy::fuzzy_filter;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, index_outside_visible, is_partial_list_page,
-    is_soft_notes_save_error, merge_catalog_rows, merge_timeline_by_index, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, session_needs_live_poll,
-    session_rpc_ref, should_continue_timeline, should_fetch_timeline, timeline_coverage_complete,
-    timeline_first_missing_offset, timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H,
-    LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
+    card_marks_from_overview, clamp_scroll, first_list_fetch, index_outside_visible,
+    is_partial_list_page, is_soft_notes_save_error, merge_catalog_rows, merge_timeline_by_index,
+    next_list_offset, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
+    plan_tick, session_needs_live_poll, session_rpc_ref, should_continue_timeline,
+    should_fetch_timeline, timeline_coverage_complete, timeline_first_missing_offset,
+    timeline_seek_offset, TickInput, IDLE_POLL_MS, LIST_ROW_H, LIVE_POLL_MS, LIVE_TAIL_LIMIT,
+    TIMELINE_CHUNK, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -70,6 +71,10 @@ pub enum Message {
     Inited(Result<String, String>),
     ListLoaded {
         quiet: bool,
+        result: Result<Value, String>,
+    },
+    ListPage {
+        offset: u32,
         result: Result<Value, String>,
     },
     OverviewLoaded {
@@ -546,19 +551,40 @@ impl Hud {
                                     return fetch_list(quiet, 0);
                                 }
                             }
+                            self.apply_list(v, quiet);
+                            return Task::none();
                         }
-                        self.apply_list(v, quiet);
+                        self.apply_list(v.clone(), quiet);
+                        let more = self.continue_catalog_pages(&v);
+                        if self.sessions.is_empty() {
+                            more
+                        } else if self.overview.is_none() {
+                            Task::batch([more, self.load_overview(false)])
+                        } else {
+                            more
+                        }
                     }
-                    Err(e) => self.mark_down(&e),
-                }
-                if !quiet && self.sessions.is_empty() {
-                    Task::none()
-                } else if !quiet && self.overview.is_none() {
-                    self.load_overview(false)
-                } else {
-                    Task::none()
+                    Err(e) => {
+                        self.mark_down(&e);
+                        Task::none()
+                    }
                 }
             }
+            Message::ListPage { offset: _, result } => match result {
+                Ok(v) => {
+                    let before = self.all_sessions.len();
+                    self.apply_list(v.clone(), true);
+                    if self.all_sessions.len() <= before {
+                        Task::none()
+                    } else {
+                        self.continue_catalog_pages(&v)
+                    }
+                }
+                Err(e) => {
+                    self.mark_down(&e);
+                    Task::none()
+                }
+            },
             Message::OverviewLoaded {
                 gen,
                 sid,
@@ -1042,6 +1068,24 @@ impl Hud {
             } else {
                 self.status = format!("{} sessions · ready", self.all_sessions.len());
             }
+        }
+    }
+
+    fn continue_catalog_pages(&self, listed: &Value) -> Task<Message> {
+        let Ok(page) = decode_session_list_response(listed) else {
+            return Task::none();
+        };
+        if page.delta || page.unchanged {
+            return Task::none();
+        }
+        match next_list_offset(
+            self.all_sessions.len(),
+            first_list_fetch().0,
+            page.matched,
+            page.incomplete || page.building,
+        ) {
+            Some(offset) => fetch_list_page(offset),
+            None => Task::none(),
         }
     }
 
@@ -1620,11 +1664,22 @@ fn fetch_list(quiet: bool, since: i64) -> Task<Message> {
         rpc(move || {
             if quiet && since > 0 {
                 control::session_list("", 10_000, 0, since)
-            } else {
+            } else if quiet {
                 control::session_list_all("")
+            } else {
+                let (limit, offset, since_rev) = first_list_fetch();
+                control::session_list("", limit, offset, since_rev)
             }
         }),
         move |result| Message::ListLoaded { quiet, result },
+    )
+}
+
+fn fetch_list_page(offset: u32) -> Task<Message> {
+    let limit = first_list_fetch().0;
+    Task::perform(
+        rpc(move || control::session_list("", limit, offset, 0)),
+        move |result| Message::ListPage { offset, result },
     )
 }
 

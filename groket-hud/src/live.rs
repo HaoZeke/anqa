@@ -333,6 +333,31 @@ pub fn catalog_drain_next(
     Some(next)
 }
 
+/// First HUD ``session/list``: one page, no ``sinceRevision`` drain.
+///
+/// :returns: ``(limit, offset, since)`` for the first catalog RPC.
+pub fn first_list_fetch() -> (u32, u32, i64) {
+    (200, 0, 0)
+}
+
+/// Next catalog page after a painted list, or ``None`` when the drain is done.
+///
+/// Wraps [`catalog_drain_next`] from offset 0 with *have* accumulated rows.
+/// Stops when ``matched`` is not greater than *have*, or when *incomplete*
+/// (including an empty incomplete first page).
+///
+/// :param have: Rows already applied to the HUD catalog.
+/// :param page: Page size (``SESSION_LIST_PAGE``).
+/// :param matched: Owner ``matched`` count from the last page.
+/// :param incomplete: Owner still building, or drain should stall.
+/// :returns: Offset for the next ``session/list``, if any.
+pub fn next_list_offset(have: usize, page: u32, matched: i64, incomplete: bool) -> Option<u32> {
+    if matched <= i64::try_from(have).unwrap_or(i64::MAX) {
+        return None;
+    }
+    catalog_drain_next(0, have, page, matched, incomplete)
+}
+
 pub fn timeline_seek_offset(focus_index: i64, pad: i64) -> u32 {
     if focus_index < 0 {
         return 0;
@@ -700,6 +725,25 @@ mod tests {
         assert_eq!(catalog_drain_next(0, 200, 200, 200, false), None);
         assert_eq!(catalog_drain_next(200, 200, 200, 450, true), None);
         assert_eq!(catalog_drain_next(0, 0, 200, 10, false), None);
+    }
+
+    #[test]
+    fn first_list_fetch_is_one_page() {
+        let (limit, offset, since) = first_list_fetch();
+        assert_eq!(limit, 200);
+        assert_eq!(offset, 0);
+        assert_eq!(since, 0);
+    }
+
+    #[test]
+    fn next_list_offset_wraps_catalog_drain() {
+        assert_eq!(next_list_offset(200, 200, 450, false), Some(200));
+        assert_eq!(next_list_offset(400, 200, 450, false), Some(400));
+        assert_eq!(next_list_offset(450, 200, 450, false), None);
+        assert_eq!(next_list_offset(200, 200, 200, false), None);
+        assert_eq!(next_list_offset(200, 200, 450, true), None);
+        assert_eq!(next_list_offset(0, 200, 10, false), None);
+        assert_eq!(next_list_offset(0, 200, 10, true), None);
     }
 
     #[test]
