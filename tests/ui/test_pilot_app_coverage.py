@@ -1595,6 +1595,7 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
         )
 
     monkeypatch.setattr(app_mod, "load_session_meta", _load)
+    monkeypatch.setattr("groket.parser.load_session_meta", _load)
     monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
     assert try_begin(KIND_REFRESH, locked) is True
     # Run the underlying function body synchronously (skip @work decorator scheduling).
@@ -1653,6 +1654,11 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
     )
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        await wait_until(
+            pilot,
+            lambda: not app._sessions_catalog_busy,
+            description="catalog load finished",
+        )
         meta, label = app._meta_only[0]
         # Simulate list stuck on harness "completed" after turn_ended.
         meta.turn_outcome = "completed"
@@ -1662,6 +1668,10 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
 
         monkeypatch.setattr(
             "groket.ui.app.list_turn_outcome_for_dir",
+            lambda _sd: "running",
+        )
+        monkeypatch.setattr(
+            "groket.parser.list_turn_outcome_for_dir",
             lambda _sd: "running",
         )
         app._live_sessions_last_scan = 0.0

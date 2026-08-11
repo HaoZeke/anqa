@@ -46,7 +46,8 @@ from ..integrations.control_client import (
     listen_control_notifications,
 )
 from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
-from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
+from ..parser import extract_prompt, find_sessions, load_session_meta
+from ..parser import list_turn_outcome_for_dir as list_turn_outcome_for_dir  # noqa: F401
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
 from ..session.access import RemoteSessionAccess
@@ -3005,6 +3006,7 @@ class TraceEvalApp(App):
         Uses per-session inflight locks so browser light reloads coalesce safely.
         Never writes ``_meta_cache.json`` or session artifacts.
         """
+        from .. import parser as parser_mod
         from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
         updates: list[tuple[str, SessionMeta, str]] = []
@@ -3016,7 +3018,7 @@ class TraceEvalApp(App):
                     request_rerun(KIND_REFRESH, sd)
                     continue
                 try:
-                    fresh = load_session_meta(sd, include_timeline_count=False)
+                    fresh = parser_mod.load_session_meta(sd, include_timeline_count=False)
                     fresh.num_events = meta.num_events
                     try:
                         key = str(sd.resolve())
@@ -3161,6 +3163,7 @@ class TraceEvalApp(App):
         """
         import time
 
+        from .. import parser as parser_mod
         from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
         from ..parser import session_trace_mtime
 
@@ -3295,7 +3298,7 @@ class TraceEvalApp(App):
                     changed_sessions[key] = sd_res
                 self._session_mtimes[key] = mtime
             try:
-                outcome = list_turn_outcome_for_dir(sd_res)
+                outcome = parser_mod.list_turn_outcome_for_dir(sd_res)
             except Exception:
                 continue
             oc = (outcome or "").strip().lower().replace(" ", "_")
@@ -3310,7 +3313,7 @@ class TraceEvalApp(App):
             # without restarting the app (outcome-only probe skips summary.json).
             if live_oc:
                 try:
-                    fresh = load_session_meta(sd_res, include_timeline_count=False)
+                    fresh = parser_mod.load_session_meta(sd_res, include_timeline_count=False)
                     # List probe is authoritative for live turn status (gate/freshness).
                     if outcome:
                         fresh.turn_outcome = outcome

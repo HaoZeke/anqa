@@ -211,6 +211,7 @@ def test_fat_overview_parses_only_opened_session(
 ) -> None:
     """Overview + paged timeline for one fat session must not parse siblings."""
     from groket.session.control_views import build_session_overview, build_session_timeline
+
     from .highload_tree import write_fat_session
 
     work = tmp_path / "work"

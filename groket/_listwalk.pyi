@@ -2,8 +2,5 @@
 
 from __future__ import annotations
 
-
 def find_sessions(root: str) -> list[str]: ...
-
-
 def looks_like_session_dir(path: str) -> bool: ...

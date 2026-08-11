@@ -285,14 +285,18 @@ def _cli_env() -> dict[str, str]:
 
 
 def _scratch() -> Path:
-    root = Path(
-        os.environ.get(
-            "GROK_GOAL_SCRATCH",
-            "/var/folders/7v/gqz9rq855hx6klrx5wtpm2dr0000gn/T/grok-goal-5364524c12e4/implementer",
-        )
-    )
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    """Writable log dir for subprocess CLI tests.
+
+    Honors ``GROK_GOAL_SCRATCH`` when set to an existing-or-creatable path.
+    Otherwise uses a fresh temp directory (not a Darwin-only ``/var/folders``
+    default).
+    """
+    override = os.environ.get("GROK_GOAL_SCRATCH", "").strip()
+    if override:
+        root = Path(override)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return Path(tempfile.mkdtemp(prefix="groket-daemon-scratch-"))
 
 
 def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
@@ -346,6 +350,15 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
             init = await client.initialize()
             transcript.append({"initialize": init})
             listed = await client.session_list()
+            list_deadline = time.monotonic() + 8
+            while time.monotonic() < list_deadline:
+                rows = listed.get("sessions")
+                if isinstance(rows, list) and any(
+                    isinstance(r, dict) and r.get("sessionId") == "session-cli-serve" for r in rows
+                ):
+                    break
+                await asyncio.sleep(0.05)
+                listed = await client.session_list()
             transcript.append({"session/list": listed})
             rendered = await client.session_render(session_dir.name, format="org")
             transcript.append(
