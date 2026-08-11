@@ -248,12 +248,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         );
     } else {
         stack = stack.push(
-            scrollable(container(body).padding([16, 20]).width(Length::Fill))
-                .height(Length::Fill)
-                .on_scroll(|vp| Message::TimelineScroll {
-                    y: vp.absolute_offset().y,
-                    height: vp.bounds().height,
-                }),
+            scrollable(container(body).padding([16, 20]).width(Length::Fill)).height(Length::Fill),
         );
     }
     container(stack)
