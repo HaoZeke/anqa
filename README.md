@@ -249,7 +249,9 @@ toasts. Disable with ``GROKET_HUD_NOTIFY=0`` or::
     "desktop_notifications": false
   }
 }
-``` Focuses the search field on show; hides on **Esc** or when the
+```
+
+Focuses the search field on show; hides on **Esc** or when the
 window loses
 focus. Use ``groket hud --foreground`` to attach for debugging, or
 ``--restart`` to replace a running agent. Client of the control plane only —
