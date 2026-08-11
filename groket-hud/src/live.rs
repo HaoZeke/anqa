@@ -17,8 +17,9 @@ pub const LIST_ROW_H: f32 = 60.0;
 pub const TIMELINE_ROW_H: f32 = 160.0;
 /// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Estimated turn card (padding + title + user/assistant + meta).
-pub const TURN_ROW_H: f32 = 200.0;
+/// Turn-card pad estimate. High so a wrapped prompt does not fall
+/// out of the mounted window. Mounted cards use their real height.
+pub const TURN_ROW_H: f32 = 360.0;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
 pub const WHEEL_LINE_PX: f32 = 60.0;
 pub const VIRT_OVERSCAN: usize = 4;

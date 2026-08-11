@@ -579,7 +579,13 @@ fn turns_tab_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .into();
     }
     let n = turns.len();
-    let win = rail_visible_range(hud.turn_scroll_y(), viewport, TURN_ROW_H, n);
+    let win = visible_range(
+        hud.turn_scroll_y(),
+        viewport,
+        TURN_ROW_H,
+        n,
+        TIMELINE_OVERSCAN + 1,
+    );
     let mut col = column![].spacing(0);
     for t in &turns[win.start..win.end] {
         let idx = t.turn_index;
