@@ -198,6 +198,73 @@ def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, m
     assert ids == {"s0", "s1", "s2"}
 
 
+def test_first_attach_fills_later_pages_without_drain(tmp_path: Path, monkeypatch) -> None:
+    """After first paint, remaining pages load with offset; never drain."""
+    from groket.session.access import DEFAULT_SESSION_LIST_LIMIT
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    page = int(DEFAULT_SESSION_LIST_LIMIT)
+    matched = page + 50
+    fetches: list[dict[str, object]] = []
+
+    def row(i: int) -> dict[str, object]:
+        return {
+            "sessionId": f"p{i}",
+            "path": str(traces / f"p{i}"),
+            "title": f"P{i}",
+            "label": f"P{i}",
+            "origin": "work",
+        }
+
+    def fake_fetch(
+        *,
+        query: str = "",
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        fetches.append({"drain": drain, "limit": limit, "offset": offset})
+        start = int(offset)
+        stop = start + int(limit or page)
+        rows = [row(i) for i in range(start, min(stop, matched))]
+        return {
+            "sessions": rows,
+            "total": matched,
+            "matched": matched,
+            "revision": 5,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+            "incomplete": False,
+        }
+
+    monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
+    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=False)
+    assert not any(f.get("drain") is True for f in fetches)
+    assert fetches[0] == {
+        "drain": False,
+        "limit": page,
+        "offset": 0,
+    }
+    assert {"drain": False, "limit": page, "offset": page} in fetches
+    ids = {meta.session_id for meta, _label in app._meta_only}
+    assert len(ids) == matched
+    assert "p0" in ids
+    assert f"p{matched - 1}" in ids
+
+
 def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monkeypatch) -> None:
     """Cold attach paints immediately, then applies the finished snapshot."""
     work = tmp_path / "work"

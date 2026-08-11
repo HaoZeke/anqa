@@ -1241,6 +1241,41 @@ class TraceEvalApp(App):
             )
         return result
 
+    def _fill_remaining_catalog_pages(self, gen: int, listed: JsonObject, offset: int) -> None:
+        """Fetch later ``session/list`` pages after first paint. Never drains."""
+        from ..session.access import DEFAULT_SESSION_LIST_LIMIT, catalog_list_next_offset
+
+        page = int(DEFAULT_SESSION_LIST_LIMIT)
+        raw = listed.get("sessions")
+        batch_len = len(raw) if isinstance(raw, list) else 0
+        matched = int(listed.get("matched") or 0)
+        stalled = bool(listed.get("incomplete") or listed.get("building"))
+        while True:
+            nxt = catalog_list_next_offset(offset, batch_len, page, matched, stalled=stalled)
+            if nxt is None or not self._sessions_load_current(gen):
+                return
+            nxt_listed = self._fetch_control_catalog_sync(drain=False, limit=page, offset=nxt)
+            nxt_raw = nxt_listed.get("sessions")
+            wire = (
+                [as_json_object(r) for r in nxt_raw if isinstance(r, dict)]
+                if isinstance(nxt_raw, list)
+                else []
+            )
+            if not wire:
+                return
+            rows = self._merge_control_catalog_rows(wire, [])
+            if not self._apply_session_meta_rows(gen, rows, clear_plugins=False):
+                return
+            call_ui(self, self._rebuild_session_filters)
+            call_ui(self, self._populate_session_table, force=True)
+            rev_raw = nxt_listed.get("revision")
+            if isinstance(rev_raw, int) and rev_raw > 0:
+                self._catalog_revision = rev_raw
+            offset = nxt
+            batch_len = len(wire)
+            matched = int(nxt_listed.get("matched") or matched)
+            stalled = bool(nxt_listed.get("incomplete") or nxt_listed.get("building"))
+
     def _load_sessions_via_control(
         self,
         gen: int,
@@ -1327,6 +1362,9 @@ class TraceEvalApp(App):
                 n = len(rows)
                 call_ui(self, self._rebuild_session_filters)
                 call_ui(self, self._populate_session_table, force=True)
+            if not use_delta:
+                self._fill_remaining_catalog_pages(gen, result, int(first["offset"]))
+                n = len(self._meta_only)
             if not quiet:
                 call_ui(
                     self,
