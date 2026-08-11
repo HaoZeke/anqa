@@ -186,7 +186,7 @@ def test_fat_catalog_list_does_not_parse_timeline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Home-list rows for fat sessions must not parse updates.jsonl timelines."""
-    from tests.session.highload_tree import write_fat_session
+    from .highload_tree import write_fat_session
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -211,7 +211,7 @@ def test_fat_overview_parses_only_opened_session(
 ) -> None:
     """Overview + paged timeline for one fat session must not parse siblings."""
     from groket.session.control_views import build_session_overview, build_session_timeline
-    from tests.session.highload_tree import write_fat_session
+    from .highload_tree import write_fat_session
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
