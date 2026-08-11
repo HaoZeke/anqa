@@ -352,10 +352,6 @@ impl Hud {
                 let msg = format!("tray: {err}");
                 crate::log::error(&msg);
                 eprintln!("groket-hud: {msg}");
-                #[cfg(target_os = "linux")]
-                {
-                    std::process::exit(1);
-                }
             }
         }
         let q = hud.notify_q.clone();
@@ -391,7 +387,6 @@ impl Hud {
             event::listen_with(interesting_hud_event),
             hotkey_subscription(),
             notify_subscription(),
-            tray_subscription(),
             keyboard::on_key_press(|key, _mods| match key {
                 Key::Named(Named::Escape) => Some(Message::Hide),
                 _ => None,
@@ -410,6 +405,9 @@ impl Hud {
         }
         if self.note_delete_until.is_some() {
             subs.push(time::every(Duration::from_millis(250)).map(|_| Message::Tick));
+        }
+        if self._tray.is_some() {
+            subs.push(tray_subscription());
         }
         Subscription::batch(subs)
     }
@@ -1624,8 +1622,20 @@ impl Hud {
     fn on_tray(&mut self, action: crate::tray::TrayAction) -> Task<Message> {
         match action {
             crate::tray::TrayAction::Show => self.show_palette(),
-            crate::tray::TrayAction::Quit => iced::exit(),
+            crate::tray::TrayAction::Quit => self.quit(),
         }
+    }
+
+    fn quit(&mut self) -> Task<Message> {
+        self.visible = false;
+        self.palette_live = false;
+        #[cfg(target_os = "linux")]
+        crate::x11focus::release_keyboard();
+        let close = match self.window_id.take() {
+            Some(id) => window::close(id),
+            None => Task::none(),
+        };
+        Task::batch([close, iced::exit()])
     }
 
     fn on_tick(&mut self) -> Task<Message> {
@@ -1654,11 +1664,6 @@ impl Hud {
                 (method.clone(), sid)
             })
             .collect();
-        if notify_pairs.iter().any(|(method, _)| {
-            crate::tray::action_from_notify(method) == Some(crate::tray::TrayAction::Show)
-        }) {
-            cmds.push(self.show_palette());
-        }
         let selected = self.selected_sid().unwrap_or_default();
         let live = session_needs_live_poll(
             &self.selected_status(),
@@ -2099,6 +2104,21 @@ mod tests {
         assert!(hud.visible);
         assert!(!hud.window_mode);
         assert_eq!(hud.window_id, Some(id));
+    }
+
+    #[test]
+    fn tray_quit_clears_the_window_id() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            window_id: Some(id),
+            ..Hud::default()
+        };
+        let _ = hud.on_tray(crate::tray::TrayAction::Quit);
+        assert!(hud.window_id.is_none());
+        assert!(!hud.visible);
+        assert!(!hud.palette_live);
     }
 
     #[test]

@@ -17,7 +17,6 @@ pub const MENU_SHOW_ID: &str = "show";
 pub const MENU_QUIT_ID: &str = "quit";
 pub const MENU_SHOW_LABEL: &str = "Show HUD";
 pub const MENU_QUIT_LABEL: &str = "Quit Groket HUD";
-pub const SHOW_NOTIFY: &str = "hud/show";
 pub const SHOW_ON_START_ENV: &str = "GROKET_HUD_SHOW_ON_START";
 
 /// Operator action the iced loop should run.
@@ -72,15 +71,6 @@ pub fn action_from_click(button: TrayButton, state: TrayClickState) -> Option<Tr
     match (button, state) {
         (TrayButton::Left, TrayClickState::Up) => Some(TrayAction::Show),
         _ => None,
-    }
-}
-
-/// Control notification that reveals an already-running HUD.
-pub fn action_from_notify(method: &str) -> Option<TrayAction> {
-    if method == SHOW_NOTIFY {
-        Some(TrayAction::Show)
-    } else {
-        None
     }
 }
 
@@ -339,13 +329,6 @@ mod tests {
             action_from_click(TrayButton::Right, TrayClickState::Up),
             None
         );
-    }
-
-    #[test]
-    fn hud_show_notify_shows() {
-        assert_eq!(action_from_notify(SHOW_NOTIFY), Some(TrayAction::Show));
-        assert_eq!(action_from_notify("session/changed"), None);
-        assert_eq!(action_from_notify("hud/hide"), None);
     }
 
     #[test]

@@ -34,7 +34,8 @@ Sol-style session **command palette** for the local groket control plane
 - Linux StatusNotifier tray (Swaybar, Waybar, and other SNI hosts): left-click
   or **Show HUD** reveals and focuses the palette. **Quit Groket HUD** exits
   the HUD process only; ``groket serve`` stays up. Escape hides the overlay
-  and leaves the tray item in place. A missing tray host fails Linux startup.
+  and leaves the tray item in place. A missing tray host is logged; the
+  HUD stays up (summon hotkey and pop-out still work).
 - Overlay: hides on **Esc** or the summon hotkey. It is a floating card
   (macOS system dialog / Linux override-redirect) so a tiler does not
   insert it. Decorated window: stays open until you close it; the summon
