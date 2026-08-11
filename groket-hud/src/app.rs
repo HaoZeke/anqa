@@ -175,6 +175,7 @@ pub struct Hud {
     turn_marks: std::collections::HashMap<i64, CardMark>,
     event_marks: std::collections::HashMap<i64, CardMark>,
     seen_status: std::collections::HashMap<String, String>,
+    seen_analysis: std::collections::HashMap<String, String>,
 }
 
 impl Default for Hud {
@@ -231,6 +232,7 @@ impl Default for Hud {
             turn_marks: std::collections::HashMap::new(),
             event_marks: std::collections::HashMap::new(),
             seen_status: std::collections::HashMap::new(),
+            seen_analysis: std::collections::HashMap::new(),
         }
     }
 }
@@ -1702,7 +1704,9 @@ impl Hud {
                 .find(|r| r.session_id == sid)
                 .map(|r| r.display_title().to_string())
                 .unwrap_or_default();
-            if let Some(n) = crate::desktop::analysis_from_params(params, &title) {
+            if let Some(n) =
+                crate::desktop::take_analysis_notice(&mut self.seen_analysis, params, &title)
+            {
                 crate::desktop::post(n);
             }
         }

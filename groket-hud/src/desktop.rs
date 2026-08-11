@@ -152,6 +152,51 @@ pub fn analysis_from_params(params: &Value, title: &str) -> Option<DesktopNotice
     analysis_notice(title, sid, state, findings, error)
 }
 
+/// Notice for an analysis transition, once per job (or session) and state.
+///
+/// A second ``analysis/changed`` with the same ``jobId`` and terminal state
+/// is ignored. A later job on the same session posts again.
+pub fn take_analysis_notice(
+    seen: &mut HashMap<String, String>,
+    params: &Value,
+    title: &str,
+) -> Option<DesktopNotice> {
+    let notice = analysis_from_params(params, title)?;
+    let id = analysis_seen_id(params)?;
+    let state = analysis_terminal_state(params)?;
+    if seen.get(&id).map(String::as_str) == Some(state) {
+        return None;
+    }
+    seen.insert(id, state.to_string());
+    Some(notice)
+}
+
+fn analysis_seen_id(params: &Value) -> Option<String> {
+    let job = params
+        .get("jobId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(job) = job {
+        return Some(job.to_string());
+    }
+    let sid = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    Some(sid.to_string())
+}
+
+fn analysis_terminal_state(params: &Value) -> Option<&'static str> {
+    let raw = params.get("state").and_then(Value::as_str).unwrap_or("");
+    match normalize(raw).as_str() {
+        "done" | "complete" => Some("done"),
+        "error" | "failed" => Some("error"),
+        _ => None,
+    }
+}
+
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
 pub fn notices_from_rows(
     seen: &mut HashMap<String, String>,
@@ -334,5 +379,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(n.summary, "Analysis finished");
+    }
+
+    #[test]
+    fn analysis_changed_posts_once_per_job_state() {
+        let mut seen = HashMap::new();
+        let first = serde_json::json!({
+            "sessionId": "s1",
+            "jobId": "job-a",
+            "state": "done",
+            "findingCount": 1
+        });
+        assert!(take_analysis_notice(&mut seen, &first, "T").is_some());
+        assert!(take_analysis_notice(&mut seen, &first, "T").is_none());
+        let again = serde_json::json!({
+            "sessionId": "s1",
+            "jobId": "job-b",
+            "state": "done",
+            "findingCount": 0
+        });
+        assert!(take_analysis_notice(&mut seen, &again, "T").is_some());
+    }
+
+    #[test]
+    fn analysis_changed_without_job_dedupes_on_session_state() {
+        let mut seen = HashMap::new();
+        let done = serde_json::json!({"sessionId": "s1", "state": "done"});
+        assert!(take_analysis_notice(&mut seen, &done, "T").is_some());
+        assert!(take_analysis_notice(&mut seen, &done, "T").is_none());
+        let err = serde_json::json!({"sessionId": "s1", "state": "error", "error": "boom"});
+        assert!(take_analysis_notice(&mut seen, &err, "T").is_some());
     }
 }
