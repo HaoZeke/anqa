@@ -32,7 +32,7 @@ Sol-style session **command palette** for the local groket control plane
   turn binds and paints the final assistant for select/copy. An open turn
   shows status and a short last line.
   **Events** has a turn pick list (defaults to the turn you jumped from)
-  plus type filter and search-all. **Next turn** steps the pick list.
+  plus type filter and search-all. Step turns with the dropdown or **]**.
   Picking a turn expands it on Turns. Overview lists session-level rows
   (system / session chrome).
   Event type labels use the TUI brand colors (cream / complete / running /

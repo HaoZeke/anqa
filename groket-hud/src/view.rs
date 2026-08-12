@@ -409,7 +409,9 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
 
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    let mut row = row![
+    // Turn scope is the pick list only — no "Next" chip in this dense bar
+    // (it clipped/wrapped). Step turns with the dropdown or keyboard `]`.
+    row![
         icedtea::widget::meta("Turn", tea, A11y::new("Turn", Role::Header)),
         icedtea::widget::themed_pick_list(
             hud.events_turn_options(),
@@ -440,18 +442,8 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     ]
     .spacing(8)
     .align_y(Alignment::Center)
-    .padding(Padding::from([8, 12]));
-    if hud.next_turn_after_events().is_some() {
-        // Short label: filter bar is dense; multi-word labels wrap vertically.
-        row = row.push(icedtea::widget::themed_button(
-            "Next",
-            Some(Message::NextTurnEvents),
-            tea,
-            Variant::Quiet,
-            A11y::button("Next turn"),
-        ));
-    }
-    row.into()
+    .padding(Padding::from([8, 12]))
+    .into()
 }
 
 fn overview_tab(hud: &Hud) -> Element<'_, Message> {
