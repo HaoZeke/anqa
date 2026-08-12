@@ -28,12 +28,6 @@ pub const CLOSED_TURN_CARD_H: f32 = 140.0;
 pub const OPEN_TURN_CARD_H: f32 = 420.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 2;
-/// Iced's own scrollable uses 60px per wheel line, not a full row.
-pub const WHEEL_LINE_PX: f32 = 60.0;
-/// Minimum scrollbar handle (icedtea rail). Iced's own scroller floors at 2px.
-pub const SCROLL_HANDLE_MIN: f32 = icedtea::chrome::SCROLL_HANDLE_MIN;
-/// Rail and handle width from icedtea.
-pub const SCROLL_RAIL_WIDTH: f32 = icedtea::chrome::SCROLL_RAIL_WIDTH;
 
 /// True when a non-delta ``session/list`` body is a page, not a full snapshot.
 pub fn is_partial_list_page(
@@ -53,11 +47,6 @@ pub fn is_partial_list_page(
         return matched <= 0 || incoming_len < matched as usize;
     }
     matched > incoming_len as i64
-}
-
-/// Per-row heights for expand cards (closed default + open overrides).
-pub fn card_heights(n: usize, closed: f32, open: &[(usize, f32)]) -> Vec<f32> {
-    icedtea::collection::expand_card_heights(n, closed, open)
 }
 
 fn wrap_line_count(s: &str, cols: usize) -> usize {
@@ -83,18 +72,6 @@ pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
         h += 5.0;
     }
     h
-}
-
-/// Total scrollable height of the session rail.
-///
-/// Same as icedtea ``RowHeights::total``: sum of card heights only.
-/// ``list_view`` Card spacing is paint, not scroll offset.
-pub fn session_list_content_height<'a>(
-    rows: impl IntoIterator<Item = (&'a str, &'a str, bool)>,
-) -> f32 {
-    rows.into_iter()
-        .map(|(title, meta, has_ctx)| session_card_height(title, meta, has_ctx))
-        .sum()
 }
 
 /// Scroll so ``active`` stays in the viewport. Offsets are height sums
@@ -167,11 +144,6 @@ impl icedtea::collection::ListModel for SessionList<'_> {
             .map(String::as_str)
             .filter(|s| !s.is_empty())
     }
-}
-
-/// Wheel delta to a clamped content offset (iced scrollable: 60px per line).
-pub fn wheel_scroll(delta: iced::mouse::ScrollDelta, scroll: f32, max: f32) -> f32 {
-    (scroll + icedtea::widget::scroll_delta_pixels(delta, WHEEL_LINE_PX)).clamp(0.0, max)
 }
 
 /// Clamp a rail/wheel offset so the window stays on content.
@@ -1007,66 +979,6 @@ mod tests {
     }
 
     #[test]
-    fn card_heights_use_icedtea_expand_card_heights() {
-        let h = card_heights(4, 48.0, &[(1, 160.0)]);
-        assert_eq!(
-            h,
-            icedtea::collection::expand_card_heights(4, 48.0, &[(1, 160.0)])
-        );
-        assert_eq!(h, vec![48.0, 160.0, 48.0, 48.0]);
-    }
-
-    #[test]
-    fn virtual_pads_window_stays_small_with_overscan() {
-        let (top, win, bot) = icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, None);
-        assert!(top > 0.0);
-        assert!(bot > 0.0);
-        assert!(win.start < win.end);
-        assert!(win.end - win.start < 40);
-        assert!(win.end <= 200);
-        let (_, covered, _) =
-            icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, Some(5));
-        assert!(covered.start <= 5 && 5 < covered.end);
-        assert!(!icedtea::collection::row_is_mounted(win, 0));
-        assert!(icedtea::collection::row_is_mounted(win, win.start));
-    }
-
-    #[test]
-    fn scroller_matches_icedtea_and_keeps_a_usable_handle() {
-        assert_eq!(SCROLL_HANDLE_MIN, icedtea::chrome::SCROLL_HANDLE_MIN);
-        assert_eq!(SCROLL_RAIL_WIDTH, icedtea::chrome::SCROLL_RAIL_WIDTH);
-        assert_eq!(SCROLL_HANDLE_MIN, 24.0);
-        let tea = icedtea::collection::scroller_span(
-            900.0 * 60.0,
-            400.0,
-            0.0,
-            400.0,
-            icedtea::chrome::SCROLL_HANDLE_MIN,
-        );
-        let (y, h) = tea;
-        assert_eq!(h, SCROLL_HANDLE_MIN);
-        assert_eq!(y, 0.0);
-        let max_scroll = 900.0 * 60.0 - 400.0;
-        let (end, h2) = icedtea::collection::scroller_span(
-            900.0 * 60.0,
-            400.0,
-            max_scroll,
-            400.0,
-            SCROLL_HANDLE_MIN,
-        );
-        assert_eq!(h2, SCROLL_HANDLE_MIN);
-        assert!((end - (400.0 - SCROLL_HANDLE_MIN)).abs() < 0.01);
-        let mid = icedtea::collection::scroll_from_rail(
-            900.0 * 60.0,
-            400.0,
-            188.0,
-            400.0,
-            SCROLL_HANDLE_MIN,
-        );
-        assert!(mid > 0.0 && mid < max_scroll);
-    }
-
-    #[test]
     fn clamp_scroll_keeps_offset_on_content() {
         assert_eq!(clamp_scroll(-10.0, 600.0, 400.0), 0.0);
         assert_eq!(clamp_scroll(50.0, 600.0, 400.0), 50.0);
@@ -1083,33 +995,6 @@ mod tests {
         assert!(!is_partial_list_page(1, 1, true, false, false));
         assert!(!is_partial_list_page(0, 0, false, false, false));
         assert!(!is_partial_list_page(0, 0, false, false, false));
-    }
-
-    #[test]
-    fn wheel_scroll_matches_iced_line_step() {
-        let d = iced::mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 };
-        assert_eq!(
-            wheel_scroll(d, 0.0, 600.0),
-            (0.0 + icedtea::widget::scroll_delta_pixels(d, 60.0)).clamp(0.0, 600.0)
-        );
-        assert_eq!(wheel_scroll(d, 0.0, 600.0), 60.0);
-        let up = iced::mouse::ScrollDelta::Lines { x: 0.0, y: 3.0 };
-        assert_eq!(wheel_scroll(up, 40.0, 600.0), 0.0);
-        let px = iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -20.0 };
-        assert_eq!(
-            wheel_scroll(px, 0.0, 600.0),
-            (0.0 + icedtea::widget::scroll_delta_pixels(px, 60.0)).clamp(0.0, 600.0)
-        );
-        assert_eq!(wheel_scroll(px, 0.0, 600.0), 20.0);
-        assert_eq!(
-            wheel_scroll(
-                iced::mouse::ScrollDelta::Lines { x: 0.0, y: -10.0 },
-                500.0,
-                600.0
-            ),
-            600.0
-        );
-        assert_eq!(WHEEL_LINE_PX, 60.0);
     }
 
     #[test]
@@ -1147,11 +1032,6 @@ mod tests {
         );
         assert!(short >= 50.0, "{short}");
         assert!(long > short + 10.0, "short={short} long={long}");
-        let total = session_list_content_height([("A", "", false), ("B", "meta", true)]);
-        assert_eq!(
-            total,
-            session_card_height("A", "", false) + session_card_height("B", "meta", true)
-        );
     }
 
     #[test]

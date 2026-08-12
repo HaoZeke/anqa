@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use iced::keyboard::{key::Named, Key, Modifiers as KeyMods};
-use iced::widget::operation::{self, AbsoluteOffset};
+use iced::widget::operation;
 use iced::widget::Id;
 use iced::window::{self, Mode};
 use iced::{event, keyboard, time, Element, Event, Pixels, Point, Size, Subscription, Task, Theme};
@@ -19,16 +19,16 @@ use crate::format::{
 };
 use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
-    card_heights, card_marks_from_overview, clamp_scroll, filter_timeline_indices,
-    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
-    scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
-    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
-    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
-    LIVE_POLL_MS, LIVE_TAIL_LIMIT, OPEN_TIMELINE_ROW_H, OPEN_TURN_CARD_H, TIMELINE_BUFFER_CAP,
-    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    card_marks_from_overview, clamp_scroll, filter_timeline_indices, first_list_fetch,
+    is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover, merge_catalog_rows,
+    merge_timeline_by_index, next_list_offset, notes_schema_fields, patch_catalog_delta,
+    patch_list_row_from_meta, plan_tick, previous_timeline_page, scroll_after_prepend,
+    session_card_height, session_needs_live_poll, session_row_meta, session_rpc_ref,
+    should_fetch_timeline, should_load_previous_timeline, timeline_coverage_complete,
+    timeline_page_next, timeline_range_label, timeline_window_start, toggle_expand_set,
+    trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS,
+    LIVE_TAIL_LIMIT, OPEN_TIMELINE_ROW_H, OPEN_TURN_CARD_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK,
+    TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -55,8 +55,6 @@ pub enum Message {
     JumpTimeline(i64),
     /// Events pane turn pick list (`None` key = all turns / search).
     EventsTurnPicked(EventsTurnPick),
-    /// Next turn after the current Events scope.
-    NextTurnEvents,
     SelectTimeline(i64),
     TurnExpand {
         turn: i64,
@@ -665,7 +663,6 @@ impl Hud {
             }
             Message::JumpTimeline(ix) => self.jump_timeline(ix),
             Message::EventsTurnPicked(pick) => self.select_events_turn(pick.turn_index),
-            Message::NextTurnEvents => self.jump_next_turn(),
             Message::SelectTimeline(ix) => {
                 toggle_expand_set(&mut self.timeline_expanded, ix);
                 self.timeline_focus = if self.timeline_expanded.contains(&ix) {
@@ -1283,7 +1280,7 @@ impl Hud {
                     .collect()
             })
             .unwrap_or_default();
-        self.turn_heights = card_heights(n, CLOSED_TURN_CARD_H, &open);
+        self.turn_heights = icedtea::collection::expand_card_heights(n, CLOSED_TURN_CARD_H, &open);
     }
 
     fn rebuild_tl_heights(&mut self) {
@@ -1299,7 +1296,7 @@ impl Hud {
                     .then_some((i, OPEN_TIMELINE_ROW_H))
             })
             .collect();
-        self.tl_heights = card_heights(n, TIMELINE_ROW_H, &open);
+        self.tl_heights = icedtea::collection::expand_card_heights(n, TIMELINE_ROW_H, &open);
     }
 
     fn bind_extract_text(&mut self, key: ExtractKey, src: &str) {
@@ -1425,10 +1422,6 @@ impl Hud {
         if !t.open && !t.assistant_summary.is_empty() {
             self.bind_extract_text(ExtractKey::TurnAsst(turn), &t.assistant_summary);
         }
-    }
-
-    fn bind_assistant_for_turn(&mut self, turn: i64) {
-        self.bind_turn_row(turn);
     }
 
     /// Overview list previews cap assistant text; open cards need the full wrap-up.
@@ -1828,8 +1821,9 @@ impl Hud {
             self.list_window.scroll,
             view_h,
         );
+        // list_view virtual_clip reads VisibleWindow.scroll; no iced scrollable.
         self.list_window.scroll = y;
-        operation::scroll_to(self.list_scroll_id.clone(), AbsoluteOffset { x: 0.0, y })
+        Task::none()
     }
 
     fn selected_status(&self) -> String {
@@ -2165,7 +2159,8 @@ impl Hud {
     fn focus_turn(&mut self, turn: i64) {
         self.turns_open.clear();
         self.turns_open.insert(turn);
-        self.bind_assistant_for_turn(turn);
+        self.bind_turn_row(turn);
+        self.rebuild_turn_heights();
     }
 
     fn rebuild_events_turn_options(&mut self) {
@@ -3667,14 +3662,19 @@ mod tests {
 
     #[test]
     fn pane_digit_keys_route_while_status_would_be_captured() {
-        // interesting_hud_event must forward Ctrl+digit even when iced marks Captured
-        // (search focused). Drive the same path RawEvent uses: on_key SetTab.
-        let mut hud = Hud::default();
-        assert_eq!(hud.tab(), Tab::Overview);
-        let _ = hud.update(Message::SetTab(Tab::Turns));
-        assert_eq!(hud.tab(), Tab::Turns);
-        let _ = hud.update(Message::SetTab(Tab::Timeline));
-        assert_eq!(hud.tab(), Tab::Timeline);
+        let digit = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("2".into()),
+            modified_key: Key::Character("2".into()),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Digit2),
+            location: iced::keyboard::Location::Standard,
+            modifiers: icedtea::shortcut::primary(),
+            text: None,
+            repeat: false,
+        });
+        assert!(matches!(
+            interesting_hud_event(digit, event::Status::Captured, window::Id::unique()),
+            Some(Message::SetTab(Tab::Turns))
+        ));
     }
 
     #[test]
@@ -3978,7 +3978,19 @@ mod tests {
         assert_eq!(hud.timeline_prompt, Some(1));
         assert_eq!(hud.events_turn_index, Some(0));
         assert!(hud.turns_open.contains(&0));
-        let _ = hud.update(Message::NextTurnEvents);
+        // `]` advances Events turn scope (no dedicated Next chip / message).
+        let press_bracket = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("]".into()),
+            modified_key: Key::Character("]".into()),
+            physical_key: iced::keyboard::key::Physical::Code(
+                iced::keyboard::key::Code::BracketRight,
+            ),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: None,
+            repeat: false,
+        });
+        let _ = hud.update(Message::RawEvent(press_bracket));
         assert_eq!(hud.tab(), Tab::Timeline);
         assert_eq!(hud.timeline_prompt, Some(2));
         assert_eq!(hud.events_turn_index, Some(1));
