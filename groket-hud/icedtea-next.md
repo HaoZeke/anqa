@@ -24,3 +24,15 @@ Textual `config.json` → tokens stay groket-owned.
 
 - Publish a path pin to a local checkout
 - Fold overlay / hotkey / daemon into `icedtea::run!`
+
+## Issues to report upstream (icedtea)
+
+1. **`value_field` has no fixed label width.** Label is bare `meta()` (intrinsic
+   width). Stacking several value fields (or mixing with app-owned fixed-gutter
+   rows) misaligns values: short keys like `path` start the value further left
+   than `session`. Library already has `layout::form_columns` / form-row
+   Fixed(140) recipes — `value_field` should take an optional label width (or
+   always use a documented gutter) so multi-row stacks share one column.
+2. **Dual-path apps are forced off `value_field`.** groket-hud Overview now
+   paints label + `selectable` with `KV_LABEL_W` for alignment. Prefer fixing
+   the library so apps can keep the one widget for labeled copyable values.

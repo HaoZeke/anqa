@@ -25,6 +25,7 @@ Ask on **every** shot that has chrome or a filter:
 3. **Occlusion** — is a primary control covered so it cannot be used without guessing? Dropdown open state covering the only search field counts.
 4. **Edges** — content inset from card edge (~12–16px). No text flush to border.
 5. **Alignment** — rail vs detail; filter baselines; multi-row filters still leave every control fully visible.
+6. **Structured fields** — Overview (and any other label/value stack) must share **one label gutter**: every value column starts on the same vertical line. Short keys (`path`) and long keys (`session` / `last turn`) must not shift values. Mixed widgets (fixed-width label row + intrinsic-width `value_field`) without a shared gutter = **broken**.
 
 Do not mark “ok” because *most* of the filter row fits if **any** primary control is clipped or overlapped.
 
@@ -84,7 +85,7 @@ Timeline / turns / findings must stay scannable like the TUI product language.
 ## Category F — Product-state validity (by pane)
 
 1. **Session match** — rail selection and detail title/id are the intended session.
-2. **Overview** — status, model, counts, path when session has data.
+2. **Overview** — status, model, context, summary, tools/errors when present, last turn, path; not a raw event-count spreadsheet. Label/value columns aligned (Category A.6).
 3. **Turns** — closed: user prompt + marks; open: stats and assistant when complete.
 4. **Events / Timeline** — with a selected session: **All turns** either loads a page of events or shows honest loading/empty that matches controls; turn-scoped list when a turn is picked; filter shows Turn, Type, unclipped search, honest count/range.
 5. **Findings / Notes** — empty states use status patterns, not raw errors.

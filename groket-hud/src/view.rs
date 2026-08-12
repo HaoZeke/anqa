@@ -21,9 +21,9 @@ use crate::brand;
 use crate::format::{
     body_paint, capped_display, display_tool_output, event_brand_role, fmt_duration,
     format_note_time, human_event_type_label, image_result_path, list_status_label,
-    looks_like_markdown, note_fields_view, origin_label, sanitize_console_text, status_tone,
-    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_fields_from_raw,
-    BodyPaint, ToolField,
+    looks_like_markdown, note_fields_view, origin_label, overview_fields, sanitize_console_text,
+    status_tone, timeline_body_text, timeline_count_caption, timeline_query_hit,
+    tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, CardMark, SESSION_LIST_W,
@@ -453,6 +453,9 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         .into()
 }
 
+/// Fixed label gutter for Overview meta — every value starts on the same x.
+const KV_LABEL_W: f32 = 96.0;
+
 fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let meta = &o.meta;
@@ -481,27 +484,6 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         origin_label(&meta.origin),
         taken,
     );
-    let id = meta.session_id.clone();
-    let events = meta.num_events.to_string();
-    let tools = format!("{} ({} errors)", meta.tool_call_count, meta.error_count);
-    let turns_n = o.turns.total.to_string();
-    let findings_n = if o.findings.total > 0 {
-        o.findings.total.to_string()
-    } else {
-        o.findings.count.to_string()
-    };
-    let notes_n = o.notes.count.to_string();
-    let git = {
-        let repo = meta.git_repo.clone();
-        let branch = meta.git_branch.clone();
-        match (repo.is_empty(), branch.is_empty()) {
-            (true, true) => "—".into(),
-            (false, true) => repo,
-            (true, false) => branch,
-            (false, false) => format!("{repo} · {branch}"),
-        }
-    };
-    let path = meta.path.clone();
     let tok = hud.tokens();
     let tea = hud.tokens();
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
@@ -547,6 +529,14 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
             A11y::new("findings", Role::Status),
         ));
     }
+    if o.notes.count > 0 {
+        col = col.push(icedtea::widget::banner(
+            format!("{} notes — open the Notes pane", o.notes.count),
+            Some(("Notes".into(), Message::SetTab(Tab::Notes))),
+            tea,
+            A11y::new("notes", Role::Status),
+        ));
+    }
     if summary != title && summary != "No summary text for this session." {
         col = col.push(md_body(&summary, 4000, hud.tokens()));
     } else if summary == "No summary text for this session." {
@@ -556,14 +546,9 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
             A11y::new("summary", Role::Status),
         ));
     }
-    col = col.push(kv(hud, "session", id, true));
-    col = col.push(kv(hud, "events", events, false));
-    col = col.push(kv(hud, "tools", tools, false));
-    col = col.push(kv(hud, "turns", turns_n, false));
-    col = col.push(kv(hud, "findings", findings_n, false));
-    col = col.push(kv(hud, "notes", notes_n, false));
-    col = col.push(kv(hud, "git", git, false));
-    col = col.push(kv(hud, "path", path, true));
+    for field in overview_fields(meta, &o.turns) {
+        col = col.push(kv(hud, field.key, field.label, field.value, field.copyable));
+    }
     col.push(
         row![
             Space::new().width(Length::Fill),
@@ -618,37 +603,50 @@ fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<
     )
 }
 
-fn kv<'a>(hud: &'a Hud, k: &'static str, v: String, copy: bool) -> Element<'a, Message> {
-    if copy {
-        if let Some(buf) = hud.field(&ExtractKey::Overview(k).id()) {
-            return icedtea::widget::value_field(
-                k,
+/// One Overview meta row: shared label gutter + value (selectable when bound).
+///
+/// Label width is app-owned (`KV_LABEL_W`). icedtea's labeled value row sizes
+/// the label to natural text width, so short keys like path would shift values.
+fn kv<'a>(
+    hud: &'a Hud,
+    key: &'static str,
+    label: &'static str,
+    v: String,
+    copy: bool,
+) -> Element<'a, Message> {
+    let tok = hud.tokens();
+    let label_el = text(label)
+        .size(typo::META)
+        .color(tok.muted)
+        .width(Length::Fixed(KV_LABEL_W));
+    let value_el: Element<'a, Message> = if copy {
+        if let Some(buf) = hud.field(&ExtractKey::Overview(key).id()) {
+            let id = ExtractKey::Overview(key).id();
+            icedtea::widget::selectable(
                 buf,
-                {
-                    let id = ExtractKey::Overview(k).id();
-                    move |action| Message::Select {
-                        id: id.clone(),
-                        action,
-                    }
+                move |action| Message::Select {
+                    id: id.clone(),
+                    action,
                 },
-                None,
+                tok,
                 icedtea::typo::FontFace::Mono,
-                hud.tokens(),
-                icedtea::i18n::Direction::Ltr,
-                A11y::new(k, Role::Group),
-            );
+                A11y::new(key, Role::TextBox),
+            )
+        } else {
+            text(v)
+                .size(typo::BODY)
+                .font(typo::MONO)
+                .color(tok.text)
+                .into()
         }
-    }
-    row![
-        text(k)
-            .size(typo::META)
-            .color(hud.tokens().muted)
-            .width(Length::Fixed(80.0)),
-        text(v).size(typo::BODY).color(hud.tokens().text),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center)
-    .into()
+    } else {
+        text(v).size(typo::BODY).color(tok.text).into()
+    };
+    row![label_el, value_el]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .width(Length::Fill)
+        .into()
 }
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
@@ -2060,7 +2058,10 @@ mod tests {
         assert!(prod.contains("icedtea::widget::themed_text_input"));
         assert!(prod.contains("icedtea::widget::code_block"));
         assert!(prod.contains("icedtea::widget::selectable"));
-        assert!(prod.contains("icedtea::widget::value_field"));
+        // Overview KV uses fixed label gutter + selectable (not value_field()).
+        assert!(prod.contains("KV_LABEL_W"));
+        assert!(prod.contains("overview_fields"));
+        assert!(!prod.contains("widget::value_field("));
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("event.{}.in.{}"));
         assert!(prod.contains("icedtea::widget::image_slot"));

@@ -102,6 +102,186 @@ pub fn fmt_duration(secs: f64) -> String {
     format!("{h}h{m:02}m")
 }
 
+/// ISO-ish created stamp for Overview (TUI Summary style).
+pub fn short_created(iso: &str) -> String {
+    let s = iso.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    if s.contains('T') && s.len() >= 19 {
+        return s[..19].replace('T', " ");
+    }
+    s.to_string()
+}
+
+/// One Overview meta row — fixed label column in the view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverviewField {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub value: String,
+    pub copyable: bool,
+}
+
+/// Operator-facing Overview rows (TUI Summary-shaped glance, not chrome counts).
+///
+/// Title, status, model/duration, context meter, summary prose, and banners
+/// are painted above this stack. Findings/notes totals live on those banners.
+pub fn overview_fields(
+    meta: &crate::wire::SessionMeta,
+    turns: &crate::wire::TurnsBlock,
+) -> Vec<OverviewField> {
+    let mut out = Vec::new();
+    if !meta.session_id.is_empty() {
+        out.push(OverviewField {
+            key: "session",
+            label: "session",
+            value: meta.session_id.clone(),
+            copyable: true,
+        });
+    }
+    if let Some(ctx) = overview_context_value(meta) {
+        out.push(OverviewField {
+            key: "context",
+            label: "context",
+            value: ctx,
+            copyable: false,
+        });
+    }
+    if meta.tool_call_count > 0 || meta.error_count > 0 || meta.tool_failure_count > 0 {
+        let value = if meta.error_count > 0 || meta.tool_failure_count > 0 {
+            let errs = meta.error_count.max(meta.tool_failure_count);
+            format!("{} · {} errors", meta.tool_call_count, errs)
+        } else {
+            meta.tool_call_count.to_string()
+        };
+        out.push(OverviewField {
+            key: "tools",
+            label: "tools",
+            value,
+            copyable: false,
+        });
+    }
+    if let Some(last) = turns.turns.last() {
+        let mut value = last.label.clone();
+        if value.is_empty() {
+            value = format!("turn {}", last.turn_index);
+        }
+        match (last.first_index, last.last_index) {
+            (Some(a), Some(b)) => {
+                value = format!("{value} · #{a}–#{b}");
+            }
+            (Some(a), None) | (None, Some(a)) => {
+                value = format!("{value} · #{a}");
+            }
+            (None, None) => {}
+        }
+        out.push(OverviewField {
+            key: "last_turn",
+            label: "last turn",
+            value,
+            copyable: false,
+        });
+    }
+    if meta.num_messages > 0 {
+        out.push(OverviewField {
+            key: "messages",
+            label: "messages",
+            value: meta.num_messages.to_string(),
+            copyable: false,
+        });
+    }
+    if meta.loop_count > 0 {
+        out.push(OverviewField {
+            key: "loops",
+            label: "loops",
+            value: meta.loop_count.to_string(),
+            copyable: false,
+        });
+    }
+    if !meta.run_id.is_empty() {
+        out.push(OverviewField {
+            key: "run",
+            label: "run",
+            value: meta.run_id.clone(),
+            copyable: true,
+        });
+    }
+    if !meta.task_id.is_empty() {
+        out.push(OverviewField {
+            key: "task",
+            label: "task",
+            value: meta.task_id.clone(),
+            copyable: true,
+        });
+    }
+    if !meta.git_repo.is_empty() {
+        out.push(OverviewField {
+            key: "repo",
+            label: "repo",
+            value: meta.git_repo.clone(),
+            copyable: false,
+        });
+    }
+    if !meta.git_branch.is_empty() {
+        out.push(OverviewField {
+            key: "branch",
+            label: "branch",
+            value: meta.git_branch.clone(),
+            copyable: false,
+        });
+    }
+    let created = short_created(&meta.created_at);
+    if !created.is_empty() {
+        out.push(OverviewField {
+            key: "created",
+            label: "created",
+            value: created,
+            copyable: false,
+        });
+    }
+    if !meta.path.is_empty() {
+        out.push(OverviewField {
+            key: "path",
+            label: "path",
+            value: meta.path.clone(),
+            copyable: true,
+        });
+    }
+    out
+}
+
+fn overview_context_value(meta: &crate::wire::SessionMeta) -> Option<String> {
+    let compact = meta.context_compact().trim();
+    let usage = meta.context_usage.trim();
+    let mut parts: Vec<String> = Vec::new();
+    if !compact.is_empty() {
+        parts.push(compact.to_string());
+    } else if !usage.is_empty() {
+        parts.push(usage.to_string());
+    }
+    match (meta.context_tokens_used, meta.context_window_tokens) {
+        (Some(used), Some(win)) if win > 0 => {
+            parts.push(format!("{used} / {win} tokens"));
+        }
+        (Some(used), _) => {
+            parts.push(format!("{used} tokens"));
+        }
+        (_, Some(win)) if win > 0 => {
+            parts.push(format!("{win} window"));
+        }
+        _ => {}
+    }
+    if meta.compaction_count > 0 {
+        parts.push(format!("{} compactions", meta.compaction_count));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" · "))
+    }
+}
+
 pub fn format_note_time(iso: &str) -> String {
     let s = iso.trim();
     if s.is_empty() {
@@ -1014,6 +1194,104 @@ mod tests {
         assert!(!event_matches_kind("agent", false, KindFilter::Sess));
         assert!(event_matches_kind("agent", false, KindFilter::Asst));
         assert!(event_matches_kind("thought", false, KindFilter::Asst));
+    }
+
+    #[test]
+    fn short_created_strips_iso_fraction() {
+        assert_eq!(
+            short_created("2026-08-08T18:02:00.123Z"),
+            "2026-08-08 18:02:00"
+        );
+        assert_eq!(short_created("  "), "");
+        assert_eq!(short_created("already plain"), "already plain");
+    }
+
+    #[test]
+    fn overview_fields_are_glance_not_chrome_counts() {
+        use crate::wire::{SessionMeta, TurnRow, TurnsBlock};
+
+        let meta = SessionMeta {
+            session_id: "s1".into(),
+            path: "/tmp/s1".into(),
+            tool_call_count: 4,
+            error_count: 1,
+            git_repo: "groket".into(),
+            git_branch: "hudv2".into(),
+            created_at: "2026-08-08T12:00:00Z".into(),
+            context_usage_compact: "12%".into(),
+            context_tokens_used: Some(1_200),
+            context_window_tokens: Some(10_000),
+            num_events: 99,
+            num_messages: 3,
+            run_id: "run-a".into(),
+            ..SessionMeta::default()
+        };
+        let turns = TurnsBlock {
+            total: 2,
+            turns: vec![
+                TurnRow {
+                    turn_index: 0,
+                    label: "turn 0".into(),
+                    first_index: Some(0),
+                    last_index: Some(10),
+                    ..TurnRow::default()
+                },
+                TurnRow {
+                    turn_index: 1,
+                    label: "turn 1".into(),
+                    first_index: Some(11),
+                    last_index: Some(20),
+                    ..TurnRow::default()
+                },
+            ],
+            ..TurnsBlock::default()
+        };
+        let rows = overview_fields(&meta, &turns);
+        let keys: Vec<&str> = rows.iter().map(|r| r.key).collect();
+        assert_eq!(
+            keys,
+            [
+                "session",
+                "context",
+                "tools",
+                "last_turn",
+                "messages",
+                "run",
+                "repo",
+                "branch",
+                "created",
+                "path",
+            ]
+        );
+        assert!(!keys.contains(&"events"));
+        assert!(!keys.contains(&"findings"));
+        assert!(!keys.contains(&"notes"));
+        assert_eq!(
+            rows.iter()
+                .find(|r| r.key == "last_turn")
+                .map(|r| r.value.as_str()),
+            Some("turn 1 · #11–#20")
+        );
+        assert_eq!(
+            rows.iter()
+                .find(|r| r.key == "tools")
+                .map(|r| r.value.as_str()),
+            Some("4 · 1 errors")
+        );
+        assert!(rows
+            .iter()
+            .find(|r| r.key == "path")
+            .is_some_and(|r| r.copyable));
+        assert!(rows
+            .iter()
+            .find(|r| r.key == "session")
+            .is_some_and(|r| r.copyable));
+        // Labels share display width budget with fixed-column view (longest here).
+        let max_label = rows.iter().map(|r| r.label.len()).max().unwrap_or(0);
+        assert!(
+            max_label <= 12,
+            "label too wide for KV_LABEL_W: {max_label}"
+        );
     }
 
     #[test]

@@ -1404,36 +1404,10 @@ impl Hud {
         let Some(o) = &self.overview else {
             return;
         };
-        let m = &o.meta;
-        let git = match (m.git_repo.is_empty(), m.git_branch.is_empty()) {
-            (true, true) => "—".into(),
-            (false, true) => m.git_repo.clone(),
-            (true, false) => m.git_branch.clone(),
-            (false, false) => format!("{} · {}", m.git_repo, m.git_branch),
-        };
-        let findings = if o.findings.total > 0 {
-            o.findings.total.to_string()
-        } else {
-            o.findings.count.to_string()
-        };
-        let pairs = [
-            ("session", m.session_id.clone()),
-            ("events", m.num_events.to_string()),
-            (
-                "tools",
-                format!("{} ({} errors)", m.tool_call_count, m.error_count),
-            ),
-            ("turns", o.turns.total.to_string()),
-            ("findings", findings),
-            ("notes", o.notes.count.to_string()),
-            ("git", git),
-            ("path", m.path.clone()),
-            ("title", m.title.clone()),
-            ("summary", o.summary.clone()),
-        ];
-        for (id, src) in pairs {
-            if !src.is_empty() {
-                self.bind_extract_text(ExtractKey::Overview(id), &src);
+        // Selectable Overview values only (fixed-label stack in the view).
+        for field in crate::format::overview_fields(&o.meta, &o.turns) {
+            if field.copyable && !field.value.is_empty() {
+                self.bind_extract_text(ExtractKey::Overview(field.key), &field.value);
             }
         }
         // Already-open turns (restore after reload).
@@ -3758,17 +3732,19 @@ mod tests {
 
     #[test]
     fn scroll_focus_into_view_clamps_to_content() {
-        let mut hud = Hud::default();
-        hud.tl_heights = vec![40.0; 5];
+        let mut hud = Hud {
+            tl_heights: vec![40.0; 5],
+            tl_filter: (0..5).collect(),
+            timeline: (0..5)
+                .map(|i| TimelineEvent {
+                    index: i as i64,
+                    ..TimelineEvent::default()
+                })
+                .collect(),
+            timeline_focus: Some(4),
+            ..Hud::default()
+        };
         hud.tl_window.viewport = 100.0;
-        hud.tl_filter = (0..5).collect();
-        hud.timeline = (0..5)
-            .map(|i| TimelineEvent {
-                index: i as i64,
-                ..TimelineEvent::default()
-            })
-            .collect();
-        hud.timeline_focus = Some(4);
         let _ = hud.scroll_focus_into_view();
         let content: f32 = hud.tl_heights.iter().copied().sum();
         let max = (content - hud.tl_window.viewport).max(0.0);
@@ -4601,10 +4577,8 @@ mod tests {
             hud.extract_src(ExtractKey::Overview("path")).as_deref(),
             Some("/workspace/sess-wire")
         );
-        assert_eq!(
-            hud.extract_src(ExtractKey::Overview("events")).as_deref(),
-            Some("3")
-        );
+        // Raw event/findings counts are not copyable Overview fields.
+        assert_eq!(hud.extract_src(ExtractKey::Overview("events")), None);
         assert!(hud.extract(ExtractKey::Overview("session")).is_some());
     }
 

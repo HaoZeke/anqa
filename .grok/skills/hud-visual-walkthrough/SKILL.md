@@ -94,21 +94,24 @@ For **each** `*.png` under `out_dir/shots/` in step order:
    pixels with multimodal vision — **filename-only scoring fails**.
 2. Score against `references/rubric.md` using **categories A–G**, not a
    single remembered regression:
-   - **A Geometry** — clip, overlap, occlusion (including dual search fields)
+   - **A Geometry** — clip, overlap, occlusion; **structured field columns**
+     (Overview label gutter: all values share one vertical start)
    - **B Control honesty** — labels match load/empty behavior
    - **C Gate consistency** — tabs/actions vs “select a session” body
    - **D Identity** — type color, human labels, no a11y-id as caption
    - **E Density** — empty shells, spacing, contrast
    - **F Pane validity** — Overview / Turns / Events / Findings / Notes
    - **G Transitions** — cold start → select → All turns before turn pick
-3. On Timeline shots especially, answer explicitly:
+3. On **Overview** shots: label/value stack aligned? path not left-shifted
+   vs session? Glance fields (not raw event-count dump)?
+4. On Timeline shots especially, answer explicitly:
    - Is **Search all events** fully visible and not under picks/count?
    - Does **All turns** show events, loading, or a *honest* empty?
    - Is count/range real text (not the word `count` / a widget id)?
    - Do closed cards show human type labels with brand color?
-4. Human-usefulness bar: correct pane; primary controls usable without
+5. Human-usefulness bar: correct pane; primary controls usable without
    guesswork; no empty wrong pane when data should show.
-5. Write one short note per shot: **ok / ugly / broken** + **category
+6. Write one short note per shot: **ok / ugly / broken** + **category
    letter(s)** + one sentence why.
 
 Do **not** use `image_gen` to “fix” the UI. Prefer plain description + path.
@@ -145,7 +148,7 @@ Paste a short summary into chat. Keep the full report on disk.
 | 00 | Ensure serve + start HUD | `00-boot` | — |
 | 01 | Show window (window mode) | `01-summon` | **C** cold: tabs vs select body |
 | 02 | Search session substring | `02-search` | A dual search later |
-| 03 | Select session (Enter) → Overview | `03-overview` | F Overview |
+| 03 | Select session (Enter) → Overview | `03-overview` | **A.6** field columns, F Overview |
 | 04 | Ctrl+2 Turns | `04-turns` | F Turns |
 | 05 | Expand first turn (click) | `05-turn-open` | E open density |
 | 06 | Ctrl+3 Events (**All turns**, before `]`) | `06-events` | **A B D F** filter + All turns honesty |
