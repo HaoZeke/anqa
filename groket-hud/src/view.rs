@@ -388,9 +388,10 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
 
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    // Turn scope is the pick list only — no "Next" chip in this dense bar
-    // (it clipped/wrapped). Step turns with the dropdown or keyboard `]`.
-    row![
+    // Two rows: picks + count stay compact; search is full width so it is not
+    // crushed by the turn/type dropdowns (one-row bar clipped the field).
+    // Step turns with the dropdown or keyboard `]`.
+    let picks = row![
         icedtea::widget::meta("Turn", tea, A11y::new("Turn", Role::Header)),
         icedtea::widget::themed_pick_list(
             hud.events_turn_options(),
@@ -407,22 +408,27 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::new("Type", Role::ComboBox),
         ),
-        container(icedtea::widget::themed_text_input(
-            "Search all events",
-            hud.timeline_query_draft(),
-            Message::TimelineQuery,
-            None,
-            tea,
-            A11y::new("Search all events", Role::TextBox),
-            Some(hud.tl_search_id()),
-        ))
-        .width(Length::Fill),
-        icedtea::widget::meta(hud.timeline_meta(), tea, A11y::new("count", Role::Status),),
+        Space::new().width(Length::Fill),
+        icedtea::widget::meta(hud.timeline_meta(), tea, A11y::new("count", Role::Status)),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
-    .padding(Padding::from([8, 12]))
-    .into()
+    .width(Length::Fill);
+    let search = container(icedtea::widget::themed_text_input(
+        "Search all events",
+        hud.timeline_query_draft(),
+        Message::TimelineQuery,
+        None,
+        tea,
+        A11y::new("Search all events", Role::TextBox),
+        Some(hud.tl_search_id()),
+    ))
+    .width(Length::Fill);
+    column![picks, search]
+        .spacing(8)
+        .width(Length::Fill)
+        .padding(Padding::from([8, 12]))
+        .into()
 }
 
 fn overview_tab(hud: &Hud) -> Element<'_, Message> {
@@ -1975,6 +1981,23 @@ mod tests {
         let _ = timeline_filter(&hud);
         let _ = session_list_at(&hud, 400.0);
         let _ = layout(&hud);
+        let src = include_str!("view.rs");
+        assert!(
+            src.contains("Search all events"),
+            "timeline filter keeps search"
+        );
+        // Search is a second row so pick lists cannot crush the field.
+        let filter_src = src
+            .split("fn timeline_filter")
+            .nth(1)
+            .unwrap_or("")
+            .split("fn overview_tab")
+            .next()
+            .unwrap_or("");
+        assert!(
+            filter_src.contains("column![picks, search]"),
+            "search must not share the picks row"
+        );
     }
 
     #[test]

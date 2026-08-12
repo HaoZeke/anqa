@@ -13,8 +13,8 @@ Score each screenshot. Prefer evidence over taste essays.
 ## Pixel / layout checks
 
 1. **Edges** — content inset from card edge (≈12–16px chrome rhythm). No text flush to border.
-2. **Clipping** — labels, chips, badges, or buttons cut off; scroll body not under footer.
-3. **Alignment** — session rail vs detail; filter row controls baseline-aligned.
+2. **Clipping** — labels, chips, badges, search fields, or buttons cut off; scroll body not under footer. Events filter must show the full **Search all events** field (not only a sliver or the count label).
+3. **Alignment** — session rail vs detail; filter controls baseline-aligned; multi-row filters still leave search fully visible.
 4. **Density** — 8px-ish spacing rhythm; more space between sections than within a card.
 5. **Contrast** — muted meta still readable; danger/status not pure decoration without meaning.
 6. **Focus** — when a pane is active, primary content is obvious (not a blank void with chrome only).
@@ -25,7 +25,7 @@ Score each screenshot. Prefer evidence over taste essays.
 2. **Session match** — title/id in the UI is the intended session (not empty catalog).
 3. **Overview** — meta, status badge, path/events counts present when session has data.
 4. **Turns** — closed cards show user prompt + marks; open card shows stats (duration, tools) and assistant when complete.
-5. **Events** — empty search-all copy when no turn/query; turn-scoped list when a turn is selected; not a silent blank.
+5. **Events** — empty search-all copy when no turn/query; turn-scoped list when a turn is selected; not a silent blank. Filter chrome: Turn + Type picks, count meta, and an unclipped search field (own row is fine).
 6. **Findings / Notes** — empty states use icedtea empty/status patterns, not raw error dumps.
 7. **Broken signals** — “control socket down”, panic, zero-size window, all-black frame = **broken**.
 
