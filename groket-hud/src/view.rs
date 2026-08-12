@@ -442,8 +442,9 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     .align_y(Alignment::Center)
     .padding(Padding::from([8, 12]));
     if hud.next_turn_after_events().is_some() {
+        // Short label: filter bar is dense; multi-word labels wrap vertically.
         row = row.push(icedtea::widget::themed_button(
-            "Next turn",
+            "Next",
             Some(Message::NextTurnEvents),
             tea,
             Variant::Quiet,

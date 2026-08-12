@@ -38,7 +38,7 @@ use crate::theme;
 use crate::view;
 use crate::wire::{
     decode_overview, decode_session_list, decode_session_list_response, decode_timeline_page,
-    FindingRow, NotesBlock, Overview, TimelineEvent,
+    decode_turns, FindingRow, NotesBlock, Overview, TimelineEvent, TurnsBlock,
 };
 
 const HUD_W: f32 = 780.0;
@@ -94,6 +94,12 @@ pub enum Message {
         gen: u64,
         sid: String,
         quiet: bool,
+        result: Result<Value, String>,
+    },
+    /// Full ``session/turns`` bodies after overview list previews (open card honesty).
+    FullTurnsLoaded {
+        sid: String,
+        focus: i64,
         result: Result<Value, String>,
     },
     TimelineLoaded {
@@ -255,6 +261,8 @@ pub struct Hud {
     findings_open: HashSet<String>,
     notes_open: HashSet<String>,
     turns_open: HashSet<i64>,
+    /// True after ``session/turns`` has filled long assistant wrap-ups into overview rows.
+    full_turns_hydrated: bool,
     follow_draft: String,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
@@ -342,6 +350,7 @@ impl Default for Hud {
             findings_open: HashSet::new(),
             notes_open: HashSet::new(),
             turns_open: HashSet::new(),
+            full_turns_hydrated: false,
             follow_draft: String::new(),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
@@ -572,7 +581,6 @@ impl Hud {
                 }
                 let same = self.active == i && self.overview.is_some();
                 self.set_active(i);
-                Self::log_response("select_session", &i.to_string());
                 if same {
                     return self.focus_overlay();
                 }
@@ -582,8 +590,6 @@ impl Hud {
                 Task::batch([self.load_overview(false), self.focus_overlay()])
             }
             Message::SetTab(tab) => {
-                // Log first: chrome is the tab enum flip; loads stay async Tasks.
-                Self::log_response("set_tab", tab.label());
                 self.tab = tab;
                 // Keep turn scope when returning to Events. Only an explicit
                 // "All turns" pick or search-all clears the drawer.
@@ -679,11 +685,36 @@ impl Hud {
             Message::TurnExpand { turn, open } => {
                 if open {
                     self.turns_open.insert(turn);
+                    // Overview may only have a short list preview; hydrate full
+                    // assistant wrap-ups from session/turns before binding body.
+                    if self.turn_assistant_needs_full(turn) {
+                        return self.load_full_turn_bodies(turn);
+                    }
                     self.bind_turn_row(turn);
-                    Self::log_response("turn_expand", &turn.to_string());
                 } else {
                     self.turns_open.remove(&turn);
-                    Self::log_response("turn_collapse", &turn.to_string());
+                }
+                Task::none()
+            }
+            Message::FullTurnsLoaded { sid, focus, result } => {
+                if sid != self.overview_sid {
+                    return Task::none();
+                }
+                match result {
+                    Ok(data) => {
+                        let block = match decode_turns(&data) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                self.mark_down(&e);
+                                return Task::none();
+                            }
+                        };
+                        self.merge_full_turn_bodies(&block);
+                        self.full_turns_hydrated = true;
+                        self.bind_turn_row(focus);
+                        self.mark_up();
+                    }
+                    Err(e) => self.mark_down(&e),
                 }
                 Task::none()
             }
@@ -1362,35 +1393,58 @@ impl Hud {
         self.bind_turn_row(turn);
     }
 
-    /// Chrome response line for the walkthrough harness (`GROKET_HUD_RESPONSE_LOG`).
-    fn log_response(kind: &str, detail: &str) {
-        let Ok(path) = std::env::var("GROKET_HUD_RESPONSE_LOG") else {
+    /// Overview list previews cap assistant text; open cards need the full wrap-up.
+    fn turn_assistant_needs_full(&self, turn: i64) -> bool {
+        if self.full_turns_hydrated {
+            return false;
+        }
+        let Some(t) = self
+            .overview
+            .as_ref()
+            .and_then(|o| o.turns.turns.iter().find(|row| row.turn_index == turn))
+        else {
+            return false;
+        };
+        if t.open {
+            return false;
+        }
+        t.assistant_summary.ends_with('…') || t.assistant_summary.ends_with("...")
+    }
+
+    fn load_full_turn_bodies(&mut self, focus: i64) -> Task<Message> {
+        let Some(rpc_ref) = self.selected_rpc_ref() else {
+            self.bind_turn_row(focus);
+            return Task::none();
+        };
+        let sid = self.overview_sid.clone();
+        Task::perform(
+            rpc(move || control::session_turns(&rpc_ref)),
+            move |result| Message::FullTurnsLoaded {
+                sid: sid.clone(),
+                focus,
+                result,
+            },
+        )
+    }
+
+    fn merge_full_turn_bodies(&mut self, block: &TurnsBlock) {
+        let Some(ov) = self.overview.as_mut() else {
             return;
         };
-        if path.is_empty() {
-            return;
-        }
-        use std::io::Write;
-        use std::sync::Mutex;
-        static LOG: Mutex<Option<std::fs::File>> = Mutex::new(None);
-        let ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let line = format!("{{\"ms\":{ms},\"kind\":{kind:?},\"detail\":{detail:?}}}\n");
-        let Ok(mut guard) = LOG.lock() else {
-            return;
-        };
-        if guard.is_none() {
-            *guard = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .ok();
-        }
-        if let Some(f) = guard.as_mut() {
-            let _ = f.write_all(line.as_bytes());
-            let _ = f.flush();
+        for full in &block.turns {
+            if let Some(row) = ov
+                .turns
+                .turns
+                .iter_mut()
+                .find(|t| t.turn_index == full.turn_index)
+            {
+                if !full.assistant_summary.is_empty() {
+                    row.assistant_summary = full.assistant_summary.clone();
+                }
+                if !full.summary.is_empty() {
+                    row.summary = full.summary.clone();
+                }
+            }
         }
     }
 
@@ -2008,9 +2062,7 @@ impl Hud {
         };
         // Chrome: pending sid + loading placeholder this frame; body fills async.
         self.overview_pending = sid.clone();
-        if !quiet {
-            Self::log_response("select_session", &sid);
-        }
+        self.full_turns_hydrated = false;
         self.overview_gen += 1;
         let gen = self.overview_gen;
         Task::perform(
@@ -2123,12 +2175,6 @@ impl Hud {
 
     fn select_events_turn(&mut self, turn_index: Option<i64>) -> Task<Message> {
         self.tab = Tab::Timeline;
-        Self::log_response(
-            "events_turn_pick",
-            &turn_index
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| "all".into()),
-        );
         self.timeline_query.clear();
         self.timeline_query_draft.clear();
         self.timeline_search_pending = false;
@@ -2179,8 +2225,6 @@ impl Hud {
 
     fn jump_next_turn(&mut self) -> Task<Message> {
         let Some(next) = self.next_turn_after_events().map(|t| t.turn_index) else {
-            // Still a chrome ack so the harness can see end-of-list without hanging.
-            Self::log_response("events_turn_pick", "end");
             return Task::none();
         };
         self.select_events_turn(Some(next))
@@ -2200,11 +2244,9 @@ impl Hud {
             self.events_turn_index = Some(t.turn_index);
             self.timeline_prompt = t.prompt_index;
             self.focus_turn(t.turn_index);
-            Self::log_response("events_turn_pick", &t.turn_index.to_string());
         } else {
             self.events_turn_index = None;
             self.timeline_prompt = self.prompt_index_for_event(index);
-            Self::log_response("events_turn_pick", "index");
         }
         self.rebuild_tl_filter();
         // Always reload the turn-scoped page.
@@ -3601,6 +3643,69 @@ mod tests {
         assert_eq!(
             hud.extract_src(ExtractKey::TurnAsst(0)).as_deref(),
             Some("hello agent")
+        );
+    }
+
+    #[test]
+    fn opening_list_preview_merges_full_session_turns_body() {
+        // Overview may ship a capped assistantSummary; open must hydrate via session/turns.
+        let mut hud = Hud {
+            overview_sid: "s1".into(),
+            overview: Some(Overview {
+                meta: crate::wire::SessionMeta {
+                    session_id: "s1".into(),
+                    path: "/tmp/s1".into(),
+                    status: "complete".into(),
+                    ..Default::default()
+                },
+                turns: crate::wire::TurnsBlock {
+                    total: 1,
+                    turns: vec![crate::wire::TurnRow {
+                        turn_index: 0,
+                        open: false,
+                        summary: "ask".into(),
+                        assistant_summary: format!("{}…", "x".repeat(400)),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Hud::default()
+        };
+        assert!(hud.turn_assistant_needs_full(0));
+        let _ = hud.update(Message::TurnExpand {
+            turn: 0,
+            open: true,
+        });
+        // Expand schedules RPC; apply FullTurnsLoaded as the control client would.
+        let full = json!({
+            "sessionId": "s1",
+            "total": 1,
+            "turns": [{
+                "turnIndex": 0,
+                "open": false,
+                "summary": "ask",
+                "assistantSummary": "y".repeat(800),
+            }]
+        });
+        let _ = hud.update(Message::FullTurnsLoaded {
+            sid: "s1".into(),
+            focus: 0,
+            result: Ok(full),
+        });
+        assert!(hud.full_turns_hydrated);
+        assert_eq!(
+            hud.overview
+                .as_ref()
+                .and_then(|o| o.turns.turns.first())
+                .map(|t| t.assistant_summary.len()),
+            Some(800)
+        );
+        let body = "y".repeat(800);
+        assert_eq!(
+            hud.extract_src(ExtractKey::TurnAsst(0)).as_deref(),
+            Some(body.as_str())
         );
     }
 
