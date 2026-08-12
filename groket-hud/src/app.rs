@@ -14,8 +14,8 @@ use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
 use crate::format::{
-    control_down_message, event_body_text, extract_event, list_status_label, new_note_id,
-    tool_fields_from_raw,
+    control_down_message, event_body_text, extract_event, extract_turn, list_status_label,
+    new_note_id, tool_fields_from_raw,
 };
 use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
@@ -331,6 +331,41 @@ impl Default for Hud {
             },
         }
     }
+}
+
+fn write_os_clipboard(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let jobs: &[(&str, &[&str])] = &[
+            ("wl-copy", &[]),
+            ("xclip", &["-selection", "clipboard", "-in"]),
+            ("xclip", &["-selection", "primary", "-in"]),
+            ("xsel", &["--clipboard", "--input"]),
+        ];
+        for (bin, args) in jobs {
+            let Ok(mut child) = Command::new(bin)
+                .args(*args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                continue;
+            };
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+    }
+    let _ = text;
 }
 
 fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
@@ -1248,7 +1283,11 @@ impl Hud {
             return Task::none();
         }
         self.toasts.push_success("Copied");
-        icedtea::host::copy_text(text)
+        write_os_clipboard(&text);
+        Task::batch([
+            icedtea::host::copy_text(text.clone()),
+            iced::clipboard::write_primary(text),
+        ])
     }
 
     fn yank_active(&mut self) -> Task<Message> {
@@ -1266,6 +1305,14 @@ impl Hud {
                 .timeline_focus
                 .and_then(|ix| self.timeline.iter().find(|e| e.index == ix))
                 .map(extract_event)
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| {
+                    self.timeline_focus.and_then(|ix| {
+                        self.field(&format!("event.{ix}.out"))
+                            .map(|c| c.text())
+                            .filter(|s| !s.trim().is_empty())
+                    })
+                })
                 .unwrap_or_default(),
             Tab::Turns => self
                 .overview
@@ -1276,13 +1323,7 @@ impl Hud {
                     let idx = open.last().copied()?;
                     o.turns.turns.iter().find(|t| t.turn_index == idx)
                 })
-                .map(|t| {
-                    if t.summary.is_empty() {
-                        t.assistant_summary.clone()
-                    } else {
-                        t.summary.clone()
-                    }
-                })
+                .map(|t| extract_turn(&t.label, &t.summary, &t.assistant_summary))
                 .unwrap_or_default(),
             Tab::Findings => self
                 .overview
@@ -2542,7 +2583,11 @@ impl Hud {
             return Task::none();
         }
         self.toasts.push_success("Copied path");
-        icedtea::host::copy_text(path)
+        write_os_clipboard(&path);
+        Task::batch([
+            icedtea::host::copy_text(path.clone()),
+            iced::clipboard::write_primary(path),
+        ])
     }
 
     fn on_event(&mut self, ev: Event) -> Task<Message> {
@@ -3285,6 +3330,14 @@ mod tests {
             action: iced::widget::text_editor::Action::SelectAll,
         });
         assert_eq!(hud.copyable_text().trim(), "src/a.rs");
+        let copy = hud
+            .context_actions()
+            .into_iter()
+            .find(|a| a.id.as_str() == "edit.copy")
+            .expect("copy");
+        assert!(copy.enabled);
+        let _ = hud.update(Message::Yank);
+        assert!(hud.toasts().iter().any(|t| t.text == "Copied"));
     }
 
     #[test]
