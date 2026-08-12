@@ -31,16 +31,17 @@ Sol-style session **command palette** for the local groket control plane
   A closed turn card is the user prompt plus marks. Expanding a complete
   turn binds and paints the final assistant for select/copy. An open turn
   shows status and a short last line.
-  **Events** has a turn pick list (defaults to the turn you jumped from)
-  plus type filter and search-all. Step turns with the dropdown or **]**.
-  Picking a turn expands it on Turns. Overview lists session-level rows
-  (system / session chrome).
+  **Timeline** (same name as the TUI tab) has a turn pick list (defaults to
+  the turn you jumped from) plus type filter and search-all. Step turns with
+  the dropdown or **]**. Closed turn cards expose **Go to Timeline** without
+  expanding. Overview lists session-level rows (system / session chrome).
   Event type labels use the TUI brand colors (cream / complete / running /
   failed / cancelled). Search hits show the matching field and a snippet.
   Turn and event cards use the same disclosure drawer (▸ / ▾). JSON/code
   uses the code block. Copy with
   **y** / **Ctrl+Shift+C** (or right-click Copy).
   Right-click also offers Copy path.
+  Context fill is an Overview progress bar only (not on every rail card).
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview about every 3s (idle sessions slower). An open event
   drawer refreshes that turn’s events.

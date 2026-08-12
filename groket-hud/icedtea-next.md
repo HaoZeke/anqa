@@ -16,7 +16,7 @@ and the Textual ``config.json`` → ``tea_tokens`` map stay groket-owned.
 - JSON/code uses `code_block`; saved images use `image_slot`.
 - Overview status is a `badge`.
 - Session list search is the jump path.
-- Context bar on tiles and ring + reading on Overview.
+- Context fill is Overview-only (rail uses compact % text, no meters).
 - Findings expanders by severity with a timeline command.
 - Awaiting banner with follow-up / Done (`session/follow_up`, `session/done`).
 - Catalog warmup uses `busy_overlay`. Toasts for save, copy, errors.
@@ -34,8 +34,13 @@ Search stays a custom row (rocket, field, hotkey, pop-out).
 Session rail uses icedtea `list_view` + `RowFace::Card` +
 `RowHeights::PerRow`. Heights live on `Hud` next to the meta lines.
 
+Turns / Timeline lists use `live::visible_range` → icedtea
+`collection::virtual_pads` (same contract as gallery lists).
+
+Tab label **Timeline** matches the TUI; jump control **Go to Timeline**.
+
 ## Do not
 
-- Pin a local checkout by path.
+- Pin a local checkout by path in published crates (dev may path-pin 0.4.x).
 - Drop overlay / hotkey / daemon into `icedtea::run!`.
 - Treat gallery-only pages (keys, colors) as HUD work.

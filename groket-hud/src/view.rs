@@ -315,15 +315,9 @@ fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             tone_color(status_tone(&status), hud_tok)
         },
         Some(hud.list_scroll_id()),
+        // Context fill lives on Overview only — rail meters were noise at catalog scale.
         icedtea::collection::RowFace::Card {
-            meter: Some(|i| {
-                hud.sessions()
-                    .get(i)
-                    .map(|r: &crate::model::SessionRow| {
-                        context_fraction(r.context_window_usage_pct, &r.context_usage_compact)
-                    })
-                    .unwrap_or(0.0)
-            }),
+            meter: None::<fn(usize) -> f32>,
         },
         A11y::new("Sessions", Role::List),
     )
@@ -460,7 +454,6 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     if summary.is_empty() {
         summary = "No summary text for this session.".into();
     }
-    let ctx = meta.context_compact().to_string();
     let status = meta.status_label();
     let tone = status_tone(&status);
     let taken = if meta.duration.is_empty() {
@@ -468,12 +461,12 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     } else {
         meta.duration.clone()
     };
+    // Context % is on the bar below — keep hero to model · origin · duration.
     let hero = format!(
-        "{} · {} · {} · {}",
+        "{} · {} · {}",
         meta.model,
         origin_label(&meta.origin),
         taken,
-        ctx,
     );
     let id = meta.session_id.clone();
     let events = meta.num_events.to_string();
@@ -519,9 +512,12 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         ]
         .spacing(8)
         .align_y(Alignment::Center),
-        context_meter(ctx_frac, tea),
     ]
     .spacing(8);
+    // Progress only where context matters (session detail), and only when known.
+    if ctx_frac > 0.0 {
+        col = col.push(context_meter(ctx_frac, tea));
+    }
     if hud.selected_awaiting() {
         col = col.push(awaiting_banner(hud, tea));
     }
@@ -1122,9 +1118,16 @@ fn turns_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         let child = if open {
             turn_body(hud, t, mark)
         } else {
+            // Jump sits above the peek face so it is not buried under Peek::Lines.
             column![
+                row![
+                    Space::new().width(Length::Fill),
+                    jump_control(turn_jump(t), tea.muted, tea),
+                ]
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
                 closed_turn_face(&t.summary, tea),
-                card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
+                card_chips(hud, mark, Some(turn_note(t)), None),
             ]
             .spacing(6)
             .into()
@@ -1721,9 +1724,9 @@ fn jump_control(
         )
         .on_press(msg)
         .into(),
-        "Go to timeline",
+        "Go to Timeline",
         tea,
-        A11y::button("Go to timeline"),
+        A11y::button("Go to Timeline"),
     )
 }
 
@@ -2045,7 +2048,7 @@ mod tests {
         assert!(prod.contains("Variant::Chip"));
         assert!(!prod.contains("themed_button_sized"));
         assert!(prod.contains("fn jump_control"));
-        assert!(prod.contains("Go to timeline"));
+        assert!(prod.contains("Go to Timeline"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
         assert!(prod.contains("pattern::command_bar"));
         assert!(prod.contains("pattern::status_bar"));
@@ -2053,6 +2056,8 @@ mod tests {
         assert!(prod.contains("CLOSED_TURN_CARD_H"));
         assert!(prod.contains("TURNS_OVERSCAN"));
         assert!(prod.contains("turns_tab(hud, hud.turn_view_h())"));
+        assert!(prod.contains("virtual_pads") || prod.contains("visible_range"));
+        assert!(prod.contains("meter: None"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("fn turn_note"));
         assert!(prod.contains("fn overview_commands"));

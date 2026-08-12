@@ -19,12 +19,12 @@ use crate::format::{
 };
 use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, context_fraction, filter_timeline_indices,
-    first_list_fetch, index_outside_visible, is_partial_list_page, is_soft_notes_save_error,
-    list_scroll_to_cover, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
-    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
-    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
-    session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
+    card_marks_from_overview, clamp_scroll, filter_timeline_indices, first_list_fetch,
+    index_outside_visible, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
+    merge_catalog_rows, merge_timeline_by_index, next_list_offset, notes_schema_fields,
+    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
+    scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
+    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
     toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, IDLE_POLL_MS, LIVE_POLL_MS,
     LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN,
@@ -1793,12 +1793,8 @@ impl Hud {
             .get(index)
             .map(String::as_str)
             .unwrap_or("");
-        let has_ctx = self
-            .sessions()
-            .get(index)
-            .map(|r| context_fraction(r.context_window_usage_pct, &r.context_usage_compact) > 0.0)
-            .unwrap_or(false);
-        session_card_height(title, meta, has_ctx)
+        // Rail has no context meter; compact % is text-only in the meta line.
+        session_card_height(title, meta, false)
     }
 
     fn refresh_session_rows(&mut self) {

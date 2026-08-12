@@ -33,7 +33,7 @@ pub const SCROLL_HANDLE_MIN: f32 = icedtea::chrome::SCROLL_HANDLE_MIN;
 /// Rail and handle width from icedtea.
 pub const SCROLL_RAIL_WIDTH: f32 = icedtea::chrome::SCROLL_RAIL_WIDTH;
 
-/// Window into a fixed-height virtual list.
+/// Window into a fixed-height virtual list (pads + mounted range).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VisibleRange {
     pub start: usize,
@@ -42,7 +42,10 @@ pub struct VisibleRange {
     pub pad_bottom: f32,
 }
 
-/// Rows to mount for a scroll offset (plus overscan). Empty when *count* is 0.
+/// Rows to mount for a scroll offset (plus overscan).
+///
+/// Thin adapter over [`icedtea::collection::virtual_pads`] so Turns/Events
+/// stay on the icedtea virtualization contract.
 pub fn visible_range(
     scroll_y: f32,
     viewport_h: f32,
@@ -50,26 +53,7 @@ pub fn visible_range(
     count: usize,
     overscan: usize,
 ) -> VisibleRange {
-    if count == 0 || row_h <= 0.0 {
-        return VisibleRange {
-            start: 0,
-            end: 0,
-            pad_top: 0.0,
-            pad_bottom: 0.0,
-        };
-    }
-    let view_h = viewport_h.max(1.0);
-    let y = scroll_y.max(0.0);
-    let first = (y / row_h).floor() as usize;
-    let visible = ((view_h / row_h).ceil() as usize).max(1);
-    let start = first.saturating_sub(overscan).min(count);
-    let end = (first + visible + overscan).min(count).max(start);
-    VisibleRange {
-        start,
-        end,
-        pad_top: start as f32 * row_h,
-        pad_bottom: (count.saturating_sub(end)) as f32 * row_h,
-    }
+    visible_range_covering(scroll_y, viewport_h, row_h, count, overscan, None)
 }
 
 /// Viewport window for a rail that clips its body (no overscan, no pads).
@@ -134,22 +118,28 @@ pub fn visible_range_covering(
     overscan: usize,
     cover: Option<usize>,
 ) -> VisibleRange {
-    let mut r = visible_range(scroll_y, viewport_h, row_h, count, overscan);
-    let Some(i) = cover else {
-        return r;
-    };
-    if i >= count {
-        return r;
+    if count == 0 || row_h <= 0.0 {
+        return VisibleRange {
+            start: 0,
+            end: 0,
+            pad_top: 0.0,
+            pad_bottom: 0.0,
+        };
     }
-    if i < r.start {
-        r.start = i;
+    let (pad_top, win, pad_bottom) = icedtea::collection::virtual_pads(
+        count,
+        row_h,
+        scroll_y.max(0.0),
+        viewport_h.max(1.0),
+        overscan,
+        cover.filter(|&i| i < count),
+    );
+    VisibleRange {
+        start: win.start,
+        end: win.end,
+        pad_top,
+        pad_bottom,
     }
-    if i >= r.end {
-        r.end = i + 1;
-    }
-    r.pad_top = r.start as f32 * row_h;
-    r.pad_bottom = (count.saturating_sub(r.end)) as f32 * row_h;
-    r
 }
 
 /// True when *index* is not in the collapsed-height window (ignore covering).
@@ -1134,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_range_empty_and_first_page() {
+    fn visible_range_tracks_icedtea_virtual_pads() {
         assert_eq!(
             visible_range(0.0, 400.0, 60.0, 0, 3),
             VisibleRange {
@@ -1144,50 +1134,41 @@ mod tests {
                 pad_bottom: 0.0
             }
         );
-        let r = visible_range(0.0, 400.0, 60.0, 200, 3);
-        assert_eq!(r.start, 0);
-        assert!(r.end <= 12, "end={}", r.end);
-        assert!(r.end >= 7);
-        assert_eq!(r.pad_top, 0.0);
-        assert!(r.pad_bottom > 0.0);
+        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
+        let (top, win, bot) = icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, None);
+        assert_eq!(r.start, win.start);
+        assert_eq!(r.end, win.end);
+        assert_eq!(r.pad_top, top);
+        assert_eq!(r.pad_bottom, bot);
+        assert!(r.start < r.end);
+        assert!(r.end <= 200);
     }
 
     #[test]
     fn visible_range_clamps_scroll_past_short_buffer() {
-        // First timeline page is 120 rows; leftover scroll from a longer list
-        // used to panic: events[138..120].
+        // Leftover scroll from a longer list must not yield start > end or past n.
         let r = visible_range(138.0 * 128.0, 400.0, 128.0, 120, 4);
         assert!(r.start <= r.end);
         assert!(r.end <= 120);
-        assert_eq!(r.start, 120);
-        assert_eq!(r.end, 120);
-    }
-
-    #[test]
-    fn visible_range_scrolls_with_overscan_and_pads() {
-        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
-        assert_eq!(r.start, 10 - 3);
-        assert_eq!(r.end, 20);
-        assert_eq!(r.pad_top, r.start as f32 * 60.0);
-        assert_eq!(r.pad_bottom, (200 - r.end) as f32 * 60.0);
+        assert!(r.start < 120 || r.end == 120);
     }
 
     #[test]
     fn index_outside_visible_matches_window() {
-        assert!(!index_outside_visible(600.0, 400.0, 60.0, 200, 3, 12));
-        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 5));
-        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 80));
+        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
+        assert!(!index_outside_visible(600.0, 400.0, 60.0, 200, 3, r.start));
+        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 0));
+        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 199));
     }
 
     #[test]
     fn visible_range_covering_keeps_selected_row_without_mounting_all() {
         let r = visible_range_covering(600.0, 400.0, 60.0, 200, 3, Some(5));
-        assert_eq!(r.start, 5);
-        assert_eq!(r.end, 20);
+        let (_, win, _) = icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, Some(5));
+        assert_eq!(r.start, win.start);
+        assert_eq!(r.end, win.end);
+        assert!(r.start <= 5 && 5 < r.end);
         assert!(r.end - r.start < 40);
-        let inside = visible_range_covering(600.0, 400.0, 60.0, 200, 3, Some(12));
-        assert_eq!(inside.start, 7);
-        assert_eq!(inside.end, 20);
     }
 
     #[test]

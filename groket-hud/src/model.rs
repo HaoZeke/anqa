@@ -24,7 +24,7 @@ impl Tab {
         match self {
             Tab::Overview => "Overview",
             Tab::Turns => "Turns",
-            Tab::Timeline => "Events",
+            Tab::Timeline => "Timeline",
             Tab::Findings => "Findings",
             Tab::Notes => "Notes",
         }
@@ -161,7 +161,7 @@ mod tests {
     fn tab_and_kind_labels() {
         assert_eq!(Tab::Overview.label(), "Overview");
         assert_eq!(Tab::Turns.label(), "Turns");
-        assert_eq!(Tab::Timeline.label(), "Events");
+        assert_eq!(Tab::Timeline.label(), "Timeline");
         assert_eq!(KindFilter::User.short_label(), "User");
         assert_eq!(KindFilter::Asst.short_label(), "Assistant");
         assert_eq!(KindFilter::Errors.short_label(), "Errors");
