@@ -29,7 +29,8 @@ Sol-style session **command palette** for the local groket control plane
   Timeline type labels use the TUI brand colors (cream / complete / running /
   failed / cancelled). Search hits show the matching field and a snippet.
   Timeline events and turn User/Assistant sections use the same
-  disclosure drawer (▸ / ▾). An open body is selectable; copy with
+  disclosure drawer (▸ / ▾). Markdown in a turn or note paints as
+  markdown; a plain open body is selectable. Copy with
   **Ctrl+C** (or **y** / **Ctrl+Shift+C** for the focused event).
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview and the timeline tail about every 3s (idle sessions slower).

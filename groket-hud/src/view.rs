@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
-use iced::widget::text::{LineHeight, Wrapping};
+use iced::widget::text::Wrapping;
 use iced::widget::{
     button, column, container, image, markdown, mouse_area, responsive, row, scrollable, text,
     text_editor, text_input, Space,
@@ -868,7 +868,7 @@ fn event_title(ev: &TimelineEvent) -> String {
     }
 }
 
-fn event_face(ev: &TimelineEvent, ink: Color) -> Element<'static, Message> {
+fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let preview = if ev.preview.is_empty() {
         ev.content.as_str()
     } else {
@@ -879,7 +879,7 @@ fn event_face(ev: &TimelineEvent, ink: Color) -> Element<'static, Message> {
     } else {
         ev.heading.as_str()
     };
-    prompt_face(face, ink)
+    prompt_face(face, tea)
 }
 
 fn event_body<'a>(
@@ -991,6 +991,19 @@ fn note_commands(id: &str, delete_armed: &str) -> Vec<icedtea::action::Action<Me
     ]
 }
 
+fn turn_paint<'a>(
+    hud: &'a Hud,
+    key: ExtractKey,
+    src: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    if looks_like_markdown(src) {
+        md_body(src, 4000, tea)
+    } else {
+        selectable(hud, key, src, tea, typo::UI)
+    }
+}
+
 fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Element<'a, Message> {
     let idx = t.turn_index;
     let tea = hud.tea_tokens();
@@ -1000,17 +1013,16 @@ fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Elemen
             .color(hud.tokens().muted)
             .into()
     } else {
-        selectable(hud, ExtractKey::TurnUser(idx), &t.summary, tea, typo::UI)
+        turn_paint(hud, ExtractKey::TurnUser(idx), &t.summary, tea)
     }]
     .spacing(8);
     if !t.assistant_summary.is_empty() {
         col = col.push(text("Assistant").size(typo::META).color(hud.tokens().muted));
-        col = col.push(selectable(
+        col = col.push(turn_paint(
             hud,
             ExtractKey::TurnAsst(idx),
             &t.assistant_summary,
             tea,
-            typo::UI,
         ));
     }
     col.push(
@@ -1027,19 +1039,14 @@ fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Elemen
     .into()
 }
 
-fn prompt_face(summary: &str, muted: iced::Color) -> Element<'static, Message> {
-    let copy = if summary.is_empty() {
-        "No user prompt in this turn".to_string()
-    } else {
-        summary.to_string()
-    };
-    text(copy)
-        .size(typo::BODY)
-        .line_height(LineHeight::Relative(1.3))
-        .width(Length::Fill)
-        .wrapping(Wrapping::Word)
-        .color(muted)
-        .into()
+fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    if summary.is_empty() {
+        return text("No user prompt in this turn")
+            .size(typo::BODY)
+            .color(tea.muted)
+            .into();
+    }
+    md_body(summary, 2000, tea)
 }
 
 fn turns_tab(hud: &Hud) -> Element<'_, Message> {
@@ -1062,7 +1069,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             turn_body(hud, t, mark)
         } else {
             column![
-                prompt_face(&t.summary, hud.tokens().text),
+                prompt_face(&t.summary, tea),
                 card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
             ]
             .spacing(6)
@@ -1124,7 +1131,7 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             event_body(hud, ev, mark)
         } else {
             column![
-                event_face(ev, hud.tokens().text),
+                event_face(ev, tea),
                 card_chips(hud, mark, Some(event_note(ev)), None),
             ]
             .spacing(6)
@@ -1200,7 +1207,7 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
                 finding_body(f, tea)
             } else {
                 column![
-                    prompt_face(&f.detail, hud.tokens().text),
+                    prompt_face(&f.detail, tea),
                     jump_control(finding_jump(f), hud.tokens().muted, tea),
                 ]
                 .spacing(6)
@@ -1378,7 +1385,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             let child = if open {
                 note_body(hud, n, &body, extras)
             } else {
-                prompt_face(&body, hud.tokens().text)
+                prompt_face(&body, hud.tea_tokens())
             };
             col = col.push(expand_card(
                 heading,
@@ -1789,6 +1796,14 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn turn_prompt_face_builds_markdown_and_plain() {
+        let _ = prompt_face("# heading\n\n**bold**", tea());
+        let _ = prompt_face("plain sentence", tea());
+        let _ = prompt_face("", tea());
+    }
+
+    #[test]
     fn jump_marks_point_into_the_bar() {
         let size = 16.0;
         let (tail, tip, up, down, dest_top) = jump_marks(size);
@@ -1884,6 +1899,8 @@ mod tests {
         assert!(!prod.contains("fn drawer"));
         assert!(!prod.contains("fn disclosure"));
         assert!(prod.contains("fn selectable"));
+        assert!(prod.contains("fn turn_paint"));
+        assert!(prod.contains("fn prompt_face"));
         assert!(!prod.contains("visual_lines("));
         assert!(!prod.contains(".height(height)"));
         assert!(prod.contains("matched in {}:"));
