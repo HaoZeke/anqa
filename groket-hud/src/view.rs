@@ -770,7 +770,7 @@ fn card_chips(
         r = r.push(chip_btn("Add note".into(), msg, tea));
     }
     if let Some(msg) = jump {
-        r = r.push(chip_btn("Timeline".into(), msg, tea));
+        r = r.push(jump_control(msg, tok.muted, tea));
     }
     r.into()
 }
@@ -1201,7 +1201,7 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
             } else {
                 column![
                     prompt_face(&f.detail, hud.tokens().text),
-                    chip_btn("Timeline".into(), finding_jump(f), tea),
+                    jump_control(finding_jump(f), hud.tokens().muted, tea),
                 ]
                 .spacing(6)
                 .into()
@@ -1247,7 +1247,7 @@ fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static,
     if !f.detail.is_empty() {
         card = card.push(md_body(&f.detail, 1200, tea));
     }
-    card.push(chip_btn("Timeline".into(), finding_jump(f), tea))
+    card.push(jump_control(finding_jump(f), tea.muted, tea))
         .into()
 }
 
@@ -1615,6 +1615,85 @@ fn inset_body(inner: Element<'static, Message>, hud: &Hud) -> Element<'static, M
 }
 
 const POP_OUT_PX: f32 = 16.0;
+const JUMP_PX: f32 = 16.0;
+
+fn jump_control(
+    msg: Message,
+    color: Color,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    icedtea::widget::tooltip_wrap(
+        mouse_area(
+            container(
+                Canvas::new(JumpIcon { color })
+                    .width(Length::Fixed(JUMP_PX))
+                    .height(Length::Fixed(JUMP_PX)),
+            )
+            .padding([4, 6]),
+        )
+        .on_press(msg)
+        .into(),
+        "Go to timeline",
+        tea,
+        A11y::button("Go to timeline"),
+    )
+}
+
+/// Arrow into a vertical bar: go to this place.
+fn jump_marks(size: f32) -> (Point, Point, Point, Point, Point) {
+    let pad = size * 0.16;
+    let mid = size * 0.5;
+    let dest_x = size - pad;
+    let tip = Point::new(dest_x - size * 0.18, mid);
+    let tail = Point::new(pad, mid);
+    let arm = size * 0.22;
+    (
+        tail,
+        tip,
+        Point::new(tip.x - arm, tip.y - arm * 0.7),
+        Point::new(tip.x - arm, tip.y + arm * 0.7),
+        Point::new(dest_x, pad),
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct JumpIcon {
+    color: Color,
+}
+
+impl canvas::Program<Message> for JumpIcon {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let stroke = canvas::Stroke::default()
+            .with_color(self.color)
+            .with_width(1.6)
+            .with_line_cap(canvas::LineCap::Round)
+            .with_line_join(canvas::LineJoin::Round);
+        let size = bounds.width.min(bounds.height);
+        let (tail, tip, up, down, dest_top) = jump_marks(size);
+        let dest_bot = Point::new(dest_top.x, size - dest_top.y);
+        let path = canvas::Path::new(|b| {
+            b.move_to(tail);
+            b.line_to(tip);
+            b.move_to(up);
+            b.line_to(tip);
+            b.line_to(down);
+            b.move_to(dest_top);
+            b.line_to(dest_bot);
+        });
+        frame.stroke(&path, stroke);
+        vec![frame.into_geometry()]
+    }
+}
 
 fn pop_out_control(
     tok: crate::theme::Tokens,
@@ -1710,6 +1789,19 @@ mod tests {
     }
 
     #[test]
+    fn jump_marks_point_into_the_bar() {
+        let size = 16.0;
+        let (tail, tip, up, down, dest_top) = jump_marks(size);
+        for p in [tail, tip, up, down, dest_top] {
+            assert!(p.x >= 0.0 && p.x <= size, "{p:?}");
+            assert!(p.y >= 0.0 && p.y <= size, "{p:?}");
+        }
+        assert!(tip.x > tail.x);
+        assert!(dest_top.x > tip.x);
+        assert!((tip.y - tail.y).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn closed_turn_peek_is_two_full_prompt_lines() {
         let h = icedtea::widget::Peek::Lines(2).height();
         let line = icedtea::widget::Peek::body_line();
@@ -1780,6 +1872,9 @@ mod tests {
         assert!(prod.contains("fn card_actions"));
         assert!(prod.contains("fn card_chips"));
         assert!(prod.contains("Add note"));
+        assert!(prod.contains("fn jump_control"));
+        assert!(prod.contains("Go to timeline"));
+        assert!(!prod.contains("chip_btn(\"Timeline\""));
         assert!(prod.contains("pattern::command_bar"));
         assert!(prod.contains("fn turn_note"));
         assert!(prod.contains("fn overview_commands"));

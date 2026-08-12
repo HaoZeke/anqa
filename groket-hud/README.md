@@ -18,6 +18,7 @@ Sol-style session **command palette** for the local groket control plane
   mark on a dark one (gruvbox, nord) at 32px.
 - Turn and timeline cards show quiet pills for findings, notes, and errors;
   **Add note** opens the Notes tab with turn (and event) filled in.
+  A go-to icon (arrow into a bar) jumps to that turn or finding on Timeline.
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
