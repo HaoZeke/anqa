@@ -108,10 +108,6 @@ pub enum Message {
         advance: bool,
         result: Result<Value, String>,
     },
-    SessionRowsLoaded {
-        sid: String,
-        result: Result<Value, String>,
-    },
     NoteSaved(Result<Value, String>),
     NoteDeleted {
         id: String,
@@ -209,7 +205,6 @@ pub struct Hud {
     /// Options for the Events turn pick list (owned for iced pick_list).
     events_turn_options: Vec<EventsTurnPick>,
     last_timeline: Option<LastTimelineReq>,
-    session_rows: Vec<TimelineEvent>,
     note_draft: NoteDraft,
     note_compose_lock: bool,
     note_saving: bool,
@@ -297,7 +292,6 @@ impl Default for Hud {
                 label: "All turns".into(),
             }],
             last_timeline: None,
-            session_rows: vec![],
             note_draft: NoteDraft::default(),
             note_compose_lock: false,
             note_saving: false,
@@ -624,8 +618,7 @@ impl Hud {
                             Task::none()
                         }
                     }
-                    // Session-event rows load async; do not stall the tab flip.
-                    Tab::Overview => self.ensure_session_rows(),
+                    Tab::Overview => Task::none(),
                     _ => Task::none(),
                 };
                 // Window mode already has OS focus — skip X11 grab retries that
@@ -980,13 +973,6 @@ impl Hud {
                                 },
                             ]);
                         }
-                        if self.tab == Tab::Overview {
-                            let rows = self.ensure_session_rows();
-                            if !quiet {
-                                return Task::batch([rail, rows, self.focus_overlay()]);
-                            }
-                            return Task::batch([rail, rows]);
-                        }
                         if !quiet {
                             return Task::batch([rail, self.focus_overlay()]);
                         }
@@ -1000,21 +986,6 @@ impl Hud {
                         }
                         self.mark_down(&e);
                     }
-                }
-                Task::none()
-            }
-            Message::SessionRowsLoaded { sid, result } => {
-                if sid != self.overview_sid {
-                    return Task::none();
-                }
-                match result {
-                    Ok(data) => match decode_timeline_page(&data) {
-                        Ok(page) => {
-                            self.session_rows = page.events;
-                        }
-                        Err(e) => self.mark_down(&e),
-                    },
-                    Err(e) => self.mark_down(&e),
                 }
                 Task::none()
             }
@@ -1560,10 +1531,6 @@ impl Hud {
         self.last_timeline.as_ref()
     }
 
-    pub(crate) fn session_rows(&self) -> &[TimelineEvent] {
-        &self.session_rows
-    }
-
     fn copy_text(&mut self, text: String) -> Task<Message> {
         self.context = None;
         let text = text.trim().to_string();
@@ -1999,7 +1966,6 @@ impl Hud {
         self.timeline_prompt = None;
         self.events_turn_index = None;
         self.last_timeline = None;
-        self.session_rows.clear();
         self.turns_open.clear();
         self.findings_open.clear();
         self.notes_open.clear();
@@ -3325,32 +3291,6 @@ impl Hud {
             kind: req.kind.clone(),
         });
         fetch_timeline(req)
-    }
-
-    fn ensure_session_rows(&mut self) -> Task<Message> {
-        if !self.session_rows.is_empty() || self.overview_sid.is_empty() {
-            return Task::none();
-        }
-        let Some(sid) = self.detail_sid() else {
-            return Task::none();
-        };
-        let rpc_ref = self.overview_rpc_ref();
-        Task::perform(
-            rpc(move || {
-                control::session_timeline(control::TimelineRequest {
-                    session: &rpc_ref,
-                    offset: 0,
-                    limit: 40,
-                    content_chars: TIMELINE_PREVIEW_CHARS,
-                    kind: KindFilter::Sess.wire_name(),
-                    query: "",
-                    around_index: None,
-                    at_index: None,
-                    prompt_index: None,
-                })
-            }),
-            move |result| Message::SessionRowsLoaded { sid, result },
-        )
     }
 }
 

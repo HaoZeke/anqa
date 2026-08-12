@@ -564,16 +564,6 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     col = col.push(kv(hud, "notes", notes_n, false));
     col = col.push(kv(hud, "git", git, false));
     col = col.push(kv(hud, "path", path, true));
-    if !hud.session_rows().is_empty() {
-        col = col.push(icedtea::widget::meta(
-            "Session events",
-            tea,
-            A11y::new("session-events", Role::Header),
-        ));
-        for ev in hud.session_rows() {
-            col = col.push(text(event_title(ev)).size(typo::META).color(tok.muted));
-        }
-    }
     col.push(
         row![
             Space::new().width(Length::Fill),
@@ -2113,7 +2103,7 @@ mod tests {
         assert!(prod.contains("fn turn_paint"));
         assert!(prod.contains("fn closed_turn_face"));
         assert!(prod.contains("Search all events"));
-        assert!(prod.contains("Session events"));
+        assert!(!prod.contains("Session events"));
         assert!(prod.contains("fn prompt_face"));
         assert!(!prod.contains("visual_lines("));
         assert!(!prod.contains(".height(height)"));
