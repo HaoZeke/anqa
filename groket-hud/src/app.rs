@@ -22,14 +22,14 @@ use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, context_fraction, filter_timeline_indices,
     first_list_fetch, index_outside_visible, is_partial_list_page, is_soft_notes_save_error,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
-    scroll_after_prepend, session_card_height, session_list_content_height,
-    session_needs_live_poll, session_row_meta, session_rpc_ref, should_fetch_timeline,
-    should_load_previous_timeline, timeline_coverage_complete, timeline_page_next,
-    timeline_range_label, timeline_window_start, toggle_expand_set, trim_timeline_buffer, CardMark,
-    TickInput, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK,
-    TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H, TURN_ROW_H,
+    list_scroll_to_cover, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
+    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
+    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
+    session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
+    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
+    toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, IDLE_POLL_MS, LIVE_POLL_MS,
+    LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN,
+    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H, TURN_ROW_H,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -1511,30 +1511,14 @@ impl Hud {
             .collect();
     }
 
-    fn session_list_height(&self) -> f32 {
-        session_list_content_height(self.sessions().iter().enumerate().map(|(i, row)| {
-            (
-                row.display_title(),
-                self.session_metas.get(i).map(String::as_str).unwrap_or(""),
-                context_fraction(row.context_window_usage_pct, &row.context_usage_compact) > 0.0,
-            )
-        }))
-    }
-
     fn ensure_active_visible(&mut self) -> Task<Message> {
         let view_h = self.list_window.viewport.max(80.0);
-        let mut top = 0.0;
-        for i in 0..self.active {
-            top += self.session_tile_height(i) + 2.0;
-        }
-        let bot = top + self.session_tile_height(self.active);
-        let mut y = self.list_window.scroll;
-        if top < y {
-            y = top;
-        } else if bot > y + view_h {
-            y = (bot - view_h).max(0.0);
-        }
-        y = clamp_scroll(y, self.session_list_height(), view_h);
+        let y = list_scroll_to_cover(
+            &self.session_heights,
+            self.active,
+            self.list_window.scroll,
+            view_h,
+        );
         self.list_window.scroll = y;
         operation::scroll_to(self.list_scroll_id.clone(), AbsoluteOffset { x: 0.0, y })
     }
@@ -1766,8 +1750,8 @@ impl Hud {
             self.list_selection = icedtea::collection::Selection::Single(self.active);
         }
         let view_h = self.list_window.viewport.max(1.0);
-        self.list_window.scroll =
-            clamp_scroll(self.list_window.scroll, self.session_list_height(), view_h);
+        let content: f32 = self.session_heights.iter().copied().sum();
+        self.list_window.scroll = clamp_scroll(self.list_window.scroll, content, view_h);
     }
 
     fn load_overview(&mut self, quiet: bool) -> Task<Message> {

@@ -214,18 +214,31 @@ pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     h
 }
 
-/// Total scrollable height of the session rail (card heights + 2px gaps).
+/// Total scrollable height of the session rail.
+///
+/// Same as icedtea ``RowHeights::total``: sum of card heights only.
+/// ``list_view`` Card spacing is paint, not scroll offset.
 pub fn session_list_content_height<'a>(
     rows: impl IntoIterator<Item = (&'a str, &'a str, bool)>,
 ) -> f32 {
-    let mut h = 0.0;
-    for (n, (title, meta, has_ctx)) in rows.into_iter().enumerate() {
-        if n > 0 {
-            h += 2.0;
-        }
-        h += session_card_height(title, meta, has_ctx);
+    rows.into_iter()
+        .map(|(title, meta, has_ctx)| session_card_height(title, meta, has_ctx))
+        .sum()
+}
+
+/// Scroll so ``active`` stays in the viewport. Offsets are height sums
+/// (icedtea ``RowHeights::offset``), not painted column gaps.
+pub fn list_scroll_to_cover(heights: &[f32], active: usize, scroll: f32, view_h: f32) -> f32 {
+    let top: f32 = heights.iter().take(active).copied().sum();
+    let bot = top + heights.get(active).copied().unwrap_or(0.0);
+    let content: f32 = heights.iter().copied().sum();
+    let mut y = scroll;
+    if top < y {
+        y = top;
+    } else if bot > y + view_h {
+        y = (bot - view_h).max(0.0);
     }
-    h
+    clamp_scroll(y, content, view_h)
 }
 
 /// Second line for an icedtea session row (status, model, context).
@@ -1321,7 +1334,24 @@ mod tests {
         assert!(short >= 50.0, "{short}");
         assert!(long > short + 10.0, "short={short} long={long}");
         let total = session_list_content_height([("A", "", false), ("B", "meta", true)]);
-        assert!(total > session_card_height("A", "", false));
+        assert_eq!(
+            total,
+            session_card_height("A", "", false) + session_card_height("B", "meta", true)
+        );
+    }
+
+    #[test]
+    fn list_scroll_to_cover_stays_inside_height_sum() {
+        let row = 80.0;
+        let n = 200usize;
+        let heights: Vec<f32> = (0..n).map(|_| row).collect();
+        let view_h = 400.0;
+        let y = list_scroll_to_cover(&heights, n - 1, 0.0, view_h);
+        let content: f32 = heights.iter().copied().sum();
+        assert_eq!(content, n as f32 * row);
+        assert_eq!(y, (content - view_h).max(0.0));
+        let top: f32 = heights.iter().take(n - 1).copied().sum();
+        assert!(y + view_h + f32::EPSILON >= top + row);
     }
 
     #[test]

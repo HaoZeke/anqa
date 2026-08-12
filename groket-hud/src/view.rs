@@ -710,7 +710,7 @@ fn expand_card<'a>(
     icedtea::widget::expander(
         title.clone(),
         child,
-        icedtea::widget::Peek::Lines(3),
+        icedtea::widget::Peek::Lines(4),
         open,
         on_toggle,
         tea,
@@ -1771,13 +1771,15 @@ mod tests {
     }
 
     #[test]
-    fn closed_turn_peek_keeps_two_prompt_lines_and_chips() {
-        let two = icedtea::widget::Peek::Lines(2).height();
-        let three = icedtea::widget::Peek::Lines(3).height();
-        let line = icedtea::widget::Peek::body_line();
-        assert!(two >= line * 2.0 + icedtea::widget::Peek::DESCENT);
-        assert!(three > two);
-        assert!(three >= line * 3.0);
+    fn closed_turn_peek_keeps_chips_above_the_fade() {
+        let h = icedtea::widget::Peek::Lines(4).height();
+        let fade = 12.0_f32.min(h * 0.4).max(4.0);
+        let chip_row = JUMP_PX + 8.0;
+        let stack = icedtea::widget::Peek::body_line() + 6.0 + chip_row;
+        assert!(
+            stack + fade <= h,
+            "peek {h} fade {fade} stack {stack} must keep chips above the fade"
+        );
     }
 
     fn tea() -> icedtea::theme::Tokens {
@@ -1865,7 +1867,7 @@ mod tests {
         assert!(prod.contains("brand_role_color"));
         assert!(!prod.contains("accordion_view"));
         assert!(prod.contains("widget::expander"));
-        assert!(prod.contains("Peek::Lines(3)"));
+        assert!(prod.contains("Peek::Lines(4)"));
         assert!(prod.contains("TurnExpand"));
         assert!(prod.contains("FindingExpand"));
         assert!(prod.contains("NoteExpand"));
