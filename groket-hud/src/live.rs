@@ -17,9 +17,9 @@ pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
 /// Session rail width. Cards inside it grow with wrapped title and meta.
 pub const SESSION_LIST_W: f32 = 260.0;
 /// Closed timeline card plus gap. Open faces use [`OPEN_TIMELINE_ROW_H`].
-pub const TIMELINE_ROW_H: f32 = 160.0;
+pub const TIMELINE_ROW_H: f32 = 120.0;
 /// Expanded timeline card estimate for [`icedtea::widget::virtual_column`].
-pub const OPEN_TIMELINE_ROW_H: f32 = 480.0;
+pub const OPEN_TIMELINE_ROW_H: f32 = 360.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
 /// Closed turn card estimate (title + face + chips + gap).
@@ -166,9 +166,13 @@ pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
     session_id.trim().to_string()
 }
 
-/// Event pages load when the Events pane has a turn scope or a search query.
-pub fn should_fetch_timeline(on_events_tab: bool, query: &str, turn_prompt: Option<i64>) -> bool {
-    on_events_tab && (!query.trim().is_empty() || turn_prompt.is_some())
+/// Event pages load whenever the Events pane is active (with a session).
+///
+/// **All turns** means no turn prompt filter — still paginated full timeline.
+/// Search and Type filters apply on the client/owner over that stream; do not
+/// require a query before the first page (empty All-turns was dishonest).
+pub fn should_fetch_timeline(on_events_tab: bool, _query: &str, _turn_prompt: Option<i64>) -> bool {
+    on_events_tab
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1075,11 +1079,12 @@ mod tests {
     }
 
     #[test]
-    fn should_fetch_timeline_only_with_query_or_turn() {
-        assert!(!should_fetch_timeline(true, "", None));
-        assert!(!should_fetch_timeline(false, "grep", None));
+    fn should_fetch_timeline_on_events_tab_including_all_turns() {
+        assert!(should_fetch_timeline(true, "", None));
         assert!(should_fetch_timeline(true, "grep", None));
         assert!(should_fetch_timeline(true, "", Some(3)));
+        assert!(!should_fetch_timeline(false, "grep", None));
+        assert!(!should_fetch_timeline(false, "", None));
     }
 
     #[test]

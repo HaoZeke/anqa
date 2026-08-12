@@ -594,6 +594,21 @@ impl Hud {
                 Task::batch([self.load_overview(false), self.focus_overlay()])
             }
             Message::SetTab(tab) => {
+                // Without an overview, secondary panes only paint "Select a session".
+                // Load the rail selection first, or refuse the tab flip.
+                if self.overview.is_none() && tab != Tab::Overview {
+                    if self.selected_sid().is_some() {
+                        self.tab = tab;
+                        let focus = if self.window_mode {
+                            Task::none()
+                        } else {
+                            self.x11_focus_only(0)
+                        };
+                        return Task::batch([self.load_overview(false), focus]);
+                    }
+                    self.tab = Tab::Overview;
+                    return Task::none();
+                }
                 self.tab = tab;
                 // Keep turn scope when returning to Events. Only an explicit
                 // "All turns" pick or search-all clears the drawer.
@@ -3320,9 +3335,16 @@ fn estimate_open_turn_height(t: &crate::wire::TurnRow) -> f32 {
 
 fn estimate_open_event_height(ev: &TimelineEvent) -> f32 {
     let body = event_body_text(ev);
-    let chars = body.chars().count().max(ev.content.chars().count());
-    let lines = ((chars as f32) / 48.0).ceil().max(3.0);
-    (TIMELINE_ROW_H + lines * 16.0).clamp(OPEN_TIMELINE_ROW_H * 0.5, 1600.0)
+    let chars = body
+        .chars()
+        .count()
+        .max(ev.content.chars().count())
+        .max(ev.preview.chars().count());
+    if chars == 0 {
+        return TIMELINE_ROW_H;
+    }
+    let lines = ((chars as f32) / 48.0).ceil().max(2.0);
+    (TIMELINE_ROW_H + lines * 16.0).clamp(TIMELINE_ROW_H, 1600.0)
 }
 
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
@@ -3752,6 +3774,44 @@ mod tests {
         assert!(src.contains("bootstrap_with_catalog"));
         assert!(src.contains(".open()"));
         assert!(src.contains("retarget"));
+    }
+
+    #[test]
+    fn set_tab_without_overview_stays_on_overview_when_no_selection() {
+        let mut hud = Hud::default();
+        assert!(hud.overview().is_none());
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        assert_eq!(hud.tab(), Tab::Overview);
+        let _ = hud.update(Message::SetTab(Tab::Turns));
+        assert_eq!(hud.tab(), Tab::Overview);
+    }
+
+    #[test]
+    fn set_tab_timeline_with_selection_loads_overview() {
+        let mut hud = Hud {
+            all_sessions: vec![SessionRow {
+                session_id: "s1".into(),
+                path: "/tmp/s1".into(),
+                ..SessionRow::default()
+            }],
+            active: 0,
+            overview_gen: 0,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        assert_eq!(hud.tab(), Tab::Timeline);
+        assert!(!hud.overview_pending.is_empty() || hud.overview_gen > 0);
+    }
+
+    #[test]
+    fn wants_events_on_timeline_without_turn_or_query() {
+        let hud = Hud {
+            tab: Tab::Timeline,
+            timeline_query: String::new(),
+            timeline_prompt: None,
+            ..Hud::default()
+        };
+        assert!(hud.wants_events());
     }
 
     #[test]

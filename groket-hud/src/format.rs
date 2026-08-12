@@ -305,6 +305,35 @@ pub fn event_brand_role(event_type: &str, kind: &str, is_error: bool) -> BrandRo
     kind_brand_role(kind)
 }
 
+/// TUI-style human type label: Grok wire id with underscores → spaces.
+///
+/// Prefers control `type_label`, then `event_type`, then coarse `kind`.
+pub fn human_event_type_label(event_type: &str, type_label: &str, kind: &str) -> String {
+    let raw = if !type_label.trim().is_empty() {
+        type_label.trim()
+    } else if !event_type.trim().is_empty() {
+        event_type.trim()
+    } else {
+        kind.trim()
+    };
+    if raw.is_empty() {
+        return String::new();
+    }
+    raw.replace('_', " ")
+}
+
+/// Caption for filter range meta: never empty (avoids a11y name paint).
+///
+/// Returns `None` when there is nothing honest to show.
+pub fn timeline_count_caption(meta: &str) -> Option<&str> {
+    let t = meta.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
+    }
+}
+
 /// Snippet around *start* (char index) that includes the needle.
 pub fn snippet_around(text: &str, start: usize, needle_chars: usize, radius: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
@@ -985,6 +1014,24 @@ mod tests {
         assert!(!event_matches_kind("agent", false, KindFilter::Sess));
         assert!(event_matches_kind("agent", false, KindFilter::Asst));
         assert!(event_matches_kind("thought", false, KindFilter::Asst));
+    }
+
+    #[test]
+    fn human_event_type_label_spaces_underscores() {
+        assert_eq!(
+            human_event_type_label("user_message_chunk", "", "user"),
+            "user message chunk"
+        );
+        assert_eq!(
+            human_event_type_label("tool_call", "tool call", "tool"),
+            "tool call"
+        );
+        assert_eq!(human_event_type_label("", "", "agent"), "agent");
+        assert_eq!(timeline_count_caption(""), None);
+        assert_eq!(
+            timeline_count_caption("  1-40 of 100  "),
+            Some("1-40 of 100")
+        );
     }
 
     #[test]

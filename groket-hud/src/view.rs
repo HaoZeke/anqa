@@ -13,7 +13,6 @@ use iced::widget::{
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
-use icedtea::collection::Tabs;
 use icedtea::toast::ToastKind;
 use icedtea::variant::Variant;
 
@@ -21,9 +20,10 @@ use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
     body_paint, capped_display, display_tool_output, event_brand_role, fmt_duration,
-    format_note_time, image_result_path, list_status_label, looks_like_markdown, note_fields_view,
-    origin_label, sanitize_console_text, status_tone, timeline_body_text, timeline_query_hit,
-    tool_fields_from_raw, BodyPaint, ToolField,
+    format_note_time, human_event_type_label, image_result_path, list_status_label,
+    looks_like_markdown, note_fields_view, origin_label, sanitize_console_text, status_tone,
+    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_fields_from_raw,
+    BodyPaint, ToolField,
 };
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, CardMark, SESSION_LIST_W,
@@ -325,20 +325,11 @@ fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 }
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
-    let mut tabs = Tabs::new(Tab::ALL.iter().map(|t| t.label().to_string()));
-    tabs.closable = false;
-    tabs.active = Tab::ALL.iter().position(|t| *t == hud.tab()).unwrap_or(0);
-    let tabs = container(icedtea::widget::tab_bar(
-        &tabs,
-        |i| Message::SetTab(Tab::ALL[i]),
-        |_| Message::SetTab(Tab::Overview),
-        hud.tokens(),
-        A11y::new("Panes", Role::Tab),
-    ))
-    .padding(Padding::from([8, 12]));
+    let session_ready = hud.overview().is_some() || !hud.overview_pending().is_empty();
+    let tabs = container(detail_tab_bar(hud, session_ready)).padding(Padding::from([8, 12]));
 
     let mut stack = column![tabs].spacing(0).height(Length::Fill);
-    if hud.tab() == Tab::Timeline && !hud.overview_sid().is_empty() {
+    if hud.tab() == Tab::Timeline && hud.overview().is_some() {
         stack = stack.push(timeline_filter(hud));
     }
     let body: Element<'_, Message> = if hud.overview().is_none() {
@@ -386,12 +377,39 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         .into()
 }
 
+/// Pane tabs: secondary panes only pressable once a session overview exists.
+fn detail_tab_bar(hud: &Hud, session_ready: bool) -> Element<'_, Message> {
+    let tea = hud.tokens();
+    let active = Tab::ALL.iter().position(|t| *t == hud.tab()).unwrap_or(0);
+    let mut r = row![].spacing(4).align_y(Alignment::Center);
+    for (i, tab) in Tab::ALL.iter().enumerate() {
+        let title = tab.label().to_string();
+        let enabled = session_ready || *tab == Tab::Overview;
+        let mut btn = iced::widget::button(text(title.clone()).size(typo::META))
+            .padding([6, 10])
+            .style(icedtea::style::tab_style(tea, i == active));
+        if enabled {
+            btn = btn.on_press(Message::SetTab(*tab));
+        }
+        r = r.push(container(btn).padding([2, 2]).style(move |_| {
+            if enabled {
+                iced::widget::container::Style::default()
+            } else {
+                iced::widget::container::Style {
+                    text_color: Some(tea.muted),
+                    ..Default::default()
+                }
+            }
+        }));
+    }
+    r.into()
+}
+
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    // Two rows: picks + count stay compact; search is full width so it is not
-    // crushed by the turn/type dropdowns (one-row bar clipped the field).
-    // Step turns with the dropdown or keyboard `]`.
-    let picks = row![
+    // Two rows: picks + optional range; full-width search below so it never
+    // shares width with Turn/Type (one-row bar clipped or overlapped the field).
+    let mut picks = row![
         icedtea::widget::meta("Turn", tea, A11y::new("Turn", Role::Header)),
         icedtea::widget::themed_pick_list(
             hud.events_turn_options(),
@@ -409,11 +427,17 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             A11y::new("Type", Role::ComboBox),
         ),
         Space::new().width(Length::Fill),
-        icedtea::widget::meta(hud.timeline_meta(), tea, A11y::new("count", Role::Status)),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
     .width(Length::Fill);
+    if let Some(cap) = timeline_count_caption(&hud.timeline_meta()) {
+        picks = picks.push(icedtea::widget::meta(
+            cap.to_string(),
+            tea,
+            A11y::new(cap.to_string(), Role::Status),
+        ));
+    }
     let search = container(icedtea::widget::themed_text_input(
         "Search all events",
         hud.timeline_query_draft(),
@@ -425,7 +449,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     ))
     .width(Length::Fill);
     column![picks, search]
-        .spacing(8)
+        .spacing(10)
         .width(Length::Fill)
         .padding(Padding::from([8, 12]))
         .into()
@@ -841,30 +865,23 @@ fn event_note(ev: &TimelineEvent) -> Message {
     }
 }
 
-fn event_kind(ev: &TimelineEvent) -> &str {
-    if ev.type_label.is_empty() {
-        ev.kind.as_str()
-    } else {
-        ev.type_label.as_str()
-    }
-}
-
-fn event_face_label(ev: &TimelineEvent) -> &str {
-    if !ev.heading.is_empty() {
-        ev.heading.as_str()
-    } else if !ev.kind.is_empty() {
-        ev.kind.as_str()
-    } else {
-        ev.type_label.as_str()
-    }
+fn event_type_human(ev: &TimelineEvent) -> String {
+    human_event_type_label(&ev.event_type, &ev.type_label, &ev.kind)
 }
 
 fn event_title(ev: &TimelineEvent) -> String {
-    let label = event_face_label(ev).trim();
+    // Identity the operator scans: human type (or tool name), not coarse kind.
+    let identity = if !ev.tool_name.trim().is_empty()
+        && (ev.kind == "tool" || ev.kind == "tool_result" || ev.event_type.contains("tool"))
+    {
+        ev.tool_name.trim().to_string()
+    } else {
+        event_type_human(ev)
+    };
     let mut out = format!("#{}", ev.index);
-    if !label.is_empty() {
+    if !identity.is_empty() {
         out.push(' ');
-        out.push_str(label);
+        out.push_str(&identity);
     }
     let time = ev.time.trim();
     if !time.is_empty() {
@@ -875,17 +892,32 @@ fn event_title(ev: &TimelineEvent) -> String {
 }
 
 fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let type_color =
+        crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
+    let human = event_type_human(ev);
     let preview = if ev.preview.is_empty() {
         ev.content.as_str()
     } else {
         ev.preview.as_str()
     };
-    let face = if ev.heading.is_empty() {
-        preview
-    } else {
+    let preview = if preview.is_empty() {
         ev.heading.as_str()
+    } else {
+        preview
     };
-    prompt_face(face, tea)
+    let mut col = column![].spacing(4);
+    if !human.is_empty() {
+        col = col.push(
+            text(human)
+                .size(typo::META)
+                .font(typo::UI_BOLD)
+                .color(type_color),
+        );
+    }
+    if !preview.is_empty() {
+        col = col.push(prompt_face(preview, tea));
+    }
+    col.into()
 }
 
 fn event_body<'a>(
@@ -896,17 +928,14 @@ fn event_body<'a>(
     let tok = hud.tokens();
     let type_color =
         crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
-    let mut col = column![text(event_kind(ev))
-        .size(typo::META)
-        .font(typo::UI_BOLD)
-        .color(type_color)]
-    .spacing(8);
-    if !ev.heading.is_empty() {
+    let human = event_type_human(ev);
+    let mut col = column![].spacing(6);
+    if !human.is_empty() {
         col = col.push(
-            text(ev.heading.clone())
-                .size(typo::TITLE)
+            text(human)
+                .size(typo::META)
                 .font(typo::UI_BOLD)
-                .color(tok.text),
+                .color(type_color),
         );
     }
     if let Some(hit) = timeline_query_hit(ev, hud.timeline_query()) {
@@ -1143,7 +1172,8 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         && hud.filtered_indices().is_empty()
         && !hud.timeline_loading()
     {
-        return text("Pick a turn above, or type to search all events.")
+        // Should be rare: SetTab/All turns loads immediately. Honest fallback.
+        return text("Loading events…")
             .size(typo::BODY)
             .color(hud.tokens().muted)
             .into();
@@ -1204,7 +1234,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
                     move |_| Message::SelectTimeline(ix),
                     tea,
                 ),
-                Space::new().height(8),
+                Space::new().height(4),
             ]
             .into()
         },
@@ -1881,24 +1911,31 @@ mod tests {
     }
 
     #[test]
-    fn event_title_is_hash_index_then_heading() {
+    fn event_title_is_hash_index_then_human_type() {
         let ev = TimelineEvent {
             index: 12,
             heading: "System".into(),
-            type_label: "system".into(),
-            kind: "system".into(),
+            event_type: "user_message_chunk".into(),
+            type_label: "user message chunk".into(),
+            kind: "user".into(),
             time: "10:32".into(),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&ev), "#12 System · 10:32");
+        assert_eq!(event_title(&ev), "#12 user message chunk · 10:32");
+        let tool = TimelineEvent {
+            index: 3,
+            event_type: "tool_call".into(),
+            kind: "tool".into(),
+            tool_name: "read_file".into(),
+            ..TimelineEvent::default()
+        };
+        assert_eq!(event_title(&tool), "#3 read_file");
         let bare = TimelineEvent {
             index: 3,
             kind: "user".into(),
             ..TimelineEvent::default()
         };
         assert_eq!(event_title(&bare), "#3 user");
-        assert!(!event_title(&ev).starts_with(' '));
-        assert!(!event_title(&ev).contains("  "));
     }
 
     #[test]
@@ -1998,6 +2035,11 @@ mod tests {
             filter_src.contains("column![picks, search]"),
             "search must not share the picks row"
         );
+        assert!(
+            filter_src.contains("timeline_count_caption"),
+            "empty range must not paint a11y name"
+        );
+        assert!(src.contains("fn detail_tab_bar"), "session-gated tabs");
     }
 
     #[test]
