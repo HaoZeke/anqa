@@ -884,13 +884,29 @@ fn event_kind(ev: &TimelineEvent) -> &str {
     }
 }
 
-fn event_title(ev: &TimelineEvent) -> String {
-    let kind = event_kind(ev);
-    if ev.time.is_empty() {
-        format!("{}  {kind}", ev.index)
+fn event_face_label(ev: &TimelineEvent) -> &str {
+    if !ev.heading.is_empty() {
+        ev.heading.as_str()
+    } else if !ev.kind.is_empty() {
+        ev.kind.as_str()
     } else {
-        format!("{}  {kind}  ·  {}", ev.index, ev.time)
+        ev.type_label.as_str()
     }
+}
+
+fn event_title(ev: &TimelineEvent) -> String {
+    let label = event_face_label(ev).trim();
+    let mut out = format!("#{}", ev.index);
+    if !label.is_empty() {
+        out.push(' ');
+        out.push_str(label);
+    }
+    let time = ev.time.trim();
+    if !time.is_empty() {
+        out.push_str(" · ");
+        out.push_str(time);
+    }
+    out
 }
 
 fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -1821,11 +1837,31 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn turn_prompt_face_builds_markdown_and_plain() {
         let _ = prompt_face("# heading\n\n**bold**", tea());
         let _ = prompt_face("plain sentence", tea());
         let _ = prompt_face("", tea());
+    }
+
+    #[test]
+    fn event_title_is_hash_index_then_heading() {
+        let ev = TimelineEvent {
+            index: 12,
+            heading: "System".into(),
+            type_label: "system".into(),
+            kind: "system".into(),
+            time: "10:32".into(),
+            ..TimelineEvent::default()
+        };
+        assert_eq!(event_title(&ev), "#12 System · 10:32");
+        let bare = TimelineEvent {
+            index: 3,
+            kind: "user".into(),
+            ..TimelineEvent::default()
+        };
+        assert_eq!(event_title(&bare), "#3 user");
+        assert!(!event_title(&ev).starts_with(' '));
+        assert!(!event_title(&ev).contains("  "));
     }
 
     #[test]
