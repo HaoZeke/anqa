@@ -571,8 +571,10 @@ impl Hud {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SearchChanged(q) => {
+                // Capture identity before `query` changes which list `sessions()` returns.
+                let keep = self.session_keep_id();
                 self.query = q;
-                self.rerank_visible();
+                self.rerank_visible_keeping(keep);
                 Task::none()
             }
             Message::SelectSession(i) => {
@@ -1412,10 +1414,13 @@ impl Hud {
     }
 
     fn load_full_turn_bodies(&mut self, focus: i64) -> Task<Message> {
-        let Some(rpc_ref) = self.selected_rpc_ref() else {
+        // Must target the open overview session, not the rail cursor (search clear
+        // can leave `active` on a different row than `overview_sid`).
+        let rpc_ref = self.overview_rpc_ref();
+        if rpc_ref.is_empty() {
             self.bind_turn_row(focus);
             return Task::none();
-        };
+        }
         let sid = self.overview_sid.clone();
         Task::perform(
             rpc(move || control::session_turns(&rpc_ref)),
@@ -2005,13 +2010,30 @@ impl Hud {
         }
     }
 
-    fn rerank_visible(&mut self) {
-        let keep = self
-            .sessions()
+    /// Session id to keep selected across a list re-rank.
+    ///
+    /// Prefer the open overview (or in-flight pending load) so clearing search
+    /// never maps a filtered `active` index onto a different catalog row.
+    fn session_keep_id(&self) -> String {
+        if !self.overview_sid.is_empty() {
+            return self.overview_sid.clone();
+        }
+        if !self.overview_pending.is_empty() {
+            return self.overview_pending.clone();
+        }
+        self.sessions()
             .get(self.active)
             .map(|r| r.session_id.clone())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| self.overview_sid.clone());
+            .unwrap_or_default()
+    }
+
+    fn rerank_visible(&mut self) {
+        let keep = self.session_keep_id();
+        self.rerank_visible_keeping(keep);
+    }
+
+    fn rerank_visible_keeping(&mut self, keep: String) {
         if self.query.trim().is_empty() {
             self.sessions.clear();
         } else {
@@ -2039,6 +2061,8 @@ impl Hud {
         if let Some(idx) = keep_at {
             self.set_active(idx);
         } else if !keep.is_empty() {
+            // Kept id not in the visible list (filtered out): pin to top of
+            // remaining, but do not invent a different session identity.
             self.set_active(0);
         } else if self.active >= n {
             self.set_active(n.saturating_sub(1));
@@ -3648,8 +3672,24 @@ mod tests {
 
     #[test]
     fn opening_list_preview_merges_full_session_turns_body() {
-        // Overview may ship a capped assistantSummary; open must hydrate via session/turns.
+        // Overview may ship a capped assistantSummary; open hydrates via session/turns
+        // using overview_rpc_ref (not the rail cursor after search clear).
         let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "other".into(),
+                    path: "/tmp/other".into(),
+                    title: "noise".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s1".into(),
+                    path: "/tmp/s1".into(),
+                    title: "target".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            active: 1,
             overview_sid: "s1".into(),
             overview: Some(Overview {
                 meta: crate::wire::SessionMeta {
@@ -3673,12 +3713,31 @@ mod tests {
             }),
             ..Hud::default()
         };
+        // Rail points at a different row than the open overview (search-clear desync shape).
+        hud.active = 0;
+        // Paths that are not real dirs fall back to session id (session_rpc_ref).
+        assert_eq!(hud.overview_rpc_ref(), "s1");
+        assert_eq!(hud.selected_rpc_ref().as_deref(), Some("other"));
+        assert_ne!(
+            hud.selected_rpc_ref().as_deref(),
+            Some(hud.overview_rpc_ref().as_str())
+        );
         assert!(hud.turn_assistant_needs_full(0));
-        let _ = hud.update(Message::TurnExpand {
+        let _task = hud.update(Message::TurnExpand {
             turn: 0,
             open: true,
         });
-        // Expand schedules RPC; apply FullTurnsLoaded as the control client would.
+        // Expand opens the card and must not pretend the list preview is final.
+        assert!(hud.turns_open.contains(&0));
+        assert!(!hud.full_turns_hydrated);
+        assert!(
+            hud.overview
+                .as_ref()
+                .and_then(|o| o.turns.turns.first())
+                .is_some_and(|t| t.assistant_summary.ends_with('…')),
+            "truncated list preview must remain until FullTurnsLoaded merges session/turns"
+        );
+        // Apply FullTurnsLoaded as the control client would after overview_rpc_ref RPC.
         let full = json!({
             "sessionId": "s1",
             "total": 1,
@@ -3707,6 +3766,48 @@ mod tests {
             hud.extract_src(ExtractKey::TurnAsst(0)).as_deref(),
             Some(body.as_str())
         );
+    }
+
+    #[test]
+    fn clearing_search_keeps_overview_session_on_rail() {
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "aaa-first".into(),
+                    path: "/tmp/a".into(),
+                    title: "alpha disk usage".into(),
+                    sort_epoch: 2.0,
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "bbb-target".into(),
+                    path: "/tmp/b".into(),
+                    title: "multi harness expansion".into(),
+                    sort_epoch: 1.0,
+                    ..SessionRow::default()
+                },
+            ],
+            query: "multi".into(),
+            overview_sid: "bbb-target".into(),
+            overview: Some(Overview {
+                meta: crate::wire::SessionMeta {
+                    session_id: "bbb-target".into(),
+                    path: "/tmp/b".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        assert_eq!(hud.sessions().len(), 1);
+        assert_eq!(hud.sessions()[0].session_id, "bbb-target");
+        hud.active = 0;
+        // Clear search: must not map filtered index 0 onto all_sessions[0] (aaa-first).
+        let _ = hud.update(Message::SearchChanged(String::new()));
+        assert!(hud.query.is_empty());
+        assert_eq!(hud.selected_sid().as_deref(), Some("bbb-target"));
+        assert_eq!(hud.overview_rpc_ref(), "bbb-target");
     }
 
     #[test]
