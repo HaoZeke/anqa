@@ -1,7 +1,7 @@
 # icedtea pin
 
-The HUD uses crates.io ``icedtea`` 0.3.0 (expander peek, ``command_bar``,
-``list_detail``, ``visible_range_var``). Overlay, hotkey, ``iced::daemon``,
+The HUD uses icedtea **0.4.0** (card ``list_view``, expander inset,
+``command_bar``, ``list_detail``). Overlay, hotkey, ``iced::daemon``,
 and the Textual ``config.json`` → ``tea_tokens`` map stay groket-owned.
 
 ## Done on this pin
@@ -26,20 +26,13 @@ and the Textual ``config.json`` → ``tea_tokens`` map stay groket-owned.
 
 ## Still groket-owned
 
-Session list tiles (`tea_list_view` / `tea_two_line`): icedtea
-`list_view` paints a flat `list_row`. Keep the card + 8px inset until
-icedtea grows a tile / row-chrome mode.
-
 macOS placement stays in `place.rs` (AppKit y-up → winit). Do not
 swap in `place_centered` without that flip.
 
 Search stays a custom row (rocket, field, hotkey, pop-out).
 
-## After icedtea grows tiles
-
-Call `icedtea::widget::list_view` with `"No sessions"`, a status-tone
-`meta_color`, and `hud.list_scroll_id()`. Delete `tea_list_view` /
-`tea_two_line`.
+Session rail uses icedtea `list_view` + `RowFace::Card` +
+`RowHeights::PerRow`. Heights live on `Hud` next to the meta lines.
 
 ## Do not
 

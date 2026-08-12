@@ -6,14 +6,14 @@ use std::hash::{Hash, Hasher};
 
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
-use iced::widget::text::Wrapping;
+
 use iced::widget::{
     button, column, container, image, markdown, mouse_area, responsive, row, scrollable, stack,
     text, text_editor, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
-use icedtea::collection::{ListModel, Selection, Tabs, VisibleWindow};
+use icedtea::collection::Tabs;
 use icedtea::toast::ToastKind;
 use icedtea::variant::Variant;
 
@@ -302,151 +302,44 @@ fn session_list(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
-    let tok = hud.tokens();
+    let tea = hud.tea_tokens();
     if hud.sessions().is_empty() {
-        return empty_sessions(hud.tea_tokens());
+        return empty_sessions(tea);
     }
     let mut window = hud.list_window();
     window.viewport = viewport.max(1.0);
-    tea_list_view(
+    let hud_tok = hud.tokens();
+    icedtea::widget::list_view(
         hud,
-        &Selection::Single(hud.active()),
+        hud.list_selection(),
         Message::SelectSession,
-        hud.tea_tokens(),
+        tea,
         window,
+        icedtea::collection::RowHeights::PerRow(hud.session_heights()),
+        1,
         Message::ListScroll,
-        Some(hud.list_scroll_id()),
-        A11y::new("Sessions", Role::List),
-        tok,
-    )
-}
-
-fn tea_two_line<'a>(
-    title: &str,
-    meta_s: Option<&str>,
-    selected: bool,
-    tea: icedtea::theme::Tokens,
-    meta_color: Color,
-    ctx: f32,
-) -> Element<'a, Message> {
-    let mut col = column![text(title.to_string())
-        .size(typo::BODY)
-        .color(tea.text)
-        .font(if selected { typo::UI_BOLD } else { typo::UI })
-        .width(Length::Fill)
-        .wrapping(Wrapping::Word)]
-    .spacing(2)
-    .width(Length::Fill);
-    if let Some(m) = meta_s.filter(|s| !s.is_empty()) {
-        col = col.push(
-            text(m.to_string())
-                .size(typo::META)
-                .color(meta_color)
-                .width(Length::Fill)
-                .wrapping(Wrapping::Word),
-        );
-    }
-    if ctx > 0.0 {
-        col = col.push(context_meter(ctx, tea));
-    }
-    let tile = container(col)
-        .width(Length::Fill)
-        .padding([8, 12])
-        .style(move |_| icedtea::style::card(tea, selected));
-    container(tile)
-        .width(Length::Fill)
-        .padding(Padding {
-            top: 2.0,
-            right: 0.0,
-            bottom: 2.0,
-            left: 0.0,
-        })
-        .into()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn tea_list_view<'a>(
-    model: &'a Hud,
-    selection: &Selection,
-    on_select: impl Fn(usize) -> Message + Copy + 'a,
-    tea: icedtea::theme::Tokens,
-    window: VisibleWindow,
-    on_scroll: impl Fn(VisibleWindow) -> Message + Copy + 'a,
-    id: Option<iced::widget::Id>,
-    a11y: A11y,
-    hud_tok: crate::theme::Tokens,
-) -> Element<'a, Message> {
-    let mut col = column![].spacing(0).padding(8);
-    if model.is_empty() {
-        col = col.push(empty_sessions(tea));
-    } else {
-        let n = model.len();
-        let heights: Vec<f32> = (0..n).map(|i| model.session_tile_height(i)).collect();
-        let mut range = icedtea::collection::visible_range_var(
-            window.scroll,
-            window.viewport.max(1.0),
-            &heights,
-        );
-        if !range.is_empty() {
-            range.start = range.start.saturating_sub(1);
-            range.end = (range.end + 1).min(n);
-        }
-        let off = icedtea::collection::row_offsets(&heights);
-        let pad_top = off.get(range.start).copied().unwrap_or(0.0);
-        let pad_bottom =
-            off.get(n).copied().unwrap_or(0.0) - off.get(range.end).copied().unwrap_or(0.0);
-        if pad_top > 0.0 {
-            col = col.push(Space::new().height(pad_top));
-        }
-        for i in range {
-            let selected = selection.contains(i);
-            let title = model.title(i);
-            let meta_s = model.meta(i);
-            let status = model
+        "No sessions",
+        move |i| {
+            let status = hud
                 .sessions()
                 .get(i)
                 .map(|r| crate::format::list_status_label(&r.status, &r.outcome))
                 .unwrap_or_default();
-            let meta_color = tone_color(status_tone(&status), hud_tok);
-            let name = title.to_string();
-            let ctx = model
-                .sessions()
-                .get(i)
-                .map(|r| context_fraction(r.context_window_usage_pct, &r.context_usage_compact))
-                .unwrap_or(0.0);
-            col = col.push(icedtea::a11y::attach(
-                mouse_area(tea_two_line(title, meta_s, selected, tea, meta_color, ctx))
-                    .on_press(on_select(i))
-                    .into(),
-                &A11y::new(name, Role::ListItem).with_checked(selected),
-            ));
-        }
-        if pad_bottom > 0.0 {
-            col = col.push(Space::new().height(pad_bottom));
-        }
-    }
-    let mut next = window;
-    next.start = 0;
-    next.end = model.len();
-    let mut s = scrollable(col)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .direction(scrollable::Direction::Vertical(
-            scrollable::Scrollbar::new()
-                .width(icedtea::chrome::SCROLL_RAIL_WIDTH)
-                .scroller_width(icedtea::chrome::SCROLL_RAIL_WIDTH),
-        ))
-        .style(icedtea::style::scroll_style(tea))
-        .on_scroll(move |vp| {
-            let mut win = next;
-            win.scroll = vp.absolute_offset().y.max(0.0);
-            win.viewport = vp.bounds().height.max(1.0);
-            on_scroll(win)
-        });
-    if let Some(id) = id {
-        s = s.id(id);
-    }
-    icedtea::a11y::attach(s.into(), &a11y)
+            tone_color(status_tone(&status), hud_tok)
+        },
+        Some(hud.list_scroll_id()),
+        icedtea::collection::RowFace::Card {
+            meter: Some(|i| {
+                hud.sessions()
+                    .get(i)
+                    .map(|r: &crate::model::SessionRow| {
+                        context_fraction(r.context_window_usage_pct, &r.context_usage_compact)
+                    })
+                    .unwrap_or(0.0)
+            }),
+        },
+        A11y::new("Sessions", Role::List),
+    )
 }
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
@@ -817,7 +710,7 @@ fn expand_card<'a>(
     icedtea::widget::expander(
         title.clone(),
         child,
-        icedtea::widget::Peek::Lines(2),
+        icedtea::widget::Peek::Lines(3),
         open,
         on_toggle,
         tea,
@@ -1878,11 +1771,13 @@ mod tests {
     }
 
     #[test]
-    fn closed_turn_peek_is_two_full_prompt_lines() {
-        let h = icedtea::widget::Peek::Lines(2).height();
+    fn closed_turn_peek_keeps_two_prompt_lines_and_chips() {
+        let two = icedtea::widget::Peek::Lines(2).height();
+        let three = icedtea::widget::Peek::Lines(3).height();
         let line = icedtea::widget::Peek::body_line();
-        assert!(h >= line * 2.0 + icedtea::widget::Peek::DESCENT);
-        assert!(h > line * 2.0);
+        assert!(two >= line * 2.0 + icedtea::widget::Peek::DESCENT);
+        assert!(three > two);
+        assert!(three >= line * 3.0);
     }
 
     fn tea() -> icedtea::theme::Tokens {
@@ -1924,18 +1819,18 @@ mod tests {
     }
 
     #[test]
-    fn session_tiles_stay_cards_not_list_view() {
+    fn session_rail_uses_icedtea_card_list() {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod source");
-        assert!(prod.contains("fn tea_two_line"));
-        assert!(prod.contains("Wrapping::Word"));
+        assert!(prod.contains("widget::list_view("));
+        assert!(prod.contains("RowFace::Card"));
+        assert!(prod.contains("RowHeights::PerRow"));
+        assert!(!prod.contains("fn tea_two_line"));
+        assert!(!prod.contains("fn tea_list_view"));
         assert!(prod.contains("SESSION_LIST_W"));
-        assert!(prod.contains("icedtea::style::card(tea, selected)"));
         assert!(prod.contains("pattern::list_detail"));
-        assert!(prod.contains("visible_range_var"));
         assert!(prod.contains("widget::rule_h"));
         assert!(prod.contains("widget::tooltip_wrap"));
-        assert!(!prod.contains("widget::list_view("));
         assert!(prod.contains("icedtea::widget::themed_pick_list"));
         assert!(prod.contains("icedtea::widget::themed_text_input"));
         assert!(prod.contains("icedtea::widget::code_block"));
@@ -1970,6 +1865,7 @@ mod tests {
         assert!(prod.contains("brand_role_color"));
         assert!(!prod.contains("accordion_view"));
         assert!(prod.contains("widget::expander"));
+        assert!(prod.contains("Peek::Lines(3)"));
         assert!(prod.contains("TurnExpand"));
         assert!(prod.contains("FindingExpand"));
         assert!(prod.contains("NoteExpand"));

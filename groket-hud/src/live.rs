@@ -214,12 +214,15 @@ pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     h
 }
 
-/// Total scrollable height of the session rail (column pad + tiles).
+/// Total scrollable height of the session rail (card heights + 2px gaps).
 pub fn session_list_content_height<'a>(
     rows: impl IntoIterator<Item = (&'a str, &'a str, bool)>,
 ) -> f32 {
-    let mut h = 16.0;
-    for (title, meta, has_ctx) in rows {
+    let mut h = 0.0;
+    for (n, (title, meta, has_ctx)) in rows.into_iter().enumerate() {
+        if n > 0 {
+            h += 2.0;
+        }
         h += session_card_height(title, meta, has_ctx);
     }
     h

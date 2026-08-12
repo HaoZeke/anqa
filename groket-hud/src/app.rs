@@ -206,7 +206,9 @@ pub struct Hud {
     catalog_revision: i64,
     list_window: icedtea::collection::VisibleWindow,
     list_scroll_id: Id,
+    list_selection: icedtea::collection::Selection,
     session_metas: Vec<String>,
+    session_heights: Vec<f32>,
     tl_scroll_y: f32,
     tl_view_h: f32,
     tl_scroll_id: Id,
@@ -282,7 +284,9 @@ impl Default for Hud {
             window_id: None,
             list_window: icedtea::collection::VisibleWindow::new(400.0),
             list_scroll_id: Id::new("hud-sessions"),
+            list_selection: icedtea::collection::Selection::Single(0),
             session_metas: vec![],
+            session_heights: vec![],
             tl_scroll_y: 0.0,
             tl_view_h: 400.0,
             tl_scroll_id: Id::new("hud-timeline"),
@@ -516,7 +520,7 @@ impl Hud {
                     return self.focus_overlay();
                 }
                 let same = self.active == i && self.overview.is_some();
-                self.active = i;
+                self.set_active(i);
                 if same {
                     return self.focus_overlay();
                 }
@@ -1461,7 +1465,27 @@ impl Hud {
             .position(|&i| self.timeline.get(i).is_some_and(|ev| ev.index == focus))
     }
 
+    pub fn session_heights(&self) -> &[f32] {
+        &self.session_heights
+    }
+
+    pub fn list_selection(&self) -> &icedtea::collection::Selection {
+        &self.list_selection
+    }
+
+    fn set_active(&mut self, i: usize) {
+        self.active = i;
+        self.list_selection = icedtea::collection::Selection::Single(i);
+    }
+
     pub fn session_tile_height(&self, index: usize) -> f32 {
+        self.session_heights
+            .get(index)
+            .copied()
+            .unwrap_or_else(|| self.compute_session_height(index))
+    }
+
+    fn compute_session_height(&self, index: usize) -> f32 {
         let title = self
             .sessions()
             .get(index)
@@ -1480,6 +1504,13 @@ impl Hud {
         session_card_height(title, meta, has_ctx)
     }
 
+    fn refresh_session_rows(&mut self) {
+        self.session_metas = self.sessions().iter().map(session_row_meta).collect();
+        self.session_heights = (0..self.sessions().len())
+            .map(|i| self.compute_session_height(i))
+            .collect();
+    }
+
     fn session_list_height(&self) -> f32 {
         session_list_content_height(self.sessions().iter().enumerate().map(|(i, row)| {
             (
@@ -1492,9 +1523,9 @@ impl Hud {
 
     fn ensure_active_visible(&mut self) -> Task<Message> {
         let view_h = self.list_window.viewport.max(80.0);
-        let mut top = 8.0;
+        let mut top = 0.0;
         for i in 0..self.active {
-            top += self.session_tile_height(i);
+            top += self.session_tile_height(i) + 2.0;
         }
         let bot = top + self.session_tile_height(self.active);
         let mut y = self.list_window.scroll;
@@ -1718,7 +1749,7 @@ impl Hud {
             });
             self.sessions = ranked;
         }
-        self.session_metas = self.sessions().iter().map(session_row_meta).collect();
+        self.refresh_session_rows();
         let n = self.sessions().len();
         let keep_at = if keep.is_empty() {
             None
@@ -1726,11 +1757,13 @@ impl Hud {
             self.sessions().iter().position(|r| r.session_id == keep)
         };
         if let Some(idx) = keep_at {
-            self.active = idx;
+            self.set_active(idx);
         } else if !keep.is_empty() {
-            self.active = 0;
+            self.set_active(0);
         } else if self.active >= n {
-            self.active = n.saturating_sub(1);
+            self.set_active(n.saturating_sub(1));
+        } else {
+            self.list_selection = icedtea::collection::Selection::Single(self.active);
         }
         let view_h = self.list_window.viewport.max(1.0);
         self.list_window.scroll =
@@ -2523,23 +2556,23 @@ impl Hud {
         }
         match key {
             Key::Named(Named::ArrowDown) if !self.sessions().is_empty() => {
-                self.active = (self.active + 1) % self.sessions().len();
+                self.set_active((self.active + 1) % self.sessions().len());
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::ArrowUp) if !self.sessions().is_empty() => {
                 let n = self.sessions().len();
-                self.active = (self.active + n - 1) % n;
+                self.set_active((self.active + n - 1) % n);
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::Home) if !self.sessions().is_empty() => {
-                self.active = 0;
+                self.set_active(0);
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
             Key::Named(Named::End) if !self.sessions().is_empty() => {
-                self.active = self.sessions().len() - 1;
+                self.set_active(self.sessions().len() - 1);
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
@@ -2837,6 +2870,27 @@ mod tests {
         use icedtea::collection::ListModel;
         assert_eq!(hud.len(), 1);
         assert_eq!(hud.title(0), "Alpha");
+    }
+
+    #[test]
+    fn ranking_fills_card_heights_for_list_view() {
+        let mut hud = Hud {
+            all_sessions: vec![SessionRow {
+                session_id: "a".into(),
+                title: "Alpha".into(),
+                context_usage_compact: "40%".into(),
+                context_window_usage_pct: Some(40.0),
+                ..SessionRow::default()
+            }],
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        assert_eq!(hud.session_heights().len(), 1);
+        assert!(hud.session_heights()[0] >= 50.0);
+        assert_eq!(
+            *hud.list_selection(),
+            icedtea::collection::Selection::Single(0)
+        );
     }
 
     #[test]
