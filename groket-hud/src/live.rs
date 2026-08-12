@@ -59,7 +59,13 @@ fn wrap_line_count(s: &str, cols: usize) -> usize {
     n.max(1)
 }
 
+/// Gap icedtea `RowFace::Card` inserts between mounted rows (not in face paint).
+pub const LIST_CARD_GAP: f32 = 2.0;
+
 /// Pixel height of one session tile in the 260px rail.
+///
+/// Includes [`LIST_CARD_GAP`] so `RowHeights` totals match list_view Card
+/// spacing (otherwise the last cards cannot scroll fully into view).
 pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     // 8+8 list pad, 12+12 card pad; ~7px at 14px Fira.
     let cols = 28usize;
@@ -71,7 +77,7 @@ pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     if has_ctx {
         h += 5.0;
     }
-    h
+    h + LIST_CARD_GAP
 }
 
 /// Scroll so ``active`` stays in the viewport. Offsets are height sums
@@ -1032,6 +1038,10 @@ mod tests {
         );
         assert!(short >= 50.0, "{short}");
         assert!(long > short + 10.0, "short={short} long={long}");
+        assert!(
+            short >= LIST_CARD_GAP,
+            "card heights include list_view Card gap"
+        );
     }
 
     #[test]

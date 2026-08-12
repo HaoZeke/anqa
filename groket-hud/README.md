@@ -2,7 +2,7 @@
 
 Sol-style session **command palette** for the local groket control plane
 (JSON-RPC over Unix socket). Not a second session owner — talk to
-``groket serve``. Drawn with **iced** and **icedtea** 0.3 (Rust, no JavaScript).
+``groket serve``. Drawn with **iced** and **icedtea** 0.4 (Rust, no JavaScript).
 
 ## Features
 

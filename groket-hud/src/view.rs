@@ -224,6 +224,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             .font(typo::UI)
             .size(typo::BODY)
             .on_input(Message::SearchChanged)
+            .on_submit(Message::ActivateSelected)
             .padding([8, 10])
             .style(icedtea::style::search_style(tea))
             .width(Length::Fill),

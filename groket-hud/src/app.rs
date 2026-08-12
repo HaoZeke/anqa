@@ -573,7 +573,17 @@ impl Hud {
                 if i >= self.sessions().len() {
                     return self.focus_overlay();
                 }
-                let same = self.active == i && self.overview.is_some();
+                // Same rail row *and* same overview session — not only active index
+                // (search can leave active on a different row while detail stays open).
+                let row_sid = self
+                    .sessions()
+                    .get(i)
+                    .map(|r| r.session_id.as_str())
+                    .unwrap_or("");
+                let same = self.overview.is_some()
+                    && !self.overview_sid.is_empty()
+                    && row_sid == self.overview_sid
+                    && self.active == i;
                 self.set_active(i);
                 if same {
                     return self.focus_overlay();
@@ -1166,6 +1176,13 @@ impl Hud {
             }
             Message::WindowSize(size) => {
                 if size.width > 1.0 && size.height > 1.0 {
+                    // List viewport is only refreshed on rail scroll; seed from
+                    // chrome-ish remainder so keyboard cover math is not stuck
+                    // on the default 400px after resize.
+                    let list_vp = (size.height - 140.0).max(80.0);
+                    self.list_window.viewport = list_vp;
+                    self.tl_window.viewport = list_vp;
+                    self.turn_window.viewport = list_vp;
                     self.window_size = size;
                 }
                 Task::none()
@@ -1276,11 +1293,14 @@ impl Hud {
                     .iter()
                     .enumerate()
                     .filter(|(_, t)| self.turns_open.contains(&t.turn_index))
-                    .map(|(i, _)| (i, OPEN_TURN_CARD_H))
+                    .map(|(i, t)| (i, estimate_open_turn_height(t)))
                     .collect()
             })
             .unwrap_or_default();
         self.turn_heights = icedtea::collection::expand_card_heights(n, CLOSED_TURN_CARD_H, &open);
+        let view_h = self.turn_window.viewport.max(1.0);
+        let content: f32 = self.turn_heights.iter().copied().sum();
+        self.turn_window.scroll = clamp_scroll(self.turn_window.scroll, content, view_h);
     }
 
     fn rebuild_tl_heights(&mut self) {
@@ -1290,13 +1310,16 @@ impl Hud {
             .iter()
             .enumerate()
             .filter_map(|(i, &src)| {
-                let ix = self.timeline.get(src)?.index;
+                let ev = self.timeline.get(src)?;
                 self.timeline_expanded
-                    .contains(&ix)
-                    .then_some((i, OPEN_TIMELINE_ROW_H))
+                    .contains(&ev.index)
+                    .then_some((i, estimate_open_event_height(ev)))
             })
             .collect();
         self.tl_heights = icedtea::collection::expand_card_heights(n, TIMELINE_ROW_H, &open);
+        let view_h = self.tl_window.viewport.max(1.0);
+        let content: f32 = self.tl_heights.iter().copied().sum();
+        self.tl_window.scroll = clamp_scroll(self.tl_window.scroll, content, view_h);
     }
 
     fn bind_extract_text(&mut self, key: ExtractKey, src: &str) {
@@ -1315,8 +1338,11 @@ impl Hud {
         let Some(pos) = self.timeline.iter().position(|e| e.index == index) else {
             return;
         };
+        let mut keep: HashSet<String> = HashSet::new();
+        let body_id = ExtractKey::Event(index).id();
         let src = event_body_text(&self.timeline[pos]);
         if !src.is_empty() {
+            keep.insert(body_id.clone());
             self.bind_extract_text(ExtractKey::Event(index), &Self::bind_display(&src));
         }
         let call_pos = {
@@ -1348,7 +1374,9 @@ impl Hud {
         };
         for (fid, val) in fields {
             if !val.is_empty() {
-                self.bind_field(format!("event.{index}.in.{fid}"), &Self::bind_display(&val));
+                let id = format!("event.{index}.in.{fid}");
+                keep.insert(id.clone());
+                self.bind_field(id, &Self::bind_display(&val));
             }
         }
         let ev = &self.timeline[pos];
@@ -1357,8 +1385,19 @@ impl Hud {
             &ev.tool_name,
         ));
         if !out.trim().is_empty() {
-            self.bind_field(format!("event.{index}.out"), &Self::bind_display(&out));
+            let id = format!("event.{index}.out");
+            keep.insert(id.clone());
+            self.bind_field(id, &Self::bind_display(&out));
         }
+        let prefix = format!("event.{index}");
+        let prefix_dot = format!("{prefix}.");
+        self.fields.retain(|id| {
+            if id == prefix.as_str() || id.starts_with(&prefix_dot) {
+                keep.contains(id)
+            } else {
+                true
+            }
+        });
     }
 
     fn bind_turn_extracts(&mut self) {
@@ -2071,9 +2110,12 @@ impl Hud {
         if let Some(idx) = keep_at {
             self.set_active(idx);
         } else if !keep.is_empty() {
-            // Kept id not in the visible list (filtered out): pin to top of
-            // remaining, but do not invent a different session identity.
-            self.set_active(0);
+            // Overview session is filtered out: do not paint another row as active.
+            self.active = 0;
+            self.list_selection = icedtea::collection::Selection::None;
+        } else if n == 0 {
+            self.active = 0;
+            self.list_selection = icedtea::collection::Selection::None;
         } else if self.active >= n {
             self.set_active(n.saturating_sub(1));
         } else {
@@ -2114,7 +2156,8 @@ impl Hud {
         let Some(pos) = self.timeline_focus_pos() else {
             return Task::none();
         };
-        let y: f32 = self.tl_heights.iter().take(pos).copied().sum();
+        let view_h = self.tl_window.viewport.max(1.0);
+        let y = list_scroll_to_cover(&self.tl_heights, pos, self.tl_window.scroll, view_h);
         self.tl_window.scroll = y;
         Task::none()
     }
@@ -3245,8 +3288,11 @@ fn finding_menu_key(f: &FindingRow) -> String {
     )
 }
 
-/// Chrome chords that still match while a text field is focused
-/// ([`icedtea::key::WhileInput::Chrome`] + modifier chords).
+/// Escape + pane digits while a field is focused (Captured).
+///
+/// Enter is **not** here: notes/follow-up use `on_submit`, and search uses
+/// `on_submit(ActivateSelected)`. Bare Enter on Ignored still goes through
+/// `RawEvent` → open selected session.
 fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     use icedtea::action::Action;
     use icedtea::shortcut::Shortcut;
@@ -3254,10 +3300,6 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     table.insert(
         Action::new("overlay.hide", "Hide", Message::Hide)
             .with_shortcut(Shortcut::parse("escape").expect("escape")),
-    );
-    table.insert(
-        Action::new("session.open", "Open", Message::ActivateSelected)
-            .with_shortcut(Shortcut::parse("enter").expect("enter")),
     );
     for (i, tab) in Tab::ALL.iter().enumerate() {
         let n = i + 1;
@@ -3269,13 +3311,27 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     table
 }
 
+/// Rough open-card height from body text (virtual_column needs known heights).
+fn estimate_open_turn_height(t: &crate::wire::TurnRow) -> f32 {
+    let chars = t.summary.chars().count() + t.assistant_summary.chars().count();
+    let lines = ((chars as f32) / 52.0).ceil().max(3.0);
+    (CLOSED_TURN_CARD_H + lines * 17.0).clamp(OPEN_TURN_CARD_H * 0.6, 1400.0)
+}
+
+fn estimate_open_event_height(ev: &TimelineEvent) -> f32 {
+    let body = event_body_text(ev);
+    let chars = body.chars().count().max(ev.content.chars().count());
+    let lines = ((chars as f32) / 48.0).ceil().max(3.0);
+    (TIMELINE_ROW_H + lines * 16.0).clamp(OPEN_TIMELINE_ROW_H * 0.5, 1600.0)
+}
+
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
         Event::Window(window::Event::Resized(size)) => Some(Message::WindowSize(size)),
         Event::Keyboard(ref kev) => {
-            // Assume a field is focused so chrome_over_input still matches Escape /
-            // Enter / F-keys and chords when iced marks the press Captured.
+            // Captured: only Escape + pane chords (chrome_over_input). Enter stays
+            // with the focused field's on_submit (or Ignored → RawEvent).
             let ctx = icedtea::key::KeyContext {
                 text_input_focused: true,
                 ..icedtea::key::KeyContext::default()
@@ -3584,6 +3640,89 @@ mod tests {
         let _ = hud.update(Message::Hide);
         assert!(!hud.visible);
         assert!(!hud.palette_live);
+    }
+
+    #[test]
+    fn captured_enter_does_not_activate_session() {
+        // Notes/follow-up on_submit own Enter; chrome must not steal Captured Enter.
+        let enter = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Named(Named::Enter),
+            modified_key: Key::Named(Named::Enter),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Enter),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: None,
+            repeat: false,
+        });
+        assert!(
+            interesting_hud_event(enter, event::Status::Captured, window::Id::unique()).is_none()
+        );
+    }
+
+    #[test]
+    fn select_session_reloads_when_active_index_matches_other_overview() {
+        // Search can leave active on row 0 while overview_sid is still another session.
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "keep-out".into(),
+                    title: "Hidden".into(),
+                    path: "/tmp/keep-out".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "visible".into(),
+                    title: "Visible".into(),
+                    path: "/tmp/visible".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            active: 0,
+            overview_sid: "keep-out".into(),
+            overview: Some(Overview {
+                session_id: "keep-out".into(),
+                meta: crate::wire::SessionMeta {
+                    session_id: "keep-out".into(),
+                    ..crate::wire::SessionMeta::default()
+                },
+                ..Overview::default()
+            }),
+            overview_gen: 1,
+            ..Hud::default()
+        };
+        hud.rerank_visible_keeping("keep-out".into());
+        // Filter that only keeps "visible".
+        hud.query = "Visible".into();
+        hud.rerank_visible_keeping("keep-out".into());
+        assert_eq!(hud.sessions().len(), 1);
+        assert_eq!(hud.sessions()[0].session_id, "visible");
+        assert_eq!(hud.overview_sid, "keep-out");
+        // Click the only visible row (index 0) must load it, not no-op as "same".
+        let gen_before = hud.overview_gen;
+        let _ = hud.update(Message::SelectSession(0));
+        assert_eq!(hud.active(), 0);
+        assert!(hud.overview_gen > gen_before || !hud.overview_pending.is_empty());
+        assert_eq!(hud.overview_pending, "visible");
+    }
+
+    #[test]
+    fn scroll_focus_into_view_clamps_to_content() {
+        let mut hud = Hud::default();
+        hud.tl_heights = vec![40.0; 5];
+        hud.tl_window.viewport = 100.0;
+        hud.tl_filter = (0..5).collect();
+        hud.timeline = (0..5)
+            .map(|i| TimelineEvent {
+                index: i as i64,
+                ..TimelineEvent::default()
+            })
+            .collect();
+        hud.timeline_focus = Some(4);
+        let _ = hud.scroll_focus_into_view();
+        let content: f32 = hud.tl_heights.iter().copied().sum();
+        let max = (content - hud.tl_window.viewport).max(0.0);
+        assert!(hud.tl_window.scroll <= max + f32::EPSILON);
+        assert!(hud.tl_window.scroll >= 0.0);
     }
 
     #[test]

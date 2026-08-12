@@ -1,7 +1,9 @@
 # icedtea pin
 
-HUD uses icedtea **0.4.0** (path pin for development). Overlay, hotkey,
-`iced::daemon`, and Textual `config.json` → tokens stay groket-owned.
+HUD uses icedtea **0.4.0**. Cargo may path-pin a local checkout while 0.4 is
+pre-tag (needs `virtual_column` / `chrome_over_input`). Flip to a git rev or
+crates.io once `v0.4.0` is published. Overlay, hotkey, `iced::daemon`, and
+Textual `config.json` → tokens stay groket-owned.
 
 ## Library surfaces in use
 
