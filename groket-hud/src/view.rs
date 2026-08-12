@@ -724,6 +724,13 @@ fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element
         .into()
 }
 
+fn command_end(child: Element<'static, Message>) -> Element<'static, Message> {
+    row![Space::new().width(Length::Fill), child]
+        .width(Length::Fill)
+        .align_y(Alignment::Center)
+        .into()
+}
+
 fn card_chips(
     hud: &Hud,
     mark: Option<CardMark>,
@@ -732,11 +739,11 @@ fn card_chips(
 ) -> Element<'static, Message> {
     let tea = hud.tea_tokens();
     let tok = hud.tokens();
-    let mut r = row![].spacing(4);
+    let mut marks = row![].spacing(4);
     if let Some(m) = mark {
         if m.findings > 0 {
             let ev = m.first_finding_event;
-            r = r.push(chip_btn(
+            marks = marks.push(chip_btn(
                 format!("f{}", m.findings),
                 if let Some(ix) = ev {
                     Message::JumpTimeline(ix)
@@ -748,7 +755,7 @@ fn card_chips(
         }
         if m.notes > 0 {
             let nid = m.first_note_id;
-            r = r.push(chip_btn(
+            marks = marks.push(chip_btn(
                 format!("n{}", m.notes),
                 if nid.is_empty() {
                     Message::SetTab(Tab::Notes)
@@ -759,20 +766,25 @@ fn card_chips(
             ));
         }
         if m.errors > 0 {
-            r = r.push(
+            marks = marks.push(
                 text(format!("e{}", m.errors))
                     .size(typo::META)
                     .color(tok.error),
             );
         }
     }
+    let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
-        r = r.push(chip_btn("Add note".into(), msg, tea));
+        cmds = cmds.push(chip_btn("Add note".into(), msg, tea));
     }
     if let Some(msg) = jump {
-        r = r.push(jump_control(msg, tok.muted, tea));
+        cmds = cmds.push(jump_control(msg, tok.muted, tea));
     }
-    r.into()
+    row![marks, Space::new().width(Length::Fill), cmds]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .width(Length::Fill)
+        .into()
 }
 
 fn card_actions(
@@ -1030,11 +1042,11 @@ fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Elemen
             text(turn_meta(t))
                 .size(typo::META)
                 .color(hud.tokens().muted),
-            Space::new().width(Length::Fill),
             card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
         ]
         .spacing(8)
-        .align_y(Alignment::Center),
+        .align_y(Alignment::Center)
+        .width(Length::Fill),
     )
     .into()
 }
@@ -1208,7 +1220,7 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
             } else {
                 column![
                     prompt_face(&f.detail, tea),
-                    jump_control(finding_jump(f), hud.tokens().muted, tea),
+                    command_end(jump_control(finding_jump(f), hud.tokens().muted, tea)),
                 ]
                 .spacing(6)
                 .into()
@@ -1254,7 +1266,7 @@ fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static,
     if !f.detail.is_empty() {
         card = card.push(md_body(&f.detail, 1200, tea));
     }
-    card.push(jump_control(finding_jump(f), tea.muted, tea))
+    card.push(command_end(jump_control(finding_jump(f), tea.muted, tea)))
         .into()
 }
 
@@ -1886,6 +1898,7 @@ mod tests {
         assert!(prod.contains("fn expand_card"));
         assert!(prod.contains("fn card_actions"));
         assert!(prod.contains("fn card_chips"));
+        assert!(prod.contains("fn command_end"));
         assert!(prod.contains("Add note"));
         assert!(prod.contains("fn jump_control"));
         assert!(prod.contains("Go to timeline"));
