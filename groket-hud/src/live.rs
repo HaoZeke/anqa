@@ -20,16 +20,10 @@ pub const SESSION_LIST_W: f32 = 260.0;
 /// estimate for iced's scrollable. Mounted cards use their real height
 /// (titles wrap). Prefer overestimate so we do not skip a card still on screen.
 pub const TIMELINE_ROW_H: f32 = 160.0;
-/// Collapsed turn card plus gap. Mounted cards use real height.
-pub const TURNS_ROW_H: f32 = 220.0;
 /// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Turn-card pad estimate. High so a wrapped prompt does not fall
-/// out of the mounted window. Mounted cards use their real height.
-pub const TURN_ROW_H: f32 = 360.0;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
 pub const WHEEL_LINE_PX: f32 = 60.0;
-pub const VIRT_OVERSCAN: usize = 4;
 /// Minimum scrollbar handle (icedtea rail). Iced's own scroller floors at 2px.
 pub const SCROLL_HANDLE_MIN: f32 = icedtea::chrome::SCROLL_HANDLE_MIN;
 /// Rail and handle width from icedtea.
@@ -300,11 +294,7 @@ impl icedtea::collection::ListModel for SessionList<'_> {
 
 /// Wheel delta to a clamped content offset (iced scrollable: 60px per line).
 pub fn wheel_scroll(delta: iced::mouse::ScrollDelta, scroll: f32, max: f32) -> f32 {
-    let dy = match delta {
-        iced::mouse::ScrollDelta::Lines { y, .. } => -y * WHEEL_LINE_PX,
-        iced::mouse::ScrollDelta::Pixels { y, .. } => -y,
-    };
-    (scroll + dy).clamp(0.0, max)
+    (scroll + icedtea::widget::scroll_delta_pixels(delta, WHEEL_LINE_PX)).clamp(0.0, max)
 }
 
 /// Clamp a rail/wheel offset so the window stays on content.
@@ -1282,10 +1272,18 @@ mod tests {
     #[test]
     fn wheel_scroll_matches_iced_line_step() {
         let d = iced::mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 };
+        assert_eq!(
+            wheel_scroll(d, 0.0, 600.0),
+            (0.0 + icedtea::widget::scroll_delta_pixels(d, 60.0)).clamp(0.0, 600.0)
+        );
         assert_eq!(wheel_scroll(d, 0.0, 600.0), 60.0);
         let up = iced::mouse::ScrollDelta::Lines { x: 0.0, y: 3.0 };
         assert_eq!(wheel_scroll(up, 40.0, 600.0), 0.0);
         let px = iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -20.0 };
+        assert_eq!(
+            wheel_scroll(px, 0.0, 600.0),
+            (0.0 + icedtea::widget::scroll_delta_pixels(px, 60.0)).clamp(0.0, 600.0)
+        );
         assert_eq!(wheel_scroll(px, 0.0, 600.0), 20.0);
         assert_eq!(
             wheel_scroll(
@@ -1430,20 +1428,6 @@ mod tests {
         assert!(!is_expanded(&set, 12));
         assert!(is_expanded(&set, 44));
         assert_eq!(set.len(), 1);
-    }
-
-    #[test]
-    fn turns_window_over_144_only_mounts_the_visible_slice() {
-        let n = 144;
-        let win = visible_range(0.0, 480.0, TURNS_ROW_H, n, TIMELINE_OVERSCAN);
-        assert!(win.end > win.start);
-        assert!(
-            win.end - win.start < 8,
-            "mounted {} turn cards",
-            win.end - win.start
-        );
-        assert_eq!(win.pad_top, 0.0);
-        assert!(win.pad_bottom > 0.0);
     }
 
     #[test]

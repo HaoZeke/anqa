@@ -1,10 +1,14 @@
 //! Map Textual theme tokens (``config.json`` ``theme``) onto iced.
 
-use iced::theme::{Palette, Theme};
+use std::sync::OnceLock;
+
 use iced::Color;
+use iced::Theme;
 use serde_json::Value;
 
 use crate::format::BrandRole;
+
+pub use icedtea::theme::{mix, relative_luma, Tokens};
 
 /// TUI brand hex (``COMPLETE`` / ``FAILED`` / ``RUNNING`` / ``CANCELLED`` / ``CREAM``).
 pub const BRAND_CREAM: Color = Color::from_rgb8(0xFB, 0xF1, 0xC7);
@@ -26,50 +30,9 @@ pub fn brand_role_color(role: BrandRole) -> Color {
 
 const CATALOG: &str = include_str!("../assets/textual-themes.json");
 
-/// Subset of Textual ColorSystem tokens the HUD paints with.
-///
-/// Matches TUI usage: Screen is ``$surface``, cards are ``$surface`` with a
-/// ``$primary-background`` border, chrome is ``$panel``.
-/// All channels are **opaque** (Textual muted hex often ends in ``99``).
-#[derive(Debug, Clone, Copy)]
-pub struct Tokens {
-    pub canvas: Color,
-    pub panel: Color,
-    pub card: Color,
-    pub selected: Color,
-    pub selected_text: Color,
-    pub text: Color,
-    pub muted: Color,
-    pub primary: Color,
-    pub accent: Color,
-    #[allow(dead_code)]
-    pub secondary: Color,
-    pub success: Color,
-    pub warning: Color,
-    pub error: Color,
-    pub border: Color,
-}
-
-/// Rec. 709 luma in 0..1 (for picking light vs dark text on a fill).
-pub fn relative_luma(c: Color) -> f32 {
-    0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
-}
-
-impl Tokens {
-    /// True when ``$surface`` is a dark canvas (gruvbox, nord, …).
-    pub fn canvas_is_dark(self) -> bool {
-        relative_luma(self.canvas) < 0.45
-    }
-}
-
-/// Blend ``fg`` over ``bg`` by ``amount`` (0 = bg, 1 = fg). Result is opaque.
-pub fn mix(fg: Color, bg: Color, amount: f32) -> Color {
-    let t = amount.clamp(0.0, 1.0);
-    Color::from_rgb(
-        fg.r * t + bg.r * (1.0 - t),
-        fg.g * t + bg.g * (1.0 - t),
-        fg.b * t + bg.b * (1.0 - t),
-    )
+/// True when ``$surface`` is a dark canvas (gruvbox, nord, …).
+pub fn canvas_is_dark(tok: Tokens) -> bool {
+    relative_luma(tok.canvas) < 0.45
 }
 
 fn parse_hex(s: &str) -> Option<Color> {
@@ -127,21 +90,15 @@ pub fn tokens(name: &str) -> Tokens {
     );
     let primary = color_of(&colors, "primary", Color::from_rgb8(1, 120, 212));
     let accent = color_of(&colors, "accent", Color::from_rgb8(254, 166, 43));
-    // List selection is a primary wash over the screen, not full $accent.
-    // Accent fills (violet / gold) fight $foreground on solarized-light / gruvbox.
-    let selected = mix(primary, canvas, 0.28);
     let highlight = color_of(&colors, "primary-background", mix(primary, canvas, 0.35));
     Tokens {
         canvas,
+        surface: canvas,
         panel: color_of(&colors, "panel", mix(text, canvas, 0.10)),
-        card: canvas,
-        selected,
-        selected_text: text,
         text,
         muted,
         primary,
         accent,
-        secondary: color_of(&colors, "secondary", muted),
         success: color_of(
             &colors,
             "text-success",
@@ -152,49 +109,39 @@ pub fn tokens(name: &str) -> Tokens {
             "text-warning",
             color_of(&colors, "warning", Color::from_rgb8(254, 166, 43)),
         ),
-        error: color_of(
+        danger: color_of(
             &colors,
             "text-error",
             color_of(&colors, "error", Color::from_rgb8(185, 60, 91)),
         ),
         border: highlight,
+        selection: mix(primary, canvas, 0.28),
+        selection_text: text,
     }
+}
+
+/// Textual theme names registered on icedtea's catalog.
+pub fn catalog() -> &'static icedtea::theme::ThemeCatalog {
+    static CATALOG_MAP: OnceLock<icedtea::theme::ThemeCatalog> = OnceLock::new();
+    CATALOG_MAP.get_or_init(|| {
+        let mut cat = icedtea::theme::ThemeCatalog::new();
+        let Ok(root) = serde_json::from_str::<Value>(CATALOG) else {
+            return cat;
+        };
+        let Some(obj) = root.as_object() else {
+            return cat;
+        };
+        for key in obj.keys() {
+            let tok = tokens(key);
+            cat.register(key.clone(), tok, canvas_is_dark(tok));
+        }
+        cat
+    })
 }
 
 pub fn iced_theme(name: &str) -> Theme {
     let (key, _) = catalog_colors(name);
-    let t = tokens(name);
-    Theme::custom(
-        key,
-        Palette {
-            background: t.canvas,
-            text: t.text,
-            primary: t.primary,
-            success: t.success,
-            warning: t.warning,
-            danger: t.error,
-        },
-    )
-}
-
-/// icedtea tokens from the same groket ``config.json`` theme name.
-pub fn tea_tokens(name: &str) -> icedtea::theme::Tokens {
-    let t = tokens(name);
-    icedtea::theme::Tokens {
-        canvas: t.canvas,
-        surface: t.canvas,
-        panel: t.panel,
-        text: t.text,
-        muted: t.muted,
-        primary: t.primary,
-        accent: t.accent,
-        success: t.success,
-        warning: t.warning,
-        danger: t.error,
-        border: t.border,
-        selection: t.selected,
-        selection_text: t.selected_text,
-    }
+    icedtea::theme::iced_theme(&key, tokens(name))
 }
 
 #[cfg(test)]
@@ -207,8 +154,9 @@ mod tests {
         assert_eq!(t.canvas, Color::from_rgb8(0x1E, 0x1E, 0x1E));
         assert_ne!(t.canvas, Color::from_rgb8(0x12, 0x12, 0x12));
         assert_eq!(t.primary, Color::from_rgb8(0x01, 0x78, 0xD4));
-        assert_eq!(t.selected, mix(t.primary, t.canvas, 0.28));
-        assert_eq!(t.selected_text, t.text);
+        assert_eq!(t.selection, mix(t.primary, t.canvas, 0.28));
+        assert_eq!(t.selection, icedtea::theme::mix(t.primary, t.canvas, 0.28));
+        assert_eq!(t.selection_text, t.text);
         assert_eq!(t.border, Color::from_rgb8(0x33, 0x42, 0x4E));
     }
 
@@ -217,9 +165,11 @@ mod tests {
         let t = tokens("gruvbox");
         assert_ne!(t.canvas, tokens("textual-dark").canvas);
         assert_ne!(t.canvas, tokens("nord").canvas);
-        assert!(t.canvas_is_dark());
-        assert!(tokens("textual-dark").canvas_is_dark());
-        assert!(!tokens("solarized-light").canvas_is_dark());
+        assert!(canvas_is_dark(t));
+        assert!(canvas_is_dark(tokens("textual-dark")));
+        assert!(!canvas_is_dark(tokens("solarized-light")));
+        assert!(catalog().get("gruvbox").is_some());
+        assert!(catalog().get("textual-dark").is_some());
     }
 
     #[test]
@@ -227,18 +177,18 @@ mod tests {
         let t = tokens("flexoki");
         assert_eq!(t.canvas, Color::from_rgb8(0x1C, 0x1B, 0x1A));
         assert_ne!(t.canvas, Color::from_rgb8(0x10, 0x0F, 0x0F));
-        assert_eq!(t.selected, mix(t.primary, t.canvas, 0.28));
-        assert_eq!(t.selected_text, t.text);
+        assert_eq!(t.selection, mix(t.primary, t.canvas, 0.28));
+        assert_eq!(t.selection_text, t.text);
         assert_eq!(t.panel, Color::from_rgb8(0x28, 0x27, 0x26));
     }
 
     #[test]
     fn solarized_light_selected_row_keeps_readable_ink() {
         let t = tokens("solarized-light");
-        assert_ne!(t.selected, t.accent);
-        assert_eq!(t.selected_text, t.text);
-        assert!((relative_luma(t.selected) - relative_luma(t.text)).abs() > 0.20);
-        assert_eq!(t.selected, mix(t.primary, t.canvas, 0.28));
+        assert_ne!(t.selection, t.accent);
+        assert_eq!(t.selection_text, t.text);
+        assert!((relative_luma(t.selection) - relative_luma(t.text)).abs() > 0.20);
+        assert_eq!(t.selection, mix(t.primary, t.canvas, 0.28));
     }
 
     #[test]
@@ -250,7 +200,7 @@ mod tests {
         assert_eq!(t.muted, Color::from_rgb8(0xD0, 0xC6, 0x9E));
         assert_eq!(t.accent, Color::from_rgb8(0xF9, 0xBD, 0x2F));
         assert_eq!(t.warning, Color::from_rgb8(0xFE, 0xAB, 0x67));
-        assert_eq!(t.error, Color::from_rgb8(0xFC, 0x86, 0x79));
+        assert_eq!(t.danger, Color::from_rgb8(0xFC, 0x86, 0x79));
     }
 
     #[test]
@@ -278,17 +228,18 @@ mod tests {
     }
 
     #[test]
-    fn tea_tokens_follow_groket_config_theme() {
-        let g = tokens("textual-dark");
-        let t = tea_tokens("textual-dark");
-        assert_eq!(t.canvas, g.canvas);
-        assert_eq!(t.panel, g.panel);
-        assert_eq!(t.primary, g.primary);
-        assert_eq!(t.selection, g.selected);
-        assert_eq!(t.selection_text, g.selected_text);
-        assert_eq!(t.danger, g.error);
-        assert_eq!(t.warning, g.warning);
-        let light = tea_tokens("solarized-light");
+    fn named_theme_tokens_are_icedtea_tokens() {
+        let t = tokens("textual-dark");
+        assert_eq!(t.selection, icedtea::theme::mix(t.primary, t.canvas, 0.28));
+        assert_eq!(t.surface, t.canvas);
+        let registered = catalog().resolve("textual-dark");
+        assert_eq!(registered.selection, t.selection);
+        assert_eq!(registered.primary, t.primary);
+        let light = tokens("solarized-light");
         assert_ne!(light.canvas, t.canvas);
+        assert_eq!(
+            light.selection,
+            icedtea::theme::mix(light.primary, light.canvas, 0.28)
+        );
     }
 }

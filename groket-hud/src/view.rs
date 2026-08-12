@@ -8,8 +8,8 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
 
 use iced::widget::{
-    button, column, container, image, markdown, mouse_area, responsive, row, scrollable, stack,
-    text, text_editor, text_input, Space,
+    column, container, image, markdown, mouse_area, responsive, row, scrollable, stack, text,
+    text_editor, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -213,9 +213,9 @@ fn code_inset(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Messag
 
 pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let mut search = row![
-        image(brand::chrome_handle(tok.canvas_is_dark()))
+        image(brand::chrome_handle(crate::theme::canvas_is_dark(tok)))
             .width(brand::chrome_width())
             .height(brand::chrome_height()),
         text_input("Search sessions", hud.query())
@@ -243,21 +243,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let body =
         icedtea::pattern::list_detail(list, detail, icedtea::layout::fixed(SESSION_LIST_W), tea);
 
-    let foot = row![
-        status_copy(hud.status(), hud.status_err(), tea),
-        Space::new().width(Length::Fill),
-        icedtea::widget::meta(
-            "Tab fields  ·  Ctrl+1–5 panes  ·  Esc",
-            tea,
-            A11y::new("keys", Role::Status),
-        ),
-    ]
-    .spacing(12)
-    .align_y(Alignment::Center)
-    .padding(Padding::from([8, 20]));
-    let foot = container(foot)
-        .width(Length::Fill)
-        .style(move |_| icedtea::style::footer(tea));
+    let foot = footer(hud, tea);
 
     let mut stack = column![search, rule(tea), body, rule(tea), foot];
     for t in hud.toasts().iter() {
@@ -302,7 +288,7 @@ fn session_list(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     if hud.sessions().is_empty() {
         return empty_sessions(tea);
     }
@@ -350,7 +336,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         &tabs,
         |i| Message::SetTab(Tab::ALL[i]),
         |_| Message::SetTab(Tab::Overview),
-        hud.tea_tokens(),
+        hud.tokens(),
         A11y::new("Panes", Role::Tab),
     ))
     .padding(Padding::from([8, 12]));
@@ -361,9 +347,9 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     }
     let body: Element<'_, Message> = if hud.overview().is_none() {
         if !hud.overview_pending().is_empty() {
-            loading_session(hud.overview_pending(), hud.tea_tokens())
+            loading_session(hud.overview_pending(), hud.tokens())
         } else {
-            select_session(hud.tea_tokens())
+            select_session(hud.tokens())
         }
     } else {
         match hud.tab() {
@@ -374,7 +360,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
             Tab::Notes => notes_tab(hud),
         }
     };
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
         stack = stack.push(icedtea::widget::themed_scroll(
             container(timeline_tab(hud, hud.tl_view_h()))
@@ -386,6 +372,18 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
             false,
             Some(hud.timeline_scroll_id()),
             Some(|vp: scrollable::Viewport| Message::TimelineScroll {
+                y: vp.absolute_offset().y,
+                height: vp.bounds().height,
+            }),
+        ));
+    } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
+        stack = stack.push(icedtea::widget::themed_scroll(
+            container(body).padding([16, 20]).width(Length::Fill).into(),
+            tea,
+            A11y::new("Turns", Role::Group),
+            false,
+            Some(hud.turn_scroll_id()),
+            Some(|vp: scrollable::Viewport| Message::TurnScroll {
                 y: vp.absolute_offset().y,
                 height: vp.bounds().height,
             }),
@@ -407,7 +405,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     row![
         icedtea::widget::meta("Type", tea, A11y::new("Type", Role::Header)),
         icedtea::widget::themed_pick_list(
@@ -486,7 +484,7 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     };
     let path = meta.path.clone();
     let tok = hud.tokens();
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
     let mut col = column![
         text(title.clone())
@@ -528,11 +526,11 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         ));
     }
     if summary != title && summary != "No summary text for this session." {
-        col = col.push(md_body(&summary, 4000, hud.tea_tokens()));
+        col = col.push(md_body(&summary, 4000, hud.tokens()));
     } else if summary == "No summary text for this session." {
         col = col.push(icedtea::widget::meta(
             summary,
-            hud.tea_tokens(),
+            hud.tokens(),
             A11y::new("summary", Role::Status),
         ));
     }
@@ -600,13 +598,7 @@ fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<
 
 fn kv<'a>(hud: &'a Hud, k: &'static str, v: String, copy: bool) -> Element<'a, Message> {
     let value: Element<'a, Message> = if copy {
-        selectable(
-            hud,
-            ExtractKey::Overview(k),
-            &v,
-            hud.tea_tokens(),
-            typo::MONO,
-        )
+        selectable(hud, ExtractKey::Overview(k), &v, hud.tokens(), typo::MONO)
     } else {
         text(v).size(typo::BODY).color(hud.tokens().text).into()
     };
@@ -622,12 +614,39 @@ fn kv<'a>(hud: &'a Hud, k: &'static str, v: String, copy: bool) -> Element<'a, M
     .into()
 }
 
+fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
+    let mut table = icedtea::action::ActionTable::new();
+    table.insert(icedtea::action::Action::new(
+        "keys",
+        "Tab fields  ·  Ctrl+1–5 panes  ·  Esc",
+        Message::Hide,
+    ));
+    let hints = table
+        .get("keys")
+        .map(|a| a.title.clone())
+        .unwrap_or_else(|| "Tab fields  ·  Ctrl+1–5 panes  ·  Esc".into());
+    let left = status_copy(hud.status(), hud.status_err(), tea);
+    let right = icedtea::widget::meta(hints.clone(), tea, A11y::new(hints, Role::Status));
+    // Same chrome as pattern::status_bar: status left, ActionTable title right.
+    icedtea::a11y::attach(
+        container(row![left, Space::new().width(Length::Fill), right,].padding([8, 12]))
+            .width(Length::Fill)
+            .style(move |_| icedtea::style::footer(tea))
+            .into(),
+        &A11y::new("statusbar", Role::Status),
+    )
+}
+
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    button(text(label).size(typo::META))
-        .on_press(msg)
-        .padding([3, 6])
-        .style(icedtea::style::button_style(tea, Variant::Chip))
-        .into()
+    icedtea::widget::themed_button_sized(
+        label.clone(),
+        Some(msg),
+        tea,
+        Variant::Chip,
+        Length::Shrink,
+        Length::Fixed(22.0),
+        A11y::button(label),
+    )
 }
 
 fn command_end(child: Element<'static, Message>) -> Element<'static, Message> {
@@ -643,7 +662,7 @@ fn card_chips(
     note: Option<Message>,
     jump: Option<Message>,
 ) -> Element<'static, Message> {
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let tok = hud.tokens();
     let mut marks = row![].spacing(4);
     if let Some(m) = mark {
@@ -675,7 +694,7 @@ fn card_chips(
             marks = marks.push(
                 text(format!("e{}", m.errors))
                     .size(typo::META)
-                    .color(tok.error),
+                    .color(tok.danger),
             );
         }
     }
@@ -877,7 +896,7 @@ fn note_body<'a>(
     body: &str,
     extras: Vec<(String, String)>,
 ) -> Element<'a, Message> {
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let turn = n.turn_index.map(|i| i.to_string()).unwrap_or_default();
     let where_when = format!(
         "{} · {}",
@@ -940,7 +959,7 @@ fn turn_paint<'a>(
 
 fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Element<'a, Message> {
     let idx = t.turn_index;
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let mut col = column![if t.summary.is_empty() {
         text("No user prompt in this turn")
             .size(typo::BODY)
@@ -993,7 +1012,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             .color(hud.tokens().muted)
             .into();
     }
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let mut col = column![].spacing(8);
     for t in turns {
         let turn = t.turn_index;
@@ -1022,7 +1041,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
 
 fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     if hud.timeline_loading() && hud.filtered_indices().is_empty() {
-        return loading_session("timeline", hud.tea_tokens());
+        return loading_session("timeline", hud.tokens());
     }
     let idxs = hud.filtered_indices();
     if idxs.is_empty() {
@@ -1052,7 +1071,7 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     if win.pad_top > 0.0 {
         col = col.push(Space::new().height(win.pad_top));
     }
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     let source = hud.timeline_events();
     for &src_i in &idxs[start..end] {
         let Some(ev) = source.get(src_i) else {
@@ -1100,7 +1119,7 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let findings: &[FindingRow] = &o.findings.findings;
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     if findings.is_empty() {
         return icedtea::pattern::status_page(
             "No findings",
@@ -1212,27 +1231,31 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                 .size(typo::META)
                 .color(hud.tokens().muted),
         );
-        form = form.push(
-            text_input(label.as_str(), val)
-                .font(typo::UI)
-                .size(typo::BODY)
-                .on_input(move |v| Message::NoteField {
-                    id: id.clone(),
-                    value: v,
-                })
-                .padding(8)
-                .style(icedtea::style::search_style(hud.tea_tokens())),
-        );
+        form = form.push(icedtea::widget::themed_text_input(
+            label.as_str(),
+            val,
+            move |v| Message::NoteField {
+                id: id.clone(),
+                value: v,
+            },
+            Some(Message::SaveNote),
+            hud.tokens(),
+            A11y::new(label.clone(), Role::TextBox),
+            None,
+        ));
     }
     form = form.push(text("Turn").size(typo::META).color(hud.tokens().muted));
     form = form.push(
-        text_input("session", &hud.note_draft().turn_index)
-            .font(typo::UI)
-            .size(typo::BODY)
-            .on_input(Message::NoteTurn)
-            .padding(8)
-            .style(icedtea::style::search_style(hud.tea_tokens()))
-            .width(Length::Fixed(120.0)),
+        container(icedtea::widget::themed_text_input(
+            "session",
+            &hud.note_draft().turn_index,
+            Message::NoteTurn,
+            Some(Message::SaveNote),
+            hud.tokens(),
+            A11y::new("Turn", Role::TextBox),
+            None,
+        ))
+        .width(Length::Fixed(120.0)),
     );
     if !hud.note_draft().event_index.is_empty() {
         form = form.push(
@@ -1241,20 +1264,18 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                 .color(hud.tokens().muted),
         );
     }
-    let mut actions = row![button(if hud.note_saving() {
+    let save_label = if hud.note_saving() {
         "Saving…"
     } else if editing {
         "Save"
     } else {
         "Save note"
-    })
-    .on_press(Message::SaveNote)
-    .style(icedtea::style::button_style(
-        hud.tea_tokens(),
-        Variant::Quiet
-    ))
-    .padding([8, 12])]
-    .spacing(8);
+    };
+    let mut actions = vec![icedtea::action::Action::new(
+        "note.save",
+        save_label,
+        Message::SaveNote,
+    )];
     if editing {
         let nid = hud.note_draft().id.clone();
         let del = if hud.note_delete_armed() == nid {
@@ -1262,26 +1283,18 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         } else {
             "Delete"
         };
-        actions = actions.push(
-            button(del)
-                .on_press(Message::RequestDelete(nid))
-                .style(icedtea::style::button_style(
-                    hud.tea_tokens(),
-                    Variant::Danger,
-                ))
-                .padding([8, 12]),
-        );
-        actions = actions.push(
-            button("New note")
-                .on_press(Message::ResetDraft)
-                .style(icedtea::style::button_style(
-                    hud.tea_tokens(),
-                    Variant::Quiet,
-                ))
-                .padding([8, 12]),
-        );
+        actions.push(icedtea::action::Action::new(
+            "note.delete",
+            del,
+            Message::RequestDelete(nid),
+        ));
+        actions.push(icedtea::action::Action::new(
+            "note.new",
+            "New note",
+            Message::ResetDraft,
+        ));
     }
-    form = form.push(actions);
+    form = form.push(card_actions(actions, hud.tokens()));
 
     let rev = o.notes.revision.clone();
     let mut col = column![
@@ -1319,7 +1332,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             let child = if open {
                 note_body(hud, n, &body, extras)
             } else {
-                prompt_face(&body, hud.tea_tokens())
+                prompt_face(&body, hud.tokens())
             };
             col = col.push(expand_card(
                 heading,
@@ -1332,20 +1345,20 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                         open: next,
                     }
                 },
-                hud.tea_tokens(),
+                hud.tokens(),
             ));
         }
     }
     col.into()
 }
 
-fn tone_color(tone: &str, tok: crate::theme::Tokens) -> Color {
+fn tone_color(tone: &str, tok: icedtea::theme::Tokens) -> Color {
     match tone {
         "awaiting" => tok.warning,
         "running" => tok.success,
         "complete" => tok.primary,
         "ending" => tok.accent,
-        "cancelled" => tok.error,
+        "cancelled" => tok.danger,
         _ => tok.muted,
     }
 }
@@ -1450,10 +1463,10 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             col = col.push(text("Output").size(typo::META).color(tok.muted));
             col = col.push(icedtea::widget::meta(
                 img.clone(),
-                hud.tea_tokens(),
+                hud.tokens(),
                 A11y::new(img.clone(), Role::Status),
             ));
-            col = col.push(tool_image(&img, hud.tea_tokens()));
+            col = col.push(tool_image(&img, hud.tokens()));
         } else if !out_body.trim().is_empty() {
             col = col.push(text("Output").size(typo::META).color(tok.muted));
             col = col.push(render_payload_text(&out_body, &result.kind, hud, true));
@@ -1463,7 +1476,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             hud,
             ExtractKey::Event(ev.index),
             &body,
-            hud.tea_tokens(),
+            hud.tokens(),
             typo::UI,
         ));
     } else {
@@ -1476,13 +1489,13 @@ fn field_body(id: &str, value: &str, hud: &Hud) -> Element<'static, Message> {
     let tok = hud.tokens();
     let is_patch = id == "old_string" || id == "new_string" || id == "command";
     let color = if id == "old_string" {
-        tok.error
+        tok.danger
     } else if id == "new_string" {
         tok.accent
     } else {
         tok.text
     };
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     container(
         text(value.to_string())
             .size(typo::META)
@@ -1521,9 +1534,9 @@ fn render_payload_text(
             .into();
     }
     match paint {
-        BodyPaint::Json => code_inset(&cut, hud.tea_tokens()),
-        BodyPaint::Markdown => inset_body(md_body(&cut, max, hud.tea_tokens()), hud),
-        BodyPaint::Image => tool_image(trimmed, hud.tea_tokens()),
+        BodyPaint::Json => code_inset(&cut, hud.tokens()),
+        BodyPaint::Markdown => inset_body(md_body(&cut, max, hud.tokens()), hud),
+        BodyPaint::Image => tool_image(trimmed, hud.tokens()),
         _ => {
             let rendered: Element<'static, Message> = match kind {
                 "thought" => text(cut)
@@ -1533,7 +1546,7 @@ fn render_payload_text(
                     .into(),
                 "plan" => text(cut).size(typo::BODY).color(tok.accent).into(),
                 "session" | "task" => text(cut).size(typo::BODY).color(tok.warning).into(),
-                "error" => text(cut).size(typo::BODY).color(tok.error).into(),
+                "error" => text(cut).size(typo::BODY).color(tok.danger).into(),
                 "system" => text(cut).size(typo::BODY).color(tok.accent).into(),
                 _ => text(cut).size(typo::BODY).font(typo::UI).into(),
             };
@@ -1547,7 +1560,7 @@ fn render_payload_text(
 }
 
 fn inset_body(inner: Element<'static, Message>, hud: &Hud) -> Element<'static, Message> {
-    let tea = hud.tea_tokens();
+    let tea = hud.tokens();
     container(inner)
         .padding(10)
         .width(Length::Fill)
@@ -1637,7 +1650,7 @@ impl canvas::Program<Message> for JumpIcon {
 }
 
 fn pop_out_control(
-    tok: crate::theme::Tokens,
+    tok: icedtea::theme::Tokens,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     icedtea::widget::tooltip_wrap(
@@ -1774,7 +1787,7 @@ mod tests {
     fn closed_turn_peek_keeps_chips_above_the_fade() {
         let h = icedtea::widget::Peek::Lines(4).height();
         let fade = 12.0_f32.min(h * 0.4).max(4.0);
-        let chip_row = JUMP_PX + 8.0;
+        let chip_row = 22.0_f32.max(JUMP_PX + 8.0);
         let stack = icedtea::widget::Peek::body_line() + 6.0 + chip_row;
         assert!(
             stack + fade <= h,
@@ -1846,10 +1859,22 @@ mod tests {
         assert!(prod.contains("fn card_chips"));
         assert!(prod.contains("fn command_end"));
         assert!(prod.contains("Add note"));
+        assert!(prod.contains("format!(\"f{}\""));
+        assert!(prod.contains("format!(\"n{}\""));
+        assert!(prod.contains("Tab fields"));
+        assert!(prod.contains("Ctrl+1"));
+        assert!(prod.contains("Esc"));
+        assert!(prod.contains("themed_button_sized"));
+        assert!(prod.contains("Variant::Chip"));
         assert!(prod.contains("fn jump_control"));
         assert!(prod.contains("Go to timeline"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
         assert!(prod.contains("pattern::command_bar"));
+        assert!(prod.contains("pattern::status_bar"));
+        assert!(prod.contains("ActionTable"));
+        assert!(!prod.contains("TURN_ROW_H"));
+        assert!(!prod.contains("TURNS_ROW_H"));
+        assert!(!prod.contains("VIRT_OVERSCAN"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("fn turn_note"));
         assert!(prod.contains("fn overview_commands"));

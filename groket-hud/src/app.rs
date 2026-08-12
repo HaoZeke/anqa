@@ -9,9 +9,7 @@ use iced::keyboard::{key::Named, Key, Modifiers as KeyMods};
 use iced::widget::operation::{self, AbsoluteOffset};
 use iced::widget::Id;
 use iced::window::{self, Mode};
-use iced::{
-    event, keyboard, time, Element, Event, Pixels, Point, Settings, Size, Subscription, Task, Theme,
-};
+use iced::{event, keyboard, time, Element, Event, Pixels, Point, Size, Subscription, Task, Theme};
 use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
@@ -29,7 +27,7 @@ use crate::live::{
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
     toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, IDLE_POLL_MS, LIVE_POLL_MS,
     LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN,
-    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H, TURN_ROW_H,
+    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -44,6 +42,7 @@ use crate::wire::{
 
 const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
+const APP_ID: &str = "dev.indynull.groket-hud";
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -214,6 +213,7 @@ pub struct Hud {
     tl_scroll_id: Id,
     turn_scroll_y: f32,
     turn_view_h: f32,
+    turn_scroll_id: Id,
     tl_filter: Vec<usize>,
     turn_marks: std::collections::HashMap<i64, CardMark>,
     event_marks: std::collections::HashMap<i64, CardMark>,
@@ -292,6 +292,7 @@ impl Default for Hud {
             tl_scroll_id: Id::new("hud-timeline"),
             turn_scroll_y: 0.0,
             turn_view_h: 400.0,
+            turn_scroll_id: Id::new("hud-turns"),
             tl_filter: vec![],
             turn_marks: std::collections::HashMap::new(),
             event_marks: std::collections::HashMap::new(),
@@ -319,17 +320,37 @@ impl Default for Hud {
     }
 }
 
-fn linux_app_id(win: &mut window::Settings) {
-    #[cfg(target_os = "linux")]
-    {
-        win.platform_specific.application_id = "dev.indynull.groket-hud".into();
-    }
-    let _ = win;
+fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
+    prep.window.icon = crate::brand::window_icon();
+    prep.iced_settings.fonts = vec![
+        std::borrow::Cow::Borrowed(crate::typo::UI_BYTES),
+        std::borrow::Cow::Borrowed(crate::typo::MONO_BYTES),
+    ];
+    prep.iced_settings.default_font = crate::typo::UI;
+    prep.iced_settings.default_text_size = Pixels::from(crate::typo::BODY);
 }
 
-fn with_hud_icon(mut win: window::Settings) -> window::Settings {
-    win.icon = crate::brand::window_icon();
-    win
+fn overlay_prepared() -> icedtea::app::Prepared {
+    let boot = icedtea::app::Boot::new("groket", APP_ID)
+        .overlay()
+        .size(HUD_W, HUD_H)
+        .min_size(HUD_W, HUD_H)
+        .max_size(HUD_W, HUD_H)
+        .theme(prefs::theme_name());
+    let mut prep = icedtea::app::bootstrap_with_catalog(&boot, crate::theme::catalog());
+    apply_hud_chrome(&mut prep);
+    prep
+}
+
+fn desktop_prepared() -> icedtea::app::Prepared {
+    let mut prep = overlay_prepared();
+    prep.window.size = Size::new(980.0, 700.0);
+    prep.window.min_size = Some(Size::new(640.0, 440.0));
+    prep.window.max_size = None;
+    icedtea::window::retarget(&mut prep.window, APP_ID);
+    prep.window.exit_on_close_request = false;
+    prep.window.icon = crate::brand::window_icon();
+    prep
 }
 
 /// Overlay is already the mapped palette: do not remap, resize, or refetch.
@@ -344,47 +365,19 @@ pub fn boot_summons_overlay(window_mode: bool, show_on_start: bool) -> bool {
 }
 
 pub fn palette_window_settings() -> window::Settings {
-    let mut win = with_hud_icon(window::Settings {
-        size: Size::new(HUD_W, HUD_H),
-        position: window::Position::Centered,
-        min_size: Some(Size::new(HUD_W, HUD_H)),
-        max_size: Some(Size::new(HUD_W, HUD_H)),
-        resizable: false,
-        decorations: false,
-        visible: true,
-        level: window::Level::AlwaysOnTop,
-        exit_on_close_request: false,
-        ..window::Settings::default()
-    });
-    linux_app_id(&mut win);
-    #[cfg(target_os = "linux")]
-    {
-        // X11: unmapped by the tiler so the overlay stays a 780x560 card.
-        win.platform_specific.override_redirect = true;
-    }
-    win
+    overlay_prepared().window
 }
 
 pub fn app_window_settings() -> window::Settings {
-    let mut win = with_hud_icon(window::Settings {
-        size: Size::new(980.0, 700.0),
-        position: window::Position::Default,
-        min_size: Some(Size::new(640.0, 440.0)),
-        max_size: None,
-        resizable: true,
-        decorations: true,
-        visible: true,
-        level: window::Level::Normal,
-        exit_on_close_request: false,
-        ..window::Settings::default()
-    });
-    linux_app_id(&mut win);
-    #[cfg(target_os = "linux")]
-    {
-        // Normal client: tiling WMs insert this; stacking WMs just map it.
-        win.platform_specific.override_redirect = false;
+    desktop_prepared().window
+}
+
+fn open_hud_window(window_mode: bool) -> (window::Id, Task<window::Id>) {
+    if window_mode {
+        desktop_prepared().open()
+    } else {
+        overlay_prepared().open()
     }
-    win
 }
 
 pub fn run() -> iced::Result {
@@ -393,17 +386,7 @@ pub fn run() -> iced::Result {
         .title("groket")
         .subscription(Hud::subscription)
         .theme(|hud: &Hud, window| Some(hud.theme(window)))
-        .settings(Settings {
-            id: Some("dev.indynull.groket-hud".into()),
-            antialiasing: true,
-            vsync: true,
-            default_text_size: Pixels::from(crate::typo::BODY),
-            default_font: crate::typo::UI,
-            fonts: vec![
-                std::borrow::Cow::Borrowed(crate::typo::UI_BYTES),
-                std::borrow::Cow::Borrowed(crate::typo::MONO_BYTES),
-            ],
-        })
+        .settings(overlay_prepared().iced_settings)
         .run()
 }
 
@@ -460,11 +443,7 @@ impl Hud {
                 }
             }
         });
-        let (id, open) = window::open(if hud.window_mode {
-            app_window_settings()
-        } else {
-            palette_window_settings()
-        });
+        let (id, open) = open_hud_window(hud.window_mode);
         hud.window_id = Some(id);
         let mut boot = vec![
             open.map(|id| Message::WindowId(Some(id))),
@@ -535,9 +514,6 @@ impl Hud {
                 ])
             }
             Message::SetTab(tab) => {
-                if self.tab != tab {
-                    self.tl_scroll_y = 0.0;
-                }
                 self.tab = tab;
                 let load = if tab == Tab::Timeline {
                     if let Some(sid) = self.selected_sid() {
@@ -548,7 +524,7 @@ impl Hud {
                 } else {
                     Task::none()
                 };
-                Task::batch([load, self.focus_overlay()])
+                Task::batch([load, self.restore_pane_scroll(tab), self.focus_overlay()])
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
@@ -691,12 +667,12 @@ impl Hud {
                 if height > 1.0 {
                     self.turn_view_h = height;
                 }
-                let n = self
+                let empty = self
                     .overview
                     .as_ref()
-                    .map(|o| o.turns.turns.len())
-                    .unwrap_or(0);
-                self.turn_scroll_y = clamp_scroll(y, n as f32 * TURN_ROW_H, self.turn_view_h);
+                    .map(|o| o.turns.turns.is_empty())
+                    .unwrap_or(true);
+                self.turn_scroll_y = if empty { 0.0 } else { y.max(0.0) };
                 Task::none()
             }
             Message::FindingExpand { id, open } => {
@@ -1357,11 +1333,8 @@ impl Hud {
     pub fn theme_name(&self) -> &str {
         &self.theme_name
     }
-    pub fn tokens(&self) -> crate::theme::Tokens {
+    pub fn tokens(&self) -> icedtea::theme::Tokens {
         crate::theme::tokens(&self.theme_name)
-    }
-    pub fn tea_tokens(&self) -> icedtea::theme::Tokens {
-        crate::theme::tea_tokens(&self.theme_name)
     }
     pub fn search_id(&self) -> Id {
         self.search_id.clone()
@@ -1452,6 +1425,30 @@ impl Hud {
 
     pub fn turn_scroll_y(&self) -> f32 {
         self.turn_scroll_y
+    }
+
+    pub fn turn_scroll_id(&self) -> Id {
+        self.turn_scroll_id.clone()
+    }
+
+    fn restore_pane_scroll(&self, tab: Tab) -> Task<Message> {
+        match tab {
+            Tab::Turns => operation::scroll_to(
+                self.turn_scroll_id.clone(),
+                AbsoluteOffset {
+                    x: 0.0,
+                    y: self.turn_scroll_y,
+                },
+            ),
+            Tab::Timeline => operation::scroll_to(
+                self.tl_scroll_id.clone(),
+                AbsoluteOffset {
+                    x: 0.0,
+                    y: self.tl_scroll_y,
+                },
+            ),
+            _ => Task::none(),
+        }
     }
 
     pub fn timeline_scroll_id(&self) -> Id {
@@ -2159,7 +2156,7 @@ impl Hud {
         #[cfg(target_os = "linux")]
         crate::x11focus::release_keyboard();
         let old = self.window_id.take();
-        let (id, open) = window::open(app_window_settings());
+        let (id, open) = open_hud_window(true);
         self.window_id = Some(id);
         let close_old = match old {
             Some(prev) if prev != id => window::close(prev),
@@ -2206,7 +2203,7 @@ impl Hud {
         self.last_live = Instant::now();
         self.sync_theme();
         if self.window_id.is_none() {
-            let (id, open) = window::open(palette_window_settings());
+            let (id, open) = open_hud_window(false);
             self.window_id = Some(id);
             return Task::batch([
                 open.map(|id| Message::WindowId(Some(id))),
@@ -2983,8 +2980,26 @@ mod tests {
         assert!(w.resizable);
         assert_eq!(w.level, window::Level::Normal);
         assert!(w.icon.is_some());
+        assert!(!w.exit_on_close_request);
         #[cfg(target_os = "linux")]
         assert!(!w.platform_specific.override_redirect);
+    }
+
+    #[test]
+    fn window_settings_come_from_prepared_bootstrap() {
+        let overlay = overlay_prepared();
+        assert_eq!(overlay.window.size, Size::new(HUD_W, HUD_H));
+        assert!(!overlay.window.decorations);
+        assert_eq!(overlay.window.max_size, Some(Size::new(HUD_W, HUD_H)));
+        assert!(!overlay.iced_settings.fonts.is_empty());
+        let desk = desktop_prepared();
+        assert!(desk.window.decorations);
+        assert!(desk.window.resizable);
+        assert!(!desk.window.exit_on_close_request);
+        let src = include_str!("app.rs");
+        assert!(src.contains("bootstrap_with_catalog"));
+        assert!(src.contains(".open()"));
+        assert!(src.contains("retarget"));
     }
 
     #[test]
