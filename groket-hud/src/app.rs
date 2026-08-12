@@ -963,6 +963,7 @@ impl Hud {
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
                         self.sync_rail_to_overview_sid();
+                        let rail = self.ensure_active_visible();
                         self.rebuild_events_turn_options();
                         self.rebuild_marks();
                         self.rebuild_tl_filter();
@@ -970,6 +971,7 @@ impl Hud {
                         self.mark_up();
                         if self.wants_events() {
                             return Task::batch([
+                                rail,
                                 self.ensure_timeline(sid, false),
                                 if quiet {
                                     Task::none()
@@ -981,13 +983,14 @@ impl Hud {
                         if self.tab == Tab::Overview {
                             let rows = self.ensure_session_rows();
                             if !quiet {
-                                return Task::batch([rows, self.focus_overlay()]);
+                                return Task::batch([rail, rows, self.focus_overlay()]);
                             }
-                            return rows;
+                            return Task::batch([rail, rows]);
                         }
                         if !quiet {
-                            return self.focus_overlay();
+                            return Task::batch([rail, self.focus_overlay()]);
                         }
+                        return rail;
                     }
                     Err(e) => {
                         if !quiet {
