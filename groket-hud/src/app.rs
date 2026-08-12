@@ -27,8 +27,8 @@ use crate::live::{
     should_fetch_timeline, should_load_previous_timeline, timeline_coverage_complete,
     timeline_page_next, timeline_range_label, timeline_window_start, toggle_expand_set,
     trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS,
-    LIVE_TAIL_LIMIT, OPEN_TIMELINE_ROW_H, OPEN_TURN_CARD_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK,
-    TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    LIVE_TAIL_LIMIT, OPEN_TURN_CARD_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
+    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;

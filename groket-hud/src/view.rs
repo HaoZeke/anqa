@@ -385,22 +385,20 @@ fn detail_tab_bar(hud: &Hud, session_ready: bool) -> Element<'_, Message> {
     for (i, tab) in Tab::ALL.iter().enumerate() {
         let title = tab.label().to_string();
         let enabled = session_ready || *tab == Tab::Overview;
-        let mut btn = iced::widget::button(text(title.clone()).size(typo::META))
+        // Gate C: disabled secondary tabs must not look live (muted + no press).
+        let show_active = enabled && i == active;
+        let label = if enabled {
+            text(title.clone()).size(typo::META)
+        } else {
+            text(title.clone()).size(typo::META).color(tea.muted)
+        };
+        let mut btn = iced::widget::button(label)
             .padding([6, 10])
-            .style(icedtea::style::tab_style(tea, i == active));
+            .style(icedtea::style::tab_style(tea, show_active));
         if enabled {
             btn = btn.on_press(Message::SetTab(*tab));
         }
-        r = r.push(container(btn).padding([2, 2]).style(move |_| {
-            if enabled {
-                iced::widget::container::Style::default()
-            } else {
-                iced::widget::container::Style {
-                    text_color: Some(tea.muted),
-                    ..Default::default()
-                }
-            }
-        }));
+        r = r.push(container(btn).padding([2, 2]));
     }
     r.into()
 }
@@ -870,19 +868,9 @@ fn event_type_human(ev: &TimelineEvent) -> String {
 }
 
 fn event_title(ev: &TimelineEvent) -> String {
-    // Identity the operator scans: human type (or tool name), not coarse kind.
-    let identity = if !ev.tool_name.trim().is_empty()
-        && (ev.kind == "tool" || ev.kind == "tool_result" || ev.event_type.contains("tool"))
-    {
-        ev.tool_name.trim().to_string()
-    } else {
-        event_type_human(ev)
-    };
+    // Expander title is monochrome; put #index · time here and the colored
+    // human type on the face (TUI scan: type column + summary).
     let mut out = format!("#{}", ev.index);
-    if !identity.is_empty() {
-        out.push(' ');
-        out.push_str(&identity);
-    }
     let time = ev.time.trim();
     if !time.is_empty() {
         out.push_str(" · ");
@@ -894,7 +882,14 @@ fn event_title(ev: &TimelineEvent) -> String {
 fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let type_color =
         crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
-    let human = event_type_human(ev);
+    // Prefer tool name for tool rows (TUI tool column); else human type label.
+    let identity = if !ev.tool_name.trim().is_empty()
+        && (ev.kind == "tool" || ev.kind == "tool_result" || ev.event_type.contains("tool"))
+    {
+        ev.tool_name.trim().to_string()
+    } else {
+        event_type_human(ev)
+    };
     let preview = if ev.preview.is_empty() {
         ev.content.as_str()
     } else {
@@ -906,9 +901,9 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
         preview
     };
     let mut col = column![].spacing(4);
-    if !human.is_empty() {
+    if !identity.is_empty() {
         col = col.push(
-            text(human)
+            text(identity)
                 .size(typo::META)
                 .font(typo::UI_BOLD)
                 .color(type_color),
@@ -1911,31 +1906,27 @@ mod tests {
     }
 
     #[test]
-    fn event_title_is_hash_index_then_human_type() {
+    fn event_title_is_hash_and_time_only() {
         let ev = TimelineEvent {
             index: 12,
-            heading: "System".into(),
             event_type: "user_message_chunk".into(),
             type_label: "user message chunk".into(),
             kind: "user".into(),
             time: "10:32".into(),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&ev), "#12 user message chunk · 10:32");
-        let tool = TimelineEvent {
-            index: 3,
-            event_type: "tool_call".into(),
-            kind: "tool".into(),
-            tool_name: "read_file".into(),
-            ..TimelineEvent::default()
-        };
-        assert_eq!(event_title(&tool), "#3 read_file");
+        assert_eq!(event_title(&ev), "#12 · 10:32");
         let bare = TimelineEvent {
             index: 3,
             kind: "user".into(),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&bare), "#3 user");
+        assert_eq!(event_title(&bare), "#3");
+        assert_eq!(
+            event_type_human(&ev),
+            "user message chunk",
+            "human type lives on the face with brand color"
+        );
     }
 
     #[test]
