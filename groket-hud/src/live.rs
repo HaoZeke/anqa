@@ -16,14 +16,16 @@ pub const TIMELINE_PREVIEW_CHARS: u32 = 720;
 pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
 /// Session rail width. Cards inside it grow with wrapped title and meta.
 pub const SESSION_LIST_W: f32 = 260.0;
-/// Collapsed timeline card plus the 12px gap. Used as the unmounted-pad
-/// estimate for iced's scrollable. Mounted cards use their real height
-/// (titles wrap). Prefer overestimate so we do not skip a card still on screen.
+/// Closed timeline card plus gap. Open faces use [`OPEN_TIMELINE_ROW_H`].
 pub const TIMELINE_ROW_H: f32 = 160.0;
-/// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
+/// Expanded timeline card estimate for [`icedtea::widget::virtual_column`].
+pub const OPEN_TIMELINE_ROW_H: f32 = 480.0;
+/// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Closed turn card estimate (title + face + chips + gap). Pads for virtual list.
+/// Closed turn card estimate (title + face + chips + gap).
 pub const CLOSED_TURN_CARD_H: f32 = 140.0;
+/// Expanded turn card estimate for virtual column heights.
+pub const OPEN_TURN_CARD_H: f32 = 420.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 2;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
@@ -32,62 +34,6 @@ pub const WHEEL_LINE_PX: f32 = 60.0;
 pub const SCROLL_HANDLE_MIN: f32 = icedtea::chrome::SCROLL_HANDLE_MIN;
 /// Rail and handle width from icedtea.
 pub const SCROLL_RAIL_WIDTH: f32 = icedtea::chrome::SCROLL_RAIL_WIDTH;
-
-/// Window into a fixed-height virtual list (pads + mounted range).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct VisibleRange {
-    pub start: usize,
-    pub end: usize,
-    pub pad_top: f32,
-    pub pad_bottom: f32,
-}
-
-/// Rows to mount for a scroll offset (plus overscan).
-///
-/// Thin adapter over [`icedtea::collection::virtual_pads`] so Turns/Events
-/// stay on the icedtea virtualization contract.
-pub fn visible_range(
-    scroll_y: f32,
-    viewport_h: f32,
-    row_h: f32,
-    count: usize,
-    overscan: usize,
-) -> VisibleRange {
-    visible_range_covering(scroll_y, viewport_h, row_h, count, overscan, None)
-}
-
-/// Viewport window for a rail that clips its body (no overscan, no pads).
-///
-/// Overscan rows stacked in a clipped pane show up as empty slivers.
-pub fn rail_visible_range(
-    scroll_y: f32,
-    viewport_h: f32,
-    row_h: f32,
-    count: usize,
-) -> VisibleRange {
-    if count == 0 || row_h <= 0.0 {
-        return VisibleRange {
-            start: 0,
-            end: 0,
-            pad_top: 0.0,
-            pad_bottom: 0.0,
-        };
-    }
-    let view_h = viewport_h.max(1.0);
-    let y = scroll_y.max(0.0);
-    let first = (y / row_h).floor() as usize;
-    let slots = ((view_h / row_h).ceil() as usize).max(1);
-    // Scrolled past a shorter list (catalog page replace / leftover y) must
-    // still show the last page — start==count paints an empty rail.
-    let start = first.min(count.saturating_sub(slots));
-    let end = (start + slots).min(count).max(start);
-    VisibleRange {
-        start,
-        end,
-        pad_top: start as f32 * row_h,
-        pad_bottom: (count.saturating_sub(end)) as f32 * row_h,
-    }
-}
 
 /// True when a non-delta ``session/list`` body is a page, not a full snapshot.
 pub fn is_partial_list_page(
@@ -109,72 +55,9 @@ pub fn is_partial_list_page(
     matched > incoming_len as i64
 }
 
-/// Like [`visible_range`], but always mounts *cover* (selected row) when in range.
-pub fn visible_range_covering(
-    scroll_y: f32,
-    viewport_h: f32,
-    row_h: f32,
-    count: usize,
-    overscan: usize,
-    cover: Option<usize>,
-) -> VisibleRange {
-    if count == 0 || row_h <= 0.0 {
-        return VisibleRange {
-            start: 0,
-            end: 0,
-            pad_top: 0.0,
-            pad_bottom: 0.0,
-        };
-    }
-    let (pad_top, win, pad_bottom) = icedtea::collection::virtual_pads(
-        count,
-        row_h,
-        scroll_y.max(0.0),
-        viewport_h.max(1.0),
-        overscan,
-        cover.filter(|&i| i < count),
-    );
-    VisibleRange {
-        start: win.start,
-        end: win.end,
-        pad_top,
-        pad_bottom,
-    }
-}
-
-/// True when *index* is not in the collapsed-height window (ignore covering).
-pub fn index_outside_visible(
-    scroll_y: f32,
-    viewport_h: f32,
-    row_h: f32,
-    count: usize,
-    overscan: usize,
-    index: usize,
-) -> bool {
-    let r = visible_range(scroll_y, viewport_h, row_h, count, overscan);
-    index < r.start || index >= r.end
-}
-
-/// Thumb offset and length on a rail. Delegates to icedtea.
-pub fn scroller_span(
-    content: f32,
-    viewport: f32,
-    scroll: f32,
-    rail: f32,
-    min_handle: f32,
-) -> (f32, f32) {
-    icedtea::collection::scroller_span(content, viewport, scroll, rail, min_handle)
-}
-
-/// Scroll offset that puts the thumb at `thumb_y` on the rail.
-pub fn scroll_from_rail(
-    content: f32,
-    viewport: f32,
-    thumb_y: f32,
-    rail: f32,
-    min_handle: f32,
-) -> f32 {
-    icedtea::collection::scroll_from_rail(content, viewport, thumb_y, rail, min_handle)
+/// Per-row heights for expand cards (closed default + open overrides).
+pub fn card_heights(n: usize, closed: f32, open: &[(usize, f32)]) -> Vec<f32> {
+    icedtea::collection::expand_card_heights(n, closed, open)
 }
 
 fn wrap_line_count(s: &str, cols: usize) -> usize {
@@ -1124,51 +1007,28 @@ mod tests {
     }
 
     #[test]
-    fn visible_range_tracks_icedtea_virtual_pads() {
+    fn card_heights_use_icedtea_expand_card_heights() {
+        let h = card_heights(4, 48.0, &[(1, 160.0)]);
         assert_eq!(
-            visible_range(0.0, 400.0, 60.0, 0, 3),
-            VisibleRange {
-                start: 0,
-                end: 0,
-                pad_top: 0.0,
-                pad_bottom: 0.0
-            }
+            h,
+            icedtea::collection::expand_card_heights(4, 48.0, &[(1, 160.0)])
         );
-        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
+        assert_eq!(h, vec![48.0, 160.0, 48.0, 48.0]);
+    }
+
+    #[test]
+    fn virtual_pads_window_stays_small_with_overscan() {
         let (top, win, bot) = icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, None);
-        assert_eq!(r.start, win.start);
-        assert_eq!(r.end, win.end);
-        assert_eq!(r.pad_top, top);
-        assert_eq!(r.pad_bottom, bot);
-        assert!(r.start < r.end);
-        assert!(r.end <= 200);
-    }
-
-    #[test]
-    fn visible_range_clamps_scroll_past_short_buffer() {
-        // Leftover scroll from a longer list must not yield start > end or past n.
-        let r = visible_range(138.0 * 128.0, 400.0, 128.0, 120, 4);
-        assert!(r.start <= r.end);
-        assert!(r.end <= 120);
-        assert!(r.start < 120 || r.end == 120);
-    }
-
-    #[test]
-    fn index_outside_visible_matches_window() {
-        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
-        assert!(!index_outside_visible(600.0, 400.0, 60.0, 200, 3, r.start));
-        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 0));
-        assert!(index_outside_visible(600.0, 400.0, 60.0, 200, 3, 199));
-    }
-
-    #[test]
-    fn visible_range_covering_keeps_selected_row_without_mounting_all() {
-        let r = visible_range_covering(600.0, 400.0, 60.0, 200, 3, Some(5));
-        let (_, win, _) = icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, Some(5));
-        assert_eq!(r.start, win.start);
-        assert_eq!(r.end, win.end);
-        assert!(r.start <= 5 && 5 < r.end);
-        assert!(r.end - r.start < 40);
+        assert!(top > 0.0);
+        assert!(bot > 0.0);
+        assert!(win.start < win.end);
+        assert!(win.end - win.start < 40);
+        assert!(win.end <= 200);
+        let (_, covered, _) =
+            icedtea::collection::virtual_pads(200, 60.0, 600.0, 400.0, 3, Some(5));
+        assert!(covered.start <= 5 && 5 < covered.end);
+        assert!(!icedtea::collection::row_is_mounted(win, 0));
+        assert!(icedtea::collection::row_is_mounted(win, win.start));
     }
 
     #[test]
@@ -1176,7 +1036,6 @@ mod tests {
         assert_eq!(SCROLL_HANDLE_MIN, icedtea::chrome::SCROLL_HANDLE_MIN);
         assert_eq!(SCROLL_RAIL_WIDTH, icedtea::chrome::SCROLL_RAIL_WIDTH);
         assert_eq!(SCROLL_HANDLE_MIN, 24.0);
-        let ours = scroller_span(900.0 * 60.0, 400.0, 0.0, 400.0, SCROLL_HANDLE_MIN);
         let tea = icedtea::collection::scroller_span(
             900.0 * 60.0,
             400.0,
@@ -1184,27 +1043,27 @@ mod tests {
             400.0,
             icedtea::chrome::SCROLL_HANDLE_MIN,
         );
-        assert_eq!(ours, tea);
-        let (y, h) = ours;
+        let (y, h) = tea;
         assert_eq!(h, SCROLL_HANDLE_MIN);
         assert_eq!(y, 0.0);
         let max_scroll = 900.0 * 60.0 - 400.0;
-        let (end, h2) = scroller_span(900.0 * 60.0, 400.0, max_scroll, 400.0, SCROLL_HANDLE_MIN);
+        let (end, h2) = icedtea::collection::scroller_span(
+            900.0 * 60.0,
+            400.0,
+            max_scroll,
+            400.0,
+            SCROLL_HANDLE_MIN,
+        );
         assert_eq!(h2, SCROLL_HANDLE_MIN);
         assert!((end - (400.0 - SCROLL_HANDLE_MIN)).abs() < 0.01);
-        let mid = scroll_from_rail(900.0 * 60.0, 400.0, 188.0, 400.0, SCROLL_HANDLE_MIN);
+        let mid = icedtea::collection::scroll_from_rail(
+            900.0 * 60.0,
+            400.0,
+            188.0,
+            400.0,
+            SCROLL_HANDLE_MIN,
+        );
         assert!(mid > 0.0 && mid < max_scroll);
-        let (y0, full) = scroller_span(100.0, 400.0, 0.0, 400.0, SCROLL_HANDLE_MIN);
-        assert_eq!(y0, 0.0);
-        assert_eq!(full, 400.0);
-        assert_eq!(
-            scroller_span(100.0, 50.0, 0.0, 0.0, SCROLL_HANDLE_MIN),
-            (0.0, 0.0)
-        );
-        assert_eq!(
-            scroll_from_rail(100.0, 400.0, 10.0, 400.0, SCROLL_HANDLE_MIN),
-            0.0
-        );
     }
 
     #[test]
@@ -1213,34 +1072,6 @@ mod tests {
         assert_eq!(clamp_scroll(50.0, 600.0, 400.0), 50.0);
         assert_eq!(clamp_scroll(500.0, 600.0, 400.0), 200.0);
         assert_eq!(clamp_scroll(50.0, 100.0, 400.0), 0.0);
-    }
-
-    #[test]
-    fn rail_window_does_not_need_pad_spacers() {
-        // Pads sized the full list for iced's scrollable. A rail list that
-        // inserts pad_top as a widget shows an empty viewport when scrolled.
-        let r = visible_range(600.0, 400.0, 60.0, 200, 3);
-        assert!(r.pad_top > 0.0);
-        assert!(r.start > 0);
-        assert!(r.end - r.start < 40);
-    }
-
-    #[test]
-    fn rail_visible_range_is_only_the_viewport() {
-        let r = rail_visible_range(0.0, 400.0, 60.0, 200);
-        assert_eq!(r.start, 0);
-        assert_eq!(r.end, 7);
-        let mid = rail_visible_range(600.0, 400.0, 60.0, 200);
-        assert_eq!(mid.start, 10);
-        assert_eq!(mid.end, 17);
-        let tall = rail_visible_range(0.0, 400.0, 160.0, 50);
-        assert_eq!(tall.start, 0);
-        assert_eq!(tall.end, 3);
-        assert!(tall.end <= 3);
-        let past = rail_visible_range(200.0 * 160.0, 400.0, 160.0, 20);
-        assert!(past.start < past.end, "{past:?}");
-        assert_eq!(past.end, 20);
-        assert!(past.start <= 17, "start={}", past.start);
     }
 
     #[test]
@@ -1423,7 +1254,8 @@ mod tests {
         let scroll = 320.0;
         let view_h = 480.0;
         let row_h = TIMELINE_ROW_H;
-        let win = visible_range(scroll, view_h, row_h, n, TIMELINE_OVERSCAN);
+        let (top, win, _) =
+            icedtea::collection::virtual_pads(n, row_h, scroll, view_h, TIMELINE_OVERSCAN, None);
         assert!(win.end > win.start);
         assert!(
             win.end - win.start < 20,
@@ -1434,9 +1266,16 @@ mod tests {
         let shown = ids[win.start..win.end].to_vec();
         let mut grown = ids.clone();
         grown.extend(8000..8500);
-        let after = visible_range(scroll, view_h, row_h, grown.len(), TIMELINE_OVERSCAN);
+        let (top2, after, _) = icedtea::collection::virtual_pads(
+            grown.len(),
+            row_h,
+            scroll,
+            view_h,
+            TIMELINE_OVERSCAN,
+            None,
+        );
         assert_eq!(after.start, win.start);
-        assert_eq!(after.pad_top, win.pad_top);
+        assert_eq!(top2, top);
         assert_eq!(&grown[win.start..win.end], shown.as_slice());
         assert_eq!(ids[win.start], shown[0]);
     }

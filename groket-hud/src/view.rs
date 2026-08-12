@@ -26,8 +26,8 @@ use crate::format::{
     tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
-    context_fraction, finding_severity_rank, finding_severity_title, visible_range, CardMark,
-    CLOSED_TURN_CARD_H, SESSION_LIST_W, TIMELINE_OVERSCAN, TIMELINE_ROW_H, TURNS_OVERSCAN,
+    context_fraction, finding_severity_rank, finding_severity_title, CardMark, SESSION_LIST_W,
+    TIMELINE_OVERSCAN, TURNS_OVERSCAN,
 };
 use crate::model::{KindFilter, Tab};
 use crate::typo;
@@ -356,35 +356,19 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     };
     let tea = hud.tokens();
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
-        stack = stack.push(icedtea::widget::themed_scroll(
-            container(timeline_tab(hud, hud.tl_view_h()))
+        stack = stack.push(
+            container(timeline_tab(hud))
                 .padding([16, 20])
                 .width(Length::Fill)
-                .into(),
-            tea,
-            A11y::new("Timeline", Role::Group),
-            false,
-            Some(hud.timeline_scroll_id()),
-            Some(|vp: scrollable::Viewport| Message::TimelineScroll {
-                y: vp.absolute_offset().y,
-                height: vp.bounds().height,
-            }),
-        ));
+                .height(Length::Fill),
+        );
     } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
-        stack = stack.push(icedtea::widget::themed_scroll(
-            container(turns_tab(hud, hud.turn_view_h()))
+        stack = stack.push(
+            container(turns_tab(hud))
                 .padding([16, 20])
                 .width(Length::Fill)
-                .into(),
-            tea,
-            A11y::new("Turns", Role::Group),
-            false,
-            Some(hud.turn_scroll_id()),
-            Some(|vp: scrollable::Viewport| Message::TurnScroll {
-                y: vp.absolute_offset().y,
-                height: vp.bounds().height,
-            }),
-        ));
+                .height(Length::Fill),
+        );
     } else {
         stack = stack.push(icedtea::widget::themed_scroll(
             container(body).padding([16, 20]).width(Length::Fill).into(),
@@ -1086,7 +1070,7 @@ fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, M
     md_body(summary, 2000, tea)
 }
 
-fn turns_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
+fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
     let (turn_marks, _) = hud.card_marks();
@@ -1097,57 +1081,56 @@ fn turns_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .into();
     }
     let tea = hud.tokens();
-    let n = turns.len();
-    let win = visible_range(
-        hud.turn_scroll_y(),
-        viewport,
-        CLOSED_TURN_CARD_H,
-        n,
+    let heights = hud.turn_heights();
+    icedtea::widget::virtual_column(
+        heights,
+        hud.turn_window(),
         TURNS_OVERSCAN,
-    );
-    let start = win.start.min(n);
-    let end = win.end.min(n).max(start);
-    let mut col = column![].spacing(0);
-    if win.pad_top > 0.0 {
-        col = col.push(Space::new().height(win.pad_top));
-    }
-    for t in &turns[start..end] {
-        let turn = t.turn_index;
-        let open = hud.turn_expanded(turn);
-        let mark = turn_marks.get(&turn).cloned();
-        let child = if open {
-            turn_body(hud, t, mark)
-        } else {
-            // Jump sits above the peek face so it is not buried under Peek::Lines.
-            column![
-                row![
-                    Space::new().width(Length::Fill),
-                    jump_control(turn_jump(t), tea.muted, tea),
+        None,
+        Message::TurnScroll,
+        Some(hud.turn_scroll_id()),
+        tea,
+        move |i| {
+            let Some(t) = turns.get(i) else {
+                return Space::new().height(0).into();
+            };
+            let turn = t.turn_index;
+            let open = hud.turn_expanded(turn);
+            let mark = turn_marks.get(&turn).cloned();
+            let child = if open {
+                turn_body(hud, t, mark)
+            } else {
+                // Jump sits above the peek face so it is not buried under Peek::Lines.
+                column![
+                    row![
+                        Space::new().width(Length::Fill),
+                        jump_control(turn_jump(t), tea.muted, tea),
+                    ]
+                    .width(Length::Fill)
+                    .align_y(Alignment::Center),
+                    closed_turn_face(&t.summary, tea),
+                    card_chips(hud, mark, Some(turn_note(t)), None),
                 ]
-                .width(Length::Fill)
-                .align_y(Alignment::Center),
-                closed_turn_face(&t.summary, tea),
-                card_chips(hud, mark, Some(turn_note(t)), None),
+                .spacing(6)
+                .into()
+            };
+            column![
+                expand_card(
+                    turn_title(t),
+                    child,
+                    open,
+                    move |next| Message::TurnExpand { turn, open: next },
+                    tea,
+                ),
+                Space::new().height(8),
             ]
-            .spacing(6)
             .into()
-        };
-        col = col.push(expand_card(
-            turn_title(t),
-            child,
-            open,
-            move |next| Message::TurnExpand { turn, open: next },
-            tea,
-        ));
-        col = col.push(Space::new().height(8));
-    }
-    if win.pad_bottom > 0.0 {
-        col = col.push(Space::new().height(win.pad_bottom));
-    }
-    col.into()
+        },
+        A11y::new("Turns", Role::List),
+    )
 }
 
-fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
+fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     if hud.timeline_query().trim().is_empty()
         && hud.last_timeline().is_none()
         && hud.filtered_indices().is_empty()
@@ -1175,63 +1158,67 @@ fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             .into();
     }
     let (_, ev_marks) = hud.card_marks();
-    let n = idxs.len();
-    let win = visible_range(
-        hud.tl_scroll_y(),
-        viewport,
-        TIMELINE_ROW_H,
-        n,
-        TIMELINE_OVERSCAN,
-    );
-    let start = win.start.min(n);
-    let end = win.end.min(n).max(start);
-    let mut col = column![].spacing(0);
-    if win.pad_top > 0.0 {
-        col = col.push(Space::new().height(win.pad_top));
-    }
     let tea = hud.tokens();
     let source = hud.timeline_events();
-    for &src_i in &idxs[start..end] {
-        let Some(ev) = source.get(src_i) else {
-            continue;
-        };
-        let ix = ev.index;
-        let open = hud.is_timeline_expanded(ix);
-        let mark = ev_marks.get(&ix).cloned();
-        let child = if open {
-            event_body(hud, ev, mark)
-        } else {
-            column![
-                event_face(ev, tea),
-                card_chips(hud, mark, Some(event_note(ev)), None),
-            ]
-            .spacing(6)
-            .into()
-        };
-        col = col.push(expand_card(
-            event_title(ev),
-            child,
-            open,
-            move |_| Message::SelectTimeline(ix),
-            tea,
-        ));
-        col = col.push(Space::new().height(8));
-    }
-    if win.pad_bottom > 0.0 {
-        col = col.push(Space::new().height(win.pad_bottom));
-    }
-    if !hud.timeline_complete() {
-        col = col.push(
-            text(if hud.timeline_loading() {
-                "Loading more events…"
+    let cover = hud.timeline_focus_pos();
+    let list = icedtea::widget::virtual_column(
+        hud.timeline_heights(),
+        hud.timeline_window(),
+        TIMELINE_OVERSCAN,
+        cover,
+        Message::TimelineScroll,
+        Some(hud.timeline_scroll_id()),
+        tea,
+        move |i| {
+            let Some(&src_i) = idxs.get(i) else {
+                return Space::new().height(0).into();
+            };
+            let Some(ev) = source.get(src_i) else {
+                return Space::new().height(0).into();
+            };
+            let ix = ev.index;
+            let open = hud.is_timeline_expanded(ix);
+            let mark = ev_marks.get(&ix).cloned();
+            let child = if open {
+                event_body(hud, ev, mark)
             } else {
-                "More events available — scroll or wait"
-            })
-            .size(typo::META)
-            .color(hud.tokens().muted),
-        );
+                column![
+                    event_face(ev, tea),
+                    card_chips(hud, mark, Some(event_note(ev)), None),
+                ]
+                .spacing(6)
+                .into()
+            };
+            column![
+                expand_card(
+                    event_title(ev),
+                    child,
+                    open,
+                    move |_| Message::SelectTimeline(ix),
+                    tea,
+                ),
+                Space::new().height(8),
+            ]
+            .into()
+        },
+        A11y::new("Timeline", Role::List),
+    );
+    if hud.timeline_complete() {
+        return list;
     }
-    col.into()
+    column![
+        list,
+        text(if hud.timeline_loading() {
+            "Loading more events…"
+        } else {
+            "More events available — scroll or wait"
+        })
+        .size(typo::META)
+        .color(hud.tokens().muted),
+    ]
+    .spacing(8)
+    .height(Length::Fill)
+    .into()
 }
 
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
@@ -2053,10 +2040,9 @@ mod tests {
         assert!(prod.contains("pattern::command_bar"));
         assert!(prod.contains("pattern::status_bar"));
         assert!(prod.contains("ActionTable"));
-        assert!(prod.contains("CLOSED_TURN_CARD_H"));
         assert!(prod.contains("TURNS_OVERSCAN"));
-        assert!(prod.contains("turns_tab(hud, hud.turn_view_h())"));
-        assert!(prod.contains("virtual_pads") || prod.contains("visible_range"));
+        assert!(prod.contains("widget::virtual_column"));
+        assert!(prod.contains("turns_tab(hud)"));
         assert!(prod.contains("meter: None"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("fn turn_note"));

@@ -19,16 +19,16 @@ use crate::format::{
 };
 use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, filter_timeline_indices, first_list_fetch,
-    index_outside_visible, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
+    card_heights, card_marks_from_overview, clamp_scroll, filter_timeline_indices,
+    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
     merge_catalog_rows, merge_timeline_by_index, next_list_offset, notes_schema_fields,
     patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
     scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
     session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, IDLE_POLL_MS, LIVE_POLL_MS,
-    LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN,
-    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
+    LIVE_POLL_MS, LIVE_TAIL_LIMIT, OPEN_TIMELINE_ROW_H, OPEN_TURN_CARD_H, TIMELINE_BUFFER_CAP,
+    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -130,14 +130,10 @@ pub enum Message {
     Tray(crate::tray::TrayAction),
     MdLink(String),
     ListScroll(icedtea::collection::VisibleWindow),
-    TimelineScroll {
-        y: f32,
-        height: f32,
-    },
-    TurnScroll {
-        y: f32,
-        height: f32,
-    },
+    TimelineScroll(icedtea::collection::VisibleWindow),
+    TurnScroll(icedtea::collection::VisibleWindow),
+    /// Enter: open the selected session (works while search is focused).
+    ActivateSelected,
     TimelineSearchApply(u64),
     FindingExpand {
         id: String,
@@ -243,11 +239,11 @@ pub struct Hud {
     list_selection: icedtea::collection::Selection,
     session_metas: Vec<String>,
     session_heights: Vec<f32>,
-    tl_scroll_y: f32,
-    tl_view_h: f32,
+    tl_window: icedtea::collection::VisibleWindow,
+    tl_heights: Vec<f32>,
     tl_scroll_id: Id,
-    turn_scroll_y: f32,
-    turn_view_h: f32,
+    turn_window: icedtea::collection::VisibleWindow,
+    turn_heights: Vec<f32>,
     turn_scroll_id: Id,
     tl_filter: Vec<usize>,
     turn_marks: std::collections::HashMap<i64, CardMark>,
@@ -266,7 +262,6 @@ pub struct Hud {
     follow_draft: String,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
-    field_ids: HashSet<String>,
     pointer: Point,
     context: Option<Point>,
     window_size: Size,
@@ -332,11 +327,11 @@ impl Default for Hud {
             list_selection: icedtea::collection::Selection::Single(0),
             session_metas: vec![],
             session_heights: vec![],
-            tl_scroll_y: 0.0,
-            tl_view_h: 400.0,
+            tl_window: icedtea::collection::VisibleWindow::new(400.0),
+            tl_heights: vec![],
             tl_scroll_id: Id::new("hud-timeline"),
-            turn_scroll_y: 0.0,
-            turn_view_h: 400.0,
+            turn_window: icedtea::collection::VisibleWindow::new(400.0),
+            turn_heights: vec![],
             turn_scroll_id: Id::new("hud-turns"),
             tl_filter: vec![],
             turn_marks: std::collections::HashMap::new(),
@@ -354,7 +349,6 @@ impl Default for Hud {
             follow_draft: String::new(),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
-            field_ids: HashSet::new(),
             pointer: Point::ORIGIN,
             context: None,
             window_size: if std::env::var_os("GROKET_HUD_WINDOW").is_some() {
@@ -618,7 +612,8 @@ impl Hud {
                 } else {
                     self.x11_focus_only(0)
                 };
-                Task::batch([load, self.restore_pane_scroll(tab), focus])
+                // Turns/Timeline keep scroll on VisibleWindow (virtual_column).
+                Task::batch([load, focus])
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
@@ -680,8 +675,11 @@ impl Hud {
                 };
                 if self.timeline_expanded.contains(&ix) {
                     self.bind_event_extract(ix);
+                    self.rebuild_tl_heights();
                     return self.fetch_open_event(ix);
                 }
+                self.unbind_event_fields(ix);
+                self.rebuild_tl_heights();
                 Task::none()
             }
             Message::TurnExpand { turn, open } => {
@@ -690,12 +688,15 @@ impl Hud {
                     // Overview may only have a short list preview; hydrate full
                     // assistant wrap-ups from session/turns before binding body.
                     if self.turn_assistant_needs_full(turn) {
+                        self.rebuild_turn_heights();
                         return self.load_full_turn_bodies(turn);
                     }
                     self.bind_turn_row(turn);
                 } else {
                     self.turns_open.remove(&turn);
+                    self.unbind_turn_fields(turn);
                 }
+                self.rebuild_turn_heights();
                 Task::none()
             }
             Message::FullTurnsLoaded { sid, focus, result } => {
@@ -763,51 +764,41 @@ impl Hud {
                 self.list_window = win;
                 Task::none()
             }
-            Message::TimelineScroll { y, height } => {
-                if height > 1.0 {
-                    self.tl_view_h = height;
-                }
-                // Iced's scrollable owns the pixel range (cards wrap). Do not
-                // clamp to n * TIMELINE_ROW_H or the thumb fights real height.
-                self.tl_scroll_y = y.max(0.0);
+            Message::TimelineScroll(win) => {
+                self.tl_window = win;
                 if let Some(pos) = self.timeline_focus_pos() {
-                    if index_outside_visible(
-                        self.tl_scroll_y,
-                        self.tl_view_h,
-                        TIMELINE_ROW_H,
-                        self.tl_filter.len(),
-                        TIMELINE_OVERSCAN,
-                        pos,
-                    ) {
+                    if !icedtea::collection::row_is_mounted(self.tl_window, pos) {
                         self.timeline_focus = None;
                     }
                 }
                 if should_load_previous_timeline(
-                    self.tl_scroll_y,
+                    self.tl_window.scroll,
                     self.timeline_offset,
                     self.timeline_loading,
                 ) {
                     return self.load_previous_timeline();
                 }
                 let n = self.filtered_timeline().len();
-                let shown = (self.tl_scroll_y / TIMELINE_ROW_H) as usize + 8;
-                if n > 0 && shown + 4 >= n && !self.timeline_complete() {
+                let shown = self.tl_window.end.saturating_add(4);
+                if n > 0 && shown >= n && !self.timeline_complete() {
                     return self.load_more_timeline();
                 }
                 Task::none()
             }
-            Message::TurnScroll { y, height } => {
-                if height > 1.0 {
-                    self.turn_view_h = height;
-                }
+            Message::TurnScroll(win) => {
                 let empty = self
                     .overview
                     .as_ref()
                     .map(|o| o.turns.turns.is_empty())
                     .unwrap_or(true);
-                self.turn_scroll_y = if empty { 0.0 } else { y.max(0.0) };
+                self.turn_window = if empty {
+                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
+                } else {
+                    win
+                };
                 Task::none()
             }
+            Message::ActivateSelected => self.load_overview(false),
             Message::FindingExpand { id, open } => {
                 if open {
                     self.findings_open.insert(id);
@@ -833,9 +824,7 @@ impl Hud {
             Message::CopyPath => self.copy_path(),
             Message::CopyText(s) => self.copy_text(s),
             Message::Select { id, action } => {
-                if self.field_ids.contains(&id) {
-                    self.fields.perform(&id, action);
-                }
+                self.fields.perform(&id, action);
                 Task::none()
             }
             Message::ToastDismiss(id) => {
@@ -1077,15 +1066,11 @@ impl Hud {
                             }
                         }
                         if append && advance && added > 0 && page_off < old_offset {
-                            let y = scroll_after_prepend(self.tl_scroll_y, added, TIMELINE_ROW_H);
-                            self.tl_scroll_y = y;
-                            tasks.push(operation::scroll_to(
-                                self.tl_scroll_id.clone(),
-                                AbsoluteOffset { x: 0.0, y },
-                            ));
+                            self.tl_window.scroll =
+                                scroll_after_prepend(self.tl_window.scroll, added, TIMELINE_ROW_H);
                         }
                         if should_load_previous_timeline(
-                            self.tl_scroll_y,
+                            self.tl_window.scroll,
                             self.timeline_offset,
                             false,
                         ) {
@@ -1246,9 +1231,6 @@ impl Hud {
         self.timeline_expanded.contains(&index)
     }
     pub fn field(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
-        if !self.field_ids.contains(id) {
-            return None;
-        }
         self.fields.get(id)
     }
     pub fn extract(&self, key: ExtractKey) -> Option<&iced::widget::text_editor::Content> {
@@ -1263,8 +1245,61 @@ impl Hud {
             return;
         }
         let id = id.into();
-        self.fields.bind(&id, src);
-        self.field_ids.insert(id);
+        self.fields.ensure(id, src);
+    }
+
+    fn unbind_turn_fields(&mut self, turn: i64) {
+        let _ = self.fields.unbind(&ExtractKey::TurnUser(turn).id());
+        let _ = self.fields.unbind(&ExtractKey::TurnAsst(turn).id());
+    }
+
+    fn unbind_event_fields(&mut self, index: i64) {
+        let prefix = format!("event.{index}");
+        self.fields.retain(|id| {
+            if id == prefix.as_str() {
+                return false;
+            }
+            let dot = format!("{prefix}.");
+            !id.starts_with(&dot)
+        });
+    }
+
+    fn rebuild_turn_heights(&mut self) {
+        let n = self
+            .overview
+            .as_ref()
+            .map(|o| o.turns.turns.len())
+            .unwrap_or(0);
+        let open: Vec<(usize, f32)> = self
+            .overview
+            .as_ref()
+            .map(|o| {
+                o.turns
+                    .turns
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| self.turns_open.contains(&t.turn_index))
+                    .map(|(i, _)| (i, OPEN_TURN_CARD_H))
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.turn_heights = card_heights(n, CLOSED_TURN_CARD_H, &open);
+    }
+
+    fn rebuild_tl_heights(&mut self) {
+        let n = self.tl_filter.len();
+        let open: Vec<(usize, f32)> = self
+            .tl_filter
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &src)| {
+                let ix = self.timeline.get(src)?.index;
+                self.timeline_expanded
+                    .contains(&ix)
+                    .then_some((i, OPEN_TIMELINE_ROW_H))
+            })
+            .collect();
+        self.tl_heights = card_heights(n, TIMELINE_ROW_H, &open);
     }
 
     fn bind_extract_text(&mut self, key: ExtractKey, src: &str) {
@@ -1372,6 +1407,7 @@ impl Hud {
         for turn in open {
             self.bind_turn_row(turn);
         }
+        self.rebuild_turn_heights();
     }
 
     fn bind_turn_row(&mut self, turn: i64) {
@@ -1711,44 +1747,24 @@ impl Hud {
         self.list_scroll_id.clone()
     }
 
-    pub fn tl_scroll_y(&self) -> f32 {
-        self.tl_scroll_y
+    pub fn timeline_window(&self) -> icedtea::collection::VisibleWindow {
+        self.tl_window
     }
 
-    pub fn tl_view_h(&self) -> f32 {
-        self.tl_view_h
+    pub fn timeline_heights(&self) -> &[f32] {
+        &self.tl_heights
     }
 
-    pub fn turn_scroll_y(&self) -> f32 {
-        self.turn_scroll_y
+    pub fn turn_window(&self) -> icedtea::collection::VisibleWindow {
+        self.turn_window
     }
 
-    pub fn turn_view_h(&self) -> f32 {
-        self.turn_view_h
+    pub fn turn_heights(&self) -> &[f32] {
+        &self.turn_heights
     }
 
     pub fn turn_scroll_id(&self) -> Id {
         self.turn_scroll_id.clone()
-    }
-
-    fn restore_pane_scroll(&self, tab: Tab) -> Task<Message> {
-        match tab {
-            Tab::Turns => operation::scroll_to(
-                self.turn_scroll_id.clone(),
-                AbsoluteOffset {
-                    x: 0.0,
-                    y: self.turn_scroll_y,
-                },
-            ),
-            Tab::Timeline => operation::scroll_to(
-                self.tl_scroll_id.clone(),
-                AbsoluteOffset {
-                    x: 0.0,
-                    y: self.tl_scroll_y,
-                },
-            ),
-            _ => Task::none(),
-        }
     }
 
     pub fn timeline_scroll_id(&self) -> Id {
@@ -1851,8 +1867,11 @@ impl Hud {
         self.timeline_total = 0;
         self.timeline_offset = 0;
         self.timeline_next = 0;
-        self.tl_scroll_y = 0.0;
-        self.turn_scroll_y = 0.0;
+        self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
+        self.turn_window =
+            icedtea::collection::VisibleWindow::new(self.turn_window.viewport.max(1.0));
+        self.tl_heights.clear();
+        self.turn_heights.clear();
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.timeline_expanded.clear();
@@ -1864,7 +1883,6 @@ impl Hud {
         self.findings_open.clear();
         self.notes_open.clear();
         self.fields = icedtea::field::Selectables::new();
-        self.field_ids.clear();
         self.note_draft = NoteDraft::default();
         self.note_compose_lock = false;
         self.typing_notes = false;
@@ -1878,10 +1896,12 @@ impl Hud {
     fn rebuild_tl_filter(&mut self) {
         if self.timeline_sid != self.overview_sid {
             self.tl_filter.clear();
+            self.tl_heights.clear();
             return;
         }
         self.tl_filter =
             filter_timeline_indices(&self.timeline, self.timeline_kind, &self.timeline_query);
+        self.rebuild_tl_heights();
     }
 
     fn rebuild_marks(&mut self) {
@@ -2100,9 +2120,9 @@ impl Hud {
         let Some(pos) = self.timeline_focus_pos() else {
             return Task::none();
         };
-        let y = pos as f32 * TIMELINE_ROW_H;
-        self.tl_scroll_y = y;
-        operation::scroll_to(self.tl_scroll_id.clone(), AbsoluteOffset { x: 0.0, y })
+        let y: f32 = self.tl_heights.iter().take(pos).copied().sum();
+        self.tl_window.scroll = y;
+        Task::none()
     }
 
     fn turn_row_for_event(&self, index: i64) -> Option<&crate::wire::TurnRow> {
@@ -2200,7 +2220,7 @@ impl Hud {
         self.timeline_search_pending = false;
         self.timeline_kind = KindFilter::All;
         self.timeline_expanded.clear();
-        self.tl_scroll_y = 0.0;
+        self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
         match turn_index {
             None => {
                 self.events_turn_index = None;
@@ -2289,8 +2309,10 @@ impl Hud {
             self.timeline_total = 0;
             self.timeline_offset = 0;
             self.timeline_next = 0;
-            self.tl_scroll_y = 0.0;
+            self.tl_window =
+                icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
             self.tl_filter.clear();
+            self.tl_heights.clear();
         }
         self.start_timeline(TimelineFetch {
             rpc_ref: self.overview_rpc_ref(),
@@ -3228,44 +3250,49 @@ fn finding_menu_key(f: &FindingRow) -> String {
     )
 }
 
+/// Chrome chords that still match while a text field is focused
+/// ([`icedtea::key::WhileInput::Chrome`] + modifier chords).
+fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
+    use icedtea::action::Action;
+    use icedtea::shortcut::Shortcut;
+    let mut table = icedtea::action::ActionTable::new();
+    table.insert(
+        Action::new("overlay.hide", "Hide", Message::Hide)
+            .with_shortcut(Shortcut::parse("escape").expect("escape")),
+    );
+    table.insert(
+        Action::new("session.open", "Open", Message::ActivateSelected)
+            .with_shortcut(Shortcut::parse("enter").expect("enter")),
+    );
+    for (i, tab) in Tab::ALL.iter().enumerate() {
+        let n = i + 1;
+        table.insert(
+            Action::new(format!("pane.{n}"), tab.label(), Message::SetTab(*tab))
+                .with_shortcut(Shortcut::parse(&format!("ctrl+{n}")).expect("pane chord")),
+        );
+    }
+    table
+}
+
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
         Event::Window(window::Event::Resized(size)) => Some(Message::WindowSize(size)),
-        // iced 0.14 text_input unfocuses on Escape and marks the event Captured.
-        // Overlay hide must still fire while search or notes hold focus.
-        Event::Keyboard(keyboard::Event::KeyPressed {
-            key: Key::Named(Named::Escape),
-            ..
-        }) if icedtea::window::should_hide(
-            icedtea::window::HidePolicy::Escape,
-            icedtea::window::HideEvent::Escape,
-            true,
-        ) =>
-        {
-            Some(Message::Hide)
-        }
-        // Pane digits must work while search (or notes) holds focus — text_input
-        // marks those presses Captured, which would otherwise drop RawEvent.
-        Event::Keyboard(keyboard::Event::KeyPressed {
-            key: Key::Character(ref c),
-            modifiers,
-            ..
-        }) if (modifiers.control() || modifiers.command())
-            && c.chars()
-                .next()
-                .and_then(|ch| ch.to_digit(10))
-                .is_some_and(|n| (1..=5).contains(&n)) =>
-        {
-            Some(Message::RawEvent(event))
-        }
-        // Enter while search is focused must still open the selected session.
-        Event::Keyboard(keyboard::Event::KeyPressed {
-            key: Key::Named(Named::Enter),
-            ..
-        }) => Some(Message::RawEvent(event)),
-        Event::Keyboard(keyboard::Event::KeyPressed { .. }) if status == event::Status::Ignored => {
-            Some(Message::RawEvent(event))
+        Event::Keyboard(ref kev) => {
+            // Assume a field is focused so chrome_over_input still matches Escape /
+            // Enter / F-keys and chords when iced marks the press Captured.
+            let ctx = icedtea::key::KeyContext {
+                text_input_focused: true,
+                ..icedtea::key::KeyContext::default()
+            }
+            .chrome_over_input();
+            if let Some(msg) = icedtea::key::handle(ctx, &chrome_key_table(), kev) {
+                return Some(msg);
+            }
+            if status == event::Status::Ignored {
+                return Some(Message::RawEvent(event));
+            }
+            None
         }
         _ => None,
     }
@@ -3454,15 +3481,29 @@ mod tests {
     #[test]
     fn turn_scroll_does_not_move_timeline() {
         let mut hud = Hud {
-            tl_scroll_y: 400.0,
+            tl_window: icedtea::collection::VisibleWindow {
+                scroll: 400.0,
+                viewport: 400.0,
+                start: 0,
+                end: 0,
+            },
+            overview: Some(Overview {
+                turns: TurnsBlock {
+                    turns: vec![crate::wire::TurnRow {
+                        turn_index: 0,
+                        ..crate::wire::TurnRow::default()
+                    }],
+                    ..TurnsBlock::default()
+                },
+                ..Overview::default()
+            }),
             ..Hud::default()
         };
-        let _ = hud.update(Message::TurnScroll {
-            y: 80.0,
-            height: 400.0,
-        });
-        assert!((hud.tl_scroll_y() - 400.0).abs() < f32::EPSILON);
-        assert!((hud.turn_scroll_y() - 0.0).abs() < f32::EPSILON);
+        let mut win = icedtea::collection::VisibleWindow::new(400.0);
+        win.scroll = 80.0;
+        let _ = hud.update(Message::TurnScroll(win));
+        assert!((hud.timeline_window().scroll - 400.0).abs() < f32::EPSILON);
+        assert!((hud.turn_window().scroll - 80.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -4338,10 +4379,10 @@ mod tests {
         let after_query: Vec<i64> = hud.timeline.iter().map(|e| e.index).collect();
         assert_eq!(after_query, held);
         let _ = hud.update(Message::LoadMoreTimeline);
-        let _ = hud.update(Message::TimelineScroll {
-            y: 10_000.0,
-            height: 400.0,
-        });
+        let mut far = icedtea::collection::VisibleWindow::new(400.0);
+        far.scroll = 10_000.0;
+        far.end = 20;
+        let _ = hud.update(Message::TimelineScroll(far));
         // In-flight fill from the old gen, or a new-query slice on the new gen,
         // must not mix into the held page.
         let _ = hud.update(Message::TimelineLoaded {
@@ -4436,14 +4477,14 @@ mod tests {
             hud.timeline_loading,
             "landing mid-session must fetch the page above"
         );
-        let y_before = hud.tl_scroll_y();
+        let y_before = hud.timeline_window().scroll;
         let earlier: Vec<Value> = (8..20).map(|i| ev_json(i, "prev")).collect();
         load_page(&mut hud, 0, true, true, earlier, 100, 0);
         assert_eq!(hud.timeline_offset, 0);
         let ids: Vec<i64> = hud.timeline.iter().map(|e| e.index).collect();
         assert!(ids.contains(&8));
         assert!(ids.contains(&23));
-        assert!(hud.tl_scroll_y() > y_before);
+        assert!(hud.timeline_window().scroll > y_before);
         assert_eq!(hud.timeline_meta(), "1-16 of 100");
     }
 

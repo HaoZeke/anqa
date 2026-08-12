@@ -34,8 +34,10 @@ Search stays a custom row (rocket, field, hotkey, pop-out).
 Session rail uses icedtea `list_view` + `RowFace::Card` +
 `RowHeights::PerRow`. Heights live on `Hud` next to the meta lines.
 
-Turns / Timeline lists use `live::visible_range` → icedtea
-`collection::virtual_pads` (same contract as gallery lists).
+Turns / Timeline use icedtea `widget::virtual_column` with
+`collection::expand_card_heights` (closed estimate + open rows).
+Chrome keys while typing use `KeyContext::chrome_over_input`.
+Selectable bodies use `Selectables::ensure` / `retain` / `unbind`.
 
 Tab label **Timeline** matches the TUI; jump control **Go to Timeline**.
 
