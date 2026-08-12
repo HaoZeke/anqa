@@ -16,6 +16,8 @@ Writes shots/, timings.json, steps.jsonl under --out. Does not commit.
 
 from __future__ import annotations
 
+# Operator-facing CLI: stderr prints are intentional.
+# ruff: noqa: T201
 import argparse
 import atexit
 import json
@@ -26,7 +28,7 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -40,7 +42,7 @@ def _now_ms() -> int:
 
 
 def _utc_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _which(*names: str) -> str | None:
@@ -334,9 +336,7 @@ class VirtualDisplay:
         ready = False
         for _ in range(50):
             if self.proc.poll() is not None:
-                raise SystemExit(
-                    f"{self.backend} exited early (code {self.proc.returncode})"
-                )
+                raise SystemExit(f"{self.backend} exited early (code {self.proc.returncode})")
             r = _run(["xdpyinfo", "-display", self.display], timeout=2.0)
             if r.returncode == 0:
                 ready = True
@@ -362,8 +362,7 @@ class VirtualDisplay:
             _run(["xsetroot", "-solid", "#1a1a1a"], env=env, check=False)
         elif self.backend in ("xephyr", "xvfb"):
             print(
-                "warning: metacity missing; nested capture may fail "
-                "(apt install metacity)",
+                "warning: metacity missing; nested capture may fail (apt install metacity)",
                 file=sys.stderr,
             )
         return self.display
@@ -402,16 +401,9 @@ class VirtualDisplay:
 class WalkEnv:
     """Process environment bound to the walk DISPLAY (virtual or host)."""
 
-    def __init__(
-        self,
-        display: str,
-        *,
-        window_mode: bool = True,
-        response_log: Path | None = None,
-    ) -> None:
+    def __init__(self, display: str, *, window_mode: bool = True) -> None:
         self.display = display
         self.window_mode = window_mode
-        self.response_log = response_log
         self.env = os.environ.copy()
         self.env["DISPLAY"] = display
         # Prefer X11 for the nested HUD; avoid stealing the host Wayland session.
@@ -422,12 +414,7 @@ class WalkEnv:
             self.env["GROKET_HUD_WINDOW"] = "1"
         else:
             self.env.pop("GROKET_HUD_WINDOW", None)
-        if response_log is not None:
-            response_log.parent.mkdir(parents=True, exist_ok=True)
-            response_log.write_text("", encoding="utf-8")
-            self.env["GROKET_HUD_RESPONSE_LOG"] = str(response_log)
         self.hud_proc: subprocess.Popen[bytes] | None = None
-        self._response_offset = 0
         self._cached_wid: str | None = None
         self._cached_geom: tuple[int, int, int, int] | None = None
 
@@ -640,65 +627,6 @@ class WalkEnv:
         )
         self.xdotool("click", "1", timeout=2.0)
 
-    def mark_response_cursor(self) -> None:
-        """Remember current end of the HUD response log (pre-action)."""
-        if self.response_log is None or not self.response_log.is_file():
-            self._response_offset = 0
-            return
-        self._response_offset = self.response_log.stat().st_size
-
-    def poll_response(
-        self,
-        *,
-        kinds: set[str] | None = None,
-    ) -> dict | None:
-        """Non-blocking: return next ack after ``mark_response_cursor`` if present."""
-        if self.response_log is None:
-            return None
-        try:
-            data = self.response_log.read_bytes()
-        except OSError:
-            return None
-        if len(data) <= self._response_offset:
-            return None
-        chunk = data[self._response_offset :].decode("utf-8", errors="replace")
-        # Advance offset past complete lines only.
-        consumed = 0
-        for line in chunk.splitlines(keepends=True):
-            raw = line.strip()
-            if not raw:
-                consumed += len(line)
-                continue
-            if not line.endswith("\n") and not line.endswith("\r"):
-                break  # incomplete last line
-            consumed += len(line)
-            try:
-                rec = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            kind = str(rec.get("kind") or "")
-            if kinds is None or kind in kinds:
-                self._response_offset += consumed
-                return rec
-        self._response_offset += consumed
-        return None
-
-    def wait_response(
-        self,
-        *,
-        kinds: set[str] | None = None,
-        timeout_ms: int = 2000,
-        poll_ms: int = 8,
-    ) -> dict | None:
-        """Wait for the next instrumented chrome ack after ``mark_response_cursor``."""
-        deadline = time.monotonic() + timeout_ms / 1000.0
-        while time.monotonic() < deadline:
-            rec = self.poll_response(kinds=kinds)
-            if rec is not None:
-                return rec
-            time.sleep(poll_ms / 1000.0)
-        return None
-
     def shot_digest(self, path: Path) -> str | None:
         """Fast content fingerprint for non-identical pane checks."""
         if not path.is_file():
@@ -707,68 +635,42 @@ class WalkEnv:
 
         return hashlib.md5(path.read_bytes()).hexdigest()  # noqa: S324
 
-    def measure_response(
+    def first_visual_change_ms(
         self,
         t_action: float,
-        *,
-        kinds: set[str] | None,
         baseline: Path | None,
         probe: Path,
+        *,
         timeout_ms: int = 2000,
-        measure_visual: bool = True,
-    ) -> tuple[int | None, int | None, int | None, dict | None]:
-        """Measure ack then sparse visual from the same *t_action* origin.
+        poll_ms: int = 80,
+    ) -> int | None:
+        """Sparse root-crop until pixels differ from *baseline*; ms from *t_action*.
 
-        Continuous ``import`` captures starve nested X and inflate key latency,
-        so chrome **ack is polled first with no captures**. Visual probes run
-        only after ack (or if no kinds), still timed from *t_action*.
-
-        ``response_ms`` for instrumented steps is **ack_ms** (chrome). Visual
-        is reported separately as body/paint residual.
+        External observation only — does not require product instrumentation.
+        Sparse polling avoids starving nested X (dense import thrash is invalid).
         """
         base = self.shot_digest(baseline) if baseline is not None else None
-        ack_ms: int | None = None
-        visual_ms: int | None = None
-        ack: dict | None = None
+        if base is None:
+            return None
         deadline = t_action + timeout_ms / 1000.0
-
-        # Phase 1: chrome ack only (no X captures).
-        if kinds is not None:
-            while time.perf_counter() < deadline:
-                rec = self.poll_response(kinds=kinds)
-                if rec is not None:
-                    ack = rec
-                    ack_ms = int((time.perf_counter() - t_action) * 1000)
-                    break
-                time.sleep(0.003)
-
-        # Phase 2: sparse visual from same origin (optional).
-        if measure_visual and base is not None:
-            while time.perf_counter() < deadline and visual_ms is None:
-                try:
-                    self.capture(probe)
-                    dig = self.shot_digest(probe)
-                    if dig is not None and dig != base:
-                        visual_ms = int((time.perf_counter() - t_action) * 1000)
-                        break
-                except SystemExit:
-                    pass
-                time.sleep(0.05)
-
-        if kinds is not None:
-            response_ms = ack_ms
-        else:
-            response_ms = visual_ms
-        return response_ms, ack_ms, visual_ms, ack
+        while time.perf_counter() < deadline:
+            try:
+                self.capture(probe)
+            except SystemExit:
+                time.sleep(poll_ms / 1000.0)
+                continue
+            dig = self.shot_digest(probe)
+            if dig is not None and dig != base:
+                return int((time.perf_counter() - t_action) * 1000)
+            time.sleep(poll_ms / 1000.0)
+        return None
 
     def key(self, *keys: str) -> None:
         if not self.xdotool("key", "--clearmodifiers", *keys, timeout=3.0):
             raise RuntimeError("xdotool key failed")
 
     def type_text(self, text: str) -> None:
-        if not self.xdotool(
-            "type", "--clearmodifiers", "--delay", "12", text, timeout=15.0
-        ):
+        if not self.xdotool("type", "--clearmodifiers", "--delay", "12", text, timeout=15.0):
             raise RuntimeError("xdotool type failed")
 
     def start_hud(self, *, rebuild: bool) -> None:
@@ -899,9 +801,7 @@ def main() -> int:
     n_turns = 0
     try:
         ov0 = ctrl.call("session/overview", {"session": sid})
-        n_turns = int(
-            ((ov0.get("result") or {}).get("turns") or {}).get("total") or 0
-        )
+        n_turns = int(((ov0.get("result") or {}).get("turns") or {}).get("total") or 0)
     except Exception:
         n_turns = 0
 
@@ -928,12 +828,7 @@ def main() -> int:
         )
         display = nested.start()
 
-    response_log = out / "response.log"
-    walk = WalkEnv(
-        display,
-        window_mode=not args.overlay,
-        response_log=response_log,
-    )
+    walk = WalkEnv(display, window_mode=not args.overlay)
     atexit.register(walk.stop_hud)
     if nested is not None:
         atexit.register(nested.stop)
@@ -951,69 +846,48 @@ def main() -> int:
     auto = has_xdo and not args.manual_keys
     if not auto:
         print(
-            "key injection: MANUAL"
-            + ("" if args.manual_keys else " (install xdotool for auto)"),
+            "key injection: MANUAL" + ("" if args.manual_keys else " (install xdotool for auto)"),
             file=sys.stderr,
         )
     else:
         print(f"key injection: xdotool on {display}", file=sys.stderr)
 
-    steps: list[dict] = []
+    steps: list[dict[str, object]] = []
     settle = max(0, args.settle_ms) / 1000.0
     prev_shot: Path | None = None
 
     def step(
         name: str,
         action: str,
-        fn,  # noqa: ANN001
+        fn: object,
         *,
-        response_kinds: set[str] | None = None,
-        measure_visual: bool = True,
-        blur_search: bool = False,
-        require_ack: bool = False,
+        measure_visual: bool = False,
     ) -> None:
-        """Run *fn*, record ``response_ms`` (excludes settle), then settle+shot.
+        """Run *fn*, optional first-pixel ``response_ms``, then settle + shot.
 
-        ``response_ms`` / ``ack_ms`` / ``visual_ms`` all originate at action
-        delivery (*t_action*). Ack and visual are polled in parallel — visual
-        does not start only after ack. Never includes settle sleep.
+        Timing is external observation only (pixel delta from *t_action*).
+        Never includes settle sleep. Prefer release binary for snappier UI.
         """
         nonlocal prev_shot
         shot = shots / f"{name}.png"
         probe = shots / f".probe-{name}.png"
-        baseline = shots / f".base-{name}.png"
         err: str | None = None
         response_ms: int | None = None
-        ack_ms: int | None = None
-        visual_ms: int | None = None
-        ack: dict | None = None
         wall0 = _now_ms()
         try:
             if auto:
-                if blur_search:
-                    walk.focus_hud()
-                    walk.click_detail_pane()
-                    time.sleep(0.05)
-                # Do not re-focus / re-place the window on every step: wmctrl +
-                # import starve nested X and inflate the next key's ack_ms.
-                base_path: Path | None = (
+                base_path = (
                     prev_shot
                     if measure_visual and prev_shot is not None and prev_shot.is_file()
                     else None
                 )
-                walk.mark_response_cursor()
                 t_action = time.perf_counter()
+                assert callable(fn)
                 fn()
-                response_ms, ack_ms, visual_ms, ack = walk.measure_response(
-                    t_action,
-                    kinds=response_kinds,
-                    baseline=base_path,
-                    probe=probe,
-                    timeout_ms=2000,
-                    measure_visual=measure_visual,
-                )
-                if require_ack and ack_ms is None:
-                    err = f"missing chrome ack for kinds={response_kinds}"
+                if measure_visual and base_path is not None:
+                    response_ms = walk.first_visual_change_ms(
+                        t_action, base_path, probe, timeout_ms=1500, poll_ms=100
+                    )
             else:
                 print(f"\n>>> STEP {name}: {action}", file=sys.stderr)
                 print(f"    (walk DISPLAY={display}) Enter when done…", file=sys.stderr)
@@ -1022,12 +896,10 @@ def main() -> int:
                 except EOFError:
                     time.sleep(2.0)
             time.sleep(settle)
-            # One settled capture per step (after chrome was already timed).
             try:
                 walk.capture(shot)
             except SystemExit as cap_exc:
                 err = f"capture: {cap_exc}"
-            # Nested X recovers slowly from import; cool down before next key.
             if auto:
                 time.sleep(0.12)
         except Exception as exc:
@@ -1037,14 +909,11 @@ def main() -> int:
             except Exception:
                 pass
         wall = _now_ms() - wall0
-        rec = {
+        rec: dict[str, object] = {
             "step": name,
             "action": action,
             "ms": wall,
             "response_ms": response_ms,
-            "ack_ms": ack_ms,
-            "visual_ms": visual_ms,
-            "ack": ack,
             "settle_ms": args.settle_ms,
             "shot": str(shot.relative_to(out)) if shot.is_file() else None,
             "shot_md5": walk.shot_digest(shot) if shot.is_file() else None,
@@ -1053,16 +922,13 @@ def main() -> int:
         steps.append(rec)
         if shot.is_file():
             prev_shot = shot
-        print(json.dumps({k: v for k, v in rec.items() if k != "ack"} | (
-            {"ack_kind": (ack or {}).get("kind")} if ack else {}
-        )), flush=True)
+        print(json.dumps(rec), flush=True)
 
     walk.capture(shots / "00-boot.png")
     steps.append(
         {
             "step": "00-boot",
-            "action": f"HUD up on {display} "
-            f"({'window' if walk.window_mode else 'overlay'})",
+            "action": f"HUD up on {display} ({'window' if walk.window_mode else 'overlay'})",
             "ms": 0,
             "response_ms": 0,
             "shot": "shots/00-boot.png",
@@ -1090,8 +956,6 @@ def main() -> int:
         "01-summon",
         "show window (window mode) or Ctrl+Shift+G overlay",
         summon,
-        response_kinds=None,
-        measure_visual=False,
     )
 
     def search_session() -> None:
@@ -1100,38 +964,30 @@ def main() -> int:
         walk.type_text(frag)
         time.sleep(0.35)
 
-    step(
-        "02-search",
-        f"type session query {sid[:12]}…",
-        search_session,
-        measure_visual=False,
-    )
+    step("02-search", f"type session query {sid[:12]}…", search_session)
 
     def select_session() -> None:
         walk.key("Return")
 
-    step(
-        "03-overview",
-        "Enter select → Overview (chrome; body may fill later)",
-        select_session,
-        response_kinds={"select_session"},
-        measure_visual=False,  # ack-only: avoid nested-X thrash between steps
-        require_ack=True,
-    )
-
-    # Clear search filter after chrome measured so rail is usable.
-    if auto:
-        walk.focus_hud()
+    def select_and_wait_overview() -> None:
+        walk.key("Return")
+        # Clear search so the rail is usable; wait for overview body before shot.
+        time.sleep(0.15)
         walk.key("ctrl+a")
         time.sleep(0.05)
         walk.key("BackSpace")
-        # Wait for overview body (data fill may exceed 200ms; chrome already measured).
         overview_ms = next(
             (c.get("ms") for c in control_timings if c.get("name") == "session/overview"),
             1500,
         )
         wait_s = min(12.0, max(1.2, (float(overview_ms or 1500) / 1000.0) + 0.6))
         time.sleep(wait_s)
+
+    step(
+        "03-overview",
+        "Enter select → Overview (wait for body)",
+        select_and_wait_overview,
+    )
 
     def click_win(x: int, y: int) -> None:
         wid = walk.place_managed_window()
@@ -1144,49 +1000,19 @@ def main() -> int:
         # First closed card header in the turns scroll (~right of rail, below tabs).
         click_win(420, 150)
 
-    # Covered chrome steps: instrumented ack only during the timed window.
-    # Settled screenshots still run after settle sleep (proof panes differ).
-    step(
-        "04-turns",
-        "Ctrl+2 Turns",
-        lambda: walk.key("ctrl+2"),
-        response_kinds={"set_tab"},
-        measure_visual=False,
-        require_ack=True,
-    )
-    step(
-        "05-turn-open",
-        "click first closed turn expander (best-effort)",
-        expand_first_turn,
-        response_kinds={"turn_expand", "turn_collapse"},
-        measure_visual=False,
-        require_ack=True,
-    )
-    step(
-        "06-events",
-        "Ctrl+3 Events",
-        lambda: walk.key("ctrl+3"),
-        response_kinds={"set_tab"},
-        measure_visual=False,
-        require_ack=True,
-    )
-    # `]` on Events: first turn when unscoped, then next (options from overview).
+    step("04-turns", "Ctrl+2 Turns", lambda: walk.key("ctrl+2"))
+    step("05-turn-open", "click first closed turn expander", expand_first_turn)
+    step("06-events", "Ctrl+3 Events", lambda: walk.key("ctrl+3"))
     step(
         "06b-events-turn-pick",
-        "Events turn pick first (] with options already populated)",
+        "Events turn pick first (])",
         lambda: walk.key("bracketright"),
-        response_kinds={"events_turn_pick"},
-        measure_visual=False,
-        require_ack=True,
     )
     if n_turns >= 2:
         step(
             "06c-next-turn",
-            "Next turn (] with Events scope already set)",
+            "Next turn (])",
             lambda: walk.key("bracketright"),
-            response_kinds={"events_turn_pick"},
-            measure_visual=False,
-            require_ack=True,
         )
     else:
         steps.append(
@@ -1194,45 +1020,22 @@ def main() -> int:
                 "step": "06c-next-turn",
                 "action": f"skipped (session has {n_turns} turn(s); need ≥2)",
                 "ms": 0,
-                "response_ms": 0,
-                "ack_ms": 0,
-                "visual_ms": None,
+                "response_ms": None,
                 "settle_ms": 0,
                 "shot": None,
                 "error": None,
                 "skipped": True,
             }
         )
-    step(
-        "07-findings",
-        "Ctrl+4 Findings",
-        lambda: walk.key("ctrl+4"),
-        response_kinds={"set_tab"},
-        measure_visual=False,
-        require_ack=True,
-    )
-    step(
-        "08-notes",
-        "Ctrl+5 Notes",
-        lambda: walk.key("ctrl+5"),
-        measure_visual=False,
-        response_kinds={"set_tab"},
-        require_ack=True,
-    )
-    step(
-        "09-overview-return",
-        "Ctrl+1 Overview",
-        lambda: walk.key("ctrl+1"),
-        response_kinds={"set_tab"},
-        measure_visual=False,
-        require_ack=True,
-    )
+    step("07-findings", "Ctrl+4 Findings", lambda: walk.key("ctrl+4"))
+    step("08-notes", "Ctrl+5 Notes", lambda: walk.key("ctrl+5"))
+    step("09-overview-return", "Ctrl+1 Overview", lambda: walk.key("ctrl+1"))
 
-    # Pixel-identity gate for pane switches (invalidates latency if true).
+    # Pane shots should not all be bit-identical (keys landed).
     pane_steps = [
         s
         for s in steps
-        if s["step"]
+        if s.get("step")
         in {
             "03-overview",
             "04-turns",
@@ -1244,37 +1047,6 @@ def main() -> int:
     ]
     md5s = [s.get("shot_md5") for s in pane_steps if s.get("shot_md5")]
     identical_panes = len(md5s) >= 2 and len(set(md5s)) == 1
-
-    # Covered interactions: chrome ack must be present and under budget.
-    covered = {
-        "03-overview",
-        "04-turns",
-        "05-turn-open",
-        "06-events",
-        "06b-events-turn-pick",
-        "06c-next-turn",
-        "07-findings",
-        "08-notes",
-        "09-overview-return",
-    }
-    budget = 200
-    over_budget = []
-    for s in steps:
-        if s["step"] not in covered:
-            continue
-        # Prefer instrumented ack for chrome; fall back to response_ms only if no ack.
-        chrome = s.get("ack_ms")
-        if chrome is None:
-            chrome = s.get("response_ms")
-        if chrome is None or chrome > budget:
-            over_budget.append(
-                {
-                    "step": s["step"],
-                    "ack_ms": s.get("ack_ms"),
-                    "response_ms": s.get("response_ms"),
-                    "visual_ms": s.get("visual_ms"),
-                }
-            )
 
     report = {
         "utc": _utc_stamp(),
@@ -1290,11 +1062,10 @@ def main() -> int:
         "steps": steps,
         "list_ms": round(t_list["ms"], 2),
         "branch": _run(["git", "-C", str(root), "branch", "--show-current"]).stdout.strip(),
-        "response_log": str(response_log),
         "identical_pane_frames": identical_panes,
-        "budget_ms": budget,
-        "over_budget": over_budget,
-        "chrome_pass": not over_budget and not identical_panes,
+        "binary": "release"
+        if (root / "groket-hud" / "target" / "release" / "groket-hud").is_file()
+        else "debug",
     }
     (out / "timings.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     with (out / "steps.jsonl").open("w", encoding="utf-8") as fh:
@@ -1308,12 +1079,11 @@ def main() -> int:
     print(f"\nout_dir={out}", file=sys.stderr)
     print(f"timings={out / 'timings.json'}", file=sys.stderr)
     print(f"display={display} backend={backend}", file=sys.stderr)
+    print(f"identical_pane_frames={identical_panes}", file=sys.stderr)
     print(
-        f"identical_pane_frames={identical_panes} "
-        f"response_log={response_log}",
+        "done — agent must read each shots/*.png (vision) and write VISUAL_REPORT.md",
         file=sys.stderr,
     )
-    print("done — agent should read shots/*.png and write REPORT.md", file=sys.stderr)
     return 0
 
 

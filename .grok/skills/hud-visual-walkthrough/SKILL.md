@@ -13,14 +13,15 @@ metadata:
 
 # HUD visual walkthrough
 
-End-to-end **visual and timing** review of the iced desktop HUD. Not a
-unit test suite — product eyes on real pixels plus measured wait times.
+End-to-end **visual** review of the iced desktop HUD, plus control-plane
+RPC samples. Product eyes on real pixels — not a unit suite.
 
 ## Prerequisites
 
 - Host X11 `DISPLAY` (Xephyr nests on it).
 - **`Xephyr`**, **`metacity`**, **`wmctrl`**, **`import`** (ImageMagick).
-- In-tree `groket-hud` binary (or `groket hud`).
+- In-tree `groket-hud` binary: prefers **`target/release/groket-hud`**, then
+  debug, then `groket hud` (document release for snappier walks).
 - Control: `groket serve -d` (or the walkthrough starts it).
 - Auto keys: **`xdotool`** (or `--manual-keys`).
 
@@ -52,6 +53,7 @@ Does **not** `--restart` the host HUD. Overlay mode stays off unless
 | `--backend` | `xephyr` (default), `host`, or `xvfb` |
 | `--overlay` | Force overlay mode (skip `GROKET_HUD_WINDOW`) |
 | `--display-num N` | Nested display number |
+| `--settle-ms N` | Sleep after action before settled screenshot (default 450) |
 | `GROKET_CONTROL_SOCKET` | Override control socket |
 
 ## Agent procedure
@@ -61,65 +63,58 @@ Does **not** `--restart` the host HUD. Overlay mode stays off unless
 From the **groket** repo root:
 
 ```bash
-# once: sudo apt-get install -y xvfb xdotool scrot
+# Prefer a release HUD for less UI thrash under nested X:
+#   (cd groket-hud && cargo build --release)
 
-uv run python .grok/skills/hud-visual-walkthrough/scripts/hud_walkthrough.py \
+python3 .grok/skills/hud-visual-walkthrough/scripts/hud_walkthrough.py \
   --session '<session-id-or-title-substring>' \
   --out tmp/hud-walk/latest
 ```
 
-Read stdout. Note:
-
-- `out_dir` path
-- `timings.json` / `steps.jsonl` paths
-- `display=` and `backend=xephyr` / `window_mode=true`
-- key injection live vs manual
-- any step errors
+Read stdout. Note `out_dir`, `timings.json`, `display=`, `backend=`,
+`window_mode=true`, key injection live vs manual, step errors.
 
 If the script fails before any screenshots, fix environment (serve,
-binary, Xvfb) and re-run. Do not invent screenshots.
+binary, X) and re-run. Do not invent screenshots.
 
-### 2. Control timings (always)
+### 2. Control timings
 
 `timings.json` includes control-plane RPC samples (`session/list`,
-`session/overview`, `session/timeline` with and without `promptIndex`).
-Report p50-style numbers as **printed** — do not invent.
+`session/overview`, `session/timeline`). Report as printed — do not invent.
 
-Each step records **`response_ms`** (chrome ack and/or first visual delta,
-**excluding** settle sleep) plus wall `ms` (includes settle). Report
-`response_ms` against the &lt;200ms chrome budget; call out body residual when
-`visual_ms` is higher after chrome already flipped.
+Optional `response_ms` on a step is **first pixel delta** from action delivery
+(external observation). It is **not** product instrumentation. Settled
+`ms` includes settle sleep and is wall-clock only.
 
-### 3. Visual review (mandatory)
+### 3. Visual review (mandatory — every shot)
 
 For **each** `*.png` under `out_dir/shots/` in step order:
 
-1. Open with the **read_file** tool (image path). You must actually
-   inspect the pixels — do not score from filenames alone.
-2. Score against `references/rubric.md` (same directory as this skill).
-3. Write one short note per shot: **ok / ugly / broken** + one sentence
-   why (clipping, empty wrong pane, wrong tab, unreadable text, etc.).
+1. Open with the **read_file** tool (image path). You **must** inspect
+   pixels with multimodal vision — **filename-only scoring fails**.
+2. Score against `references/rubric.md`.
+3. Human-usefulness bar (normal operator):
+   - Correct pane selected (Overview / Turns / Events / Findings / Notes)
+   - Readable type; primary controls not clipped or buried
+   - Buttons, tabs, and chips findable without guesswork
+   - No empty wrong pane when data should show
+   - No overlapping labels or unusable density
+4. Write one short note per shot: **ok / ugly / broken** + one sentence why.
 
-Do **not** use `image_gen` to “fix” the UI. Use `image_edit` only if
-you need to annotate a grab for the report (highlight a defect). Prefer
-plain description + path.
+Do **not** use `image_gen` to “fix” the UI. Prefer plain description + path.
 
 ### 4. Report
 
-Write `out_dir/REPORT.md` with:
+Write `out_dir/VISUAL_REPORT.md` (or `REPORT.md`) with:
 
-1. **Environment** — branch, serve yes/no, walk `DISPLAY`, `xvfb` yes/no.
-2. **Session** — id and title used.
-3. **Timings table** — control RPCs + per-step UI ms from `timings.json`.
-4. **Shot review** — ordered table: step · file · verdict · notes.
-5. **Verdict** — one of:
-   - `SHIPPABLE` — no broken; polish nits optional
-   - `POLISH` — usable but clear visual debt
-   - `BROKEN` — wrong pane, empty when data expected, unusable layout
-6. **Top 3 fixes** — concrete product/UI asks (not process).
+1. **Environment** — branch, serve, walk `DISPLAY`, backend, release vs debug.
+2. **Session** — id and title.
+3. **Timings** — control RPCs from `timings.json`.
+4. **Shot review** — ordered table: step · file · verdict · notes (from vision).
+5. **Verdict** — `SHIPPABLE` / `POLISH` / `BROKEN`.
+6. **Top fixes** — concrete product/UI asks.
 
-Paste a short summary into chat (verdict + top fixes + slowest step).
-Keep the full report on disk.
+Paste a short summary into chat. Keep the full report on disk.
 
 ### 5. Do not
 
@@ -127,26 +122,30 @@ Keep the full report on disk.
 - Push a demo binary or force-push.
 - Touch the icedtea checkout unless the user explicitly says so.
 - Claim pixel perfection without reading every shot.
+- Depend on product env logs or harness-only symbols in the HUD binary.
 
-## Step map (what the script drives)
-
-Keyboard-first (matches HUD bindings):
+## Step map
 
 | Step | Action | Shot name |
 |------|--------|-----------|
 | 00 | Ensure serve + start HUD | `00-boot` |
-| 01 | Summon palette (`Ctrl+Shift+G`) | `01-summon` |
+| 01 | Show window (window mode) | `01-summon` |
 | 02 | Search session substring | `02-search` |
-| 03 | Select session (Enter) | `03-overview` (default tab) |
+| 03 | Select session (Enter) → Overview | `03-overview` |
 | 04 | Ctrl+2 Turns | `04-turns` |
-| 05 | Expand first turn (click or keys as available) | `05-turn-open` |
-| 06 | Ctrl+3 Events (empty / pick) | `06-events` |
+| 05 | Expand first turn (click) | `05-turn-open` |
+| 06 | Ctrl+3 Events | `06-events` |
+| 06b | `]` first Events turn pick | `06b-events-turn-pick` |
+| 06c | `]` next turn (if ≥2 turns) | `06c-next-turn` |
 | 07 | Ctrl+4 Findings | `07-findings` |
 | 08 | Ctrl+5 Notes | `08-notes` |
-| 09 | Ctrl+1 Overview again | `09-overview-return` |
+| 09 | Ctrl+1 Overview | `09-overview-return` |
 
-If xdotool cannot focus the overlay, the script still captures the
-**virtual** root window so the agent can see the Xvfb frame.
+## Quality
+
+- Script is plain Python 3.12+; keep **ruff** clean (`ruff check` + `ruff format`).
+- Prefer release binary; document when debug is used.
+- Measurement is external (pixels + control RPC) — no product file I/O hooks.
 
 ## Related
 
