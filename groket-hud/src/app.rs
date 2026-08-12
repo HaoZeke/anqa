@@ -820,7 +820,10 @@ impl Hud {
                 };
                 Task::none()
             }
-            Message::ActivateSelected => self.load_overview(false),
+            Message::ActivateSelected => {
+                self.ensure_rail_selection_for_activate();
+                self.load_overview(false)
+            }
             Message::FindingExpand { id, open } => {
                 if open {
                     self.findings_open.insert(id);
@@ -948,12 +951,18 @@ impl Hud {
                         patch_list_row_from_meta(&mut self.all_sessions, &sid, &ov.meta);
                         patch_list_row_from_meta(&mut self.sessions, &sid, &ov.meta);
                         self.emit_session_notices();
-                        if !quiet {
-                            self.status = format!("{sid} · {}", ov.meta.status);
-                        }
+                        // Always paint footer identity (quiet ticks must not leave a
+                        // stale session id while body shows another overview).
+                        let st = ov.meta.status_label();
+                        self.status = if st.is_empty() {
+                            sid.clone()
+                        } else {
+                            format!("{sid} · {st}")
+                        };
                         self.overview = Some(ov);
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
+                        self.sync_rail_to_overview_sid();
                         self.rebuild_events_turn_options();
                         self.rebuild_marks();
                         self.rebuild_tl_filter();
@@ -1757,20 +1766,55 @@ impl Hud {
             && timeline_coverage_complete(self.timeline.len(), self.timeline_total)
     }
 
+    /// Rail selection identity for loads. `Selection::None` is none — never
+    /// invent `active` while the filtered list cleared the highlight.
     fn selected_sid(&self) -> Option<String> {
-        self.sessions()
-            .get(self.active)
-            .map(|r| r.session_id.clone())
-            .filter(|s| !s.is_empty())
+        match self.list_selection {
+            icedtea::collection::Selection::Single(i) => self
+                .sessions()
+                .get(i)
+                .map(|r| r.session_id.clone())
+                .filter(|s| !s.is_empty()),
+            icedtea::collection::Selection::None | icedtea::collection::Selection::Multi(_) => None,
+        }
     }
 
     fn selected_rpc_ref(&self) -> Option<String> {
-        let row = self.sessions().get(self.active)?;
+        let i = match self.list_selection {
+            icedtea::collection::Selection::Single(i) => i,
+            _ => return None,
+        };
+        let row = self.sessions().get(i)?;
         let r = session_rpc_ref(&row.path, &row.session_id);
         if r.is_empty() {
             None
         } else {
             Some(r)
+        }
+    }
+
+    /// Enter / Activate with no rail highlight: take the first visible match.
+    fn ensure_rail_selection_for_activate(&mut self) {
+        if !matches!(self.list_selection, icedtea::collection::Selection::None) {
+            return;
+        }
+        if self.sessions().is_empty() {
+            return;
+        }
+        self.set_active(0);
+    }
+
+    /// Keep rail highlight on the open overview when that row is visible.
+    fn sync_rail_to_overview_sid(&mut self) {
+        if self.overview_sid.is_empty() {
+            return;
+        }
+        if let Some(i) = self
+            .sessions()
+            .iter()
+            .position(|r| r.session_id == self.overview_sid)
+        {
+            self.set_active(i);
         }
     }
 
@@ -2125,7 +2169,7 @@ impl Hud {
         if let Some(idx) = keep_at {
             self.set_active(idx);
         } else if !keep.is_empty() {
-            // Overview session is filtered out: do not paint another row as active.
+            // Overview session filtered out: no rail highlight (selected_sid None).
             self.active = 0;
             self.list_selection = icedtea::collection::Selection::None;
         } else if n == 0 {
@@ -2133,6 +2177,8 @@ impl Hud {
             self.list_selection = icedtea::collection::Selection::None;
         } else if self.active >= n {
             self.set_active(n.saturating_sub(1));
+        } else if matches!(self.list_selection, icedtea::collection::Selection::None) {
+            // Full catalog again with no highlight: keep None until activate.
         } else {
             self.list_selection = icedtea::collection::Selection::Single(self.active);
         }
@@ -3141,7 +3187,10 @@ impl Hud {
                 self.reset_detail_chrome();
                 Task::batch([self.ensure_active_visible(), self.load_overview(false)])
             }
-            Key::Named(Named::Enter) => self.load_overview(false),
+            Key::Named(Named::Enter) => {
+                self.ensure_rail_selection_for_activate();
+                self.load_overview(false)
+            }
             _ => Task::none(),
         }
     }
@@ -3812,6 +3861,106 @@ mod tests {
             ..Hud::default()
         };
         assert!(hud.wants_events());
+    }
+
+    #[test]
+    fn selected_sid_is_none_when_list_selection_is_none() {
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "a".into(),
+                    title: "Alpha".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "b".into(),
+                    title: "Beta".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            overview_sid: "a".into(),
+            overview: Some(Overview {
+                session_id: "a".into(),
+                meta: crate::wire::SessionMeta {
+                    session_id: "a".into(),
+                    status: "running".into(),
+                    ..crate::wire::SessionMeta::default()
+                },
+                ..Overview::default()
+            }),
+            active: 0,
+            list_selection: icedtea::collection::Selection::Single(0),
+            ..Hud::default()
+        };
+        assert_eq!(hud.selected_sid().as_deref(), Some("a"));
+        // Filter that hides overview session a — selection cleared.
+        hud.query = "Beta".into();
+        hud.rerank_visible_keeping("a".into());
+        assert_eq!(hud.sessions().len(), 1);
+        assert_eq!(hud.sessions()[0].session_id, "b");
+        assert!(matches!(
+            hud.list_selection,
+            icedtea::collection::Selection::None
+        ));
+        assert!(
+            hud.selected_sid().is_none(),
+            "must not invent sessions()[0] while highlight is cleared"
+        );
+        // Enter/activate takes first visible match.
+        hud.ensure_rail_selection_for_activate();
+        assert_eq!(hud.selected_sid().as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn overview_loaded_quiet_updates_status_and_rail() {
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "linus".into(),
+                    title: "Linus".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "disk".into(),
+                    title: "Disk".into(),
+                    path: "/tmp/disk".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            active: 0,
+            list_selection: icedtea::collection::Selection::Single(0),
+            overview_gen: 1,
+            status: "stale-other · running".into(),
+            ..Hud::default()
+        };
+        let data = json!({
+            "meta": {
+                "sessionId": "disk",
+                "path": "/tmp/disk",
+                "status": "running",
+                "title": "Disk"
+            },
+            "turns": { "total": 0, "turns": [] },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: 1,
+            sid: "disk".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        assert_eq!(hud.overview_sid, "disk");
+        assert!(
+            hud.status.starts_with("disk"),
+            "quiet load must still set footer status: {}",
+            hud.status
+        );
+        assert_eq!(hud.selected_sid().as_deref(), Some("disk"));
+        assert!(matches!(
+            hud.list_selection,
+            icedtea::collection::Selection::Single(1)
+        ));
     }
 
     #[test]
