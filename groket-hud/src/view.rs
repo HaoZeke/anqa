@@ -638,13 +638,11 @@ fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
 }
 
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::widget::themed_button_sized(
+    icedtea::widget::themed_button(
         label.clone(),
         Some(msg),
         tea,
         Variant::Chip,
-        Length::Shrink,
-        Length::Fixed(22.0),
         A11y::button(label),
     )
 }
@@ -1787,12 +1785,45 @@ mod tests {
     fn closed_turn_peek_keeps_chips_above_the_fade() {
         let h = icedtea::widget::Peek::Lines(4).height();
         let fade = 12.0_f32.min(h * 0.4).max(4.0);
-        let chip_row = 22.0_f32.max(JUMP_PX + 8.0);
+        // themed_button Chip: BODY text + pad [8, 12] vertical.
+        let chip_row = (icedtea::typo::BODY as f32 + 16.0).max(JUMP_PX + 8.0);
         let stack = icedtea::widget::Peek::body_line() + 6.0 + chip_row;
         assert!(
             stack + fade <= h,
             "peek {h} fade {fade} stack {stack} must keep chips above the fade"
         );
+    }
+
+    #[test]
+    fn chip_btn_builds_unsized_chip_buttons() {
+        let hud = Hud::default();
+        let _ = chip_btn("Add note".into(), Message::ResetDraft, tea());
+        let _ = chip_btn("f2".into(), Message::SetTab(Tab::Findings), tea());
+        let _ = card_chips(
+            &hud,
+            Some(CardMark {
+                findings: 2,
+                notes: 1,
+                errors: 0,
+                first_finding_event: Some(3),
+                first_note_id: "n1".into(),
+            }),
+            Some(Message::ResetDraft),
+            None,
+        );
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod source");
+        let chip = prod
+            .split("fn chip_btn")
+            .nth(1)
+            .expect("chip_btn")
+            .split("fn command_end")
+            .next()
+            .expect("chip_btn body");
+        assert!(chip.contains("themed_button("));
+        assert!(chip.contains("Variant::Chip"));
+        assert!(!chip.contains("themed_button_sized"));
+        assert!(!chip.contains("Fixed(22"));
     }
 
     fn tea() -> icedtea::theme::Tokens {
@@ -1864,8 +1895,9 @@ mod tests {
         assert!(prod.contains("Tab fields"));
         assert!(prod.contains("Ctrl+1"));
         assert!(prod.contains("Esc"));
-        assert!(prod.contains("themed_button_sized"));
+        assert!(prod.contains("themed_button("));
         assert!(prod.contains("Variant::Chip"));
+        assert!(!prod.contains("themed_button_sized"));
         assert!(prod.contains("fn jump_control"));
         assert!(prod.contains("Go to timeline"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
