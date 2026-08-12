@@ -32,6 +32,7 @@ Sol-style session **command palette** for the local groket control plane
   disclosure drawer (▸ / ▾). Markdown in a turn or note paints as
   markdown; a plain open body is selectable. Copy with
   **Ctrl+C** (or **y** / **Ctrl+Shift+C** for the focused event).
+  Right-click opens Copy and Copy path (icedtea context menu).
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview and the timeline tail about every 3s (idle sessions slower).
 - Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;

@@ -8,8 +8,8 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
 use iced::widget::text::Wrapping;
 use iced::widget::{
-    button, column, container, image, markdown, mouse_area, responsive, row, scrollable, text,
-    text_editor, text_input, Space,
+    button, column, container, image, markdown, mouse_area, responsive, row, scrollable, stack,
+    text, text_editor, text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -281,6 +281,19 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Catalog", Role::Progress),
     );
+    if let Some(origin) = hud.context_origin() {
+        return stack![
+            busy,
+            icedtea::pattern::context_menu(
+                hud.context_actions(),
+                origin,
+                hud.window_size(),
+                Message::ContextDismiss,
+                tea,
+            ),
+        ]
+        .into();
+    }
     busy
 }
 
@@ -1904,6 +1917,7 @@ mod tests {
         assert!(prod.contains("Go to timeline"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
         assert!(prod.contains("pattern::command_bar"));
+        assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("fn turn_note"));
         assert!(prod.contains("fn overview_commands"));
         assert!(!prod.contains("command_palette_view"));

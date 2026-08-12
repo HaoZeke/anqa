@@ -39,7 +39,7 @@ use crate::theme;
 use crate::view;
 use crate::wire::{
     decode_overview, decode_session_list, decode_session_list_response, decode_timeline_page,
-    NotesBlock, Overview, TimelineEvent,
+    FindingRow, NotesBlock, Overview, TimelineEvent,
 };
 
 const HUD_W: f32 = 780.0;
@@ -138,6 +138,10 @@ pub enum Message {
     MarkDone,
     CopyPath,
     CopyText(String),
+    Yank,
+    Cursor(icedtea::layout::CursorEvent),
+    ContextDismiss,
+    WindowSize(Size),
     ExtractAction {
         key: ExtractKey,
         action: iced::widget::text_editor::Action,
@@ -224,6 +228,9 @@ pub struct Hud {
     timeline_search_gen: u64,
     extracts: HashMap<ExtractKey, iced::widget::text_editor::Content>,
     extract_src: HashMap<ExtractKey, String>,
+    pointer: Point,
+    context: Option<Point>,
+    window_size: Size,
 }
 
 impl Default for Hud {
@@ -297,6 +304,13 @@ impl Default for Hud {
             timeline_search_gen: 0,
             extracts: HashMap::new(),
             extract_src: HashMap::new(),
+            pointer: Point::ORIGIN,
+            context: None,
+            window_size: if std::env::var_os("GROKET_HUD_WINDOW").is_some() {
+                Size::new(980.0, 700.0)
+            } else {
+                Size::new(HUD_W, HUD_H)
+            },
         }
     }
 }
@@ -486,6 +500,7 @@ impl Hud {
             subs.push(time::every(Duration::from_millis(250)).map(|_| Message::Tick));
         }
         subs.push(tray_subscription());
+        subs.push(icedtea::layout::listen_cursor().map(Message::Cursor));
         Subscription::batch(subs)
     }
 
@@ -1019,9 +1034,26 @@ impl Hud {
                 Task::none()
             }
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
-            Message::Hide => self.hide_palette(),
+            Message::Hide => {
+                if self.context.take().is_some() {
+                    return Task::none();
+                }
+                self.hide_palette()
+            }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
+            Message::Yank => self.yank_active(),
+            Message::Cursor(ev) => self.on_cursor(ev),
+            Message::ContextDismiss => {
+                self.context = None;
+                Task::none()
+            }
+            Message::WindowSize(size) => {
+                if size.width > 1.0 && size.height > 1.0 {
+                    self.window_size = size;
+                }
+                Task::none()
+            }
             Message::MdLink(url) => {
                 self.status = url;
                 self.status_err = false;
@@ -1166,6 +1198,7 @@ impl Hud {
     }
 
     fn copy_text(&mut self, text: String) -> Task<Message> {
+        self.context = None;
         let text = text.trim().to_string();
         if text.is_empty() {
             self.toasts.push_warning("Nothing to copy");
@@ -1176,12 +1209,116 @@ impl Hud {
     }
 
     fn yank_active(&mut self) -> Task<Message> {
-        if self.tab == Tab::Timeline {
-            if let Some(ix) = self.timeline_focus {
-                if let Some(ev) = self.timeline.iter().find(|e| e.index == ix) {
-                    return self.copy_text(extract_event(ev));
+        self.copy_text(self.copyable_text())
+    }
+
+    fn copyable_text(&self) -> String {
+        for buf in self.extracts.values() {
+            if let Some(sel) = buf.selection() {
+                if !sel.trim().is_empty() {
+                    return sel;
                 }
             }
+        }
+        match self.tab {
+            Tab::Timeline => self
+                .timeline_focus
+                .and_then(|ix| self.timeline.iter().find(|e| e.index == ix))
+                .map(extract_event)
+                .unwrap_or_default(),
+            Tab::Turns => self
+                .overview
+                .as_ref()
+                .and_then(|o| {
+                    let mut open: Vec<i64> = self.turns_open.iter().copied().collect();
+                    open.sort_unstable();
+                    let idx = open.last().copied()?;
+                    o.turns.turns.iter().find(|t| t.turn_index == idx)
+                })
+                .map(|t| {
+                    if t.summary.is_empty() {
+                        t.assistant_summary.clone()
+                    } else {
+                        t.summary.clone()
+                    }
+                })
+                .unwrap_or_default(),
+            Tab::Findings => self
+                .overview
+                .as_ref()
+                .and_then(|o| {
+                    o.findings
+                        .findings
+                        .iter()
+                        .find(|f| self.findings_open.contains(&finding_menu_key(f)))
+                })
+                .map(|f| {
+                    if f.detail.is_empty() {
+                        f.title.clone()
+                    } else {
+                        f.detail.clone()
+                    }
+                })
+                .unwrap_or_default(),
+            Tab::Notes => self
+                .overview
+                .as_ref()
+                .and_then(|o| {
+                    o.notes
+                        .notes
+                        .iter()
+                        .find(|n| self.notes_open.contains(&n.id))
+                })
+                .map(|n| crate::format::note_fields_view(&n.fields).1)
+                .unwrap_or_default(),
+            Tab::Overview => self
+                .overview
+                .as_ref()
+                .map(|o| {
+                    if !o.summary.is_empty() {
+                        o.summary.clone()
+                    } else {
+                        o.meta.title.clone()
+                    }
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn session_path(&self) -> String {
+        self.sessions
+            .get(self.active)
+            .map(|r| r.path.clone())
+            .filter(|p| !p.is_empty())
+            .or_else(|| self.overview.as_ref().map(|o| o.meta.path.clone()))
+            .unwrap_or_default()
+    }
+
+    pub fn context_origin(&self) -> Option<Point> {
+        self.context
+    }
+
+    pub fn window_size(&self) -> Size {
+        self.window_size
+    }
+
+    pub fn context_actions(&self) -> Vec<icedtea::action::Action<Message>> {
+        let mut copy = icedtea::action::Action::new("edit.copy", "Copy", Message::Yank);
+        copy.enabled = !self.copyable_text().trim().is_empty();
+        let mut path = icedtea::action::Action::new("session.copy", "Copy path", Message::CopyPath);
+        path.enabled = !self.session_path().is_empty();
+        vec![copy, path]
+    }
+
+    fn on_cursor(&mut self, ev: icedtea::layout::CursorEvent) -> Task<Message> {
+        match ev {
+            icedtea::layout::CursorEvent::Move(p) => {
+                self.pointer = p;
+            }
+            icedtea::layout::CursorEvent::Context if self.visible => {
+                self.context = Some(self.pointer);
+            }
+            icedtea::layout::CursorEvent::Context => {}
         }
         Task::none()
     }
@@ -2323,13 +2460,8 @@ impl Hud {
     }
 
     fn copy_path(&mut self) -> Task<Message> {
-        let path = self
-            .sessions
-            .get(self.active)
-            .map(|r| r.path.clone())
-            .filter(|p| !p.is_empty())
-            .or_else(|| self.overview.as_ref().map(|o| o.meta.path.clone()))
-            .unwrap_or_default();
+        self.context = None;
+        let path = self.session_path();
         if path.is_empty() {
             self.toasts.push_warning("No path");
             return Task::none();
@@ -2353,6 +2485,9 @@ impl Hud {
 
     fn on_key(&mut self, key: Key, modifiers: KeyMods) -> Task<Message> {
         if matches!(key, Key::Named(Named::Escape)) {
+            if self.context.take().is_some() {
+                return Task::none();
+            }
             return self.hide_palette();
         }
         if modifiers.command() || modifiers.control() {
@@ -2509,9 +2644,22 @@ fn fetch_timeline(req: TimelineFetch) -> Task<Message> {
     )
 }
 
+fn finding_menu_key(f: &FindingRow) -> String {
+    if !f.id.is_empty() {
+        return f.id.clone();
+    }
+    format!(
+        "{}|{}|{}",
+        f.severity,
+        f.title,
+        f.primary_event_index.unwrap_or(-1)
+    )
+}
+
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
+        Event::Window(window::Event::Resized(size)) => Some(Message::WindowSize(size)),
         // iced 0.14 text_input unfocuses on Escape and marks the event Captured.
         // Overlay hide must still fire while search or notes hold focus.
         Event::Keyboard(keyboard::Event::KeyPressed {
@@ -3244,6 +3392,50 @@ mod tests {
         let mut hud = Hud::default();
         let _ = hud.update(Message::CopyPath);
         assert!(hud.toasts().iter().any(|t| t.text.contains("No path")));
+    }
+
+    #[test]
+    fn right_click_opens_context_menu() {
+        let mut hud = Hud::default();
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Move(
+            Point::new(40.0, 80.0),
+        )));
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Context));
+        assert_eq!(hud.context_origin(), Some(Point::new(40.0, 80.0)));
+        let _ = hud.update(Message::ContextDismiss);
+        assert_eq!(hud.context_origin(), None);
+    }
+
+    #[test]
+    fn escape_closes_context_menu_not_the_overlay() {
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            context: Some(Point::new(8.0, 8.0)),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::Hide);
+        assert!(hud.context_origin().is_none());
+        assert!(hud.visible);
+        assert!(hud.palette_live);
+    }
+
+    #[test]
+    fn context_actions_are_copy_and_copy_path() {
+        let hud = Hud::default();
+        let acts = hud.context_actions();
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0].title, "Copy");
+        assert!(!acts[0].enabled);
+        assert_eq!(acts[1].title, "Copy path");
+        assert!(!acts[1].enabled);
+    }
+
+    #[test]
+    fn window_size_tracks_resize() {
+        let mut hud = Hud::default();
+        let _ = hud.update(Message::WindowSize(Size::new(900.0, 640.0)));
+        assert_eq!(hud.window_size(), Size::new(900.0, 640.0));
     }
 
     #[test]
