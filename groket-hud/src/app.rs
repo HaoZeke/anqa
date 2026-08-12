@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use crate::control::{self, ControlError};
 use crate::format::{
     control_down_message, event_body_text, extract_event, list_status_label, new_note_id,
+    tool_fields_from_raw,
 };
 use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
@@ -1124,35 +1125,61 @@ impl Hud {
         self.bind_field(key.id(), src);
     }
 
-    fn bind_event_extract(&mut self, index: i64) {
-        let src = self
-            .timeline
-            .iter()
-            .find(|e| e.index == index)
-            .map(event_body_text)
-            .unwrap_or_default();
-        if src.is_empty() {
-            return;
-        }
-        let display = if crate::format::looks_like_json(&src) {
-            crate::format::capped_display(&crate::format::pretty_json(&src), 4_000)
+    fn bind_display(src: &str) -> String {
+        if crate::format::looks_like_json(src) {
+            crate::format::capped_display(&crate::format::pretty_json(src), 4_000)
         } else {
-            src
+            crate::format::capped_display(src, 4_000)
+        }
+    }
+
+    fn bind_event_extract(&mut self, index: i64) {
+        let Some(pos) = self.timeline.iter().position(|e| e.index == index) else {
+            return;
         };
-        self.bind_extract_text(ExtractKey::Event(index), &display);
-        if let Some(ev) = self.timeline.iter().find(|e| e.index == index) {
-            let out = crate::format::sanitize_console_text(&crate::format::display_tool_output(
-                &ev.content,
-                &ev.tool_name,
-            ));
-            if !out.trim().is_empty() {
-                let out = if crate::format::looks_like_json(&out) {
-                    crate::format::capped_display(&crate::format::pretty_json(&out), 4_000)
-                } else {
-                    crate::format::capped_display(&out, 4_000)
-                };
-                self.bind_field(format!("event.{index}.out"), &out);
+        let src = event_body_text(&self.timeline[pos]);
+        if !src.is_empty() {
+            self.bind_extract_text(ExtractKey::Event(index), &Self::bind_display(&src));
+        }
+        let call_pos = {
+            let ev = &self.timeline[pos];
+            let id = ev.tool_call_id.trim();
+            if id.is_empty() {
+                pos
+            } else {
+                self.timeline
+                    .iter()
+                    .position(|o| {
+                        o.tool_call_id == ev.tool_call_id
+                            && (o.kind == "tool" || o.event_type == "tool_call")
+                    })
+                    .unwrap_or(pos)
             }
+        };
+        let call = &self.timeline[call_pos];
+        let fields = if !call.tool_fields.is_empty() {
+            call.tool_fields
+                .iter()
+                .map(|f| (f.id.clone(), f.value.clone()))
+                .collect::<Vec<_>>()
+        } else {
+            tool_fields_from_raw(&call.tool_name, &call.raw_input, 8_000)
+                .into_iter()
+                .map(|f| (f.id, f.value))
+                .collect()
+        };
+        for (fid, val) in fields {
+            if !val.is_empty() {
+                self.bind_field(format!("event.{index}.in.{fid}"), &Self::bind_display(&val));
+            }
+        }
+        let ev = &self.timeline[pos];
+        let out = crate::format::sanitize_console_text(&crate::format::display_tool_output(
+            &ev.content,
+            &ev.tool_name,
+        ));
+        if !out.trim().is_empty() {
+            self.bind_field(format!("event.{index}.out"), &Self::bind_display(&out));
         }
     }
 
@@ -3214,6 +3241,50 @@ mod tests {
             hud.extract_src(ExtractKey::Event(3)).as_deref(),
             Some(src.as_str())
         );
+    }
+
+    #[test]
+    fn expanding_a_tool_event_binds_input_and_output() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![json!({
+                "index": 7,
+                "type": "tool_call",
+                "kind": "tool",
+                "toolName": "search_replace",
+                "toolCallId": "c1",
+                "content": "replaced 1 file",
+                "toolFields": [
+                    {"id": "path", "label": "Path", "value": "src/a.rs"},
+                    {"id": "old_string", "label": "Old", "value": "foo()"}
+                ]
+            })],
+            10,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert_eq!(
+            hud.field("event.7.in.path").map(|c| c.text()).as_deref(),
+            Some("src/a.rs")
+        );
+        assert_eq!(
+            hud.field("event.7.in.old_string")
+                .map(|c| c.text())
+                .as_deref(),
+            Some("foo()")
+        );
+        assert!(hud
+            .field("event.7.out")
+            .is_some_and(|c| c.text().contains("replaced 1 file")));
+        let _ = hud.update(Message::Select {
+            id: "event.7.in.path".into(),
+            action: iced::widget::text_editor::Action::SelectAll,
+        });
+        assert_eq!(hud.copyable_text().trim(), "src/a.rs");
     }
 
     #[test]

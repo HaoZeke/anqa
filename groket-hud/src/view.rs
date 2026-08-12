@@ -160,14 +160,13 @@ fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Messa
     }
 }
 
-fn selectable<'a>(
+fn select_bound<'a>(
     hud: &'a Hud,
-    key: ExtractKey,
+    id: String,
     fallback: &str,
     tea: icedtea::theme::Tokens,
     face: icedtea::typo::FontFace,
 ) -> Element<'a, Message> {
-    let id = key.id();
     let Some(buf) = hud.field(&id) else {
         return text(fallback.to_string())
             .size(typo::BODY)
@@ -185,6 +184,16 @@ fn selectable<'a>(
         face,
         A11y::new(a11y_id, Role::TextBox),
     )
+}
+
+fn selectable<'a>(
+    hud: &'a Hud,
+    key: ExtractKey,
+    fallback: &str,
+    tea: icedtea::theme::Tokens,
+    face: icedtea::typo::FontFace,
+) -> Element<'a, Message> {
+    select_bound(hud, key.id(), fallback, tea, face)
 }
 
 fn code_inset<'a>(hud: &'a Hud, id: &str, tea: icedtea::theme::Tokens) -> Element<'a, Message> {
@@ -645,13 +654,15 @@ fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
 }
 
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::widget::themed_button(
+    mouse_area(icedtea::widget::chip(
         label.clone(),
-        Some(msg),
+        None,
         tea,
         Variant::Chip,
         A11y::button(label),
-    )
+    ))
+    .on_press(msg)
+    .into()
 }
 
 fn command_end(child: Element<'static, Message>) -> Element<'static, Message> {
@@ -955,11 +966,9 @@ fn turn_paint<'a>(
     src: &str,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
-    if looks_like_markdown(src) {
-        md_body(src, 4000, tea)
-    } else {
-        selectable(hud, key, src, tea, icedtea::typo::FontFace::Ui)
-    }
+    // Open bodies must be drag-selectable. markdown_view paints pretty
+    // markdown but has no selection; iced also draws links as buttons.
+    selectable(hud, key, src, tea, icedtea::typo::FontFace::Ui)
 }
 
 fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Element<'a, Message> {
@@ -1450,7 +1459,12 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
                         .size(typo::META)
                         .color(tok.muted),
                 );
-                col = col.push(field_body(&field.id, &field.value, hud));
+                col = col.push(field_body(
+                    hud,
+                    &format!("event.{}.in.{}", ev.index, field.id),
+                    &field.id,
+                    &field.value,
+                ));
             }
         }
         let out_tool = if result.tool_name.is_empty() {
@@ -1502,31 +1516,34 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     col.into()
 }
 
-fn field_body(id: &str, value: &str, hud: &Hud) -> Element<'static, Message> {
-    let tok = hud.tokens();
-    let is_patch = id == "old_string" || id == "new_string" || id == "command";
-    let color = if id == "old_string" {
-        tok.danger
-    } else if id == "new_string" {
-        tok.accent
-    } else {
-        tok.text
-    };
+fn field_body<'a>(
+    hud: &'a Hud,
+    bind_id: &str,
+    field_id: &str,
+    value: &str,
+) -> Element<'a, Message> {
     let tea = hud.tokens();
-    container(
-        text(value.to_string())
-            .size(typo::META)
-            .font(if is_patch || id == "pattern" {
-                typo::MONO
-            } else {
-                typo::UI
-            })
-            .color(color),
-    )
-    .padding(8)
-    .width(Length::Fill)
-    .style(move |_| icedtea::style::card(tea, false))
-    .into()
+    let body = if field_id == "old_string"
+        || field_id == "new_string"
+        || field_id == "command"
+        || field_id == "pattern"
+        || crate::format::looks_like_json(value)
+    {
+        code_inset(hud, bind_id, tea)
+    } else {
+        select_bound(
+            hud,
+            bind_id.to_string(),
+            value,
+            tea,
+            icedtea::typo::FontFace::Mono,
+        )
+    };
+    container(body)
+        .padding(8)
+        .width(Length::Fill)
+        .style(move |_| icedtea::style::card(tea, false))
+        .into()
 }
 
 fn render_payload_text<'a>(
@@ -1553,31 +1570,29 @@ fn render_payload_text<'a>(
     }
     match paint {
         BodyPaint::Json => code_inset(hud, field_id, hud.tokens()),
-        BodyPaint::Markdown => inset_body(md_body(&cut, max, hud.tokens()), hud),
         BodyPaint::Image => tool_image(trimmed, hud.tokens()),
         _ => {
-            let rendered: Element<'static, Message> = match kind {
-                "thought" => text(cut)
-                    .size(typo::BODY)
-                    .font(typo::UI_ITALIC)
-                    .color(tok.muted)
-                    .into(),
-                "plan" => text(cut).size(typo::BODY).color(tok.accent).into(),
-                "session" | "task" => text(cut).size(typo::BODY).color(tok.warning).into(),
-                "error" => text(cut).size(typo::BODY).color(tok.danger).into(),
-                "system" => text(cut).size(typo::BODY).color(tok.accent).into(),
-                _ => text(cut).size(typo::BODY).font(typo::UI).into(),
-            };
-            if kind == "user" || kind == "agent" || kind == "subagent" {
-                inset_body(rendered, hud)
+            let body = select_bound(
+                hud,
+                field_id.to_string(),
+                &cut,
+                tok,
+                icedtea::typo::FontFace::Ui,
+            );
+            if kind == "user"
+                || kind == "agent"
+                || kind == "subagent"
+                || paint == BodyPaint::Markdown
+            {
+                inset_body(body, hud)
             } else {
-                rendered
+                body
             }
         }
     }
 }
 
-fn inset_body(inner: Element<'static, Message>, hud: &Hud) -> Element<'static, Message> {
+fn inset_body<'a>(inner: Element<'a, Message>, hud: &'a Hud) -> Element<'a, Message> {
     let tea = hud.tokens();
     container(inner)
         .padding(10)
@@ -1805,8 +1820,8 @@ mod tests {
     fn closed_turn_peek_keeps_chips_above_the_fade() {
         let h = icedtea::widget::Peek::Lines(4).height();
         let fade = 12.0_f32.min(h * 0.4).max(4.0);
-        // themed_button Chip: BODY text + pad [8, 12] vertical.
-        let chip_row = (icedtea::typo::BODY as f32 + 16.0).max(JUMP_PX + 8.0);
+        // widget::chip: META text + pad [4, 8] vertical.
+        let chip_row = (icedtea::typo::META as f32 + 8.0).max(JUMP_PX + 8.0);
         let stack = icedtea::widget::Peek::body_line() + 6.0 + chip_row;
         assert!(
             stack + fade <= h,
@@ -1840,9 +1855,10 @@ mod tests {
             .split("fn command_end")
             .next()
             .expect("chip_btn body");
-        assert!(chip.contains("themed_button("));
+        assert!(chip.contains("widget::chip"));
+        assert!(chip.contains("mouse_area"));
         assert!(chip.contains("Variant::Chip"));
-        assert!(!chip.contains("themed_button_sized"));
+        assert!(!chip.contains("themed_button"));
         assert!(!chip.contains("Fixed(22"));
     }
 
@@ -1906,6 +1922,8 @@ mod tests {
         assert!(prod.contains("icedtea::widget::code_block"));
         assert!(prod.contains("icedtea::widget::selectable"));
         assert!(prod.contains("icedtea::widget::value_field"));
+        assert!(prod.contains("fn select_bound"));
+        assert!(prod.contains("event.{}.in.{}"));
         assert!(prod.contains("icedtea::widget::image_slot"));
         assert!(prod.contains("icedtea::widget::placeholder_skeleton"));
         assert!(prod.contains("icedtea::pattern::status_page"));
