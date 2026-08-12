@@ -318,6 +318,12 @@ pub fn overlay_already_mapped(visible: bool, window_mode: bool, has_window: bool
     visible && !window_mode && has_window
 }
 
+/// Window mode already opens a visible decorated surface. Summoning the
+/// overlay on top would keep those decorations and paint a pop-out control.
+pub fn boot_summons_overlay(window_mode: bool, show_on_start: bool) -> bool {
+    show_on_start && !window_mode
+}
+
 pub fn palette_window_settings() -> window::Settings {
     let mut win = with_hud_icon(window::Settings {
         size: Size::new(HUD_W, HUD_H),
@@ -448,7 +454,7 @@ impl Hud {
             }),
             fetch_list(false, 0),
         ];
-        if crate::tray::show_on_start() {
+        if boot_summons_overlay(hud.window_mode, crate::tray::show_on_start()) {
             boot.push(hud.show_palette());
         }
         (hud, Task::batch(boot))
@@ -3250,6 +3256,14 @@ mod tests {
         assert!(!overlay_already_mapped(false, false, true));
         assert!(!overlay_already_mapped(true, true, true));
         assert!(!overlay_already_mapped(true, false, false));
+    }
+
+    #[test]
+    fn window_mode_boot_does_not_summon_overlay() {
+        assert!(!boot_summons_overlay(true, true));
+        assert!(boot_summons_overlay(false, true));
+        assert!(!boot_summons_overlay(false, false));
+        assert!(!boot_summons_overlay(true, false));
     }
 
     #[test]

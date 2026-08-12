@@ -254,7 +254,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     ]
     .spacing(12)
     .align_y(Alignment::Center)
-    .padding(Padding::from([8, 16]));
+    .padding(Padding::from([8, 20]));
     let foot = container(foot)
         .width(Length::Fill)
         .style(move |_| icedtea::style::footer(tea));
