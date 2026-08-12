@@ -615,7 +615,7 @@ impl Hud {
                 let load = match tab {
                     Tab::Timeline => {
                         if self.wants_events() {
-                            if let Some(sid) = self.selected_sid() {
+                            if let Some(sid) = self.detail_sid() {
                                 self.ensure_timeline(sid, false)
                             } else {
                                 Task::none()
@@ -668,7 +668,7 @@ impl Hud {
                     self.timeline_prompt = None;
                     self.events_turn_index = None;
                 }
-                if let Some(sid) = self.selected_sid() {
+                if let Some(sid) = self.detail_sid() {
                     if self.wants_events() {
                         return self.ensure_timeline(sid, true);
                     }
@@ -679,7 +679,7 @@ impl Hud {
                 self.timeline_kind = k;
                 self.timeline_focus = None;
                 self.timeline_expanded.clear();
-                if let Some(sid) = self.selected_sid() {
+                if let Some(sid) = self.detail_sid() {
                     if self.wants_events() {
                         return self.ensure_timeline(sid, true);
                     }
@@ -1108,7 +1108,7 @@ impl Hud {
                             self.timeline_offset,
                             false,
                         ) {
-                            if let Some(next_sid) = self.selected_sid() {
+                            if let Some(next_sid) = self.detail_sid() {
                                 tasks.push(self.fill_timeline_before(next_sid));
                             }
                         }
@@ -1796,6 +1796,32 @@ impl Hud {
         }
     }
 
+    /// Detail/timeline ops: rail highlight, else open overview (search may hide row).
+    fn detail_sid(&self) -> Option<String> {
+        if let Some(s) = self.selected_sid() {
+            return Some(s);
+        }
+        if !self.overview_sid.is_empty() {
+            return Some(self.overview_sid.clone());
+        }
+        if !self.overview_pending.is_empty() {
+            return Some(self.overview_pending.clone());
+        }
+        None
+    }
+
+    fn detail_rpc_ref(&self) -> Option<String> {
+        if let Some(r) = self.selected_rpc_ref() {
+            return Some(r);
+        }
+        let r = self.overview_rpc_ref();
+        if r.is_empty() {
+            None
+        } else {
+            Some(r)
+        }
+    }
+
     /// Enter / Activate with no rail highlight: take the first visible match.
     fn ensure_rail_selection_for_activate(&mut self) {
         if !matches!(self.list_selection, icedtea::collection::Selection::None) {
@@ -2191,15 +2217,26 @@ impl Hud {
     }
 
     fn load_overview(&mut self, quiet: bool) -> Task<Message> {
-        let Some(sid) = self.selected_sid() else {
-            self.overview = None;
-            self.overview_sid.clear();
-            self.overview_pending.clear();
-            return Task::none();
-        };
-        let Some(rpc_ref) = self.selected_rpc_ref() else {
-            return Task::none();
-        };
+        // Explicit activate needs a rail choice. Quiet refresh may target the
+        // open overview while search cleared the highlight (never wipe body).
+        let (sid, rpc_ref) =
+            if let (Some(s), Some(r)) = (self.selected_sid(), self.selected_rpc_ref()) {
+                (s, r)
+            } else if quiet {
+                let Some(s) = self.detail_sid() else {
+                    return Task::none();
+                };
+                let Some(r) = self.detail_rpc_ref() else {
+                    return Task::none();
+                };
+                (s, r)
+            } else {
+                // Explicit open with nothing selected and no open overview: clear.
+                self.overview = None;
+                self.overview_sid.clear();
+                self.overview_pending.clear();
+                return Task::none();
+            };
         // Chrome: pending sid + loading placeholder this frame; body fills async.
         self.overview_pending = sid.clone();
         self.full_turns_hydrated = false;
@@ -2357,7 +2394,7 @@ impl Hud {
                     self.timeline_expanded.insert(ix);
                 }
                 self.rebuild_tl_filter();
-                if let Some(sid) = self.selected_sid() {
+                if let Some(sid) = self.detail_sid() {
                     return self.ensure_timeline(sid, true);
                 }
                 Task::none()
@@ -2392,7 +2429,7 @@ impl Hud {
         }
         self.rebuild_tl_filter();
         // Always reload the turn-scoped page.
-        if let Some(sid) = self.selected_sid() {
+        if let Some(sid) = self.detail_sid() {
             return self.ensure_timeline(sid, true);
         }
         Task::none()
@@ -2470,7 +2507,7 @@ impl Hud {
         if self.tab != Tab::Timeline {
             return Task::none();
         }
-        let Some(sid) = self.selected_sid() else {
+        let Some(sid) = self.detail_sid() else {
             return Task::none();
         };
         if self.timeline_sid != sid {
@@ -2538,7 +2575,7 @@ impl Hud {
         if self.tab != Tab::Timeline || self.timeline_loading || self.timeline_complete() {
             return Task::none();
         }
-        let Some(sid) = self.selected_sid() else {
+        let Some(sid) = self.detail_sid() else {
             return Task::none();
         };
         if self.timeline_sid != sid {
@@ -3008,7 +3045,7 @@ impl Hud {
             cmds.push(self.load_overview(true));
         }
         if plan.refresh_timeline {
-            if let Some(sid) = self.selected_sid() {
+            if let Some(sid) = self.detail_sid() {
                 cmds.push(self.refresh_timeline_tail(sid));
             }
         }
@@ -3294,7 +3331,7 @@ impl Hud {
         if !self.session_rows.is_empty() || self.overview_sid.is_empty() {
             return Task::none();
         }
-        let Some(sid) = self.selected_sid() else {
+        let Some(sid) = self.detail_sid() else {
             return Task::none();
         };
         let rpc_ref = self.overview_rpc_ref();
@@ -3912,6 +3949,82 @@ mod tests {
         // Enter/activate takes first visible match.
         hud.ensure_rail_selection_for_activate();
         assert_eq!(hud.selected_sid().as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn quiet_load_overview_keeps_open_session_when_rail_cleared() {
+        // Overview A open; search hides A so selection is None; quiet tick must
+        // refresh A, not clear overview.
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "keep-open".into(),
+                    title: "Keep".into(),
+                    path: "/tmp/keep-open".into(),
+                    status: "running".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "other".into(),
+                    title: "Other".into(),
+                    path: "/tmp/other".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            overview_sid: "keep-open".into(),
+            overview: Some(Overview {
+                session_id: "keep-open".into(),
+                meta: crate::wire::SessionMeta {
+                    session_id: "keep-open".into(),
+                    path: "/tmp/keep-open".into(),
+                    status: "running".into(),
+                    ..crate::wire::SessionMeta::default()
+                },
+                ..Overview::default()
+            }),
+            list_selection: icedtea::collection::Selection::None,
+            active: 0,
+            overview_gen: 3,
+            status: "keep-open · running".into(),
+            ..Hud::default()
+        };
+        hud.query = "Other".into();
+        hud.rerank_visible_keeping("keep-open".into());
+        assert!(matches!(
+            hud.list_selection,
+            icedtea::collection::Selection::None
+        ));
+        assert!(hud.selected_sid().is_none());
+        assert_eq!(hud.detail_sid().as_deref(), Some("keep-open"));
+        // Quiet refresh must not wipe.
+        let task = hud.load_overview(true);
+        let _ = task; // schedule RPC; state before response:
+        assert_eq!(hud.overview_sid, "keep-open");
+        assert!(hud.overview.is_some());
+        assert_eq!(hud.overview_pending, "keep-open");
+        assert!(
+            hud.status.starts_with("keep-open") || !hud.overview_pending.is_empty(),
+            "open session preserved for quiet path"
+        );
+        // Explicit activate with no rail choice and we still have overview:
+        // load_overview(false) without selection clears only when no detail_sid.
+        // After ensure activate:
+        hud.list_selection = icedtea::collection::Selection::None;
+        hud.overview = Some(Overview {
+            session_id: "keep-open".into(),
+            meta: crate::wire::SessionMeta {
+                session_id: "keep-open".into(),
+                path: "/tmp/keep-open".into(),
+                status: "running".into(),
+                ..crate::wire::SessionMeta::default()
+            },
+            ..Overview::default()
+        });
+        hud.overview_sid = "keep-open".into();
+        // Quiet again after clear selection.
+        let _ = hud.load_overview(true);
+        assert_eq!(hud.overview_sid, "keep-open");
+        assert_eq!(hud.overview_pending, "keep-open");
     }
 
     #[test]
