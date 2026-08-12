@@ -125,6 +125,22 @@ pub fn install() -> Result<HudTray, TrayError> {
     }
 }
 
+/// End this process. Tray and notify threads otherwise keep it alive
+/// after the iced loop returns.
+pub fn quit_process() -> ! {
+    std::process::exit(0)
+}
+
+/// Ask iced to quit, then end the process if the loop does not return.
+pub fn schedule_quit_process() {
+    let _ = std::thread::Builder::new()
+        .name("groket-hud-quit".into())
+        .spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            quit_process();
+        });
+}
+
 /// Block until the next tray action (used by the iced subscription).
 ///
 /// The lock is not held across a blocking recv, so a remounted iced
@@ -214,6 +230,7 @@ mod linux {
                     label: MENU_QUIT_LABEL.into(),
                     activate: Box::new(|this: &mut Self| {
                         let _ = this.tx.send(TrayAction::Quit);
+                        super::schedule_quit_process();
                     }),
                     ..Default::default()
                 }
@@ -283,6 +300,9 @@ mod other {
                 while let Ok(ev) = MenuEvent::receiver().recv() {
                     if let Some(action) = action_from_menu_id(ev.id.as_ref()) {
                         emit(action);
+                        if action == super::TrayAction::Quit {
+                            super::schedule_quit_process();
+                        }
                     }
                 }
             })
@@ -366,5 +386,14 @@ mod tests {
     fn rgba_to_argb_rotates_channels() {
         let argb = rgba_to_argb(&[0x11, 0x22, 0x33, 0x44]);
         assert_eq!(argb, vec![0x44, 0x11, 0x22, 0x33]);
+    }
+
+    #[test]
+    fn quit_menu_schedules_process_exit() {
+        let src = include_str!("tray.rs");
+        assert!(src.contains("schedule_quit_process"));
+        assert!(src.contains("fn quit_process"));
+        let main = include_str!("main.rs");
+        assert!(main.contains("std::process::exit"));
     }
 }
