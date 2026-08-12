@@ -415,6 +415,7 @@ pub struct TimelineRequest<'a> {
     pub query: &'a str,
     pub around_index: Option<i64>,
     pub at_index: Option<i64>,
+    pub prompt_index: Option<i64>,
 }
 
 pub fn session_timeline(req: TimelineRequest<'_>) -> Result<Value, ControlError> {
@@ -435,6 +436,9 @@ pub fn session_timeline(req: TimelineRequest<'_>) -> Result<Value, ControlError>
     }
     if let Some(ix) = req.at_index {
         params["atIndex"] = json!(ix);
+    }
+    if let Some(ix) = req.prompt_index {
+        params["promptIndex"] = json!(ix);
     }
     request("session/timeline", params)
 }

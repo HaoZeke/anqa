@@ -339,10 +339,22 @@ def _turn_assistant_preview(
     return last_text, last_idx
 
 
-def turn_segment_mapping(seg: TurnSegment, *, include_event_indexes: bool = True) -> JsonObject:
-    """Serialize one turn segment for ``session/turns`` / overview turns."""
+def turn_segment_mapping(
+    seg: TurnSegment,
+    *,
+    include_event_indexes: bool = True,
+    assistant_max_chars: int = 12_000,
+) -> JsonObject:
+    """Serialize one turn segment for ``session/turns`` / overview turns.
+
+    :param assistant_max_chars: Cap on assistant wrap-up text. Overview uses a
+        short cap so large sessions stay small; full ``session/turns`` keeps
+        the default.
+    """
     summary, user_index = _turn_user_prompt_preview(seg)
-    assistant, assistant_index = _turn_assistant_preview(seg)
+    assistant, assistant_index = _turn_assistant_preview(
+        seg, max_chars=assistant_max_chars
+    )
     row: JsonObject = {
         "turnIndex": int(seg.turn_index),
         "turnNumber": seg.turn_number,
@@ -681,7 +693,16 @@ def _build_session_overview_uncached(
         "summary": summary,
         "turns": {
             "total": len(segs),
-            "turns": [turn_segment_mapping(s, include_event_indexes=False) for s in segs],
+            # Short assistant preview for the list: full wrap-up is for open cards
+            # / session/turns — 12k×N turns made overview multi‑100KB and slow.
+            "turns": [
+                turn_segment_mapping(
+                    s,
+                    include_event_indexes=False,
+                    assistant_max_chars=400,
+                )
+                for s in segs
+            ],
         },
         "timeline": {
             "total": len(events),
@@ -860,6 +881,23 @@ def _timeline_query_matches(event: TraceEvent, query: str) -> bool:
     return timeline_query_hit(event, query) is not None
 
 
+def _event_indexes_for_prompt(
+    segments: list[TurnSegment],
+    prompt_index: int,
+) -> set[int]:
+    """Timeline indexes for the turn(s) whose operator ``promptIndex`` matches.
+
+    Only the operator user row carries ``_meta.promptIndex`` on the wire.
+    Tools and assistant rows in the same turn usually have no meta, so a
+    per-event equality filter would drop them. Membership is the segment.
+    """
+    indexes: set[int] = set()
+    for seg in segments:
+        if seg.prompt_index == prompt_index:
+            indexes.update(int(e.index) for e in seg.events)
+    return indexes
+
+
 def build_session_timeline(
     session_dir: Path,
     *,
@@ -878,6 +916,9 @@ def build_session_timeline(
     events = parse_timeline(sd)
     # Sequential operator turn ids for HUD/TUI orientation while scrolling.
     _segs, turn_by_index = _turn_view_for_session(sd, events)
+    prompt_indexes: set[int] | None = None
+    if prompt_index is not None:
+        prompt_indexes = _event_indexes_for_prompt(_segs, int(prompt_index))
     type_filter = (event_type or "").strip().casefold()
     filtered: list[TraceEvent] = []
     for ev in events:
@@ -888,7 +929,7 @@ def build_session_timeline(
             continue
         if not _timeline_query_matches(ev, query):
             continue
-        if prompt_index is not None and ev.prompt_index != prompt_index:
+        if prompt_indexes is not None and int(ev.index) not in prompt_indexes:
             continue
         filtered.append(ev)
     total = len(filtered)

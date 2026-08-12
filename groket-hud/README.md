@@ -18,25 +18,32 @@ Sol-style session **command palette** for the local groket control plane
   mark on a dark one (gruvbox, nord) at 32px.
 - Turn and timeline cards show quiet pills for findings, notes, and errors;
   **Add note** opens the Notes tab with turn (and event) filled in.
-  A go-to icon (arrow into a bar) jumps to that turn or finding on Timeline.
+  A go-to icon (arrow into a bar) loads **that turn’s events** only
+  (``session/timeline`` with ``promptIndex``). Findings jump the same way
+  when they name an event; otherwise they open Overview.
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
 - Typeahead over the ``session/list`` catalog (first paint is one page; the
   rest fills in the background; empty search does not clone the catalog)
-- Detail: overview, turns, live timeline, findings, notes. Turns and timeline
-  mount only the visible cards.
-  Timeline type labels use the TUI brand colors (cream / complete / running /
+- Detail defaults to **Overview**. Selecting a session loads overview only —
+  it does not fetch the session event list.
+  A closed turn card is the user prompt plus marks. Expanding a complete
+  turn binds and paints the final assistant for select/copy. An open turn
+  shows status and a short last line.
+  **Events** has a turn pick list (defaults to the turn you jumped from)
+  plus type filter and search-all. **Next turn** steps the pick list.
+  Picking a turn expands it on Turns. Overview lists session-level rows
+  (system / session chrome).
+  Event type labels use the TUI brand colors (cream / complete / running /
   failed / cancelled). Search hits show the matching field and a snippet.
-  Timeline events and turn User/Assistant sections use the same
-  disclosure drawer (▸ / ▾). Markdown in a turn or note paints as
-  markdown on a closed peek; an open turn body and timeline tool
-  input/output are selectable so you can drag-copy. JSON/code uses the
-  code block. Copy with
-  **Ctrl+C** (or **y** / **Ctrl+Shift+C** for the focused event).
-  Right-click opens Copy and Copy path (icedtea context menu).
+  Turn and event cards use the same disclosure drawer (▸ / ▾). JSON/code
+  uses the code block. Copy with
+  **y** / **Ctrl+Shift+C** (or right-click Copy).
+  Right-click also offers Copy path.
 - Live refresh while the palette is open: selected running/awaiting turns
-  re-fetch overview and the timeline tail about every 3s (idle sessions slower).
+  re-fetch overview about every 3s (idle sessions slower). An open event
+  drawer refreshes that turn’s events.
 - Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;
   override with ``~/.groket/config.json`` ``hud.global_shortcut`` or env
   ``GROKET_HUD_SHORTCUT``

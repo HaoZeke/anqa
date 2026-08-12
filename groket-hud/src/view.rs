@@ -21,13 +21,13 @@ use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
     body_paint, capped_display, display_tool_output, event_brand_role, fmt_duration,
-    format_note_time, image_result_path, looks_like_markdown, note_fields_view, origin_label,
-    sanitize_console_text, status_tone, timeline_body_text, timeline_query_hit,
+    format_note_time, image_result_path, list_status_label, looks_like_markdown, note_fields_view,
+    origin_label, sanitize_console_text, status_tone, timeline_body_text, timeline_query_hit,
     tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, visible_range, CardMark,
-    SESSION_LIST_W, TIMELINE_OVERSCAN, TIMELINE_ROW_H,
+    CLOSED_TURN_CARD_H, SESSION_LIST_W, TIMELINE_OVERSCAN, TIMELINE_ROW_H, TURNS_OVERSCAN,
 };
 use crate::model::{KindFilter, Tab};
 use crate::typo;
@@ -355,8 +355,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     } else {
         match hud.tab() {
             Tab::Overview => overview_tab(hud),
-            Tab::Turns => turns_tab(hud),
-            Tab::Timeline => column![].into(),
+            Tab::Turns | Tab::Timeline => column![].into(),
             Tab::Findings => findings_tab(hud),
             Tab::Notes => notes_tab(hud),
         }
@@ -379,7 +378,10 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         ));
     } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
         stack = stack.push(icedtea::widget::themed_scroll(
-            container(body).padding([16, 20]).width(Length::Fill).into(),
+            container(turns_tab(hud, hud.turn_view_h()))
+                .padding([16, 20])
+                .width(Length::Fill)
+                .into(),
             tea,
             A11y::new("Turns", Role::Group),
             false,
@@ -407,7 +409,15 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
 
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    row![
+    let mut row = row![
+        icedtea::widget::meta("Turn", tea, A11y::new("Turn", Role::Header)),
+        icedtea::widget::themed_pick_list(
+            hud.events_turn_options(),
+            Some(hud.events_turn_selected()),
+            Message::EventsTurnPicked,
+            tea,
+            A11y::new("Turn", Role::ComboBox),
+        ),
         icedtea::widget::meta("Type", tea, A11y::new("Type", Role::Header)),
         icedtea::widget::themed_pick_list(
             &KindFilter::ALL[..],
@@ -417,12 +427,12 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             A11y::new("Type", Role::ComboBox),
         ),
         container(icedtea::widget::themed_text_input(
-            "Filter events",
+            "Search all events",
             hud.timeline_query_draft(),
             Message::TimelineQuery,
             None,
             tea,
-            A11y::new("Filter events", Role::TextBox),
+            A11y::new("Search all events", Role::TextBox),
             Some(hud.tl_search_id()),
         ))
         .width(Length::Fill),
@@ -430,8 +440,17 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     ]
     .spacing(8)
     .align_y(Alignment::Center)
-    .padding(Padding::from([8, 12]))
-    .into()
+    .padding(Padding::from([8, 12]));
+    if hud.next_turn_after_events().is_some() {
+        row = row.push(icedtea::widget::themed_button(
+            "Next turn",
+            Some(Message::NextTurnEvents),
+            tea,
+            Variant::Quiet,
+            A11y::button("Next turn"),
+        ));
+    }
+    row.into()
 }
 
 fn overview_tab(hud: &Hud) -> Element<'_, Message> {
@@ -535,22 +554,32 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
             A11y::new("summary", Role::Status),
         ));
     }
-    col.push(kv(hud, "session", id, true))
-        .push(kv(hud, "events", events, false))
-        .push(kv(hud, "tools", tools, false))
-        .push(kv(hud, "turns", turns_n, false))
-        .push(kv(hud, "findings", findings_n, false))
-        .push(kv(hud, "notes", notes_n, false))
-        .push(kv(hud, "git", git, false))
-        .push(kv(hud, "path", path, true))
-        .push(
-            row![
-                Space::new().width(Length::Fill),
-                card_actions(overview_commands(), tea),
-            ]
-            .align_y(Alignment::Center),
-        )
-        .into()
+    col = col.push(kv(hud, "session", id, true));
+    col = col.push(kv(hud, "events", events, false));
+    col = col.push(kv(hud, "tools", tools, false));
+    col = col.push(kv(hud, "turns", turns_n, false));
+    col = col.push(kv(hud, "findings", findings_n, false));
+    col = col.push(kv(hud, "notes", notes_n, false));
+    col = col.push(kv(hud, "git", git, false));
+    col = col.push(kv(hud, "path", path, true));
+    if !hud.session_rows().is_empty() {
+        col = col.push(icedtea::widget::meta(
+            "Session events",
+            tea,
+            A11y::new("session-events", Role::Header),
+        ));
+        for ev in hud.session_rows() {
+            col = col.push(text(event_title(ev)).size(typo::META).color(tok.muted));
+        }
+    }
+    col.push(
+        row![
+            Space::new().width(Length::Fill),
+            card_actions(overview_commands(), tea),
+        ]
+        .align_y(Alignment::Center),
+    )
+    .into()
 }
 
 fn overview_commands() -> Vec<icedtea::action::Action<Message>> {
@@ -654,15 +683,14 @@ fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
 }
 
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    mouse_area(icedtea::widget::chip(
+    icedtea::widget::chip(
         label.clone(),
+        Some(msg),
         None,
         tea,
         Variant::Chip,
         A11y::button(label),
-    ))
-    .on_press(msg)
-    .into()
+    )
 }
 
 fn command_end(child: Element<'static, Message>) -> Element<'static, Message> {
@@ -765,22 +793,51 @@ fn turn_title(t: &TurnRow) -> String {
     }
 }
 
-fn turn_meta(t: &TurnRow) -> String {
-    format!(
-        "prompt {} · events {} · tools {} ({} errors){}{}",
-        t.prompt_index
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| "—".into()),
+/// Outcome badge + duration / counts for an open turn card (overview-style).
+fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let status = if t.open {
+        "open".to_string()
+    } else {
+        list_status_label("", &t.outcome)
+    };
+    let tone = if t.open {
+        "running"
+    } else {
+        status_tone(&status)
+    };
+    let taken = t
+        .duration_seconds
+        .filter(|s| *s > 0.0)
+        .map(fmt_duration)
+        .unwrap_or_else(|| "—".into());
+    let tools = if t.tool_error_count > 0 {
+        format!(
+            "{} tools · {} tool errors",
+            t.tool_call_count, t.tool_error_count
+        )
+    } else {
+        format!("{} tools", t.tool_call_count)
+    };
+    let prompt = t
+        .prompt_index
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "—".into());
+    let hero = format!(
+        "{taken} · {} events · {tools} · prompt {prompt}",
         t.event_count,
-        t.tool_call_count,
-        t.tool_error_count,
-        if t.outcome.is_empty() {
-            String::new()
-        } else {
-            format!(" · {}", t.outcome)
-        },
-        if t.open { " · open" } else { "" },
-    )
+    );
+    row![
+        icedtea::widget::badge(
+            status.clone(),
+            tea,
+            tone_variant(tone),
+            A11y::new(status, Role::Status),
+        ),
+        icedtea::widget::meta(hero.clone(), tea, A11y::new(hero, Role::Status)),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn turn_note(t: &TurnRow) -> Message {
@@ -891,11 +948,11 @@ fn event_body<'a>(
         .into()
 }
 
-fn finding_jump(f: &FindingRow) -> Message {
+pub(crate) fn finding_jump(f: &FindingRow) -> Message {
     f.primary_event_index
         .or_else(|| f.event_indices.first().copied())
         .map(Message::JumpTimeline)
-        .unwrap_or(Message::SetTab(Tab::Timeline))
+        .unwrap_or(Message::SetTab(Tab::Overview))
 }
 
 fn note_when(n: &NoteRow) -> String {
@@ -974,17 +1031,32 @@ fn turn_paint<'a>(
 fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Element<'a, Message> {
     let idx = t.turn_index;
     let tea = hud.tokens();
-    let mut col = column![if t.summary.is_empty() {
-        text("No user prompt in this turn")
-            .size(typo::BODY)
-            .color(hud.tokens().muted)
-            .into()
-    } else {
-        turn_paint(hud, ExtractKey::TurnUser(idx), &t.summary, tea)
-    }]
+    let mut col = column![
+        if t.summary.is_empty() {
+            text("No user prompt in this turn")
+                .size(typo::BODY)
+                .color(hud.tokens().muted)
+                .into()
+        } else {
+            turn_paint(hud, ExtractKey::TurnUser(idx), &t.summary, tea)
+        },
+        turn_stats_row(t, tea),
+    ]
     .spacing(8);
-    if !t.assistant_summary.is_empty() {
-        col = col.push(text("Assistant").size(typo::META).color(hud.tokens().muted));
+    if t.open {
+        if !t.assistant_summary.is_empty() {
+            col = col.push(
+                text(capped_display(&t.assistant_summary, 200))
+                    .size(typo::BODY)
+                    .color(hud.tokens().muted),
+            );
+        }
+    } else if !t.assistant_summary.is_empty() {
+        col = col.push(icedtea::widget::meta(
+            "Assistant",
+            tea,
+            A11y::new("Assistant", Role::Header),
+        ));
         col = col.push(turn_paint(
             hud,
             ExtractKey::TurnAsst(idx),
@@ -992,18 +1064,27 @@ fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Elemen
             tea,
         ));
     }
-    col.push(
-        row![
-            text(turn_meta(t))
-                .size(typo::META)
-                .color(hud.tokens().muted),
-            card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .width(Length::Fill),
-    )
+    col.push(card_chips(
+        hud,
+        mark,
+        Some(turn_note(t)),
+        Some(turn_jump(t)),
+    ))
     .into()
+}
+
+fn closed_turn_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    if summary.is_empty() {
+        return text("No user prompt in this turn")
+            .size(typo::BODY)
+            .color(tea.muted)
+            .into();
+    }
+    text(capped_display(summary, 320))
+        .size(typo::BODY)
+        .font(typo::UI)
+        .color(tea.text)
+        .into()
 }
 
 fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -1016,7 +1097,7 @@ fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, M
     md_body(summary, 2000, tea)
 }
 
-fn turns_tab(hud: &Hud) -> Element<'_, Message> {
+fn turns_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
     let (turn_marks, _) = hud.card_marks();
@@ -1027,8 +1108,21 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             .into();
     }
     let tea = hud.tokens();
-    let mut col = column![].spacing(8);
-    for t in turns {
+    let n = turns.len();
+    let win = visible_range(
+        hud.turn_scroll_y(),
+        viewport,
+        CLOSED_TURN_CARD_H,
+        n,
+        TURNS_OVERSCAN,
+    );
+    let start = win.start.min(n);
+    let end = win.end.min(n).max(start);
+    let mut col = column![].spacing(0);
+    if win.pad_top > 0.0 {
+        col = col.push(Space::new().height(win.pad_top));
+    }
+    for t in &turns[start..end] {
         let turn = t.turn_index;
         let open = hud.turn_expanded(turn);
         let mark = turn_marks.get(&turn).cloned();
@@ -1036,7 +1130,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             turn_body(hud, t, mark)
         } else {
             column![
-                prompt_face(&t.summary, tea),
+                closed_turn_face(&t.summary, tea),
                 card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
             ]
             .spacing(6)
@@ -1049,13 +1143,27 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             move |next| Message::TurnExpand { turn, open: next },
             tea,
         ));
+        col = col.push(Space::new().height(8));
+    }
+    if win.pad_bottom > 0.0 {
+        col = col.push(Space::new().height(win.pad_bottom));
     }
     col.into()
 }
 
 fn timeline_tab(hud: &Hud, viewport: f32) -> Element<'_, Message> {
+    if hud.timeline_query().trim().is_empty()
+        && hud.last_timeline().is_none()
+        && hud.filtered_indices().is_empty()
+        && !hud.timeline_loading()
+    {
+        return text("Pick a turn above, or type to search all events.")
+            .size(typo::BODY)
+            .color(hud.tokens().muted)
+            .into();
+    }
     if hud.timeline_loading() && hud.filtered_indices().is_empty() {
-        return loading_session("timeline", hud.tokens());
+        return loading_session("events", hud.tokens());
     }
     let idxs = hud.filtered_indices();
     if idxs.is_empty() {
@@ -1856,10 +1964,11 @@ mod tests {
             .next()
             .expect("chip_btn body");
         assert!(chip.contains("widget::chip"));
-        assert!(chip.contains("mouse_area"));
+        assert!(chip.contains("Some(msg)"));
         assert!(chip.contains("Variant::Chip"));
         assert!(!chip.contains("themed_button"));
         assert!(!chip.contains("Fixed(22"));
+        assert!(!chip.contains("mouse_area"));
     }
 
     fn tea() -> icedtea::theme::Tokens {
@@ -1948,9 +2057,9 @@ mod tests {
         assert!(prod.contains("pattern::command_bar"));
         assert!(prod.contains("pattern::status_bar"));
         assert!(prod.contains("ActionTable"));
-        assert!(!prod.contains("TURN_ROW_H"));
-        assert!(!prod.contains("TURNS_ROW_H"));
-        assert!(!prod.contains("VIRT_OVERSCAN"));
+        assert!(prod.contains("CLOSED_TURN_CARD_H"));
+        assert!(prod.contains("TURNS_OVERSCAN"));
+        assert!(prod.contains("turns_tab(hud, hud.turn_view_h())"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("fn turn_note"));
         assert!(prod.contains("fn overview_commands"));
@@ -1961,6 +2070,9 @@ mod tests {
         assert!(!prod.contains("fn disclosure"));
         assert!(prod.contains("fn selectable"));
         assert!(prod.contains("fn turn_paint"));
+        assert!(prod.contains("fn closed_turn_face"));
+        assert!(prod.contains("Search all events"));
+        assert!(prod.contains("Session events"));
         assert!(prod.contains("fn prompt_face"));
         assert!(!prod.contains("visual_lines("));
         assert!(!prod.contains(".height(height)"));

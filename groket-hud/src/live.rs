@@ -22,6 +22,10 @@ pub const SESSION_LIST_W: f32 = 260.0;
 pub const TIMELINE_ROW_H: f32 = 160.0;
 /// Extra mounted timeline cards for iced's scrollable (pads keep them off-screen).
 pub const TIMELINE_OVERSCAN: usize = 1;
+/// Closed turn card estimate (title + face + chips + gap). Pads for virtual list.
+pub const CLOSED_TURN_CARD_H: f32 = 140.0;
+/// Extra mounted turn cards beyond the viewport.
+pub const TURNS_OVERSCAN: usize = 2;
 /// Iced's own scrollable uses 60px per wheel line, not a full row.
 pub const WHEEL_LINE_PX: f32 = 60.0;
 /// Minimum scrollbar handle (icedtea rail). Iced's own scroller floors at 2px.
@@ -311,9 +315,9 @@ pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
     session_id.trim().to_string()
 }
 
-/// Timeline pages are fetched only while that tab is showing.
-pub fn should_fetch_timeline(on_timeline_tab: bool) -> bool {
-    on_timeline_tab
+/// Event pages load when the Events pane has a turn scope or a search query.
+pub fn should_fetch_timeline(on_events_tab: bool, query: &str, turn_prompt: Option<i64>) -> bool {
+    on_events_tab && (!query.trim().is_empty() || turn_prompt.is_some())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1369,9 +1373,11 @@ mod tests {
     }
 
     #[test]
-    fn should_fetch_timeline_only_on_that_tab() {
-        assert!(should_fetch_timeline(true));
-        assert!(!should_fetch_timeline(false));
+    fn should_fetch_timeline_only_with_query_or_turn() {
+        assert!(!should_fetch_timeline(true, "", None));
+        assert!(!should_fetch_timeline(false, "grep", None));
+        assert!(should_fetch_timeline(true, "grep", None));
+        assert!(should_fetch_timeline(true, "", Some(3)));
     }
 
     #[test]

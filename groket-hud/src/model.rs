@@ -24,7 +24,7 @@ impl Tab {
         match self {
             Tab::Overview => "Overview",
             Tab::Turns => "Turns",
-            Tab::Timeline => "Timeline",
+            Tab::Timeline => "Events",
             Tab::Findings => "Findings",
             Tab::Notes => "Notes",
         }
@@ -92,6 +92,27 @@ impl std::fmt::Display for KindFilter {
     }
 }
 
+/// Events pane turn scope (pick list). `turn_index == None` is search-all.
+#[derive(Debug, Clone)]
+pub struct EventsTurnPick {
+    pub turn_index: Option<i64>,
+    pub label: String,
+}
+
+impl PartialEq for EventsTurnPick {
+    fn eq(&self, other: &Self) -> bool {
+        self.turn_index == other.turn_index
+    }
+}
+
+impl Eq for EventsTurnPick {}
+
+impl std::fmt::Display for EventsTurnPick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NoteDraft {
     pub id: String,
@@ -140,7 +161,7 @@ mod tests {
     fn tab_and_kind_labels() {
         assert_eq!(Tab::Overview.label(), "Overview");
         assert_eq!(Tab::Turns.label(), "Turns");
-        assert_eq!(Tab::Timeline.label(), "Timeline");
+        assert_eq!(Tab::Timeline.label(), "Events");
         assert_eq!(KindFilter::User.short_label(), "User");
         assert_eq!(KindFilter::Asst.short_label(), "Assistant");
         assert_eq!(KindFilter::Errors.short_label(), "Errors");

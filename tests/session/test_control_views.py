@@ -123,6 +123,29 @@ def test_build_session_timeline_pages(tmp_path: Path) -> None:
             assert ev.get("contentTruncated") is True
 
 
+def test_timeline_prompt_index_returns_whole_turn(tmp_path: Path) -> None:
+    """promptIndex scopes to the turn segment, not only the user meta row."""
+    sd = _write_session(tmp_path, "sess-prompt-tl")
+    full = build_session_timeline(sd, offset=0, limit=50)
+    assert full["total"] >= 3
+    by_prompt = build_session_timeline(sd, offset=0, limit=50, prompt_index=2)
+    # Fixture: user (promptIndex 2) + agent + tool in one turn.
+    assert by_prompt["total"] == full["total"]
+    assert len(by_prompt["events"]) == full["total"]
+    kinds = {ev.get("kind") for ev in by_prompt["events"]}
+    assert "user" in kinds
+    assert "assistant" in kinds or any(
+        "agent" in str(ev.get("type") or "").casefold() for ev in by_prompt["events"]
+    )
+    assert any(ev.get("kind") in {"tool", "tool_result"} for ev in by_prompt["events"])
+    # Only the operator row carries _meta.promptIndex; others must still appear.
+    with_meta = [ev for ev in by_prompt["events"] if ev.get("promptIndex") == 2]
+    assert len(with_meta) == 1
+    missing = build_session_timeline(sd, offset=0, limit=50, prompt_index=99)
+    assert missing["total"] == 0
+    assert missing["events"] == []
+
+
 def test_build_session_turns(tmp_path: Path) -> None:
     sd = _write_session(tmp_path, "sess-turns")
     turns = build_session_turns(sd)
@@ -180,6 +203,46 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     conv = [e for e in page["events"] if e.get("kind") in ("user", "agent", "tool")]
     assert conv
     assert all(e.get("turnIndex") == 0 for e in conv)
+
+
+def test_overview_caps_assistant_preview_for_list(tmp_path: Path) -> None:
+    """session/overview keeps short assistant previews; session/turns keeps long."""
+    from groket.session.control_views import (
+        build_session_overview,
+        build_session_turns,
+        turn_segment_mapping,
+    )
+    from groket.session.turns import segment_timeline_turns
+    from groket.parser import parse_timeline
+
+    sd = _write_session(tmp_path, "sess-asst-cap")
+    long_agent = "A" * 2000
+    # Append a long agent chunk so both paths see the same wrap-up.
+    updates = (sd / "updates.jsonl").read_text(encoding="utf-8")
+    extra = {
+        "timestamp": 2000,
+        "params": {
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": long_agent},
+            }
+        },
+    }
+    (sd / "updates.jsonl").write_text(
+        updates + json.dumps(extra) + "\n", encoding="utf-8"
+    )
+    ov = build_session_overview(sd)
+    asst = (ov["turns"]["turns"][0].get("assistantSummary") or "")
+    assert len(asst) <= 401
+    assert asst.endswith("…")
+    turns = build_session_turns(sd)
+    full = (turns["turns"][0].get("assistantSummary") or "")
+    assert len(full) >= 2000
+    segs = segment_timeline_turns(parse_timeline(sd))
+    short = turn_segment_mapping(
+        segs[0], include_event_indexes=False, assistant_max_chars=400
+    )
+    assert len(str(short.get("assistantSummary") or "")) <= 401
 
 
 def test_build_session_findings_maps_events_to_turns(
