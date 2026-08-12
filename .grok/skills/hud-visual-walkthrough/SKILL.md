@@ -92,16 +92,28 @@ For **each** `*.png` under `out_dir/shots/` in step order:
 
 1. Open with the **read_file** tool (image path). You **must** inspect
    pixels with multimodal vision — **filename-only scoring fails**.
-2. Score against `references/rubric.md`.
-3. Human-usefulness bar (normal operator):
-   - Correct pane selected (Overview / Turns / Events / Findings / Notes)
-   - Readable type; primary controls not clipped or buried
-   - Buttons, tabs, and chips findable without guesswork
-   - No empty wrong pane when data should show
-   - No overlapping labels or unusable density
-4. Write one short note per shot: **ok / ugly / broken** + one sentence why.
+2. Score against `references/rubric.md` using **categories A–G**, not a
+   single remembered regression:
+   - **A Geometry** — clip, overlap, occlusion (including dual search fields)
+   - **B Control honesty** — labels match load/empty behavior
+   - **C Gate consistency** — tabs/actions vs “select a session” body
+   - **D Identity** — type color, human labels, no a11y-id as caption
+   - **E Density** — empty shells, spacing, contrast
+   - **F Pane validity** — Overview / Turns / Events / Findings / Notes
+   - **G Transitions** — cold start → select → All turns before turn pick
+3. On Timeline shots especially, answer explicitly:
+   - Is **Search all events** fully visible and not under picks/count?
+   - Does **All turns** show events, loading, or a *honest* empty?
+   - Is count/range real text (not the word `count` / a widget id)?
+   - Do closed cards show human type labels with brand color?
+4. Human-usefulness bar: correct pane; primary controls usable without
+   guesswork; no empty wrong pane when data should show.
+5. Write one short note per shot: **ok / ugly / broken** + **category
+   letter(s)** + one sentence why.
 
 Do **not** use `image_gen` to “fix” the UI. Prefer plain description + path.
+
+Do **not** stop at “search is no longer clipped” if Category B/C still fail.
 
 ### 4. Report
 
@@ -110,9 +122,10 @@ Write `out_dir/VISUAL_REPORT.md` (or `REPORT.md`) with:
 1. **Environment** — branch, serve, walk `DISPLAY`, backend, release vs debug.
 2. **Session** — id and title.
 3. **Timings** — control RPCs from `timings.json`.
-4. **Shot review** — ordered table: step · file · verdict · notes (from vision).
-5. **Verdict** — `SHIPPABLE` / `POLISH` / `BROKEN`.
-6. **Top fixes** — concrete product/UI asks.
+4. **Shot review** — ordered table: step · file · verdict · categories · notes.
+5. **Category rollup** — which of A–G failed (with one example shot each).
+6. **Verdict** — `SHIPPABLE` / `POLISH` / `BROKEN`.
+7. **Top fixes** — concrete product/UI asks (grouped by category when useful).
 
 Paste a short summary into chat. Keep the full report on disk.
 
@@ -123,29 +136,36 @@ Paste a short summary into chat. Keep the full report on disk.
 - Touch the icedtea checkout unless the user explicitly says so.
 - Claim pixel perfection without reading every shot.
 - Depend on product env logs or harness-only symbols in the HUD binary.
+- Reduce the rubric to a checklist of last-session bugs only.
 
 ## Step map
 
-| Step | Action | Shot name |
-|------|--------|-----------|
-| 00 | Ensure serve + start HUD | `00-boot` |
-| 01 | Show window (window mode) | `01-summon` |
-| 02 | Search session substring | `02-search` |
-| 03 | Select session (Enter) → Overview | `03-overview` |
-| 04 | Ctrl+2 Turns | `04-turns` |
-| 05 | Expand first turn (click) | `05-turn-open` |
-| 06 | Ctrl+3 Events | `06-events` |
-| 06b | `]` first Events turn pick | `06b-events-turn-pick` |
-| 06c | `]` next turn (if ≥2 turns) | `06c-next-turn` |
-| 07 | Ctrl+4 Findings | `07-findings` |
-| 08 | Ctrl+5 Notes | `08-notes` |
-| 09 | Ctrl+1 Overview | `09-overview-return` |
+| Step | Action | Shot name | Category stress |
+|------|--------|-----------|-----------------|
+| 00 | Ensure serve + start HUD | `00-boot` | — |
+| 01 | Show window (window mode) | `01-summon` | **C** cold: tabs vs select body |
+| 02 | Search session substring | `02-search` | A dual search later |
+| 03 | Select session (Enter) → Overview | `03-overview` | F Overview |
+| 04 | Ctrl+2 Turns | `04-turns` | F Turns |
+| 05 | Expand first turn (click) | `05-turn-open` | E open density |
+| 06 | Ctrl+3 Events (**All turns**, before `]`) | `06-events` | **A B D F** filter + All turns honesty |
+| 06b | `]` first Events turn pick | `06b-events-turn-pick` | D type color/labels, G |
+| 06c | `]` next turn (if ≥2 turns) | `06c-next-turn` | G list updates |
+| 07 | Ctrl+4 Findings | `07-findings` | F |
+| 08 | Ctrl+5 Notes | `08-notes` | F |
+| 09 | Ctrl+1 Overview | `09-overview-return` | G |
+
+Step **06** is the primary Timeline honesty gate: do not treat it as a
+throwaway empty state. If the product claims All turns / search-all, the
+frame must support that claim.
 
 ## Quality
 
 - Script is plain Python 3.12+; keep **ruff** clean (`ruff check` + `ruff format`).
 - Prefer release binary; document when debug is used.
 - Measurement is external (pixels + control RPC) — no product file I/O hooks.
+- Rubric is category-driven; extend categories when a new *class* of bug
+  appears, not only a one-line regression for the last incident.
 
 ## Related
 
