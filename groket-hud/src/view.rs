@@ -9,7 +9,7 @@ use iced::widget::canvas::{self, Canvas};
 
 use iced::widget::{
     column, container, image, markdown, mouse_area, responsive, row, scrollable, stack, text,
-    text_editor, text_input, Space,
+    text_input, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -21,9 +21,9 @@ use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
     body_paint, capped_display, display_tool_output, event_brand_role, fmt_duration,
-    format_note_time, image_result_path, looks_like_json, looks_like_markdown, note_fields_view,
-    origin_label, pretty_json, sanitize_console_text, status_tone, timeline_body_text,
-    timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
+    format_note_time, image_result_path, looks_like_markdown, note_fields_view, origin_label,
+    sanitize_console_text, status_tone, timeline_body_text, timeline_query_hit,
+    tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, visible_range, CardMark,
@@ -160,54 +160,46 @@ fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Messa
     }
 }
 
-fn flat_editor_style(
-    tok: icedtea::theme::Tokens,
-) -> impl Fn(&iced::Theme, text_editor::Status) -> text_editor::Style {
-    move |_t, _s| text_editor::Style {
-        background: iced::Background::Color(tok.canvas),
-        border: iced::Border {
-            color: iced::Color::TRANSPARENT,
-            width: 0.0,
-            radius: 0.0.into(),
-        },
-        placeholder: tok.muted,
-        value: tok.text,
-        selection: tok.selection,
-    }
-}
-
 fn selectable<'a>(
     hud: &'a Hud,
     key: ExtractKey,
     fallback: &str,
     tea: icedtea::theme::Tokens,
-    font: iced::Font,
+    face: icedtea::typo::FontFace,
 ) -> Element<'a, Message> {
-    let Some(buf) = hud.extract(key) else {
+    let id = key.id();
+    let Some(buf) = hud.field(&id) else {
         return text(fallback.to_string())
             .size(typo::BODY)
-            .font(font)
+            .font(face.font())
             .into();
     };
-    text_editor(buf)
-        .padding(0)
-        .size(typo::BODY)
-        .font(font)
-        .style(flat_editor_style(tea))
-        .on_action(move |action| Message::ExtractAction { key, action })
-        .into()
+    let a11y_id = id.clone();
+    icedtea::widget::selectable(
+        buf,
+        move |action| Message::Select {
+            id: id.clone(),
+            action,
+        },
+        tea,
+        face,
+        A11y::new(a11y_id, Role::TextBox),
+    )
 }
 
-fn code_inset(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let pretty = if looks_like_json(src) {
-        pretty_json(src)
-    } else {
-        src.to_string()
+fn code_inset<'a>(hud: &'a Hud, id: &str, tea: icedtea::theme::Tokens) -> Element<'a, Message> {
+    let Some(buf) = hud.field(id) else {
+        return text(String::new()).size(typo::BODY).font(typo::MONO).into();
     };
+    let id = id.to_string();
     icedtea::widget::code_block(
-        capped_display(&pretty, 2_000),
+        buf,
+        move |action| Message::Select {
+            id: id.clone(),
+            action,
+        },
         tea,
-        A11y::new("code", Role::Group),
+        A11y::new("code", Role::TextBox),
     )
 }
 
@@ -597,17 +589,32 @@ fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<
 }
 
 fn kv<'a>(hud: &'a Hud, k: &'static str, v: String, copy: bool) -> Element<'a, Message> {
-    let value: Element<'a, Message> = if copy {
-        selectable(hud, ExtractKey::Overview(k), &v, hud.tokens(), typo::MONO)
-    } else {
-        text(v).size(typo::BODY).color(hud.tokens().text).into()
-    };
+    if copy {
+        if let Some(buf) = hud.field(&ExtractKey::Overview(k).id()) {
+            return icedtea::widget::value_field(
+                k,
+                buf,
+                {
+                    let id = ExtractKey::Overview(k).id();
+                    move |action| Message::Select {
+                        id: id.clone(),
+                        action,
+                    }
+                },
+                None,
+                icedtea::typo::FontFace::Mono,
+                hud.tokens(),
+                icedtea::i18n::Direction::Ltr,
+                A11y::new(k, Role::Group),
+            );
+        }
+    }
     row![
         text(k)
             .size(typo::META)
             .color(hud.tokens().muted)
             .width(Length::Fixed(80.0)),
-        value,
+        text(v).size(typo::BODY).color(hud.tokens().text),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
@@ -951,7 +958,7 @@ fn turn_paint<'a>(
     if looks_like_markdown(src) {
         md_body(src, 4000, tea)
     } else {
-        selectable(hud, key, src, tea, typo::UI)
+        selectable(hud, key, src, tea, icedtea::typo::FontFace::Ui)
     }
 }
 
@@ -1409,7 +1416,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     let body = sanitize_console_text(&display_tool_output(&raw_body, &tool));
     let tok = hud.tokens();
     if !selected {
-        return render_payload_text(&body, &kind, hud, false);
+        return render_payload_text(&body, &kind, hud, false, &ExtractKey::Event(ev.index).id());
     }
     let mut col = column![].spacing(8);
     let family = ev.tool_family.clone();
@@ -1467,7 +1474,13 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             col = col.push(tool_image(&img, hud.tokens()));
         } else if !out_body.trim().is_empty() {
             col = col.push(text("Output").size(typo::META).color(tok.muted));
-            col = col.push(render_payload_text(&out_body, &result.kind, hud, true));
+            col = col.push(render_payload_text(
+                &out_body,
+                &result.kind,
+                hud,
+                true,
+                &format!("event.{}.out", ev.index),
+            ));
         }
     } else if selected {
         col = col.push(selectable(
@@ -1475,10 +1488,16 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             ExtractKey::Event(ev.index),
             &body,
             hud.tokens(),
-            typo::UI,
+            icedtea::typo::FontFace::Ui,
         ));
     } else {
-        col = col.push(render_payload_text(&body, &kind, hud, true));
+        col = col.push(render_payload_text(
+            &body,
+            &kind,
+            hud,
+            true,
+            &ExtractKey::Event(ev.index).id(),
+        ));
     }
     col.into()
 }
@@ -1510,12 +1529,13 @@ fn field_body(id: &str, value: &str, hud: &Hud) -> Element<'static, Message> {
     .into()
 }
 
-fn render_payload_text(
+fn render_payload_text<'a>(
     body: &str,
     kind: &str,
-    hud: &Hud,
+    hud: &'a Hud,
     expanded: bool,
-) -> Element<'static, Message> {
+    field_id: &str,
+) -> Element<'a, Message> {
     let tok = hud.tokens();
     let trimmed = body.trim();
     let paint = body_paint(kind, trimmed, expanded);
@@ -1532,7 +1552,7 @@ fn render_payload_text(
             .into();
     }
     match paint {
-        BodyPaint::Json => code_inset(&cut, hud.tokens()),
+        BodyPaint::Json => code_inset(hud, field_id, hud.tokens()),
         BodyPaint::Markdown => inset_body(md_body(&cut, max, hud.tokens()), hud),
         BodyPaint::Image => tool_image(trimmed, hud.tokens()),
         _ => {
@@ -1850,8 +1870,12 @@ mod tests {
 
     #[test]
     fn code_inset_pretty_prints_json_through_icedtea() {
-        let _ = code_inset(r#"{"a":1}"#, tea());
-        let _ = code_inset("not json", tea());
+        let mut hud = Hud::default();
+        hud.bind_field("code.json", r#"{ "a": 1 }"#);
+        hud.bind_field("code.plain", "not json");
+        let _ = code_inset(&hud, "code.json", tea());
+        let _ = code_inset(&hud, "code.plain", tea());
+        let _ = code_inset(&hud, "missing", tea());
     }
 
     #[test]
@@ -1880,6 +1904,8 @@ mod tests {
         assert!(prod.contains("icedtea::widget::themed_pick_list"));
         assert!(prod.contains("icedtea::widget::themed_text_input"));
         assert!(prod.contains("icedtea::widget::code_block"));
+        assert!(prod.contains("icedtea::widget::selectable"));
+        assert!(prod.contains("icedtea::widget::value_field"));
         assert!(prod.contains("icedtea::widget::image_slot"));
         assert!(prod.contains("icedtea::widget::placeholder_skeleton"));
         assert!(prod.contains("icedtea::pattern::status_page"));

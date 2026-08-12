@@ -1,6 +1,6 @@
 //! iced application: state, RPC, hotkey, live poll.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -141,8 +141,8 @@ pub enum Message {
     Cursor(icedtea::layout::CursorEvent),
     ContextDismiss,
     WindowSize(Size),
-    ExtractAction {
-        key: ExtractKey,
+    Select {
+        id: String,
         action: iced::widget::text_editor::Action,
     },
     ToastDismiss(u64),
@@ -156,6 +156,18 @@ pub enum ExtractKey {
     TurnUser(i64),
     TurnAsst(i64),
     Overview(&'static str),
+}
+
+impl ExtractKey {
+    /// Bind id for [`icedtea::field::Selectables`].
+    pub fn id(self) -> String {
+        match self {
+            Self::Event(i) => format!("event.{i}"),
+            Self::TurnUser(i) => format!("turn.user.{i}"),
+            Self::TurnAsst(i) => format!("turn.asst.{i}"),
+            Self::Overview(k) => format!("overview.{k}"),
+        }
+    }
 }
 
 pub struct Hud {
@@ -228,8 +240,8 @@ pub struct Hud {
     turns_open: HashSet<i64>,
     follow_draft: String,
     timeline_search_gen: u64,
-    extracts: HashMap<ExtractKey, iced::widget::text_editor::Content>,
-    extract_src: HashMap<ExtractKey, String>,
+    fields: icedtea::field::Selectables,
+    field_ids: HashSet<String>,
     pointer: Point,
     context: Option<Point>,
     window_size: Size,
@@ -307,8 +319,8 @@ impl Default for Hud {
             turns_open: HashSet::new(),
             follow_draft: String::new(),
             timeline_search_gen: 0,
-            extracts: HashMap::new(),
-            extract_src: HashMap::new(),
+            fields: icedtea::field::Selectables::new(),
+            field_ids: HashSet::new(),
             pointer: Point::ORIGIN,
             context: None,
             window_size: if std::env::var_os("GROKET_HUD_WINDOW").is_some() {
@@ -699,11 +711,9 @@ impl Hud {
             Message::MarkDone => self.mark_done(),
             Message::CopyPath => self.copy_path(),
             Message::CopyText(s) => self.copy_text(s),
-            Message::ExtractAction { key, action } => {
-                if !matches!(action, iced::widget::text_editor::Action::Edit(_)) {
-                    if let Some(buf) = self.extracts.get_mut(&key) {
-                        buf.perform(action);
-                    }
+            Message::Select { id, action } => {
+                if self.field_ids.contains(&id) {
+                    self.fields.perform(&id, action);
                 }
                 Task::none()
             }
@@ -1091,20 +1101,27 @@ impl Hud {
     pub fn is_timeline_expanded(&self, index: i64) -> bool {
         self.timeline_expanded.contains(&index)
     }
-    pub fn extract(&self, key: ExtractKey) -> Option<&iced::widget::text_editor::Content> {
-        self.extracts.get(&key)
+    pub fn field(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
+        self.field_ids.contains(id).then(|| self.fields.get(id))
     }
-    pub fn extract_src(&self, key: ExtractKey) -> Option<&str> {
-        self.extract_src.get(&key).map(String::as_str)
+    pub fn extract(&self, key: ExtractKey) -> Option<&iced::widget::text_editor::Content> {
+        self.field(&key.id())
+    }
+    pub fn extract_src(&self, key: ExtractKey) -> Option<String> {
+        self.field(&key.id()).map(|c| c.text())
+    }
+
+    pub(crate) fn bind_field(&mut self, id: impl Into<String>, src: &str) {
+        if src.is_empty() {
+            return;
+        }
+        let id = id.into();
+        self.fields.bind(&id, src);
+        self.field_ids.insert(id);
     }
 
     fn bind_extract_text(&mut self, key: ExtractKey, src: &str) {
-        if self.extract_src.get(&key).map(String::as_str) == Some(src) {
-            return;
-        }
-        self.extract_src.insert(key, src.to_string());
-        self.extracts
-            .insert(key, iced::widget::text_editor::Content::with_text(src));
+        self.bind_field(key.id(), src);
     }
 
     fn bind_event_extract(&mut self, index: i64) {
@@ -1117,7 +1134,26 @@ impl Hud {
         if src.is_empty() {
             return;
         }
-        self.bind_extract_text(ExtractKey::Event(index), &src);
+        let display = if crate::format::looks_like_json(&src) {
+            crate::format::capped_display(&crate::format::pretty_json(&src), 4_000)
+        } else {
+            src
+        };
+        self.bind_extract_text(ExtractKey::Event(index), &display);
+        if let Some(ev) = self.timeline.iter().find(|e| e.index == index) {
+            let out = crate::format::sanitize_console_text(&crate::format::display_tool_output(
+                &ev.content,
+                &ev.tool_name,
+            ));
+            if !out.trim().is_empty() {
+                let out = if crate::format::looks_like_json(&out) {
+                    crate::format::capped_display(&crate::format::pretty_json(&out), 4_000)
+                } else {
+                    crate::format::capped_display(&out, 4_000)
+                };
+                self.bind_field(format!("event.{index}.out"), &out);
+            }
+        }
     }
 
     fn bind_turn_extracts(&mut self) {
@@ -1192,12 +1228,10 @@ impl Hud {
         self.copy_text(self.copyable_text())
     }
 
-    fn copyable_text(&self) -> String {
-        for buf in self.extracts.values() {
-            if let Some(sel) = buf.selection() {
-                if !sel.trim().is_empty() {
-                    return sel;
-                }
+    pub(crate) fn copyable_text(&self) -> String {
+        if let Some(sel) = self.fields.first_selection() {
+            if !sel.trim().is_empty() {
+                return sel;
             }
         }
         match self.tab {
@@ -1563,8 +1597,8 @@ impl Hud {
         self.turns_open.clear();
         self.findings_open.clear();
         self.notes_open.clear();
-        self.extracts.clear();
-        self.extract_src.clear();
+        self.fields = icedtea::field::Selectables::new();
+        self.field_ids.clear();
         self.note_draft = NoteDraft::default();
         self.note_compose_lock = false;
         self.typing_notes = false;
@@ -3143,14 +3177,17 @@ mod tests {
             result: Ok(data),
         });
         assert_eq!(
-            hud.extract_src(ExtractKey::Overview("session")),
+            hud.extract_src(ExtractKey::Overview("session")).as_deref(),
             Some("sess-wire")
         );
         assert_eq!(
-            hud.extract_src(ExtractKey::Overview("path")),
+            hud.extract_src(ExtractKey::Overview("path")).as_deref(),
             Some("/workspace/sess-wire")
         );
-        assert_eq!(hud.extract_src(ExtractKey::Overview("events")), Some("3"));
+        assert_eq!(
+            hud.extract_src(ExtractKey::Overview("events")).as_deref(),
+            Some("3")
+        );
         assert!(hud.extract(ExtractKey::Overview("session")).is_some());
     }
 
@@ -3174,10 +3211,29 @@ mod tests {
         assert!(!src.contains("#3 "));
         assert!(hud.extract(ExtractKey::Event(3)).is_some());
         assert_eq!(
-            hud.extract_src
-                .get(&ExtractKey::Event(3))
-                .map(String::as_str),
+            hud.extract_src(ExtractKey::Event(3)).as_deref(),
             Some(src.as_str())
+        );
+    }
+
+    #[test]
+    fn yank_uses_selectables_selection() {
+        let mut hud = Hud::default();
+        hud.bind_field("overview.session", "sess-wire");
+        let _ = hud.update(Message::Select {
+            id: "overview.session".into(),
+            action: iced::widget::text_editor::Action::SelectAll,
+        });
+        assert_eq!(hud.copyable_text().trim(), "sess-wire");
+        let _ = hud.update(Message::Select {
+            id: "overview.session".into(),
+            action: iced::widget::text_editor::Action::Edit(
+                iced::widget::text_editor::Edit::Insert('x'),
+            ),
+        });
+        assert_eq!(
+            hud.extract_src(ExtractKey::Overview("session")).as_deref(),
+            Some("sess-wire")
         );
     }
 

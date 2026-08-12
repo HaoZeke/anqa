@@ -30,7 +30,8 @@ Sol-style session **command palette** for the local groket control plane
   failed / cancelled). Search hits show the matching field and a snippet.
   Timeline events and turn User/Assistant sections use the same
   disclosure drawer (▸ / ▾). Markdown in a turn or note paints as
-  markdown; a plain open body is selectable. Copy with
+  markdown; a plain open body and JSON/code are selectable. Markdown
+  copy is the source. Copy with
   **Ctrl+C** (or **y** / **Ctrl+Shift+C** for the focused event).
   Right-click opens Copy and Copy path (icedtea context menu).
 - Live refresh while the palette is open: selected running/awaiting turns
