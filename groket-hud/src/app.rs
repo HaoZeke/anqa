@@ -112,6 +112,7 @@ pub enum Message {
         attempt: u8,
     },
     Hide,
+    CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
     MdLink(String),
     ListScroll(icedtea::collection::VisibleWindow),
@@ -484,9 +485,7 @@ impl Hud {
         if self.note_delete_until.is_some() {
             subs.push(time::every(Duration::from_millis(250)).map(|_| Message::Tick));
         }
-        if self._tray.is_some() {
-            subs.push(tray_subscription());
-        }
+        subs.push(tray_subscription());
         Subscription::batch(subs)
     }
 
@@ -1021,6 +1020,7 @@ impl Hud {
             }
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
             Message::Hide => self.hide_palette(),
+            Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
             Message::MdLink(url) => {
                 self.status = url;
@@ -2154,15 +2154,26 @@ impl Hud {
     }
 
     fn quit(&mut self) -> Task<Message> {
+        // iced::exit closes every mapped surface. Do not window::close first:
+        // that emits CloseRequested and can drop this exit on a pop-out.
         self.visible = false;
         self.palette_live = false;
+        self.window_mode = false;
+        self.window_id = None;
         #[cfg(target_os = "linux")]
         crate::x11focus::release_keyboard();
-        let close = match self.window_id.take() {
-            Some(id) => window::close(id),
-            None => Task::none(),
-        };
-        Task::batch([close, iced::exit()])
+        iced::exit()
+    }
+
+    fn on_close_requested(&mut self, id: window::Id) -> Task<Message> {
+        if self.window_id != Some(id) {
+            return Task::none();
+        }
+        if self.window_mode {
+            self.dismiss_window()
+        } else {
+            self.hide_palette()
+        }
     }
 
     fn on_tick(&mut self) -> Task<Message> {
@@ -2329,12 +2340,6 @@ impl Hud {
 
     fn on_event(&mut self, ev: Event) -> Task<Message> {
         match ev {
-            Event::Window(window::Event::CloseRequested) => {
-                if self.window_mode {
-                    return self.dismiss_window();
-                }
-                return self.hide_palette();
-            }
             Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 return self.on_key(key, modifiers);
             }
@@ -2504,9 +2509,9 @@ fn fetch_timeline(req: TimelineFetch) -> Task<Message> {
     )
 }
 
-fn interesting_hud_event(event: Event, status: event::Status, _id: window::Id) -> Option<Message> {
+fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
-        Event::Window(window::Event::CloseRequested) => Some(Message::RawEvent(event)),
+        Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
         // iced 0.14 text_input unfocuses on Escape and marks the event Captured.
         // Overlay hide must still fire while search or notes hold focus.
         Event::Keyboard(keyboard::Event::KeyPressed {
@@ -2710,6 +2715,19 @@ mod tests {
         assert!(w.icon.is_some());
         #[cfg(target_os = "linux")]
         assert!(w.platform_specific.override_redirect);
+    }
+
+    #[test]
+    fn close_requested_event_carries_the_window_id() {
+        let id = window::Id::unique();
+        assert!(matches!(
+            interesting_hud_event(
+                Event::Window(window::Event::CloseRequested),
+                event::Status::Ignored,
+                id
+            ),
+            Some(Message::CloseRequested(got)) if got == id
+        ));
     }
 
     #[test]
@@ -3295,6 +3313,57 @@ mod tests {
         assert!(hud.window_id.is_none());
         assert!(!hud.visible);
         assert!(!hud.palette_live);
+        assert!(!hud.window_mode);
+    }
+
+    #[test]
+    fn tray_quit_stops_a_popped_out_window() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            window_mode: true,
+            window_id: Some(id),
+            ..Hud::default()
+        };
+        let _ = hud.on_tray(crate::tray::TrayAction::Quit);
+        assert!(hud.window_id.is_none());
+        assert!(!hud.visible);
+        assert!(!hud.palette_live);
+        assert!(!hud.window_mode);
+    }
+
+    #[test]
+    fn close_requested_for_old_window_does_not_dismiss_pop_out() {
+        let old = window::Id::unique();
+        let new = window::Id::unique();
+        let mut hud = Hud {
+            window_mode: true,
+            visible: true,
+            palette_live: true,
+            window_id: Some(new),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::CloseRequested(old));
+        assert_eq!(hud.window_id, Some(new));
+        assert!(hud.visible);
+        assert!(hud.window_mode);
+    }
+
+    #[test]
+    fn close_requested_current_window_dismisses_pop_out() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            window_mode: true,
+            visible: true,
+            palette_live: true,
+            window_id: Some(id),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::CloseRequested(id));
+        assert!(hud.window_id.is_none());
+        assert!(!hud.visible);
+        assert!(!hud.window_mode);
     }
 
     #[test]

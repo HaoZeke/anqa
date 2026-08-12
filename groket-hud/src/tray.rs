@@ -126,10 +126,23 @@ pub fn install() -> Result<HudTray, TrayError> {
 }
 
 /// Block until the next tray action (used by the iced subscription).
+///
+/// The lock is not held across a blocking recv, so a remounted iced
+/// subscription cannot deadlock Quit behind the previous waiter.
 pub fn recv_action() -> Result<TrayAction, RecvError> {
-    let rx = &action_pair().1;
-    let guard = rx.lock().expect("tray action mutex");
-    guard.recv()
+    loop {
+        let outcome = {
+            let guard = action_pair().1.lock().expect("tray action mutex");
+            guard.try_recv()
+        };
+        match outcome {
+            Ok(action) => return Ok(action),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => return Err(RecvError),
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+    }
 }
 
 fn action_pair() -> &'static (SyncSender<TrayAction>, Mutex<Receiver<TrayAction>>) {
