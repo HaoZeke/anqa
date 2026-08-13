@@ -401,12 +401,18 @@ def launch_tauri_hud(
         if n:
             sys.stderr.write(f"groket hud: stopped {n} running process(es)\n")
     elif not attach and hud_process_running():
-        sys.stderr.write(
-            "groket hud: already running in the background "
-            f"(summon: {summon_hint}; X11/macOS/Windows hotkey {chord_hint}; "
-            "use --restart to replace)\n"
-        )
-        return 0
+        if summon_socket_accepts():
+            sys.stderr.write(
+                "groket hud: already running in the background "
+                f"(summon: {summon_hint}; X11/macOS/Windows hotkey {chord_hint}; "
+                "use --restart to replace)\n"
+            )
+            return 0
+        n = stop_hud_processes()
+        if n:
+            sys.stderr.write(
+                f"groket hud: replaced {n} process(es); summon socket was not accepting\n"
+            )
 
     logger.info("launching HUD binary %s (foreground=%s)", binary, attach)
     sys.stderr.write(f"groket hud: {binary}\n")
