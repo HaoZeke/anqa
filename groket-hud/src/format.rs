@@ -1566,7 +1566,7 @@ mod tests {
         let max_label = rows.iter().map(|r| r.label.len()).max().unwrap_or(0);
         assert!(
             max_label <= 12,
-            "label too wide for KV_LABEL_W: {max_label}"
+            "label too wide for overview kv gutter: {max_label}"
         );
     }
 

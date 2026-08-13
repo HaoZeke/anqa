@@ -9,7 +9,7 @@ use iced::widget::canvas::{self, Canvas};
 
 use iced::widget::{
     column, container, image, markdown, mouse_area, responsive, row, scrollable, stack, text,
-    text_input, Space,
+    Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -18,6 +18,7 @@ use icedtea::variant::Variant;
 
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
+use crate::kit;
 use crate::format::{
     body_paint_for, capped_display, display_tool_output, event_brand_role, fmt_duration,
     format_note_time, human_event_type_label, image_result_path, is_chat_message,
@@ -34,52 +35,18 @@ use crate::model::{KindFilter, Tab};
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
 
-fn context_meter(frac: f32, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let filled = (frac.clamp(0.0, 1.0) * 100.0).round() as u16;
-    let empty = 100u16.saturating_sub(filled);
-    let track = tea.panel;
-    let bar = tea.primary;
-    let meter = if filled == 0 {
-        container(Space::new())
-            .width(Length::Fill)
-            .height(3)
-            .style(move |_| icedtea::style::fill(track, tea.text))
-            .into()
-    } else if empty == 0 {
-        container(Space::new())
-            .width(Length::Fill)
-            .height(3)
-            .style(move |_| icedtea::style::fill(bar, tea.text))
-            .into()
-    } else {
-        row![
-            container(Space::new())
-                .width(Length::FillPortion(filled))
-                .height(3)
-                .style(move |_| icedtea::style::fill(bar, tea.text)),
-            container(Space::new())
-                .width(Length::FillPortion(empty))
-                .height(3)
-                .style(move |_| icedtea::style::fill(track, tea.text)),
-        ]
-        .into()
-    };
-    icedtea::a11y::attach(meter, &A11y::new("context", Role::Progress))
-}
-
 fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
 }
 
 fn empty_sessions(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::pattern::status_page("No sessions", "Is groket serve running?", None, tea)
+    kit::status_empty("No sessions", "Is groket serve running?", tea)
 }
 
 fn no_session_matches(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::pattern::status_page(
+    kit::status_empty(
         "No matches",
         "Try another query, or clear search for recent sessions.",
-        None,
         tea,
     )
 }
@@ -87,17 +54,16 @@ fn no_session_matches(tea: icedtea::theme::Tokens) -> Element<'static, Message> 
 fn loading_session(sid: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     column![
         icedtea::widget::placeholder_skeleton(tea, A11y::new("Loading", Role::Progress)),
-        icedtea::pattern::status_page("Loading", sid.to_string(), None, tea),
+        kit::status_empty("Loading", sid.to_string(), tea),
     ]
     .spacing(12)
     .into()
 }
 
 fn select_session(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::pattern::status_page(
+    kit::status_empty(
         "Search for a session",
         "Type above, then Enter or click a match. Search again to switch.",
-        None,
         tea,
     )
 }
@@ -243,15 +209,15 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         image(brand::chrome_handle(crate::theme::canvas_is_dark(tok)))
             .width(brand::chrome_width())
             .height(brand::chrome_height()),
-        text_input("Search sessions", hud.query())
-            .id(hud.search_id())
-            .font(typo::UI)
-            .size(typo::BODY)
-            .on_input(Message::SearchChanged)
-            .on_submit(Message::ActivateSelected)
-            .padding([8, 10])
-            .style(icedtea::style::search_style(tea))
-            .width(Length::Fill),
+        kit::search_field(
+            "Search sessions",
+            hud.query(),
+            Message::SearchChanged,
+            Some(Message::ActivateSelected),
+            tea,
+            A11y::new("Search sessions", Role::TextBox),
+            Some(hud.search_id()),
+        ),
     ]
     .spacing(12)
     .align_y(Alignment::Center);
@@ -378,7 +344,7 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     let session_ready = hud.overview().is_some() || !hud.overview_pending().is_empty();
     let tea = hud.tokens();
-    let tabs = container(detail_tab_bar(hud, session_ready)).padding(Padding::from([8, 12]));
+    let tabs = container(kit::pane_tabs(hud.tab(), session_ready, tea)).padding(Padding::from([8, 12]));
 
     let mut stack = column![].spacing(0).height(Length::Fill);
     if let Some(bar) = browse_session_bar(hud, tea) {
@@ -503,32 +469,6 @@ fn browse_session_bar<'a>(
     )
 }
 
-/// Pane tabs: secondary panes only pressable once a session overview exists.
-fn detail_tab_bar(hud: &Hud, session_ready: bool) -> Element<'_, Message> {
-    let tea = hud.tokens();
-    let active = Tab::ALL.iter().position(|t| *t == hud.tab()).unwrap_or(0);
-    let mut r = row![].spacing(4).align_y(Alignment::Center);
-    for (i, tab) in Tab::ALL.iter().enumerate() {
-        let title = tab.label().to_string();
-        let enabled = session_ready || *tab == Tab::Overview;
-        // Gate C: disabled secondary tabs must not look live (muted + no press).
-        let show_active = enabled && i == active;
-        let label = if enabled {
-            text(title.clone()).size(typo::META)
-        } else {
-            text(title.clone()).size(typo::META).color(tea.muted)
-        };
-        let mut btn = iced::widget::button(label)
-            .padding([6, 10])
-            .style(icedtea::style::tab_style(tea, show_active));
-        if enabled {
-            btn = btn.on_press(Message::SetTab(*tab));
-        }
-        r = r.push(container(btn).padding([2, 2]));
-    }
-    r.into()
-}
-
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     // Two rows: picks + optional range; full-width search below so it never
@@ -578,9 +518,6 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         .padding(Padding::from([8, 12]))
         .into()
 }
-
-/// Fixed label gutter for Overview meta — every value starts on the same x.
-const KV_LABEL_W: f32 = 96.0;
 
 fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
@@ -637,7 +574,7 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     .spacing(8);
     // Progress only where context matters (session detail), and only when known.
     if ctx_frac > 0.0 {
-        col = col.push(context_meter(ctx_frac, tea));
+        col = col.push(kit::context_progress(ctx_frac, tea));
     }
     if hud.selected_awaiting() {
         col = col.push(awaiting_banner(hud, tea));
@@ -728,10 +665,7 @@ fn markdown_element(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, 
     )
 }
 
-/// One Overview meta row: shared label gutter + value (selectable when bound).
-///
-/// Label width is app-owned (`KV_LABEL_W`). icedtea's labeled value row sizes
-/// the label to natural text width, so short keys like path would shift values.
+/// One Overview meta row via icedtea value_field / plain labeled readout.
 fn kv<'a>(
     hud: &'a Hud,
     key: &'static str,
@@ -739,61 +673,33 @@ fn kv<'a>(
     v: String,
     copy: bool,
 ) -> Element<'a, Message> {
-    let tok = hud.tokens();
-    let label_el = text(label)
-        .size(typo::META)
-        .color(tok.muted)
-        .width(Length::Fixed(KV_LABEL_W));
-    let value_el: Element<'a, Message> = if copy {
+    let tea = hud.tokens();
+    if copy {
         if let Some(buf) = hud.field(&ExtractKey::Overview(key).id()) {
             let id = ExtractKey::Overview(key).id();
-            icedtea::widget::selectable(
+            return kit::labeled_value(
+                label,
                 buf,
                 move |action| Message::Select {
                     id: id.clone(),
                     action,
                 },
-                tok,
                 icedtea::typo::FontFace::Mono,
-                A11y::new(key, Role::TextBox),
-            )
-        } else {
-            text(v)
-                .size(typo::BODY)
-                .font(typo::MONO)
-                .color(tok.text)
-                .into()
+                tea,
+                A11y::new(key, Role::Group),
+            );
         }
-    } else {
-        text(v).size(typo::BODY).color(tok.text).into()
-    };
-    row![label_el, value_el]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into()
+    }
+    kit::labeled_plain(label, v, tea)
 }
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
-    let left = status_copy(hud.status(), hud.status_err(), tea);
-    let mut row = row![left, Space::new().width(Length::Fill)]
-        .spacing(12)
-        .align_y(Alignment::Center);
-    // Context hint only when it changes Esc meaning (event detail → list).
-    if hud.timeline_open().is_some() {
-        row = row.push(
-            text("Esc · timeline")
-                .size(typo::META)
-                .color(tea.muted),
-        );
-    }
-    icedtea::a11y::attach(
-        container(row.padding([8, 12]))
-            .width(Length::Fill)
-            .style(move |_| icedtea::style::footer(tea))
-            .into(),
-        &A11y::new("statusbar", Role::Status),
-    )
+    let caption = if hud.timeline_open().is_some() {
+        Some("Esc · timeline")
+    } else {
+        None
+    };
+    kit::status_footer(hud.status(), hud.status_err(), caption, tea)
 }
 
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -1331,17 +1237,11 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     let (turn_marks, _) = hud.card_marks();
     let tea = hud.tokens();
     if turns.is_empty() {
-        return text("No turns segmented.")
-            .size(typo::BODY)
-            .color(hud.tokens().muted)
-            .into();
+        return kit::status_empty("No turns", "Nothing segmented yet.", tea);
     }
     let idxs = hud.filtered_turn_indices();
     let list = if idxs.is_empty() {
-        text("No turns match this search.")
-            .size(typo::BODY)
-            .color(hud.tokens().muted)
-            .into()
+        kit::status_empty("No matches", "No turns match this search.", tea)
     } else {
         let heights = hud.turn_heights();
         icedtea::widget::virtual_column(
@@ -1402,10 +1302,11 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
                 .color(hud.tokens().muted)
                 .into();
         }
-        return text("No events in this filter.")
-            .size(typo::BODY)
-            .color(hud.tokens().muted)
-            .into();
+        return kit::status_empty(
+            "No events",
+            "Nothing matches this filter.",
+            hud.tokens(),
+        );
     }
     let (_, ev_marks) = hud.card_marks();
     let tea = hud.tokens();
@@ -2375,7 +2276,7 @@ mod tests {
             filter_src.contains("timeline_count_caption"),
             "empty range must not paint a11y name"
         );
-        assert!(src.contains("fn detail_tab_bar"), "session-gated tabs");
+        assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
     }
 
     #[test]
@@ -2421,10 +2322,15 @@ mod tests {
             "tool code panes must use iced highlighter, not plain mono code_block"
         );
         assert!(prod.contains("icedtea::widget::selectable"));
-        // Overview KV uses fixed label gutter + selectable (not value_field()).
-        assert!(prod.contains("KV_LABEL_W"));
+        // Overview KV via kit (icedtea value_field + FORM_LABEL gutter).
+        assert!(prod.contains("kit::labeled_value"));
+        assert!(prod.contains("kit::labeled_plain"));
+        assert!(prod.contains("kit::context_progress"));
+        assert!(prod.contains("kit::pane_tabs"));
+        assert!(prod.contains("kit::search_field"));
+        assert!(prod.contains("kit::status_footer"));
+        assert!(prod.contains("kit::status_empty"));
         assert!(prod.contains("overview_fields"));
-        assert!(!prod.contains("widget::value_field("));
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("event.{}.in.{}"));
         assert!(prod.contains("icedtea::widget::image_slot"));

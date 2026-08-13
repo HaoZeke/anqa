@@ -6,6 +6,7 @@ pub mod control;
 pub mod desktop;
 pub mod format;
 pub mod fuzzy;
+pub mod kit;
 pub mod live;
 pub mod log;
 pub mod macoswin;

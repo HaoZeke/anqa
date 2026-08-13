@@ -155,6 +155,8 @@ pub enum Message {
     },
     ToastDismiss(u64),
     FollowDone(Result<Value, String>),
+    /// Discard — close handlers and contribution-shaped tab chrome.
+    Noop,
 }
 
 /// One selectable body buffer (expanded event or turn text).
@@ -456,6 +458,8 @@ fn open_hud_window(window_mode: bool) -> (window::Id, Task<window::Id>) {
 
 pub fn run() -> iced::Result {
     crate::log::info(&format!("hud start log={}", crate::log::path().display()));
+    // icedtea::daemon! is equivalent; catalog + dual window modes stay manual
+    // via Prepared + iced::daemon.
     iced::daemon(Hud::new, Hud::update, Hud::view)
         .title("groket")
         .subscription(Hud::subscription)
@@ -819,6 +823,7 @@ impl Hud {
                 self.toasts.dismiss(id);
                 Task::none()
             }
+            Message::Noop => Task::none(),
             Message::FollowDone(result) => {
                 match result {
                     Ok(_) => {
@@ -1149,7 +1154,15 @@ impl Hud {
                 if self.tab == Tab::Timeline && self.timeline_open.is_some() {
                     return self.close_timeline_detail();
                 }
-                self.hide_palette()
+                // Overlay: Escape hides. hide_palette no-ops in window mode.
+                if icedtea::window::should_hide(
+                    icedtea::window::HidePolicy::Escape,
+                    icedtea::window::HideEvent::Escape,
+                    false,
+                ) {
+                    return self.hide_palette();
+                }
+                Task::none()
             }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
@@ -3099,7 +3112,15 @@ impl Hud {
             if self.tab == Tab::Timeline && self.timeline_open.is_some() {
                 return self.close_timeline_detail();
             }
-            return self.hide_palette();
+            // Overlay: Escape hides. hide_palette no-ops in window mode.
+            if icedtea::window::should_hide(
+                icedtea::window::HidePolicy::Escape,
+                icedtea::window::HideEvent::Escape,
+                false,
+            ) {
+                return self.hide_palette();
+            }
+            return Task::none();
         }
         if modifiers.command() || modifiers.control() {
             if let Key::Character(c) = &key {
@@ -3992,6 +4013,14 @@ mod tests {
             "first event of next turn should open"
         );
         assert!(hud.detail_turn_edge.is_none());
+    }
+
+    #[test]
+    fn escape_hide_uses_icedtea_window_policy() {
+        use icedtea::window::{should_hide, HideEvent, HidePolicy};
+        assert!(should_hide(HidePolicy::Escape, HideEvent::Escape, true));
+        assert!(should_hide(HidePolicy::Escape, HideEvent::Escape, false));
+        assert!(!should_hide(HidePolicy::Manual, HideEvent::Escape, false));
     }
 
     #[test]
