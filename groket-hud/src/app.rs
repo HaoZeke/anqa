@@ -487,31 +487,18 @@ impl Hud {
             // registering opens Xlib and either fails or grabs keys only for
             // X11 clients — skip and point at tray / compositor binds.
             #[cfg(target_os = "linux")]
-            let hotkey_ok = crate::x11focus::global_hotkey_supported();
-            #[cfg(not(target_os = "linux"))]
-            let hotkey_ok = true;
-            if !hotkey_ok {
-                let msg = crate::x11focus::wayland_summon_hint(&label);
-                crate::log::info(&msg);
-                eprintln!("groket-hud: {msg}");
-            } else {
-                match GlobalHotKeyManager::new() {
-                    Ok(mgr) => {
-                        if let Err(err) = mgr.register(hk) {
-                            let msg = format!("failed to register shortcut {label}: {err}");
-                            crate::log::error(&msg);
-                            eprintln!("groket-hud: {msg}");
-                        } else {
-                            eprintln!("groket-hud: summon shortcut {label}");
-                        }
-                        hud._hotkeys = Some(mgr);
-                    }
-                    Err(err) => {
-                        let msg = format!("global hotkey unavailable: {err}");
-                        crate::log::error(&msg);
-                        eprintln!("groket-hud: {msg}");
-                    }
+            {
+                if !crate::x11focus::global_hotkey_supported() {
+                    let msg = crate::x11focus::wayland_summon_hint(&label);
+                    crate::log::info(&msg);
+                    eprintln!("groket-hud: {msg}");
+                } else {
+                    hud._hotkeys = register_global_hotkey(hk, &label);
                 }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                hud._hotkeys = register_global_hotkey(hk, &label);
             }
         }
         match crate::tray::install() {
@@ -3788,6 +3775,30 @@ fn tray_stream() -> impl iced::futures::Stream<Item = Message> {
             }
         }
     })
+}
+
+fn register_global_hotkey(
+    hk: global_hotkey::hotkey::HotKey,
+    label: &str,
+) -> Option<GlobalHotKeyManager> {
+    match GlobalHotKeyManager::new() {
+        Ok(mgr) => {
+            if let Err(err) = mgr.register(hk) {
+                let msg = format!("failed to register shortcut {label}: {err}");
+                crate::log::error(&msg);
+                eprintln!("groket-hud: {msg}");
+            } else {
+                eprintln!("groket-hud: summon shortcut {label}");
+            }
+            Some(mgr)
+        }
+        Err(err) => {
+            let msg = format!("global hotkey unavailable: {err}");
+            crate::log::error(&msg);
+            eprintln!("groket-hud: {msg}");
+            None
+        }
+    }
 }
 
 fn hotkey_stream() -> impl iced::futures::Stream<Item = Message> {
