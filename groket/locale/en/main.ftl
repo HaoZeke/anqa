@@ -32,13 +32,13 @@ analyze = Analyze
 assistant-messages = Assistant messages
 
 auto-analyze-on-open = Auto-analyze completed sessions
-analysis-when-help = Runs when you open a completed session. Force: Ctrl+P → Analyze this session. Progress: j → Activity.
+analysis-when-help = Runs when you open a completed session. Force: Ctrl+P → Analyze this session. Progress: J → Activity.
 analysis-workers-help = Pools: analysis ×{$analysis} · refresh ×{$refresh}
 ui-analysis-idle = [dim]No analysis yet — Ctrl+P → Analyze this session[/]
 ui-analysis-idle-report = [dim]No report yet — runs after analysis[/]
 ui-running-analysis-spinner = [dim italic]{$spin} Running analysis…[/]
 ui-running-analysis-plain = Running analysis…
-analysis-stale-banner = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session (j → Activity).
+analysis-stale-banner = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session (J → Activity).
 analysis-stale-findings-row = [yellow]Stale[/] — {$detail} · Ctrl+P → Analyze this session
 analysis-stale-report = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session.
 
@@ -341,7 +341,7 @@ cmd-help-help = Show key / workflow help
 
 cmd-jobs-logs = Jobs / logs
 
-cmd-jobs-logs-help = Runs, analysis/refresh activity log, and container logs (j)
+cmd-jobs-logs-help = Runs, analysis/refresh activity log, and container logs (J)
 
 jobs-activity-tab = Activity
 jobs-activity-help = Analysis and refresh pool log.
@@ -1048,7 +1048,7 @@ tip-report-filter = Use Filter above (same as Timeline) — All, Flags, or one p
 
 tip-runner-models = `space` toggle models · `F5` refresh catalog
 
-tip-runner-toolbar = `Ctrl+Enter` / `Ctrl+J` launch · `Ctrl+S` save · `[` `]` panes · `j` jobs · `p` personas · `Esc` back
+tip-runner-toolbar = `Ctrl+Enter` / `Ctrl+J` launch · `Ctrl+S` save · `[` `]` panes · `J` jobs · `p` personas · `Esc` back
 
 tip-share-url = Press `s` to open the share URL
 

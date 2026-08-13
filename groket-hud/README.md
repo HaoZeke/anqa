@@ -28,13 +28,14 @@ Sol-style session **command palette** for the local groket control plane
   The HUD does not launch runs, recipes, or Docker.
 - Spotlight session pick: every summon shows **Recent** + search (not the
   last open session). Type to filter; **↑/↓** move the highlight (also
+  while typing); **j/k** or **↑/↓** move the highlight (also
   while typing); **Enter** / click opens browse. **Home/End** and
   **Page Up/Down** jump. No auto-open. After a pick, focus stays in
   browse (not yanked back into session search). Type in search again to
   switch sessions. No permanent left rail.
 - **Keyboard in browse:** **Tab** / **Shift+Tab** (or **Ctrl+1…5**) cycle
   panes. **Enter** drills Overview → Turns → turn-scoped Timeline → event
-  detail → next event. **↑/↓** move the list highlight; in event detail
+  detail → next event. **j/k** or **↑/↓** move the list highlight; in event detail
   they step events and cross into the next/previous turn when scoped.
   **Esc** leaves event detail on the current row (footer ``Esc · timeline``),
   then hides the overlay.

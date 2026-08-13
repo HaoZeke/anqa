@@ -550,7 +550,7 @@ Helper: :func:`~groket.ui.selectable_static.is_extractable_static`.
 
 ### 6.6 Context-sensitive shortcuts
 
-Stable globals: ``?``, ``F5``/``Ctrl+R``, ``j``, ``Esc``, ``Ctrl+P``, ``q``
+Stable globals: ``?``, ``F5``/``Ctrl+R``, ``J``, ``Esc``, ``Ctrl+P``, ``q``
 (any screen; inputs still receive ``q`` while editing). Screen owns the rest.
 
 ### 6.7 Discovery
@@ -574,7 +574,8 @@ modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
 |-----|--------|
 | ``?`` | Help |
 | ``F5`` / ``Ctrl+R`` | Refresh |
-| ``j`` | Jobs / logs |
+| ``J`` | Jobs / logs |
+| ``j`` / ``k`` | List down / up (vim) |
 | ``Esc`` | Back / dismiss |
 | ``q`` | Quit |
 | ``Ctrl+P`` | Command palette |

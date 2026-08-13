@@ -3277,7 +3277,9 @@ impl Hud {
         }
         match key {
             Key::Named(Named::ArrowDown) => self.nav_step(1),
+            Key::Character(ref c) if c.as_str() == "j" => self.nav_step(1),
             Key::Named(Named::ArrowUp) => self.nav_step(-1),
+            Key::Character(ref c) if c.as_str() == "k" => self.nav_step(-1),
             Key::Named(Named::PageDown) => self.nav_step(5),
             Key::Named(Named::PageUp) => self.nav_step(-5),
             Key::Named(Named::Home) => self.nav_edge(true),
@@ -3728,20 +3730,26 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
 
 /// Arrow / Home / End / Page — list navigation even while a field is focused.
 fn is_list_nav_key(kev: &keyboard::Event) -> bool {
-    matches!(
-        kev,
-        keyboard::Event::KeyPressed {
-            key: Key::Named(
-                Named::ArrowDown
-                    | Named::ArrowUp
-                    | Named::Home
-                    | Named::End
-                    | Named::PageDown
-                    | Named::PageUp
-            ),
-            ..
-        }
-    )
+    let keyboard::Event::KeyPressed {
+        key, modifiers, ..
+    } = kev
+    else {
+        return false;
+    };
+    if matches!(
+        key,
+        Key::Named(
+            Named::ArrowDown
+                | Named::ArrowUp
+                | Named::Home
+                | Named::End
+                | Named::PageDown
+                | Named::PageUp
+        )
+    ) {
+        return true;
+    }
+    modifiers.is_empty() && matches!(key, Key::Character(ref c) if matches!(c.as_str(), "j" | "k"))
 }
 
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
@@ -4313,6 +4321,18 @@ mod tests {
         // Arrows navigate lists even while a text field has Captured them.
         assert!(
             interesting_hud_event(key, event::Status::Captured, window::Id::unique()).is_some()
+        );
+        let jay = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("j".into()),
+            modified_key: Key::Character("j".into()),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyJ),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: Some("j".into()),
+            repeat: false,
+        });
+        assert!(
+            interesting_hud_event(jay, event::Status::Captured, window::Id::unique()).is_some()
         );
     }
 

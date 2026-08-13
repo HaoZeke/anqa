@@ -53,7 +53,7 @@ GLOBAL_ALWAYS: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
     _b("f5", "refresh_context", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
-    _b("j", "open_jobs", U.bind_jobs(), show=True),
+    _b("J", "open_jobs", U.bind_jobs(), show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
     _b("q", "quit", U.bind_quit(), show=True),
 )
@@ -94,7 +94,7 @@ SCREEN_CHROME: tuple[Binding, ...] = (
     _b("escape", "go_back", U.bind_back(), show=True),
     _b("f5", "refresh_context", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
-    _b("j", "open_jobs", U.bind_jobs(), show=True),
+    _b("J", "open_jobs", U.bind_jobs(), show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
     _b("q", "quit", U.bind_quit(), show=True),
 )
@@ -218,7 +218,7 @@ MODAL_DISMISS: tuple[Binding, ...] = (
 JOBS_MODAL: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
     _b("escape", "dismiss_modal", U.bind_close(), show=True),
-    _b("j", "dismiss_modal", U.bind_close(), show=False),
+    _b("J", "dismiss_modal", U.bind_close(), show=False),
     _b("q", "quit", U.bind_quit(), show=True),
     _b("f5", "refresh", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh", U.bind_refresh(), show=False),

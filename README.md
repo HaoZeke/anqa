@@ -68,7 +68,8 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `n` | Follow-up prompt (awaiting sessions; optional **last turn** in the modal) |
 | `e` | End session (Done) while awaiting — list shows **ending** until shutdown finishes |
 | `x` / `Delete` | Delete session(s) — press twice to confirm |
-| `j` | Jobs / logs |
+| `J` | Jobs / logs |
+| `j` / `k` | Move down / up in a list |
 | `F5` / `Ctrl+R` | Refresh |
 | `?` | Help |
 | `Ctrl+P` | Command palette (theme, tips, analysis, …) |

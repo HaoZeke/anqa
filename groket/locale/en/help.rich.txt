@@ -2,12 +2,13 @@
   Tab             Next control
   Shift+Tab       Previous control
   Arrows          Move in a list
+  j / k           Move down / up in a list
   Enter           Open or activate
   Esc             Back or close
   ?               This panel
   Ctrl+P          Command palette for this screen
   F5              Refresh (also Ctrl+R)
-  j               Jobs and logs
+  J               Jobs and logs
   q               Quit when no field is focused
 
 [bold]Sessions[/bold]

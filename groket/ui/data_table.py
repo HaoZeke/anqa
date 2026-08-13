@@ -26,6 +26,8 @@ def style_data_table(table: DataTable, *, zebra: bool = True) -> DataTable:
     """Apply consistent list-table behaviour used across the app."""
     table.cursor_type = "row"
     table.zebra_stripes = zebra
+    table._bindings.bind("j", "cursor_down", description="Down", show=False)
+    table._bindings.bind("k", "cursor_up", description="Up", show=False)
     return table
 
 
