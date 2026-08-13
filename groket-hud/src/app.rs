@@ -2664,6 +2664,16 @@ impl Hud {
         }
     }
 
+    /// Summon lands on Spotlight (Recent + search), never the last open session.
+    fn return_to_spotlight(&mut self) {
+        self.query.clear();
+        self.reset_detail_chrome();
+        self.timeline_open = None;
+        self.active = 0;
+        self.list_selection = icedtea::collection::Selection::None;
+        self.rerank_visible_keeping(String::new());
+    }
+
     fn show_palette(&mut self) -> Task<Message> {
         if overlay_already_mapped(self.visible, self.window_mode, self.window_id.is_some()) {
             return self.focus_overlay();
@@ -2673,6 +2683,8 @@ impl Hud {
         self.palette_live = true;
         self.last_live = Instant::now();
         self.sync_theme();
+        // Always open on the session list — pick is explicit (Enter / click).
+        self.return_to_spotlight();
         if self.window_id.is_none() {
             let (id, open) = open_hud_window(false);
             self.window_id = Some(id);
@@ -3612,6 +3624,35 @@ mod tests {
         assert!(hud.browse_mode());
         hud.query = "switch".into();
         assert!(!hud.browse_mode(), "type again to switch sessions");
+    }
+
+    #[test]
+    fn show_palette_returns_to_spotlight_not_last_session() {
+        let mut hud = Hud {
+            visible: false,
+            palette_live: false,
+            overview_sid: "keep".into(),
+            overview: Some(Overview {
+                session_id: "keep".into(),
+                ..Overview::default()
+            }),
+            all_sessions: vec![SessionRow {
+                session_id: "keep".into(),
+                title: "Keep".into(),
+                ..SessionRow::default()
+            }],
+            window_id: Some(window::Id::unique()),
+            ..Hud::default()
+        };
+        let _ = hud.show_palette();
+        assert!(hud.visible);
+        assert!(hud.overview.is_none(), "summon must not restore browse");
+        assert!(hud.overview_sid.is_empty());
+        assert!(!hud.browse_mode());
+        assert!(matches!(
+            hud.list_selection,
+            icedtea::collection::Selection::None
+        ));
     }
 
     #[test]

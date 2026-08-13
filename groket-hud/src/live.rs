@@ -289,7 +289,8 @@ pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
     };
     if input.list_elapsed_ms >= interval {
         plan.fetch_list = true;
-        if input.selected_live {
+        // Only refresh an *open* session — never open one from a list highlight alone.
+        if input.selected_live && !input.overview_sid.is_empty() {
             plan.load_overview = true;
             if input.on_timeline {
                 plan.refresh_timeline = true;
@@ -1074,6 +1075,26 @@ mod tests {
         });
         assert!(!plan.fetch_list);
         assert!(!plan.load_overview);
+    }
+
+    #[test]
+    fn tick_plan_live_poll_does_not_open_session_without_overview() {
+        let plan = plan_tick(TickInput {
+            notifies: &[],
+            selected_sid: "a",
+            overview_sid: "",
+            palette_live: true,
+            list_elapsed_ms: LIVE_POLL_MS,
+            selected_live: true,
+            any_live: true,
+            on_timeline: false,
+            notes_locked: false,
+        });
+        assert!(plan.fetch_list);
+        assert!(
+            !plan.load_overview,
+            "Spotlight must not auto-open from a list highlight"
+        );
     }
 
     #[test]
