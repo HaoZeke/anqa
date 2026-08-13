@@ -571,5 +571,6 @@ make lint            # ruff, mypy, fluent + typing policy scripts
 make test            # pytest (daemon-free)
 make examples-check  # examples/ contract
 make test-cov        # pytest + coverage report
-make ci              # lint + schema-check + examples-check + test
+make ci              # lint + schema-check + hud-check + examples-check + test
+# GitHub Actions splits Python lint/test from HUD Rust (Linux/macOS/Windows)
 ```

@@ -19,7 +19,7 @@ make install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
 groket              # interactive TUI (or: uv run groket)
 make test           # pytest (default unit suite; no Docker daemon)
 make lint           # ruff + mypy + fluent/typing policy scripts
-make ci             # lint + schema-check + hud-check + test  (matches GitHub Actions)
+make ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
 ```
 
 | CLI | Role |
@@ -320,9 +320,11 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``make schema`` | Regenerate ``schemas/*.schema.json`` |
 | ``make schema-check`` | Fail if schemas drift |
 | ``make examples-check`` | Validate ``examples/`` packs (hard contract) |
-| ``make ci`` | ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
+| ``make ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``make hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
 | ``make hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
+
+GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``make hud-check``), macOS, and Windows (fmt/clippy/test/release build).
 | ``make brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
 | ``make clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
 
