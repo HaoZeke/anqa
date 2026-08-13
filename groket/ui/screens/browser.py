@@ -2294,46 +2294,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 )
             )
         blocks.append(meta_t)
-        try:
-            from ...session.turns import segment_timeline_turns
-
-            segs = segment_timeline_turns(self.timeline)
-            if segs:
-                turns_t = Text()
-                turns_t.append_text(section_header(t("ui-turns-1")))
-                turns_t.append(
-                    t("ui-findings-below-are-session-wide-use-event-indice"), style="dim"
-                )
-                for seg in segs:
-                    err_suffix = (
-                        t("browser-report-turn-err", n=seg.tool_error_count)
-                        if seg.tool_error_count
-                        else ""
-                    )
-                    span = (
-                        t(
-                            "browser-report-turn-span",
-                            first=seg.first_index,
-                            last=seg.last_index,
-                        )
-                        if seg.first_index is not None and seg.last_index is not None
-                        else ""
-                    )
-                    turns_t.append_text(
-                        bullet(
-                            t(
-                                "browser-report-turn-line",
-                                label=seg.label,
-                                events=seg.event_count,
-                                tools=seg.tool_call_count,
-                                err_suffix=err_suffix,
-                                span=span,
-                            )
-                        )
-                    )
-                blocks.append(turns_t)
-        except Exception:
-            pass
         if self._report_filter and self._report_filter != "all":
             mode = self._report_filter
             if mode == "flags":

@@ -1463,8 +1463,7 @@ ui-findings-2 =  findings
 
 ui-findings-3 =  findings (
 
-ui-findings-below-are-session-wide-use-event-indice =
-      Findings below are session-wide; use event indices / tool ids to map them onto a turn.
+
     
 
 ui-finished = Finished
@@ -2752,9 +2751,6 @@ browser-follow-up-staged-final = Last turn staged (session ends after this turn)
 browser-more-queued = … +{ $n } more
 browser-report-counts = { $total } findings ({ $high } high, { $med } med)
 browser-flags-dim = { $n } flags
-browser-report-turn-line = { $label }: events={ $events } tools={ $tools }{ $err_suffix }{ $span }
-browser-report-turn-err = { " " }({ $n } tool err)
-browser-report-turn-span = , timeline #{ $first }–#{ $last }
 browser-viewing-focus = Viewing: { $focus }
 browser-finding-events = { $n } events
 browser-more-children = … +{ $n } more
