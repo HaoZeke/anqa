@@ -1375,7 +1375,7 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
             .width(Length::Fill)
             .padding(Padding {
                 top: 0.0,
-                right: 8.0, // room beside the scroll rail for body text
+                right: icedtea::chrome::SCROLL_RAIL_WIDTH,
                 bottom: 8.0,
                 left: 0.0,
             })

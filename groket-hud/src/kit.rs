@@ -5,7 +5,7 @@
 //! and are shaped for upstream contribution to icedtea.
 
 use iced::widget::{column, container, row, text, Space};
-use iced::{Alignment, Element, Length};
+use iced::{Alignment, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
 use icedtea::i18n::Direction;
@@ -203,15 +203,49 @@ pub fn status_footer<'a>(
     icedtea::pattern::status_bar(status.to_string(), tone, None, table, tea, Direction::Ltr)
 }
 
-/// `?` help — icedtea [`pattern::modal_card`] + [`pattern::cheatsheet`].
+/// `?` help sheet: shortcut rows in a modal, with right pad for the scroll rail.
 pub fn help_modal<'a>(
     backdrop: Element<'a, Message>,
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
+    let rail = icedtea::chrome::SCROLL_RAIL_WIDTH;
+    let mut rows = column![].spacing(4).padding(Padding {
+        top: 8.0,
+        right: 8.0 + rail,
+        bottom: 8.0,
+        left: 8.0,
+    });
+    for a in table.iter() {
+        if !a.enabled {
+            continue;
+        }
+        let keys = a
+            .shortcut
+            .as_ref()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "—".into());
+        rows = rows.push(row![
+            widget::label(
+                a.title.clone(),
+                tea,
+                A11y::new(a.title.clone(), Role::Status),
+            ),
+            Space::new().width(Length::Fill),
+            widget::meta(keys.clone(), tea, A11y::new(keys, Role::Status)),
+        ]);
+    }
+    let list = widget::themed_scroll(
+        rows.into(),
+        tea,
+        A11y::new("cheatsheet", Role::Group),
+        false,
+        None,
+        None::<fn(_) -> Message>,
+    );
     let sheet = widget::group_box(
         "Keyboard shortcuts",
-        icedtea::pattern::cheatsheet(table, "", tea),
+        list,
         tea,
         A11y::new("Keyboard shortcuts", Role::Dialog),
     );
@@ -306,7 +340,7 @@ mod tests {
         assert!(src.contains("pattern::status_bar"));
         assert!(src.contains("pattern::status_page"));
         assert!(src.contains("pattern::modal_card"));
-        assert!(src.contains("pattern::cheatsheet"));
+        assert!(src.contains("SCROLL_RAIL_WIDTH"));
         assert!(src.contains("FORM_LABEL"));
         assert!(src.contains("contribution"));
     }
