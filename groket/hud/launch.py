@@ -355,7 +355,7 @@ def install_desktop(*, rebuild: bool = False, debug: bool = False) -> int:
     return int(proc.returncode)
 
 
-def launch_tauri_hud(
+def launch_hud(
     *,
     socket_path: Path,
     extra_env: dict[str, str] | None = None,
@@ -460,7 +460,7 @@ __all__ = [
     "hud_process_running",
     "install_desktop",
     "launch_hud_dev",
-    "launch_tauri_hud",
+    "launch_hud",
     "send_summon_command",
     "stop_hud_processes",
     "summon_socket_accepts",

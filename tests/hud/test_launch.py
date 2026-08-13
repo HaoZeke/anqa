@@ -174,7 +174,7 @@ def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
         patch.object(hud_app, "control_socket_accepts", return_value=True),
         patch.object(hud_app, "wait_until_control_accepts", return_value=True),
         patch.object(hud_app.asyncio, "run", return_value=None),
-        patch.object(hud_app, "launch_tauri_hud", return_value=0) as mock_launch,
+        patch.object(hud_app, "launch_hud", return_value=0) as mock_launch,
         patch.dict(os.environ, {}, clear=False),
     ):
         mock_daemon.return_value = EnsureDaemonResult(
@@ -199,7 +199,7 @@ def test_run_hud_summon_toggle_when_socket_live() -> None:
         patch("groket.hud.launch.summon_socket_accepts", return_value=True),
         patch("groket.hud.launch.send_summon_command", return_value=0) as mock_send,
         patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
-        patch.object(hud_app, "launch_tauri_hud") as mock_launch,
+        patch.object(hud_app, "launch_hud") as mock_launch,
     ):
         code = hud_app.run_hud(summon="toggle", auto_serve=False)
     assert code == 0
@@ -214,7 +214,7 @@ def test_run_hud_install_desktop_skips_serve(tmp_path: Path) -> None:
     with (
         patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
         patch("groket.hud.launch.install_desktop", return_value=0) as mock_install,
-        patch.object(hud_app, "launch_tauri_hud") as mock_launch,
+        patch.object(hud_app, "launch_hud") as mock_launch,
     ):
         code = hud_app.run_hud(install_desktop=True, rebuild=False, debug=True)
     assert code == 0
@@ -223,7 +223,7 @@ def test_run_hud_install_desktop_skips_serve(tmp_path: Path) -> None:
     mock_install.assert_called_once_with(rebuild=False, debug=True)
 
 
-def test_launch_tauri_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
+def test_launch_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -233,7 +233,7 @@ def test_launch_tauri_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
     ):
         mock_popen.return_value.pid = 1
-        code = launch_mod.launch_tauri_hud(
+        code = launch_mod.launch_hud(
             socket_path=tmp_path / "c.sock",
             debug=True,
         )
@@ -241,7 +241,7 @@ def test_launch_tauri_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
     mock_ensure.assert_called_once_with(rebuild=False, debug=True)
 
 
-def test_launch_tauri_hud_detaches_by_default(tmp_path: Path) -> None:
+def test_launch_hud_detaches_by_default(tmp_path: Path) -> None:
     """Default path spawns the binary in a new session and returns without waiting."""
     binary = tmp_path / "groket-hud"
     binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -254,14 +254,14 @@ def test_launch_tauri_hud_detaches_by_default(tmp_path: Path) -> None:
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
     ):
         mock_popen.return_value.pid = 4242
-        code = launch_mod.launch_tauri_hud(socket_path=sock)
+        code = launch_mod.launch_hud(socket_path=sock)
     assert code == 0
     mock_popen.assert_called_once()
     kwargs = mock_popen.call_args.kwargs
     assert kwargs.get("start_new_session") is True
 
 
-def test_launch_tauri_hud_skips_when_already_running(tmp_path: Path) -> None:
+def test_launch_hud_skips_when_already_running(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -272,13 +272,13 @@ def test_launch_tauri_hud_skips_when_already_running(tmp_path: Path) -> None:
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
         patch.object(launch_mod.subprocess, "run") as mock_run,
     ):
-        code = launch_mod.launch_tauri_hud(socket_path=tmp_path / "c.sock")
+        code = launch_mod.launch_hud(socket_path=tmp_path / "c.sock")
     assert code == 0
     mock_popen.assert_not_called()
     mock_run.assert_not_called()
 
 
-def test_launch_tauri_hud_replaces_process_when_summon_socket_dead(tmp_path: Path) -> None:
+def test_launch_hud_replaces_process_when_summon_socket_dead(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -290,13 +290,13 @@ def test_launch_tauri_hud_replaces_process_when_summon_socket_dead(tmp_path: Pat
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
     ):
         mock_popen.return_value.pid = 7
-        code = launch_mod.launch_tauri_hud(socket_path=tmp_path / "c.sock")
+        code = launch_mod.launch_hud(socket_path=tmp_path / "c.sock")
     assert code == 0
     mock_stop.assert_called_once()
     mock_popen.assert_called_once()
 
 
-def test_launch_tauri_hud_foreground_waits(tmp_path: Path) -> None:
+def test_launch_hud_foreground_waits(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -306,7 +306,7 @@ def test_launch_tauri_hud_foreground_waits(tmp_path: Path) -> None:
             launch_mod.subprocess, "run", return_value=type("R", (), {"returncode": 0})()
         ) as mock_run,
     ):
-        code = launch_mod.launch_tauri_hud(
+        code = launch_mod.launch_hud(
             socket_path=tmp_path / "c.sock",
             foreground=True,
         )
@@ -314,7 +314,7 @@ def test_launch_tauri_hud_foreground_waits(tmp_path: Path) -> None:
     mock_run.assert_called_once()
 
 
-def test_launch_tauri_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
+def test_launch_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -325,7 +325,7 @@ def test_launch_tauri_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
     ):
         mock_popen.return_value.pid = 99
-        code = launch_mod.launch_tauri_hud(
+        code = launch_mod.launch_hud(
             socket_path=tmp_path / "c.sock",
             restart=True,
         )

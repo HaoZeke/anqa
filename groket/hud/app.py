@@ -17,7 +17,7 @@ from ..integrations.daemon import (
     wait_until_control_accepts,
 )
 from ..paths import resolve_work_and_traces
-from .launch import launch_tauri_hud
+from .launch import launch_hud
 
 
 async def _probe(socket_path: Path) -> None:
@@ -141,7 +141,7 @@ def run_hud(
             )
             return 1
 
-    code = launch_tauri_hud(
+    code = launch_hud(
         socket_path=sock,
         dev=dev,
         debug=debug,
