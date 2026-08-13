@@ -47,6 +47,10 @@ groket /path/to/work        # work root, traces tree, or a single session dir
 
 ## Using the TUI
 
+The Textual app and the desktop HUD use the **same keys** for the jobs both
+can do (help, search, copy, list, follow-up / Done, notes). Each footer lists
+only the keys that apply right now. Full shared list: [Desktop HUD](#desktop-hud).
+
 ### Sessions home
 
 Browse past and **live** runs (filesystem watch + periodic read-only refresh).
@@ -190,7 +194,7 @@ restart serve to “refresh” the list.
 | `analysis/status` | Poll job state (`idle` / `running` / `done` / `error`) |
 | notifications | `session/selected`, `session/changed`, `notes/changed`, `analysis/changed` |
 
-**Desktop HUD** (Sol-style palette — iced)
+### Desktop HUD
 
 ```bash
 uv run groket serve -d        # or rely on client auto-start
@@ -232,11 +236,29 @@ StatusNotifier on Linux (Swaybar / Waybar), menu bar on macOS, notification
 area on Windows. Left-click shows the palette; **Quit Groket HUD** exits the
 HUD only. Create, edit, and delete operator notes the same way as the TUI.
 While the palette is open, the footer lists the keys that apply (same role
-as the TUI footer). Shared actions use the same keys as the TUI: **?** help,
-**Esc** back/hide, **/** search, **y** / **Ctrl+Shift+C** copy, **j**/**k**
-list, **n**/**e** follow-up/Done while awaiting, **N** Notes. Panes are
-**Tab** / **Ctrl+1–5** (**[**/**]** scope Timeline turns). Press **?** for
-the full shortcut list. A **live poll**
+as the TUI footer). Press **?** for the full shortcut list.
+
+| Key | Action (TUI and HUD) |
+|-----|----------------------|
+| `?` | Help |
+| `Esc` | Back / dismiss (HUD: leave event detail, then hide the overlay) |
+| `/` | Search |
+| `y` / `Ctrl+Shift+C` | Copy |
+| `j` / `k` | List down / up |
+| `Enter` | Open / drill |
+| `n` / `e` | Follow-up / Done while awaiting |
+| `N` | Notes |
+
+| Key | HUD panes and Timeline |
+|-----|------------------------|
+| `Tab` / `Shift+Tab` | Next / previous pane |
+| `Ctrl+1` … `Ctrl+5` | Overview, Turns, Timeline, Findings, Notes |
+| `]` / `[` | Timeline: next turn / all turns |
+| `g` | Turns: Timeline for the focused turn |
+
+TUI session panes stay `[` / `]` and digits **1–5** (Timeline … Report).
+Jobs, analyze, export, flag, runner, and delete stay on the Textual
+sessions and browser screens. A **live poll**
 re-reads overview and the timeline
 tail for running/awaiting turns (~3s; idle sessions slower) so a mid-turn
 Timeline tab updates without reopening the HUD. The HUD does not start evals,

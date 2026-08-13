@@ -40,9 +40,9 @@ Sol-style session **command palette** for the local groket control plane
   they step events and cross into the next/previous turn when scoped.
   **Esc** leaves event detail on the current row (footer ``esc timeline``),
   then hides the overlay. The footer lists the keys that apply right now
-  (icedtea status bar). Shared actions use the same keys as the TUI
-  (**?** **Esc** **/** **y** **j**/**k** **n**/**e** **N**). **?** opens a
-  searchable cheatsheet; **Esc** or **?** closes it.
+  (icedtea status bar). Shared keys match the Textual app — see
+  [Keyboard](#keyboard). **?** opens a searchable cheatsheet; **Esc** or
+  **?** closes it.
 - Browse defaults to **Overview**. Picking a session loads overview only —
   it does not fetch the session event list.
   **Turns** is a fixed list of prompt cards (status, tool counts, marks) with
@@ -115,6 +115,33 @@ Sol-style session **command palette** for the local groket control plane
   client so a tiler (yabai, i3, sway) tiles it. Closing the window does not
   stop the HUD process. Tray Show on an already-visible overlay only focuses
   (no remap).
+
+## Keyboard
+
+Same keys as the Textual app for the jobs both can do. The footer lists
+only the keys that apply right now. Press **?** for the cheatsheet.
+
+| Key | Action (TUI and HUD) |
+|-----|----------------------|
+| `?` | Help |
+| `Esc` | Leave event detail, then hide the overlay |
+| `/` | Search (session switcher, or Turns / Timeline on those panes) |
+| `y` / `Ctrl+Shift+C` | Copy |
+| `j` / `k` | List down / up (event detail: step events) |
+| `Enter` | Open / drill |
+| `n` / `e` | Follow-up / Done while awaiting |
+| `N` | Notes pane |
+
+| Key | HUD panes and Timeline |
+|-----|------------------------|
+| `Tab` / `Shift+Tab` | Next / previous pane (when no field is focused) |
+| `Ctrl+1` … `Ctrl+5` | Overview, Turns, Timeline, Findings, Notes |
+| `]` / `[` | Timeline: next turn / all turns |
+| `g` | Turns: Timeline for the focused turn |
+
+TUI session panes are `[` / `]` and digits **1–5**. Jobs, analyze, export,
+flag, runner, and delete stay on the Textual app. Follow-up, Done, and
+notes are on both.
 
 ## Sway / Wayland
 
