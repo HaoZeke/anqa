@@ -45,6 +45,13 @@ const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
 const APP_ID: &str = "dev.indynull.groket-hud";
 
+/// Which edge event to open after a turn-scoped pager crosses a turn boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DetailTurnEdge {
+    First,
+    Last,
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     SearchChanged(String),
@@ -58,6 +65,8 @@ pub enum Message {
     SelectTimeline(i64),
     /// Leave full-pane event detail and return to the timeline list.
     CloseTimelineDetail,
+    /// Step full-pane detail by *delta* rows in the current filter (−1 / +1).
+    TimelineDetailStep(i32),
     /// Turns tab search (label / prompt substring).
     TurnsQuery(String),
     LoadMoreTimeline,
@@ -189,6 +198,8 @@ pub struct Hud {
     timeline_focus: Option<i64>,
     /// Full-pane event detail on Timeline (not an in-list expander).
     timeline_open: Option<i64>,
+    /// After a turn-boundary step, open first/last event once the page loads.
+    detail_turn_edge: Option<DetailTurnEdge>,
     /// `session/timeline` promptIndex filter (operator meta on the turn).
     timeline_prompt: Option<i64>,
     /// Events pane turn pick (`None` = all turns / search-all).
@@ -278,6 +289,7 @@ impl Default for Hud {
             timeline_kind: KindFilter::All,
             timeline_focus: None,
             timeline_open: None,
+            detail_turn_edge: None,
             timeline_prompt: None,
             events_turn_index: None,
             events_turn_options: vec![EventsTurnPick {
@@ -562,11 +574,11 @@ impl Hud {
                 // Capture the row before clearing the query (index is into the
                 // filtered list; browse mode uses the full catalog).
                 let Some(row) = self.sessions().get(i).cloned() else {
-                    return self.focus_overlay();
+                    return self.focus_picker();
                 };
                 let sid = row.session_id.clone();
                 if sid.is_empty() {
-                    return self.focus_overlay();
+                    return self.focus_picker();
                 }
                 let same = self.overview.is_some()
                     && !self.overview_sid.is_empty()
@@ -580,11 +592,12 @@ impl Hud {
                     self.set_active(0);
                 }
                 if same {
-                    return self.focus_overlay();
+                    return self.focus_browse();
                 }
                 self.reset_detail_chrome();
                 // Loading placeholder this frame; body fills via OverviewLoaded.
-                Task::batch([self.load_overview(false), self.focus_overlay()])
+                // Do not yank keyboard into session search after a pick.
+                Task::batch([self.load_overview(false), self.focus_browse()])
             }
             Message::SetTab(tab) => {
                 // Without an overview, secondary panes only paint "Select a session".
@@ -592,15 +605,14 @@ impl Hud {
                 if self.overview.is_none() && tab != Tab::Overview {
                     if self.selected_sid().is_some() {
                         self.tab = tab;
-                        let focus = if self.window_mode {
-                            Task::none()
-                        } else {
-                            self.x11_focus_only(0)
-                        };
-                        return Task::batch([self.load_overview(false), focus]);
+                        return Task::batch([self.load_overview(false), self.focus_browse()]);
                     }
                     self.tab = Tab::Overview;
                     return Task::none();
+                }
+                // Leaving Timeline drops event detail so Esc/list state stays honest.
+                if tab != Tab::Timeline {
+                    self.drop_timeline_detail();
                 }
                 self.tab = tab;
                 // Keep turn scope when returning to Events. Only an explicit
@@ -620,20 +632,13 @@ impl Hud {
                     Tab::Overview => Task::none(),
                     _ => Task::none(),
                 };
-                // Window mode already has OS focus — skip X11 grab retries that
-                // queue work behind the next key on nested displays.
-                let focus = if self.window_mode {
-                    Task::none()
-                } else {
-                    self.x11_focus_only(0)
-                };
                 // Turns/Timeline keep scroll on VisibleWindow (virtual_column).
-                Task::batch([load, focus])
+                Task::batch([load, self.focus_browse()])
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
                 self.timeline_focus = None;
-                self.close_timeline_detail();
+                self.drop_timeline_detail();
                 self.timeline_search_gen = self.timeline_search_gen.wrapping_add(1);
                 // Hold the last applied page until debounce. Bump gen so an
                 // in-flight fill cannot merge a new-query slice onto it.
@@ -670,7 +675,7 @@ impl Hud {
             Message::TimelineKind(k) => {
                 self.timeline_kind = k;
                 self.timeline_focus = None;
-                self.close_timeline_detail();
+                self.drop_timeline_detail();
                 if let Some(sid) = self.detail_sid() {
                     if self.wants_events() {
                         return self.ensure_timeline(sid, true);
@@ -681,10 +686,8 @@ impl Hud {
             Message::JumpTimeline(ix) => self.jump_timeline(ix),
             Message::EventsTurnPicked(pick) => self.select_events_turn(pick.turn_index),
             Message::SelectTimeline(ix) => self.open_timeline_detail(ix),
-            Message::CloseTimelineDetail => {
-                self.close_timeline_detail();
-                Task::none()
-            }
+            Message::CloseTimelineDetail => self.close_timeline_detail(),
+            Message::TimelineDetailStep(delta) => self.nav_timeline_detail_step(delta),
             Message::TurnsQuery(q) => {
                 self.turns_query = q;
                 self.rebuild_turns_filter();
@@ -782,7 +785,7 @@ impl Hud {
                 if let Some(idx) = self.sessions().iter().position(|r| r.session_id == sid) {
                     self.set_active(idx);
                 }
-                self.load_overview(false)
+                Task::batch([self.load_overview(false), self.focus_browse()])
             }
             Message::FindingExpand { id, open } => {
                 if open {
@@ -944,12 +947,12 @@ impl Hud {
                                 if quiet {
                                     Task::none()
                                 } else {
-                                    self.focus_overlay()
+                                    self.focus_browse()
                                 },
                             ]);
                         }
                         if !quiet {
-                            return Task::batch([rail, self.focus_overlay()]);
+                            return Task::batch([rail, self.focus_browse()]);
                         }
                         return rail;
                     }
@@ -1022,8 +1025,15 @@ impl Hud {
                         }
                         self.rebuild_tl_filter();
                         self.mark_up();
-                        if let Some(ix) = self.timeline_open {
-                            self.bind_event_extract(ix);
+                        // Turn-boundary pager: open first/last of the newly loaded filter.
+                        let edge_open = self
+                            .detail_turn_edge
+                            .take()
+                            .and_then(|edge| self.edge_event_index(edge));
+                        if edge_open.is_none() {
+                            if let Some(ix) = self.timeline_open {
+                                self.bind_event_extract(ix);
+                            }
                         }
                         if self.timeline.len() > TIMELINE_BUFFER_CAP {
                             self.timeline = trim_timeline_buffer(
@@ -1033,7 +1043,9 @@ impl Hud {
                             );
                         }
                         let mut tasks = Vec::new();
-                        if !append {
+                        if let Some(ix) = edge_open {
+                            tasks.push(self.open_timeline_detail(ix));
+                        } else if !append {
                             if self.timeline_focus_pos().is_some() {
                                 tasks.push(self.scroll_focus_into_view());
                             }
@@ -1135,8 +1147,7 @@ impl Hud {
                 }
                 // Chrome Escape maps here while a field is focused.
                 if self.tab == Tab::Timeline && self.timeline_open.is_some() {
-                    self.close_timeline_detail();
-                    return Task::none();
+                    return self.close_timeline_detail();
                 }
                 self.hide_palette()
             }
@@ -1227,6 +1238,19 @@ impl Hud {
     }
     pub fn is_timeline_open(&self, index: i64) -> bool {
         self.timeline_open == Some(index)
+    }
+
+    /// 1-based position and length in the filtered timeline list for chrome.
+    pub fn timeline_detail_pos(&self) -> Option<(usize, usize)> {
+        let ix = self.timeline_open?;
+        let n = self.tl_filter.len();
+        if n == 0 {
+            return None;
+        }
+        let pos = self.tl_filter.iter().position(|&src| {
+            self.timeline.get(src).is_some_and(|e| e.index == ix)
+        })?;
+        Some((pos + 1, n))
     }
     pub fn field(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
         self.fields.get(id)
@@ -1819,6 +1843,7 @@ impl Hud {
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.timeline_open = None;
+        self.detail_turn_edge = None;
         self.timeline_prompt = None;
         self.events_turn_index = None;
         self.last_timeline = None;
@@ -2097,11 +2122,30 @@ impl Hud {
         self.fetch_open_event(index)
     }
 
-    /// Leave full-pane detail; list position is kept via ``timeline_focus``.
-    fn close_timeline_detail(&mut self) {
+    /// Drop full-pane detail without scrolling (filter / turn pick changes).
+    fn drop_timeline_detail(&mut self) {
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
         }
+        self.detail_turn_edge = None;
+    }
+
+    fn edge_event_index(&self, edge: DetailTurnEdge) -> Option<i64> {
+        let src = match edge {
+            DetailTurnEdge::First => *self.tl_filter.first()?,
+            DetailTurnEdge::Last => *self.tl_filter.last()?,
+        };
+        self.timeline.get(src).map(|e| e.index)
+    }
+
+    /// Leave full-pane detail and scroll the list to the event you were on
+    /// (after Next/Prev that is the last open index, not the first opened).
+    fn close_timeline_detail(&mut self) -> Task<Message> {
+        if let Some(ix) = self.timeline_open.take() {
+            self.unbind_event_fields(ix);
+            self.timeline_focus = Some(ix);
+        }
+        self.scroll_focus_into_view()
     }
 
     fn turn_row_for_event(&self, index: i64) -> Option<&crate::wire::TurnRow> {
@@ -2197,7 +2241,7 @@ impl Hud {
         self.timeline_search_pending = false;
         self.timeline_kind = KindFilter::All;
         // Stay on the list when stepping turns; Esc/open is per-event detail.
-        self.close_timeline_detail();
+        self.drop_timeline_detail();
         self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
         match turn_index {
             None => {
@@ -2740,8 +2784,26 @@ impl Hud {
         }
     }
 
-    fn focus_overlay(&self) -> Task<Message> {
+    /// Window focus + session search (Spotlight / switcher only).
+    fn focus_picker(&self) -> Task<Message> {
         self.on_focus_search(0)
+    }
+
+    /// Window focus without stealing into session search (browse panes).
+    fn focus_browse(&self) -> Task<Message> {
+        if !self.visible {
+            return Task::none();
+        }
+        self.x11_focus_only(0)
+    }
+
+    /// Summon / hotkey path: picker when no session open, else keep browse focus.
+    fn focus_overlay(&self) -> Task<Message> {
+        if self.browse_mode() {
+            self.focus_browse()
+        } else {
+            self.focus_picker()
+        }
     }
 
     fn on_focus_search(&self, attempt: u8) -> Task<Message> {
@@ -2992,10 +3054,9 @@ impl Hud {
             if self.context.take().is_some() {
                 return Task::none();
             }
-            // Full-pane event detail → list before hiding the HUD.
+            // Full-pane event detail → list at the current event before hide.
             if self.tab == Tab::Timeline && self.timeline_open.is_some() {
-                self.close_timeline_detail();
-                return Task::none();
+                return self.close_timeline_detail();
             }
             return self.hide_palette();
         }
@@ -3031,19 +3092,12 @@ impl Hud {
                 return self.select_events_turn(None);
             }
         }
-        // From Turns: `g` jumps the focused turn into Events with turn scope.
+        // From Turns: `g` opens Timeline filtered to the focused turn’s events.
         if self.tab == Tab::Turns
             && matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("g"))
         {
             if let Some(turn) = self.turns_focus {
-                if let Some(ix) = self
-                    .overview
-                    .as_ref()
-                    .and_then(|o| o.turns.turns.iter().find(|t| t.turn_index == turn))
-                    .and_then(|t| t.user_event_index.or(t.first_index))
-                {
-                    return self.jump_timeline(ix);
-                }
+                return self.select_events_turn(Some(turn));
             }
         }
         if matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("y"))
@@ -3053,7 +3107,25 @@ impl Hud {
         {
             return self.yank_active();
         }
-        if matches!(key, Key::Named(Named::Tab)) && (modifiers.control() || modifiers.command()) {
+        // Tab / Shift+Tab: cycle browse panes (same as Ctrl+1…5). Not iced widget
+        // focus soup — session search is only for Spotlight (type to switch).
+        if matches!(key, Key::Named(Named::Tab))
+            && !modifiers.alt()
+            && !modifiers.logo()
+            && self.browse_mode()
+        {
+            let i = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
+            let next = if modifiers.shift() {
+                (i + Tab::ALL.len() - 1) % Tab::ALL.len()
+            } else {
+                (i + 1) % Tab::ALL.len()
+            };
+            return self.update(Message::SetTab(Tab::ALL[next]));
+        }
+        if matches!(key, Key::Named(Named::Tab))
+            && (modifiers.control() || modifiers.command())
+            && self.browse_mode()
+        {
             let i = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
             let next = if modifiers.shift() {
                 (i + Tab::ALL.len() - 1) % Tab::ALL.len()
@@ -3210,8 +3282,15 @@ impl Hud {
         Task::none()
     }
 
-    /// While reading full-pane detail, Up/Down steps to the previous/next event.
+    /// While reading full-pane detail, step previous/next event.
+    ///
+    /// Inside a **turn-scoped** filter, past the last event goes to the next
+    /// turn’s first event (and prev → previous turn’s last). **All turns**
+    /// wraps within the loaded filter. Session ends do not wrap.
     fn nav_timeline_detail_step(&mut self, delta: i32) -> Task<Message> {
+        if delta == 0 {
+            return Task::none();
+        }
         let n = self.tl_filter.len();
         if n == 0 {
             return Task::none();
@@ -3224,13 +3303,73 @@ impl Hud {
                     .position(|&src| self.timeline.get(src).is_some_and(|e| e.index == ix))
             })
             .or_else(|| self.timeline_focus_pos());
-        let pos = match cur {
-            None => 0,
-            Some(p) => (p as i32 + delta).rem_euclid(n as i32) as usize,
+        let Some(p) = cur else {
+            let src = if delta > 0 {
+                self.tl_filter[0]
+            } else {
+                self.tl_filter[n - 1]
+            };
+            if let Some(i) = self.timeline.get(src).map(|ev| ev.index) {
+                return self.open_timeline_detail(i);
+            }
+            return Task::none();
         };
-        let src = self.tl_filter[pos];
-        if let Some(ev) = self.timeline.get(src) {
-            return self.open_timeline_detail(ev.index);
+        let next = p as i32 + delta;
+        if next >= 0 && (next as usize) < n {
+            let src = self.tl_filter[next as usize];
+            if let Some(ev) = self.timeline.get(src) {
+                return self.open_timeline_detail(ev.index);
+            }
+            return Task::none();
+        }
+        // Past this filter’s edge.
+        if self.events_turn_index.is_some() {
+            return self.detail_step_adjacent_turn(delta > 0);
+        }
+        // All turns: stop at ends (no wrap) — same hard edge as session turns.
+        Task::none()
+    }
+
+    /// Next/prev turn while staying in full-pane detail (async reload).
+    fn detail_step_adjacent_turn(&mut self, forward: bool) -> Task<Message> {
+        let turns = self
+            .overview
+            .as_ref()
+            .map(|o| o.turns.turns.clone())
+            .unwrap_or_default();
+        if turns.is_empty() {
+            return Task::none();
+        }
+        let Some(cur) = self.events_turn_index else {
+            return Task::none();
+        };
+        let Some(i) = turns.iter().position(|t| t.turn_index == cur) else {
+            return Task::none();
+        };
+        let adj = if forward {
+            turns.get(i + 1)
+        } else {
+            i.checked_sub(1).and_then(|j| turns.get(j))
+        };
+        let Some(t) = adj.cloned() else {
+            // Session boundary — stay on the current edge event.
+            return Task::none();
+        };
+        self.detail_turn_edge = Some(if forward {
+            DetailTurnEdge::First
+        } else {
+            DetailTurnEdge::Last
+        });
+        self.events_turn_index = Some(t.turn_index);
+        self.timeline_prompt = t.prompt_index;
+        self.focus_turn(t.turn_index);
+        self.timeline_query.clear();
+        self.timeline_query_draft.clear();
+        self.timeline_search_pending = false;
+        self.timeline_kind = KindFilter::All;
+        self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
+        if let Some(sid) = self.detail_sid() {
+            return self.ensure_timeline(sid, true);
         }
         Task::none()
     }
@@ -3272,14 +3411,7 @@ impl Hud {
                 });
                 if let Some(ti) = turn {
                     self.turns_focus = Some(ti);
-                    if let Some(ix) = self
-                        .overview
-                        .as_ref()
-                        .and_then(|o| o.turns.turns.iter().find(|t| t.turn_index == ti))
-                        .and_then(|t| t.user_event_index.or(t.first_index))
-                    {
-                        return self.jump_timeline(ix);
-                    }
+                    // Turn → Timeline list scoped to that turn (all its events).
                     return self.select_events_turn(Some(ti));
                 }
                 self.update(Message::SetTab(Tab::Timeline))
@@ -3671,6 +3803,154 @@ mod tests {
         let _ = hud.update(Message::CloseTimelineDetail);
         assert!(hud.timeline_open().is_none());
         assert_eq!(hud.timeline_focus(), Some(9));
+    }
+
+    #[test]
+    fn close_detail_after_next_lands_on_current_event() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(10, "a"), ev_json(11, "b"), ev_json(12, "c")],
+            3,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(10));
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        assert!(hud.is_timeline_open(12));
+        let _ = hud.update(Message::CloseTimelineDetail);
+        assert!(hud.timeline_open().is_none());
+        assert_eq!(
+            hud.timeline_focus(),
+            Some(12),
+            "Esc after Next must highlight the last open event, not the first"
+        );
+    }
+
+    #[test]
+    fn timeline_detail_next_prev_steps_filtered_list() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![
+                ev_json(10, "a"),
+                ev_json(11, "b"),
+                ev_json(12, "c"),
+            ],
+            3,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(10));
+        assert_eq!(hud.timeline_detail_pos(), Some((1, 3)));
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        assert!(hud.is_timeline_open(11));
+        assert_eq!(hud.timeline_detail_pos(), Some((2, 3)));
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        assert!(hud.is_timeline_open(12));
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        // All-turns filter stops at the end (no wrap).
+        assert!(hud.is_timeline_open(12));
+        let _ = hud.update(Message::TimelineDetailStep(-1));
+        assert!(hud.is_timeline_open(11));
+    }
+
+    #[test]
+    fn timeline_detail_next_at_turn_end_advances_turn_scope() {
+        let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 2,
+                "turns": [
+                    {
+                        "turnIndex": 0,
+                        "promptIndex": 1,
+                        "label": "first",
+                        "userEventIndex": 10,
+                        "firstIndex": 10,
+                        "eventIndexes": [10, 11]
+                    },
+                    {
+                        "turnIndex": 1,
+                        "promptIndex": 2,
+                        "label": "second",
+                        "userEventIndex": 20,
+                        "firstIndex": 20,
+                        "eventIndexes": [20, 21]
+                    }
+                ]
+            },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        // Scope turn 0 with two loaded events.
+        hud.events_turn_index = Some(0);
+        hud.timeline_prompt = Some(1);
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(10, "a"), ev_json(11, "b")],
+            2,
+            0,
+        );
+        hud.rebuild_tl_filter();
+        let _ = hud.update(Message::SelectTimeline(11));
+        assert!(hud.is_timeline_open(11));
+        // Next past last event of turn 0 → request turn 1, open first when page lands.
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        assert_eq!(hud.events_turn_index, Some(1));
+        assert_eq!(hud.timeline_prompt, Some(2));
+        assert_eq!(hud.detail_turn_edge, Some(DetailTurnEdge::First));
+        // Simulate turn-1 page arriving.
+        let gen = hud.timeline_gen;
+        let _ = hud.update(Message::TimelineLoaded {
+            gen,
+            sid: "s1".into(),
+            offset: 0,
+            append: false,
+            advance: false,
+            result: Ok(json!({
+                "sessionId": "s1",
+                "total": 2,
+                "offset": 0,
+                "limit": 2,
+                "events": [
+                    {
+                        "index": 20,
+                        "type": "user message chunk",
+                        "kind": "user",
+                        "content": "t1",
+                        "preview": "t1"
+                    },
+                    {
+                        "index": 21,
+                        "type": "agent message chunk",
+                        "kind": "agent",
+                        "content": "ok",
+                        "preview": "ok"
+                    }
+                ],
+            })),
+        });
+        assert!(
+            hud.is_timeline_open(20),
+            "first event of next turn should open"
+        );
+        assert!(hud.detail_turn_edge.is_none());
     }
 
     #[test]
@@ -4489,6 +4769,60 @@ mod tests {
         assert_eq!(hud.events_turn_index, Some(0));
         let _ = hud.update(Message::RawEvent(press("]")));
         assert_eq!(hud.events_turn_index, Some(1));
+    }
+
+    #[test]
+    fn turn_card_opens_timeline_filtered_to_that_turn_not_event_detail() {
+        let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 2,
+                "turns": [
+                    {
+                        "turnIndex": 0,
+                        "promptIndex": 1,
+                        "label": "first",
+                        "summary": "a",
+                        "userEventIndex": 10,
+                        "firstIndex": 10,
+                        "eventIndexes": [10, 11, 12]
+                    },
+                    {
+                        "turnIndex": 1,
+                        "promptIndex": 2,
+                        "label": "second",
+                        "summary": "b",
+                        "userEventIndex": 20,
+                        "firstIndex": 20,
+                        "eventIndexes": [20, 21]
+                    }
+                ]
+            },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        hud.tab = Tab::Turns;
+        // Same message the turn card emits on click.
+        let _ = hud.update(Message::EventsTurnPicked(EventsTurnPick {
+            turn_index: Some(1),
+            label: "second".into(),
+        }));
+        assert_eq!(hud.tab(), Tab::Timeline);
+        assert_eq!(hud.events_turn_index, Some(1));
+        assert_eq!(hud.timeline_prompt, Some(2));
+        assert!(
+            hud.timeline_open().is_none(),
+            "turn click must show the turn event list, not open one event"
+        );
+        let req = hud.last_timeline().expect("turn-scoped fetch");
+        assert_eq!(req.prompt_index, Some(2));
     }
 
     #[test]

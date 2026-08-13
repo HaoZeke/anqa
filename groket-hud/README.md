@@ -25,18 +25,23 @@ Sol-style session **command palette** for the local groket control plane
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
 - Spotlight session pick: every summon shows **Recent** + search (not the
-  last open session). Type to filter the catalog; **↑/↓** move the
-  highlight (also while typing); **Enter** / click opens. **Home/End** and
-  **Page Up/Down** jump. No auto-open from catalog load or control
-  ``session/selected``. In browse, **Enter** drills deeper (Overview →
-  Turns → Timeline event → next event); **Esc** steps back from event
-  detail, then hides the overlay. Type in search again to switch. No
-  permanent left rail. Catalog typeahead uses ``session/list``.
+  last open session). Type to filter; **↑/↓** move the highlight (also
+  while typing); **Enter** / click opens browse. **Home/End** and
+  **Page Up/Down** jump. No auto-open. After a pick, focus stays in
+  browse (not yanked back into session search). Type in search again to
+  switch sessions. No permanent left rail.
+- **Keyboard in browse:** **Tab** / **Shift+Tab** (or **Ctrl+1…5**) cycle
+  panes. **Enter** drills Overview → Turns → turn-scoped Timeline → event
+  detail → next event. **↑/↓** move the list highlight; in event detail
+  they step events and cross into the next/previous turn when scoped.
+  **Esc** leaves event detail on the current row (footer ``Esc · timeline``),
+  then hides the overlay.
 - Browse defaults to **Overview**. Picking a session loads overview only —
   it does not fetch the session event list.
   **Turns** is a fixed list of prompt cards (status, tool counts, marks) with
-  search, **Add note**, and **Go to Timeline** — click a card to open Timeline
-  on that turn. Full assistant text and tools live on **Timeline**.
+  search, **Add note**, and **Go to Timeline** — click a card (or **Enter**)
+  opens **Timeline** filtered to **that turn’s events** (not a single event
+  drawer). Full assistant text and tools live on **Timeline**.
   **Timeline** (same name as the TUI tab) has a turn pick list (defaults to
   the turn you jumped from) plus type filter and search-all. Step turns with
   the dropdown or **]**. Overview is a session glance (status, context,
@@ -44,8 +49,11 @@ Sol-style session **command palette** for the local groket control plane
   lifecycle event dump. Event type labels use the TUI brand colors (cream /
   complete / running / failed / cancelled). Search hits show the matching
   field and a snippet. Timeline list rows open a **full-pane** event body
-  (click or jump); **Esc** / **Back** returns to the list (no in-list
-  expanders). JSON/code uses the code block. Copy with **y** / **Ctrl+Shift+C**
+  (click or jump); quiet **‹ · n · ›** (or ↑↓ / Enter) steps events and
+  crosses turns at the ends when turn-scoped; **Esc** returns to the list
+  on that event. Only the event body scrolls (pager stays put). No in-list
+  expanders. JSON/code uses the code block. Copy with **y** /
+  **Ctrl+Shift+C**
   (or right-click Copy). Right-click also offers Copy path.
   Context fill is an Overview progress bar only (not on every rail card).
 - Live refresh while the palette is open: selected running/awaiting turns

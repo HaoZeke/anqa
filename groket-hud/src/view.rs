@@ -755,10 +755,20 @@ fn kv<'a>(
 }
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
-    // Status only — no keyboard shortcut legend in the chrome.
     let left = status_copy(hud.status(), hud.status_err(), tea);
+    let mut row = row![left, Space::new().width(Length::Fill)]
+        .spacing(12)
+        .align_y(Alignment::Center);
+    // Context hint only when it changes Esc meaning (event detail → list).
+    if hud.timeline_open().is_some() {
+        row = row.push(
+            text("Esc · timeline")
+                .size(typo::META)
+                .color(tea.muted),
+        );
+    }
     icedtea::a11y::attach(
-        container(row![left, Space::new().width(Length::Fill)].padding([8, 12]))
+        container(row.padding([8, 12]))
             .width(Length::Fill)
             .style(move |_| icedtea::style::footer(tea))
             .into(),
@@ -994,11 +1004,18 @@ fn turn_note(t: &TurnRow) -> Message {
     }
 }
 
+/// Open Timeline with this turn’s events only (list, not a single-event detail).
 fn turn_jump(t: &TurnRow) -> Message {
-    t.user_event_index
-        .or(t.first_index)
-        .map(Message::JumpTimeline)
-        .unwrap_or(Message::SetTab(Tab::Timeline))
+    use crate::model::EventsTurnPick;
+    let label = if t.label.is_empty() {
+        format!("turn {}", t.turn_index)
+    } else {
+        t.label.clone()
+    };
+    Message::EventsTurnPicked(EventsTurnPick {
+        turn_index: Some(t.turn_index),
+        label,
+    })
 }
 
 fn event_note(ev: &TimelineEvent) -> Message {
@@ -1401,41 +1418,52 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     .into()
 }
 
-/// Full-area event body (click a list row; Esc / Back returns to the list).
+/// Full-area event body (click a list row; Esc returns to the list at this event).
+///
+/// Chrome (title + stepper) stays **above** the scroll pane so the scrollbar
+/// never paints over the ‹ · n · › pager.
 fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let tea = hud.tokens();
+    let pos = hud.timeline_detail_pos();
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
-            event_detail_chrome(ix, None, tea),
+            event_detail_chrome(ix, None, pos, tea),
             text("Loading event…")
                 .size(typo::BODY)
                 .color(tea.muted),
         ]
-        .spacing(12)
+        .spacing(10)
         .height(Length::Fill)
         .into();
     };
     let (_, ev_marks) = hud.card_marks();
     let mark = ev_marks.get(&ix).cloned();
-    let body = column![
-        event_detail_chrome(ix, Some(ev), tea),
-        event_body(hud, ev, mark),
-    ]
-    .spacing(12)
-    .width(Length::Fill);
-    icedtea::widget::themed_scroll(
-        body.into(),
+    let scroll = icedtea::widget::themed_scroll(
+        container(event_body(hud, ev, mark))
+            .width(Length::Fill)
+            .padding(Padding {
+                top: 0.0,
+                right: 8.0, // room beside the scroll rail for body text
+                bottom: 8.0,
+                left: 0.0,
+            })
+            .into(),
         tea,
         A11y::new(format!("Event {ix}"), Role::Group),
         false,
         None,
         None::<fn(scrollable::Viewport) -> Message>,
-    )
+    );
+    column![event_detail_chrome(ix, Some(ev), pos, tea), scroll]
+        .spacing(10)
+        .height(Length::Fill)
+        .into()
 }
 
 fn event_detail_chrome(
     ix: i64,
     ev: Option<&TimelineEvent>,
+    pos: Option<(usize, usize)>,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let title = ev.map(event_title).unwrap_or_else(|| format!("#{ix}"));
@@ -1445,21 +1473,14 @@ fn event_detail_chrome(
         let human = event_type_human(e);
         (human, color)
     });
-    let back = icedtea::widget::themed_button(
-        "← Back",
-        Some(Message::CloseTimelineDetail),
-        tea,
-        Variant::Ghost,
-        A11y::button("Back"),
-    );
+    // Title + type left; quiet ‹ · n · › stepper right. Esc → list (footer hint).
     let mut head = row![
-        back,
         text(title)
             .size(typo::BODY)
             .font(typo::UI_BOLD)
             .color(tea.text),
     ]
-    .spacing(12)
+    .spacing(10)
     .align_y(Alignment::Center)
     .width(Length::Fill);
     if let Some((human, color)) = type_line {
@@ -1473,12 +1494,47 @@ fn event_detail_chrome(
         }
     }
     head = head.push(Space::new().width(Length::Fill));
-    head = head.push(
-        text("Esc")
+    head = head.push(event_detail_stepper(pos, tea));
+    // Trailing pad so the stepper sits clear of any parent edge / rail.
+    container(head)
+        .padding(Padding {
+            top: 0.0,
+            right: 4.0,
+            bottom: 4.0,
+            left: 0.0,
+        })
+        .width(Length::Fill)
+        .into()
+}
+
+/// Compact prev · position · next cluster for full-pane event detail.
+fn event_detail_stepper(
+    pos: Option<(usize, usize)>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let count = match pos {
+        Some((at, n)) => format!("{at} · {n}"),
+        None => "—".into(),
+    };
+    let cluster = row![
+        chip_btn("‹".into(), Message::TimelineDetailStep(-1), tea),
+        text(count)
             .size(typo::META)
+            .font(typo::UI)
             .color(tea.muted),
-    );
-    head.into()
+        chip_btn("›".into(), Message::TimelineDetailStep(1), tea),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+    container(cluster)
+        .padding(Padding {
+            top: 2.0,
+            right: 6.0,
+            bottom: 2.0,
+            left: 6.0,
+        })
+        .style(move |_| icedtea::style::card(tea, false))
+        .into()
 }
 
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
@@ -2320,7 +2376,9 @@ mod tests {
         assert!(prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));
-        assert!(prod.contains("CloseTimelineDetail"));
+        assert!(prod.contains("fn event_detail_stepper"));
+        assert!(prod.contains("Esc · timeline"));
+        assert!(!prod.contains("chip_btn(\"Back\""));
         assert!(!prod.contains("is_timeline_expanded"));
         assert!(!prod.contains("TurnExpand"));
         assert!(!prod.contains("fn turn_body"));
