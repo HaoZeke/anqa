@@ -1186,6 +1186,9 @@ impl Hud {
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
             Message::Hide => self.on_escape(),
             Message::ToggleHelp => {
+                if self.typing_notes {
+                    return Task::none();
+                }
                 self.help_open = !self.help_open;
                 self.context = None;
                 Task::none()
@@ -3238,9 +3241,6 @@ impl Hud {
         if matches!(key, Key::Named(Named::Escape)) {
             return self.on_escape();
         }
-        if matches!(key, Key::Character(ref c) if c.as_str() == "?") && !self.typing_notes {
-            return self.update(Message::ToggleHelp);
-        }
         if self.help_open {
             return Task::none();
         }
@@ -3761,6 +3761,10 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
         Action::new("overlay.hide", "Hide", Message::Hide)
             .with_shortcut(Shortcut::parse("escape").expect("escape")),
     );
+    table.insert(
+        Action::new("help.toggle", "Help", Message::ToggleHelp)
+            .with_shortcut(Shortcut::parse("?").expect("?")),
+    );
     for (i, tab) in Tab::ALL.iter().enumerate() {
         let n = i + 1;
         table.insert(
@@ -3821,8 +3825,12 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
                 ..icedtea::key::KeyContext::default()
             }
             .chrome_over_input();
-            if let Some(msg) = icedtea::key::handle(ctx, &chrome_key_table(), kev) {
+            let table = chrome_key_table();
+            if let Some(msg) = icedtea::key::handle(ctx, &table, kev) {
                 return Some(msg);
+            }
+            if icedtea::key::typed(kev).as_deref() == Some("?") {
+                return table.invoke("help.toggle");
             }
             if status == event::Status::Ignored {
                 return Some(Message::RawEvent(event));
@@ -4287,12 +4295,47 @@ mod tests {
         hud.set_active(0);
         let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
         assert_eq!(hud.active, 1);
-        let _ = hud.on_key(Key::Character("?".into()), Modifiers::empty());
+        let _ = hud.update(Message::ToggleHelp);
         assert!(hud.help_open());
         let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
         assert_eq!(hud.active, 1, "j is swallowed while help is open");
         let _ = hud.on_key(Key::Named(Named::Escape), Modifiers::empty());
         assert!(!hud.help_open());
+    }
+
+    fn question_pressed() -> Event {
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("/".into()),
+            modified_key: Key::Character("?".into()),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Slash),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::SHIFT,
+            text: Some("?".into()),
+            repeat: false,
+        })
+    }
+
+    #[test]
+    fn question_mark_chrome_bind_toggles_help() {
+        let id = window::Id::unique();
+        let ev = question_pressed();
+        assert!(
+            matches!(
+                interesting_hud_event(ev.clone(), event::Status::Captured, id),
+                Some(Message::ToggleHelp)
+            ),
+            "? must fire from the chrome table even when a widget captured the key"
+        );
+        assert!(matches!(
+            interesting_hud_event(ev, event::Status::Ignored, id),
+            Some(Message::ToggleHelp)
+        ));
+        let mut hud = Hud {
+            typing_notes: true,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::ToggleHelp);
+        assert!(!hud.help_open(), "notes keep ?");
     }
 
     #[test]
