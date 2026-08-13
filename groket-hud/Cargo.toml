@@ -26,7 +26,7 @@ iced = { version = "0.14", default-features = true, features = [
     "svg",
 ] }
 notify-rust = "4"
-icedtea = { version = "0.4.0", path = "/home/ali/_dev/_git/icedtea" }
+icedtea = "0.4.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
