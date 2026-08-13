@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import time
 from pathlib import Path
 
 from ..integrations.control import default_socket_path
@@ -34,6 +36,7 @@ def run_hud(
     foreground: bool = False,
     restart: bool = False,
     install_desktop: bool = False,
+    summon: str | None = None,
 ) -> int:
     """Ensure control owner is live, then launch the iced ``groket-hud`` binary.
 
@@ -47,6 +50,11 @@ def run_hud(
 
     *install_desktop* only writes user-local icons/launcher entries (no serve,
     no HUD process).
+
+    *summon* is ``show`` / ``hide`` / ``toggle``: talk to a running HUD via the
+    summon Unix socket (Wayland/Sway compositor binds). When the HUD is not
+    running, ``show`` and ``toggle`` start it with
+    ``GROKET_HUD_SHOW_ON_START``; ``hide`` is a no-op (exit 0).
 
     The HUD is always a **client**. A live TUI or ``groket serve`` already
     holding the socket is success (attach), not an error.
@@ -65,6 +73,39 @@ def run_hud(
                 "Override path with GROKET_HUD_BIN.\n"
             )
         return code
+
+    if summon is not None:
+        from .launch import (
+            hud_process_running,
+            send_summon_command,
+            summon_socket_accepts,
+        )
+
+        word = summon.strip().lower()
+        if word not in {"show", "hide", "toggle"}:
+            sys.stderr.write(f"error: unknown summon action {summon!r}\n")
+            return 1
+        if summon_socket_accepts() or hud_process_running():
+            # Prefer the socket when the process is up; brief wait if racing boot.
+            if not summon_socket_accepts():
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline and not summon_socket_accepts():
+                    time.sleep(0.05)
+            if summon_socket_accepts():
+                code = send_summon_command(word)
+                if code == 127:
+                    sys.stderr.write(
+                        "error: groket-hud binary not found for summon.\n"
+                        "Override path with GROKET_HUD_BIN.\n"
+                    )
+                return code
+            if word == "hide":
+                return 0
+            # Fall through to start when process is dead but socket stale.
+        if word == "hide":
+            return 0
+        # Start a long-lived HUD and show on boot.
+        os.environ["GROKET_HUD_SHOW_ON_START"] = "1"
 
     sock = Path(socket_path or default_socket_path()).expanduser()
     wd, tr = resolve_work_and_traces(work_dir)

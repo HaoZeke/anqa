@@ -306,6 +306,94 @@ def _check_share_capability() -> CheckResult:
     )
 
 
+def _check_session_display() -> CheckResult:
+    """Advisory: which display protocol the seat is using."""
+    import os
+
+    wayland = (os.environ.get("WAYLAND_DISPLAY") or "").strip()
+    x11 = (os.environ.get("DISPLAY") or "").strip()
+    if wayland:
+        detail = f"Wayland ({wayland})"
+        if x11:
+            detail += f"; Xwayland DISPLAY={x11}"
+        detail += " — HUD summon: groket hud --toggle / tray (no X11 hotkey)"
+        return CheckResult(
+            id="session_display",
+            name="Session display",
+            ok=True,
+            detail=detail,
+            required=False,
+        )
+    if x11:
+        return CheckResult(
+            id="session_display",
+            name="Session display",
+            ok=True,
+            detail=f"X11 ({x11}) — in-process global hotkey available",
+            required=False,
+        )
+    return CheckResult(
+        id="session_display",
+        name="Session display",
+        ok=False,
+        detail="neither WAYLAND_DISPLAY nor DISPLAY set — HUD needs a graphical seat",
+        required=False,
+    )
+
+
+def _check_sway_socket() -> CheckResult:
+    """Advisory: Sway IPC socket when on a Sway seat."""
+    import os
+
+    sock = (os.environ.get("SWAYSOCK") or "").strip()
+    if not sock:
+        return CheckResult(
+            id="sway_socket",
+            name="Sway IPC (SWAYSOCK)",
+            ok=True,
+            detail="unset (not a Sway session, or nested shell without env)",
+            required=False,
+        )
+    path = Path(sock)
+    if path.exists():
+        return CheckResult(
+            id="sway_socket",
+            name="Sway IPC (SWAYSOCK)",
+            ok=True,
+            detail=str(path),
+            required=False,
+        )
+    return CheckResult(
+        id="sway_socket",
+        name="Sway IPC (SWAYSOCK)",
+        ok=False,
+        detail=f"SWAYSOCK set but missing: {path}",
+        required=False,
+    )
+
+
+def _check_hud_summon_socket() -> CheckResult:
+    """Advisory: whether a long-lived HUD is accepting compositor summon commands."""
+    from ..hud.launch import default_summon_socket_path, summon_socket_accepts
+
+    path = default_summon_socket_path()
+    if summon_socket_accepts(path):
+        return CheckResult(
+            id="hud_summon",
+            name="HUD summon socket",
+            ok=True,
+            detail=f"listening at {path} (groket hud --toggle)",
+            required=False,
+        )
+    return CheckResult(
+        id="hud_summon",
+        name="HUD summon socket",
+        ok=False,
+        detail=f"not listening ({path}) — start with: groket hud",
+        required=False,
+    )
+
+
 def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
@@ -316,5 +404,8 @@ def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
         _check_grok_cli(),
         _check_models_cache(),
         _check_share_capability(),
+        _check_session_display(),
+        _check_sway_socket(),
+        _check_hud_summon_socket(),
     ]
     return SelfTestReport(checks=checks)

@@ -18,16 +18,47 @@ def test_work_dir_writable(tmp_path: Path):
         patch("groket.diagnostics.self_test._check_grok_config") as c,
         patch("groket.diagnostics.self_test._check_grok_cli") as g,
         patch("groket.diagnostics.self_test._check_models_cache") as m,
+        patch("groket.diagnostics.self_test._check_share_capability") as sh,
+        patch("groket.diagnostics.self_test._check_session_display") as sd,
+        patch("groket.diagnostics.self_test._check_sway_socket") as sw,
+        patch("groket.diagnostics.self_test._check_hud_summon_socket") as hs,
     ):
         d.return_value = CheckResult("docker", "Docker", True)
         a.return_value = CheckResult("grok_auth", "Auth", True)
         c.return_value = CheckResult("grok_config", "Cfg", True, required=False)
         g.return_value = CheckResult("grok_cli", "CLI", True, required=False)
         m.return_value = CheckResult("models_cache", "Models", True, required=False)
+        sh.return_value = CheckResult("grok_share", "Share", True, required=False)
+        sd.return_value = CheckResult("session_display", "Display", True, required=False)
+        sw.return_value = CheckResult("sway_socket", "Sway", True, required=False)
+        hs.return_value = CheckResult("hud_summon", "Summon", True, required=False)
         report = run_self_test(work_dir=wd)
     assert report.ok is True
     assert (wd / "runs").is_dir()
     assert any(c.id == "work_dir" and c.ok for c in report.checks)
+
+
+def test_session_display_wayland(monkeypatch):
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    monkeypatch.setenv("DISPLAY", ":0")
+    from groket.diagnostics import self_test as st
+
+    r = st._check_session_display()
+    assert r.ok is True
+    assert r.required is False
+    assert "Wayland" in r.detail
+    assert "toggle" in r.detail
+
+
+def test_hud_summon_socket_missing(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    monkeypatch.delenv("GROKET_HUD_SUMMON_SOCKET", raising=False)
+    from groket.diagnostics import self_test as st
+
+    r = st._check_hud_summon_socket()
+    assert r.ok is False
+    assert r.required is False
+    assert "not listening" in r.detail
 
 
 def test_auth_missing(tmp_path: Path, monkeypatch):

@@ -64,8 +64,13 @@ Sol-style session **command palette** for the local groket control plane
 - Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
   **X11 Linux**) by default; override with ``~/.groket/config.json``
   ``hud.global_shortcut`` or env ``GROKET_HUD_SHORTCUT``. On **Wayland** the
-  in-process hotkey library is X11-only — the HUD skips it and logs a hint;
-  use tray **Show HUD** or a compositor keybind (``app_id``
+  in-process hotkey library is X11-only — the HUD skips it and logs a hint.
+  **Wayland summon path:** keep the HUD running, then
+  ``groket hud --show`` / ``--hide`` / ``--toggle`` (or ``groket-hud --toggle``)
+  over the per-user summon socket
+  (``$XDG_RUNTIME_DIR/groket/hud-summon.sock``, override
+  ``GROKET_HUD_SUMMON_SOCKET``). Tray **Show HUD** still works. Prefer a
+  compositor bind to ``groket hud --toggle`` (``app_id``
   ``dev.indynull.groket-hud``).
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
 - ``groket hud --install-desktop`` (or ``groket-hud --install-desktop``) writes
@@ -91,15 +96,42 @@ Sol-style session **command palette** for the local groket control plane
   macOS, toasts on Windows. The cream three-bar tray tile (64px) is written
   to ``~/.groket/hud-notify.png`` when possible. ``GROKET_HUD_NOTIFY=0`` or
   ``hud.desktop_notifications: false`` turns them off.
-- Overlay: hides on **Esc** or the summon hotkey (when registered) only
-  (focus loss does not hide). **X11:** override-redirect floating card plus
-  keyboard grab so a tiler does not insert it. **Wayland:** normal
-  xdg-toplevel (override-redirect does not apply); Sway/etc. may tile unless
-  you float ``app_id=dev.indynull.groket-hud``. Focus is compositor-owned
+- Overlay: hides on **Esc**, the summon hotkey (when registered), or
+  ``groket hud --hide`` / ``--toggle`` only (focus loss does not hide).
+  **X11:** override-redirect floating card plus keyboard grab so a tiler does
+  not insert it. **Wayland:** normal xdg-toplevel (override-redirect does not
+  apply); Sway/etc. may tile unless you float
+  ``app_id=dev.indynull.groket-hud``. Focus is compositor-owned
   (``gain_focus``, no X11 grab). Decorated pop-out is a normal desktop
   client so a tiler (yabai, i3, sway) tiles it. Closing the window does not
   stop the HUD process. Tray Show on an already-visible overlay only focuses
   (no remap).
+
+## Sway / Wayland
+
+Keep one long-lived HUD, then summon over the Unix socket (not X11 hotkeys):
+
+```bash
+groket hud                 # start once (detaches; binds summon socket)
+groket hud --toggle        # show or hide (bind this)
+groket hud --show          # show; starts HUD if needed
+groket hud --hide          # hide overlay
+```
+
+Example ``~/.config/sway/config`` fragment:
+
+```
+# Float the palette and pop-out so Sway does not tile them.
+for_window [app_id="dev.indynull.groket-hud"] floating enable
+for_window [app_id="dev.indynull.groket-hud"] border pixel 0
+
+# Summon (HUD must already be running, or --toggle starts it via groket).
+bindsym $mod+Shift+g exec groket hud --toggle
+```
+
+``groket doctor`` reports the display protocol, ``SWAYSOCK`` when set, and
+whether the summon socket is listening. Optional env:
+``GROKET_HUD_SUMMON_SOCKET``, ``GROKET_HUD_SHOW_ON_START=1``.
 
 ## Prerequisites
 
@@ -119,6 +151,9 @@ uv run groket hud --rebuild   # force cargo rebuild
 uv run groket hud --dev       # cargo run (debug)
 uv run groket hud --debug     # unoptimized cargo binary
 uv run groket hud --install-desktop  # user-local desktop icons + launcher
+uv run groket hud --toggle    # show/hide via summon socket (Wayland/Sway)
+uv run groket hud --show      # show (starts HUD if needed)
+uv run groket hud --hide      # hide overlay
 ```
 
 ``make hud-check`` (from the repo root) checks the Textual theme map, rustfmt,
