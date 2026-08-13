@@ -72,17 +72,18 @@ class TestBindingTuples:
         assert any(b.action == "open_jobs" for b in SCREEN_CHROME)
 
     def test_browser_footer_is_session_actions(self) -> None:
-        """Session browser rail is read/flag/note/copy — not jobs, delete, or export."""
+        """Session rail: flag, note, analyze, copy, export — not jobs or delete."""
         shown = set(_shown_actions(BROWSER))
         assert "open_jobs" not in shown
         assert "delete_session" not in shown
-        assert "export_bundle" not in shown
         assert "edit_operator_note" not in shown
         assert "show_help" in shown
         assert "go_back" in shown
         assert "flag_event" in shown
         assert "operator_note" in shown
+        assert "analyze" in shown
         assert "copy_detail" in shown
+        assert "export_bundle" in shown
 
     def test_global_always_includes_quit(self) -> None:
         assert "quit" in _shown_actions(GLOBAL_ALWAYS)

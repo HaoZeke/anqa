@@ -131,6 +131,7 @@ BROWSER: tuple[Binding, ...] = (
         _b("f", "flag_event", U.bind_flag(), show=True),
         _b("N", "operator_note", U.bind_note(), show=True),
         _b("O", "edit_operator_note", U.bind_edit_note(), show=False),
+        _b("a", "analyze", U.bind_analyze(), show=True),
         _b("slash", "search", U.bind_search(), show=False),
         _b("c", "clear_filters", U.bind_clear_view(), show=False),
         _b("i", "tab_pane_4", U.bind_findings(), show=False),  # Findings = pane 4
@@ -146,7 +147,7 @@ BROWSER: tuple[Binding, ...] = (
             show=False,
             priority=True,
         ),
-        _b("E", "export_bundle", U.bind_export_bundle(), show=False),
+        _b("E", "export_bundle", U.bind_export_bundle(), show=True),
         # n = type next prompt (focus input); Enter in input sends; e = end session.
         _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),
         _b("e", "mark_session_done", U.bind_end_session(), show=True),
