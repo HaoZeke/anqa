@@ -186,16 +186,6 @@ fn select_bound<'a>(
     )
 }
 
-fn selectable<'a>(
-    hud: &'a Hud,
-    key: ExtractKey,
-    fallback: &str,
-    tea: icedtea::theme::Tokens,
-    face: icedtea::typo::FontFace,
-) -> Element<'a, Message> {
-    select_bound(hud, key.id(), fallback, tea, face)
-}
-
 fn code_inset<'a>(hud: &'a Hud, id: &str, tea: icedtea::theme::Tokens) -> Element<'a, Message> {
     let Some(buf) = hud.field(id) else {
         return text(String::new()).size(typo::BODY).font(typo::MONO).into();
@@ -2065,7 +2055,7 @@ mod tests {
         assert!(!prod.contains("time_picker"));
         assert!(!prod.contains("fn drawer"));
         assert!(!prod.contains("fn disclosure"));
-        assert!(prod.contains("fn selectable"));
+        assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("fn turn_list_card"));
         assert!(prod.contains("fn closed_turn_face"));
         assert!(prod.contains("Search all events"));

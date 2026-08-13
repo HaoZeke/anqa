@@ -1,10 +1,12 @@
 //! groket identity for the HUD (window icon, tray, search chrome).
 //!
-//! Asset map follows ``brand/guidelines.html`` §7:
-//! - Window / Alt-Tab / tray / notify → **favicon** (7×3 small mark in a square)
-//! - Search chrome → full **mark** at 32px tall (colour / reverse)
-//! - Large dock tiles (1024) stay available for installers; not used for the
-//!   live window icon (X11 often drops huge ``_NET_WM_ICON`` payloads).
+//! - **Search chrome** → full mark at 32px (colour / reverse), brand guidelines.
+//! - **Window / tray / notify** → pick by host chrome contrast:
+//!   - dark panel/theme → light cream dock tile (readable on dark bars)
+//!   - light panel/theme → three-bar favicon (readable on light bars)
+//!
+//! Huge 1024 dock tiles are installer art; small PNGs keep X11 ``_NET_WM_ICON``
+//! and StatusNotifier pixmaps honest.
 
 use std::sync::OnceLock;
 
@@ -12,12 +14,13 @@ use iced::widget::image;
 use iced::window::icon;
 use iced::Length;
 
-/// Small-mark square (three bars + caps). Window switcher, tray, notify.
-///
-/// Prefer 64 for the window property (still small on the X11 wire); tray and
-/// notify use the same art so every low-res surface matches the tab favicon.
+/// Three-bar small mark (ink + caps on transparent). Light host bars.
 pub const FAVICON_64_PNG: &[u8] = include_bytes!("../../brand/png/groket-favicon-64.png");
 pub const FAVICON_32_PNG: &[u8] = include_bytes!("../../brand/png/groket-favicon-32.png");
+
+/// Cream dock tile. Dark host bars / dark HUD theme.
+pub const APP_ICON_LIGHT_256_PNG: &[u8] =
+    include_bytes!("../../brand/png/groket-app-icon-256.png");
 
 /// Colour mark (transparent). Light ``$surface``. Guidelines: search chrome 32px.
 pub const MARK_PNG: &[u8] = include_bytes!("../../brand/png/groket-mark.png");
@@ -29,14 +32,34 @@ pub const MARK_REVERSE_PNG: &[u8] = include_bytes!("../../brand/png/groket-mark-
 pub const MARK_H: f32 = 32.0;
 pub const MARK_W: f32 = MARK_H * 900.0 / 380.0;
 
-/// Window / Dock / Alt-Tab icon: three-bar favicon (not the 1024 dock tile).
-pub fn window_icon() -> Option<iced::window::Icon> {
-    icon::from_file_data(FAVICON_64_PNG, None).ok()
+/// PNG for window / tray / notify given whether the **host chrome is dark**.
+///
+/// Dark → cream tile. Light → three-bar favicon.
+pub fn system_icon_png(dark_host: bool) -> &'static [u8] {
+    if dark_host {
+        APP_ICON_LIGHT_256_PNG
+    } else {
+        FAVICON_64_PNG
+    }
 }
 
-/// Tray and desktop-notify pixmap bytes (three-bar favicon; 64 matches window).
+/// Window / Alt-Tab icon for the current HUD theme (dark theme → light tile).
+pub fn window_icon() -> Option<iced::window::Icon> {
+    window_icon_for(crate::theme::canvas_is_dark(crate::theme::tokens(
+        &crate::prefs::theme_name(),
+    )))
+}
+
+/// Window icon with an explicit dark-host flag (tests / callers).
+pub fn window_icon_for(dark_host: bool) -> Option<iced::window::Icon> {
+    icon::from_file_data(system_icon_png(dark_host), None).ok()
+}
+
+/// Tray and desktop-notify pixmap (same contrast pick as the window icon).
 pub fn tray_icon_png() -> &'static [u8] {
-    FAVICON_64_PNG
+    system_icon_png(crate::theme::canvas_is_dark(crate::theme::tokens(
+        &crate::prefs::theme_name(),
+    )))
 }
 
 /// Search-bar mark: colour on light canvas, reverse (knocked-out ink) on dark.
@@ -86,20 +109,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_icon_is_favicon_not_dock_tile() {
-        let icon = window_icon().expect("favicon-64");
-        let (rgba, size) = icon.into_raw();
+    fn system_icon_picks_cream_on_dark_and_favicon_on_light() {
+        assert_eq!(
+            system_icon_png(true).len(),
+            APP_ICON_LIGHT_256_PNG.len(),
+            "dark host → light cream tile"
+        );
+        assert_eq!(
+            system_icon_png(false).len(),
+            FAVICON_64_PNG.len(),
+            "light host → three-bar favicon"
+        );
+        let dark = window_icon_for(true).expect("cream");
+        let (rgba, size) = dark.into_raw();
+        assert_eq!((size.width, size.height), (256, 256));
+        let cream = rgba
+            .chunks_exact(4)
+            .filter(|p| p[3] > 200 && p[0] > 200 && p[1] > 180)
+            .count();
+        assert!(cream * 2 > rgba.len() / 4, "cream tile should dominate");
+        let light = window_icon_for(false).expect("favicon");
+        let (rgba, size) = light.into_raw();
         assert_eq!((size.width, size.height), (64, 64));
-        assert_eq!(rgba.len(), 64 * 64 * 4);
-        // Three-bar favicon has opaque ink + caps (not a full cream plate).
         let opaque = rgba.chunks_exact(4).filter(|p| p[3] > 200).count();
-        assert!(opaque > 100 && opaque < 64 * 64, "favicon should be sparse bars, not a solid tile");
+        assert!(opaque > 100 && opaque < 64 * 64);
     }
 
     #[test]
-    fn tray_icon_is_favicon_64() {
+    fn tray_icon_png_is_valid() {
         assert_eq!(tray_icon_png()[1..4], *b"PNG");
-        assert_eq!(tray_icon_png().len(), FAVICON_64_PNG.len());
     }
 
     #[test]

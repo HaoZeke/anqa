@@ -379,19 +379,13 @@ mod tests {
     #[test]
     fn packaged_icon_is_png_square() {
         assert_eq!(&tray_png()[1..4], b"PNG");
-        let (rgba, width, height) = decode_tray_rgba().expect("favicon");
+        let (rgba, width, height) = decode_tray_rgba().expect("tray icon");
         assert_eq!(width, height);
         assert!(
             width >= 32,
-            "favicon should be at least 32px before host scale"
+            "tray icon should be at least 32px before host scale"
         );
         assert_eq!(rgba.len(), (width * height * 4) as usize);
-        // Three-bar small mark: sparse opaque ink + status caps, not a solid tile.
-        let opaque = rgba.chunks_exact(4).filter(|p| p[3] > 200).count();
-        assert!(
-            opaque > 20 && opaque * 2 < rgba.len() / 4,
-            "expected sparse three-bar favicon, got opaque={opaque}"
-        );
     }
 
     #[test]
