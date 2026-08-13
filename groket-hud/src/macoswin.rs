@@ -112,6 +112,50 @@ fn set_activation_macos(desktop: bool) {
         );
     }
     set_app_icon_macos(&app);
+    if desktop {
+        install_file_close_menu(&app, mtm);
+    }
+}
+
+/// Winit's default macOS menu is About / Hide / Quit only. File > Close
+/// (Cmd+W) sends ``performClose:`` to the key window, which becomes
+/// iced ``CloseRequested`` — the same path as the title-bar close.
+#[cfg(target_os = "macos")]
+fn install_file_close_menu(app: &objc2_app_kit::NSApplication, mtm: objc2::MainThreadMarker) {
+    use objc2::sel;
+    use objc2_app_kit::{NSMenu, NSMenuItem};
+    use objc2_foundation::NSString;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+    if INSTALLED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let Some(bar) = app.mainMenu() else {
+        INSTALLED.store(false, Ordering::Relaxed);
+        return;
+    };
+    let file = NSString::from_str("File");
+    for i in 0..bar.numberOfItems() {
+        if let Some(item) = bar.itemAtIndex(i) {
+            if item.title().isEqualToString(&file) {
+                return;
+            }
+        }
+    }
+    let file_item = NSMenuItem::new(mtm);
+    file_item.setTitle(&file);
+    let file_menu = NSMenu::new(mtm);
+    file_menu.setTitle(&file);
+    unsafe {
+        file_menu.addItemWithTitle_action_keyEquivalent(
+            &NSString::from_str("Close"),
+            Some(sel!(performClose:)),
+            &NSString::from_str("w"),
+        );
+    }
+    file_item.setSubmenu(Some(&file_menu));
+    bar.addItem(&file_item);
 }
 
 #[cfg(target_os = "macos")]
@@ -151,5 +195,18 @@ mod tests {
         assert_eq!(m & TRANSIENT, 0);
         assert_eq!(m & JOIN_ALL_SPACES, 0);
         assert_eq!(m & FULL_SCREEN_DISALLOWS_TILING, 0);
+    }
+
+    #[test]
+    fn pop_out_installs_file_close_for_cmd_w() {
+        let src = include_str!("macoswin.rs");
+        assert!(src.contains("install_file_close_menu"));
+        assert!(src.contains("performClose:"));
+        assert!(src.contains("set_activation_macos"));
+        let app = include_str!("app.rs");
+        assert!(
+            !app.contains("CloseWindow"),
+            "Cmd+W is AppKit File > Close, not an iced chord"
+        );
     }
 }
