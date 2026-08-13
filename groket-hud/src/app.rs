@@ -1391,7 +1391,6 @@ impl Hud {
             self.toasts.push_warning("Nothing to copy");
             return Task::none();
         }
-        self.toasts.push_success("Copied");
         write_os_clipboard(&text);
         Task::batch([
             icedtea::host::copy_text(text.clone()),
@@ -2943,7 +2942,6 @@ impl Hud {
             self.toasts.push_warning("No path");
             return Task::none();
         }
-        self.toasts.push_success("Copied path");
         write_os_clipboard(&path);
         Task::batch([
             icedtea::host::copy_text(path.clone()),
@@ -4417,7 +4415,8 @@ mod tests {
             .expect("copy");
         assert!(copy.enabled);
         let _ = hud.update(Message::Yank);
-        assert!(hud.toasts().iter().any(|t| t.text == "Copied"));
+        // Copy is silent (no success toast).
+        assert!(!hud.toasts().iter().any(|t| t.text.contains("Copied")));
     }
 
     #[test]

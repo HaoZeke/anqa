@@ -907,6 +907,7 @@ mod tests {
         assert!(filter_turn_indices(&turns, "missing").is_empty());
     }
 
+    #[test]
     fn filter_timeline_indices_keeps_order_without_query() {
         let events = vec![
             ev(0, "user", "hello"),

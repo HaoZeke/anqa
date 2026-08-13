@@ -709,13 +709,8 @@ fn card_chips(
                 tea,
             ));
         }
-        if m.errors > 0 {
-            marks = marks.push(
-                text(format!("e{}", m.errors))
-                    .size(typo::META)
-                    .color(tok.danger),
-            );
-        }
+        // Tool errors are already in turn_stats_row ("N tools · M tool errors").
+        // A bare red "e5" looked like a broken type label.
     }
     let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
