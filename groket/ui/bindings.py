@@ -41,12 +41,11 @@ APP_GLOBAL_PRIORITY: tuple[Binding, ...] = (
     ),
 )
 
-# Footer layout (left → right; command palette is always on the far right):
-#   Help · Back (pushed screens) · context actions · Jobs · Quit
-# F5 / Ctrl+R still refresh; they stay out of the footer to keep it lean.
-# App session-home bindings are gated in TraceEvalApp.check_action so they do
-# not leak into Runner / Browser / etc. footers via binding inheritance.
-# Quit is global (not priority): works on every screen, but Input/TextArea still
+# Footer: Help · Back (pushed screens) · this screen's primary actions · Quit.
+# Jobs stays on the sessions-home rail (``J`` still works on every screen).
+# F5 / Ctrl+R refresh without a footer slot. Home-only actions are gated in
+# TraceEvalApp.check_action so they do not leak into pushed-screen footers.
+# Quit is global (not priority): works on every screen; Input/TextArea still
 # consume ``q`` while editing (same convention as other letter shortcuts).
 
 GLOBAL_ALWAYS: tuple[Binding, ...] = (
@@ -88,13 +87,13 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("n", "follow_up_sessions", U.bind_next_prompt(), show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), show=True),
 )
-# Pushed screens: Help · Back · Jobs · Quit (letter shortcuts still yield to Input/TextArea).
+# Pushed screens: Help · Back · Quit. Jobs / refresh stay bound, not in the rail.
 SCREEN_CHROME: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), show=True),
     _b("escape", "go_back", U.bind_back(), show=True),
     _b("f5", "refresh_context", U.bind_refresh(), show=False),
     _b("ctrl+r", "refresh_context", U.bind_refresh(), show=False),
-    _b("J", "open_jobs", U.bind_jobs(), show=True),
+    _b("J", "open_jobs", U.bind_jobs(), show=False),
     _b("ctrl+t", "self_test", t("ui-self-test"), show=False),
     _b("q", "quit", U.bind_quit(), show=True),
 )
@@ -131,11 +130,11 @@ BROWSER: tuple[Binding, ...] = (
         _b("v", "focus_timeline_filter", U.bind_view(), show=False),
         _b("f", "flag_event", U.bind_flag(), show=True),
         _b("N", "operator_note", U.bind_note(), show=True),
-        _b("O", "edit_operator_note", U.bind_edit_note(), show=True),
+        _b("O", "edit_operator_note", U.bind_edit_note(), show=False),
         _b("slash", "search", U.bind_search(), show=False),
         _b("c", "clear_filters", U.bind_clear_view(), show=False),
         _b("i", "tab_pane_4", U.bind_findings(), show=False),  # Findings = pane 4
-        _b("x", "delete_session", U.bind_delete(), show=True),
+        _b("x", "delete_session", U.bind_delete(), show=False),
         _b("delete", "delete_session", U.bind_delete(), show=False),
         _b("s", "open_share", U.bind_share(), show=False),
         # y = yank detail / selection to clipboard (Textual mouse select + OSC 52).
@@ -147,7 +146,7 @@ BROWSER: tuple[Binding, ...] = (
             show=False,
             priority=True,
         ),
-        _b("E", "export_bundle", U.bind_export_bundle(), show=True),
+        _b("E", "export_bundle", U.bind_export_bundle(), show=False),
         # n = type next prompt (focus input); Enter in input sends; e = end session.
         _b("n", "focus_follow_up", U.bind_next_prompt(), show=True),
         _b("e", "mark_session_done", U.bind_end_session(), show=True),

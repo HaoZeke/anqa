@@ -64,10 +64,25 @@ class TestBindingTuples:
         assert "open_runner" in shown
 
     def test_footer_chrome_order_pushed_screens(self) -> None:
-        """Pushed screens: Help then Back; Refresh not in footer (Quit is app-global)."""
+        """Pushed screens: Help then Back then Quit. Jobs stays bound, off the rail."""
         shown = _shown_actions(SCREEN_CHROME)
-        assert shown[:2] == ["show_help", "go_back"]
+        assert shown == ["show_help", "go_back", "quit"]
+        assert "open_jobs" not in shown
         assert "refresh_context" not in shown
+        assert any(b.action == "open_jobs" for b in SCREEN_CHROME)
+
+    def test_browser_footer_is_session_actions(self) -> None:
+        """Session browser rail is read/flag/note/copy — not jobs, delete, or export."""
+        shown = set(_shown_actions(BROWSER))
+        assert "open_jobs" not in shown
+        assert "delete_session" not in shown
+        assert "export_bundle" not in shown
+        assert "edit_operator_note" not in shown
+        assert "show_help" in shown
+        assert "go_back" in shown
+        assert "flag_event" in shown
+        assert "operator_note" in shown
+        assert "copy_detail" in shown
 
     def test_global_always_includes_quit(self) -> None:
         assert "quit" in _shown_actions(GLOBAL_ALWAYS)
@@ -84,6 +99,7 @@ class TestBindingTuples:
         assert "show_help" in shown
         assert "go_back" in shown
         assert "run_evaluation" in shown
+        assert "open_jobs" not in shown
 
     def test_launch_priority_keys_include_ctrl_j(self) -> None:
         """Ctrl+Enter often arrives as ctrl+j in terminals — both must be bound."""
