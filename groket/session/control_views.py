@@ -352,9 +352,7 @@ def turn_segment_mapping(
         the default.
     """
     summary, user_index = _turn_user_prompt_preview(seg)
-    assistant, assistant_index = _turn_assistant_preview(
-        seg, max_chars=assistant_max_chars
-    )
+    assistant, assistant_index = _turn_assistant_preview(seg, max_chars=assistant_max_chars)
     row: JsonObject = {
         "turnIndex": int(seg.turn_index),
         "turnNumber": seg.turn_number,

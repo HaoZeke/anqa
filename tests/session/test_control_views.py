@@ -207,13 +207,13 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
 
 def test_overview_caps_assistant_preview_for_list(tmp_path: Path) -> None:
     """session/overview keeps short assistant previews; session/turns keeps long."""
+    from groket.parser import parse_timeline
     from groket.session.control_views import (
         build_session_overview,
         build_session_turns,
         turn_segment_mapping,
     )
     from groket.session.turns import segment_timeline_turns
-    from groket.parser import parse_timeline
 
     sd = _write_session(tmp_path, "sess-asst-cap")
     long_agent = "A" * 2000
@@ -228,20 +228,16 @@ def test_overview_caps_assistant_preview_for_list(tmp_path: Path) -> None:
             }
         },
     }
-    (sd / "updates.jsonl").write_text(
-        updates + json.dumps(extra) + "\n", encoding="utf-8"
-    )
+    (sd / "updates.jsonl").write_text(updates + json.dumps(extra) + "\n", encoding="utf-8")
     ov = build_session_overview(sd)
-    asst = (ov["turns"]["turns"][0].get("assistantSummary") or "")
+    asst = ov["turns"]["turns"][0].get("assistantSummary") or ""
     assert len(asst) <= 401
     assert asst.endswith("…")
     turns = build_session_turns(sd)
-    full = (turns["turns"][0].get("assistantSummary") or "")
+    full = turns["turns"][0].get("assistantSummary") or ""
     assert len(full) >= 2000
     segs = segment_timeline_turns(parse_timeline(sd))
-    short = turn_segment_mapping(
-        segs[0], include_event_indexes=False, assistant_max_chars=400
-    )
+    short = turn_segment_mapping(segs[0], include_event_indexes=False, assistant_max_chars=400)
     assert len(str(short.get("assistantSummary") or "")) <= 401
 
 
