@@ -1,9 +1,9 @@
 //! groket identity for the HUD (window icon, tray, search chrome).
 //!
 //! - **Search chrome** → full mark at 32px (colour / reverse), brand guidelines.
-//! - **Window / tray / notify** → cream plate + **7×3 three-bar small mark**
-//!   (``groket-tray-*.png``). Full rocket app icons turn to mud at 16–22px;
-//!   chunky bars + status caps stay readable on dark and light panels.
+//! - **Window / tray / notify** → dual-contrast badge (``groket-tray-*.png``):
+//!   cream plate, ink rim, **7×3 three-bar small mark**. Cream reads on dark
+//!   panels; rim + bars read on light. Full rocket icons mud at 16–22px.
 //!
 //! Installer dock tiles (1024) stay separate; small tray PNGs keep X11 and
 //! StatusNotifier happy.
@@ -85,7 +85,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_and_tray_use_three_bar_cream_tiles() {
+    fn window_and_tray_use_dual_contrast_three_bar_tiles() {
         let win = window_icon().expect("tray-128");
         let (rgba, size) = win.into_raw();
         assert_eq!((size.width, size.height), (128, 128));
@@ -94,6 +94,12 @@ mod tests {
             .filter(|p| p[3] > 200 && p[0] > 200 && p[1] > 180)
             .count();
         assert!(cream * 2 > rgba.len() / 4, "cream plate should dominate");
+        // Ink rim (dark opaque near full alpha) — light desktop edge.
+        let ink = rgba
+            .chunks_exact(4)
+            .filter(|p| p[3] > 200 && p[0] < 60 && p[1] < 60 && p[2] < 60)
+            .count();
+        assert!(ink > 80, "ink rim should frame the cream plate");
         // Status caps present (red / green / yellow).
         let red = rgba
             .chunks_exact(4)

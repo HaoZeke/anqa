@@ -270,9 +270,10 @@ def main() -> None:
     rsvg(SVG / "groket-favicon.svg", PNG / "groket-favicon-64.png", width=64)
     for n in (32, 16):
         rsvg(SVG / "groket-favicon.svg", PNG / f"groket-favicon-{n}.png", width=n)
-    # Taskbar / tray / notify: cream plate + 7×3 three-bar small mark (no needles).
-    # Full rocket app icons collapse to mud at 16–22px; chunky bars stay readable.
-    for n in (64, 128):
+    # Taskbar / tray / notify: dual-contrast badge (cream plate + ink rim +
+    # 7×3 three-bar small mark). Works on dark and light panels at 16–22px.
+    # Full rocket app icons collapse to mud; bare favicon ink vanishes on dark.
+    for n in (32, 48, 64, 128):
         _write_tray_tile(PNG / f"groket-tray-{n}.png", n)
 
 
@@ -338,20 +339,46 @@ def _resize_square(src: Path, dest: Path, size: int) -> None:
     im.resize((size, size), Image.Resampling.LANCZOS).save(dest, "PNG", optimize=True)
 
 
+def _hex_rgba(hex_s: str) -> tuple[int, int, int, int]:
+    h = hex_s.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+
+
 def _write_tray_tile(dest: Path, tile: int) -> None:
-    """Cream square + 7×3 three-bar small mark (taskbar / StatusNotifier size)."""
+    """Dual-contrast taskbar badge: cream plate, ink rim, 7×3 three-bar mark.
+
+    Dark desktops see the cream field. Light desktops see the ink rim + bars.
+    Bars fill most of the face (small pad) so 16–22px panel sizes stay legible.
+    """
     from PIL import ImageDraw
 
-    cream = tuple(int(CREAM[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
-    ink = tuple(int(INK[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
-    red = tuple(int(RED[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
-    green = tuple(int(GREEN[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
-    yellow = tuple(int(YELLOW[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
-    im = Image.new("RGBA", (tile, tile), cream)
+    cream = _hex_rgba(CREAM)
+    ink = _hex_rgba(INK)
+    red = _hex_rgba(RED)
+    green = _hex_rgba(GREEN)
+    yellow = _hex_rgba(YELLOW)
+
+    # Transparent corners; rounded cream face.
+    im = Image.new("RGBA", (tile, tile), (0, 0, 0, 0))
     draw = ImageDraw.Draw(im)
-    pad = max(2, tile // 8)
-    inner = tile - 2 * pad
-    cell = min(inner // SMALL_COLS, inner // SMALL_ROWS)
+    # Corner radius ~18% of edge (app-icon family).
+    radius = max(2, round(tile * 0.18))
+    # Border thick enough to survive downscale to ~16px.
+    border = max(1, round(tile / 32))
+    # Outer ink stroke, then cream inset (rim on light panels).
+    draw.rounded_rectangle([0, 0, tile - 1, tile - 1], radius=radius, fill=ink)
+    inset = border
+    draw.rounded_rectangle(
+        [inset, inset, tile - 1 - inset, tile - 1 - inset],
+        radius=max(1, radius - inset),
+        fill=cream,
+    )
+
+    # Three-bar grid: ~10% pad inside the cream face so cells stay chunky.
+    face = tile - 2 * (inset + max(2, tile // 10))
+    cell = max(2, face // SMALL_COLS)
+    # Prefer height fit for 3 rows if needed.
+    cell = min(cell, max(2, face // SMALL_ROWS))
     mark_w = SMALL_COLS * cell
     mark_h = SMALL_ROWS * cell
     ox = (tile - mark_w) // 2
@@ -360,6 +387,9 @@ def _write_tray_tile(dest: Path, tile: int) -> None:
     for row, (bar_w, cap) in enumerate(rows):
         y0 = oy + row * cell
         y1 = y0 + cell - 1
+        # Tiny gap between rows (1px) so bars separate when downscaled.
+        if row > 0 and cell > 2:
+            y0 += 1
         draw.rectangle([ox, y0, ox + bar_w * cell - 1, y1], fill=ink)
         draw.rectangle(
             [ox + bar_w * cell, y0, ox + (bar_w + 1) * cell - 1, y1],
