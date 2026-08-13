@@ -21,14 +21,14 @@ use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
     first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
-    scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
-    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
+    list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
+    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
+    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
+    session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
     toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
-    LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
-    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    LIVE_POLL_MS, LIVE_TAIL_LIMIT, OPEN_TIMELINE_ROW_H, OPEN_TIMELINE_ROW_MAX, TIMELINE_BUFFER_CAP,
+    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -684,7 +684,7 @@ impl Hud {
                     self.bind_event_extract(ix);
                     // Heights first so scroll math uses the open card size.
                     self.rebuild_tl_heights();
-                    let _ = self.scroll_focus_into_view();
+                    let _ = self.scroll_open_into_view();
                     return self.fetch_open_event(ix);
                 }
                 self.unbind_event_fields(ix);
@@ -1022,6 +1022,9 @@ impl Hud {
                         if let Some(ix) = self.timeline_focus {
                             if self.timeline_expanded.contains(&ix) {
                                 self.bind_event_extract(ix);
+                                // Full body after open-fetch: re-estimate height + re-pin.
+                                self.rebuild_tl_heights();
+                                let _ = self.scroll_open_into_view();
                             }
                         }
                         if self.timeline.len() > TIMELINE_BUFFER_CAP {
@@ -2081,6 +2084,17 @@ impl Hud {
         let view_h = self.tl_window.viewport.max(1.0);
         let y = list_scroll_to_cover(&self.tl_heights, pos, self.tl_window.scroll, view_h);
         self.tl_window.scroll = y;
+        Task::none()
+    }
+
+    /// After expand: pin the open card’s top to the viewport so the body can
+    /// be scrolled through (virtual rows clip to estimated height).
+    fn scroll_open_into_view(&mut self) -> Task<Message> {
+        let Some(pos) = self.timeline_focus_pos() else {
+            return Task::none();
+        };
+        let view_h = self.tl_window.viewport.max(1.0);
+        self.tl_window.scroll = list_scroll_to_top(&self.tl_heights, pos, view_h);
         Task::none()
     }
 
@@ -3214,18 +3228,49 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     table
 }
 
+/// Virtual list row height for an expanded event.
+///
+/// ``virtual_column`` clips each row to this height, so under-estimates hide
+/// body text with no way to scroll inside the card. Built from icedtea
+/// density (4px grid) + type scale — not free-hand magic numbers.
 fn estimate_open_event_height(ev: &TimelineEvent) -> f32 {
+    use icedtea::density::Density;
+
+    let d = Density::default(); // space=8, pad=8, tile=48
+    let space = d.space as f32;
+    let pad = d.pad as f32;
+    // Line box ≈ body px + half space (tight reading stack).
+    let line = crate::typo::BODY as f32 + space * 0.5;
+    // Card chrome: title row + outer pad + chips row + gaps.
+    let chrome = d.tile() as f32 + pad * 2.0 + space * 3.0;
+
     let body = event_body_text(ev);
-    let chars = body
-        .chars()
-        .count()
-        .max(ev.content.chars().count())
-        .max(ev.preview.chars().count());
-    if chars == 0 {
-        return TIMELINE_ROW_H;
-    }
-    let lines = ((chars as f32) / 48.0).ceil().max(2.0);
-    (TIMELINE_ROW_H + lines * 16.0).clamp(TIMELINE_ROW_H, 1600.0)
+    let text = if !ev.content.is_empty() {
+        ev.content.as_str()
+    } else {
+        body.as_str()
+    };
+    let line_count = text.lines().count().max(1);
+    // ~2.5 glyphs per body-px ≈ wrap at typical detail column width.
+    let chars = text.chars().count();
+    let wrap_cols = ((crate::typo::BODY as f32) * 2.5).max(24.0);
+    let wrapped = ((chars as f32) / wrap_cols).ceil() as usize;
+    let lines = line_count.max(wrapped).max(2) as f32;
+
+    let field_n = if !ev.tool_fields.is_empty() {
+        ev.tool_fields.len()
+    } else if matches!(ev.kind.as_str(), "tool" | "tool_result") || ev.event_type.contains("tool")
+    {
+        3
+    } else {
+        0
+    };
+    // One tool field: label meta + value tile-ish block.
+    let field_h = (crate::typo::META as f32 + d.tile() as f32 + space) * field_n as f32;
+    let body_h = lines * line;
+    let h = chrome + field_h + body_h;
+    let snapped = Density::snap(h.round() as u32).max(OPEN_TIMELINE_ROW_H as u32);
+    (snapped as f32).min(OPEN_TIMELINE_ROW_MAX)
 }
 
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {

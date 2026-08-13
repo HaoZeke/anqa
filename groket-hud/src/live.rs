@@ -18,8 +18,10 @@ pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
 pub const SESSION_LIST_W: f32 = 260.0;
 /// Closed timeline card plus gap (flat list card, not expander Peek).
 pub const TIMELINE_ROW_H: f32 = 88.0;
-/// Expanded timeline card estimate for [`icedtea::widget::virtual_column`].
-pub const OPEN_TIMELINE_ROW_H: f32 = 360.0;
+/// Floor for an expanded timeline card (header + padding + short body).
+pub const OPEN_TIMELINE_ROW_H: f32 = 320.0;
+/// Ceiling for open-card height estimates (virtual_column clips to this).
+pub const OPEN_TIMELINE_ROW_MAX: f32 = 6_000.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
 /// Fixed Turns list card (title + meta + prompt + chips + gap).
@@ -103,13 +105,24 @@ pub fn list_scroll_to_cover(heights: &[f32], active: usize, scroll: f32, view_h:
     let top: f32 = heights.iter().take(active).copied().sum();
     let bot = top + heights.get(active).copied().unwrap_or(0.0);
     let content: f32 = heights.iter().copied().sum();
+    let row_h = bot - top;
     let mut y = scroll;
-    if top < y {
+    // Tall open cards: pin the top so the list can scroll through the body.
+    if row_h > view_h {
+        y = top;
+    } else if top < y {
         y = top;
     } else if bot > y + view_h {
         y = (bot - view_h).max(0.0);
     }
     clamp_scroll(y, content, view_h)
+}
+
+/// Pin row top to the viewport top (expand / jump).
+pub fn list_scroll_to_top(heights: &[f32], active: usize, view_h: f32) -> f32 {
+    let top: f32 = heights.iter().take(active).copied().sum();
+    let content: f32 = heights.iter().copied().sum();
+    clamp_scroll(top, content, view_h)
 }
 
 /// Second line for an icedtea session row (status, model, context).
@@ -1099,6 +1112,16 @@ mod tests {
         assert_eq!(y, (content - view_h).max(0.0));
         let top: f32 = heights.iter().take(n - 1).copied().sum();
         assert!(y + view_h + f32::EPSILON >= top + row);
+    }
+
+    #[test]
+    fn list_scroll_to_top_pins_tall_open_card() {
+        let heights = vec![88.0, 2_000.0, 88.0];
+        let y = list_scroll_to_top(&heights, 1, 400.0);
+        assert!((y - 88.0).abs() < f32::EPSILON);
+        // Tall row: cover also pins to top so the body can be scrolled through.
+        let cover = list_scroll_to_cover(&heights, 1, 0.0, 400.0);
+        assert!((cover - 88.0).abs() < f32::EPSILON);
     }
 
     #[test]
