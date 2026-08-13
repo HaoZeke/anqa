@@ -951,7 +951,7 @@ def build_session_timeline(
             off = max(0, hit - 8)
     page = filtered[off : off + lim] if lim else []
     q = (query or "").strip()
-    events_out: list[JsonObject] = []
+    events_out: list[JsonValue] = []
     for ev in page:
         row = timeline_event_mapping(
             ev,
@@ -959,10 +959,12 @@ def build_session_timeline(
             turn_index=turn_by_index.get(int(ev.index)),
         )
         if q:
-            hit = timeline_query_hit(ev, q)
-            if hit is not None:
-                row["matchField"] = hit[0]
-                row["matchSnippet"] = hit[1]
+            # Distinct name: earlier branches bind ``hit`` as a page index.
+            match = timeline_query_hit(ev, q)
+            if match is not None:
+                field, snippet = match
+                row["matchField"] = field
+                row["matchSnippet"] = snippet
         events_out.append(row)
     return {
         "sessionId": sd.name,
