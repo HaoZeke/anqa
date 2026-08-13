@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 from typing import Unpack
 
 import pytest
 from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.analysis.registry import (
+    _MODULE_LOADED_MTIME,
     _REGISTRY,
     get_analyzer,
     list_analyzers,
     load_config_plugins,
+    refresh_stale_config_plugins,
     register_analyzer,
     set_default_analyzer,
 )
@@ -49,9 +53,12 @@ class _DummyAnalyzer:
 def _clean_registry():
     """Snapshot and restore registry around each test."""
     saved = dict(_REGISTRY)
+    saved_mtime = dict(_MODULE_LOADED_MTIME)
     yield
     _REGISTRY.clear()
     _REGISTRY.update(saved)
+    _MODULE_LOADED_MTIME.clear()
+    _MODULE_LOADED_MTIME.update(saved_mtime)
 
 
 class TestRegisterAnalyzer:
@@ -294,3 +301,45 @@ class TestLoadConfigPluginsEdge:
         assert a.info.version == "user"
         assert a.info.name == "user"
         sys.modules.pop("shadow_mod", None)
+
+
+def test_refresh_reimports_when_plugin_file_is_newer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A later analyze must pick up an edited user plugin without a new process."""
+    import sys
+
+    import groket.paths as paths
+
+    user = tmp_path / "plugins"
+    user.mkdir()
+    stub = (
+        "from groket.analysis.base import AnalyzerInfo, AnalysisResult\n"
+        "class A:\n"
+        "    @property\n"
+        "    def info(self):\n"
+        "        return AnalyzerInfo(id='live', name='L', version={ver!r})\n"
+        "    def analyze(self, session_dir, context=None):\n"
+        "        return AnalysisResult(session_id='x', session_dir=str(session_dir),\n"
+        "                              analyzer_id='live')\n"
+    )
+    py = user / "live_mod.py"
+    py.write_text(stub.format(ver="1"), encoding="utf-8")
+    monkeypatch.setattr(paths, "user_analysis_plugins_dir", lambda: user)
+    monkeypatch.chdir(tmp_path)
+    sys.modules.pop("live_mod", None)
+
+    specs = ["live_mod:A"]
+    loaded, failed, _reg = load_config_plugins(specs, config_dir=tmp_path)
+    assert failed == []
+    assert loaded == specs
+    assert get_analyzer("live").info.version == "1"
+
+    py.write_text(stub.format(ver="2"), encoding="utf-8")
+    later = time.time() + 2
+    os.utime(py, (later, later))
+
+    assert refresh_stale_config_plugins(specs, config_dir=tmp_path) == specs
+    assert get_analyzer("live").info.version == "2"
+    assert refresh_stale_config_plugins(specs, config_dir=tmp_path) == []
+    sys.modules.pop("live_mod", None)

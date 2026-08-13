@@ -22,6 +22,7 @@ from .registry import (
     get_analyzer,
     list_analyzers,
     load_config_plugins,
+    refresh_stale_config_plugins,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,13 @@ class AnalysisService:
         self._load_configured_plugins()
         return self.config
 
+    def _refresh_live_plugins(self) -> None:
+        """Re-import config plugins whose files changed since last load."""
+        if not self.config.plugins:
+            return
+        config_dir = self.config_path.parent if self.config_path else None
+        refresh_stale_config_plugins(self.config.plugins, config_dir=config_dir)
+
     def list_plugins(self) -> list[AnalyzerInfo]:
         """Enabled analyzers only (plus ``noop`` for display if nothing else)."""
         infos = [i for i in list_analyzers() if i.id in self._enabled_ids]
@@ -173,6 +181,7 @@ class AnalysisService:
         infrastructure mtimes (``groket.analysis.*`` bases) are ignored —
         only the analyzer class module counts. Does **not** run analyzers.
         """
+        self._refresh_live_plugins()
         import time
 
         from ..constants import ANALYSIS_STALE_HINT_WINDOW_S
@@ -275,6 +284,7 @@ class AnalysisService:
         Returns results keyed by analyzer ID.  Per-plugin exceptions are
         caught and logged — one broken plugin does not block others.
         """
+        self._refresh_live_plugins()
         path = Path(session_dir)
         cacheable = self.cache_root is not None and _session_is_complete(path)
         ctx: AnalyzeContext = {**kwargs}
@@ -362,12 +372,15 @@ class AnalysisService:
             )
 
         if cacheable and not force and self.cache_root is not None:
-            cached = load_cached_result(
-                self.cache_root,
-                path,
-                info.id,
-                info.version,
-            )
+            if self._analyzer_source_newer_than_cache(path, info.id):
+                cached = None
+            else:
+                cached = load_cached_result(
+                    self.cache_root,
+                    path,
+                    info.id,
+                    info.version,
+                )
             if cached is not None:
                 logger.debug("Cache hit for %s/%s", path.name, info.id)
                 return cached

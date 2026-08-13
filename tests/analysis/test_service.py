@@ -8,7 +8,7 @@ from typing import Unpack
 import pytest
 from groket.analysis.base import AnalysisResult, AnalyzeContext, AnalyzerInfo, Finding
 from groket.analysis.config import AnalysisPipelineConfig
-from groket.analysis.registry import _REGISTRY, register_analyzer
+from groket.analysis.registry import _MODULE_LOADED_MTIME, _REGISTRY, register_analyzer
 from groket.analysis.service import AnalysisService
 from groket.models import Severity
 
@@ -48,9 +48,12 @@ class _CrashingAnalyzer:
 @pytest.fixture(autouse=True)
 def _clean_registry():
     saved = dict(_REGISTRY)
+    saved_mtime = dict(_MODULE_LOADED_MTIME)
     yield
     _REGISTRY.clear()
     _REGISTRY.update(saved)
+    _MODULE_LOADED_MTIME.clear()
+    _MODULE_LOADED_MTIME.update(saved_mtime)
 
 
 class TestAnalysisService:
@@ -347,6 +350,50 @@ class TestAnalysisService:
         svc.analyze_all(sd)
         cached = cache_root / "analysis" / sd.name / "nc-test.json"
         assert not cached.exists()
+
+    def test_analyze_all_reimports_edited_plugin(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session_dir: Path
+    ) -> None:
+        import sys
+        import time
+
+        import groket.paths as paths
+
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        py = plugins / "live_svc.py"
+        stub = (
+            "from groket.analysis.base import AnalyzerInfo, AnalysisResult\n"
+            "class A:\n"
+            "    @property\n"
+            "    def info(self):\n"
+            "        return AnalyzerInfo(id='live-svc', name='L', version={ver!r})\n"
+            "    def analyze(self, session_dir, context=None):\n"
+            "        return AnalysisResult(session_id=session_dir.name,\n"
+            "            session_dir=str(session_dir), analyzer_id='live-svc',\n"
+            "            ok=True, summary={ver!r})\n"
+        )
+        py.write_text(stub.format(ver="1"), encoding="utf-8")
+        monkeypatch.setattr(paths, "user_analysis_plugins_dir", lambda: plugins)
+        monkeypatch.chdir(tmp_path)
+        sys.modules.pop("live_svc", None)
+        cfg = tmp_path / "config.json"
+        cfg.write_text("{}", encoding="utf-8")
+        svc = AnalysisService(
+            tmp_path,
+            config=AnalysisPipelineConfig(plugins=["live_svc:A"]),
+            config_path=cfg,
+        )
+        r1 = svc.analyze_all(session_dir)
+        assert r1["live-svc"].summary == "1"
+        py.write_text(stub.format(ver="2"), encoding="utf-8")
+        later = time.time() + 2
+        import os
+
+        os.utime(py, (later, later))
+        r2 = svc.analyze_all(session_dir)
+        assert r2["live-svc"].summary == "2"
+        sys.modules.pop("live_svc", None)
 
 
 class TestSessionIsComplete:

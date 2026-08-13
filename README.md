@@ -293,7 +293,8 @@ background at start and on a short interval (and when scan roots change) so
 attach clients get a fast ``session/list`` without a cold full-tree walk on the
 hot path. Each row reads ``summary.json``, ``signals.json``, and turn markers
 in ``events.jsonl`` (not ``updates.jsonl``). Analysis plugins load on the first
-``analysis/run``, not at serve start.
+``analysis/run``, not at serve start. A later run re-imports a plugin whose
+file is newer than the last load (no serve restart).
 
 Canonical notes remain ``operator_notes.toml``; the socket never invents a
 second store. **One process owns the default socket** — additional TUIs attach

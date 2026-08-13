@@ -26,6 +26,7 @@ from .registry import (
     get_analyzer,
     list_analyzers,
     load_config_plugins,
+    refresh_stale_config_plugins,
     register_analyzer,
     set_default_analyzer,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "list_analyzers",
     "analyzer_from_module_attr",
     "load_config_plugins",
+    "refresh_stale_config_plugins",
     "load_pipeline_config",
     "register_analyzer",
     "save_pipeline_config",

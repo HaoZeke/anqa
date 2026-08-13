@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 _REGISTRY: dict[str, Analyzer] = {}
 _DEFAULT_ID: str = "noop"
 _NOOP = NoopAnalyzer()
+# module spec → source mtime recorded at last successful import
+_MODULE_LOADED_MTIME: dict[str, float] = {}
 # When set, :func:`register_analyzer` appends each registered id (for config loads).
 _registration_sink: list[str] | None = None
 
@@ -172,6 +174,31 @@ def _plugin_search_dirs(config_dir: Path | None) -> list[str]:
     return search_dirs
 
 
+def _source_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _record_module_mtime(module_path: str, source: Path) -> None:
+    _MODULE_LOADED_MTIME[module_path] = _source_mtime(source)
+
+
+def _plugin_source_file(module_path: str, search_dirs: list[str]) -> Path | None:
+    if module_path.isidentifier():
+        for d in search_dirs:
+            candidate = Path(d) / f"{module_path}.py"
+            if candidate.is_file():
+                return candidate
+        return None
+    import sys
+
+    mod = sys.modules.get(module_path)
+    file = getattr(mod, "__file__", None) if mod is not None else None
+    return Path(file) if file else None
+
+
 def _import_plugin_module(module_path: str, search_dirs: list[str]) -> ModuleType:
     """Import *module_path*, preferring the first matching ``.py`` on *search_dirs*.
 
@@ -197,9 +224,47 @@ def _import_plugin_module(module_path: str, search_dirs: list[str]) -> ModuleTyp
             mod = importlib.util.module_from_spec(spec)
             sys.modules[module_path] = mod
             spec.loader.exec_module(mod)
+            _record_module_mtime(module_path, candidate)
             logger.info("Loaded analysis plugin module from %s", candidate)
             return mod
-    return importlib.import_module(module_path)
+    sys.modules.pop(module_path, None)
+    mod = importlib.import_module(module_path)
+    file = getattr(mod, "__file__", None)
+    if file:
+        _record_module_mtime(module_path, Path(file))
+    return mod
+
+
+def refresh_stale_config_plugins(
+    specs: list[str],
+    *,
+    config_dir: Path | None = None,
+) -> list[str]:
+    """Re-import config plugins whose source file is newer than last load.
+
+    :returns: Specs that were re-imported (empty when every file matches).
+    """
+    search_dirs = _plugin_search_dirs(config_dir)
+    stale: list[str] = []
+    for raw in specs:
+        spec = raw.strip()
+        if ":" not in spec:
+            continue
+        module_path, _class_name = spec.rsplit(":", 1)
+        if not module_path:
+            continue
+        source = _plugin_source_file(module_path, search_dirs)
+        if source is None:
+            continue
+        disk = _source_mtime(source)
+        loaded = _MODULE_LOADED_MTIME.get(module_path)
+        if loaded is None or disk > loaded:
+            stale.append(spec)
+    if not stale:
+        return []
+    logger.info("Re-importing analysis plugins after source change: %s", stale)
+    load_config_plugins(stale, config_dir=config_dir)
+    return stale
 
 
 def load_config_plugins(
