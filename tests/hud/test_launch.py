@@ -132,6 +132,82 @@ def test_install_desktop_missing_binary() -> None:
         assert launch_mod.install_desktop() == 127
 
 
+def test_default_summon_socket_path_runtime(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    monkeypatch.delenv("GROKET_HUD_SUMMON_SOCKET", raising=False)
+    p = launch_mod.default_summon_socket_path()
+    assert p == tmp_path / "run" / "groket" / "hud-summon.sock"
+
+
+def test_default_summon_socket_path_override(monkeypatch, tmp_path: Path) -> None:
+    custom = tmp_path / "custom.sock"
+    monkeypatch.setenv("GROKET_HUD_SUMMON_SOCKET", str(custom))
+    assert launch_mod.default_summon_socket_path() == custom
+
+
+def test_send_summon_command_runs_binary_flag(tmp_path: Path) -> None:
+    binary = tmp_path / "groket-hud"
+    binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    binary.chmod(0o755)
+    with (
+        patch.object(launch_mod, "find_hud_binary", return_value=binary),
+        patch.object(launch_mod.subprocess, "run", return_value=_Proc(0)) as mock_run,
+    ):
+        code = launch_mod.send_summon_command("toggle")
+    assert code == 0
+    assert mock_run.call_args.args[0] == [str(binary), "--toggle"]
+
+
+def test_send_summon_command_rejects_unknown() -> None:
+    assert launch_mod.send_summon_command("explode") == 1
+
+
+def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
+    from groket.hud import app as hud_app
+    from groket.integrations.daemon import EnsureDaemonResult
+
+    sock = tmp_path / "control.sock"
+    with (
+        patch("groket.hud.launch.summon_socket_accepts", return_value=False),
+        patch("groket.hud.launch.hud_process_running", return_value=False),
+        patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
+        patch.object(hud_app, "control_socket_accepts", return_value=True),
+        patch.object(hud_app, "wait_until_control_accepts", return_value=True),
+        patch.object(hud_app.asyncio, "run", return_value=None),
+        patch.object(hud_app, "launch_tauri_hud", return_value=0) as mock_launch,
+        patch.dict(os.environ, {}, clear=False),
+    ):
+        mock_daemon.return_value = EnsureDaemonResult(
+            ok=True,
+            already_running=True,
+            spawned=False,
+            pid=1,
+            socket_path=sock,
+            error="",
+        )
+        os.environ.pop("GROKET_HUD_SHOW_ON_START", None)
+        code = hud_app.run_hud(summon="show", auto_serve=True, socket_path=sock)
+        assert code == 0
+        assert os.environ.get("GROKET_HUD_SHOW_ON_START") == "1"
+        mock_launch.assert_called_once()
+
+
+def test_run_hud_summon_toggle_when_socket_live() -> None:
+    from groket.hud import app as hud_app
+
+    with (
+        patch("groket.hud.launch.summon_socket_accepts", return_value=True),
+        patch("groket.hud.launch.send_summon_command", return_value=0) as mock_send,
+        patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
+        patch.object(hud_app, "launch_tauri_hud") as mock_launch,
+    ):
+        code = hud_app.run_hud(summon="toggle", auto_serve=False)
+    assert code == 0
+    mock_send.assert_called_once_with("toggle")
+    mock_daemon.assert_not_called()
+    mock_launch.assert_not_called()
+
+
 def test_run_hud_install_desktop_skips_serve(tmp_path: Path) -> None:
     from groket.hud import app as hud_app
 

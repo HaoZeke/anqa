@@ -15,6 +15,7 @@ pub mod model;
 pub mod place;
 pub mod prefs;
 pub mod shortcut;
+pub mod summon;
 pub mod theme;
 pub mod tray;
 pub mod typo;

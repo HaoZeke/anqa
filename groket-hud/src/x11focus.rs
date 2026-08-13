@@ -62,8 +62,9 @@ pub fn global_hotkey_supported() -> bool {
 pub fn wayland_summon_hint(chord_label: &str) -> String {
     format!(
         "Wayland session — in-process global hotkey is X11-only \
-         (skipped {chord_label}). Use tray Show HUD, or a compositor bind \
-         for app_id {app}. Optional float: \
+         (skipped {chord_label}). Summon with tray Show HUD, \
+         `groket hud --toggle`, or a compositor bind \
+         (bindsym $mod+Shift+g exec groket hud --toggle). Float: \
          for_window [app_id=\"{app}\"] floating enable",
         app = crate::install_desktop::APP_ID,
     )
@@ -144,6 +145,7 @@ mod tests {
         assert!(h.contains(crate::install_desktop::APP_ID));
         assert!(h.contains("Ctrl+Shift+G"));
         assert!(h.contains("floating enable"));
+        assert!(h.contains("groket hud --toggle"));
     }
 
     #[test]

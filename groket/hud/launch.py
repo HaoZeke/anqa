@@ -250,6 +250,66 @@ def hud_process_running() -> bool:
     return proc.returncode == 0 and bool((proc.stdout or "").strip())
 
 
+def default_summon_socket_path() -> Path:
+    """Per-user summon socket (matches ``groket-hud`` ``summon::default_socket_path``).
+
+    ``$GROKET_HUD_SUMMON_SOCKET`` overrides. Else
+    ``$XDG_RUNTIME_DIR/groket/hud-summon.sock``, else
+    ``~/.groket/run/hud-summon.sock``.
+    """
+    env = os.environ.get("GROKET_HUD_SUMMON_SOCKET", "").strip()
+    if env:
+        return Path(env).expanduser()
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+    if runtime:
+        return Path(runtime) / "groket" / "hud-summon.sock"
+    return Path.home() / ".groket" / "run" / "hud-summon.sock"
+
+
+def summon_socket_accepts(path: Path | None = None) -> bool:
+    """True when a HUD summon listener is bound on *path*."""
+    sock = Path(path or default_summon_socket_path()).expanduser()
+    if not sock.exists():
+        return False
+    try:
+        import socket
+
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.settimeout(0.4)
+            client.connect(str(sock))
+        finally:
+            client.close()
+        return True
+    except OSError:
+        return False
+
+
+def send_summon_command(action: str, *, path: Path | None = None) -> int:
+    """Send ``show`` / ``hide`` / ``toggle`` to a running HUD.
+
+    :param action: One of ``show``, ``hide``, ``toggle``.
+    :returns: Process exit code from the binary, or 1 on failure, 127 missing.
+    """
+    word = action.strip().lower()
+    if word not in {"show", "hide", "toggle"}:
+        sys.stderr.write(f"error: unknown summon action {action!r}\n")
+        return 1
+    flag = f"--{word}"
+    binary = find_hud_binary() or ensure_hud_binary()
+    if binary is None:
+        return 127
+    env = os.environ.copy()
+    if path is not None:
+        env["GROKET_HUD_SUMMON_SOCKET"] = str(Path(path).expanduser())
+    try:
+        proc = subprocess.run([str(binary), flag], env=env, check=False)
+    except OSError as exc:
+        sys.stderr.write(f"error: could not run {binary} {flag}: {exc}\n")
+        return 1
+    return int(proc.returncode)
+
+
 def stop_hud_processes(*, wait_s: float = 1.5) -> int:
     """SIGTERM then SIGKILL any ``groket-hud`` processes. Return how many were seen."""
     try:
@@ -334,6 +394,7 @@ def launch_tauri_hud(
 
     attach = bool(foreground) if foreground is not None else _truthy_env("GROKET_HUD_FOREGROUND")
     chord_hint = env.get("GROKET_HUD_SHORTCUT", "").strip() or "Cmd+Shift+G / Ctrl+Shift+G"
+    summon_hint = "groket hud --toggle (Wayland/Sway); tray Show HUD"
 
     if restart:
         n = stop_hud_processes()
@@ -342,7 +403,8 @@ def launch_tauri_hud(
     elif not attach and hud_process_running():
         sys.stderr.write(
             "groket hud: already running in the background "
-            f"(summon with {chord_hint}; use --restart to replace)\n"
+            f"(summon: {summon_hint}; X11/macOS/Windows hotkey {chord_hint}; "
+            "use --restart to replace)\n"
         )
         return 0
 
@@ -376,7 +438,7 @@ def launch_tauri_hud(
         return 1
     sys.stderr.write(
         f"groket hud: background pid {child.pid} "
-        f"(summon: {chord_hint}; tray Show HUD; not in Dock or Cmd+Tab)\n"
+        f"(summon: {summon_hint}; hotkey {chord_hint}; not in Dock or Cmd+Tab)\n"
     )
     return 0
 
@@ -384,6 +446,7 @@ def launch_tauri_hud(
 __all__ = [
     "build_hud",
     "build_hud_debug",
+    "default_summon_socket_path",
     "ensure_hud_binary",
     "find_hud_binary",
     "hud_binary_is_stale",
@@ -392,5 +455,7 @@ __all__ = [
     "install_desktop",
     "launch_hud_dev",
     "launch_tauri_hud",
+    "send_summon_command",
     "stop_hud_processes",
+    "summon_socket_accepts",
 ]

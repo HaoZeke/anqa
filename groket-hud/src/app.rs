@@ -125,6 +125,7 @@ pub enum Message {
     Hide,
     CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
+    Summon(crate::summon::SummonAction),
     MdLink(String),
     ListScroll(icedtea::collection::VisibleWindow),
     TimelineScroll(icedtea::collection::VisibleWindow),
@@ -228,6 +229,7 @@ pub struct Hud {
     theme_name: String,
     _hotkeys: Option<GlobalHotKeyManager>,
     _tray: Option<crate::tray::HudTray>,
+    _summon: Option<crate::summon::SummonServer>,
     notify_q: Arc<Mutex<VecDeque<(String, Value)>>>,
     window_id: Option<window::Id>,
     catalog_revision: i64,
@@ -318,6 +320,7 @@ impl Default for Hud {
             theme_name: prefs::theme_name(),
             _hotkeys: None,
             _tray: None,
+            _summon: None,
             notify_q: Arc::new(Mutex::new(VecDeque::new())),
             catalog_revision: 0,
             window_id: None,
@@ -512,6 +515,24 @@ impl Hud {
                 eprintln!("groket-hud: {msg}");
             }
         }
+        match crate::summon::install() {
+            Ok(server) => {
+                if let Some(path) = crate::summon::default_socket_path() {
+                    eprintln!("groket-hud: summon socket {}", path.display());
+                } else {
+                    eprintln!("groket-hud: summon socket ready");
+                }
+                hud._summon = Some(server);
+            }
+            Err(err) => {
+                // Unix is expected to bind; non-unix is Unsupported (no log noise).
+                if !matches!(err, crate::summon::SummonError::Unsupported) {
+                    let msg = format!("summon socket: {err}");
+                    crate::log::error(&msg);
+                    eprintln!("groket-hud: {msg}");
+                }
+            }
+        }
         let q = hud.notify_q.clone();
         let _ = control::spawn_notify_listener(move |method, params| {
             if let Ok(mut g) = q.lock() {
@@ -544,6 +565,7 @@ impl Hud {
         let mut subs = vec![
             event::listen_with(interesting_hud_event),
             hotkey_subscription(),
+            summon_subscription(),
             notify_subscription(),
         ];
         if self.visible {
@@ -1166,6 +1188,7 @@ impl Hud {
             }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
+            Message::Summon(action) => self.on_summon(action),
             Message::Yank => self.yank_active(),
             Message::Cursor(ev) => self.on_cursor(ev),
             Message::ContextDismiss => {
@@ -2904,6 +2927,14 @@ impl Hud {
         }
     }
 
+    fn on_summon(&mut self, action: crate::summon::SummonAction) -> Task<Message> {
+        match action {
+            crate::summon::SummonAction::Show => self.show_palette(),
+            crate::summon::SummonAction::Hide => self.hide_palette(),
+            crate::summon::SummonAction::Toggle => self.on_hotkey(),
+        }
+    }
+
     fn quit(&mut self) -> Task<Message> {
         // iced::exit closes every mapped surface. Do not window::close first:
         // that emits CloseRequested and can drop this exit on a pop-out.
@@ -3799,6 +3830,30 @@ fn register_global_hotkey(
             None
         }
     }
+}
+
+fn summon_subscription() -> Subscription<Message> {
+    Subscription::run(summon_stream)
+}
+
+fn summon_stream() -> impl iced::futures::Stream<Item = Message> {
+    iced::stream::channel(8, |mut output| async move {
+        loop {
+            let action = tokio::task::spawn_blocking(crate::summon::recv_action)
+                .await
+                .ok()
+                .and_then(Result::ok);
+            let Some(action) = action else {
+                break;
+            };
+            if iced::futures::SinkExt::send(&mut output, Message::Summon(action))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    })
 }
 
 fn hotkey_stream() -> impl iced::futures::Stream<Item = Message> {

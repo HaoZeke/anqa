@@ -250,17 +250,51 @@ def cmd_hud(
             ),
         ),
     ] = False,
+    show: Annotated[
+        bool,
+        typer.Option(
+            "--show",
+            help="Show the palette (running HUD). Starts the HUD if needed (Wayland/Sway).",
+        ),
+    ] = False,
+    hide: Annotated[
+        bool,
+        typer.Option(
+            "--hide",
+            help="Hide the overlay (running HUD via summon socket).",
+        ),
+    ] = False,
+    toggle: Annotated[
+        bool,
+        typer.Option(
+            "--toggle",
+            help="Show or hide (running HUD). Preferred Sway bindsym target.",
+        ),
+    ] = False,
 ) -> None:
     """Desktop session palette (control client).
 
     Starts in the background by default (macOS: no Dock, no Cmd+Tab). Summon with
-    Cmd+Shift+G. Launches the iced ``groket-hud`` binary (rebuilds from an editable)
-    checkout when missing or stale). ``--debug`` for unoptimized; ``--dev``
-    cargo run; ``--restart`` replaces a running HUD. ``--install-desktop`` only
-    installs icons/launcher entries for this user (no package/DMG/MSI).
+    Cmd+Shift+G on macOS / X11; on Wayland use ``--toggle``, tray Show HUD, or a
+    compositor bind. Launches the iced ``groket-hud`` binary (rebuilds from an
+    editable checkout when missing or stale). ``--debug`` for unoptimized;
+    ``--dev`` cargo run; ``--restart`` replaces a running HUD.
+    ``--install-desktop`` only installs icons/launcher entries for this user.
     """
     from .hud.app import run_hud
     from .integrations.control import default_socket_path
+
+    summon_flags = sum(1 for f in (show, hide, toggle) if f)
+    if summon_flags > 1:
+        typer.echo("error: use only one of --show, --hide, --toggle", err=True)
+        raise typer.Exit(1)
+    summon: str | None = None
+    if show:
+        summon = "show"
+    elif hide:
+        summon = "hide"
+    elif toggle:
+        summon = "toggle"
 
     sock = Path(socket).expanduser() if socket is not None else default_socket_path()
     code = run_hud(
@@ -273,6 +307,7 @@ def cmd_hud(
         foreground=foreground,
         restart=restart,
         install_desktop=install_desktop,
+        summon=summon,
     )
     raise typer.Exit(code)
 

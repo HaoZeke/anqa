@@ -199,6 +199,8 @@ uv run groket hud --rebuild   # force cargo rebuild then start
 uv run groket hud --dev       # cargo run (debug)
 uv run groket hud --debug     # unoptimized binary
 uv run groket hud --install-desktop  # user-local icons + launcher (no package)
+uv run groket hud --toggle    # show/hide (Wayland/Sway summon socket)
+uv run groket hud --show      # show palette (starts HUD if needed)
 # Override binary: GROKET_HUD_BIN=/path/to/groket-hud
 ```
 
@@ -235,7 +237,8 @@ recipes, or Docker. ``groket hud`` **detaches** like Sol
 (background agent); on macOS the overlay starts as an accessory process (**not**
 in the Dock or **Cmd+Tab**) until you pop out to a normal window. Default
 hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and X11 Linux;
-Wayland uses tray or a compositor bind — see ``groket-hud/README.md``);
+Wayland: ``groket hud --toggle``, tray Show HUD, or a Sway bind — see
+``groket-hud/README.md``);
 override in ``~/.groket/config.json``::
 
 ```json
