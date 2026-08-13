@@ -77,7 +77,22 @@ fn ipc_get_outputs(sock: &Path) -> Option<Vec<OutputPick>> {
 }
 
 fn ipc_run(sock: &Path, cmd: &str) -> bool {
-    ipc_roundtrip(sock, RUN_COMMAND, cmd.as_bytes()).is_some()
+    ipc_roundtrip(sock, RUN_COMMAND, cmd.as_bytes()).is_some_and(|body| command_reply_ok(&body))
+}
+
+fn command_reply_ok(raw: &[u8]) -> bool {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(raw) else {
+        return false;
+    };
+    match v {
+        serde_json::Value::Array(items) if !items.is_empty() => items.iter().all(item_success),
+        serde_json::Value::Object(_) => item_success(&v),
+        _ => false,
+    }
+}
+
+fn item_success(item: &serde_json::Value) -> bool {
+    item.get("success").and_then(serde_json::Value::as_bool) == Some(true)
 }
 
 fn ipc_roundtrip(sock: &Path, msg_type: u32, payload: &[u8]) -> Option<Vec<u8>> {
@@ -177,5 +192,17 @@ mod tests {
     fn parse_outputs_rejects_garbage() {
         assert!(parse_outputs(b"not-json").is_none());
         assert!(parse_outputs(b"{}").is_none());
+    }
+
+    #[test]
+    fn command_reply_requires_success() {
+        assert!(command_reply_ok(br#"[{"success":true}]"#));
+        assert!(command_reply_ok(br#"[{"success":true},{"success":true}]"#));
+        assert!(!command_reply_ok(br#"[{"success":false}]"#));
+        assert!(!command_reply_ok(
+            br#"[{"success":true},{"success":false}]"#
+        ));
+        assert!(!command_reply_ok(b"not-json"));
+        assert!(!command_reply_ok(b"[]"));
     }
 }

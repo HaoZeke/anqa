@@ -36,6 +36,8 @@ pub enum SummonError {
     NoPath,
     #[error("HUD summon socket not accepting ({0})")]
     NotRunning(String),
+    #[error("HUD summon socket already in use ({0})")]
+    AlreadyRunning(String),
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("{0}")]
@@ -196,10 +198,7 @@ fn install_unix() -> Result<SummonServer, SummonError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    if path.exists() {
-        // Stale socket from a dead process: remove so bind can succeed.
-        let _ = std::fs::remove_file(&path);
-    }
+    replace_stale_socket(&path)?;
     let listener = UnixListener::bind(&path)?;
     // Restrict to the user (runtime dir is usually already 0700).
     #[cfg(target_os = "linux")]
@@ -218,6 +217,18 @@ fn install_unix() -> Result<SummonServer, SummonError> {
         path,
         join: Some(join),
     })
+}
+
+#[cfg(unix)]
+fn replace_stale_socket(path: &Path) -> Result<(), SummonError> {
+    if !path.exists() {
+        return Ok(());
+    }
+    if socket_accepts(path) {
+        return Err(SummonError::AlreadyRunning(path.display().to_string()));
+    }
+    let _ = std::fs::remove_file(path);
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -296,6 +307,26 @@ mod tests {
         let got = rx.recv_timeout(Duration::from_secs(2)).expect("recv");
         assert_eq!(got, SummonAction::Toggle);
         handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_leaves_live_socket_in_place() {
+        use std::os::unix::net::UnixListener;
+
+        let dir =
+            std::env::temp_dir().join(format!("groket-hud-summon-live-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("hud-summon.sock");
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("bind");
+        assert!(socket_accepts(&path));
+        let err = replace_stale_socket(&path).expect_err("live socket");
+        assert!(matches!(err, SummonError::AlreadyRunning(_)));
+        assert!(socket_accepts(&path));
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

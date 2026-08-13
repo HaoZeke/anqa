@@ -939,7 +939,6 @@ impl Hud {
                         };
                         patch_list_row_from_meta(&mut self.all_sessions, &sid, &ov.meta);
                         patch_list_row_from_meta(&mut self.sessions, &sid, &ov.meta);
-                        self.emit_session_notices();
                         // Always paint footer identity (quiet ticks must not leave a
                         // stale session id while body shows another overview).
                         let st = ov.meta.status_label();
@@ -2857,10 +2856,8 @@ impl Hud {
         #[cfg(target_os = "linux")]
         {
             if !crate::x11focus::x11_grab_needed() {
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = crate::place_linux::focus_overlay();
-                }
+                let _ = crate::place_linux::place_overlay(HUD_W, HUD_H);
+                let _ = crate::place_linux::focus_overlay();
                 let gain = window::gain_focus(id);
                 if attempt < 6 {
                     return Task::batch([gain, delayed_focus(attempt.saturating_add(1))]);
@@ -5767,6 +5764,43 @@ mod tests {
         assert!(!overlay_already_mapped(false, false, true));
         assert!(!overlay_already_mapped(true, true, true));
         assert!(!overlay_already_mapped(true, false, false));
+    }
+
+    #[test]
+    fn overview_tick_does_not_rewrite_notice_seen_status() {
+        let mut hud = Hud {
+            notices_primed: true,
+            overview_gen: 1,
+            all_sessions: vec![SessionRow {
+                session_id: "abc".into(),
+                title: "Demo".into(),
+                status: "awaiting".into(),
+                ..SessionRow::default()
+            }],
+            seen_status: std::collections::HashMap::from([("abc".into(), "awaiting".into())]),
+            ..Hud::default()
+        };
+        let data = serde_json::json!({
+            "sessionId": "abc",
+            "meta": {
+                "sessionId": "abc",
+                "title": "Demo",
+                "status": "running"
+            },
+            "turns": { "turns": [] },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: 1,
+            sid: "abc".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        assert_eq!(
+            hud.seen_status.get("abc").map(String::as_str),
+            Some("awaiting")
+        );
     }
 
     #[test]
