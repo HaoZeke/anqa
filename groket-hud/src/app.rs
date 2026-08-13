@@ -868,7 +868,13 @@ impl Hud {
                 Task::none()
             }
             Message::Tick => self.on_tick(),
-            Message::FocusSearch(attempt) => self.on_focus_search(attempt),
+            Message::FocusSearch(attempt) => {
+                if self.browse_mode() {
+                    self.focus_browse()
+                } else {
+                    self.on_focus_search(attempt)
+                }
+            }
             Message::RawEvent(ev) => self.on_event(ev),
             Message::Inited(Ok(_)) => {
                 self.mark_up();
@@ -3729,6 +3735,17 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
 }
 
 /// Arrow / Home / End / Page — list navigation even while a field is focused.
+fn is_tab_key(kev: &keyboard::Event) -> bool {
+    matches!(
+        kev,
+        keyboard::Event::KeyPressed {
+            key: Key::Named(Named::Tab),
+            modifiers,
+            ..
+        } if !modifiers.alt() && !modifiers.logo()
+    )
+}
+
 fn is_list_nav_key(kev: &keyboard::Event) -> bool {
     let keyboard::Event::KeyPressed {
         key, modifiers, ..
@@ -3759,7 +3776,7 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
         Event::Keyboard(ref kev) => {
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
-            if is_list_nav_key(kev) {
+            if is_list_nav_key(kev) || is_tab_key(kev) {
                 return Some(Message::RawEvent(event));
             }
             // Captured: Escape + pane chords (chrome_over_input). Enter stays
@@ -3949,6 +3966,22 @@ mod tests {
         assert!(hud.browse_mode());
         hud.query = "switch".into();
         assert!(!hud.browse_mode(), "type again to switch sessions");
+    }
+
+    #[test]
+    fn focus_search_after_pick_stays_in_browse() {
+        let mut hud = Hud {
+            visible: true,
+            query: String::new(),
+            overview_pending: "s1".into(),
+            overview_sid: "s1".into(),
+            overview: Some(Overview::default()),
+            ..Hud::default()
+        };
+        assert!(hud.browse_mode());
+        let _ = hud.update(Message::FocusSearch(0));
+        assert!(hud.browse_mode());
+        assert!(hud.query.is_empty());
     }
 
     #[test]
@@ -4333,6 +4366,19 @@ mod tests {
         });
         assert!(
             interesting_hud_event(jay, event::Status::Captured, window::Id::unique()).is_some()
+        );
+        let tab = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Named(Named::Tab),
+            modified_key: Key::Named(Named::Tab),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Tab),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: None,
+            repeat: false,
+        });
+        assert!(
+            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_some(),
+            "Tab must reach browse pane cycle even when a field captured it"
         );
     }
 
