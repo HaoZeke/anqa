@@ -294,16 +294,22 @@ fn session_picker(hud: &Hud) -> Element<'_, Message> {
 
 fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let tea = hud.tokens();
+    let idle = hud.query().trim().is_empty();
     if hud.sessions().is_empty() {
-        if hud.query().trim().is_empty() {
-            return empty_sessions(tea);
+        if idle {
+            // Catalog empty vs still loading — same honest empty; no full dump.
+            return if hud.catalog_busy() {
+                loading_session("sessions", tea)
+            } else {
+                empty_sessions(tea)
+            };
         }
         return no_session_matches(tea);
     }
     let mut window = hud.list_window();
     window.viewport = viewport.max(1.0);
     let hud_tok = hud.tokens();
-    icedtea::widget::list_view(
+    let list = icedtea::widget::list_view(
         hud,
         hud.list_selection(),
         Message::SelectSession,
@@ -327,7 +333,26 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             meter: None::<fn(usize) -> f32>,
         },
         A11y::new("Sessions", Role::List),
-    )
+    );
+    if idle {
+        // Spotlight: recent strip under a short hint (not the whole catalog).
+        return column![
+            icedtea::widget::meta(
+                "Recent",
+                tea,
+                A11y::new("Recent", Role::Header),
+            ),
+            list,
+        ]
+        .spacing(8)
+        .padding(Padding::from([8, 12]))
+        .height(Length::Fill)
+        .into();
+    }
+    container(list)
+        .padding(Padding::from([8, 12]))
+        .height(Length::Fill)
+        .into()
 }
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
@@ -340,7 +365,11 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         stack = stack.push(bar);
     }
     stack = stack.push(tabs);
-    if hud.tab() == Tab::Timeline && hud.overview().is_some() {
+    // List filters stay off while reading a full-pane event.
+    if hud.tab() == Tab::Timeline
+        && hud.overview().is_some()
+        && hud.timeline_open().is_none()
+    {
         stack = stack.push(timeline_filter(hud));
     }
     let body: Element<'_, Message> = if hud.overview().is_none() {
@@ -358,9 +387,14 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         }
     };
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
+        let pad = if hud.timeline_open().is_some() {
+            [12, 16]
+        } else {
+            [16, 20]
+        };
         stack = stack.push(
             container(timeline_tab(hud))
-                .padding([16, 20])
+                .padding(pad)
                 .width(Length::Fill)
                 .height(Length::Fill),
         );
@@ -859,10 +893,7 @@ fn expand_card<'a>(
     )
 }
 
-/// Closed Turns/Timeline row: flat card (TUI DataTable energy), not expander+Peek.
-///
-/// Expander always mounts a peeked child tree; at virtual-list density that
-/// dominated frame time. Open rows still use [`expand_card`].
+/// Closed Timeline row: flat card. Click opens full-pane detail (not expand).
 ///
 /// Chips share the title row so the virtual height only needs title + face
 /// (a third chips row was clipped by ``TIMELINE_ROW_H`` under ``clip(true)``).
@@ -880,7 +911,7 @@ fn closed_list_card<'a>(
             .color(tea.text),
         Space::new().width(Length::Fill),
         chips,
-        text("▸").size(typo::META).color(tea.muted),
+        text("›").size(typo::META).color(tea.muted),
     ]
     .spacing(6)
     .align_y(Alignment::Center)
@@ -1285,6 +1316,9 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
+    if let Some(ix) = hud.timeline_open() {
+        return event_detail_pane(hud, ix);
+    }
     if hud.timeline_query().trim().is_empty()
         && hud.last_timeline().is_none()
         && hud.filtered_indices().is_empty()
@@ -1332,25 +1366,14 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
                 return Space::new().height(0).into();
             };
             let ix = ev.index;
-            let open = hud.is_timeline_expanded(ix);
             let mark = ev_marks.get(&ix).cloned();
-            let card = if open {
-                expand_card(
-                    event_title(ev),
-                    event_body(hud, ev, mark),
-                    true,
-                    move |_| Message::SelectTimeline(ix),
-                    tea,
-                )
-            } else {
-                closed_list_card(
-                    event_title(ev),
-                    event_face(ev, tea),
-                    card_chips_inline(hud, mark, Some(event_note(ev)), None),
-                    Message::SelectTimeline(ix),
-                    tea,
-                )
-            };
+            let card = closed_list_card(
+                event_title(ev),
+                event_face(ev, tea),
+                card_chips_inline(hud, mark, Some(event_note(ev)), None),
+                Message::SelectTimeline(ix),
+                tea,
+            );
             column![card, Space::new().height(crate::live::LIST_GAP)].into()
         },
         A11y::new("Timeline", Role::List),
@@ -1371,6 +1394,86 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     .spacing(8)
     .height(Length::Fill)
     .into()
+}
+
+/// Full-area event body (click a list row; Esc / Back returns to the list).
+fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
+    let tea = hud.tokens();
+    let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
+        return column![
+            event_detail_chrome(ix, None, tea),
+            text("Loading event…")
+                .size(typo::BODY)
+                .color(tea.muted),
+        ]
+        .spacing(12)
+        .height(Length::Fill)
+        .into();
+    };
+    let (_, ev_marks) = hud.card_marks();
+    let mark = ev_marks.get(&ix).cloned();
+    let body = column![
+        event_detail_chrome(ix, Some(ev), tea),
+        event_body(hud, ev, mark),
+    ]
+    .spacing(12)
+    .width(Length::Fill);
+    icedtea::widget::themed_scroll(
+        body.into(),
+        tea,
+        A11y::new(format!("Event {ix}"), Role::Group),
+        false,
+        None,
+        None::<fn(scrollable::Viewport) -> Message>,
+    )
+}
+
+fn event_detail_chrome(
+    ix: i64,
+    ev: Option<&TimelineEvent>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let title = ev.map(event_title).unwrap_or_else(|| format!("#{ix}"));
+    let type_line = ev.map(|e| {
+        let color =
+            crate::theme::brand_role_color(event_brand_role(&e.event_type, &e.kind, e.is_error));
+        let human = event_type_human(e);
+        (human, color)
+    });
+    let back = icedtea::widget::themed_button(
+        "← Back",
+        Some(Message::CloseTimelineDetail),
+        tea,
+        Variant::Ghost,
+        A11y::button("Back"),
+    );
+    let mut head = row![
+        back,
+        text(title)
+            .size(typo::BODY)
+            .font(typo::UI_BOLD)
+            .color(tea.text),
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center)
+    .width(Length::Fill);
+    if let Some((human, color)) = type_line {
+        if !human.is_empty() {
+            head = head.push(
+                text(human)
+                    .size(typo::META)
+                    .font(typo::UI_BOLD)
+                    .color(color),
+            );
+        }
+    }
+    head = head.push(Space::new().width(Length::Fill));
+    head = head.push(
+        text("Esc")
+            .size(typo::META)
+            .color(tea.muted),
+    );
+    head.into()
 }
 
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
@@ -2211,6 +2314,9 @@ mod tests {
         assert!(prod.contains("widget::expander"));
         assert!(prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
+        assert!(prod.contains("fn event_detail_pane"));
+        assert!(prod.contains("CloseTimelineDetail"));
+        assert!(!prod.contains("is_timeline_expanded"));
         assert!(!prod.contains("TurnExpand"));
         assert!(!prod.contains("fn turn_body"));
         assert!(prod.contains("FindingExpand"));

@@ -24,11 +24,13 @@ Sol-style session **command palette** for the local groket control plane
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
-- Spotlight session pick: type in **Search sessions**, arrow/click a match,
-  Enter to open. That enters full-width **browse** (Overview / Turns /
-  Timeline / Findings / Notes). Type in search again to switch sessions —
-  there is no permanent left session rail. Catalog typeahead uses
-  ``session/list`` (first page on paint; more in the background).
+- Spotlight session pick: cold start shows a short **Recent** list (latest
+  sessions only) under the search field — not the full catalog. Type to
+  filter, then Enter or click. That opens full-width **browse** (Overview /
+  Turns / Timeline / Findings / Notes). Type in search again to switch.
+  There is no permanent left session rail and no auto-open on launch.
+  Catalog typeahead uses ``session/list`` (first page on paint; more in the
+  background).
 - Browse defaults to **Overview**. Picking a session loads overview only —
   it does not fetch the session event list.
   **Turns** is a fixed list of prompt cards (status, tool counts, marks) with
@@ -40,8 +42,9 @@ Sol-style session **command palette** for the local groket control plane
   summary, tools, last turn, path) aligned like the TUI Summary — not a
   lifecycle event dump. Event type labels use the TUI brand colors (cream /
   complete / running / failed / cancelled). Search hits show the matching
-  field and a snippet. Timeline cards use a disclosure drawer (▸ / ▾).
-  JSON/code uses the code block. Copy with **y** / **Ctrl+Shift+C**
+  field and a snippet. Timeline list rows open a **full-pane** event body
+  (click or jump); **Esc** / **Back** returns to the list (no in-list
+  expanders). JSON/code uses the code block. Copy with **y** / **Ctrl+Shift+C**
   (or right-click Copy). Right-click also offers Copy path.
   Context fill is an Overview progress bar only (not on every rail card).
 - Live refresh while the palette is open: selected running/awaiting turns

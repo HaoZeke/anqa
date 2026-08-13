@@ -19,18 +19,16 @@ pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
 pub const LIST_GAP: f32 = 4.0;
 /// Closed timeline card + gap. Chips sit on the title row so face fits.
 /// pad×2 + title/chip row + face + inner gap + list gap (density 8 grid).
+/// Open event detail uses the full pane (not a taller virtual row).
 pub const TIMELINE_ROW_H: f32 = 92.0;
-/// Floor for an expanded timeline card (short chat / chrome event).
-/// Must stay below a typical detail viewport so neighbors remain visible.
-pub const OPEN_TIMELINE_ROW_H: f32 = 152.0;
-/// Ceiling for open-card height estimates (virtual_column clips to this).
-pub const OPEN_TIMELINE_ROW_MAX: f32 = 6_000.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
 /// Fixed Turns card + gap: title+chips, stats, 2-line prompt.
 pub const CLOSED_TURN_CARD_H: f32 = 136.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 1;
+/// Spotlight idle list: latest sessions by ``sort_epoch`` (not the full catalog).
+pub const SPOTLIGHT_RECENT: usize = 8;
 
 /// Indices into ``turns`` whose label or prompt match *query* (casefold substring).
 pub fn filter_turn_indices(turns: &[TurnRow], query: &str) -> Vec<usize> {
@@ -49,6 +47,41 @@ pub fn filter_turn_indices(turns: &[TurnRow], query: &str) -> Vec<usize> {
         })
         .map(|(i, _)| i)
         .collect()
+}
+
+/// Latest catalog rows for the idle Spotlight list (newest ``sort_epoch`` first).
+///
+/// When *keep_sid* is non-empty and present in *all*, it is pinned at the front
+/// so clearing search does not drop the open session from the list.
+pub fn spotlight_recent(all: &[SessionRow], n: usize, keep_sid: &str) -> Vec<SessionRow> {
+    if n == 0 || all.is_empty() {
+        return Vec::new();
+    }
+    let mut idxs: Vec<usize> = (0..all.len()).collect();
+    idxs.sort_by(|&a, &b| {
+        all[b]
+            .sort_epoch
+            .partial_cmp(&all[a].sort_epoch)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| all[a].session_id.cmp(&all[b].session_id))
+    });
+    let mut out: Vec<SessionRow> = Vec::with_capacity(n.min(all.len()) + 1);
+    if !keep_sid.is_empty() {
+        if let Some(row) = all.iter().find(|r| r.session_id == keep_sid) {
+            out.push(row.clone());
+        }
+    }
+    for i in idxs {
+        let row = &all[i];
+        if !keep_sid.is_empty() && row.session_id == keep_sid {
+            continue;
+        }
+        out.push(row.clone());
+        if out.len() >= n {
+            break;
+        }
+    }
+    out
 }
 
 /// True when a non-delta ``session/list`` body is a page, not a full snapshot.
@@ -1085,6 +1118,25 @@ mod tests {
             list.id(0),
             SessionList::from_rows(std::slice::from_ref(&row)).id(0)
         );
+    }
+
+    #[test]
+    fn spotlight_recent_is_newest_first_and_pins_keep() {
+        let all: Vec<SessionRow> = (0..12)
+            .map(|i| SessionRow {
+                session_id: format!("s{i}"),
+                sort_epoch: i as f64,
+                ..SessionRow::default()
+            })
+            .collect();
+        let recent = spotlight_recent(&all, 5, "");
+        assert_eq!(recent.len(), 5);
+        assert_eq!(recent[0].session_id, "s11");
+        assert_eq!(recent[4].session_id, "s7");
+        let pinned = spotlight_recent(&all, 5, "s0");
+        assert_eq!(pinned[0].session_id, "s0");
+        assert_eq!(pinned.len(), 5);
+        assert!(pinned.iter().any(|r| r.session_id == "s11"));
     }
 
     #[test]

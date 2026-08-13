@@ -21,14 +21,14 @@ use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
     first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
-    list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
+    merge_catalog_rows, merge_timeline_by_index, next_list_offset,
     notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
     previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
     session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
-    LIVE_POLL_MS, LIVE_TAIL_LIMIT, OPEN_TIMELINE_ROW_H, OPEN_TIMELINE_ROW_MAX, TIMELINE_BUFFER_CAP,
-    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    spotlight_recent, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
+    LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK,
+    TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -56,6 +56,8 @@ pub enum Message {
     /// Events pane turn pick list (`None` key = all turns / search).
     EventsTurnPicked(EventsTurnPick),
     SelectTimeline(i64),
+    /// Leave full-pane event detail and return to the timeline list.
+    CloseTimelineDetail,
     /// Turns tab search (label / prompt substring).
     TurnsQuery(String),
     LoadMoreTimeline,
@@ -185,7 +187,8 @@ pub struct Hud {
     timeline_search_pending: bool,
     timeline_kind: KindFilter,
     timeline_focus: Option<i64>,
-    timeline_expanded: HashSet<i64>,
+    /// Full-pane event detail on Timeline (not an in-list expander).
+    timeline_open: Option<i64>,
     /// `session/timeline` promptIndex filter (operator meta on the turn).
     timeline_prompt: Option<i64>,
     /// Events pane turn pick (`None` = all turns / search-all).
@@ -274,7 +277,7 @@ impl Default for Hud {
             timeline_search_pending: false,
             timeline_kind: KindFilter::All,
             timeline_focus: None,
-            timeline_expanded: HashSet::new(),
+            timeline_open: None,
             timeline_prompt: None,
             events_turn_index: None,
             events_turn_options: vec![EventsTurnPick {
@@ -306,7 +309,7 @@ impl Default for Hud {
             window_id: None,
             list_window: icedtea::collection::VisibleWindow::new(400.0),
             list_scroll_id: Id::new("hud-sessions"),
-            list_selection: icedtea::collection::Selection::Single(0),
+            list_selection: icedtea::collection::Selection::None,
             session_metas: vec![],
             session_heights: vec![],
             tl_window: icedtea::collection::VisibleWindow::new(400.0),
@@ -630,7 +633,7 @@ impl Hud {
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
                 self.timeline_focus = None;
-                self.timeline_expanded.clear();
+                self.close_timeline_detail();
                 self.timeline_search_gen = self.timeline_search_gen.wrapping_add(1);
                 // Hold the last applied page until debounce. Bump gen so an
                 // in-flight fill cannot merge a new-query slice onto it.
@@ -667,7 +670,7 @@ impl Hud {
             Message::TimelineKind(k) => {
                 self.timeline_kind = k;
                 self.timeline_focus = None;
-                self.timeline_expanded.clear();
+                self.close_timeline_detail();
                 if let Some(sid) = self.detail_sid() {
                     if self.wants_events() {
                         return self.ensure_timeline(sid, true);
@@ -677,22 +680,9 @@ impl Hud {
             }
             Message::JumpTimeline(ix) => self.jump_timeline(ix),
             Message::EventsTurnPicked(pick) => self.select_events_turn(pick.turn_index),
-            Message::SelectTimeline(ix) => {
-                toggle_expand_set(&mut self.timeline_expanded, ix);
-                self.timeline_focus = if self.timeline_expanded.contains(&ix) {
-                    Some(ix)
-                } else {
-                    None
-                };
-                if self.timeline_expanded.contains(&ix) {
-                    self.bind_event_extract(ix);
-                    // Heights first so scroll math uses the open card size.
-                    self.rebuild_tl_heights();
-                    let _ = self.scroll_open_into_view();
-                    return self.fetch_open_event(ix);
-                }
-                self.unbind_event_fields(ix);
-                self.rebuild_tl_heights();
+            Message::SelectTimeline(ix) => self.open_timeline_detail(ix),
+            Message::CloseTimelineDetail => {
+                self.close_timeline_detail();
                 Task::none()
             }
             Message::TurnsQuery(q) => {
@@ -871,14 +861,8 @@ impl Hud {
                         return Task::none();
                     }
                     self.apply_list(v.clone(), quiet);
-                    let more = self.continue_catalog_pages(&v);
-                    if self.sessions.is_empty() {
-                        more
-                    } else if self.overview.is_none() {
-                        Task::batch([more, self.load_overview(false)])
-                    } else {
-                        more
-                    }
+                    // Spotlight: catalog fill only — never auto-open a session.
+                    self.continue_catalog_pages(&v)
                 }
                 Err(e) => {
                     self.mark_down(&e);
@@ -932,6 +916,8 @@ impl Hud {
                         self.overview = Some(ov);
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
+                        // Pin open session into the Spotlight recent strip.
+                        self.rerank_visible_keeping(sid.clone());
                         self.sync_rail_to_overview_sid();
                         let rail = self.ensure_active_visible();
                         self.rebuild_events_turn_options();
@@ -1036,13 +1022,8 @@ impl Hud {
                         }
                         self.rebuild_tl_filter();
                         self.mark_up();
-                        if let Some(ix) = self.timeline_focus {
-                            if self.timeline_expanded.contains(&ix) {
-                                self.bind_event_extract(ix);
-                                // Full body after open-fetch: re-estimate height + re-pin.
-                                self.rebuild_tl_heights();
-                                let _ = self.scroll_open_into_view();
-                            }
+                        if let Some(ix) = self.timeline_open {
+                            self.bind_event_extract(ix);
                         }
                         if self.timeline.len() > TIMELINE_BUFFER_CAP {
                             self.timeline = trim_timeline_buffer(
@@ -1056,10 +1037,8 @@ impl Hud {
                             if self.timeline_focus_pos().is_some() {
                                 tasks.push(self.scroll_focus_into_view());
                             }
-                            if let Some(ix) = self.timeline_focus {
-                                if self.timeline_expanded.contains(&ix) {
-                                    tasks.push(self.fetch_open_event(ix));
-                                }
+                            if let Some(ix) = self.timeline_open {
+                                tasks.push(self.fetch_open_event(ix));
                             }
                         }
                         if append && advance && added > 0 && page_off < old_offset {
@@ -1154,6 +1133,11 @@ impl Hud {
                 if self.context.take().is_some() {
                     return Task::none();
                 }
+                // Chrome Escape maps here while a field is focused.
+                if self.tab == Tab::Timeline && self.timeline_open.is_some() {
+                    self.close_timeline_detail();
+                    return Task::none();
+                }
                 self.hide_palette()
             }
             Message::CloseRequested(id) => self.on_close_requested(id),
@@ -1202,12 +1186,10 @@ impl Hud {
             && (self.overview.is_some() || !self.overview_pending.is_empty())
     }
 
+    /// Visible Spotlight rows: recent when the query is empty, else search hits.
+    /// Full catalog stays on ``all_sessions`` (not shown until the user types).
     pub fn sessions(&self) -> &[SessionRow] {
-        if self.query.trim().is_empty() {
-            &self.all_sessions
-        } else {
-            &self.sessions
-        }
+        &self.sessions
     }
     pub fn active(&self) -> usize {
         self.active
@@ -1236,11 +1218,12 @@ impl Hud {
     pub fn timeline_focus(&self) -> Option<i64> {
         self.timeline_focus
     }
-    pub fn timeline_expanded(&self) -> &HashSet<i64> {
-        &self.timeline_expanded
+    /// Event index for full-pane Timeline detail, if any.
+    pub fn timeline_open(&self) -> Option<i64> {
+        self.timeline_open
     }
-    pub fn is_timeline_expanded(&self, index: i64) -> bool {
-        self.timeline_expanded.contains(&index)
+    pub fn is_timeline_open(&self, index: i64) -> bool {
+        self.timeline_open == Some(index)
     }
     pub fn field(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
         self.fields.get(id)
@@ -1290,19 +1273,9 @@ impl Hud {
     }
 
     fn rebuild_tl_heights(&mut self) {
+        // List rows are uniform; open detail is a separate full-pane view.
         let n = self.tl_filter.len();
-        let open: Vec<(usize, f32)> = self
-            .tl_filter
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &src)| {
-                let ev = self.timeline.get(src)?;
-                self.timeline_expanded
-                    .contains(&ev.index)
-                    .then_some((i, estimate_open_event_height(ev)))
-            })
-            .collect();
-        self.tl_heights = icedtea::collection::expand_card_heights(n, TIMELINE_ROW_H, &open);
+        self.tl_heights = vec![TIMELINE_ROW_H; n];
         let view_h = self.tl_window.viewport.max(1.0);
         let content: f32 = self.tl_heights.iter().copied().sum();
         self.tl_window.scroll = clamp_scroll(self.tl_window.scroll, content, view_h);
@@ -1842,7 +1815,7 @@ impl Hud {
         self.turn_heights.clear();
         self.timeline_gen += 1;
         self.timeline_focus = None;
-        self.timeline_expanded.clear();
+        self.timeline_open = None;
         self.timeline_prompt = None;
         self.events_turn_index = None;
         self.last_timeline = None;
@@ -2020,7 +1993,8 @@ impl Hud {
 
     fn rerank_visible_keeping(&mut self, keep: String) {
         if self.query.trim().is_empty() {
-            self.sessions.clear();
+            // Idle Spotlight: latest few only (not the full catalog dump).
+            self.sessions = spotlight_recent(&self.all_sessions, SPOTLIGHT_RECENT, &keep);
         } else {
             let idxs =
                 fuzzy_filter_indices(self.query.trim(), &self.all_sessions, SessionRow::haystack);
@@ -2046,7 +2020,7 @@ impl Hud {
         if let Some(idx) = keep_at {
             self.set_active(idx);
         } else if !keep.is_empty() {
-            // Overview session filtered out: no rail highlight (selected_sid None).
+            // Open session not in the visible list: no highlight until re-pick.
             self.active = 0;
             self.list_selection = icedtea::collection::Selection::None;
         } else if n == 0 {
@@ -2055,7 +2029,7 @@ impl Hud {
         } else if self.active >= n {
             self.set_active(n.saturating_sub(1));
         } else if matches!(self.list_selection, icedtea::collection::Selection::None) {
-            // Full catalog again with no highlight: keep None until activate.
+            // Idle Spotlight: no forced selection until arrows / click / Enter.
         } else {
             self.list_selection = icedtea::collection::Selection::Single(self.active);
         }
@@ -2112,15 +2086,25 @@ impl Hud {
         Task::none()
     }
 
-    /// After expand: pin the open card’s top to the viewport so the body can
-    /// be scrolled through (virtual rows clip to estimated height).
-    fn scroll_open_into_view(&mut self) -> Task<Message> {
-        let Some(pos) = self.timeline_focus_pos() else {
+    /// Open full-pane event detail on Timeline (fetch full content).
+    fn open_timeline_detail(&mut self, index: i64) -> Task<Message> {
+        if self.timeline_open == Some(index) {
             return Task::none();
-        };
-        let view_h = self.tl_window.viewport.max(1.0);
-        self.tl_window.scroll = list_scroll_to_top(&self.tl_heights, pos, view_h);
-        Task::none()
+        }
+        if let Some(prev) = self.timeline_open {
+            self.unbind_event_fields(prev);
+        }
+        self.timeline_open = Some(index);
+        self.timeline_focus = Some(index);
+        self.bind_event_extract(index);
+        self.fetch_open_event(index)
+    }
+
+    /// Leave full-pane detail; list position is kept via ``timeline_focus``.
+    fn close_timeline_detail(&mut self) {
+        if let Some(ix) = self.timeline_open.take() {
+            self.unbind_event_fields(ix);
+        }
     }
 
     fn turn_row_for_event(&self, index: i64) -> Option<&crate::wire::TurnRow> {
@@ -2215,7 +2199,8 @@ impl Hud {
         self.timeline_query_draft.clear();
         self.timeline_search_pending = false;
         self.timeline_kind = KindFilter::All;
-        self.timeline_expanded.clear();
+        // Stay on the list when stepping turns; Esc/open is per-event detail.
+        self.close_timeline_detail();
         self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
         match turn_index {
             None => {
@@ -2245,11 +2230,7 @@ impl Hud {
                 // Prefer the turn’s promptIndex (segment), not sparse event meta.
                 self.timeline_prompt = t.prompt_index;
                 self.focus_turn(ti);
-                let focus = t.user_event_index.or(t.first_index);
-                self.timeline_focus = focus;
-                if let Some(ix) = focus {
-                    self.timeline_expanded.insert(ix);
-                }
+                self.timeline_focus = t.user_event_index.or(t.first_index);
                 self.rebuild_tl_filter();
                 if let Some(sid) = self.detail_sid() {
                     return self.ensure_timeline(sid, true);
@@ -2267,11 +2248,8 @@ impl Hud {
     }
 
     fn jump_timeline(&mut self, index: i64) -> Task<Message> {
-        // Chrome first: Events tab + turn scope, then async page fill.
+        // Chrome first: Timeline tab + turn scope, then full-pane detail.
         self.tab = Tab::Timeline;
-        self.timeline_focus = Some(index);
-        self.timeline_expanded.clear();
-        self.timeline_expanded.insert(index);
         self.timeline_query.clear();
         self.timeline_query_draft.clear();
         self.timeline_search_pending = false;
@@ -2285,11 +2263,12 @@ impl Hud {
             self.timeline_prompt = self.prompt_index_for_event(index);
         }
         self.rebuild_tl_filter();
+        let open = self.open_timeline_detail(index);
         // Always reload the turn-scoped page.
         if let Some(sid) = self.detail_sid() {
-            return self.ensure_timeline(sid, true);
+            return Task::batch([self.ensure_timeline(sid, true), open]);
         }
-        Task::none()
+        open
     }
 
     fn ensure_timeline(&mut self, sid: String, force: bool) -> Task<Message> {
@@ -3004,6 +2983,11 @@ impl Hud {
             if self.context.take().is_some() {
                 return Task::none();
             }
+            // Full-pane event detail → list before hiding the HUD.
+            if self.tab == Tab::Timeline && self.timeline_open.is_some() {
+                self.close_timeline_detail();
+                return Task::none();
+            }
             return self.hide_palette();
         }
         if modifiers.command() || modifiers.control() {
@@ -3070,31 +3054,25 @@ impl Hud {
             return self.update(Message::SetTab(Tab::ALL[next]));
         }
         match key {
+            // Spotlight: arrows only move the highlight; Enter / click opens.
             Key::Named(Named::ArrowDown) if !self.sessions().is_empty() => {
                 self.set_active((self.active + 1) % self.sessions().len());
-                self.reset_detail_chrome();
-                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
+                self.ensure_active_visible()
             }
             Key::Named(Named::ArrowUp) if !self.sessions().is_empty() => {
                 let n = self.sessions().len();
                 self.set_active((self.active + n - 1) % n);
-                self.reset_detail_chrome();
-                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
+                self.ensure_active_visible()
             }
             Key::Named(Named::Home) if !self.sessions().is_empty() => {
                 self.set_active(0);
-                self.reset_detail_chrome();
-                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
+                self.ensure_active_visible()
             }
             Key::Named(Named::End) if !self.sessions().is_empty() => {
                 self.set_active(self.sessions().len() - 1);
-                self.reset_detail_chrome();
-                Task::batch([self.ensure_active_visible(), self.load_overview(false)])
+                self.ensure_active_visible()
             }
-            Key::Named(Named::Enter) => {
-                self.ensure_rail_selection_for_activate();
-                self.load_overview(false)
-            }
+            Key::Named(Named::Enter) => self.update(Message::ActivateSelected),
             _ => Task::none(),
         }
     }
@@ -3253,68 +3231,6 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     table
 }
 
-/// Virtual list row height for an expanded event.
-///
-/// ``virtual_column`` clips each row to this height, so under-estimates hide
-/// body text and over-estimates leave empty shells that push neighbors off
-/// screen. Built from icedtea density (4px grid) + type scale.
-fn estimate_open_event_height(ev: &TimelineEvent) -> f32 {
-    use icedtea::density::Density;
-
-    let d = Density::default(); // space=8, pad=8
-    let space = d.space as f32;
-    let pad = d.pad as f32;
-    // Line box ≈ body px + quarter space (tight reading stack).
-    let line = crate::typo::BODY as f32 + space * 0.25;
-    // Expander title + type label + chips + outer pad + list gap + inner gaps.
-    let chrome = (crate::typo::BODY as f32 + space)
-        + (crate::typo::META as f32 + space * 0.5)
-        + (crate::typo::BODY as f32 + pad) // chips / command row
-        + pad * 2.0
-        + space * 2.0
-        + crate::live::LIST_GAP;
-
-    let body = event_body_text(ev);
-    let text = if !ev.content.is_empty() {
-        ev.content.as_str()
-    } else if !ev.preview.is_empty() {
-        ev.preview.as_str()
-    } else {
-        body.as_str()
-    };
-    // Cap wrap estimate to what the open payload actually paints (not full buffer).
-    let paint_chars = text.chars().count().min(12_000);
-    let line_count = text.lines().count().max(1);
-    // ~3 glyphs per body-px at typical detail column (~900px / 14 ≈ 64 cols).
-    let wrap_cols = 64.0_f32;
-    let wrapped = ((paint_chars as f32) / wrap_cols).ceil() as usize;
-    let lines = (line_count.max(wrapped).max(1) as f32).min(80.0);
-
-    let field_n = if !ev.tool_fields.is_empty() {
-        ev.tool_fields.len().min(8)
-    } else if matches!(ev.kind.as_str(), "tool" | "tool_result") || ev.event_type.contains("tool")
-    {
-        // Closed preview may not ship fields yet; reserve a modest stack.
-        2
-    } else {
-        0
-    };
-    // Label + short value block per field (not full tile — values are often one line).
-    let field_h = (crate::typo::META as f32 + line + space) * field_n as f32;
-    // Chat inset padding.
-    let inset = if matches!(ev.kind.as_str(), "user" | "agent" | "assistant" | "system")
-        || ev.event_type.contains("message")
-    {
-        pad * 2.0 + space
-    } else {
-        0.0
-    };
-    let body_h = lines * line + inset;
-    let h = chrome + field_h + body_h;
-    let snapped = Density::snap(h.round() as u32).max(OPEN_TIMELINE_ROW_H as u32);
-    (snapped as f32).min(OPEN_TIMELINE_ROW_MAX)
-}
-
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
@@ -3462,29 +3378,37 @@ mod tests {
     }
 
     #[test]
-    fn open_event_height_keeps_short_chat_under_viewport() {
-        let short = TimelineEvent {
-            index: 2,
-            kind: "user".into(),
-            event_type: "user message chunk".into(),
-            type_label: "user message chunk".into(),
-            content: "can you check disk space?".into(),
-            preview: "can you check disk space?".into(),
-            time: "03:57:45".into(),
-            ..TimelineEvent::default()
+    fn select_timeline_opens_full_pane_detail_not_toggle() {
+        let mut hud = Hud::default();
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert!(hud.is_timeline_open(7));
+        assert_eq!(hud.timeline_open(), Some(7));
+        assert_eq!(hud.timeline_focus(), Some(7));
+        // Second select keeps detail open (Esc closes).
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert!(hud.is_timeline_open(7));
+        let _ = hud.update(Message::SelectTimeline(9));
+        assert!(!hud.is_timeline_open(7));
+        assert!(hud.is_timeline_open(9));
+        let _ = hud.update(Message::CloseTimelineDetail);
+        assert!(hud.timeline_open().is_none());
+        assert_eq!(hud.timeline_focus(), Some(9));
+    }
+
+    #[test]
+    fn escape_closes_timeline_detail_before_hiding_hud() {
+        let mut hud = Hud {
+            visible: true,
+            tab: Tab::Timeline,
+            timeline_open: Some(3),
+            timeline_focus: Some(3),
+            ..Hud::default()
         };
-        let h = estimate_open_event_height(&short);
-        assert!(
-            h >= OPEN_TIMELINE_ROW_H,
-            "floor {OPEN_TIMELINE_ROW_H}, got {h}"
-        );
-        // Detail pane is typically ~400–500px; open card must leave room for neighbors.
-        assert!(
-            h < 360.0,
-            "short chat open height {h} still floods the viewport"
-        );
-        let closed = TIMELINE_ROW_H;
-        assert!(h > closed, "open must exceed closed row");
+        let _ = hud.update(Message::Hide);
+        assert!(hud.timeline_open().is_none());
+        assert!(hud.visible, "first Esc leaves the HUD up");
+        let _ = hud.update(Message::Hide);
+        assert!(!hud.visible);
     }
 
     #[test]
@@ -3523,23 +3447,26 @@ mod tests {
     }
 
     #[test]
-    fn empty_search_uses_all_sessions_without_a_second_copy() {
+    fn empty_search_fills_spotlight_recent_not_full_catalog() {
         let mut hud = Hud {
-            all_sessions: vec![SessionRow {
-                session_id: "a".into(),
-                title: "Alpha".into(),
-                ..SessionRow::default()
-            }],
+            all_sessions: (0..20)
+                .map(|i| SessionRow {
+                    session_id: format!("s{i}"),
+                    title: format!("Session {i}"),
+                    sort_epoch: i as f64,
+                    ..SessionRow::default()
+                })
+                .collect(),
             query: String::new(),
             ..Hud::default()
         };
         hud.rerank_visible();
-        assert_eq!(hud.sessions().len(), 1);
-        assert!(hud.sessions.is_empty());
-        assert_eq!(hud.sessions()[0].session_id, "a");
+        assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT);
+        // Newest first.
+        assert_eq!(hud.sessions()[0].session_id, "s19");
         use icedtea::collection::ListModel;
-        assert_eq!(hud.len(), 1);
-        assert_eq!(hud.title(0), "Alpha");
+        assert_eq!(hud.len(), SPOTLIGHT_RECENT);
+        assert_eq!(hud.title(0), "Session 19");
     }
 
     #[test]
@@ -3557,10 +3484,11 @@ mod tests {
         hud.rerank_visible();
         assert_eq!(hud.session_heights().len(), 1);
         assert!(hud.session_heights()[0] >= 50.0);
-        assert_eq!(
+        // Spotlight idle: no forced selection until the operator picks.
+        assert!(matches!(
             *hud.list_selection(),
-            icedtea::collection::Selection::Single(0)
-        );
+            icedtea::collection::Selection::None
+        ));
     }
 
     #[test]
@@ -3813,10 +3741,11 @@ mod tests {
                 path: "/tmp/s1".into(),
                 ..SessionRow::default()
             }],
-            active: 0,
             overview_gen: 0,
             ..Hud::default()
         };
+        hud.rerank_visible();
+        hud.set_active(0);
         let _ = hud.update(Message::SetTab(Tab::Timeline));
         assert_eq!(hud.tab(), Tab::Timeline);
         assert!(!hud.overview_pending.is_empty() || hud.overview_gen > 0);
@@ -3858,10 +3787,9 @@ mod tests {
                 },
                 ..Overview::default()
             }),
-            active: 0,
-            list_selection: icedtea::collection::Selection::Single(0),
             ..Hud::default()
         };
+        hud.rerank_visible_keeping("a".into());
         assert_eq!(hud.selected_sid().as_deref(), Some("a"));
         // Filter that hides overview session a — selection cleared.
         hud.query = "Beta".into();
@@ -3964,21 +3892,22 @@ mod tests {
                 SessionRow {
                     session_id: "linus".into(),
                     title: "Linus".into(),
+                    sort_epoch: 1.0,
                     ..SessionRow::default()
                 },
                 SessionRow {
                     session_id: "disk".into(),
                     title: "Disk".into(),
                     path: "/tmp/disk".into(),
+                    sort_epoch: 2.0,
                     ..SessionRow::default()
                 },
             ],
-            active: 0,
-            list_selection: icedtea::collection::Selection::Single(0),
             overview_gen: 1,
             status: "stale-other · running".into(),
             ..Hud::default()
         };
+        hud.rerank_visible();
         let data = json!({
             "meta": {
                 "sessionId": "disk",
@@ -4003,9 +3932,11 @@ mod tests {
             hud.status
         );
         assert_eq!(hud.selected_sid().as_deref(), Some("disk"));
+        // Open session is pinned to the front of the recent strip.
+        assert_eq!(hud.sessions()[0].session_id, "disk");
         assert!(matches!(
             hud.list_selection,
-            icedtea::collection::Selection::Single(1)
+            icedtea::collection::Selection::Single(0)
         ));
     }
 
@@ -4025,8 +3956,8 @@ mod tests {
             }),
             ..Hud::default()
         };
+        hud.rerank_visible();
         let _ = hud.update(Message::SelectSession(0));
-        assert_eq!(hud.active(), 0);
         assert_eq!(hud.tab(), Tab::Overview);
         assert!(hud.last_timeline().is_none());
         assert!(!hud.timeline_loading());
@@ -4366,23 +4297,7 @@ mod tests {
     }
 
     #[test]
-    fn select_timeline_toggles_expand_on_the_same_index() {
-        let mut hud = Hud::default();
-        let _ = hud.update(Message::SelectTimeline(7));
-        assert!(hud.is_timeline_expanded(7));
-        assert_eq!(hud.timeline_focus(), Some(7));
-        let _ = hud.update(Message::SelectTimeline(7));
-        assert!(!hud.is_timeline_expanded(7));
-        assert_eq!(hud.timeline_focus(), None);
-        let _ = hud.update(Message::SelectTimeline(7));
-        let _ = hud.update(Message::SelectTimeline(9));
-        assert!(!hud.is_timeline_expanded(7));
-        assert!(hud.is_timeline_expanded(9));
-        assert_eq!(hud.timeline_focus(), Some(9));
-    }
-
-    #[test]
-    fn jump_from_turn_opens_timeline_on_that_event() {
+    fn jump_from_turn_opens_timeline_detail_on_that_event() {
         let mut hud = hud_with_session();
         load_page(
             &mut hud,
@@ -4401,7 +4316,7 @@ mod tests {
         hud.tab = Tab::Turns;
         let _ = hud.update(Message::JumpTimeline(3));
         assert_eq!(hud.tab(), Tab::Timeline);
-        assert!(hud.is_timeline_expanded(3));
+        assert!(hud.is_timeline_open(3));
         assert_eq!(hud.timeline_focus(), Some(3));
         assert!(hud.last_timeline().is_some());
     }
@@ -4413,7 +4328,7 @@ mod tests {
         hud.tab = Tab::Turns;
         let _ = hud.update(Message::JumpTimeline(99));
         assert_eq!(hud.tab(), Tab::Timeline);
-        assert!(hud.is_timeline_expanded(99));
+        assert!(hud.is_timeline_open(99));
         assert_eq!(hud.timeline_focus(), Some(99));
         assert!(hud.timeline_loading());
         assert!(hud.timeline_gen > gen);
@@ -4807,7 +4722,7 @@ mod tests {
         assert!(req.append);
         let next_before = hud.timeline_next;
         let _ = hud.update(Message::SelectTimeline(3));
-        assert!(hud.is_timeline_expanded(3));
+        assert!(hud.is_timeline_open(3));
         let full = stub.clone() + "}";
         let gen = hud.timeline_gen;
         let _ = hud.update(Message::TimelineLoaded {
@@ -4835,7 +4750,7 @@ mod tests {
         let ev = hud.timeline.iter().find(|e| e.index == 3).expect("row");
         assert!(ev.content.ends_with('}'));
         assert_eq!(body_paint(&ev.kind, &ev.content, true), BodyPaint::Json);
-        assert!(hud.is_timeline_expanded(3));
+        assert!(hud.is_timeline_open(3));
     }
 
     #[test]
