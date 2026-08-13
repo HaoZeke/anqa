@@ -228,10 +228,6 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             .padding([8, 10])
             .style(icedtea::style::search_style(tea))
             .width(Length::Fill),
-        text(hud.hotkey_hint())
-            .size(typo::META)
-            .font(typo::MONO)
-            .color(tok.muted),
     ]
     .spacing(12)
     .align_y(Alignment::Center);
@@ -635,21 +631,10 @@ fn kv<'a>(
 }
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
-    let mut table = icedtea::action::ActionTable::new();
-    table.insert(icedtea::action::Action::new(
-        "keys",
-        "Tab fields  ·  Ctrl+1–5 panes  ·  Esc",
-        Message::Hide,
-    ));
-    let hints = table
-        .get("keys")
-        .map(|a| a.title.clone())
-        .unwrap_or_else(|| "Tab fields  ·  Ctrl+1–5 panes  ·  Esc".into());
+    // Status only — no keyboard shortcut legend in the chrome.
     let left = status_copy(hud.status(), hud.status_err(), tea);
-    let right = icedtea::widget::meta(hints.clone(), tea, A11y::new(hints, Role::Status));
-    // Same chrome as pattern::status_bar: status left, ActionTable title right.
     icedtea::a11y::attach(
-        container(row![left, Space::new().width(Length::Fill), right,].padding([8, 12]))
+        container(row![left, Space::new().width(Length::Fill)].padding([8, 12]))
             .width(Length::Fill)
             .style(move |_| icedtea::style::footer(tea))
             .into(),
@@ -2025,9 +2010,9 @@ mod tests {
         assert!(!prod.contains("fn overview_commands"));
         assert!(prod.contains("format!(\"f{}\""));
         assert!(prod.contains("format!(\"n{}\""));
-        assert!(prod.contains("Tab fields"));
-        assert!(prod.contains("Ctrl+1"));
-        assert!(prod.contains("Esc"));
+        assert!(!prod.contains("Tab fields"));
+        assert!(!prod.contains("Ctrl+1–5"));
+        assert!(!prod.contains("hotkey_hint()"));
         assert!(prod.contains("themed_button("));
         assert!(prod.contains("Variant::Chip"));
         assert!(!prod.contains("themed_button_sized"));
@@ -2036,8 +2021,6 @@ mod tests {
         assert!(!prod.contains("struct JumpIcon"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
         assert!(prod.contains("pattern::command_bar"));
-        assert!(prod.contains("pattern::status_bar"));
-        assert!(prod.contains("ActionTable"));
         assert!(prod.contains("TURNS_OVERSCAN"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(prod.contains("turns_tab(hud)"));
