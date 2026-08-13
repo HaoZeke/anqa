@@ -93,6 +93,7 @@ later.”
 |---------|-------------------------|
 | **Domain / orchestrator** | Shared path under ``runs/``, ``session/``, ``docker/`` — not a TUI-only fork of the logic |
 | **TUI** | Bindings, palette, Fluent, ``help.rich.txt``; keyboard path for every new action |
+| **HUD** | Same key as the TUI when both do the job (§6.10); ``groket-hud/src/help.rs`` footer + cheatsheet and ``on_key`` in the same change |
 | **Batch / task YAML** | If the feature applies to headless launches: ``task_schema``, ``schemas/tasks.schema.json`` (``make schema``), ``examples/tasks/``, ``batch`` wiring to the **same** domain APIs |
 | **README.md** | Operator-facing: keys, CLI flags, task fields, what TUI vs batch can do |
 | **AGENTS.md** | Only when the *contract* for agents changes (architecture, gates, layouts) |
@@ -122,6 +123,7 @@ later.”
 
 - [ ] Domain API used by all launch paths that need the behaviour
 - [ ] TUI: binding + palette + Fluent + ``help.rich.txt`` (if user-facing)
+- [ ] HUD: same key as the TUI when the palette has that action (§6.10)
 - [ ] Batch/schema/examples updated **or** README states TUI-only / batch-only
 - [ ] README updated for operators
 - [ ] Tests for domain + UI (and batch if applicable)
@@ -440,17 +442,20 @@ domain folder.
 
 ---
 
-## 6. TUI and keyboard UX
+## 6. Keyboard UX (TUI and HUD)
 
-Keyboard-first. Mouse is optional acceleration. Every feature reachable by
-keys and/or **Ctrl+P**.
+Keyboard-first. Mouse is optional acceleration. Every TUI feature is
+reachable by keys and/or **Ctrl+P**. The desktop HUD is the same session
+read path: shared actions use the **same key** as the TUI (§6.10).
 
 | File | Role |
 |------|------|
-| [`ui/bindings.py`](groket/ui/bindings.py) | Bindings |
+| [`ui/bindings.py`](groket/ui/bindings.py) | TUI bindings |
 | [`ui/keys.py`](groket/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+G``) |
 | [`ui/commands.py`](groket/ui/commands.py) | Ctrl+P palette |
-| Fluent / ``ui/text`` / ``help.rich.txt`` | Labels and help |
+| Fluent / ``ui/text`` / ``help.rich.txt`` | TUI labels and ``?`` help |
+| [`groket-hud/src/help.rs`](groket-hud/src/help.rs) | HUD footer + ``?`` cheatsheet |
+| [`groket-hud/src/app.rs`](groket-hud/src/app.rs) ``on_key`` | HUD key handling |
 
 No ad-hoc key legends in banners (``"save [ctrl+s]"``). Footer, tips, HUD,
 CLI, and README use the same words: ``Ctrl+S``, ``Shift+Tab``, ``Esc`` —
@@ -559,16 +564,18 @@ Stable globals: ``?``, ``F5``/``Ctrl+R``, ``J``, ``Esc``, ``Ctrl+P``, ``q``
 2. ``?`` help  
 3. Ctrl+P palette  
 
-Add a key: ``bindings.py`` → ``action_*`` → palette if useful → help if major.
+Add a key: TUI ``bindings.py`` → ``action_*`` → palette if useful →
+``help.rich.txt`` if major. HUD ``help.rs`` + ``on_key``. A shared action
+(§6.10) updates **both** surfaces in the same change.
 
 ### 6.8 Keyboard checklist
 
 Primary list focus; pane digits; visible filters; ``s``/``space`` multi-select;
 preserving cursor; ``TipSurface``; ``check_action``; Tab-reachable buttons;
 modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
-``SelectableStatic`` + ``y`` (§6.5a).
+``SelectableStatic`` + ``y`` (§6.5a). Shared TUI/HUD keys stay aligned (§6.10).
 
-### 6.9 Global key reference
+### 6.9 TUI key reference
 
 | Key | Action |
 |-----|--------|
@@ -592,6 +599,67 @@ Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
 (double-press); ``a`` analyze; ``d`` rules; ``r``/``C``/``P`` runner/configs/personas;
 ``H`` show or hide native ``~/.grok/sessions`` next to Docker work traces.
+
+### 6.10 TUI and HUD: same action, same key
+
+The Textual TUI and the iced HUD share one shortcut vocabulary for every
+action both surfaces expose. Footer, ``?`` help, README, and the HUD
+cheatsheet use the same words (``Ctrl+S``, ``Esc`` — never ``^s`` or glyphs).
+
+**Rule.** If both surfaces do the same job, they use the same key. Adding or
+changing a shared key updates TUI ``ui/bindings.py`` and HUD ``help.rs`` +
+``on_key`` in the same change. A key that exists on only one surface is
+listed below (and in README). Do not invent a second chord for a shared
+action.
+
+**Footer.** Only keys that apply right now (TUI ``Binding.show`` +
+``check_action``; HUD ``footer_table(KeyScope)``). Jobs, analyze, export,
+follow-up, and Done stay off the rail when they do not apply.
+
+**Shared** (must match)
+
+| Key | Action |
+|-----|--------|
+| ``?`` | Help |
+| ``Esc`` | Back / dismiss (HUD: leave Timeline detail, then hide the overlay) |
+| ``/`` | Search (TUI sessions + browser; HUD picker + Turns / Timeline) |
+| ``y`` / ``Ctrl+Shift+C`` | Copy body |
+| ``j`` / ``k`` | List down / up |
+| ``Enter`` | Open / drill |
+| ``n`` / ``e`` | Follow-up / Done while awaiting |
+| ``N`` | Notes (TUI new note; HUD Notes pane) |
+
+**TUI only** — the HUD is a session palette (follow-up, Done, notes). It
+does not launch evals, open Jobs, run analysis, export, flag, or delete.
+
+| Key | Action |
+|-----|--------|
+| ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit Groket HUD** exits the process) |
+| ``J`` | Jobs / logs |
+| ``Ctrl+P`` | Command palette |
+| ``F5`` / ``Ctrl+R`` | Refresh |
+| ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–5**) |
+| ``a`` | Analyze |
+| ``E`` | Export bundle |
+| ``f`` | Flag (browser) / fork (sessions home) |
+| ``O`` | Edit note |
+| ``x`` | Delete (double-press) |
+| ``H`` | Show / hide host catalog |
+| ``r`` / ``C`` / ``P`` | Runner / recipes / personas |
+| ``s`` / ``space`` | Multi-select |
+
+**HUD only** — ``[`` / ``]`` are Timeline turn scope, so they cannot be
+panes. Digits type into search, so pane jump is **Ctrl+1–5**.
+
+| Key | Action |
+|-----|--------|
+| ``Tab`` / ``Shift+Tab`` | Next / previous browse pane |
+| ``Ctrl+1``…``Ctrl+5`` | Jump Overview … Notes |
+| ``]`` / ``[`` | Timeline: next turn / all turns |
+| ``g`` | Turns → Timeline for the focused turn |
+
+When the HUD cannot do a TUI action, README says so. Do not bind a HUD key
+that collides with a shared key in this table.
 
 ---
 

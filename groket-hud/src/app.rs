@@ -265,6 +265,7 @@ pub struct Hud {
     turns_filter: Vec<usize>,
     turns_search_id: Id,
     follow_draft: String,
+    follow_id: Id,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
     pointer: Point,
@@ -361,6 +362,7 @@ impl Default for Hud {
             turns_filter: vec![],
             turns_search_id: Id::new("turns-search"),
             follow_draft: String::new(),
+            follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
             pointer: Point::ORIGIN,
@@ -1250,6 +1252,7 @@ impl Hud {
             browse: self.browse_mode(),
             help_open: self.help_open,
             timeline_detail: self.tab == Tab::Timeline && self.timeline_open.is_some(),
+            awaiting: self.selected_awaiting(),
             tab: self.tab,
         }
     }
@@ -3157,6 +3160,9 @@ impl Hud {
     pub fn follow_draft(&self) -> &str {
         &self.follow_draft
     }
+    pub fn follow_id(&self) -> Id {
+        self.follow_id.clone()
+    }
     pub fn selected_awaiting(&self) -> bool {
         crate::live::is_live_status(&self.selected_status())
             && self
@@ -3256,6 +3262,20 @@ impl Hud {
         }
         if self.typing_notes {
             return Task::none();
+        }
+        if self.browse_mode()
+            && modifiers.shift()
+            && matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("n"))
+        {
+            return self.update(Message::SetTab(Tab::Notes));
+        }
+        if self.browse_mode() && self.selected_awaiting() && modifiers.is_empty() {
+            if matches!(key, Key::Character(ref c) if c.as_str() == "n") {
+                return operation::focus(self.follow_id.clone());
+            }
+            if matches!(key, Key::Character(ref c) if c.as_str() == "e") {
+                return self.mark_done();
+            }
         }
         if matches!(key, Key::Character(ref c) if c.as_str() == "/") {
             return self.focus_context_search();
@@ -4292,6 +4312,33 @@ mod tests {
         assert_eq!(hud.active, 1, "j is swallowed while help is open");
         let _ = hud.on_key(Key::Named(Named::Escape), Modifiers::empty());
         assert!(!hud.help_open());
+    }
+
+    #[test]
+    fn on_key_n_e_and_shift_n_match_tui_when_awaiting() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview {
+                meta: crate::wire::SessionMeta {
+                    status: "awaiting".into(),
+                    ..crate::wire::SessionMeta::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Overview,
+            ..Hud::default()
+        };
+        assert!(hud.browse_mode());
+        assert!(hud.selected_awaiting());
+        assert!(hud.key_scope().awaiting);
+        let _ = hud.on_key(Key::Character("n".into()), Modifiers::SHIFT);
+        assert_eq!(hud.tab, Tab::Notes);
+        // `e` fires session/done; `n` focuses the follow-up field.
+        let _ = hud.on_key(Key::Character("e".into()), Modifiers::empty());
+        let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
+        hud.overview = Some(Overview::default());
+        assert!(!hud.selected_awaiting());
+        assert!(!hud.key_scope().awaiting);
     }
 
     fn question_pressed() -> Event {

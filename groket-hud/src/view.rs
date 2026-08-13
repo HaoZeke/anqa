@@ -82,7 +82,7 @@ fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, M
             Some(Message::SendFollow),
             tea,
             A11y::new("follow-up", Role::TextBox),
-            None,
+            Some(hud.follow_id()),
         ))
         .width(Length::Fill),
         icedtea::widget::themed_button(

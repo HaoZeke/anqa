@@ -1,7 +1,8 @@
 """Single source of truth for keyboard shortcuts and TUI navigation.
 
 Screens import binding tuples from here — do not invent ad-hoc key lists in
-banners, button labels, or one-off help strings. See AGENTS.md «TUI navigation».
+banners, button labels, or one-off help strings. Shared TUI/HUD keys:
+AGENTS.md §6.10. HUD tables live in ``groket-hud/src/help.rs``.
 """
 
 from __future__ import annotations

@@ -307,6 +307,7 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: true,
+            awaiting: false,
             tab: crate::model::Tab::Timeline,
         });
         let _ = status_footer("ready", false, &table, tea);
@@ -317,6 +318,7 @@ mod tests {
                 browse: false,
                 help_open: false,
                 timeline_detail: false,
+                awaiting: false,
                 tab: crate::model::Tab::Overview,
             }),
             tea,

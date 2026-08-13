@@ -15,6 +15,7 @@ pub struct KeyScope {
     pub browse: bool,
     pub help_open: bool,
     pub timeline_detail: bool,
+    pub awaiting: bool,
     pub tab: Tab,
 }
 
@@ -67,6 +68,16 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
         Message::ActivateSelected,
     );
     push(&mut table, "edit.copy", "Copy", "y", Message::Yank);
+    if scope.awaiting {
+        push(
+            &mut table,
+            "session.follow",
+            "Follow-up",
+            "n",
+            Message::Noop,
+        );
+        push(&mut table, "session.done", "Done", "e", Message::MarkDone);
+    }
     table
 }
 
@@ -119,6 +130,21 @@ pub fn help_table() -> ActionTable<Message> {
     push(&mut table, "search.focus", "Search", "/", Message::Noop);
     push(
         &mut table,
+        "session.follow",
+        "Follow-up",
+        "n",
+        Message::Noop,
+    );
+    push(&mut table, "session.done", "Done", "e", Message::MarkDone);
+    push(
+        &mut table,
+        "pane.notes",
+        "Notes",
+        "shift+n",
+        Message::SetTab(Tab::Notes),
+    );
+    push(
+        &mut table,
         "events.next_turn",
         "Next turn",
         "]",
@@ -150,6 +176,7 @@ mod tests {
             browse: false,
             help_open: false,
             timeline_detail: false,
+            awaiting: false,
             tab: Tab::Overview,
         }
     }
@@ -190,17 +217,20 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: false,
+            awaiting: false,
             tab: Tab::Overview,
         });
         let blob = browse.footer_hints().join("  ·  ");
         assert!(blob.contains("tab panes"));
         assert!(blob.contains("y copy"));
         assert!(!blob.contains("j "));
+        assert!(!blob.contains("n "));
 
         let turns = footer_table(KeyScope {
             browse: true,
             help_open: false,
             timeline_detail: false,
+            awaiting: false,
             tab: Tab::Turns,
         });
         assert!(turns.footer_hints().iter().any(|h| h.contains("j down")));
@@ -209,6 +239,7 @@ mod tests {
             browse: true,
             help_open: false,
             timeline_detail: true,
+            awaiting: false,
             tab: Tab::Timeline,
         });
         let blob = detail.footer_hints().join("  ·  ");
@@ -222,6 +253,7 @@ mod tests {
             browse: true,
             help_open: true,
             timeline_detail: true,
+            awaiting: true,
             tab: Tab::Timeline,
         })
         .footer_hints();
@@ -229,5 +261,23 @@ mod tests {
         assert!(blob.contains("? help"));
         assert!(blob.contains("esc close"));
         assert_eq!(hints.len(), 2);
+    }
+
+    #[test]
+    fn footer_table_awaiting_shows_follow_up_and_done() {
+        let hints = footer_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: true,
+            tab: Tab::Overview,
+        })
+        .footer_hints();
+        let blob = hints.join("  ·  ");
+        assert!(blob.contains("n follow"));
+        assert!(blob.contains("e done"));
+        assert!(help_table().get("session.follow").is_some());
+        assert!(help_table().get("session.done").is_some());
+        assert!(help_table().get("pane.notes").is_some());
     }
 }

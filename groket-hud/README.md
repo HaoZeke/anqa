@@ -40,8 +40,9 @@ Sol-style session **command palette** for the local groket control plane
   they step events and cross into the next/previous turn when scoped.
   **Esc** leaves event detail on the current row (footer ``esc timeline``),
   then hides the overlay. The footer lists the keys that apply right now
-  (icedtea status bar). **?** opens a searchable cheatsheet of every
-  shortcut; **Esc** or **?** closes it.
+  (icedtea status bar). Shared actions use the same keys as the TUI
+  (**?** **Esc** **/** **y** **j**/**k** **n**/**e** **N**). **?** opens a
+  searchable cheatsheet; **Esc** or **?** closes it.
 - Browse defaults to **Overview**. Picking a session loads overview only —
   it does not fetch the session event list.
   **Turns** is a fixed list of prompt cards (status, tool counts, marks) with
