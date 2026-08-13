@@ -473,6 +473,13 @@ fn open_hud_window(window_mode: bool) -> (window::Id, Task<window::Id>) {
 
 pub fn run() -> iced::Result {
     crate::log::info(&format!("hud start log={}", crate::log::path().display()));
+    if crate::summon::already_running() {
+        eprintln!(
+            "groket-hud: already running — groket hud --toggle / tray \
+             (use groket hud --restart to replace)"
+        );
+        return Ok(());
+    }
     // icedtea::daemon! is equivalent; catalog + dual window modes stay manual
     // via Prepared + iced::daemon. Call the same face remap the macro would.
     icedtea::typo::install_platform_faces();
@@ -517,17 +524,6 @@ impl Hud {
                 hud._hotkeys = register_global_hotkey(hk, &label);
             }
         }
-        match crate::tray::install() {
-            Ok(tray) => {
-                eprintln!("groket-hud: tray ready");
-                hud._tray = Some(tray);
-            }
-            Err(err) => {
-                let msg = format!("tray: {err}");
-                crate::log::error(&msg);
-                eprintln!("groket-hud: {msg}");
-            }
-        }
         match crate::summon::install() {
             Ok(server) => {
                 if let Some(path) = crate::summon::default_socket_path() {
@@ -537,6 +533,10 @@ impl Hud {
                 }
                 hud._summon = Some(server);
             }
+            Err(crate::summon::SummonError::AlreadyRunning(path)) => {
+                eprintln!("groket-hud: already running ({path}) — groket hud --toggle / tray");
+                std::process::exit(0);
+            }
             Err(err) => {
                 // Unix is expected to bind; non-unix is Unsupported (no log noise).
                 if !matches!(err, crate::summon::SummonError::Unsupported) {
@@ -544,6 +544,17 @@ impl Hud {
                     crate::log::error(&msg);
                     eprintln!("groket-hud: {msg}");
                 }
+            }
+        }
+        match crate::tray::install() {
+            Ok(tray) => {
+                eprintln!("groket-hud: tray ready");
+                hud._tray = Some(tray);
+            }
+            Err(err) => {
+                let msg = format!("tray: {err}");
+                crate::log::error(&msg);
+                eprintln!("groket-hud: {msg}");
             }
         }
         let q = hud.notify_q.clone();
