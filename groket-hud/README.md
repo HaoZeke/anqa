@@ -61,9 +61,12 @@ Sol-style session **command palette** for the local groket control plane
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview about every 3s (idle sessions slower). An open event
   drawer refreshes that turn’s events.
-- Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Linux/Windows) by default;
-  override with ``~/.groket/config.json`` ``hud.global_shortcut`` or env
-  ``GROKET_HUD_SHORTCUT``
+- Global hotkey: **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
+  **X11 Linux**) by default; override with ``~/.groket/config.json``
+  ``hud.global_shortcut`` or env ``GROKET_HUD_SHORTCUT``. On **Wayland** the
+  in-process hotkey library is X11-only — the HUD skips it and logs a hint;
+  use tray **Show HUD** or a compositor keybind (``app_id``
+  ``dev.indynull.groket-hud``).
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
 - ``groket hud --install-desktop`` (or ``groket-hud --install-desktop``) writes
   **user-local** icons and a launcher — not a system package, DMG, or MSI:
@@ -81,21 +84,22 @@ Sol-style session **command palette** for the local groket control plane
   reveals and focuses the palette. **Quit Groket HUD** exits the HUD process
   only; ``groket serve`` stays up. Escape hides the overlay and leaves the
   tray item in place. A missing tray host is logged; the HUD stays up
-  (summon hotkey and pop-out still work).
+  (tray and pop-out still work without a global hotkey).
 - Desktop notifications (awaiting / complete / cancelled / failed, and
   analysis done or error) go to the host daemon: dunst, mako, fnott, or
   swaync on Linux (org.freedesktop.Notifications), Notification Center on
   macOS, toasts on Windows. The cream three-bar tray tile (64px) is written
   to ``~/.groket/hud-notify.png`` when possible. ``GROKET_HUD_NOTIFY=0`` or
   ``hud.desktop_notifications: false`` turns them off.
-- Overlay: hides on **Esc** or the summon hotkey only (focus loss does not
-  hide). It is a floating card (macOS system dialog / Linux override-redirect)
-  so a tiler does not insert it. Decorated window: stays open until you close
-  it; the summon hotkey focuses it. That window is a normal desktop client, so
-  a tiler (yabai, i3, sway) tiles it and a stacking desktop just shows it.
-  Closing the window does not stop the HUD process. On Wayland (Sway) the
-  compositor owns focus: the HUD does not X11-grab or remap an already-visible
-  overlay (tray Show is idempotent).
+- Overlay: hides on **Esc** or the summon hotkey (when registered) only
+  (focus loss does not hide). **X11:** override-redirect floating card plus
+  keyboard grab so a tiler does not insert it. **Wayland:** normal
+  xdg-toplevel (override-redirect does not apply); Sway/etc. may tile unless
+  you float ``app_id=dev.indynull.groket-hud``. Focus is compositor-owned
+  (``gain_focus``, no X11 grab). Decorated pop-out is a normal desktop
+  client so a tiler (yabai, i3, sway) tiles it. Closing the window does not
+  stop the HUD process. Tray Show on an already-visible overlay only focuses
+  (no remap).
 
 ## Prerequisites
 

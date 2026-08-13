@@ -234,8 +234,9 @@ Timeline tab updates without reopening the HUD. The HUD does not start evals,
 recipes, or Docker. ``groket hud`` **detaches** like Sol
 (background agent); on macOS the overlay starts as an accessory process (**not**
 in the Dock or **Cmd+Tab**) until you pop out to a normal window. Default
-hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G**
-(Linux/Windows); override in ``~/.groket/config.json``::
+hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and X11 Linux;
+Wayland uses tray or a compositor bind — see ``groket-hud/README.md``);
+override in ``~/.groket/config.json``::
 
 ```json
 {

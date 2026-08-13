@@ -1,4 +1,13 @@
-//! X11 focus + keyboard grab for override-redirect palette windows.
+//! Linux input / focus helpers for the palette overlay.
+//!
+//! **X11 (no Wayland):** raise, focus, and grab the keyboard so typing reaches
+//! an override-redirect palette.
+//!
+//! **Wayland (Sway, etc.):** the compositor owns focus. We never grab via
+//! Xwayland (a Wayland surface id is not a valid X11 window and retries stack).
+//! Summon uses tray / compositor binds; focus is ``window::gain_focus`` only.
+//!
+//! The in-process global hotkey crate is X11-only on Linux — same gate as grab.
 
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -14,7 +23,12 @@ fn nonempty(value: Option<&str>) -> bool {
     value.is_some_and(|s| !s.is_empty())
 }
 
-/// True only on a real X11 session. A Wayland compositor (Sway) owns focus;
+/// Native Wayland session (``WAYLAND_DISPLAY`` set), including under Xwayland.
+pub fn wayland_session_from_env(wayland_display: Option<&str>) -> bool {
+    nonempty(wayland_display)
+}
+
+/// True only on a real X11 session. A Wayland compositor owns focus;
 /// grabbing via Xwayland with a Wayland surface id fails and the retry
 /// queue stacks on every click.
 pub fn x11_grab_applies(wayland_display: Option<&str>, x11_display: Option<&str>) -> bool {
@@ -26,6 +40,32 @@ pub fn x11_grab_needed() -> bool {
     x11_grab_applies(
         std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
         std::env::var("DISPLAY").ok().as_deref(),
+    )
+}
+
+/// Whether the in-process global-hotkey crate can see keys on this host.
+///
+/// Linux: X11 only (same condition as the keyboard grab). macOS / Windows:
+/// always (caller still handles register errors).
+pub fn global_hotkey_supported() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        x11_grab_needed()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+/// One-line operator hint when in-process summon is unavailable on Linux.
+pub fn wayland_summon_hint(chord_label: &str) -> String {
+    format!(
+        "Wayland session — in-process global hotkey is X11-only \
+         (skipped {chord_label}). Use tray Show HUD, or a compositor bind \
+         for app_id {app}. Optional float: \
+         for_window [app_id=\"{app}\"] floating enable",
+        app = crate::install_desktop::APP_ID,
     )
 }
 
@@ -89,6 +129,21 @@ mod tests {
         assert!(x11_grab_applies(Some(""), Some(":1")));
         assert!(!x11_grab_applies(None, None));
         assert!(!x11_grab_applies(None, Some("")));
+    }
+
+    #[test]
+    fn wayland_env_detects_nonempty_display() {
+        assert!(wayland_session_from_env(Some("wayland-1")));
+        assert!(!wayland_session_from_env(None));
+        assert!(!wayland_session_from_env(Some("")));
+    }
+
+    #[test]
+    fn summon_hint_names_app_id() {
+        let h = wayland_summon_hint("Ctrl+Shift+G");
+        assert!(h.contains(crate::install_desktop::APP_ID));
+        assert!(h.contains("Ctrl+Shift+G"));
+        assert!(h.contains("floating enable"));
     }
 
     #[test]

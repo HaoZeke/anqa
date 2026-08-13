@@ -322,6 +322,10 @@ fn install_linux(layout: &Layout) -> Result<Report, Error> {
         "If the icon is stale, log out or run: gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor"
             .into(),
     );
+    notes.push(format!(
+        "Wayland/Sway: in-process hotkey is X11-only — tray Show HUD, or bind a key; \
+         float overlay with: for_window [app_id=\"{APP_ID}\"] floating enable"
+    ));
     Ok(Report { wrote, notes })
 }
 

@@ -483,21 +483,34 @@ impl Hud {
         hud.hotkey_hint = label.clone();
         let skip_hotkey = hud.window_mode;
         if !skip_hotkey {
-            match GlobalHotKeyManager::new() {
-                Ok(mgr) => {
-                    if let Err(err) = mgr.register(hk) {
-                        let msg = format!("failed to register shortcut {label}: {err}");
+            // Linux: global-hotkey is X11-only. On Wayland (incl. Xwayland)
+            // registering opens Xlib and either fails or grabs keys only for
+            // X11 clients — skip and point at tray / compositor binds.
+            #[cfg(target_os = "linux")]
+            let hotkey_ok = crate::x11focus::global_hotkey_supported();
+            #[cfg(not(target_os = "linux"))]
+            let hotkey_ok = true;
+            if !hotkey_ok {
+                let msg = crate::x11focus::wayland_summon_hint(&label);
+                crate::log::info(&msg);
+                eprintln!("groket-hud: {msg}");
+            } else {
+                match GlobalHotKeyManager::new() {
+                    Ok(mgr) => {
+                        if let Err(err) = mgr.register(hk) {
+                            let msg = format!("failed to register shortcut {label}: {err}");
+                            crate::log::error(&msg);
+                            eprintln!("groket-hud: {msg}");
+                        } else {
+                            eprintln!("groket-hud: summon shortcut {label}");
+                        }
+                        hud._hotkeys = Some(mgr);
+                    }
+                    Err(err) => {
+                        let msg = format!("global hotkey unavailable: {err}");
                         crate::log::error(&msg);
                         eprintln!("groket-hud: {msg}");
-                    } else {
-                        eprintln!("groket-hud: summon shortcut {label}");
                     }
-                    hud._hotkeys = Some(mgr);
-                }
-                Err(err) => {
-                    let msg = format!("global hotkey unavailable: {err}");
-                    crate::log::error(&msg);
-                    eprintln!("groket-hud: {msg}");
                 }
             }
         }
