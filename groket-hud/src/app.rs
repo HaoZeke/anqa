@@ -959,8 +959,27 @@ impl Hud {
                         let rail = self.ensure_active_visible();
                         self.rebuild_events_turn_options();
                         self.rebuild_marks();
-                        self.rebuild_tl_filter();
-                        self.bind_turn_extracts();
+                        // Quiet live ticks: avoid re-filtering the whole timeline and
+                        // rebinding every open turn when the operator is not on Events.
+                        if quiet {
+                            self.refresh_open_turn_binds();
+                            let n = self
+                                .overview
+                                .as_ref()
+                                .map(|o| o.turns.turns.len())
+                                .unwrap_or(0);
+                            if n != self.turn_heights.len() {
+                                self.rebuild_turn_heights();
+                            }
+                            // Timeline filter only matters on Events; skip the O(n)
+                            // scan while the operator is on Turns/Overview.
+                            if self.wants_events() {
+                                self.rebuild_tl_filter();
+                            }
+                        } else {
+                            self.rebuild_tl_filter();
+                            self.bind_turn_extracts();
+                        }
                         self.mark_up();
                         if self.wants_events() {
                             return Task::batch([
@@ -1401,21 +1420,29 @@ impl Hud {
     fn bind_turn_extracts(&mut self) {
         // Overview fields only — binding every turn summary on load was O(turns)
         // string work on the UI thread. Open cards bind via [`Self::bind_turn_row`].
+        self.bind_overview_fields();
+        self.refresh_open_turn_binds();
+        self.rebuild_turn_heights();
+    }
+
+    fn bind_overview_fields(&mut self) {
         let Some(o) = &self.overview else {
             return;
         };
-        // Selectable Overview values only (fixed-label stack in the view).
         for field in crate::format::overview_fields(&o.meta, &o.turns) {
             if field.copyable && !field.value.is_empty() {
                 self.bind_extract_text(ExtractKey::Overview(field.key), &field.value);
             }
         }
-        // Already-open turns (restore after reload).
+    }
+
+    /// Rebind open turn extract buffers after a live overview tick (no height rebuild).
+    fn refresh_open_turn_binds(&mut self) {
+        self.bind_overview_fields();
         let open: Vec<i64> = self.turns_open.iter().copied().collect();
         for turn in open {
             self.bind_turn_row(turn);
         }
-        self.rebuild_turn_heights();
     }
 
     fn bind_turn_row(&mut self, turn: i64) {

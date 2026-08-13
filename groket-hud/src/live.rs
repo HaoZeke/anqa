@@ -16,18 +16,18 @@ pub const TIMELINE_PREVIEW_CHARS: u32 = 720;
 pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
 /// Session rail width. Cards inside it grow with wrapped title and meta.
 pub const SESSION_LIST_W: f32 = 260.0;
-/// Closed timeline card plus gap. Open faces use [`OPEN_TIMELINE_ROW_H`].
-pub const TIMELINE_ROW_H: f32 = 120.0;
+/// Closed timeline card plus gap (flat list card, not expander Peek).
+pub const TIMELINE_ROW_H: f32 = 88.0;
 /// Expanded timeline card estimate for [`icedtea::widget::virtual_column`].
 pub const OPEN_TIMELINE_ROW_H: f32 = 360.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Closed turn card estimate (title + face + chips + gap).
-pub const CLOSED_TURN_CARD_H: f32 = 140.0;
+/// Closed turn card estimate (title + one-line face + chips + gap).
+pub const CLOSED_TURN_CARD_H: f32 = 96.0;
 /// Expanded turn card estimate for virtual column heights.
 pub const OPEN_TURN_CARD_H: f32 = 420.0;
 /// Extra mounted turn cards beyond the viewport.
-pub const TURNS_OVERSCAN: usize = 2;
+pub const TURNS_OVERSCAN: usize = 1;
 
 /// True when a non-delta ``session/list`` body is a page, not a full snapshot.
 pub fn is_partial_list_page(

@@ -748,12 +748,45 @@ fn expand_card<'a>(
     icedtea::widget::expander(
         title.clone(),
         child,
-        icedtea::widget::Peek::Lines(4),
+        icedtea::widget::Peek::Lines(2),
         open,
         on_toggle,
         tea,
         A11y::new(title, Role::Group),
     )
+}
+
+/// Closed Turns/Timeline row: flat card (TUI DataTable energy), not expander+Peek.
+///
+/// Expander always mounts a peeked child tree; at virtual-list density that
+/// dominated frame time. Open rows still use [`expand_card`].
+fn closed_list_card<'a>(
+    title: String,
+    face: Element<'a, Message>,
+    chips: Element<'a, Message>,
+    on_open: Message,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    let header = row![
+        text(title)
+            .size(typo::BODY)
+            .font(typo::UI_BOLD)
+            .color(tea.text),
+        Space::new().width(Length::Fill),
+        text("▸").size(typo::META).color(tea.muted),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .width(Length::Fill);
+    let body = column![header, face, chips].spacing(6).width(Length::Fill);
+    mouse_area(
+        container(body)
+            .padding(12)
+            .width(Length::Fill)
+            .style(move |_| icedtea::style::card(tea, false)),
+    )
+    .on_press(on_open)
+    .into()
 }
 
 fn turn_title(t: &TurnRow) -> String {
@@ -873,19 +906,31 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
     } else {
         preview
     };
-    let mut col = column![].spacing(4);
-    if !identity.is_empty() {
-        col = col.push(
-            text(identity)
-                .size(typo::META)
-                .font(typo::UI_BOLD)
-                .color(type_color),
-        );
+    // One scannable line (TUI type + summary columns), not a markdown stack.
+    let preview = capped_display(preview, 160);
+    if identity.is_empty() && preview.is_empty() {
+        return text("—").size(typo::META).color(tea.muted).into();
     }
-    if !preview.is_empty() {
-        col = col.push(prompt_face(preview, tea));
+    if identity.is_empty() {
+        return text(preview).size(typo::BODY).color(tea.text).into();
     }
-    col.into()
+    if preview.is_empty() {
+        return text(identity)
+            .size(typo::META)
+            .font(typo::UI_BOLD)
+            .color(type_color)
+            .into();
+    }
+    row![
+        text(identity)
+            .size(typo::META)
+            .font(typo::UI_BOLD)
+            .color(type_color),
+        text(preview).size(typo::BODY).color(tea.text),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn event_body<'a>(
@@ -1051,27 +1096,29 @@ fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Elemen
 }
 
 fn closed_turn_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    plain_face(summary, "No user prompt in this turn", 320, tea)
+}
+
+/// Closed-card preview only. Markdown parse/layout per visible row was the
+/// Turns/Timeline scroll tax; open bodies use selectable / md_body when needed.
+fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    plain_face(summary, "—", 280, tea)
+}
+
+fn plain_face(
+    summary: &str,
+    empty: &'static str,
+    max_chars: usize,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
     if summary.is_empty() {
-        return text("No user prompt in this turn")
-            .size(typo::BODY)
-            .color(tea.muted)
-            .into();
+        return text(empty).size(typo::BODY).color(tea.muted).into();
     }
-    text(capped_display(summary, 320))
+    text(capped_display(summary, max_chars))
         .size(typo::BODY)
         .font(typo::UI)
         .color(tea.text)
         .into()
-}
-
-fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    if summary.is_empty() {
-        return text("No user prompt in this turn")
-            .size(typo::BODY)
-            .color(tea.muted)
-            .into();
-    }
-    md_body(summary, 2000, tea)
 }
 
 fn turns_tab(hud: &Hud) -> Element<'_, Message> {
@@ -1101,34 +1148,24 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             let turn = t.turn_index;
             let open = hud.turn_expanded(turn);
             let mark = turn_marks.get(&turn).cloned();
-            let child = if open {
-                turn_body(hud, t, mark)
-            } else {
-                // Jump sits above the peek face so it is not buried under Peek::Lines.
-                column![
-                    row![
-                        Space::new().width(Length::Fill),
-                        jump_control(turn_jump(t), tea.muted, tea),
-                    ]
-                    .width(Length::Fill)
-                    .align_y(Alignment::Center),
-                    closed_turn_face(&t.summary, tea),
-                    card_chips(hud, mark, Some(turn_note(t)), None),
-                ]
-                .spacing(6)
-                .into()
-            };
-            column![
+            let card = if open {
                 expand_card(
                     turn_title(t),
-                    child,
-                    open,
+                    turn_body(hud, t, mark),
+                    true,
                     move |next| Message::TurnExpand { turn, open: next },
                     tea,
-                ),
-                Space::new().height(8),
-            ]
-            .into()
+                )
+            } else {
+                closed_list_card(
+                    turn_title(t),
+                    closed_turn_face(&t.summary, tea),
+                    card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
+                    Message::TurnExpand { turn, open: true },
+                    tea,
+                )
+            };
+            column![card, Space::new().height(4)].into()
         },
         A11y::new("Turns", Role::List),
     )
@@ -1184,27 +1221,24 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             let ix = ev.index;
             let open = hud.is_timeline_expanded(ix);
             let mark = ev_marks.get(&ix).cloned();
-            let child = if open {
-                event_body(hud, ev, mark)
-            } else {
-                column![
-                    event_face(ev, tea),
-                    card_chips(hud, mark, Some(event_note(ev)), None),
-                ]
-                .spacing(6)
-                .into()
-            };
-            column![
+            let card = if open {
                 expand_card(
                     event_title(ev),
-                    child,
-                    open,
+                    event_body(hud, ev, mark),
+                    true,
                     move |_| Message::SelectTimeline(ix),
                     tea,
-                ),
-                Space::new().height(4),
-            ]
-            .into()
+                )
+            } else {
+                closed_list_card(
+                    event_title(ev),
+                    event_face(ev, tea),
+                    card_chips(hud, mark, Some(event_note(ev)), None),
+                    Message::SelectTimeline(ix),
+                    tea,
+                )
+            };
+            column![card, Space::new().height(2)].into()
         },
         A11y::new("Timeline", Role::List),
     );
@@ -1698,84 +1732,20 @@ fn inset_body<'a>(inner: Element<'a, Message>, hud: &'a Hud) -> Element<'a, Mess
 }
 
 const POP_OUT_PX: f32 = 16.0;
-const JUMP_PX: f32 = 16.0;
 
 fn jump_control(
     msg: Message,
-    color: Color,
+    _color: Color,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
+    // Chip, not Canvas: one 16px canvas program per closed card was a real
+    // scroll cost with virtual_column remounting rows every frame.
     icedtea::widget::tooltip_wrap(
-        mouse_area(
-            container(
-                Canvas::new(JumpIcon { color })
-                    .width(Length::Fixed(JUMP_PX))
-                    .height(Length::Fixed(JUMP_PX)),
-            )
-            .padding([4, 6]),
-        )
-        .on_press(msg)
-        .into(),
+        chip_btn("→".into(), msg, tea),
         "Go to Timeline",
         tea,
         A11y::button("Go to Timeline"),
     )
-}
-
-/// Arrow into a vertical bar: go to this place.
-fn jump_marks(size: f32) -> (Point, Point, Point, Point, Point) {
-    let pad = size * 0.16;
-    let mid = size * 0.5;
-    let dest_x = size - pad;
-    let tip = Point::new(dest_x - size * 0.18, mid);
-    let tail = Point::new(pad, mid);
-    let arm = size * 0.22;
-    (
-        tail,
-        tip,
-        Point::new(tip.x - arm, tip.y - arm * 0.7),
-        Point::new(tip.x - arm, tip.y + arm * 0.7),
-        Point::new(dest_x, pad),
-    )
-}
-
-#[derive(Debug, Clone, Copy)]
-struct JumpIcon {
-    color: Color,
-}
-
-impl canvas::Program<Message> for JumpIcon {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<canvas::Geometry> {
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
-        let stroke = canvas::Stroke::default()
-            .with_color(self.color)
-            .with_width(1.6)
-            .with_line_cap(canvas::LineCap::Round)
-            .with_line_join(canvas::LineJoin::Round);
-        let size = bounds.width.min(bounds.height);
-        let (tail, tip, up, down, dest_top) = jump_marks(size);
-        let dest_bot = Point::new(dest_top.x, size - dest_top.y);
-        let path = canvas::Path::new(|b| {
-            b.move_to(tail);
-            b.line_to(tip);
-            b.move_to(up);
-            b.line_to(tip);
-            b.line_to(down);
-            b.move_to(dest_top);
-            b.line_to(dest_bot);
-        });
-        frame.stroke(&path, stroke);
-        vec![frame.into_geometry()]
-    }
 }
 
 fn pop_out_control(
@@ -1872,10 +1842,25 @@ mod tests {
     }
 
     #[test]
-    fn turn_prompt_face_builds_markdown_and_plain() {
+    fn closed_faces_are_plain_text_not_markdown() {
         let _ = prompt_face("# heading\n\n**bold**", tea());
         let _ = prompt_face("plain sentence", tea());
         let _ = prompt_face("", tea());
+        let _ = closed_turn_face("user said hello", tea());
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        let face = prod
+            .split("fn prompt_face")
+            .nth(1)
+            .expect("prompt_face")
+            .split("fn plain_face")
+            .next()
+            .expect("body");
+        assert!(
+            !face.contains("md_body"),
+            "closed faces must not parse markdown per row"
+        );
+        assert!(prod.contains("fn plain_face"));
     }
 
     #[test]
@@ -1903,29 +1888,20 @@ mod tests {
     }
 
     #[test]
-    fn jump_marks_point_into_the_bar() {
-        let size = 16.0;
-        let (tail, tip, up, down, dest_top) = jump_marks(size);
-        for p in [tail, tip, up, down, dest_top] {
-            assert!(p.x >= 0.0 && p.x <= size, "{p:?}");
-            assert!(p.y >= 0.0 && p.y <= size, "{p:?}");
-        }
-        assert!(tip.x > tail.x);
-        assert!(dest_top.x > tip.x);
-        assert!((tip.y - tail.y).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn closed_turn_peek_keeps_chips_above_the_fade() {
-        let h = icedtea::widget::Peek::Lines(4).height();
-        let fade = 12.0_f32.min(h * 0.4).max(4.0);
-        // widget::chip: META text + pad [4, 8] vertical.
-        let chip_row = (icedtea::typo::META as f32 + 8.0).max(JUMP_PX + 8.0);
-        let stack = icedtea::widget::Peek::body_line() + 6.0 + chip_row;
-        assert!(
-            stack + fade <= h,
-            "peek {h} fade {fade} stack {stack} must keep chips above the fade"
-        );
+    fn closed_list_card_is_not_expander_peek() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        assert!(prod.contains("fn closed_list_card"));
+        // Closed Turns/Timeline must not build expander Peek trees.
+        let turns = prod
+            .split("fn turns_tab")
+            .nth(1)
+            .expect("turns_tab")
+            .split("fn timeline_tab")
+            .next()
+            .expect("turns body");
+        assert!(turns.contains("closed_list_card"));
+        assert!(!turns.contains("Peek::Lines(4)"));
     }
 
     #[test]
@@ -2071,6 +2047,7 @@ mod tests {
         assert!(!prod.contains("themed_button_sized"));
         assert!(prod.contains("fn jump_control"));
         assert!(prod.contains("Go to Timeline"));
+        assert!(!prod.contains("struct JumpIcon"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
         assert!(prod.contains("pattern::command_bar"));
         assert!(prod.contains("pattern::status_bar"));
@@ -2098,7 +2075,8 @@ mod tests {
         assert!(prod.contains("brand_role_color"));
         assert!(!prod.contains("accordion_view"));
         assert!(prod.contains("widget::expander"));
-        assert!(prod.contains("Peek::Lines(4)"));
+        assert!(prod.contains("Peek::Lines(2)"));
+        assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("TurnExpand"));
         assert!(prod.contains("FindingExpand"));
         assert!(prod.contains("NoteExpand"));
