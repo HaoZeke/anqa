@@ -126,7 +126,7 @@ pub enum Message {
     Hide,
     CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
-    Summon(crate::summon::SummonAction),
+    Summon(crate::summon::SummonRequest),
     MdLink(String),
     ListScroll(icedtea::collection::VisibleWindow),
     TimelineScroll(icedtea::collection::VisibleWindow),
@@ -268,6 +268,9 @@ pub struct Hud {
     pointer: Point,
     context: Option<Point>,
     window_size: Size,
+    /// Last show/toggle xdg-activation token; cleared on hide.
+    #[allow(dead_code)]
+    pending_activation_token: Option<String>,
 }
 
 impl Default for Hud {
@@ -363,6 +366,7 @@ impl Default for Hud {
             } else {
                 Size::new(HUD_W, HUD_H)
             },
+            pending_activation_token: None,
         }
     }
 }
@@ -1193,7 +1197,7 @@ impl Hud {
             }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
-            Message::Summon(action) => self.on_summon(action),
+            Message::Summon(req) => self.on_summon(req),
             Message::Yank => self.yank_active(),
             Message::Cursor(ev) => self.on_cursor(ev),
             Message::ContextDismiss => {
@@ -2937,7 +2941,7 @@ impl Hud {
     }
 
     fn on_hotkey(&mut self) -> Task<Message> {
-        if self.visible && !self.window_mode {
+        if self.overlay_is_up() {
             self.hide_palette()
         } else if self.visible && self.window_mode {
             self.win_task(window::gain_focus)
@@ -2954,12 +2958,31 @@ impl Hud {
         }
     }
 
-    fn on_summon(&mut self, action: crate::summon::SummonAction) -> Task<Message> {
+    fn on_summon(&mut self, req: crate::summon::SummonRequest) -> Task<Message> {
+        let crate::summon::SummonRequest { action, token } = req;
+        self.store_summon_token(action, token);
         match action {
             crate::summon::SummonAction::Show => self.show_palette(),
             crate::summon::SummonAction::Hide => self.hide_palette(),
             crate::summon::SummonAction::Toggle => self.on_hotkey(),
         }
+    }
+
+    fn store_summon_token(&mut self, action: crate::summon::SummonAction, token: Option<String>) {
+        if self.summon_hides(action) {
+            self.pending_activation_token = None;
+        } else {
+            self.pending_activation_token = token;
+        }
+    }
+
+    fn summon_hides(&self, action: crate::summon::SummonAction) -> bool {
+        matches!(action, crate::summon::SummonAction::Hide)
+            || (matches!(action, crate::summon::SummonAction::Toggle) && self.overlay_is_up())
+    }
+
+    fn overlay_is_up(&self) -> bool {
+        self.visible && !self.window_mode
     }
 
     fn quit(&mut self) -> Task<Message> {
@@ -5783,6 +5806,49 @@ mod tests {
         assert!(!hud.visible);
         assert!(!hud.palette_live);
         assert!(hud.window_id.is_none());
+    }
+
+    #[test]
+    fn summon_show_stashes_activation_token() {
+        let mut hud = Hud::default();
+        let _ = hud.on_summon(crate::summon::SummonRequest {
+            action: crate::summon::SummonAction::Show,
+            token: Some("tok-1".into()),
+        });
+        assert_eq!(hud.pending_activation_token.as_deref(), Some("tok-1"));
+        let _ = hud.on_summon(crate::summon::SummonRequest::new(
+            crate::summon::SummonAction::Hide,
+        ));
+        assert_eq!(hud.pending_activation_token, None);
+    }
+
+    #[test]
+    fn summon_toggle_from_hidden_stashes_activation_token() {
+        let mut hud = Hud {
+            visible: false,
+            window_mode: false,
+            ..Hud::default()
+        };
+        let _ = hud.on_summon(crate::summon::SummonRequest {
+            action: crate::summon::SummonAction::Toggle,
+            token: Some("tok-2".into()),
+        });
+        assert_eq!(hud.pending_activation_token.as_deref(), Some("tok-2"));
+    }
+
+    #[test]
+    fn summon_toggle_hide_clears_activation_token() {
+        let mut hud = Hud {
+            visible: true,
+            window_mode: false,
+            pending_activation_token: Some("stale".into()),
+            ..Hud::default()
+        };
+        let _ = hud.on_summon(crate::summon::SummonRequest {
+            action: crate::summon::SummonAction::Toggle,
+            token: Some("fresh".into()),
+        });
+        assert_eq!(hud.pending_activation_token, None);
     }
 
     #[test]

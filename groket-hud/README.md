@@ -69,9 +69,12 @@ Sol-style session **command palette** for the local groket control plane
   ``groket hud --show`` / ``--hide`` / ``--toggle`` (or ``groket-hud --toggle``)
   over the per-user summon socket
   (``$XDG_RUNTIME_DIR/groket/hud-summon.sock``, override
-  ``GROKET_HUD_SUMMON_SOCKET``). Tray **Show HUD** still works. Prefer a
-  compositor bind to ``groket hud --toggle`` (``app_id``
-  ``dev.indynull.groket-hud``).
+  ``GROKET_HUD_SUMMON_SOCKET``). ``--show`` / ``--toggle`` send
+  ``XDG_ACTIVATION_TOKEN`` on that socket and unset ``DESKTOP_STARTUP_ID``
+  in the short-lived client so the long-lived HUD can activate its surface.
+  Tray **Show HUD** still works. Prefer a compositor bind to
+  ``groket hud --toggle`` (``app_id`` ``dev.indynull.groket-hud``). A second
+  ``groket hud`` does not steal a live summon socket.
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
 - ``groket hud --install-desktop`` (or ``groket-hud --install-desktop``) writes
   **user-local** icons and a launcher — not a system package, DMG, or MSI:
