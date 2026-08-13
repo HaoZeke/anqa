@@ -304,13 +304,13 @@ cmd-export-choose-profile = Export with profile…
 
 cmd-export-choose-profile-help = Pick a profile for this export only (does not change the default)
 
-cmd-operator-note = Operator note
+cmd-operator-note = New note
 
-cmd-operator-note-help = Add a turn-linked operator note (configurable fields)
+cmd-operator-note-help = Add a note on the current turn
 
-cmd-edit-operator-note = Edit operator note
+cmd-edit-operator-note = Edit note
 
-cmd-edit-operator-note-help = Edit or delete an existing turn-linked operator note
+cmd-edit-operator-note-help = Edit or delete a note (O)
 
 cmd-copy-detail = Copy selection, finding, or pane
 cmd-copy-detail-help = Browser: yank selection; Findings row Issue box; focused Report/detail body; else whole pane — y / Ctrl+Shift+C
@@ -655,9 +655,9 @@ flags-heading = Flags
 
 flags-only = Flags only
 
-new-note-title = New operator note
+new-note-title = New note
 
-edit-note-title = Edit operator note
+edit-note-title = Edit note
 
 note-saved = Operator note saved (turn { $turn })
 
@@ -665,13 +665,13 @@ note-updated = Operator note updated (turn { $turn })
 
 note-deleted = Operator note deleted
 
-note-none-to-edit = No operator notes to edit — press N to add one
+note-none-to-edit = No notes to edit — press N
 
 note-save-failed = Could not save operator note: { $msg }
 
 note-turn-invalid = Choose a valid turn before saving
 
-notes-blurb = Turn-linked operator notes (N to add; O or command palette to edit or delete). Field layout: ~/.groket/notes_schema.toml. Authored in the TUI only.
+notes-blurb = N add · O edit or delete
 
 notes-empty-preview = (empty)
 
@@ -681,15 +681,13 @@ notes-field-detail = Detail
 
 notes-field-summary = Summary
 
-notes-heading = Operator notes
+notes-heading = Notes
 
 notes-only = Notes only
 
-notes-schema-hint = Schema: { $id }
-
 pick-note-title = Choose a note to edit
 
-tip-no-notes = No operator notes yet — press `N` to add a turn-linked note
+tip-no-notes = No notes yet — press N
 
 turn-label = Turn:
 
@@ -718,6 +716,12 @@ jobs = Jobs
 jobs-tab = Jobs
 
 keyboard-help-title = Help
+
+help-brand-name = groket
+
+help-brand-tagline = Evaluate Grok Build sessions
+
+chrome-folder = { $label }  { $path }
 
 launch = Launch
 
@@ -1024,7 +1028,7 @@ tip-blm-models = `space` mark models · none marked = each recipe's saved models
 
 tip-findings-row = Select a row to focus the matching timeline events
 
-tip-mcp-pick = Search; `s` / `space` select · `r` registry · `l` local · `ctrl+s` done
+tip-mcp-pick = Search; `s` / `space` select · `r` registry · `l` local · `Ctrl+S` done
 
 tip-no-analysis = No analysis yet — run analysis with `a` on the sessions list
 
@@ -1032,9 +1036,9 @@ tip-no-flags = No flags yet — select a Timeline event, then press `f`
 
 tip-no-personas = No personas — press `n` to create one.
 
-tip-persona-editor = `[` `]` panes · `1`–`6` jump · `ctrl+s` save · `esc` cancel
+tip-persona-editor = `[` `]` panes · `1`–`6` jump · `Ctrl+S` save · `Esc` cancel
 
-tip-plugins-pick = `s` / `space` select · ↑↓ detail · `ctrl+s` done · `esc` cancel
+tip-plugins-pick = `s` / `space` select · `Up` / `Down` detail · `Ctrl+S` done · `Esc` cancel
 
 tip-rc-has-marked = `w` launches the marked recipes
 
@@ -1042,13 +1046,13 @@ tip-rc-none-marked = `s` / `space` mark rows · `S` all/none · `w` runs marked 
 
 tip-report-filter = Use Filter above (same as Timeline) — All, Flags, or one plugin
 
-tip-runner-models = `space` toggle models · `f5` refresh catalog
+tip-runner-models = `space` toggle models · `F5` refresh catalog
 
-tip-runner-toolbar = `ctrl+enter` / `ctrl+j` launch · `ctrl+s` save · `[` `]` panes · `j` jobs · `p` personas · `esc` back
+tip-runner-toolbar = `Ctrl+Enter` / `Ctrl+J` launch · `Ctrl+S` save · `[` `]` panes · `j` jobs · `p` personas · `Esc` back
 
 tip-share-url = Press `s` to open the share URL
 
-tip-skills-pick = `s` / `space` select · `ctrl+s` done · `esc` cancel
+tip-skills-pick = `s` / `space` select · `Ctrl+S` done · `Esc` cancel
 
 tips-off = Tips & callouts: off (hidden)
 
@@ -1071,7 +1075,11 @@ user-messages = User messages
 
 verdict-label = Verdict:
 
-col-dur = Dur
+col-index = Index
+
+col-turn = Turn
+
+col-dur = Duration
 
 col-type = Type
 
@@ -1140,7 +1148,7 @@ ui-args = args
 
 ui-assistant = Assistant
 
-ui-asst = Asst
+ui-asst = Assistant
 
 ui-asst-1 =   asst=
 
@@ -1248,7 +1256,7 @@ ui-create-companion-skill = Create companion skill
 
 ui-created = Created
 
-ui-ctrl-t-self-test = ctrl+t self-test
+ui-ctrl-t-self-test = Ctrl+T self-test
 
 ui-danger = danger
 
@@ -1304,7 +1312,7 @@ ui-done-1 = [black on green bold]  DONE [/]
 
 ui-down = Down
 
-ui-dur = Dur
+ui-dur = Duration
 
 ui-duration = Duration
 
@@ -2423,7 +2431,7 @@ ui-tool-1 = Tool
 
 ui-tool-2 = [bold cyan]Tool[/]
 
-ui-tool-err = Tool err
+ui-tool-err = Tool errors
 
 ui-tool-err-1 =  tool err)
 
@@ -2672,8 +2680,11 @@ tool-field-new-string = new_string:
 tool-no-input = (no input)
 tool-binary-output = (binary / control-only output)
 tool-empty-output = (empty)
+tool-image-path = Saved image: { $path }
 notify-scanning = Scanning { $path }…
 notify-no-sessions = No sessions found in { $path }
+notify-control-list-failed = Control catalog failed: { $err }
+notify-control-session-failed = Control session load failed: { $err }
 notify-loaded-sessions = Loaded { $n } sessions
 notify-analyzing = Analyzing { $n } sessions ({ $plugins } plugins)…
 notify-analysis-complete = Analysis complete — { $n } sessions
@@ -2796,11 +2807,12 @@ cmd-show-host-sessions-help = Include native ~/.grok/sessions on the sessions li
 cmd-hide-host-sessions = Hide host sessions
 cmd-hide-host-sessions-help = Hide native ~/.grok/sessions from the sessions list
 
-ui-origin = Src
+ui-origin = Origin
 ui-origin-work = Eval
 ui-origin-host = Host
 
-ui-control-socket-in-use = Editor control already owned by another groket; this instance continues without the socket
+ui-control-socket-attached = Attached to existing control owner (catalog and notes via control socket)
+ui-control-socket-attach-failed = Control owner not reachable; loading sessions from local disk
 ui-control-socket-start-failed = Editor control socket could not start; this instance continues without the socket
 
 notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)

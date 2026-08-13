@@ -23,8 +23,6 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
-    Header,
     Input,
     Select,
     Static,
@@ -33,11 +31,11 @@ from textual.widgets import (
 )
 
 from ... import event_types as et
-from ...analysis import get_analysis_service
 from ...analysis.base import AnalysisResult, Finding
 from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_turn
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
+from ...integrations.control import ControlError
 from ...models import Flag, SessionMeta, TraceEvent
 from ...notes import (
     NoteEntry,
@@ -55,7 +53,7 @@ from ...utils import fmt_duration
 from .. import text as U
 from ..bindings import BROWSER, ChromeActions, focus_primary_list
 from ..panel_render import (
-    TipSurface,
+    EmptyState,
     bullet,
     content_block,
     dim_rule,
@@ -171,11 +169,25 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         self._context_samples = ContextSampleStore()
 
-    def compose(self) -> ComposeResult:
-        yield Header()
-        from ..widgets.activity_bar import ActivityBar
+    def _analysis_svc(self):
+        """Use the app's analysis service (work_dir / config), not a bare default."""
+        app = getattr(self, "_app", None)
+        if app is None:
+            try:
+                app = self.app
+            except Exception:
+                app = None
+        getter = getattr(app, "_analysis_svc", None) if app is not None else None
+        if callable(getter):
+            return getter()
+        from ...analysis.service import get_analysis_service
 
-        yield ActivityBar()
+        return get_analysis_service()
+
+    def compose(self) -> ComposeResult:
+        from ..brand_mark import AppChrome, AppFooter
+
+        yield AppChrome()
         yield Static("", id="analysis-stale-banner", classes="tip-surface")
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
@@ -231,7 +243,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 with VerticalScroll(id="summary-scroll"):
                     with Vertical(classes="panel-card"):
                         yield SelectableStatic(id="summary-content")
-                        yield TipSurface(U.tip_share_url(), id="summary-share-tip")
+                        # Share open is on the footer / ``s`` — no permanent tip box.
                     with Vertical(classes="panel-card"):
                         yield Static(t("ui-turns-1"), classes="panel-card-title")
                         yield DataTable(id="stats-turns-table")
@@ -252,7 +264,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 with Vertical(id="findings-panel"):
                     with Vertical(classes="panel-card"):
                         yield SelectableStatic("", id="findings-header")
-                        yield TipSurface(U.tip_findings_row(), id="findings-tip")
+                        # Row→timeline focus is on ``?`` / footer — no permanent tip box.
                     with Vertical(classes=t("ui-panel-card-panel-card-grow")):
                         yield Static("", id="findings-pending-status")
                         yield DataTable(id="findings-table")
@@ -274,20 +286,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     with VerticalScroll(id="reports-scroll"):
                         with Vertical(classes="panel-card", id="report-section-overview"):
                             yield SelectableStatic(id="report-overview-content")
-                            yield TipSurface(U.tip_report_filter(), id="report-overview-tip")
-                            yield TipSurface("", id="report-analysis-tip")
+                            # Filter usage is on the filter bar itself — no tip box.
+                            yield EmptyState("", id="report-analysis-empty")
                         with Vertical(
                             classes=t("ui-panel-card-report-section"), id="report-section-flags"
                         ):
                             yield SelectableStatic(id="report-flags-content")
-                            yield TipSurface(U.tip_no_flags(), id="report-flags-tip")
+                            yield EmptyState(U.tip_no_flags(), id="report-flags-empty")
                         with Vertical(
                             classes=t("ui-panel-card-report-section"), id="report-section-notes"
                         ):
                             yield SelectableStatic(id="report-notes-content")
-                            yield TipSurface(U.tip_no_notes(), id="report-notes-tip")
+                            yield EmptyState(U.tip_no_notes(), id="report-notes-empty")
                         yield Vertical(id="report-sections-host")
-        yield Footer()
+        yield AppFooter()
 
     def on_mount(self) -> None:
         if self._load_started:
@@ -869,7 +881,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         # Coalesce FS storms: one light job per min gap (not a second parse
         # throttle inside the job — that skipped new rows until full reload).
-        min_gap = live_browser_timeline_min_interval(updates_jsonl_size(self.session_dir))
+        size_hint = len(getattr(self, "timeline", None) or []) * 4096
+        if not self._uses_control_data():
+            size_hint = updates_jsonl_size(self.session_dir)
+        min_gap = live_browser_timeline_min_interval(size_hint)
         now = time.monotonic()
         last_submit = float(getattr(self, "_last_light_submit_at", 0.0) or 0.0)
         if not heartbeat and last_submit > 0 and (now - last_submit) < min_gap:
@@ -931,7 +946,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._light_refresh_heartbeat = False
         if not pending:
             return
-        min_gap = live_browser_timeline_min_interval(updates_jsonl_size(self.session_dir))
+        size_hint = len(getattr(self, "timeline", None) or []) * 4096
+        if not self._uses_control_data():
+            size_hint = updates_jsonl_size(self.session_dir)
+        min_gap = live_browser_timeline_min_interval(size_hint)
         last_submit = float(getattr(self, "_last_light_submit_at", 0.0) or 0.0)
         elapsed = time.monotonic() - last_submit if last_submit > 0 else min_gap
         if not pending_heartbeat and elapsed < min_gap:
@@ -994,19 +1012,111 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except OSError:
             return 0.0
 
-    def _load_data_light_job(self) -> None:
-        """Reload meta (+ timeline when artifacts changed). Read-only on disk.
+    def _uses_control_data(self) -> bool:
+        """True when this browser must load timeline/meta via the control owner."""
+        app = resolve_ui_app(self)
+        is_client = getattr(app, "is_control_client", None)
+        return bool(callable(is_client) and is_client())
 
-        Always re-parses when the timeline stamp changes (submit path already
-        rate-limits jobs). On heartbeat with unchanged stamps, only reloads
-        meta (context meter) — never rewalks ``updates.jsonl``.
+    def _session_control_ref(self) -> str:
+        """Session path for control RPCs (id lookup is a host-tree walk)."""
+        try:
+            return str(Path(self.session_dir).expanduser().resolve())
+        except OSError:
+            return str(self.session_dir)
+
+    def _fetch_browser_bundle_via_control(
+        self,
+    ) -> tuple[SessionMeta, list[TraceEvent], object]:
+        """Blocking: overview + full timeline over control (worker thread)."""
+        import asyncio
+
+        from ...session.wire_timeline import fetch_session_browser_bundle
+
+        app = resolve_ui_app(self)
+        access = getattr(app, "session_access", lambda: None)()
+        if access is None:
+            raise RuntimeError("control session access unavailable")
+        ref = self._session_control_ref()
+        return asyncio.run(
+            fetch_session_browser_bundle(
+                access,
+                ref,
+                fallback_dir=Path(self.session_dir),
+            )
+        )
+
+    def _on_control_browser_error(self, exc: BaseException, *, notify: bool) -> None:
+        """Log a failed control hydrate; toast only on the full browser load."""
+        if notify:
+            logger.exception("control browser load failed")
+        else:
+            logger.warning("control browser refresh failed: %s", exc)
+        if notify and getattr(self, "is_mounted", False):
+            call_ui(
+                resolve_ui_app(self),
+                self.notify,
+                t("notify-control-session-failed", err=str(exc)[:180]),
+                severity="error",
+            )
+
+    def _load_data_light_job(self) -> None:
+        """Reload meta (+ timeline when changed). Control path when attached.
+
+        Attached: re-fetch overview; full timeline only when event total moves.
+        Offline (no control): disk stamp + parse_timeline as before.
         """
         import time
 
-        from ...parser import session_timeline_stamp
-
         try:
-            # Timeline stamp (not signals.json): context heartbeats must not re-parse.
+            if self._uses_control_data():
+                prev_n = len(self.timeline or [])
+                prev_status = self.meta.list_status_label() if self.meta is not None else ""
+                # Always refresh meta/context via overview (serve-side stamp cache).
+                from ...session.wire_timeline import fetch_timeline_events
+
+                app = resolve_ui_app(self)
+                access = getattr(app, "session_access", lambda: None)()
+                if access is None:
+                    return
+                import asyncio
+
+                ref = self._session_control_ref()
+
+                async def _ov() -> object:
+                    return await access.session_overview(ref)
+
+                overview = asyncio.run(_ov())
+                from ...session.wire_timeline import session_meta_from_overview
+
+                meta = session_meta_from_overview(
+                    overview if isinstance(overview, dict) else {},
+                    fallback_dir=Path(self.session_dir),
+                )
+                self.meta = meta
+                new_n = int(meta.num_events or 0)
+                new_status = meta.list_status_label()
+                timeline_updated = False
+                if new_n != prev_n or not self.timeline:
+                    self.timeline = asyncio.run(fetch_timeline_events(access, ref))
+                    if self.meta is not None:
+                        self.meta.num_events = len(self.timeline or [])
+                    self._last_timeline_parse_at = time.monotonic()
+                    self._rebuild_indices()
+                    timeline_updated = True
+                need_ui = (
+                    timeline_updated
+                    or new_status != prev_status
+                    or bool(getattr(self, "_light_refresh_heartbeat", False))
+                )
+                if not need_ui:
+                    return
+                call_ui(app, self._populate_ui_light)
+                return
+
+            from ...parser import session_timeline_stamp
+
+            # Offline: Timeline stamp (not signals.json): heartbeats must not re-parse.
             stamp = session_timeline_stamp(self.session_dir)
             signals_mtime = self._signals_mtime()
             timeline_unchanged = (
@@ -1016,15 +1126,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
             timeline_updated = False
             if not timeline_unchanged:
-                # Always parse on stamp change. Skipping here (old min-gap) left
-                # new rows invisible until the operator closed and re-opened.
                 self.timeline = parse_timeline(self.session_dir)
                 self._last_trace_mtime = stamp
                 self._last_timeline_parse_at = time.monotonic()
                 self._rebuild_indices()
                 timeline_updated = True
-            # Meta is cheaper than a full parse but still does gate/events work —
-            # skip when neither timeline nor signals moved (pure noise FS tick).
             need_meta = (
                 not timeline_unchanged
                 or signals_mtime != getattr(self, "_last_signals_mtime", None)
@@ -1037,11 +1143,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if self.meta is not None:
                 self.meta.num_events = len(self.timeline or [])
             self._last_signals_mtime = signals_mtime
-            # Skip UI marshalling when nothing for the operator changed.
             if not timeline_updated and not need_meta:
                 return
             app = resolve_ui_app(self)
             call_ui(app, self._populate_ui_light)
+        except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
+            self._on_control_browser_error(exc, notify=False)
         finally:
             try:
                 call_ui(resolve_ui_app(self), self._live_refresh_worker_done)
@@ -1133,6 +1240,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         **Never** rebuilds Summary while the Timeline tab is active — that was a
         multi-hundred-ms freeze during live turns.
         """
+        if not self.is_mounted:
+            return
         sampled = self._record_context_sample()
         fp = self._light_refresh_fingerprint()
         prev_fp = getattr(self, "_last_light_fp", None)
@@ -1197,20 +1306,27 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             store = getattr(self, "_context_samples", None)
             if store is not None:
                 store.clear()
-            # One timeline parse only — do not also run parse_timeline inside
-            # load_session_meta (that doubled CPU on 100MB+ updates.jsonl opens).
-            self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
-            self.timeline = parse_timeline(self.session_dir)
-            if self.meta is not None:
-                self.meta.num_events = len(self.timeline or [])
-            try:
-                self._last_trace_mtime = session_timeline_stamp(self.session_dir)
-            except Exception:
-                self._last_trace_mtime = None
             import time
 
-            self._last_timeline_parse_at = time.monotonic()
-            self._last_signals_mtime = self._signals_mtime()
+            if self._uses_control_data():
+                # Single path with HUD: serve parses once; we hydrate domain types.
+                self.meta, self.timeline, _ov = self._fetch_browser_bundle_via_control()
+                self._last_timeline_parse_at = time.monotonic()
+                self._last_trace_mtime = None  # control path uses event totals
+            else:
+                # Offline / --no-serve: local disk only.
+                self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
+                self.timeline = parse_timeline(self.session_dir)
+                if self.meta is not None:
+                    self.meta.num_events = len(self.timeline or [])
+                try:
+                    self._last_trace_mtime = session_timeline_stamp(self.session_dir)
+                except Exception:
+                    self._last_trace_mtime = None
+                self._last_timeline_parse_at = time.monotonic()
+                self._last_signals_mtime = self._signals_mtime()
+            if self.meta is not None:
+                self.meta.num_events = len(self.timeline or [])
             self._record_context_sample()
             self._load_flags()
             self._load_notes()
@@ -1221,10 +1337,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
                 self._diff_meta = {}
             app = resolve_ui_app(self)
-            call_ui(app, self._populate_ui)
-            call_ui(app, self._schedule_live_refresh)
-            # Analysis is async on the fixed analysis pool — never blocks timeline paint.
-            call_ui(app, self._schedule_analysis)
+            # User may have left the browser while parse ran — never paint
+            # a huge table onto a discarded screen (freezes the UI).
+            if self.is_mounted:
+                call_ui(app, self._populate_ui)
+                call_ui(app, self._schedule_live_refresh)
+                # Analysis is async on the fixed analysis pool — never blocks timeline paint.
+                call_ui(app, self._schedule_analysis)
+        except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
+            self._on_control_browser_error(exc, notify=True)
         finally:
 
             def _release_refresh_lock() -> None:
@@ -1233,7 +1354,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._live_refresh_pending = False
                 pending_heartbeat = self._light_refresh_heartbeat
                 self._light_refresh_heartbeat = False
-                if again:
+                if again and self.is_mounted:
                     self._live_refresh_from_fs(heartbeat=pending_heartbeat)
 
             try:
@@ -1244,7 +1365,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _should_auto_analyze(self) -> bool:
         """Whether policy says to run analyzers for this session now."""
-        svc = get_analysis_service()
+        svc = self._analysis_svc()
         when = (svc.config.auto_analyze_when or "session_complete").strip().lower()
         if when == "never":
             return False
@@ -1277,7 +1398,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         cache-only until the operator force-analyzes.
         """
         try:
-            svc = get_analysis_service()
+            svc = self._analysis_svc()
             plugins = [p for p in svc.list_plugins() if p.id != "noop"]
         except Exception:
             return False
@@ -1317,7 +1438,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if not force:
             # Instant paint from disk so opening a session never waits on deferred work.
             try:
-                cached = get_analysis_service().load_cached_all(self.session_dir, allow_stale=True)
+                cached = self._analysis_svc().load_cached_all(self.session_dir, allow_stale=True)
             except Exception:
                 cached = {}
             if cached:
@@ -1364,6 +1485,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         force_run = force
         result_key = analysis_session_key(session_dir)
         legacy_key = str(session_dir)
+        use_control = bool(getattr(app, "is_control_client", lambda: False)())
 
         # Bump activity-bar counter on the UI thread so spinner shows immediately.
         try:
@@ -1380,49 +1502,48 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             pass
 
+        def _finish_with(results: dict) -> None:
+            try:
+                if self.is_mounted:
+                    self.plugin_results = results
+                    self._analysis_pending = False
+                    self._stop_analysis_spinner_timer()
+                    self._collect_findings()
+                    self._rebuild_indices()
+                    self._apply_stale_analysis_hints(repaint=False)
+                    try:
+                        self._populate_analysis_ui()
+                    except Exception:
+                        logger.exception("analysis finish UI update failed")
+                try:
+                    host_results = getattr(app, "_plugin_results", None)
+                    if isinstance(host_results, dict):
+                        host_results[result_key] = results
+                        if legacy_key != result_key:
+                            host_results[legacy_key] = results
+                except Exception:
+                    pass
+            finally:
+                end_session_analysis(session_dir)
+                try:
+                    n = int(getattr(app, "_analysis_jobs_active", 0) or 0)
+                    app._analysis_jobs_active = max(0, n - 1)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
         def _job() -> None:
-            svc = get_analysis_service()
             results: dict = {}
             try:
-                results = svc.analyze_all(session_dir, force=force_run)
+                if use_control:
+                    results = self._analyze_via_control(session_dir, force=force_run)
+                else:
+                    svc = self._analysis_svc()
+                    results = svc.analyze_all(session_dir, force=force_run)
             except Exception as exc:
                 get_activity_log().log("analysis", f"failed {label}: {exc}")
                 results = {}
-
-            def _finish() -> None:
-                try:
-                    if self.is_mounted:
-                        self.plugin_results = results
-                        self._analysis_pending = False
-                        self._stop_analysis_spinner_timer()
-                        self._collect_findings()
-                        self._rebuild_indices()
-                        # Banner first, then always repaint findings/report (do not
-                        # rely solely on stale-hint repaint; silent failures left
-                        # spinner placeholders on Report until F5).
-                        self._apply_stale_analysis_hints(repaint=False)
-                        try:
-                            self._populate_analysis_ui()
-                        except Exception:
-                            logger.exception("analysis finish UI update failed")
-                    try:
-                        host_results = getattr(app, "_plugin_results", None)
-                        if isinstance(host_results, dict):
-                            host_results[result_key] = results
-                            if legacy_key != result_key:
-                                host_results[legacy_key] = results
-                    except Exception:
-                        pass
-                finally:
-                    end_session_analysis(session_dir)
-                    try:
-                        n = int(getattr(app, "_analysis_jobs_active", 0) or 0)
-                        app._analysis_jobs_active = max(0, n - 1)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-
             try:
-                call_ui(app, _finish)
+                call_ui(app, lambda: _finish_with(results))
             except Exception:
                 end_session_analysis(session_dir)
                 try:
@@ -1433,10 +1554,49 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         get_analysis_pool().submit(f"session {label}", _job)
 
+    def _analyze_via_control(self, session_dir: Path, *, force: bool) -> dict:
+        """Run analysis on the control owner; load results from the shared cache."""
+        import asyncio
+        import time as time_mod
+
+        app = self.app
+        access = getattr(app, "session_access", lambda: None)()
+        if access is None:
+            return self._analysis_svc().analyze_all(session_dir, force=force)
+
+        async def _run() -> dict:
+            # One long-lived client for run + status polls (not a connect per tick).
+            client = getattr(access, "_client", None)
+            if client is not None and hasattr(client, "connect"):
+                await client.connect()
+            try:
+                await access.analysis_run(session_dir.name, force=force)
+                deadline = time_mod.monotonic() + 600.0
+                delay = 0.4
+                while time_mod.monotonic() < deadline:
+                    status = await access.analysis_status(session_dir.name)
+                    state = str(status.get("state") or "")
+                    if state in {"done", "error", "idle"}:
+                        if state == "error":
+                            logger.warning(
+                                "control analysis error for %s: %s",
+                                session_dir.name,
+                                status.get("error"),
+                            )
+                        break
+                    await asyncio.sleep(delay)
+                    delay = min(1.0, delay * 1.25)
+            finally:
+                if client is not None and hasattr(client, "close"):
+                    await client.close()
+            return self._analysis_svc().load_cached_all(session_dir, allow_stale=True)
+
+        return asyncio.run(_run())
+
     def _apply_stale_analysis_hints(self, *, repaint: bool = True) -> None:
         """Load stale hints, update banner, optionally repaint findings/report."""
         try:
-            hints = get_analysis_service().stale_analyzer_hints(self.session_dir)
+            hints = self._analysis_svc().stale_analyzer_hints(self.session_dir)
         except Exception:
             hints = []
         self._set_analysis_stale_banner(hints)
@@ -1497,15 +1657,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _load_notes(self) -> None:
         """Load turn-linked operator notes for this session."""
+        # Disk is canonical; control notes/* also reads the same files.
+        # Keep direct load so open paints without an extra RPC round-trip.
         self._notes_doc = load_notes(self.session_dir)
         self._notes_loaded = True
 
     def _enabled_analyzer_ids(self) -> set[str] | None:
         """Ids enabled in the process analysis service (None if unavailable)."""
         try:
-            from ...analysis import get_analysis_service
-
-            return set(get_analysis_service().enabled_ids)
+            return set(self._analysis_svc().enabled_ids)
         except Exception:
             return None
 
@@ -1567,6 +1727,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _populate_ui(self) -> None:
         """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""
+        if not self.is_mounted:
+            return
         self._set_title_from_meta()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))
@@ -1734,39 +1896,34 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             logger.debug(t("ui-sync-browser-tip-messages-failed"), exc_info=True)
 
     def _sync_browser_tip_messages(self) -> None:
-        """Set TipSurface messages from session state (never embed tip_line in other Statics)."""
+        """Sync Report empty-states from session data (not framed TipSurface)."""
         try:
-            share = self.query_one("#summary-share-tip", TipSurface)
-            share.set_tip(U.tip_share_url())
-        except Exception:
-            pass
-        try:
-            analysis_tip = self.query_one("#report-analysis-tip", TipSurface)
+            analysis_empty = self.query_one("#report-analysis-empty", EmptyState)
             if not self._report_plugin_ids() and (not self._active_plugin_results()):
-                analysis_tip.set_tip(U.tip_no_analysis())
+                analysis_empty.set_message(U.tip_no_analysis())
             else:
-                analysis_tip.clear_message()
+                analysis_empty.clear_message()
         except Exception:
             pass
         try:
-            flags_tip = self.query_one("#report-flags-tip", TipSurface)
+            flags_empty = self.query_one("#report-flags-empty", EmptyState)
             if self._flags:
-                flags_tip.clear_message()
+                flags_empty.clear_message()
             else:
-                flags_tip.set_tip(U.tip_no_flags())
+                flags_empty.set_message(U.tip_no_flags())
         except Exception:
             pass
         try:
-            notes_tip = self.query_one("#report-notes-tip", TipSurface)
+            notes_empty = self.query_one("#report-notes-empty", EmptyState)
             if self._notes_doc.notes:
-                notes_tip.clear_message()
+                notes_empty.clear_message()
             else:
-                notes_tip.set_tip(U.tip_no_notes())
+                notes_empty.set_message(U.tip_no_notes())
         except Exception:
             pass
 
     def _update_findings_header(self) -> None:
-        """Findings tab counts only — tip lives in #findings-tip TipSurface."""
+        """Findings tab counts only (keyboard focus is footer / ``?``)."""
         fh = Text()
         fh.append(U.findings_heading() + "\n", style="bold")
         n = len(self._findings)
@@ -2443,7 +2600,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             style_data_table(turns_table)
             turns_table.clear(columns=True)
             turns_table.add_columns(
-                "#",
+                t("col-index"),
                 t("ui-label"),
                 t("ui-outcome"),
                 t("ui-events"),
@@ -2457,7 +2614,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 t("ui-span"),
             )
             if turn_rows:
-                for row in turn_rows:
+                seen_turn_keys: set[str] = set()
+                for i, row in enumerate(turn_rows):
                     dur_raw = row.get("duration_s")
                     dur_s = (
                         self._fmt_dur(float(dur_raw)) if isinstance(dur_raw, (int, float)) else "—"
@@ -2465,6 +2623,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     fi, li = (row.get("first_index"), row.get("last_index"))
                     span = f"#{fi}–#{li}" if fi is not None and li is not None else "—"
                     ctx = str(row.get("context") or "").strip() or "—"
+                    # Unique keys even when turn index is missing/duplicated.
+                    tkey = f"turn-{row.get('turn', i)}-{i}"
+                    if tkey in seen_turn_keys:
+                        continue
+                    seen_turn_keys.add(tkey)
                     turns_table.add_row(
                         str(row.get("turn", "")),
                         str(row.get("label", "")),
@@ -2478,7 +2641,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         ctx[:28],
                         str(row.get("top_tools", "—"))[:40],
                         span,
-                        key=f"turn-{row.get('turn')}",
+                        key=tkey,
                     )
             else:
                 turns_table.add_row(
@@ -2634,6 +2797,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             duration=duration,
             paired_call=timeline_table.get_paired_call(ev),
             paired_result=timeline_table.get_paired_result(ev),
+            turn_index=timeline_table.turn_index_for(ev.index),
         )
 
     def on_descendant_focus(self, _event) -> None:
@@ -3173,9 +3337,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 if not isinstance(payload, NoteEntry):
                     return
                 was_update = any(n.id == payload.id for n in current.doc.notes)
-                saved = upsert_note(
-                    self.session_dir,
-                    payload,
+                self._persist_note_mutation(
+                    "upsert",
+                    note=payload,
                     expected_revision=current.revision,
                 )
                 notify = (
@@ -3184,24 +3348,140 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     else U.note_saved(payload.turn_index)
                 )
             elif action == "delete":
-                saved = delete_note(
-                    self.session_dir,
-                    str(payload),
+                self._persist_note_mutation(
+                    "delete",
+                    note_id=str(payload),
                     expected_revision=current.revision,
                 )
                 notify = U.note_deleted()
             else:
                 return
-        except (NotesConflict, OSError) as exc:
+        except NotesConflict as exc:
             self.notify(U.note_save_failed(str(exc)), severity="error")
             return
-        self._notes_doc = saved.doc
+        except OSError as exc:
+            self.notify(U.note_save_failed(str(exc)), severity="error")
+            return
+        # Canonical store is on disk; re-read for UI.
+        self._notes_doc = load_notes(self.session_dir)
         self._notes_loaded = True
         self.notify(notify)
         self._update_reports_tab()
-        control_notify = getattr(self.app, "control_notes_changed", None)
-        if callable(control_notify):
-            control_notify(self.session_dir)
+
+    def _persist_note_mutation(
+        self,
+        action: str,
+        *,
+        note: NoteEntry | None = None,
+        note_id: str = "",
+        expected_revision: str,
+    ) -> None:
+        """Persist a note mutation: control first (broadcast), else disk.
+
+        Disk is always the last-resort success path so a flaky control socket
+        never drops an operator note. Real revision conflicts still raise.
+        """
+        access = getattr(self.app, "session_access", lambda: None)()
+        if access is not None:
+            try:
+                self._notes_mutate_via_control(
+                    action,
+                    note=note,
+                    note_id=note_id,
+                    expected_revision=expected_revision,
+                )
+                return
+            except NotesConflict:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "control notes %s failed for %s; writing disk: %s",
+                    action,
+                    self.session_dir.name,
+                    exc,
+                )
+        if action == "upsert":
+            if note is None:
+                raise RuntimeError("note required")
+            upsert_note(
+                self.session_dir,
+                note,
+                expected_revision=expected_revision,
+            )
+            return
+        delete_note(
+            self.session_dir,
+            note_id,
+            expected_revision=expected_revision,
+        )
+
+    def _notes_mutate_via_control(
+        self,
+        action: str,
+        *,
+        note: NoteEntry | None = None,
+        note_id: str = "",
+        expected_revision: str,
+    ) -> None:
+        """Upsert/delete notes through the control owner (shared revision).
+
+        Runs the async client on a worker thread so Textual's running event
+        loop is not nested with ``asyncio.run``.
+        """
+        import asyncio
+        import concurrent.futures
+
+        from ...integrations.control import ControlError
+
+        access = getattr(self.app, "session_access", lambda: None)()
+        if access is None:
+            raise RuntimeError("control session access unavailable")
+        # Prefer absolute path: name-only resolve can miss host/fallback trees.
+        sid = str(self.session_dir)
+
+        async def _run() -> None:
+            if action == "upsert":
+                if note is None:
+                    raise RuntimeError("note required")
+                body: dict = {
+                    "id": note.id,
+                    "turnIndex": note.turn_index,
+                    "fields": dict(note.fields),
+                    "eventIndices": list(note.event_indices),
+                }
+                if note.created_at:
+                    body["createdAt"] = note.created_at
+                if note.updated_at:
+                    body["updatedAt"] = note.updated_at
+                await access.notes_upsert(sid, body, expected_revision=expected_revision)
+            else:
+                await access.notes_delete(sid, note_id, expected_revision=expected_revision)
+
+        def _thread_main() -> None:
+            asyncio.run(_run())
+
+        try:
+            asyncio.get_running_loop()
+            has_loop = True
+        except RuntimeError:
+            has_loop = False
+
+        try:
+            if has_loop:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fut = pool.submit(_thread_main)
+                    fut.result(timeout=60)
+            else:
+                _thread_main()
+        except ControlError as exc:
+            if exc.code == 409:
+                rev = ""
+                if isinstance(exc.data, dict):
+                    rev = str(exc.data.get("currentRevision") or "")
+                raise NotesConflict(rev) from exc
+            raise RuntimeError(exc.message) from exc
+        except concurrent.futures.TimeoutError as exc:
+            raise RuntimeError("control notes request timed out") from exc
 
     def _refresh_event_chrome(self) -> None:
         """Re-paint timeline Flags column + detail for the current event."""
@@ -3227,6 +3507,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 duration=duration,
                 paired_call=timeline_table.get_paired_call(ev),
                 paired_result=timeline_table.get_paired_result(ev),
+                turn_index=timeline_table.turn_index_for(ev.index),
             )
         except Exception:
             pass

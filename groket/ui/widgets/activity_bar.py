@@ -58,7 +58,7 @@ def build_activity_line(
 
     Phases with count > 0 (same labels as the Jobs status column)::
 
-        Building · Running · Ending · Extracting · Awaiting · Analysis · Sessions
+        Building │ Running │ Ending │ Extracting │ Awaiting │ Analysis │ Sessions
 
     * **Pending / Building / Running / Extracting** — eval containers in that phase.
     * **Ending** — interactive sessions shutting down after Done / last turn.
@@ -83,7 +83,7 @@ def build_activity_line(
     def _sep() -> None:
         nonlocal first
         if not first:
-            line.append("  ·  ", style=idle)
+            line.append(" │ ", style="dim")
         first = False
 
     for phase, msg_id, use_spin in _ACTIVITY_PHASES:
@@ -270,14 +270,14 @@ def activity_is_busy(counts: dict[str, int]) -> bool:
 
 
 class ActivityBar(Static):
-    """Docked under Header; content aligned to the top-right."""
+    """Right side of the one-row chrome: run lifecycle + catalog count."""
 
     DEFAULT_CSS = """
     ActivityBar {
-        dock: top;
+        dock: none;
         height: 1;
-        width: 100%;
-        background: $boost;
+        width: 1fr;
+        background: $panel;
         color: $text;
         padding: 0 1;
         content-align: right middle;

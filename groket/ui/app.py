@@ -9,14 +9,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import suppress
 from datetime import UTC
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult, SystemCommand
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen, Screen
 from textual.theme import Theme
@@ -25,22 +29,31 @@ from textual.widgets import (
     Button,
     Checkbox,
     DataTable,
-    Footer,
-    Header,
     Input,
     Label,
     Select,
     Static,
 )
 
-from ..analysis import AnalysisResult, AnalysisService, get_analysis_service, set_analysis_service
-from ..analysis.base import Finding
+from ..analysis.base import AnalysisResult, Finding
 from ..constants import META_CACHE_FILENAME
-from ..integrations.control import ControlServer, ControlSocketInUse
-from ..models import JsonObject, JsonValue, SessionMeta
-from ..parser import extract_prompt, find_sessions, list_turn_outcome_for_dir, load_session_meta
+
+if TYPE_CHECKING:
+    from ..analysis.service import AnalysisService
+from ..integrations.control_client import (
+    HEAVY_RPC_TIMEOUT,
+    ControlClient,
+    listen_control_notifications,
+)
+from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
+from ..parser import extract_prompt, find_sessions, load_session_meta
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
+from ..session.access import (
+    DEFAULT_SESSION_LIST_LIMIT,
+    RemoteSessionAccess,
+    catalog_list_next_offset,
+)
 from . import text as U
 from .bindings import (
     APP_GLOBAL_PRIORITY,
@@ -49,8 +62,17 @@ from .bindings import (
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
-from .data_table import cursor_row_key, restore_cursor, set_marker_column, style_data_table
+from .brand_mark import AppChrome, AppFooter, paths_banner
+from .data_table import (
+    cursor_row_key,
+    preserving_scroll,
+    restore_cursor,
+    set_marker_column,
+    style_data_table,
+    update_row_cell,
+)
 from .i18n import join_ui, setup_i18n, t
+from .keys import format_key_chord
 from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .screens.rules import RulesScreen
@@ -164,10 +186,11 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
         app = self.app
         config_path = getattr(app, "_config_path", None)
         cfg = load_pipeline_config(self._work_dir, config_path=config_path)
-        from ..analysis import get_analysis_service
-
         try:
-            svc = get_analysis_service()
+            getter = getattr(app, "_analysis_svc", None)
+            svc = getter() if callable(getter) else None
+            if svc is None:
+                raise RuntimeError("no analysis service")
             plugin_list = ", ".join(p.id for p in svc.list_plugins() if p.id != "noop") or "(none)"
         except Exception:
             plugin_list = ", ".join(p.id for p in list_analyzers() if p.id != "noop") or "(none)"
@@ -219,13 +242,8 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
         self._persist()
 
     def _persist(self) -> None:
-        from ..analysis import (
-            AnalysisPipelineConfig,
-            AnalysisService,
-            load_pipeline_config,
-            save_pipeline_config,
-            set_analysis_service,
-        )
+        from ..analysis import AnalysisPipelineConfig, load_pipeline_config, save_pipeline_config
+        from ..analysis.service import AnalysisService, set_analysis_service
         from .prefs import set_show_tips
 
         auto = self.query_one("#as-auto-analyze", Checkbox).value
@@ -278,15 +296,32 @@ def _session_search_haystack(meta: SessionMeta, label: str) -> str:
     return " ".join(parts).casefold()
 
 
+def first_home_list_fetch() -> dict[str, int | bool]:
+    """First attach ``session/list``: one page, no matched drain."""
+    return {
+        "drain": False,
+        "limit": int(DEFAULT_SESSION_LIST_LIMIT),
+        "offset": 0,
+        "since_revision": 0,
+    }
+
+
 class TraceEvalApp(App):
     """groket — Trace evaluation TUI for hunting bad model behaviors."""
 
     TITLE = "groket"
-    SUB_TITLE = t("ui-trace-evaluation-error-hunting")
+    SUB_TITLE = ""
     CSS_PATH = "app.tcss"
     BINDINGS = [*APP_GLOBAL_PRIORITY, *APP_SESSIONS]
+    COMMAND_PALETTE_DISPLAY = "Ctrl+P"
     # Textual text selection (drag) + OSC 52 copy; default is True but be explicit.
     ALLOW_SELECT = True
+
+    def get_key_display(self, binding: Binding) -> str:
+        """Footer / key panel: Ctrl+S, not caret ^s or unicode glyphs."""
+        if binding.key_display:
+            return binding.key_display
+        return format_key_chord(binding.key)
 
     def get_system_commands(self, screen: Screen):
         """Populate Ctrl+P palette with context-aware actions."""
@@ -333,28 +368,6 @@ class TraceEvalApp(App):
             super().__init__()
             self.run = run
 
-    class _ControlOpenSession(Message):
-        """Control service request marshalled onto the Textual message loop."""
-
-        def __init__(
-            self,
-            session_dir: Path,
-            prompt_index: int | None,
-            result: asyncio.Future[bool],
-        ) -> None:
-            super().__init__()
-            self.session_dir = session_dir
-            self.prompt_index = prompt_index
-            self.result = result
-
-    class _ControlNotesChanged(Message):
-        """Canonical note change marshalled onto the Textual message loop."""
-
-        def __init__(self, session_dir: Path, result: asyncio.Future[None]) -> None:
-            super().__init__()
-            self.session_dir = session_dir
-            self.result = result
-
     def __init__(
         self,
         traces_path: Path | None = None,
@@ -362,6 +375,7 @@ class TraceEvalApp(App):
         *,
         config_path: Path | None = None,
         control_socket: Path | None = None,
+        control_attach_only: bool = False,
         initial_session: Path | None = None,
         initial_prompt_index: int | None = None,
         **kwargs,
@@ -400,12 +414,18 @@ class TraceEvalApp(App):
         self._share_notified: set[str] = set()
         self._populate_busy = False
         self._sessions_table_primed = False
+        self._session_row_fp: dict[str, str] = {}
         self._exiting = False
         self._config_path = Path(config_path).expanduser() if config_path else None
         self._control_socket = (
             Path(control_socket).expanduser() if control_socket is not None else None
         )
-        self._control_server: ControlServer | None = None
+        # True when attached to a live control owner (TUI never owns the socket).
+        self._control_attached: bool = False
+        # When true, load catalog via session/list and never bind the socket.
+        self._control_attach_only: bool = bool(control_attach_only)
+        self._control_notify_stop: asyncio.Event | None = None
+        self._catalog_revision: int = 0
         self._initial_session = (
             Path(initial_session).expanduser().resolve() if initial_session is not None else None
         )
@@ -419,6 +439,7 @@ class TraceEvalApp(App):
         self._sessions_catalog_busy: bool = False
         self._sessions_reload_timer: Timer | None = None
         self._pending_include_host: bool | None = None
+        self._pending_sessions_reload_quiet: bool = False
         self._selected: set[str] = set()
         self._filter_model: str = ""
         self._session_search: str = ""
@@ -427,21 +448,19 @@ class TraceEvalApp(App):
         self._delete_row_keys_snapshot: list[str] | None = None
         self._config: JsonObject = self._load_config()
         self._theme_persist = False
+        from .theme import register_brand_themes
+
+        register_brand_themes(self)
         early = str(self._config.get("theme") or "").strip()
-        if early:
-            try:
-                self.theme = early
-            except Exception:
-                logger.debug(t("ui-failed-to-apply-saved-theme-r"), early)
+        try:
+            self.theme = early or "groket"
+        except Exception:
+            logger.debug(t("ui-failed-to-apply-saved-theme-r"), early or "groket")
         self._traces_root_for_reload = traces_root_for_reload
 
     def compose(self) -> ComposeResult:
-        from .widgets.activity_bar import ActivityBar
-
-        yield Header()
-        yield ActivityBar()
+        yield AppChrome()
         with Vertical():
-            yield Static("", id="session-paths")
             yield Static("", id="session-summary")
             with Horizontal(id="session-filter-bar", classes=FILTER_BAR_CLASS):
                 yield Static(U.filter_label(), classes=FILTER_LABEL_CLASS)
@@ -457,7 +476,7 @@ class TraceEvalApp(App):
                     id="session-search-input",
                 )
             yield DataTable(id="session-table")
-        yield Footer()
+        yield AppFooter()
 
     def _session_traces_root(self) -> Path:
         """Traces directory fixed for this process (CLI / constructor only)."""
@@ -478,10 +497,9 @@ class TraceEvalApp(App):
         if show_host_sessions_enabled():
             from ..session.sources import host_grok_sessions_root
 
-            host = host_grok_sessions_root()
-            banner.update(f"[dim]Eval[/dim]  {work}  ·  [dim]Host[/dim]  {host}")
+            banner.update(paths_banner(work, host_grok_sessions_root()))
         else:
-            banner.update(f"[dim]Eval[/dim]  {work}")
+            banner.update(paths_banner(work))
 
     def _load_config(self) -> JsonObject:
         """Load ``~/.groket/config.json`` (empty mapping when missing or invalid)."""
@@ -551,11 +569,16 @@ class TraceEvalApp(App):
         """Re-apply saved theme, then persist any later theme changes to disk.
 
         Covers Ctrl+P → Change theme and any other path that sets ``App.theme``.
+        Subscribe only while the app is running — ``call_after_refresh`` can
+        fire after a short Pilot unmount.
         """
         self.apply_saved_theme(save=False)
-        if not self._theme_persist:
-            self._theme_persist = True
-            self.theme_changed_signal.subscribe(self, self._on_theme_changed)
+        if self._theme_persist:
+            return
+        if not getattr(self, "is_running", False):
+            return
+        self._theme_persist = True
+        self.theme_changed_signal.subscribe(self, self._on_theme_changed)
 
     def _on_theme_changed(self, theme: Theme) -> None:
         """Persist the active theme name when Textual applies a new theme."""
@@ -574,26 +597,6 @@ class TraceEvalApp(App):
             PersonaStore(self.work_dir).ensure_defaults()
         except Exception:
             logger.debug(t("ui-personastore-initialization-failed"), exc_info=True)
-        try:
-            from ..paths import analysis_cache_dir
-
-            svc = AnalysisService(
-                self.work_dir,
-                traces=Path(self.traces_path) if self.traces_path else None,
-                config_path=self._config_path,
-                cache_root=analysis_cache_dir(),
-            )
-            set_analysis_service(svc)
-            if svc.load_failures:
-                self.notify(
-                    t("notify-failed-plugins", n=len(svc.load_failures))
-                    + ": "
-                    + ", ".join(svc.load_failures),
-                    severity="error",
-                    timeout=15,
-                )
-        except Exception:
-            logger.warning(t("ui-analysis-service-initialization-failed"), exc_info=True)
         self.apply_saved_theme(save=False)
         self.call_after_refresh(self._enable_theme_persist)
         table = self.query_one("#session-table", DataTable)
@@ -601,32 +604,15 @@ class TraceEvalApp(App):
         table.add_columns(
             " ",
             t("ui-origin"),
-            t("ui-session-id"),
-            t("ui-model"),
-            t("ui-task"),
             t("ui-title"),
-            t("ui-turn"),
+            t("ui-model"),
+            t("ui-status"),
             t("ui-duration"),
             t("ui-context"),
             t("ui-events"),
             t("ui-findings-1"),
-            t("ui-high-1"),
-            t("ui-med"),
-            t("ui-label"),
         )
-        try:
-            bits = [
-                t("work-path-line", path=str(self.work_dir)),
-                t("runs-path-line", path=str(self.work_dir / "runs")),
-            ]
-            try:
-                n_plugins = len([p for p in self._analysis_svc().list_plugins() if p.id != "noop"])
-                bits.append(t("ui-plugins-count", n=n_plugins))
-            except Exception:
-                pass
-            self.sub_title = "  ·  ".join(bits)
-        except Exception:
-            pass
+        self.sub_title = ""
         try:
             (self.work_dir / "runs" / "traces").mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -637,10 +623,11 @@ class TraceEvalApp(App):
             work.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+        # Attach-only: start control client first so home list loads via RPC.
+        self._start_control_service()
         self._load_sessions(include_host=None)
         table.focus()
         self._schedule_live_sessions_poll()
-        self._start_control_service()
         if self._initial_session is not None:
             self.call_after_refresh(
                 self.open_session_path,
@@ -648,173 +635,231 @@ class TraceEvalApp(App):
                 prompt_index=self._initial_prompt_index,
             )
 
-    def _resolve_control_session(self, reference: str) -> Path | None:
-        """Resolve a path or catalog session id without a broad filesystem scan."""
-        candidate = Path(reference).expanduser()
-        if candidate.is_dir():
-            return candidate.resolve()
-        for meta, _label in self._meta_only:
-            if meta.session_id == reference or meta.session_dir.name == reference:
-                return meta.session_dir.resolve()
-        for root in self._session_catalog_roots():
-            candidate = root.path / reference
-            if candidate.is_dir():
-                return candidate.resolve()
-        return None
-
-    def _control_list_sessions(self) -> list[JsonObject]:
-        """Snapshot the sessions-home catalog for editor ``session/list``.
-
-        Runs on a worker thread; copy the row source up front so UI-side
-        mutation cannot race the iteration.
-        """
-        rows: list[JsonObject] = []
-        for meta, label in list(self._meta_only):
-            session_id = (meta.session_id or meta.session_dir.name).strip()
-            rows.append(
-                {
-                    "sessionId": session_id,
-                    "path": str(meta.session_dir.resolve()),
-                    "title": meta.title or "",
-                    "label": label or meta.label,
-                    "model": meta.model_display,
-                    "status": meta.list_status_label(),
-                    "outcome": meta.turn_outcome or "",
-                    "origin": meta.origin or "work",
-                }
-            )
-        return rows
-
-    async def _control_open_session(
-        self,
-        session_dir: Path,
-        prompt_index: int | None,
-    ) -> bool:
-        """Request a browser transition through Textual's message queue."""
-        result = asyncio.get_running_loop().create_future()
-        self.post_message(self._ControlOpenSession(session_dir, prompt_index, result))
-        return await result
-
-    async def _control_notes_changed(self, session_dir: Path) -> None:
-        """Refresh an open browser after a socket-originated note mutation."""
-        result = asyncio.get_running_loop().create_future()
-        self.post_message(self._ControlNotesChanged(session_dir, result))
-        await result
-
     def _start_control_service(self) -> None:
+        """Try attach to the control owner; the TUI never binds the socket.
+
+        Does **not** mark attached until :meth:`_attach_control_client` succeeds
+        at ``initialize``. Catalog load uses control only after that.
+        """
         if self._control_socket is None:
             return
-        self._control_server = ControlServer(
-            socket_path=self._control_socket,
-            resolve_session=self._resolve_control_session,
-            list_sessions=self._control_list_sessions,
-            open_session=self._control_open_session,
-            notes_changed=self._control_notes_changed,
-        )
+        # Intent: prefer control catalog when attach succeeds (never own socket).
+        self._control_attach_only = True
+        self._control_attached = False
         self.run_worker(
-            self._run_control_service(),
-            name="editor-control-service",
+            self._attach_control_client(),
+            name="editor-control-attach",
             group="editor-control-service",
             exclusive=True,
         )
 
-    async def _run_control_service(self) -> None:
-        """Own the editor control socket, or continue without it if already taken."""
-        server = self._control_server
-        if server is None:
-            return
-        # Bind/start only: OSError here is not the same as "already owned"
-        # (e.g. PermissionError on mkdir/chmod of the runtime dir).
-        try:
-            await server.start()
-        except ControlSocketInUse as exc:
-            logger.warning(
-                "Editor control socket already active at %s; this instance continues without it",
-                exc.socket_path,
-            )
-            self._control_server = None
-            with suppress(Exception):
-                self.notify(t("ui-control-socket-in-use"), severity="warning", timeout=6)
-            return
-        except OSError as exc:
-            logger.warning(
-                "Editor control socket failed to start (%s): %s",
-                server.socket_path,
-                exc,
-            )
-            self._control_server = None
-            with suppress(Exception):
-                self.notify(t("ui-control-socket-start-failed"), severity="warning", timeout=6)
-            return
-        await server.serve_forever()
+    async def _attach_control_client(self) -> None:
+        """Confirm the live owner, then start notify + switch catalog to control.
 
-    def on_trace_eval_app__control_open_session(
-        self,
-        event: _ControlOpenSession,
-    ) -> None:
-        """Open a session requested by an editor client."""
-        if event.result.done():
+        On initialize failure, leave ``_control_attached`` false so home list
+        stays on the local disk catalog path.
+        """
+        if self._control_socket is None:
             return
-        try:
-            self.open_session_path(
-                event.session_dir,
-                prompt_index=event.prompt_index,
+        ok = await self._confirm_control_attach()
+        if not ok:
+            self._control_attached = False
+            with suppress(Exception):
+                self.notify(
+                    t("ui-control-socket-attach-failed"),
+                    severity="warning",
+                    timeout=8,
+                )
+            return
+        self._control_attached = True
+        with suppress(Exception):
+            self.notify(t("ui-control-socket-attached"), severity="information", timeout=6)
+        stop = asyncio.Event()
+        self._control_notify_stop = stop
+        # Separate long-lived worker so attach itself can finish cleanly.
+        self.run_worker(
+            self._control_notify_loop(stop),
+            name="editor-control-notify",
+            group="editor-control-notify",
+            exclusive=True,
+        )
+        # First on_mount catalog is empty until attach; reload quietly (attach toast).
+        self._load_sessions(include_host=None, quiet=True)
+
+    async def _control_notify_loop(self, stop: asyncio.Event) -> None:
+        """Background: stay connected for session/notes/analysis notifies."""
+        if self._control_socket is None:
+            return
+        await listen_control_notifications(
+            self._control_socket,
+            self._on_control_notification,
+            client_name="groket-tui-notify",
+            stop=stop,
+        )
+
+    async def _on_control_notification(self, method: str, params: JsonObject) -> None:
+        """Handle serve-side notify (session/selected, changed, notes, analysis)."""
+        from ..models import json_as_int
+
+        if self._exiting:
+            return
+        if method == "session/selected":
+            sid = json_as_str(params.get("sessionId")).strip()
+            if not sid:
+                return
+            raw_pi = params.get("promptIndex")
+            prompt_index = None if raw_pi is None else json_as_int(raw_pi)
+            # Resolve id → path via catalog rows or traces root.
+            path = self._resolve_session_id_for_control(sid)
+            if path is None:
+                return
+            self.call_later(
+                self.open_session_path,
+                path,
+                prompt_index=prompt_index,
                 notify_control=False,
             )
-        except Exception as exc:
-            event.result.set_exception(exc)
-        else:
-            event.result.set_result(True)
+            return
+        if method == "session/changed":
+            sid = json_as_str(params.get("sessionId")).strip()
+            self.call_later(self._control_session_changed_ui, sid)
+            return
+        if method == "notes/changed":
+            sid = json_as_str(params.get("sessionId")).strip()
+            self.call_later(self._control_notes_changed_ui, sid)
+            return
+        if method == "analysis/changed":
+            sid = json_as_str(params.get("sessionId")).strip()
+            self.call_later(self._control_analysis_changed_ui, sid)
+            return
 
-    def on_trace_eval_app__control_notes_changed(
-        self,
-        event: _ControlNotesChanged,
-    ) -> None:
-        """Reload notes when the active browser displays the changed session."""
-        if event.result.done():
+    def _resolve_session_id_for_control(self, session_id: str) -> Path | None:
+        """Map a session id from control notify to a local directory."""
+        for meta, _label in self._meta_only:
+            if session_id in (meta.session_id, meta.session_dir.name):
+                return meta.session_dir
+        for root in self._session_catalog_roots():
+            candidate = root.path / session_id
+            if candidate.is_dir():
+                return candidate
+        return None
+
+    def _control_session_changed_ui(self, session_id: str) -> None:
+        """Refresh home list and open browser when the changed session is open."""
+        # Empty sessionId: catalog rebuild finished (cold serve warm).
+        self._schedule_sessions_reload(quiet=True)
+        screen = self.screen
+        if isinstance(screen, BrowserScreen) and session_id:
+            try:
+                if screen.session_dir.name == session_id:
+                    screen._live_refresh_from_fs(heartbeat=False)
+            except Exception:
+                logger.debug("browser refresh on session/changed failed", exc_info=True)
+
+    def _control_notes_changed_ui(self, session_id: str) -> None:
+        screen = self.screen
+        if not isinstance(screen, BrowserScreen) or not session_id:
             return
         try:
-            screen = self.screen
-            if isinstance(screen, BrowserScreen):
-                try:
-                    same_session = screen.session_dir.resolve() == event.session_dir.resolve()
-                except OSError:
-                    same_session = screen.session_dir == event.session_dir
-                if same_session:
-                    screen._load_notes()
-                    screen._update_reports_tab()
-        except Exception as exc:
-            event.result.set_exception(exc)
-        else:
-            event.result.set_result(None)
+            if screen.session_dir.name == session_id:
+                screen._load_notes()
+                screen._update_reports_tab()
+        except Exception:
+            logger.debug("notes refresh on notes/changed failed", exc_info=True)
 
-    def _run_control_broadcast(self, coroutine) -> None:
-        """Run a control notification under Textual worker ownership."""
-        if self._control_server is None:
-            coroutine.close()
+    def _control_analysis_changed_ui(self, session_id: str) -> None:
+        screen = self.screen
+        if not isinstance(screen, BrowserScreen) or not session_id:
             return
-        self.run_worker(coroutine, group="editor-control-broadcasts")
+        try:
+            if screen.session_dir.name != session_id:
+                return
+            cached = self._analysis_svc().load_cached_all(screen.session_dir, allow_stale=True)
+            if cached:
+                screen.plugin_results = cached
+                screen._collect_findings()
+                screen._rebuild_indices()
+                screen._populate_analysis_ui()
+        except Exception:
+            logger.debug("analysis refresh on analysis/changed failed", exc_info=True)
+
+    def is_control_client(self) -> bool:
+        """True only after successful control ``initialize`` against a live owner."""
+        return bool(self._control_attached and self._control_socket is not None)
+
+    def is_control_owner(self) -> bool:
+        """Always false: headless ``groket serve`` is the sole socket owner."""
+        return False
+
+    def control_client(self) -> ControlClient | None:
+        """Return a client for the control socket when configured."""
+        if self._control_socket is None:
+            return None
+        return ControlClient(
+            self._control_socket,
+            client_name="groket-tui",
+            timeout=HEAVY_RPC_TIMEOUT,
+        )
+
+    def session_access(self) -> RemoteSessionAccess | None:
+        """Remote façade over the control owner (None when socket disabled)."""
+        client = self.control_client()
+        if client is None:
+            return None
+        return RemoteSessionAccess(client)
+
+    async def control_session_list(
+        self,
+        *,
+        query: str = "",
+        limit: int | None = None,
+    ) -> JsonObject:
+        """Session catalog via control ``session/list`` (same path as HUD/editors)."""
+        access = self.session_access()
+        if access is None:
+            return {"sessions": [], "total": 0, "matched": 0}
+        return await access.list_sessions(query=query, limit=limit)
+
+    async def _confirm_control_attach(self) -> bool:
+        """Verify the live owner speaks our protocol.
+
+        :returns: True when ``initialize`` succeeds; False when the socket is
+            missing, dead, or the RPC fails.
+        """
+        client = self.control_client()
+        if client is None:
+            return False
+        try:
+            result = await client.initialize()
+            logger.info(
+                "Attached to control owner at %s (protocol %s)",
+                self._control_socket,
+                result.get("protocolVersion"),
+            )
+            return True
+        except Exception:
+            logger.warning(
+                "Control attach initialize failed at %s",
+                self._control_socket,
+                exc_info=True,
+            )
+            return False
 
     def control_session_selected(
         self,
         session_dir: Path,
         prompt_index: int | None,
     ) -> None:
-        """Broadcast the session and prompt selected in the TUI."""
-        if self._control_server is not None:
-            self._run_control_broadcast(
-                self._control_server.publish_session_selected(session_dir, prompt_index)
-            )
+        """TUI selection notify (serve broadcasts when notify RPC lands)."""
+        _ = (session_dir, prompt_index)
 
     def control_session_changed(self, session_dir: Path) -> None:
-        """Broadcast a changed trace projection."""
-        if self._control_server is not None:
-            self._run_control_broadcast(self._control_server.publish_session_changed(session_dir))
+        """TUI change notify (serve owns broadcast; no-op as client)."""
+        _ = session_dir
 
     def control_notes_changed(self, session_dir: Path) -> None:
-        """Broadcast a canonical operator-note mutation."""
-        if self._control_server is not None:
-            self._run_control_broadcast(self._control_server.publish_notes_changed(session_dir))
+        """TUI notes notify (serve owns broadcast; no-op as client)."""
+        _ = session_dir
 
     _CACHE_FILE = META_CACHE_FILENAME
 
@@ -878,6 +923,15 @@ class TraceEvalApp(App):
         except Exception:
             pass
 
+    def _origin_for_dir(self, session_dir: Path) -> str:
+        """Eval vs Host from the directory, not a stored default."""
+        from ..session.sources import classify_session_origin, work_traces_root
+
+        return classify_session_origin(
+            session_dir,
+            work_traces=work_traces_root(self.work_dir),
+        )
+
     def _label_for_session(self, session_dir: Path, origin: str) -> str:
         """Display path fragment relative to the catalog root for *origin*."""
         from ..session.sources import ORIGIN_HOST, host_grok_sessions_root, work_traces_root
@@ -901,12 +955,18 @@ class TraceEvalApp(App):
         if self._sessions_load_current(gen):
             self._sessions_catalog_busy = False
 
-    def _schedule_sessions_reload(self, *, delay: float = 0.15) -> None:
-        """Debounce catalog reloads; snapshot host-pref for the pending fire."""
+    def _schedule_sessions_reload(self, *, delay: float = 0.15, quiet: bool = False) -> None:
+        """Debounce catalog reloads; snapshot host-pref for the pending fire.
+
+        :param quiet: Skip scan/loaded toasts. A later loud request wins.
+        """
+        pending_quiet = True
         if self._sessions_reload_timer is not None:
             with suppress(Exception):
                 self._sessions_reload_timer.stop()
             self._sessions_reload_timer = None
+            pending_quiet = bool(self._pending_sessions_reload_quiet)
+        self._pending_sessions_reload_quiet = bool(quiet and pending_quiet)
         from .prefs import show_host_sessions_enabled
 
         self._pending_include_host = show_host_sessions_enabled()
@@ -916,12 +976,14 @@ class TraceEvalApp(App):
         self._sessions_reload_timer = None
         if self._exiting:
             return
+        quiet = bool(self._pending_sessions_reload_quiet)
+        self._pending_sessions_reload_quiet = False
         include_host = self._pending_include_host
         if include_host is None:
             from .prefs import show_host_sessions_enabled
 
             include_host = show_host_sessions_enabled()
-        self._load_sessions(include_host=bool(include_host))
+        self._load_sessions(include_host=bool(include_host), quiet=quiet)
 
     def _drop_host_session_rows(self) -> None:
         """Drop host-origin rows without waiting for a full rescan."""
@@ -1078,25 +1140,292 @@ class TraceEvalApp(App):
             include_host=bool(include_host),
         )
 
+    def _fetch_control_catalog_sync(
+        self,
+        *,
+        query: str = "",
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> JsonObject:
+        """Blocking ``session/list`` (one page, delta poll, or full drain)."""
+
+        from ..integrations.control_client import ControlClient
+
+        sock = self._control_socket
+        if sock is None:
+            return {
+                "sessions": [],
+                "total": 0,
+                "matched": 0,
+                "revision": 0,
+                "unchanged": False,
+                "removed": [],
+                "delta": False,
+            }
+
+        async def _run() -> JsonObject:
+            client = ControlClient(sock, client_name="groket-tui", timeout=HEAVY_RPC_TIMEOUT)
+            if since_revision > 0 and not drain:
+                return await client.session_list(
+                    query=query,
+                    limit=limit if limit is not None else 10_000,
+                    offset=offset,
+                    since_revision=since_revision,
+                )
+            if drain:
+                return await client.session_list_all(query=query)
+            return await client.session_list(
+                query=query,
+                limit=DEFAULT_SESSION_LIST_LIMIT if limit is None else limit,
+                offset=offset,
+            )
+
+        return asyncio.run(_run())
+
+    def _rows_from_catalog_wire(self, wire_rows: list[JsonObject]) -> list[tuple[SessionMeta, str]]:
+        from ..session.catalog import session_meta_from_catalog_row
+
+        rows: list[tuple[SessionMeta, str]] = []
+        for raw in wire_rows:
+            meta = session_meta_from_catalog_row(raw)
+            if meta is None:
+                continue
+            label = str(raw.get("label") or meta.label)
+            rows.append((meta, label))
+        return rows
+
+    def _merge_control_catalog_rows(
+        self,
+        incoming: list[JsonObject],
+        removed: list[str],
+    ) -> list[tuple[SessionMeta, str]]:
+        drop = {sid for sid in removed if sid}
+        merged = [
+            (meta, label)
+            for meta, label in self._meta_only
+            if meta.session_id not in drop and meta.session_dir.name not in drop
+        ]
+        by_id = {meta.session_id: i for i, (meta, _label) in enumerate(merged)}
+        for meta, label in self._rows_from_catalog_wire(incoming):
+            idx = by_id.get(meta.session_id)
+            if idx is None:
+                by_id[meta.session_id] = len(merged)
+                merged.append((meta, label))
+            else:
+                merged[idx] = (meta, label)
+        return merged
+
+    def _await_complete_catalog(self, gen: int, first: JsonObject) -> JsonObject:
+        """Poll ``session/list`` until the owner scan finishes (or timeout).
+
+        First paint already happened. This runs on the catalog worker so the
+        UI stays interactive while serve warms a cold tree.
+        """
+        result = first
+        deadline = time.monotonic() + 120.0
+        while bool(result.get("incomplete") or result.get("building")):
+            if not self._sessions_load_current(gen):
+                return result
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return result
+            time.sleep(min(0.15, remaining))
+            page = first_home_list_fetch()
+            result = self._fetch_control_catalog_sync(
+                since_revision=int(page["since_revision"]),
+                drain=bool(page["drain"]),
+                limit=int(page["limit"]),
+                offset=int(page["offset"]),
+            )
+        return result
+
+    def _fill_remaining_catalog_pages(self, gen: int, listed: JsonObject, offset: int) -> None:
+        """Fetch later ``session/list`` pages after first paint. Never drains."""
+        page = int(DEFAULT_SESSION_LIST_LIMIT)
+        raw = listed.get("sessions")
+        batch_len = len(raw) if isinstance(raw, list) else 0
+        matched_raw = listed.get("matched")
+        matched = matched_raw if isinstance(matched_raw, int) else 0
+        stalled = bool(listed.get("incomplete") or listed.get("building"))
+        while True:
+            nxt = catalog_list_next_offset(offset, batch_len, page, matched, stalled=stalled)
+            if nxt is None or not self._sessions_load_current(gen):
+                return
+            nxt_listed = self._fetch_control_catalog_sync(drain=False, limit=page, offset=nxt)
+            nxt_raw = nxt_listed.get("sessions")
+            wire = (
+                [as_json_object(r) for r in nxt_raw if isinstance(r, dict)]
+                if isinstance(nxt_raw, list)
+                else []
+            )
+            if not wire:
+                return
+            rows = self._merge_control_catalog_rows(wire, [])
+            if not self._apply_session_meta_rows(gen, rows, clear_plugins=False):
+                return
+            call_ui(self, self._rebuild_session_filters)
+            call_ui(self, self._populate_session_table, force=True)
+            rev_raw = nxt_listed.get("revision")
+            if isinstance(rev_raw, int) and rev_raw > 0:
+                self._catalog_revision = rev_raw
+            offset = nxt
+            batch_len = len(wire)
+            nxt_matched = nxt_listed.get("matched")
+            if isinstance(nxt_matched, int):
+                matched = nxt_matched
+            stalled = bool(nxt_listed.get("incomplete") or nxt_listed.get("building"))
+
+    def _load_sessions_via_control(
+        self,
+        gen: int,
+        *,
+        quiet: bool = False,
+        clear_plugins: bool = True,
+    ) -> None:
+        """Populate home list from control ``session/list`` (attach client path).
+
+        Quiet/live polls send ``sinceRevision`` so an unchanged owner returns no
+        rows and the table is not rebuilt.
+
+        :param quiet: Skip loaded/error notifications (live refresh / attach).
+        :param clear_plugins: When false, keep analysis results for known paths.
+        """
+        try:
+            since = int(self._catalog_revision or 0)
+            use_delta = bool(quiet and since > 0)
+            if use_delta:
+                result = self._fetch_control_catalog_sync(
+                    since_revision=since,
+                    drain=False,
+                )
+            else:
+                first = first_home_list_fetch()
+                result = self._fetch_control_catalog_sync(
+                    since_revision=int(first["since_revision"]),
+                    drain=bool(first["drain"]),
+                    limit=int(first["limit"]),
+                    offset=int(first["offset"]),
+                )
+            if not self._sessions_load_current(gen):
+                return
+            rev_raw = result.get("revision")
+            same_rev = isinstance(rev_raw, int) and rev_raw == since
+            if result.get("unchanged") and same_rev:
+                return
+            is_delta = bool(result.get("delta")) and isinstance(rev_raw, int) and rev_raw > 0
+            if use_delta and not is_delta:
+                result = self._fetch_control_catalog_sync(drain=True)
+                if not self._sessions_load_current(gen):
+                    return
+                rev_raw = result.get("revision")
+                is_delta = False
+            if isinstance(rev_raw, int) and rev_raw > 0:
+                self._catalog_revision = rev_raw
+            raw = result.get("sessions")
+            wire_rows = (
+                [as_json_object(r) for r in raw if isinstance(r, dict)]
+                if isinstance(raw, list)
+                else []
+            )
+            removed_raw = result.get("removed")
+            removed = (
+                [str(x) for x in removed_raw if str(x)] if isinstance(removed_raw, list) else []
+            )
+            if is_delta:
+                rows = self._merge_control_catalog_rows(wire_rows, removed)
+                replace_plugins = False
+            else:
+                rows = self._rows_from_catalog_wire(wire_rows)
+                replace_plugins = clear_plugins
+            if not self._apply_session_meta_rows(gen, rows, clear_plugins=replace_plugins):
+                return
+            n = len(rows)
+            call_ui(self, self._rebuild_session_filters)
+            call_ui(self, self._populate_session_table, force=True)
+            if bool(result.get("incomplete") or result.get("building")):
+                result = self._await_complete_catalog(gen, result)
+                if not self._sessions_load_current(gen):
+                    return
+                rev_raw = result.get("revision")
+                if isinstance(rev_raw, int) and rev_raw > 0:
+                    self._catalog_revision = rev_raw
+                raw = result.get("sessions")
+                wire_rows = (
+                    [as_json_object(r) for r in raw if isinstance(r, dict)]
+                    if isinstance(raw, list)
+                    else []
+                )
+                rows = self._rows_from_catalog_wire(wire_rows)
+                if not self._apply_session_meta_rows(gen, rows, clear_plugins=False):
+                    return
+                n = len(rows)
+                call_ui(self, self._rebuild_session_filters)
+                call_ui(self, self._populate_session_table, force=True)
+            if not use_delta:
+                self._fill_remaining_catalog_pages(gen, result, int(first["offset"]))
+                n = len(self._meta_only)
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-loaded-sessions", n=n),
+                    severity="information",
+                )
+        except Exception as exc:
+            logger.exception("control session/list failed for attach catalog")
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-control-list-failed", err=str(exc)[:180]),
+                    severity="error",
+                )
+        finally:
+            call_ui(self, self._finish_sessions_load, gen)
+
     @work(thread=True, exclusive=True, group="sessions-catalog")
     def _load_sessions(
         self,
         root: Path | None = None,
         *,
         include_host: bool | None = None,
+        quiet: bool = False,
     ) -> None:
-        """Scan eval (+ optional host) roots and replace the sessions list."""
+        """Load the home session list.
+
+        Normal product path (control socket configured): only ``session/list``
+        after a successful attach. Offline (``control_socket`` None / --no-serve):
+        walk local work/traces. No silent dual path when attach is intended.
+
+        :param quiet: Skip scan/loaded toasts (live refresh / attach).
+        """
         _ = root
         gen = self._begin_sessions_load()
+        if self._control_socket is not None:
+            if self._control_attached:
+                self._load_sessions_via_control(gen, quiet=quiet)
+                return
+            # Socket configured but not yet attached: do not scan disk (would
+            # reintroduce a second catalog stack). Empty list until attach or error.
+            if not self._sessions_load_current(gen):
+                return
+            if self._apply_session_meta_rows(gen, []):
+                call_ui(self, self._rebuild_session_filters)
+                call_ui(self, self._populate_session_table, force=True)
+            call_ui(self, self._finish_sessions_load, gen)
+            return
         roots = self._catalog_roots_for_load(include_host=include_host)
         scan_desc = ", ".join(str(r.path) for r in roots)
         try:
-            call_ui(
-                self,
-                self.notify,
-                t("notify-scanning", path=scan_desc),
-                severity="information",
-            )
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-scanning", path=scan_desc),
+                    severity="information",
+                )
             from ..session.sources import collect_session_dirs
 
             unique = collect_session_dirs(roots)
@@ -1107,12 +1436,13 @@ class TraceEvalApp(App):
                     self._save_meta_cache([])
                     call_ui(self, self._rebuild_session_filters)
                     call_ui(self, self._populate_session_table, force=True)
-                    call_ui(
-                        self,
-                        self.notify,
-                        t("notify-no-sessions", path=scan_desc),
-                        severity="warning",
-                    )
+                    if not quiet:
+                        call_ui(
+                            self,
+                            self.notify,
+                            t("notify-no-sessions", path=scan_desc),
+                            severity="warning",
+                        )
                 return
 
             cache = self._load_meta_cache()
@@ -1124,12 +1454,13 @@ class TraceEvalApp(App):
             n = len(rows)
             call_ui(self, self._rebuild_session_filters)
             call_ui(self, self._populate_session_table, force=True)
-            call_ui(
-                self,
-                self.notify,
-                t("notify-loaded-sessions", n=n),
-                severity="information",
-            )
+            if not quiet:
+                call_ui(
+                    self,
+                    self.notify,
+                    t("notify-loaded-sessions", n=n),
+                    severity="information",
+                )
 
             if need_idx and self._sessions_load_current(gen):
                 if self._fill_timeline_counts(rows, need_idx) and self._sessions_load_current(gen):
@@ -1143,7 +1474,14 @@ class TraceEvalApp(App):
             call_ui(self, self._finish_sessions_load, gen)
 
     def _analysis_svc(self) -> AnalysisService:
-        return get_analysis_service(self.work_dir)
+        """Lazy process-wide service; constructed on first Analyze / settings."""
+        from ..analysis.service import get_analysis_service
+
+        return get_analysis_service(
+            self.work_dir,
+            traces=Path(self.traces_path) if self.traces_path else None,
+            config_path=self._config_path,
+        )
 
     def _analyze_one(
         self,
@@ -1426,101 +1764,176 @@ class TraceEvalApp(App):
         finally:
             self._populate_busy = False
 
-    def _populate_session_table_inner(self, *, restore_key: str | None = None) -> None:
-        table = self.query_one("#session-table", DataTable)
-        if restore_key is None:
-            restore_key = self._session_row_key_at_cursor(table)
-        table.clear()
-        rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
+    def _filtered_session_rows(
+        self,
+    ) -> list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]]:
         search_q = (self._session_search or "").strip().casefold()
+        seen_keys: set[str] = set()
+        rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
         for meta, label in self._meta_only:
             if self._filter_model and meta.model_display != self._filter_model:
                 continue
             if search_q and search_q not in _session_search_haystack(meta, label):
                 continue
             sd_key = str(meta.session_dir)
-            results = self._plugin_results.get(sd_key)
-            rows.append((meta, label, results))
+            if sd_key in seen_keys:
+                continue
+            seen_keys.add(sd_key)
+            rows.append((meta, label, self._plugin_results.get(sd_key)))
 
-        def sort_key(item):
+        def sort_key(
+            item: tuple[SessionMeta, str, dict[str, AnalysisResult] | None],
+        ) -> tuple[float, str, str, str]:
             meta, _label, _results = item
-            ts = self._session_sort_ts(meta)
-            return (-ts, meta.model_display, meta.task_id or "", meta.session_id or "")
+            return (
+                -self._session_sort_ts(meta),
+                meta.model_display,
+                meta.task_id or "",
+                meta.session_id or "",
+            )
 
         rows.sort(key=sort_key)
+        return rows
+
+    @staticmethod
+    def _session_home_fp(cells: tuple[str | Text, ...]) -> str:
+        return "\u0001".join(str(c) for c in cells)
+
+    @staticmethod
+    def _session_status_cell(meta: SessionMeta) -> Text:
+        from .styles import status_rich_style
+
+        status = meta.list_status_label()
+        if status == "awaiting":
+            return Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
+        if status == "ending":
+            return Text(t("status-ending"), style=status_rich_style("ending"))
+        if status == "running":
+            return Text(t("status-running"), style=status_rich_style("running"))
+        if status == "cancelled":
+            return Text(t("status-cancelled"), style=status_rich_style("failed"))
+        if status == "complete":
+            return Text(t("status-complete"), style=status_rich_style("completed"))
+        return Text(
+            status if status != "—" else t("status-unknown"),
+            style=status_rich_style("idle"),
+        )
+
+    @staticmethod
+    def _session_findings_cell(
+        results: dict[str, AnalysisResult] | None,
+    ) -> tuple[Text, int, int]:
+        if results is None:
+            return Text("--", style="dim"), 0, 0
+        high = sum(r.high_count for r in results.values())
+        med = sum(r.medium_count for r in results.values())
+        count = sum(r.finding_count for r in results.values())
+        cell = Text(str(count))
+        if high:
+            cell.append(f" {high}H", style="bold red")
+        if med:
+            cell.append(f" {med}M", style="yellow")
+        return cell, count, high
+
+    def _session_home_cells(
+        self,
+        meta: SessionMeta,
+        results: dict[str, AnalysisResult] | None,
+        *,
+        selected: bool,
+    ) -> tuple[str | Text, ...]:
+        from ..session.sources import ORIGIN_HOST
+
+        origin = self._origin_for_dir(Path(meta.session_dir))
+        origin_text = (
+            Text(t("ui-origin-host"), style="magenta")
+            if origin == ORIGIN_HOST
+            else Text(t("ui-origin-work"), style="dim")
+        )
+        findings, _count, _high = self._session_findings_cell(results)
+        return (
+            Text("*", style="bold green") if selected else Text(" "),
+            origin_text,
+            (meta.label or meta.session_id)[:40],
+            meta.model_display[:40],
+            self._session_status_cell(meta),
+            meta.duration_str,
+            (meta.context_usage_compact or "—")[:24],
+            str(meta.num_events),
+            findings,
+        )
+
+    def _table_row_keys(self, table: DataTable) -> list[str]:
+        with suppress(Exception):
+            return [str(k.value) for k in table.rows.keys()]
+        return []
+
+    def _patch_session_table_rows(
+        self, table: DataTable, painted: list[tuple[str, tuple[str | Text, ...]]]
+    ) -> None:
+        for key, cells in painted:
+            fp = self._session_home_fp(cells)
+            if self._session_row_fp.get(key) == fp:
+                continue
+            for i, cell in enumerate(cells):
+                update_row_cell(table, key, i, cell)
+            self._session_row_fp[key] = fp
+
+    def _rebuild_session_table_rows(
+        self,
+        table: DataTable,
+        painted: list[tuple[str, tuple[str | Text, ...]]],
+        restore_key: str | None,
+    ) -> None:
+        with preserving_scroll(table):
+            table.clear()
+            self._session_row_fp.clear()
+            for key, cells in painted:
+                try:
+                    table.add_row(*cells, key=key)
+                    self._session_row_fp[key] = self._session_home_fp(cells)
+                except Exception:
+                    logger.debug(t("ui-failed-to-add-row-for-s"), key, exc_info=True)
+            if restore_key:
+                restore_cursor(table, restore_key, scroll=False)
+
+    def _populate_session_table_inner(self, *, restore_key: str | None = None) -> None:
+        try:
+            table = self.query_one("#session-table", DataTable)
+        except NoMatches:
+            return
+        if restore_key is None:
+            restore_key = self._session_row_key_at_cursor(table)
+        rows = self._filtered_session_rows()
+        painted: list[tuple[str, tuple[str | Text, ...]]] = []
         total_findings = 0
         total_high = 0
         analyzed_count = 0
-        for meta, label, results in rows:
+        for meta, _label, results in rows:
             sd_key = str(meta.session_dir)
-            sel = Text("*", style="bold green") if sd_key in self._selected else Text(" ")
-            finding_count: int | str
             if results is not None:
                 analyzed_count += 1
-                high = sum(r.high_count for r in results.values())
-                med = sum(r.medium_count for r in results.values())
-                finding_count = sum(r.finding_count for r in results.values())
-                total_findings += int(finding_count)
+                _cell, count, high = self._session_findings_cell(results)
+                total_findings += count
                 total_high += high
-                high_text = Text(str(high), style="bold red") if high else Text("0")
-                med_text = Text(str(med), style="yellow") if med else Text("0")
+            painted.append(
+                (
+                    sd_key,
+                    self._session_home_cells(meta, results, selected=sd_key in self._selected),
+                )
+            )
+        existing = self._table_row_keys(table)
+        new_keys = [key for key, _cells in painted]
+        with preserving_scroll(table):
+            if existing == new_keys and existing:
+                self._patch_session_table_rows(table, painted)
+                if restore_key:
+                    restore_cursor(table, restore_key, scroll=False)
             else:
-                finding_count = "--"
-                high_text = Text("--", style="dim")
-                med_text = Text("--", style="dim")
-            task_text = Text(meta.task_id[:20], style="cyan") if meta.task_id else Text("")
-            from .styles import status_rich_style
-
-            status = meta.list_status_label()
-            if status == "awaiting":
-                turn_text = Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
-            elif status == "ending":
-                turn_text = Text(t("status-ending"), style=status_rich_style("ending"))
-            elif status == "running":
-                turn_text = Text(t("status-running"), style=status_rich_style("running"))
-            elif status == "cancelled":
-                turn_text = Text(t("status-cancelled"), style=status_rich_style("failed"))
-            elif status == "complete":
-                turn_text = Text(t("status-complete"), style=status_rich_style("completed"))
-            else:
-                turn_text = Text(
-                    status if status != "—" else t("status-unknown"),
-                    style=status_rich_style("idle"),
-                )
-            try:
-                from ..session.sources import ORIGIN_HOST
-
-                ctx = meta.context_usage_compact or "—"
-                origin = (meta.origin or "work").strip().lower()
-                origin_text = (
-                    Text(t("ui-origin-host"), style="magenta")
-                    if origin == ORIGIN_HOST
-                    else Text(t("ui-origin-work"), style="dim")
-                )
-                table.add_row(
-                    sel,
-                    origin_text,
-                    meta.session_id[:20],
-                    meta.model_display[:40],
-                    task_text,
-                    meta.label[:40],
-                    turn_text,
-                    meta.duration_str,
-                    ctx[:24],
-                    str(meta.num_events),
-                    str(finding_count),
-                    high_text,
-                    med_text,
-                    label,
-                    key=sd_key,
-                )
-            except Exception:
-                logger.debug(t("ui-failed-to-add-row-for-s"), sd_key, exc_info=True)
-        if restore_key:
-            self._restore_cursor(table, restore_key)
+                self._rebuild_session_table_rows(table, painted, restore_key)
+        if restore_key or existing:
             self._sessions_table_primed = True
         elif not self._sessions_table_primed:
-            # Only steal focus on first populate — live polls must not yank focus.
             focus_primary_list(table)
             self._sessions_table_primed = True
         pending = len(self._meta_only) - analyzed_count
@@ -2487,20 +2900,8 @@ class TraceEvalApp(App):
         self.update_run_status()
 
     def update_run_status(self) -> None:
-        """Reflect background eval status in the app title when possible."""
-        try:
-            n = self.run_manager.active_count
-            batches = self._run_manager_batch_ids()
-            if batches:
-                self.title = t("title-groket-batch", batch=batches[0][:12], n=n)
-            elif n:
-                cur = self.run_manager.latest()
-                rid = cur.run_id if cur else "?"
-                self.title = t("title-groket-runs", n=n, id=rid)
-            else:
-                self.title = "groket"
-        except Exception:
-            logger.debug(t("ui-failed-to-update-title-bar"), exc_info=True)
+        """Keep the window title as the wordmark; the activity strip owns status."""
+        self.title = t("help-brand-name")
 
     def _schedule_run_status_update(self) -> None:
         """Debounce title updates (batch runs finish containers rapidly)."""
@@ -2644,6 +3045,7 @@ class TraceEvalApp(App):
         Uses per-session inflight locks so browser light reloads coalesce safely.
         Never writes ``_meta_cache.json`` or session artifacts.
         """
+        from .. import parser as parser_mod
         from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
         updates: list[tuple[str, SessionMeta, str]] = []
@@ -2655,7 +3057,7 @@ class TraceEvalApp(App):
                     request_rerun(KIND_REFRESH, sd)
                     continue
                 try:
-                    fresh = load_session_meta(sd, include_timeline_count=False)
+                    fresh = parser_mod.load_session_meta(sd, include_timeline_count=False)
                     fresh.num_events = meta.num_events
                     try:
                         key = str(sd.resolve())
@@ -2783,7 +3185,6 @@ class TraceEvalApp(App):
     def _maybe_notify_share_url(self, session_dir: Path, share_url: str) -> None:
         """Share updates are normal workflow (Jobs/Browser/s key); no toast spam."""
         _ = (session_dir, share_url)
-        return
 
     def _scan_live_sessions_into_table(self) -> None:
         """Background-only: discover new sessions + refresh turn status for live ones.
@@ -2796,10 +3197,12 @@ class TraceEvalApp(App):
           ``updates.jsonl`` on the list poll.
         - New sessions only: ``load_session_meta`` once.
         - UI: one ``call_ui`` apply if anything actually changed — no share spam.
+        - Attach client: quiet ``session/list`` refresh (min_gap, keep analysis).
         - Skip entirely while a catalog reload is in flight (toggle/F5 owns the list).
         """
         import time
 
+        from .. import parser as parser_mod
         from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
         from ..parser import session_trace_mtime
 
@@ -2808,6 +3211,22 @@ class TraceEvalApp(App):
 
         now = time.time()
         active_n = int(self.run_manager.active_count or 0)
+        # Product path: quiet session/list only (no local full-walk thrash).
+        if self._control_socket is not None:
+            if not self._control_attached:
+                return
+            min_gap = LIVE_POLL_FULL_WALK_INTERVAL
+            if now - self._live_sessions_last_scan < min_gap:
+                return
+            self._live_sessions_last_scan = now
+            gen = self._begin_sessions_load()
+            try:
+                self._load_sessions_via_control(gen, quiet=True, clear_plugins=False)
+            finally:
+                pass
+            return
+
+        # Offline (--no-serve): local traces scan only.
         min_gap = LIVE_POLL_ACTIVE_INTERVAL
         if now - self._live_sessions_last_scan < min_gap:
             return
@@ -2900,8 +3319,9 @@ class TraceEvalApp(App):
                     meta = load_session_meta(sd_res)
                 except Exception:
                     continue
-                meta.origin = "work"
-                label = self._label_for_session(sd_res, "work")
+                origin = self._origin_for_dir(sd_res)
+                meta.origin = origin
+                label = self._label_for_session(sd_res, origin)
                 self._session_mtimes[key] = mtime
                 new_metas.append((key, meta, label))
                 continue
@@ -2917,7 +3337,7 @@ class TraceEvalApp(App):
                     changed_sessions[key] = sd_res
                 self._session_mtimes[key] = mtime
             try:
-                outcome = list_turn_outcome_for_dir(sd_res)
+                outcome = parser_mod.list_turn_outcome_for_dir(sd_res)
             except Exception:
                 continue
             oc = (outcome or "").strip().lower().replace(" ", "_")
@@ -2932,7 +3352,7 @@ class TraceEvalApp(App):
             # without restarting the app (outcome-only probe skips summary.json).
             if live_oc:
                 try:
-                    fresh = load_session_meta(sd_res, include_timeline_count=False)
+                    fresh = parser_mod.load_session_meta(sd_res, include_timeline_count=False)
                     # List probe is authoritative for live turn status (gate/freshness).
                     if outcome:
                         fresh.turn_outcome = outcome
@@ -2945,8 +3365,9 @@ class TraceEvalApp(App):
                             if str(meta0.session_dir) == key:
                                 fresh.num_events = meta0.num_events
                                 break
-                    fresh.origin = "work"
-                    label = self._label_for_session(sd_res, "work")
+                    origin = self._origin_for_dir(sd_res)
+                    fresh.origin = origin
+                    label = self._label_for_session(sd_res, origin)
                     new_metas.append((key, fresh, label))  # replace existing row in _apply
                 except Exception:
                     if outcome != prev_outcome.get(key):
@@ -3038,8 +3459,9 @@ class TraceEvalApp(App):
                 meta = load_session_meta(sd_res)
             except Exception:
                 continue
-            meta.origin = "work"
-            label = self._label_for_session(sd_res, "work")
+            origin = self._origin_for_dir(sd_res)
+            meta.origin = origin
+            label = self._label_for_session(sd_res, origin)
             self._meta_only.append((meta, label))
             existing.add(key)
             added = True
@@ -3072,6 +3494,9 @@ class TraceEvalApp(App):
         UI callbacks that would block Textual shutdown via ``call_from_thread``.
         """
         self._exiting = True
+        stop = self._control_notify_stop
+        if stop is not None:
+            stop.set()
         for attr in (
             "_run_status_timer",
             "_live_sessions_timer",
@@ -3159,7 +3584,7 @@ class TraceEvalApp(App):
                 timeout=12,
             )
         try:
-            self._load_sessions()
+            self._load_sessions(quiet=True)
             self._update_session_paths_banner()
         except Exception:
             pass

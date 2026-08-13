@@ -93,10 +93,6 @@ class NotesModal(QuitActions, ModalScreen):
         with Vertical(id="modal-container"):
             with VerticalScroll(id="notes-modal-body"):
                 yield Static(f"[bold]{rich_escape(title)}[/bold]")
-                yield Static(
-                    f"[dim]{rich_escape(U.notes_schema_hint(self.schema.schema_id))}[/dim]"
-                )
-                yield Static("")
                 yield Label(U.turn_label())
                 yield Select(
                     self.turn_options,

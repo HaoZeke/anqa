@@ -36,21 +36,46 @@ def _catalog() -> list[dict]:
     ]
 
 
+def test_emacs_and_vim_list_helpers_keep_query_limit() -> None:
+    """Editors still call session/list with query/limit only (first page)."""
+    root = Path(__file__).resolve().parents[2]
+    el = (root / "groket/integrations/emacs/groket.el").read_text(encoding="utf-8")
+    assert "(defun groket--session-list (&optional query limit)" in el
+    assert ":limit limit" in el
+    lua = (root / "groket/integrations/vim/lua/groket/init.lua").read_text(encoding="utf-8")
+    assert "function M.list_sessions(query, limit)" in lua
+    assert "params.limit = limit" in lua
+
+
 def test_filter_session_catalog_query_and_limit() -> None:
-    control = import_module("groket.integrations.control")
-    full = control.filter_session_catalog(_catalog())
+    from groket.session.access import filter_session_catalog
+
+    full = filter_session_catalog(_catalog())
     assert full["total"] == 2
     assert full["matched"] == 2
     assert len(full["sessions"]) == 2
 
-    host_only = control.filter_session_catalog(_catalog(), query="host")
+    host_only = filter_session_catalog(_catalog(), query="host")
     assert host_only["total"] == 2
     assert host_only["matched"] == 1
     assert host_only["sessions"][0]["sessionId"] == "beta-host"
 
-    limited = control.filter_session_catalog(_catalog(), limit=1)
+    # Case-insensitive substring (HUD/TUI list query contract).
+    casefold = filter_session_catalog(_catalog(), query="SOCKET")
+    assert casefold["matched"] == 1
+    assert casefold["sessions"][0]["sessionId"] == "alpha-1"
+
+    empty_q = filter_session_catalog(_catalog(), query="")
+    assert empty_q["matched"] == 2
+    assert len(empty_q["sessions"]) == 2
+
+    limited = filter_session_catalog(_catalog(), limit=1)
     assert limited["matched"] == 2
     assert len(limited["sessions"]) == 1
+
+    paged = filter_session_catalog(_catalog(), limit=1, offset=1)
+    assert paged["matched"] == 2
+    assert paged["sessions"][0]["sessionId"] == "beta-host"
 
 
 async def _request(
@@ -181,7 +206,9 @@ async def test_control_server_session_list_empty_without_lister() -> None:
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
         listed = await _request(reader, writer, 1, "session/list", {})
-        assert listed["result"] == {"sessions": [], "total": 0, "matched": 0}
+        assert listed["result"]["sessions"] == []
+        assert listed["result"]["total"] == 0
+        assert listed["result"]["matched"] == 0
         writer.close()
         await writer.wait_closed()
     finally:
@@ -205,6 +232,10 @@ async def test_control_server_session_list_rejects_bad_limit() -> None:
         ok = await _request(reader, writer, 2, "session/list", {"limit": 1})
         assert len(ok["result"]["sessions"]) == 1
         assert ok["result"]["matched"] == 2
+
+        page2 = await _request(reader, writer, 3, "session/list", {"limit": 1, "offset": 1})
+        assert page2["result"]["sessions"][0]["sessionId"] == "beta-host"
+        assert page2["result"]["matched"] == 2
 
         writer.close()
         await writer.wait_closed()

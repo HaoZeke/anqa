@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="brand/png/groket-lockup-horizontal.png" alt="groket" width="520" />
+</p>
+
 # groket
 
 **groket** (grok evaluation tool) is a [Textual](https://github.com/Textualize/textual)
@@ -27,11 +31,13 @@ groket
 uv tool upgrade groket   # later
 ```
 
+Optional `groket._listwalk` Limited API extension accelerates session discovery; the Python walk remains when the module is absent.
+
 ### Paths
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.groket` | `config.json`, personas, detectors, rules, analysis plugins, prefs |
+| Config home | `~/.groket` | `config.json`, `hud.log`, personas, detectors, rules, analysis plugins, prefs |
 | Work root | `~/.groket/work` | `runs/traces/`, recipes, Docker build contexts, batch results |
 
 ```bash
@@ -68,18 +74,20 @@ Browse past and **live** runs (filesystem watch + periodic read-only refresh).
 | `Ctrl+P` | Command palette (theme, tips, analysis, …) |
 | `q` | Quit |
 
-Columns include **Src** (`Eval` = sessions groket launched under
-`work/runs/traces`, `Host` = native Grok under `~/.grok/sessions`), turn status
-(`running` / `awaiting` / `ending` / `complete`), and **context** fill from
-`signals.json` when present. Subagent session dirs are hidden so each eval is
-one row. Prefs live in `~/.groket/config.json` (`show_host_sessions` for the
-host catalog).
+Columns: select, **Origin** (`Eval` = groket launches under `work/runs/traces`,
+`Host` = native Grok under `~/.grok/sessions`), title, model, status
+(`running` / `awaiting` / `ending` / `complete` / `cancelled`), duration,
+context fill from `signals.json` when present, event count, and findings
+(count plus high/medium after analysis). Task id from batch YAML is still
+searchable (`/`) but is not a list column. Subagent session dirs are hidden
+so each eval is one row. Prefs live in `~/.groket/config.json`
+(`show_host_sessions` for the host catalog).
 
 ### Session browser
 
 Panes (`[` / `]` or digits **1–5**):
 
-1. **Timeline** — events + detail; `v` filter, `f` flag, `N` new operator note, `O` / palette edit or delete note, `/` search  
+1. **Timeline** — events + detail (selected event shows sequential operator turn); `v` filter, `f` flag, `N` new operator note, `O` / palette edit or delete note, `/` search  
 2. **Summary** — overview, usage, turns (context samples when live)  
 3. **Diff** — workspace changes  
 4. **Findings** — detector / analyzer hits (`i` jumps here)  
@@ -116,27 +124,176 @@ live Grok tree stays clean.
 
 ### Local editor control
 
-While the TUI is running it owns a **private per-user Unix socket** and serves a
-versioned JSON-RPC control plane for other processes on the same machine.
-Default path: ``$XDG_RUNTIME_DIR/groket/control.sock`` (else
-``~/.groket/run/control.sock``). ``groket --control-socket PATH`` selects
-another path; ``groket --no-control`` disables the socket.
+Groket serves a **versioned JSON-RPC control plane** on a private per-user Unix
+socket for Emacs, Neovim, HUD, scripts, and the TUI. Default path:
+``$XDG_RUNTIME_DIR/groket/control.sock`` (else ``~/.groket/run/control.sock``).
+``-s`` / ``--socket PATH`` selects another path on any client or on ``serve``.
+
+**Control owner** (only ``groket serve`` binds the socket)
+
+```bash
+groket serve                 # foreground (Ctrl-C / SIGTERM)
+groket serve -d              # background; return when the socket accepts
+groket serve stop            # SIGTERM recorded daemon pid
+groket serve restart         # stop then start -d (background by default)
+groket serve restart --foreground
+groket serve status          # exit 0 if live; "running pid=… socket=…"
+groket serve status --json
+
+groket serve -d -P ~/.groket/work
+groket serve -d -s /path/to/control.sock
+groket serve -d --host       # force host sessions in list
+```
+
+The headless process answers ``initialize``, session/notes/analysis methods, and
+publishes change notifications. A second ``serve -d`` reports already running.
+
+**Serve log** (detached): next to the socket, e.g. ``~/.groket/run/control.sock.log``.
+HUD control and decode errors: ``~/.groket/hud.log`` (override ``GROKET_HUD_LOG``).
+Successful RPCs log at **DEBUG** (method, status, ms, session/query summary).
+Errors and conflicts log at **INFO**. Set ``GROKET_SERVE_LOG_LEVEL=DEBUG``
+before ``groket serve restart`` for a full click-around trace.
+
+**TUI / HUD (clients — never own the socket)**
+
+```bash
+groket                       # TUI; starts serve -d if socket free, then attaches
+groket tui                   # same as bare groket
+groket --no-serve            # do not spawn; attach only if owner already live
+groket --no-socket           # TUI offline (no control plane)
+groket hud                   # palette; same serve auto-start by default
+```
+
+Quitting the TUI or HUD does **not** stop the control owner. Leave
+``groket serve -d`` running across TUI/HUD launches. A warm owner serves
+the catalog from RAM; killing serve on every client start pays the cold
+walk again. First TUI/HUD paint uses one ``session/list`` page; do not
+restart serve to “refresh” the list.
 
 **What clients can do**
 
 | Method | Role |
 |--------|------|
 | `initialize` | Protocol version, capabilities, `renderFormats` |
-| `session/list` | Catalog rows from the TUI home list (`query`, `limit`) |
-| `session/open` | Select a session (and optional prompt) in the TUI |
+| `session/list` | Catalog rows (`query`, `limit`, `offset`, optional `sinceRevision`) from the owner’s warm catalog. Omitting `limit`/`offset` is the first page. `sinceRevision` matching the owner’s `revision` returns no rows (`unchanged`). |
+| `session/get` | Rich session meta (status, context, git, counts, notes revision) |
+| `session/overview` | Meta + turns (with user `summary`) + lazy timeline stub + notes |
+| `session/timeline` | Paged timeline events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`; each row includes sequential `turnIndex`) |
+| `session/turns` | Turn segments (`summary`, `userEventIndex`, counts, prompt indexes) |
+| `session/usage` | Tool / MCP / skill usage summary |
+| `session/findings` | Cached analysis findings with turn/event links |
+| `session/open` | Resolve session and broadcast `session/selected` to all clients |
 | `session/render` | Project a session document (`format`: see below) |
 | `notes/list` / `notes/upsert` / `notes/delete` | Operator notes with revision checks |
-| notifications | `session/selected`, `session/changed`, `notes/changed` |
+| `analysis/run` | Start background analysis on the owner (`force` optional) |
+| `analysis/status` | Poll job state (`idle` / `running` / `done` / `error`) |
+| notifications | `session/selected`, `session/changed`, `notes/changed`, `analysis/changed` |
+
+**Desktop HUD** (Sol-style palette — iced)
+
+```bash
+uv run groket serve -d        # or rely on client auto-start
+uv run groket hud             # auto-builds iced release binary if stale
+uv run groket hud --restart   # replace the running HUD
+uv run groket hud --rebuild   # force cargo rebuild then start
+uv run groket hud --dev       # cargo run (debug)
+uv run groket hud --debug     # unoptimized binary
+uv run groket hud --install-desktop  # user-local icons + launcher (no package)
+uv run groket hud --toggle    # show/hide (Wayland summon; forwards XDG_ACTIVATION_TOKEN)
+uv run groket hud --show      # show palette (starts HUD if needed)
+# Override binary: GROKET_HUD_BIN=/path/to/groket-hud
+```
+
+``--install-desktop`` writes icons and a launcher for the **current user**
+only (no DMG/MSI/system package). Linux: ``~/.local/share/applications`` +
+hicolor icons. macOS: ``~/Applications/Groket HUD.app`` (wrapper to this
+binary). Windows: Start Menu shortcut under the user profile. The launcher
+``Exec`` path is the binary used at install time — re-run after moving or
+rebuilding it. Runtime tray and iced window icons work without this step.
+Details: ``groket-hud/README.md``.
+
+**Linux build deps** (iced graphics; once per machine — not shipped by the
+Python package)::
+
+```bash
+sudo apt install libxkbcommon-dev libwayland-dev pkg-config
+```
+
+See ``groket-hud/README.md`` for the full prerequisite list.
+
+Floating, frameless, always-on-top session palette (search sessions; overview,
+turns, timeline, findings, notes). Awaiting sessions get a follow-up field and Done. Timeline pages stay
+capped so a large host session remains usable. Launch is always the overlay; the pop-out icon in the
+search bar opens a decorated desktop window. Close that window to keep the
+HUD process running; the summon hotkey or the tray **Show HUD** item brings
+the overlay back. A tray icon is registered when the host supports it:
+StatusNotifier on Linux (Swaybar / Waybar), menu bar on macOS, notification
+area on Windows. Left-click shows the palette; **Quit Groket HUD** exits the
+HUD only. Create, edit, and delete operator notes the same way as the TUI.
+While the palette is open, a **live poll** re-reads overview and the timeline
+tail for running/awaiting turns (~3s; idle sessions slower) so a mid-turn
+Timeline tab updates without reopening the HUD. The HUD does not start evals,
+recipes, or Docker. ``groket hud`` **detaches** like Sol
+(background agent); on macOS the overlay starts as an accessory process (**not**
+in the Dock or **Cmd+Tab**) until you pop out to a normal window. Default
+hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and X11 Linux;
+Wayland: ``groket hud --toggle``, tray Show HUD, or a Sway bind — see
+``groket-hud/README.md``);
+override in ``~/.groket/config.json``::
+
+```json
+{
+  "hud": {
+    "global_shortcut": "Cmd+Shift+Space"
+  }
+}
+```
+
+(``+``-separated modifiers: ``Cmd``/``Super``, ``Control``, ``Alt``, ``Shift``,
+plus one key. Env ``GROKET_HUD_SHORTCUT`` wins over config. Restart the HUD
+after changing.)
+
+While the HUD process is running it posts desktop notifications when a
+session becomes awaiting, completes, is cancelled, or fails, and when
+analysis finishes. Linux uses the freedesktop Notifications bus (dunst,
+mako, fnott, swaync). macOS uses Notification Center. Windows uses
+toasts. The cream three-bar tray tile (64px) is written under
+``~/.groket/hud-notify.png`` when possible. Disable with
+``GROKET_HUD_NOTIFY=0`` or::
+
+```json
+{
+  "hud": {
+    "desktop_notifications": false
+  }
+}
+```
+
+Focuses the search field on show. The overlay hides on **Esc** or the summon
+hotkey (not on focus loss). Use ``groket hud --foreground`` to attach for
+debugging, or ``--restart`` to replace a running agent. Client of the control
+plane only — quitting the agent (tray **Quit Groket HUD**, or killing the
+process) leaves ``groket serve`` running. Build details: ``groket-hud/README.md``.
+
+**List search contract.** ``session/list`` ``query`` is a **case-insensitive
+substring** over id/title/label/model/status/outcome/origin (not the filesystem
+path — ``gro`` must not match every ``~/.grok/sessions`` row). Applied on the
+control owner after the warm domain catalog is built. First HUD/TUI paint
+drains ``session/list`` pages until ``matched``; later quiet polls send
+``sinceRevision`` and skip the table when the owner reports ``unchanged``.
+Editors that pass ``query`` use the same server filter. Omitting ``offset``
+still returns the first page.
+
+**Daemon catalog warm.** Headless ``serve`` rebuilds the session catalog in the
+background at start and on a short interval (and when scan roots change) so
+attach clients get a fast ``session/list`` without a cold full-tree walk on the
+hot path. Each row reads ``summary.json``, ``signals.json``, and turn markers
+in ``events.jsonl`` (not ``updates.jsonl``). Analysis plugins load on the first
+``analysis/run``, not at serve start.
 
 Canonical notes remain ``operator_notes.toml``; the socket never invents a
-second store. **One live TUI owns the default socket** — a second `groket`
-keeps running without control and warns, rather than crashing or stealing the
-socket.
+second store. **One process owns the default socket** — additional TUIs attach
+as clients rather than crashing or stealing ownership.
 
 **Document formats** (`session/render` → `format`)
 
@@ -166,7 +323,7 @@ Packaged clients (same protocol):
 #### Emacs
 
 ```elisp
-(load (string-trim (shell-command-to-string "groket emacs-path")))
+(load (string-trim (shell-command-to-string "groket editor emacs-path")))
 ;; optional: (setq groket-auto-refresh t)  ; default on
 ```
 
@@ -364,16 +521,21 @@ breakdown.
 **P** / **C** — tabbed editors (`[` / `]` + digits), **Ctrl+S** save, **Esc** cancel.
 Env key/value editing and Grok marketplace plugins/skills/MCP are supported.
 
-## CLI (non-TUI)
+## CLI (beyond the TUI)
 
 | Command | Purpose |
 |---------|---------|
-| `groket self-test` | Host checks (Docker, Grok auth, paths) — no TUI |
+| `groket serve` | Control owner (`-d` detach; `stop` / `restart` / `status`) |
+| `groket hud` | Desktop palette client |
+| `groket doctor` | Host checks (Docker, Grok auth, paths) — no TUI |
+| `groket editor emacs-path` / `vim-path` | Packaged editor client paths |
 | `groket gen …` | Scaffold detectors, rules, analysis plugins, tasks under `~/.groket/` |
 | `groket batch …` | Headless Docker runs from a task YAML catalog |
 | `groket rules …` | Validate rules / composites YAML |
+
 ```bash
-groket self-test
+groket doctor
+groket serve -d
 groket gen detector my_check
 groket rules validate examples/detection/minimal/rules/demo_rule.yaml
 groket batch validate examples/tasks/demo_tasks.yaml
@@ -413,5 +575,6 @@ make lint            # ruff, mypy, fluent + typing policy scripts
 make test            # pytest (daemon-free)
 make examples-check  # examples/ contract
 make test-cov        # pytest + coverage report
-make ci              # lint + schema-check + examples-check + test
+make ci              # lint + schema-check + hud-check + examples-check + test
+# GitHub Actions splits Python lint/test from HUD Rust (Linux/macOS/Windows)
 ```

@@ -48,13 +48,12 @@ def build_skill_md(*, skill_id: str, description: str, body: str) -> str:
     if "\n" in desc:
         desc_block = ">\n  " + "\n  ".join(line for line in desc.splitlines())
         fm_desc = f"description: {desc_block}"
-    else:
+    elif any(c in desc for c in (":", "#", '"', "'")) or desc.startswith("{"):
         # Escape quotes in a single-line scalar when needed.
-        if any(c in desc for c in (":", "#", '"', "'")) or desc.startswith("{"):
-            safe = desc.replace("\\", "\\\\").replace('"', '\\"')
-            fm_desc = f'description: "{safe}"'
-        else:
-            fm_desc = f"description: {desc}"
+        safe = desc.replace("\\", "\\\\").replace('"', '\\"')
+        fm_desc = f'description: "{safe}"'
+    else:
+        fm_desc = f"description: {desc}"
     text = (body or "").strip()
     if not text:
         text = f"# {sid}\n\nWrite instructions for the agent here."

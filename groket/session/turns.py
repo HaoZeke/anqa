@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
 
 from .. import event_types as et
 from ..models import JsonValue, TraceEvent
+from .tagged_blocks import (  # noqa: F401 — re-export for session.turns callers
+    harness_user_chrome_heading,
+    is_harness_user_chrome,
+    operator_prompt_text,
+)
 
 _TURN_NUM_RE = re.compile(r"turn_number\s*=\s*(\d+)", re.I)
 _OUTCOME_RE = re.compile(r"outcome\s*=\s*(\S+)", re.I)
@@ -62,12 +67,15 @@ class TurnSegment:
 
     @property
     def label(self) -> str:
-        tn = self.turn_number if self.turn_number is not None else self.turn_index
+        # Operator-facing id is sequential turn_index after renumber (0-based).
+        # Harness turn_number can skip/jump (subagents, background, restamps);
+        # keep it on the wire as turnNumber, not in this label.
+        n = int(self.turn_index)
         if self.open:
-            return f"turn {tn} (open)"
+            return f"turn {n} (open)"
         if self.outcome:
-            return f"turn {tn} ({self.outcome})"
-        return f"turn {tn}"
+            return f"turn {n} ({self.outcome})"
+        return f"turn {n}"
 
     def duration_seconds(self, durations: dict[int, float] | None = None) -> float | None:
         """Span from first to last event timestamp (seconds), else sum of durations map."""
@@ -129,48 +137,49 @@ def is_session_level_timeline_event(ev: TraceEvent) -> bool:
     return ev.event_type == et.SYSTEM
 
 
-def _user_is_background_task_completion(content: str) -> bool:
-    """True when *content* is Grok chrome for a completed background task/subagent."""
-    c = content or ""
-    cl = c.lower()
-    if "background task" in cl:
-        return True
-    if "task-completed-call-" in cl:
-        return True
-    return False
+# Back-compat alias used by older call sites / tests.
+_user_is_background_task_completion = is_harness_user_chrome
+
+
+def is_operator_user_event(ev: TraceEvent) -> bool:
+    """True for a real host/operator user message (not harness chrome).
+
+    Messages that are only harness tags (``system-reminder``, preamble, …) are
+    false. Payloads that embed ``<user_query>`` are operator even if wrapped.
+    """
+    if ev.event_type not in et.USER_TYPES and ev.event_type != "user":
+        return False
+    return bool(operator_prompt_text(ev.content or ""))
 
 
 def _segment_has_operator_user(seg: TurnSegment) -> bool:
     """True when the segment includes a real host/operator user prompt."""
-    for ev in seg.events:
-        if ev.event_type not in et.USER_TYPES:
-            continue
-        text = (ev.content or "").strip()
-        if not text:
-            continue
-        if not _user_is_background_task_completion(text):
-            return True
-    return False
+    return any(is_operator_user_event(ev) for ev in seg.events)
 
 
-def _segment_has_background_completion_user(seg: TurnSegment) -> bool:
+def _segment_has_harness_chrome_user(seg: TurnSegment) -> bool:
     return any(
-        e.event_type in et.USER_TYPES and _user_is_background_task_completion(e.content or "")
+        (e.event_type in et.USER_TYPES or e.event_type == "user")
+        and is_harness_user_chrome(e.content or "")
         for e in seg.events
     )
 
 
 def _should_merge_background_tail(seg: TurnSegment, prev: TurnSegment) -> bool:
-    """Merge *seg* into *prev* when it is only background-task completion chrome."""
+    """Merge *seg* into *prev* when it is harness chrome without an operator prompt.
+
+    Covers background-task completions, bare ``<system-reminder>`` turns (rules /
+    skills / MCP status), and empty companion harness turn_started/ended pairs.
+    """
     if not _segment_has_operator_user(prev):
         return False
     if _segment_has_operator_user(seg):
         return False
-    if _segment_has_background_completion_user(seg):
+    if _segment_has_harness_chrome_user(seg):
         return True
     # Companion harness turn with no operator user and no tools (e.g. empty
     # turn_started/ended after a background completion).
-    has_user = any(e.event_type in et.USER_TYPES for e in seg.events)
+    has_user = any(e.event_type in et.USER_TYPES or e.event_type == "user" for e in seg.events)
     return not has_user and seg.tool_call_count == 0
 
 
@@ -184,13 +193,21 @@ def _renumber_segments(segments: list[TurnSegment]) -> list[TurnSegment]:
 
 def _assign_prompt_indexes(segments: list[TurnSegment]) -> list[TurnSegment]:
     for seg in segments:
+        # Prefer operator user rows; harness chrome may still carry a promptIndex.
         seg.prompt_index = next(
             (
                 event.prompt_index
                 for event in seg.events
-                if event.event_type in et.USER_TYPES and event.prompt_index is not None
+                if is_operator_user_event(event) and event.prompt_index is not None
             ),
-            None,
+            next(
+                (
+                    event.prompt_index
+                    for event in seg.events
+                    if event.event_type in et.USER_TYPES and event.prompt_index is not None
+                ),
+                None,
+            ),
         )
     return segments
 
@@ -229,17 +246,21 @@ def turn_index_for_event(segments: list[TurnSegment], event_index: int) -> int |
 
 
 def display_turn_number(seg: TurnSegment) -> int:
-    """Harness ``turn_number`` when present, else 0-based ``turn_index``."""
-    if seg.turn_number is not None:
-        return int(seg.turn_number)
+    """Sequential operator-facing turn id (0-based ``turn_index`` after renumber).
+
+    Prefer this for UI labels and event maps. Harness ``turn_number`` is still
+    available on :attr:`TurnSegment.turn_number` / wire ``turnNumber`` for
+    correlation with Grok markers, but must not drive the visible turn list —
+    those values skip and reorder when background/subagent turns are merged.
+    """
     return int(seg.turn_index)
 
 
 def event_display_turn_map(segments: list[TurnSegment]) -> dict[int, int]:
-    """Map timeline event index → display turn number for sort/labels.
+    """Map timeline event index → sequential operator turn id.
 
     :param segments: Output of :func:`segment_timeline_turns`.
-    :returns: ``event.index`` → harness turn number (or index fallback).
+    :returns: ``event.index`` → 0-based ``turn_index``.
     """
     out: dict[int, int] = {}
     for seg in segments:
@@ -260,9 +281,10 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     (e.g. user messages). Multiple markers produce multiple segments for
     interactive multi-turn.
 
-    Grok background-task completion turns (no operator user prompt) are merged
-    into the preceding interactive segment so the Turn filter matches host
-    follow-ups, not harness bookkeeping for subagents.
+    Grok harness turns with no operator user prompt (background-task
+    completions, bare ``<system-reminder>`` injections) are merged into the
+    preceding interactive segment so Turn lists match host follow-ups, not
+    harness bookkeeping.
     """
     turn_events = [e for e in timeline if not is_session_level_timeline_event(e)]
     if not turn_events:
@@ -344,12 +366,12 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
         if current is None:
             if segments:
                 # Between turns: late *agent* stream chunks belong to the prior
-                # turn; a new *user* message starts the next interactive turn
-                # (often arrives before the next turn_started marker).
-                # Background-task completion chrome is not an operator follow-up —
-                # attach to the previous segment (merged further below as well).
-                if ev.event_type in et.USER_TYPES:
-                    if _user_is_background_task_completion(ev.content or ""):
+                # turn; a new *operator* user message starts the next interactive
+                # turn (often arrives before the next turn_started marker).
+                # Harness user chrome (system-reminder / background completion)
+                # is not an operator follow-up — attach to the previous segment.
+                if ev.event_type in et.USER_TYPES or ev.event_type == "user":
+                    if is_harness_user_chrome(ev.content or ""):
                         segments[-1].events.append(ev)
                     else:
                         display_i = len(segments)

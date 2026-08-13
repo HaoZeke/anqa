@@ -17,7 +17,12 @@ from ...flags import Flag
 from ...models import JsonObject, SessionMeta, TraceEvent
 from ...notes import NotesDoc, load_notes
 from ...parser import extract_prompt, load_session_meta, parse_timeline
-from ...session.turns import TurnSegment, segment_timeline_turns
+from ...session.turns import (
+    TurnSegment,
+    is_harness_user_chrome,
+    is_operator_user_event,
+    segment_timeline_turns,
+)
 from ...utils import fmt_duration
 from ..base import Finding
 from ..order import sort_findings_by_turn
@@ -309,18 +314,13 @@ def _read_json_object(path: Path) -> JsonObject | None:
 
 
 def _is_background_user_chrome(content: str) -> bool:
-    c = content or ""
-    cl = c.lower()
-    if "background task" in cl or "task-completed-call-" in cl:
-        return True
-    return c.strip().startswith("<system-reminder>")
+    """True for harness user chrome (system-reminder / background task)."""
+    return is_harness_user_chrome(content)
 
 
 def is_operator_user(ev: TraceEvent) -> bool:
     """True for real operator prompts (not harness chrome)."""
-    if ev.event_type not in et.USER_TYPES and ev.event_type != "user":
-        return False
-    return not _is_background_user_chrome(ev.content or "")
+    return is_operator_user_event(ev)
 
 
 def is_agent_text(ev: TraceEvent) -> bool:

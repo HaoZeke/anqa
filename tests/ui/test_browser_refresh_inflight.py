@@ -282,3 +282,35 @@ def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypat
     assert len(screen.timeline) == 2
     assert "_populate_ui_light" in calls
     assert is_inflight(KIND_REFRESH, sd) is False
+
+
+def test_load_data_light_control_timeout_is_soft(tmp_path: Path, monkeypatch) -> None:
+    """A hung session/overview must not crash the live-refresh worker."""
+    from groket.ui.screens import browser as browser_mod
+
+    sd = tmp_path / "019f-sess"
+    sd.mkdir()
+    screen = _screen(sd)
+    screen._uses_control_data = lambda: True  # type: ignore[method-assign]
+    screen._session_control_ref = lambda: "s"  # type: ignore[method-assign]
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            raise TimeoutError
+
+    class _App:
+        def session_access(self) -> _Access:
+            return _Access()
+
+    monkeypatch.setattr(browser_mod, "resolve_ui_app", lambda _s: _App())
+    monkeypatch.setattr(
+        browser_mod,
+        "call_ui",
+        lambda _app, cb, *a, **k: (
+            cb(*a, **k) if getattr(cb, "__name__", "") == "_live_refresh_worker_done" else None
+        ),
+    )
+    assert try_begin(KIND_REFRESH, sd) is True
+    screen._live_refresh_busy = True
+    screen._load_data_light_job()
+    assert is_inflight(KIND_REFRESH, sd) is False

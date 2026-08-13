@@ -26,6 +26,8 @@ _TRACE_NAME_HINTS = (
     "groket-interrupted.json",
     "status.json",
     "command",
+    # Operator notes (TUI may write disk-local; clients need a change signal).
+    "operator_notes.toml",
 )
 
 
@@ -47,6 +49,9 @@ class TraceTreeWatch:
 
     *on_change* is called from the watchdog observer thread — callers must
     marshal to the UI thread themselves (``call_from_thread`` / ``post_message``).
+
+    When *on_paths* is set, it receives the coalesced absolute paths that
+    triggered the fire (best-effort; may be empty if only dir events).
     """
 
     def __init__(
@@ -55,14 +60,17 @@ class TraceTreeWatch:
         on_change: Callable[[], None],
         *,
         debounce_s: float = 0.4,
+        on_paths: Callable[[list[str]], None] | None = None,
     ) -> None:
         self._root = Path(root)
         self._on_change = on_change
+        self._on_paths = on_paths
         self._debounce_s = max(0.05, float(debounce_s))
         self._observer: object | None = None
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
         self._pending = False
+        self._pending_paths: set[str] = set()
 
     @property
     def root(self) -> Path:
@@ -89,7 +97,12 @@ class TraceTreeWatch:
                 dest = getattr(event, "dest_path", "") or ""
                 if not (_path_looks_relevant(str(src)) or _path_looks_relevant(str(dest))):
                     return
-                watch._schedule_fire()
+                paths: list[str] = []
+                if src:
+                    paths.append(str(src))
+                if dest:
+                    paths.append(str(dest))
+                watch._schedule_fire(paths)
 
         try:
             obs = Observer()
@@ -104,9 +117,11 @@ class TraceTreeWatch:
             self._observer = None
             return False
 
-    def _schedule_fire(self) -> None:
+    def _schedule_fire(self, paths: list[str] | None = None) -> None:
         with self._lock:
             self._pending = True
+            if paths:
+                self._pending_paths.update(paths)
             if self._timer is not None:
                 self._timer.cancel()
             self._timer = threading.Timer(self._debounce_s, self._fire)
@@ -119,10 +134,17 @@ class TraceTreeWatch:
                 return
             self._pending = False
             self._timer = None
+            paths = sorted(self._pending_paths)
+            self._pending_paths.clear()
         try:
             self._on_change()
         except Exception:
             logger.debug("FS watch callback failed", exc_info=True)
+        if self._on_paths is not None:
+            try:
+                self._on_paths(paths)
+            except Exception:
+                logger.debug("FS watch path callback failed", exc_info=True)
 
     def stop(self) -> None:
         with self._lock:

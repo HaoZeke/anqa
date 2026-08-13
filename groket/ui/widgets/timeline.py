@@ -32,6 +32,11 @@ class TimelineTable(DataTable):
     _durations: dict[int, float] = {}
     _call_by_id: dict[str, TraceEvent] = {}
     _result_by_id: dict[str, TraceEvent] = {}
+    #: event.index → sequential operator turn id (0-based); empty when unknown
+    _turn_by_index: dict[int, int] = {}
+    #: When True the turn map is cold; open/rebuild fills it once. Live
+    #: same-length ticks keep it warm; append extends or resegments once.
+    _turn_map_stale: bool = True
 
     @property
     def durations(self) -> dict[int, float]:
@@ -41,7 +46,13 @@ class TimelineTable(DataTable):
     def on_mount(self) -> None:
         style_data_table(self)
         self.add_columns(
-            "#", t("col-time"), t("col-dur"), t("col-type"), t("col-tool"), t("col-summary")
+            t("col-index"),
+            t("col-turn"),
+            t("col-time"),
+            t("col-dur"),
+            t("col-type"),
+            t("col-tool"),
+            t("col-summary"),
         )
 
     def load_events(
@@ -86,17 +97,31 @@ class TimelineTable(DataTable):
         if not row_ok or not prev:
             self._build_tool_pairs()
             self._compute_durations()
+            # One segment pass before paint — never mark stale then rebuild
+            # again per row / per selection (that froze live browse).
+            self._rebuild_turn_map()
             self._refresh_rows()
             return
 
         # Live growth / stream: only the tail can change. O(tail) not O(n).
-        if new_n >= prev_n and self._live_tail_struct_ok(prev, new_events):
+        # Require table row count to match prev (filter / failed paint desync
+        # must take the full rebuild path — else append raises DuplicateKey).
+        if (
+            new_n >= prev_n
+            and self.row_count == prev_n
+            and self._live_tail_struct_ok(prev, new_events)
+        ):
             # Append-only: ignore content-only rewrites of existing rows (agent
             # streaming). Patching every token froze the TUI; new tool rows still
             # appear when len grows. Full paint happens on F5 / open.
             if new_n == prev_n:
+                # Structure unchanged — keep turn map warm. Rebind tool pairs to
+                # the new event objects so detail still finds tool_call_update
+                # bodies after a re-parse (read_file dump lives on the update).
+                self._build_tool_pairs()
                 return
             self._index_new_events(new_events[prev_n:])
+            self._extend_turn_map_from(prev_n)
             self._append_rows(new_events[prev_n:])
             self._patch_paired_call_durations(new_events[prev_n:])
             return
@@ -104,6 +129,7 @@ class TimelineTable(DataTable):
         # Structural mid-list change (filters / re-sort): full rebuild.
         self._build_tool_pairs()
         self._compute_durations()
+        self._rebuild_turn_map()
         self._refresh_rows()
 
     @staticmethod
@@ -190,6 +216,13 @@ class TimelineTable(DataTable):
         for ev in new_events:
             self._add_event_row(ev)
 
+    def _row_key_exists(self, key: str) -> bool:
+        """True when *key* is already a row key in this table."""
+        try:
+            return key in self.rows
+        except Exception:
+            return False
+
     def _patch_rows(self, events: list[TraceEvent]) -> None:
         """Rewrite cells for existing rows (streaming content) without clear()."""
         for ev in events:
@@ -246,14 +279,30 @@ class TimelineTable(DataTable):
                 self._result_by_id[ev.tool_call_id] = ev
 
     def get_paired_call(self, ev: TraceEvent) -> TraceEvent | None:
-        if ev.event_type in et.TOOL_UPDATE_TYPES and ev.tool_call_id:
-            return self._call_by_id.get(ev.tool_call_id)
-        return None
+        if ev.event_type not in et.TOOL_UPDATE_TYPES or not ev.tool_call_id:
+            return None
+        call = self._call_by_id.get(ev.tool_call_id)
+        if call is not None and self.events and id(call) not in {id(e) for e in self.events}:
+            self._build_tool_pairs()
+            call = self._call_by_id.get(ev.tool_call_id)
+        return call
 
     def get_paired_result(self, ev: TraceEvent) -> TraceEvent | None:
-        if ev.event_type == "tool_call" and ev.tool_call_id:
-            return self._result_by_id.get(ev.tool_call_id)
-        return None
+        """Return the tool_call_update for a tool_call (file body lives here).
+
+        ``read_file`` and similar host tools leave ``tool_call.content`` empty;
+        the dump is only on the paired update. Maps must track *current*
+        timeline objects after re-parse, not stale instances.
+        """
+        if ev.event_type != "tool_call" or not ev.tool_call_id:
+            return None
+        cid = ev.tool_call_id
+        res = self._result_by_id.get(cid)
+        live = self.events
+        if live and (res is None or id(res) not in {id(e) for e in live}):
+            self._build_tool_pairs()
+            res = self._result_by_id.get(cid)
+        return res
 
     def _compute_durations(self) -> None:
         """Compute per-event durations from timestamps.
@@ -311,13 +360,78 @@ class TimelineTable(DataTable):
             return ""
         return ""
 
-    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str]:
-        """Visible cell values for one event (columns 0–5)."""
-        type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
+    def _rebuild_turn_map(self) -> None:
+        """Map each loaded event index to its sequential operator turn id."""
+        from ...session.turns import event_display_turn_map, segment_timeline_turns
+
+        if not self.events:
+            self._turn_by_index = {}
+            self._turn_map_stale = False
+            return
+        self._turn_by_index = event_display_turn_map(segment_timeline_turns(self.events))
+        self._turn_map_stale = False
+
+    def _extend_turn_map_from(self, start_offset: int) -> None:
+        """Assign turn ids for a live-appended tail without full resegment.
+
+        Most live growth is tools/agent stream inside the open turn — inherit
+        the previous event's turn. Boundary markers (turn_started/ended or a
+        new operator user message) trigger one full :func:`segment_timeline_turns`.
+        """
+        if self._turn_map_stale or not self._turn_by_index:
+            self._rebuild_turn_map()
+            return
+        if start_offset <= 0 or start_offset >= len(self.events):
+            return
+        from ...session.turns import is_harness_user_chrome, is_session_level_timeline_event
+
+        prev = self.events[start_offset - 1]
+        cur = self._turn_by_index.get(int(prev.index))
+        if cur is None:
+            self._rebuild_turn_map()
+            return
+        tail = self.events[start_offset:]
+        for ev in tail:
+            if is_session_level_timeline_event(ev):
+                continue
+            etype = ev.event_type or ""
+            head = (ev.content or "")[:48].lower()
+            if etype in et.TURN_BOUNDARY_TYPES or "turn started" in head or "turn ended" in head:
+                self._rebuild_turn_map()
+                return
+            if etype in et.USER_TYPES and not is_harness_user_chrome(ev.content or ""):
+                self._rebuild_turn_map()
+                return
+        for ev in tail:
+            if is_session_level_timeline_event(ev):
+                continue
+            self._turn_by_index[int(ev.index)] = int(cur)
+
+    def turn_index_for(self, event_index: int) -> int | None:
+        """Sequential operator turn id for *event_index*, if the event is in a turn.
+
+        Does **not** re-segment on a cold/stale map during selection — that made
+        every live tick + arrow-key pay a full ``segment_timeline_turns``. The
+        map is built on open/rebuild and extended on append.
+        """
+        if self._turn_map_stale:
+            return None
+        return self._turn_by_index.get(int(event_index))
+
+    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str, str]:
+        """Visible cell values for one event (Index, Turn, Time, Dur, Type, Tool, Summary)."""
+        from ...session.turns import harness_user_chrome_heading
+
+        chrome_heading = harness_user_chrome_heading(ev.content or "")
+        if chrome_heading is not None:
+            # Harness injects system-reminder / background-task as user_message_chunk.
+            type_style = f"[bold magenta]{chrome_heading.lower()}[/]"
+        else:
+            type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
         tool_err = ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES
-        if tool_err:
+        if tool_err and chrome_heading is None:
             type_style = f"[red bold underline]{ev.type_label}[/]"
-        elif ev.event_type in et.ERROR_TYPES:
+        elif ev.event_type in et.ERROR_TYPES and chrome_heading is None:
             type_style = f"[red bold underline]{ev.type_label}[/]"
         dur_str = ""
         if ev.index in self._durations:
@@ -338,16 +452,32 @@ class TimelineTable(DataTable):
             sev = getattr(finding.severity, "value", None) or "low"
             prefix += finding_mark(sev) + " "
         summary = prefix + rich_escape(ev.summary_line[: 56 if prefix else 60])
-        return (str(ev.index), ev.time_str, dur_str, type_style, tool_col, summary)
+        # Prefer the warm map (built on open / extended on append). Avoid
+        # turn_index_for side effects during bulk paint.
+        turn = self._turn_by_index.get(int(ev.index))
+        turn_str = str(turn) if turn is not None else ""
+        return (str(ev.index), turn_str, ev.time_str, dur_str, type_style, tool_col, summary)
 
     def _add_event_row(self, ev: TraceEvent) -> None:
-        """Append one timeline row for *ev*."""
+        """Append one timeline row for *ev*.
+
+        If the key already exists (table/self.events desync after filter, live
+        append, or a failed partial rebuild), update in place instead of
+        raising Textual ``DuplicateKey`` and crashing the app.
+        """
+        key = str(ev.index)
+        if self._row_key_exists(key):
+            self._update_event_row(ev)
+            return
         cells = self._row_cell_values(ev)
-        self.add_row(*cells, key=str(ev.index))
+        self.add_row(*cells, key=key)
 
     def _update_event_row(self, ev: TraceEvent) -> None:
         """Patch an existing row's cells in place (streaming live refresh)."""
         key = str(ev.index)
+        if not self._row_key_exists(key):
+            # Row missing (e.g. filtered view) — skip rather than inventing a row.
+            return
         cells = self._row_cell_values(ev)
         for col_i, value in enumerate(cells):
             update_row_cell(self, key, col_i, value)
@@ -355,7 +485,13 @@ class TimelineTable(DataTable):
     def _refresh_rows(self) -> None:
         with preserving_cursor(self, scroll=False):
             self.clear()
+            # Dedupe by index so a corrupt/coalesced list cannot raise DuplicateKey.
+            seen: set[int] = set()
             for ev in self.events:
+                ix = int(ev.index)
+                if ix in seen:
+                    continue
+                seen.add(ix)
                 self._add_event_row(ev)
 
     def apply_filter(
@@ -408,6 +544,10 @@ class TimelineTable(DataTable):
                     return False
 
                 filtered = [e for e in filtered if _evidence_match(e)]
+        # Session-global turn ids — build from the full list before swapping in
+        # the filtered view (never resegment a subset).
+        if self._turn_map_stale:
+            self._rebuild_turn_map()
         orig = self.events
         self.events = filtered
         self._refresh_rows()

@@ -298,12 +298,17 @@ def error_session_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def traces_root(tmp_path: Path, session_dir: Path) -> Path:
-    """A traces root containing one session."""
+    """A traces root containing one session.
+
+    Real directory tree (not a symlink): ``find_sessions`` walks with
+    ``followlinks=False`` so host symlink cycles never explode the catalog.
+    """
+    import shutil
+
     root = tmp_path / "runs" / "traces"
     root.mkdir(parents=True)
-    # Symlink instead of copy to reuse session_dir
     target = root / session_dir.name
-    target.symlink_to(session_dir)
+    shutil.copytree(session_dir, target)
     return root
 
 

@@ -15,7 +15,12 @@ from .i18n import t
 
 logger = logging.getLogger(__name__)
 _CACHE: JsonObject | None = None
-_DEFAULTS: JsonObject = {"show_tips": True, "show_host_sessions": False}
+_DEFAULTS: JsonObject = {
+    "show_tips": True,
+    "show_host_sessions": False,
+    # Detach-start control owner when launching the TUI if the socket is free.
+    "auto_serve": True,
+}
 
 
 def _read_file() -> JsonObject:
@@ -90,3 +95,34 @@ def show_host_sessions_enabled() -> bool:
 
 def set_show_host_sessions(enabled: bool) -> None:
     set_pref("show_host_sessions", bool(enabled))
+
+
+def auto_serve_enabled() -> bool:
+    """Whether the TUI should detach-start a control owner when the socket is free."""
+    return bool(get_pref("auto_serve", True))
+
+
+def set_auto_serve(enabled: bool) -> None:
+    set_pref("auto_serve", bool(enabled))
+
+
+def hud_global_shortcut() -> str:
+    """Optional HUD summon chord from config (empty = binary default).
+
+    Prefer nested::
+
+        { "hud": { "global_shortcut": "Cmd+Shift+G" } }
+
+    Flat key ``hud_global_shortcut`` is also accepted. Format is ``+``-separated
+    modifiers and one key (see HUD README). Env ``GROKET_HUD_SHORTCUT`` wins
+    when the launcher sets it from this value.
+    """
+    nested = get_pref("hud", None)
+    if isinstance(nested, dict):
+        raw = nested.get("global_shortcut")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    flat = get_pref("hud_global_shortcut", None)
+    if isinstance(flat, str) and flat.strip():
+        return flat.strip()
+    return ""

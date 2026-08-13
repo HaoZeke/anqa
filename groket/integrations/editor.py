@@ -12,7 +12,7 @@ from .. import event_types as et
 from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
 from ..parser import load_session_meta, parse_timeline
-from ..session.turns import TurnSegment, segment_timeline_turns
+from ..session.turns import TurnSegment, is_operator_user_event, segment_timeline_turns
 
 _FENCE_RUN = re.compile(r"`+")
 _ORG_ESCAPE_RE = re.compile(r"^,*(\*|#\+)")
@@ -191,7 +191,7 @@ def _render_segment_org(
         "",
     ]
     for event in segment.events:
-        if event.event_type in et.USER_TYPES:
+        if is_operator_user_event(event):
             lines.extend(["** User", "", *_org_transcript_lines(event.content), ""])
         elif event.event_type in et.AGENT_TYPES:
             lines.extend(["** Assistant", "", *_org_transcript_lines(event.content), ""])
@@ -211,7 +211,7 @@ def _render_segment_md(
         "",
     ]
     for event in segment.events:
-        if event.event_type in et.USER_TYPES:
+        if is_operator_user_event(event):
             lines.extend(["### User", "", *_md_transcript_lines(event.content), ""])
         elif event.event_type in et.AGENT_TYPES:
             lines.extend(["### Assistant", "", *_md_transcript_lines(event.content), ""])

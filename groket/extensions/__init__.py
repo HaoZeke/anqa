@@ -1,4 +1,4 @@
-"""User extension scaffolding (``groket gen`` / ``generator``)."""
+"""User extension scaffolding (``groket gen``)."""
 
 from __future__ import annotations
 

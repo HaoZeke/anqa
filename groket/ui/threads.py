@@ -29,8 +29,9 @@ def call_ui[R](
 
     From a worker: blocking ``App.call_from_thread`` (waits for the result).
     Already on the app thread: call *callback* directly (``call_from_thread``
-    raises ``RuntimeError`` on the UI thread). When *app* is missing (screen
-    torn down mid-refresh), invoke *callback* inline if possible.
+    raises ``RuntimeError`` on the UI thread). When the app loop is gone,
+    skip the callback (do not query a dead DOM). When *app* is missing,
+    invoke *callback* inline if possible.
     """
     if app is None:
         with suppress(Exception):
@@ -38,7 +39,9 @@ def call_ui[R](
         return None
     try:
         return app.call_from_thread(callback, *args, **kwargs)
-    except RuntimeError:
+    except RuntimeError as exc:
+        if "not running" in str(exc).lower():
+            return None
         return callback(*args, **kwargs)
     except Exception:
         with suppress(Exception):

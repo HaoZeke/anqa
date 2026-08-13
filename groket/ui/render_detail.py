@@ -18,6 +18,11 @@ from textual.app import App
 from .. import event_types as et
 from ..analysis.base import Finding
 from ..models import Flag, JsonObject, JsonValue, ToolInputBag, TraceEvent
+from ..tool_display import (
+    display_tool_output,
+    image_result_message,
+    image_result_path,
+)
 from ..utils import fmt_duration
 from .i18n import t
 from .styles import severity_style
@@ -182,6 +187,179 @@ def _path_hint(ri: dict) -> str:
     return ""
 
 
+def _shell_command_text(ri: dict) -> str:
+    """Primary shell command string from tool input (if any)."""
+    for k in ("command", "cmd", "script"):
+        v = ri.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+    return ""
+
+
+def _is_shell_tool(tname: str) -> bool:
+    """Host shell / process tools whose primary body is a bash command."""
+    return tname in (
+        "run_terminal_command",
+        "get_command_or_subagent_output",
+        "monitor",
+        "wait_commands_or_subagents",
+        "kill_command_or_subagent",
+    )
+
+
+def _is_file_body_tool(tname: str) -> bool:
+    """Tools whose *output* is usually a file dump (prefer path lexer)."""
+    return tname in (
+        "read_file",
+        "search_replace",
+        "write_file",
+        "create_file",
+        "edit_file",
+        "apply_patch",
+    )
+
+
+def _looks_like_source_code(text: str) -> bool:
+    """True when *text* looks like source (not prose / not a terminal dump).
+
+    Used so ``tool_call_update`` bodies that are code still get a monospaced
+    Syntax pane even without a path extension.
+    """
+    if not text or not text.strip():
+        return False
+    sample = text[:6000]
+    lines = sample.splitlines()
+    if len(lines) < 2:
+        # Single-line snippets still count when clearly code-shaped.
+        s = sample.lstrip()
+        return bool(
+            s.startswith(
+                (
+                    "def ",
+                    "class ",
+                    "fn ",
+                    "func ",
+                    "import ",
+                    "package ",
+                    "const ",
+                    "let ",
+                    "var ",
+                    "#!/",
+                )
+            )
+            or (" => " in s and ("{" in s or ";" in s))
+        )
+    code_hits = 0
+    for ln in lines[:80]:
+        st = ln.strip()
+        if not st or st.startswith(("#", "//", "/*", "*", "--")):
+            continue
+        if st.endswith(("{", "}", ");", "};", "]:", ":")):
+            code_hits += 1
+        elif st.startswith(
+            (
+                "def ",
+                "class ",
+                "async ",
+                "import ",
+                "from ",
+                "fn ",
+                "func ",
+                "pub ",
+                "package ",
+                "const ",
+                "let ",
+                "var ",
+                "export ",
+                "function ",
+                "type ",
+                "interface ",
+                "impl ",
+                "struct ",
+                "enum ",
+                "return ",
+                "if ",
+                "for ",
+                "while ",
+                "match ",
+                "use ",
+                "mod ",
+                "#!",
+            )
+        ):
+            code_hits += 1
+        elif re.match(r"^(pub\s+)?(async\s+)?fn\s+\w+", st):
+            code_hits += 1
+        elif re.match(r"^[A-Za-z_][\w.]*\s*=\s*.+", st) and ("(" in st or st.endswith((";", ","))):
+            code_hits += 1
+    # Indentation density (source almost always indents).
+    indented = sum(1 for ln in lines[:80] if ln[:1] in " \t" and ln.strip())
+    if indented >= 3 and code_hits >= 2:
+        return True
+    return code_hits >= 4
+
+
+def _guess_source_lexer(text: str) -> str:
+    """Best-effort language from content when path is missing."""
+    sample = (text or "")[:8000]
+    head = sample.lstrip()
+    if head.startswith("#!"):
+        first = head.split("\n", 1)[0].lower()
+        if "python" in first:
+            return "python"
+        if any(x in first for x in ("bash", "sh", "zsh")):
+            return "bash"
+        return "bash"
+    # Prefer strong multi-signal checks over single keyword hits.
+    py = sum(
+        1
+        for tok in (
+            "def ",
+            "class ",
+            "import ",
+            "from ",
+            "async def ",
+            "self.",
+            "None",
+            "True",
+            "False",
+        )
+        if tok in sample
+    )
+    if py >= 3 or (
+        "def " in sample and ":" in sample and ("self" in sample or "import " in sample)
+    ):
+        return "python"
+    rs = sum(1 for tok in ("fn ", "impl ", "pub ", "let mut ", "use ", "::") if tok in sample)
+    if rs >= 3 or ("fn " in sample and "->" in sample and "{" in sample):
+        return "rust"
+    go = sum(1 for tok in ("func ", "package ", ":=", "fmt.") if tok in sample)
+    if go >= 3 or (sample.lstrip().startswith("package ") and "func " in sample):
+        return "go"
+    ts = sum(
+        1
+        for tok in ("interface ", "type ", ": string", ": number", "export ", "const ", "=>")
+        if tok in sample
+    )
+    if ts >= 3 and ("=>" in sample or "export " in sample):
+        if "interface " in sample or ": string" in sample or ": number" in sample:
+            return "typescript"
+        return "javascript"
+    if "function " in sample and ("const " in sample or "=>" in sample or "export " in sample):
+        return "javascript"
+    if (
+        head.startswith("<?xml")
+        or head.startswith("<!DOCTYPE")
+        or (head.startswith("<") and "</" in sample[:500])
+    ):
+        return "xml" if "html" not in head[:40].lower() else "html"
+    if _looks_json(sample):
+        return "json"
+    if _looks_diff(sample):
+        return "diff"
+    return ""
+
+
 def _guess_lexer(text: str, tool_name: str = "", path_hint: str = "") -> str:
     if path_hint:
         lang = _lang_from_path(path_hint)
@@ -198,6 +376,12 @@ def _guess_lexer(text: str, tool_name: str = "", path_hint: str = "") -> str:
         return "bash"
     if head.startswith("<?xml") or head.startswith("<!DOCTYPE"):
         return "xml"
+    src = _guess_source_lexer(text)
+    if src:
+        return src
+    if tool_name == "read_file" or _looks_like_source_code(text):
+        # Unknown language but clearly code — monospaced Syntax ("text" lexer).
+        return "text"
     return "text"
 
 
@@ -221,35 +405,69 @@ def _content_str(
     return s
 
 
-def _truncate_mid(s: str, head: int = 7000, tail: int = 5000, limit: int = 14000) -> str:
-    if len(s) <= limit:
+def _truncate_mid(
+    s: str,
+    head: int = 7000,
+    tail: int = 5000,
+    limit: int = 14000,
+    *,
+    truncate: bool = True,
+) -> str:
+    """Mid-body cap for *display*; when *truncate* is False keep the full string (yank)."""
+    if not truncate or len(s) <= limit:
         return s
     return s[:head] + t("truncate-marker") + s[-tail:]
 
 
-def _render_tool_input(tname: str, ri: dict) -> list:
+def _cap_str(s: str, limit: int, *, truncate: bool, marker: str | None = None) -> str:
+    """Prefix cap for long fields; no-op when *truncate* is False.
+
+    :param marker: Suffix after the cut. ``None`` uses the Fluent truncated
+        marker; ``""`` means hard cut with no suffix (legacy search_replace).
+    """
+    if not truncate or len(s) <= limit:
+        return s
+    suffix = t("ui-truncated-1") if marker is None else marker
+    return s[:limit] + suffix
+
+
+def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool input sections (trace_viewer render_tool_detail)."""
     parts: list = []
     path_hint = _path_hint(ri)
-    if tname == "run_terminal_command" and "command" in ri:
-        parts.append(_syntax(str(ri.get("command") or ""), "bash"))
-        extra = {k: v for k, v in ri.items() if k != "command"}
+    cmd = _shell_command_text(ri)
+    if cmd and (_is_shell_tool(tname) or tname in ("run_terminal_command",) or "command" in ri):
+        # Shell commands always bash-highlight (not plain Text / not JSON dump).
+        parts.append(_syntax(cmd, "bash"))
+        extra = {k: v for k, v in ri.items() if k not in ("command", "cmd", "script")}
         if extra:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
     if tname == "search_replace":
-        fp = ri.get("file_path") or ri.get("target_file") or ""
+        fp = ri.get("file_path") or ri.get("target_file") or path_hint or ""
         if fp:
             parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
-        lang = _lang_from_path(str(fp)) or "text"
+        lang = (
+            _lang_from_path(str(fp))
+            or _guess_source_lexer(str(ri.get("new_string") or ri.get("old_string") or ""))
+            or "text"
+        )
         old_s, new_s = (str(ri.get("old_string") or ""), str(ri.get("new_string") or ""))
         if old_s:
             parts.append(Text(t("tool-field-old-string"), style="red"))
-            parts.append(_syntax(old_s[:8000], lang, line_numbers=True))
+            parts.append(
+                _syntax(
+                    _cap_str(old_s, 8000, truncate=truncate, marker=""), lang, line_numbers=True
+                )
+            )
         if new_s:
             parts.append(Text(t("tool-field-new-string"), style="green"))
-            parts.append(_syntax(new_s[:8000], lang, line_numbers=True))
+            parts.append(
+                _syntax(
+                    _cap_str(new_s, 8000, truncate=truncate, marker=""), lang, line_numbers=True
+                )
+            )
         extra = {
             k: v
             for k, v in ri.items()
@@ -327,12 +545,10 @@ def _render_tool_input(tname: str, ri: dict) -> list:
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
     if tname in ("web_search", "spawn_subagent", "ask_user_question"):
-        for key in ("query", "prompt", "description", "question"):
+        for key in ("query", "url", "prompt", "description", "question"):
             if key in ri and isinstance(ri[key], str) and ri[key].strip():
                 parts.append(Text(f"{key}:", style="bright_blue"))
-                val = ri[key]
-                if len(val) > 4000:
-                    val = val[:4000] + t("ui-truncated-1")
+                val = _cap_str(str(ri[key]), 4000, truncate=truncate)
                 if key in ("prompt", "description") and "\n" in val:
                     parts.append(Markdown(val))
                 else:
@@ -340,15 +556,15 @@ def _render_tool_input(tname: str, ri: dict) -> list:
         extra = {
             k: v
             for k, v in ri.items()
-            if k not in ("query", "prompt", "description", "question") or not isinstance(v, str)
-        }
-        extra = {
-            k: v
-            for k, v in ri.items()
-            if not (
-                k in ("query", "prompt", "description", "question")
-                and isinstance(v, str)
-                and v.strip()
+            if k
+            not in (
+                "query",
+                "url",
+                "prompt",
+                "description",
+                "question",
+                "variant",
+                "backend",
             )
         }
         if extra:
@@ -363,15 +579,74 @@ def _render_tool_input(tname: str, ri: dict) -> list:
     return parts
 
 
-def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
+def _render_image_result(out: str) -> list:
+    """Path + message only (no pixel render in the TUI)."""
+    path = image_result_path(out)
+    message = image_result_message(out)
+    parts: list = [Rule(t("tool-output-rule", n=len(out or "")), style="bright_black")]
+    if path:
+        parts.append(Text(t("tool-image-path", path=path), style="cyan"))
+    if message:
+        parts.append(Text(message))
+    if not path and not message:
+        parts.append(Text(out or t("tool-empty-output"), style="dim italic"))
+    return parts
+
+
+def _prefer_syntax_output(tname: str, lexer: str, body: str, *, console_like: bool) -> bool:
+    """Whether tool output should use Rich Syntax (code) vs plain Text.
+
+    Console streams stay plain (sanitize + speed). Source / structured bodies
+    use Syntax so ``tool_call_update`` file dumps read as code, not prose.
+    Display bodies are already mid-truncated — do not drop Syntax solely for
+    length after that cap (the old 12k gate forced plain Text on most reads).
+    """
+    if console_like:
+        return False
+    if not (body or "").strip():
+        return False
+    if lexer and lexer != "text":
+        return True
+    if _is_file_body_tool(tname):
+        return True
+    return _looks_like_source_code(body)
+
+
+def _output_lexer(out_disp: str, tname: str, path_hint: str, *, console_like: bool) -> str:
+    """Pick a Pygments lexer for tool *output* (not the shell command input)."""
+    if console_like:
+        # Terminal streams: no fake bash highlight on mixed stdout/stderr.
+        return "text"
+    path_lang = _lang_from_path(path_hint) if path_hint else ""
+    if path_lang:
+        # read_file / edits: path wins (python file → python, not markdown guess).
+        return path_lang
+    if _looks_json(out_disp):
+        return "json"
+    if _looks_diff(out_disp):
+        return "diff"
+    guessed = _guess_source_lexer(out_disp)
+    if guessed:
+        return guessed
+    if _is_file_body_tool(tname) or _looks_like_source_code(out_disp):
+        return "text"
+    return _guess_lexer(out_disp, tname, path_hint) or "text"
+
+
+def _render_tool_output(out: str, tname: str, path_hint: str, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool output (trace_viewer output block)."""
+    if tname in ("image_gen", "image_edit") and (
+        image_result_path(out) or image_result_message(out)
+    ):
+        return _render_image_result(out)
     parts: list = []
+    source = display_tool_output(out or "", tool_name=tname)
     raw_len = len(out or "")
-    cleaned = sanitize_console_text(out or "")
-    if not cleaned and out:
-        cleaned = sanitize_console_text(out, for_display=False) or t("tool-binary-output")
+    cleaned = sanitize_console_text(source)
+    if not cleaned and source:
+        cleaned = sanitize_console_text(source, for_display=False) or t("tool-binary-output")
     n_out = len(cleaned)
-    out_disp = _truncate_mid(cleaned)
+    out_disp = _truncate_mid(cleaned, truncate=truncate)
     if raw_len and n_out < raw_len * 0.9:
         out_label = t("tool-output-rule-cleaned", n=n_out, raw=raw_len)
     else:
@@ -380,32 +655,40 @@ def _render_tool_output(out: str, tname: str, path_hint: str) -> list:
     if not out_disp.strip():
         parts.append(Text(t("tool-empty-output"), style="dim italic"))
         return parts
-    console_like = _looks_like_console_output(out or "", tname) or tname in (
-        "run_terminal_command",
-        "get_command_or_subagent_output",
-        "monitor",
+    # Shell tools: stdout/stderr is a console stream. File tools never are.
+    console_like = (not _is_file_body_tool(tname)) and (
+        _looks_like_console_output(out or "", tname) or _is_shell_tool(tname)
     )
-    lexer = _guess_lexer(out_disp, tname, path_hint)
-    if tname == "read_file" and path_hint:
-        lexer = _lang_from_path(path_hint) or lexer
-    if console_like and lexer == "bash" and (tname != "run_terminal_command"):
-        lexer = "text"
-    if console_like and tname == "run_terminal_command":
-        lexer = "text"
+    lexer = _output_lexer(out_disp, tname, path_hint, console_like=console_like)
     if lexer == "json" or _looks_json(out_disp):
         with suppress(Exception):
             out_disp = json.dumps(json.loads(out_disp), indent=2, ensure_ascii=False)
             lexer = "json"
-    # Plain Text for console dumps / large blobs — Pygments + Textual reflow on
-    # every timeline keypress made the browser feel frozen (100ms–1s/event).
-    if console_like or (lexer or "text") == "text" or len(out_disp) > 12_000:
+    if not _prefer_syntax_output(tname, lexer or "text", out_disp, console_like=console_like):
         parts.append(Text(out_disp))
         return parts
+    # Unknown language still uses Syntax("text") for monospaced code chrome.
+    use_lexer = lexer or "text"
+    # Line numbers double Pygments work; skip on large dumps (still Syntax).
     ln = (
-        lexer in ("python", "javascript", "typescript", "rust", "go", "tsx", "jsx")
+        use_lexer
+        in (
+            "python",
+            "javascript",
+            "typescript",
+            "rust",
+            "go",
+            "tsx",
+            "jsx",
+            "bash",
+            "c",
+            "cpp",
+            "java",
+        )
         and out_disp.count("\n") > 3
+        and len(out_disp) < 6000
     )
-    parts.append(_syntax(out_disp, lexer or "text", line_numbers=ln))
+    parts.append(_syntax(out_disp, use_lexer, line_numbers=ln))
     return parts
 
 
@@ -423,8 +706,16 @@ def render_tool_detail(
     update_index: int | None = None,
     event_type: str = "tool",
     duration: float | None = None,
+    truncate: bool = True,
+    turn_index: int | None = None,
 ) -> Group:
-    """Unified tool detail (trace_viewer render_tool_detail), call+result merged."""
+    """Unified tool detail (trace_viewer render_tool_detail), call+result merged.
+
+    :param truncate: When True (display), mid-cap huge tool bodies. When False
+        (clipboard yank), keep full input/output text.
+    :param turn_index: Sequential operator turn id (0-based) for orientation.
+    """
+    _ = (tool_call_id, update_index)
     ri = raw_input or {}
     path_hint = _path_hint(ri)
     tname = tool_name or "?"
@@ -443,6 +734,8 @@ def render_tool_detail(
     head.append("\n")
     meta = Text()
     meta_bits: list[str] = []
+    if turn_index is not None:
+        meta_bits.append(t("ui-turn-number", turn=int(turn_index)))
     if time_str:
         meta_bits.append(time_str)
     if duration is not None:
@@ -460,7 +753,7 @@ def render_tool_detail(
     parts: list = [head, meta]
     if ri:
         parts += [Text(""), Rule(t("ui-input"), style="bright_black")]
-        parts.extend(_render_tool_input(tname, ri))
+        parts.extend(_render_tool_input(tname, ri, truncate=truncate))
     else:
         parts += [
             Text(""),
@@ -468,7 +761,7 @@ def render_tool_detail(
             Text(t("tool-no-input"), style="dim italic"),
         ]
     parts.append(Text(""))
-    parts.extend(_render_tool_output(output, tname, path_hint))
+    parts.extend(_render_tool_output(output, tname, path_hint, truncate=truncate))
     return Group(*parts)
 
 
@@ -478,8 +771,15 @@ def render_tool_detail_from_event(
     paired_call: TraceEvent | None = None,
     paired_result: TraceEvent | None = None,
     duration: float | None = None,
+    truncate: bool = True,
+    turn_index: int | None = None,
 ) -> Group:
-    """Render tool_call / tool_result, merging pair when available (trace_viewer style)."""
+    """Render tool_call / tool_result, merging pair when available (trace_viewer style).
+
+    Host ``read_file`` leaves the call body empty — the file dump is on the
+    paired ``tool_call_update``. Prefer *paired_result* content, then the
+    selected event's own content.
+    """
     call = ev if ev.event_type == "tool_call" else paired_call
     result = ev if ev.event_type in et.TOOL_UPDATE_TYPES else paired_result
     ri: dict[str, JsonValue] = {}
@@ -490,6 +790,16 @@ def render_tool_detail_from_event(
         else ToolInputBag(src_ev.raw_input if isinstance(src_ev.raw_input, dict) else {})
     )
     ri = dict(bag.raw())
+    # Path may only appear on the call; still surface it when viewing the update.
+    if not _path_hint(ri) and result is not None:
+        rbag = (
+            result.raw_input
+            if isinstance(result.raw_input, ToolInputBag)
+            else ToolInputBag(result.raw_input if isinstance(result.raw_input, dict) else {})
+        )
+        for k, v in rbag.raw().items():
+            if k not in ri or ri.get(k) in (None, "", [], {}):
+                ri[k] = v
     tname = (
         (call.tool_name if call else "")
         or (result.tool_name if result else "")
@@ -497,12 +807,12 @@ def render_tool_detail_from_event(
         or "?"
     )
     out = ""
-    if result:
+    if result is not None:
         out = _content_str(result.content, sanitize=True, tool_name=tname)
-    elif ev.event_type == "tool_call":
+    if not (out or "").strip():
         out = _content_str(ev.content, sanitize=True, tool_name=tname)
-    else:
-        out = _content_str(ev.content, sanitize=True, tool_name=tname)
+    if not (out or "").strip() and call is not None and call is not ev:
+        out = _content_str(call.content, sanitize=True, tool_name=tname)
     is_err = bool(
         (result is not None and result.is_error)
         or ev.is_error
@@ -546,6 +856,8 @@ def render_tool_detail_from_event(
         update_index=update_index,
         event_type=ev.event_type,
         duration=duration,
+        truncate=truncate,
+        turn_index=turn_index,
     )
 
 
@@ -557,8 +869,15 @@ def render_event_detail(
     duration: float | None = None,
     paired_call: TraceEvent | None = None,
     paired_result: TraceEvent | None = None,
+    truncate: bool = True,
+    turn_index: int | None = None,
 ) -> RenderableType:
-    """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners)."""
+    """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners).
+
+    :param truncate: Display caps for huge bodies (default). Pass False for
+        clipboard yank so the operator gets the full event text.
+    :param turn_index: Sequential operator turn id (0-based) for orientation.
+    """
     banners: list = []
     if flag:
         ft = Text()
@@ -571,33 +890,56 @@ def render_event_detail(
         it = Text()
         it.append(t("ui-finding"), style=f"{sc} bold")
         it.append(f"  [{finding.plugin_id}] {finding.category}: {finding.title}\n", style=sc)
-        it.append(f"  {(finding.detail or '')[:400]}", style="dim")
+        detail = finding.detail or ""
+        if truncate and len(detail) > 400:
+            detail = detail[:400]
+        it.append(f"  {detail}", style="dim")
         banners.append(it)
     if ev.event_type in et.TOOL_TYPES:
         core = render_tool_detail_from_event(
-            ev, paired_call=paired_call, paired_result=paired_result, duration=duration
+            ev,
+            paired_call=paired_call,
+            paired_result=paired_result,
+            duration=duration,
+            truncate=truncate,
+            turn_index=turn_index,
         )
         if banners:
             return Group(*banners, Text(""), core)
         return core
+    from ..session.tagged_blocks import unwrap_for_display
+    from ..session.turns import harness_user_chrome_heading
+
+    chrome_heading = harness_user_chrome_heading(ev.content or "")
     style = KIND_STYLES.get(ev.event_type, "white")
+    if chrome_heading is not None:
+        style = "bold magenta"
     if ev.is_error and ev.event_type in et.SESSION_CHROME_TYPES:
         style = "bold red"
     head = Text()
     head.append(f"#{ev.index} ", style="dim")
-    head.append(ev.type_label or ev.event_type, style=style)
+    head.append(
+        chrome_heading if chrome_heading is not None else (ev.type_label or ev.event_type),
+        style=style,
+    )
     if ev.is_error:
         head.append(t("ui-error-1"), style="bold red")
     head.append("\n")
     meta_parts: list[str] = []
+    if turn_index is not None:
+        meta_parts.append(t("ui-turn-number", turn=int(turn_index)))
     if ev.time_str:
         meta_parts.append(ev.time_str)
     if duration is not None:
         meta_parts.append(fmt_duration(duration))
     if meta_parts:
         head.append("  ·  ".join(meta_parts), style="dim")
-    body = _content_str(ev.content, sanitize=True, tool_name=ev.tool_name or "")
-    if len(body) > 20000:
+    body = _content_str(
+        unwrap_for_display(ev.content or ""),
+        sanitize=True,
+        tool_name=ev.tool_name or "",
+    )
+    if truncate and len(body) > 20000:
         body = body[:10000] + t("truncate-marker") + body[-8000:]
     chunks: list = []
     if banners:
@@ -635,10 +977,15 @@ def render_event_detail(
     return Group(*chunks)
 
 
-def render_markdown_doc(text: str, *, max_chars: int = 120000) -> RenderableType:
-    """Markdown document for Summary / Feedback tabs."""
+def render_markdown_doc(
+    text: str, *, max_chars: int = 120000, truncate: bool = True
+) -> RenderableType:
+    """Markdown document for Summary / Feedback tabs.
+
+    :param truncate: Cap huge docs for display. False keeps full text (yank).
+    """
     body = text or "_empty_"
-    if len(body) > max_chars:
+    if truncate and len(body) > max_chars:
         body = body[: max_chars // 2] + t("truncate-for-display") + body[-(max_chars // 3) :]
     try:
         return Markdown(body)

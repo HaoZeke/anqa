@@ -21,7 +21,7 @@ class TestFindingMark:
     def test_high(self) -> None:
         m = finding_mark("high")
         assert "⚠" in m
-        assert "red" in m
+        assert "#CC241D" in m
 
     def test_medium(self) -> None:
         m = finding_mark("medium")
@@ -30,7 +30,7 @@ class TestFindingMark:
     def test_low_default(self) -> None:
         m = finding_mark("low")
         assert "⚠" in m
-        assert "yellow" in m
+        assert "#D79921" in m
 
     def test_none_fallback(self) -> None:
         m = finding_mark("")
@@ -96,9 +96,9 @@ class TestSyntaxThemeForApp:
 
 class TestToolStyle:
     def test_known_tool_returns_family_color(self) -> None:
-        assert tool_style("read_file") == "cyan"
-        assert tool_style("search_replace") == "green"
-        assert tool_style("run_terminal_command") == "yellow"
+        assert tool_style("read_file") == "#FBF1C7"
+        assert tool_style("search_replace") == "#98971A"
+        assert tool_style("run_terminal_command") == "#D79921"
 
     def test_unknown_tool_dim(self) -> None:
         assert tool_style("unknown") == "dim"
@@ -121,7 +121,7 @@ class TestToolLabel:
         label = tool_label("playwright__browser_navigate")
         assert "playwright" in label
         assert "browser_navigate" in label
-        assert "magenta" in label
+        assert "#928374" in label
 
     def test_truncates_long_names(self) -> None:
         label = tool_label("a" * 50, max_len=10)
@@ -134,9 +134,9 @@ class TestToolLabel:
 
 class TestSeverityStyle:
     def test_known(self) -> None:
-        assert severity_style("high") == "red bold"
-        assert severity_style("medium") == "dark_orange bold"
-        assert severity_style("low") == "yellow"
+        assert severity_style("high") == "#CC241D bold"
+        assert severity_style("medium") == "#D79921 bold"
+        assert severity_style("low") == "#D79921"
 
     def test_unknown_fallback(self) -> None:
         assert severity_style("critical") == "white"

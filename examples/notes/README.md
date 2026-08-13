@@ -45,7 +45,7 @@ Deferred **LLM analysis** plugins include session notes in the review prompt
 (as human evaluator focus areas). Editing notes invalidates the analysis
 cache for that session the same way timeline changes do.
 
-**Authoring is TUI-only** — batch does not write notes.
+**Authoring** is via TUI, Emacs, Neovim, or HUD (control plane). Batch does not write notes.
 
 ## Ingest
 

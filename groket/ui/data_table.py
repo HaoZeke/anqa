@@ -91,6 +91,40 @@ def preserving_cursor(table: DataTable, *, scroll: bool = True) -> Iterator[str 
             restore_cursor(table, key, scroll=scroll)
 
 
+@contextmanager
+def preserving_scroll(table: DataTable) -> Iterator[None]:
+    """Keep ``scroll_x`` / ``scroll_y`` across ``clear()`` + ``add_row()``.
+
+    Live home-list paints used to snap the viewport back to the left whenever
+    duration or status ticked.
+    """
+    x = getattr(table, "scroll_x", 0)
+    y = getattr(table, "scroll_y", 0)
+
+    def _restore() -> None:
+        with suppress(Exception):
+            cur_x = getattr(table, "scroll_x", 0)
+            cur_y = getattr(table, "scroll_y", 0)
+            # A stale call_after_refresh from an earlier paint must not
+            # overwrite a newer explicit scroll (Pilot / live tick race).
+            if (cur_x and cur_x != x) or (cur_y and cur_y != y):
+                return
+            if hasattr(table, "scroll_to"):
+                table.scroll_to(x, y, animate=False)
+            else:
+                table.scroll_x = x
+                table.scroll_y = y
+
+    try:
+        yield
+    finally:
+        _restore()
+        # clear()+add_row leaves max_scroll_x at 0 until the next layout pass.
+        cb = getattr(table, "call_after_refresh", None)
+        if callable(cb):
+            cb(_restore)
+
+
 def update_row_cell(
     table: DataTable,
     row_key_value: str,

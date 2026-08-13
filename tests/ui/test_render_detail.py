@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from groket.ui.render_detail import (
     _guess_lexer,
     _lang_from_path,
@@ -58,11 +60,11 @@ class TestSanitizeConsoleText:
 
 class TestToolStyle:
     def test_known_tools(self):
-        # Family palette: shell=yellow, read=cyan, write=green, agent=white
-        assert tool_style("run_terminal_command") == "yellow"
-        assert tool_style("read_file") == "cyan"
-        assert tool_style("grep") == "cyan"
-        assert tool_style("search_replace") == "green"
+        # Family palette: shell=running, read=cream, write=complete
+        assert tool_style("run_terminal_command") == "#D79921"
+        assert tool_style("read_file") == "#FBF1C7"
+        assert tool_style("grep") == "#FBF1C7"
+        assert tool_style("search_replace") == "#98971A"
 
     def test_unknown_tool(self):
         assert tool_style("some_random_tool") == "dim"
@@ -101,6 +103,10 @@ class TestGuessLexer:
 
     def test_from_path_hint(self):
         assert _guess_lexer("code", path_hint="src/main.py") == "python"
+
+    def test_python_from_content(self):
+        src = "import os\n\ndef main():\n    return None\n\nclass Foo:\n    pass\n"
+        assert _guess_lexer(src) == "python"
 
 
 class TestLooksLikeConsoleOutput:
@@ -152,6 +158,17 @@ class TestToolMarkup:
         assert len(markup) < 100
 
 
+def _group_has_syntax(group: Group) -> bool:
+    from rich.syntax import Syntax
+
+    for item in group.renderables:
+        if isinstance(item, Syntax):
+            return True
+        if isinstance(item, Group) and _group_has_syntax(item):
+            return True
+    return False
+
+
 class TestRenderToolDetail:
     def test_basic_tool_call(self):
         result = render_tool_detail(
@@ -162,6 +179,85 @@ class TestRenderToolDetail:
             is_error=False,
         )
         assert isinstance(result, Group)
+
+    def test_read_file_output_uses_syntax(self):
+        """File dumps are Syntax (code), not plain Text / Markdown."""
+        from rich.syntax import Syntax
+
+        body = "import sys\n\ndef greet(name: str) -> str:\n    return f'hi {name}'\n"
+        result = render_tool_detail(
+            index=0,
+            tool_name="read_file",
+            raw_input={"target_file": "src/greet.py"},
+            output=body,
+        )
+        assert isinstance(result, Group)
+        assert _group_has_syntax(result)
+        # Path-driven python lexer (Rich stores a Pygments lexer instance).
+        syntaxes = [x for x in result.renderables if isinstance(x, Syntax)]
+        assert syntaxes
+        lex = syntaxes[-1].lexer
+        lex_name = (getattr(lex, "name", None) or type(lex).__name__ or "").lower()
+        assert "python" in lex_name
+
+    def test_read_file_large_output_still_syntax(self):
+        """Mid-truncated large reads must not fall back to plain Text."""
+        body = "def foo():\n    return 1\n\n" * 800  # >12k chars
+        assert len(body) > 12_000
+        result = render_tool_detail(
+            index=0,
+            tool_name="read_file",
+            raw_input={"target_file": "pkg/big.py"},
+            output=body,
+        )
+        assert _group_has_syntax(result)
+
+    def test_tool_update_code_without_path_uses_syntax(self):
+        """Code-shaped tool_call_update body without path still renders as code."""
+        body = 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hi")\n}\n'
+        result = render_tool_detail(
+            index=3,
+            tool_name="read_file",
+            raw_input={},
+            output=body,
+            event_type="tool_call_update",
+        )
+        assert _group_has_syntax(result)
+
+    def test_terminal_output_stays_plain_text(self):
+        from rich.syntax import Syntax
+
+        result = render_tool_detail(
+            index=0,
+            tool_name="run_terminal_command",
+            raw_input={"command": "echo hi"},
+            output="hi\n",
+        )
+        bits = list(result.renderables)
+        # Input command is bash Syntax; stdout stays plain Text.
+        cmd_syn = [x for x in bits if isinstance(x, Syntax)]
+        assert cmd_syn
+        cmd_lex = (
+            getattr(cmd_syn[0].lexer, "name", None) or type(cmd_syn[0].lexer).__name__
+        ).lower()
+        assert "bash" in cmd_lex or "shell" in cmd_lex
+        assert any(isinstance(x, Text) and "hi" in x.plain for x in bits)
+
+    def test_python_read_file_output_lexer_from_path(self):
+        from rich.syntax import Syntax
+
+        body = "# module header\nimport os\n\ndef main():\n    return 0\n"
+        result = render_tool_detail(
+            index=1,
+            tool_name="read_file",
+            raw_input={"target_file": "/workspace/pkg/app.py"},
+            output=body,
+            event_type="tool_call_update",
+        )
+        syn = [x for x in result.renderables if isinstance(x, Syntax)]
+        assert syn
+        name = (getattr(syn[-1].lexer, "name", None) or type(syn[-1].lexer).__name__).lower()
+        assert "python" in name
 
     def test_error_tool_call(self):
         result = render_tool_detail(
@@ -346,6 +442,26 @@ class TestRenderEventDetail:
         result = render_event_detail(ev, duration=5.0)
         plain = rich_plain(result)
         assert "run_terminal_command" in plain or "sleep 5" in plain or "5" in plain
+
+    def test_turn_index_in_detail_meta(self):
+        """Selected-event detail shows sequential operator turn in the meta line."""
+        ev = make_trace_event(
+            index=12,
+            event_type="user_message_chunk",
+            content="hello from turn 3",
+            timestamp=1000,
+        )
+        result = render_event_detail(ev, turn_index=3)
+        plain = rich_plain(result)
+        assert "Turn 3" in plain
+        tool = make_trace_event(
+            index=13,
+            event_type="tool_call",
+            tool_name="read_file",
+            raw_input={"target_file": "x.py"},
+        )
+        tool_plain = rich_plain(render_event_detail(tool, turn_index=3))
+        assert "Turn 3" in tool_plain
 
 
 # ── Tool input rendering branches ────────────────────────────────────────
@@ -789,6 +905,38 @@ class TestRenderToolOutputBranches:
             output='{"key":"value","n":1}',
         )
         assert isinstance(result, Group)
+
+    def test_read_file_numbered_prefixes_not_in_highlight(self) -> None:
+        result = render_tool_detail(
+            index=0,
+            tool_name="read_file",
+            raw_input={"target_file": "mod.py"},
+            output="1→from pathlib import Path\n2→import os\n",
+        )
+        plain = rich_plain(result)
+        assert "→" not in plain
+        assert "from pathlib import Path" in plain
+        assert "import os" in plain
+
+    def test_image_gen_output_is_path_text_not_pixels(self) -> None:
+        body = json.dumps(
+            {
+                "path": "/tmp/img.jpg",
+                "filename": "img.jpg",
+                "message": "Image generated and saved to /tmp/img.jpg.",
+            }
+        )
+        result = render_tool_detail(
+            index=0,
+            tool_name="image_gen",
+            raw_input={"prompt": "a mark"},
+            output=body,
+        )
+        plain = rich_plain(result)
+        assert "/tmp/img.jpg" in plain
+        assert "Image generated" in plain
+        assert "PIL" not in plain
+        assert "sixel" not in plain.lower()
 
 
 class TestRenderToolDetailFromEventExitCode:

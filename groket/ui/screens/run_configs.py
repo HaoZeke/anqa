@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Header, Label, Select, SelectionList, Static
+from textual.widgets import Button, DataTable, Label, Select, SelectionList, Static
 
 from groket.models import JsonValue
 
@@ -223,10 +223,9 @@ class RunConfigsScreen(ChromeActions):
                 save()
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        from ..widgets.activity_bar import ActivityBar
+        from ..brand_mark import AppChrome, AppFooter
 
-        yield ActivityBar()
+        yield AppChrome()
         with Vertical():
             yield Static(t("ui-saved-run-configs-recipes-in-runs-run-configs-no"), id="rc-banner")
             yield Static("", id="rc-selection-bar")
@@ -238,7 +237,7 @@ class RunConfigsScreen(ChromeActions):
                 yield Button(t("ui-launch-selected-2"), variant="warning", id="rc-batch")
                 yield Button(t("ui-delete-config"), variant="error", id="rc-delete")
                 yield Button(t("ui-new-in-runner"), id="rc-new")
-        yield Footer()
+        yield AppFooter()
 
     def on_mount(self) -> None:
         table = self.query_one("#rc-table", DataTable)

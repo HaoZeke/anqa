@@ -597,7 +597,6 @@ def test_orchestrator_core_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     o_ok._docker.fail_wait = True
     assert o_ok.wait_for_container("c") == -1
 
-    stop = threading.Event()
     lines: list[str] = []
     for mode in ("str", "bytes", "tuple", "other"):
         o_ok._docker.logs_mode = mode

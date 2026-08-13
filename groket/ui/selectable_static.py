@@ -3,23 +3,42 @@
 Detail panes often hold Markdown / Syntax / Group renderables. Textual's
 default :meth:`Widget.get_selection` only extracts from ``Text`` / ``Content``,
 so mouse selection can fail for rich bodies. This widget keeps a plain-text
-cache (materialized at the pane width) for clipboard yank and selection
-fallback, while **displaying** the original renderable so layout reflows and
-content is not pre-wrapped/clipped at a stale width.
+cache for clipboard yank and selection fallback, while **displaying** the
+original renderable so layout reflows and content is not pre-wrapped/clipped
+at a stale width.
+
+Yank uses a **full** plain extract (no pane-width crop of long lines). Selection
+coordinates use a **layout** plain extract at the widget width so drag offsets
+match the screen.
 """
 
 from __future__ import annotations
 
 from io import StringIO
 
-from rich.console import Console
+from rich.console import Console, Group
+from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.protocol import is_renderable
+from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
 from textual.content import Content
 from textual.selection import Selection
 from textual.visual import VisualType
 from textual.widgets import Static
+
+# Cap console width for full yank of non-source renderables. Very large widths
+# make Rich pad Markdown blank/code lines with spaces (width-long runs) — bad
+# for clipboard. Prefer Markdown.markup / Syntax.code instead of huge consoles.
+_FULL_YANK_WIDTH = 240
+
+
+def _rstrip_lines(plain: str) -> str:
+    """Drop trailing spaces Rich adds when padding to console width."""
+    if not plain:
+        return ""
+    return "\n".join(line.rstrip() for line in plain.splitlines()).rstrip("\n")
 
 
 def materialize_selectable(
@@ -39,16 +58,38 @@ def materialize_selectable(
     if isinstance(renderable, str):
         return renderable, renderable
     if isinstance(renderable, Text):
-        return renderable, renderable.plain
+        plain = _rstrip_lines(renderable.plain)
+        return renderable, plain
     if isinstance(renderable, Content):
-        return renderable, renderable.plain
+        plain = _rstrip_lines(renderable.plain)
+        return renderable, plain
+    # Unwrap layout chrome so we can recover Markdown source / Syntax code.
+    if isinstance(renderable, Padding):
+        return materialize_selectable(renderable.renderable, width=width)
+    # Prefer raw source — Console.print(Markdown) pads lines to *width* with
+    # spaces (catastrophic at large widths); Syntax crops to width.
+    if isinstance(renderable, Markdown):
+        markup = str(getattr(renderable, "markup", None) or "")
+        if markup:
+            return Text(markup), markup
+    if isinstance(renderable, Syntax):
+        code = renderable.code or ""
+        return Text(code), code
+    if isinstance(renderable, Group):
+        plains: list[str] = []
+        for child in getattr(renderable, "renderables", ()) or ():
+            _vis, plain = materialize_selectable(child, width=width)
+            if plain:
+                plains.append(plain)
+        joined = "\n".join(plains)
+        return Text(joined), joined
     if not is_renderable(renderable):
         s = str(renderable)
         return s, s
 
-    w = max(40, int(width) or 100)
+    w = max(40, min(int(width) or 100, 500))
     # Capture to a buffer (not the real TTY). Large height avoids soft-clipping
-    # long Syntax/Markdown bodies to the terminal row count.
+    # long bodies to the terminal row count.
     buf = StringIO()
     console = Console(
         file=buf,
@@ -64,7 +105,7 @@ def materialize_selectable(
     except Exception:
         s = str(renderable)
         return s, s
-    plain = buf.getvalue().rstrip("\n")
+    plain = _rstrip_lines(buf.getvalue())
     if not plain:
         s = str(renderable)
         return s, s
@@ -72,14 +113,19 @@ def materialize_selectable(
     return Text(plain), plain
 
 
-def plain_from_renderable(renderable: object, *, width: int = 100) -> str:
+def plain_from_renderable(renderable: object, *, width: int = 100, full: bool = False) -> str:
     """Best-effort plain text (clipboard / tests).
 
     :param renderable: String, Rich text, or other console-renderable.
-    :param width: Console width for wrapping.
-    :returns: Plain text without ANSI.
+    :param width: Console width for wrapping (layout / selection coords).
+    :param full: When True, use a wider extract for non-source renderables.
+        Markdown/Syntax still prefer raw ``.markup`` / ``.code`` (no pad/crop).
+    :returns: Plain text without ANSI / without width-padding spaces.
     """
-    _visual, plain = materialize_selectable(renderable, width=width)
+    w = max(40, int(width) or 100)
+    if full:
+        w = max(w, _FULL_YANK_WIDTH)
+    _visual, plain = materialize_selectable(renderable, width=w)
     return plain
 
 
@@ -87,8 +133,8 @@ class SelectableStatic(Static):
     """:class:`~textual.widgets.Static` with reliable text selection and yank.
 
     Displays the original rich renderable (so the detail pane reflows and is
-    not pre-truncated). Maintains a plain-text cache for :meth:`get_selection`
-    fallback and full-pane yank.
+    not pre-truncated). Maintains plain-text caches for :meth:`get_selection`
+    (layout width) and :meth:`get_plain_text` (full yank, no line crop).
 
     **Contract:** any body content a human may want to extract from the TUI
     must use this widget (not plain ``Static``). See AGENTS.md §6.5a.
@@ -101,7 +147,11 @@ class SelectableStatic(Static):
     def __init__(self, content: VisualType = "", **kwargs) -> None:  # Textual Static
         super().__init__(content, **kwargs)
         self._source: object = content
+        # Layout-width cache for selection coords (eager). Full yank cache is lazy —
+        # recomputing a 16k-wide Console extract on every summary/report/detail
+        # update made session open and timeline browse feel frozen.
         self._plain_cache: str = plain_from_renderable(content, width=100)
+        self._plain_full: str | None = None
         self._materialize_width: int = 100
 
     def _widget_width(self) -> int:
@@ -121,6 +171,7 @@ class SelectableStatic(Static):
         width = self._widget_width()
         self._materialize_width = width
         self._plain_cache = plain_from_renderable(self._source, width=width)
+        self._plain_full = None  # invalidate; rebuilt on next get_plain_text
 
     def update(self, content: VisualType = "", *, layout: bool = True) -> None:
         """Update display with the original renderable; refresh plain cache."""
@@ -140,15 +191,22 @@ class SelectableStatic(Static):
         self._refresh_plain_cache()
 
     def get_plain_text(self) -> str:
-        """Return the full plain-text cache for the current content."""
-        return self._plain_cache
+        """Return full plain text for clipboard yank (not pane-width cropped).
+
+        Built lazily so display updates (session open, report fill, timeline
+        detail) only pay layout-width materialization cost.
+        """
+        if self._plain_full is None:
+            width = self._widget_width()
+            self._plain_full = plain_from_renderable(self._source, width=width, full=True)
+        return self._plain_full
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         """Extract the dragged region; fall back to plain cache for rich bodies.
 
         Prefer Textual's native extract when the visual is ``Text``/``Content``.
-        For Markdown/Syntax/Group, extract from the plain cache so a drag still
-        yields a region (coordinates track the plain wrap width).
+        For Markdown/Syntax/Group, extract from the layout-width plain cache so a
+        drag still yields a region (coordinates track the plain wrap width).
         """
         try:
             result = super().get_selection(selection)

@@ -21,6 +21,7 @@ def _short_sock(name: str) -> Path:
 @pytest.mark.asyncio
 async def test_second_control_server_raises_socket_in_use() -> None:
     control = import_module("groket.integrations.control")
+    daemon = import_module("groket.integrations.daemon")
     sock = _short_sock("singleton")
     first = control.ControlServer(socket_path=sock)
     second = control.ControlServer(socket_path=sock)
@@ -29,6 +30,8 @@ async def test_second_control_server_raises_socket_in_use() -> None:
         with pytest.raises(control.ControlSocketInUse) as exc_info:
             await second.start()
         assert exc_info.value.socket_path == sock
+        # Owner pid is written into the lock file for serve stop discovery.
+        assert daemon.read_control_lock_pid(sock) == __import__("os").getpid()
     finally:
         await first.close()
 
@@ -71,7 +74,7 @@ async def test_failed_starter_does_not_unlink_live_socket() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tui_continues_when_control_socket_already_owned(tmp_path: Path) -> None:
+async def test_tui_attaches_when_control_socket_already_owned(tmp_path: Path) -> None:
     control = import_module("groket.integrations.control")
     sock = _short_sock("tui-singleton")
     owner = control.ControlServer(socket_path=sock)
@@ -88,13 +91,11 @@ async def test_tui_continues_when_control_socket_already_owned(tmp_path: Path) -
         async with app.run_test(size=(100, 30)) as pilot:
             for _ in range(200):
                 await pilot.pause()
-                server = app._control_server
-                # Soft-fail clears the app handle, or leaves an unstarted server.
-                if server is None or server._server is None:
+                if app.is_control_client():
                     break
             assert app.is_running
-            server = app._control_server
-            assert server is None or server._server is None
+            assert app.is_control_client()
+            assert not app.is_control_owner()
             # Original owner still holds the socket.
             assert sock.exists()
     finally:

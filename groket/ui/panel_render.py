@@ -4,17 +4,16 @@ UI structure (titles, keys, sections, status, tips, lists) uses Rich Text/Rule
 only — never markdown strings. No decorative glyphs; section = bold title +
 dim rule.
 
-**All** tip / info / note / warning / danger / success callouts in the TUI must
-use :class:`TipSurface` (CSS class ``tip-surface`` / ``TIP_SURFACE_CLASS``) so
-``show_tips`` can refresh by widget type or class name — never embed
-:func:`admonition` / :func:`tip_line` inside other ``Static`` trees.
-:func:`admonition` remains the Rich renderer used *only* by TipSurface (and
-unit tests). Prefer full words (events, not ev).
+Guidance roles (do not mash them into one cyan box):
 
-**One TipSurface per guidance role** on a screen/modal: do not repeat the same
-keyboard-shortcut callout at the top *and* on the action bar (e.g. persona
-editor uses a single ``#pe-hint`` under the title). Extra TipSurfaces are fine
-only when the message is different (section-specific vs screen-wide).
+| Role | Widget | When |
+|------|--------|------|
+| Empty pane | :class:`EmptyState` | Section has no data yet (flags, notes, …) |
+| Keyboard tutorial | Footer / ``?`` / palette | Not permanent in-pane callouts |
+| Rare callout | :class:`TipSurface` | Real warning/info that must interrupt |
+
+:class:`TipSurface` is **not** for empty states or permanent shortcut lessons.
+``show_tips`` only affects TipSurface. EmptyState always shows when set.
 
 Markdown payloads (assistant text, plugin reports, MD diffs) use md_content().
 """
@@ -35,7 +34,10 @@ from rich.text import Text
 from textual.widget import Widget
 from textual.widgets import Static
 
+from .keys import format_key_chord
+
 TIP_SURFACE_CLASS = "tip-surface"
+EMPTY_STATE_CLASS = "empty-state"
 
 
 def looks_like_markdown(text: str) -> bool:
@@ -172,19 +174,7 @@ def key_chip(key: str) -> Text:
     ``0 1`` (spaces), transparent background — same look as the app Footer.
     """
     label = (key or "").strip() or "?"
-    display = {
-        "slash": "/",
-        "left_square_bracket": "[",
-        "right_square_bracket": "]",
-        "ctrl+s": "ctrl+s",
-        "ctrl+enter": "ctrl+enter",
-        "space": "space",
-        "enter": "enter",
-        "escape": "esc",
-        "esc": "esc",
-        "[": "[",
-        "]": "]",
-    }.get(label.lower(), label)
+    display = format_key_chord(label)
     style = _footer_key_rich_style()
     t = Text()
     t.append(f" {display} ", style=style)
@@ -349,20 +339,96 @@ def tip_surface_content(message: str, *, kind: str = "tip") -> Text:
     return out
 
 
-class TipSurface(Static):
-    """**Only** UI component for tip/info/note/warning/danger/success callouts.
+class EmptyState(Static):
+    """Quiet empty-pane chrome: one dim line, no border, no ``tip`` badge.
 
+    Use when a section has nothing to show yet (no flags, no notes, no analysis).
+    Not for keyboard tutorials (Footer / ``?``) and not for warnings
+    (:class:`TipSurface`). Always visible when a message is set — independent
+    of ``show_tips``.
+    """
+
+    DEFAULT_CSS = """
+    EmptyState {
+        height: auto;
+        width: 100%;
+        max-width: 100%;
+        margin: 0 0 1 0;
+        padding: 0 1;
+        color: $text-muted;
+        border: none;
+        background: transparent;
+    }
+    EmptyState.empty-state-hidden {
+        display: none;
+        height: 0;
+        margin: 0;
+        padding: 0;
+    }
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        id: str | None = None,
+        classes: str | None = None,
+        disabled: bool = False,
+        name: str | None = None,
+    ) -> None:
+        self._empty_message = (message or "").strip()
+        extra = EMPTY_STATE_CLASS
+        if classes:
+            for part in str(classes).split():
+                if part and part != EMPTY_STATE_CLASS:
+                    extra = f"{extra} {part}"
+        super().__init__(
+            self._render_body(),
+            id=id,
+            classes=extra,
+            disabled=disabled,
+            name=name,
+        )
+        self._sync_hidden()
+
+    def set_message(self, message: str) -> None:
+        """Show *message* as dim empty chrome, or hide when empty."""
+        self._empty_message = (message or "").strip()
+        self._sync_hidden()
+        with suppress(Exception):
+            self.update(self._render_body())
+
+    def clear_message(self) -> None:
+        """Hide this empty state."""
+        self.set_message("")
+
+    def _render_body(self) -> Text:
+        if not self._empty_message:
+            return Text("")
+        t = Text()
+        _append_tip_body(t, self._empty_message, body_style="dim")
+        return t
+
+    def _sync_hidden(self) -> None:
+        hidden = not self._empty_message
+        with suppress(Exception):
+            if hidden:
+                self.add_class("empty-state-hidden")
+            else:
+                self.remove_class("empty-state-hidden")
+
+
+class TipSurface(Static):
+    """Framed callout for **rare** info/warning/success that must interrupt.
+
+    Prefer :class:`EmptyState` for empty panes and Footer / ``?`` for keys.
     Always has CSS class ``tip-surface`` (``TIP_SURFACE_CLASS``). Toggle
     ``show_tips`` by querying this class/widget type — never embed
     :func:`admonition` / :func:`tip_line` inside other ``Static`` / ``Text`` trees.
 
-    Frame is **CSS border** (width-adaptive). Content is :func:`tip_surface_content`
-    (not fixed-width box-drawing from :func:`admonition`).
+    Frame is **CSS border** (width-adaptive). Content is :func:`tip_surface_content`.
 
     Use ``kind=`` for admonition flavour (``tip``, ``info``, ``note``, …).
-
-    **One TipSurface per guidance role** on a screen/modal: do not repeat the same
-    keyboard-shortcut callout at the top *and* on the action bar.
     """
 
     DEFAULT_CSS = """

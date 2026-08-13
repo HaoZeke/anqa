@@ -6,12 +6,16 @@ import json
 import logging
 import os
 import re
+import threading
+from concurrent.futures import Future
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 from .constants import INCOMPLETE_STALE_SECONDS, INTERRUPTED_MARKER_FILENAME
+from .core_scan import keep_updates_line as keep_updates_line_native
+from .core_scan import keep_updates_line_py
 from .models import (
     ChatMessage,
     JsonObject,
@@ -24,7 +28,10 @@ from .models import (
     as_json_object,
     json_as_str,
 )
+from .native import find_sessions as native_find_sessions
+from .native import skip_dir_name
 from .paths import RUN_PREFIXES, is_run_dir_name, strip_run_prefix
+from .tool_display import web_search_from_raw_output
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +105,25 @@ class _UpdatesScanState:
 
 
 _timeline_cache: dict[str, tuple[TimelineStamp, list[TraceEvent], _UpdatesScanState | None]] = {}
+# In-flight parse keyed by session cache_key only (not stamp). Incremental
+# scans mutate shared ``_UpdatesScanState`` in place; only one body may run
+# per session at a time. Waiters re-check stamp after the flight finishes.
+_timeline_inflight: dict[str, Future[list[TraceEvent]]] = {}
+_timeline_inflight_lock = threading.Lock()
 # events.jsonl path -> (mtime_ns, size, markers, turn_outcome, loop_count)
 _runtime_markers_cache: dict[str, tuple[int, int, list[TraceEvent], str, int]] = {}
+# events.jsonl path -> (mtime_ns, size, turn_outcome, loop_count, open_after_completed)
+_list_runtime_cache: dict[str, tuple[int, int, str, int, bool]] = {}
+_LIST_MARKER_NEEDLES = (
+    '"turn_started"',
+    '"turn_ended"',
+    '"loop_started"',
+    '"session_error"',
+    '"turn_error"',
+    '"fatal_error"',
+    '"type":"error"',
+    '"type": "error"',
+)
 
 # Wrapper tool ids whose real target lives in ``rawInput.tool_name`` (MCP bridge).
 # Compare with :func:`_tool_id_key` so ``use-tool`` / ``UseTool`` match ``use_tool``.
@@ -314,6 +338,93 @@ def parse_runtime_markers(session_dir: Path) -> tuple[list[TraceEvent], str, int
     return markers, turn_outcome, loop_count
 
 
+def _line_may_be_list_marker(line: str) -> bool:
+    """True when *line* might be a turn/loop/error marker (skip fat tool JSON)."""
+    return any(needle in line for needle in _LIST_MARKER_NEEDLES)
+
+
+def _apply_list_runtime_event(
+    ev: JsonObject,
+    turn_outcome: str,
+    loop_count: int,
+    open_starts: int,
+    ended: int,
+) -> tuple[str, int, int, int]:
+    """Fold one events.jsonl object into list-status counters."""
+    et = ev.get("type") or ""
+    if et == "turn_started":
+        return turn_outcome, loop_count, open_starts + 1, ended
+    if et == "turn_ended":
+        return (
+            str(ev.get("outcome") or ev.get("status") or "unknown"),
+            loop_count,
+            max(0, open_starts - 1),
+            ended + 1,
+        )
+    if et == "loop_started":
+        try:
+            li = ev.get("loop_index", 0)
+            n = int(li) + 1 if isinstance(li, (int, float, str)) else 0
+        except (TypeError, ValueError):
+            n = 0
+        return turn_outcome, max(loop_count, n), open_starts, ended
+    if et in ("error", "session_error", "turn_error", "fatal_error") and not turn_outcome:
+        return "error", loop_count, open_starts, ended
+    return turn_outcome, loop_count, open_starts, ended
+
+
+def _list_runtime_status(session_dir: Path) -> tuple[str, int, bool]:
+    """Home-list turn status from ``events.jsonl`` in one pass.
+
+    Returns ``(turn_outcome, loop_count, open_after_completed)``. Does not
+    build marker events. Lines that cannot be turn/loop/error markers are
+    not JSON-parsed (those are the multi‑MB tool payloads).
+    """
+    events_file = session_dir / "events.jsonl"
+    try:
+        if not events_file.is_file():
+            return "", 0, False
+        st = events_file.stat()
+        mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+        size = int(st.st_size)
+        cache_key = str(events_file.resolve())
+    except OSError:
+        return "", 0, False
+
+    cached = _list_runtime_cache.get(cache_key)
+    if cached is not None and cached[0] == mtime_ns and cached[1] == size:
+        return cached[2], cached[3], cached[4]
+
+    turn_outcome = ""
+    loop_count = 0
+    open_starts = 0
+    ended = 0
+    try:
+        with events_file.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not _line_may_be_list_marker(line):
+                    continue
+                ev = json_object_line(line)
+                if ev is None:
+                    continue
+                turn_outcome, loop_count, open_starts, ended = _apply_list_runtime_event(
+                    ev, turn_outcome, loop_count, open_starts, ended
+                )
+    except OSError:
+        return "", 0, False
+
+    open_after = ended > 0 and open_starts > 0
+    _list_runtime_cache[cache_key] = (mtime_ns, size, turn_outcome, loop_count, open_after)
+    return turn_outcome, loop_count, open_after
+
+
+def _session_has_turn_gate(session_dir: Path) -> bool:
+    """True when this session's traces volume has a ``.groket-turn`` directory."""
+    from .session.turn_gate import turn_gate_dirs_for_session
+
+    return bool(turn_gate_dirs_for_session(session_dir))
+
+
 def _stringify_tool_payload(value: object) -> str:
     """Turn a tool output field into display text (str, MCP wrappers, JSON)."""
     if value is None:
@@ -374,7 +485,21 @@ def _extract_raw_output_text(raw_output: object) -> str:
         text = _stringify_tool_payload(raw_output.get(key))
         if text:
             return text
-    return ""
+    action_text, _query, _url = web_search_from_raw_output(raw_output)
+    return action_text
+
+
+def _merge_search_into_bag(bag: ToolInputBag, query: str, url: str = "") -> ToolInputBag:
+    """Copy *bag* and set ``query`` / ``url`` when the host left rawInput empty."""
+    data = bag.raw()
+    changed = False
+    if query.strip() and not json_as_str(data.get("query")).strip():
+        data["query"] = query.strip()
+        changed = True
+    if url.strip() and not json_as_str(data.get("url")).strip():
+        data["url"] = url.strip()
+        changed = True
+    return ToolInputBag(data) if changed else bag
 
 
 def _apply_tool_result_meta(tc: ToolCall, update: dict) -> None:
@@ -382,6 +507,9 @@ def _apply_tool_result_meta(tc: ToolCall, update: dict) -> None:
     raw_output = update.get("rawOutput")
     if isinstance(raw_output, dict):
         body = _extract_raw_output_text(raw_output)
+        _action_body, query, page_url = web_search_from_raw_output(raw_output)
+        if query or page_url:
+            tc.raw_input = _merge_search_into_bag(tc.inputs(), query, page_url)
         if body:
             ofp = (
                 raw_output.get("output_for_prompt")
@@ -557,9 +685,13 @@ def _coalesce_tool_result(
     is_error = update.get("isError")
     status = update.get("status", "")
     result_text = _extract_tool_update_text(update.get("content", ""))
+    raw_output = update.get("rawOutput")
     # MCP and some host tools put the body only in rawOutput (content is null).
     if not result_text:
-        result_text = _extract_raw_output_text(update.get("rawOutput"))
+        result_text = _extract_raw_output_text(raw_output)
+    search_body, search_query, search_url = web_search_from_raw_output(raw_output)
+    if search_body and (not result_text or result_text.strip() in ("", "{}")):
+        result_text = search_body
     failed = is_error is True or status == "failed"
     terminal = failed or status in ("completed", "failed")
 
@@ -567,10 +699,23 @@ def _coalesce_tool_result(
         return idx
 
     tool_name = ""
+    call_input = ToolInputBag()
     if call_id in pending_tools:
-        tool_name = pending_tools[call_id].tool_name
+        pending = pending_tools[call_id]
+        tool_name = pending.tool_name
+        if search_query or search_url:
+            pending.raw_input = _merge_search_into_bag(
+                pending.raw_input
+                if isinstance(pending.raw_input, ToolInputBag)
+                else ToolInputBag(),
+                search_query,
+                search_url,
+            )
+        call_input = (
+            pending.raw_input if isinstance(pending.raw_input, ToolInputBag) else ToolInputBag()
+        )
         if failed:
-            pending_tools[call_id].is_error = True
+            pending.is_error = True
 
     if call_id in result_by_call:
         ev = events[result_by_call[call_id]]
@@ -583,6 +728,8 @@ def _coalesce_tool_result(
             ev.is_error = True
         if tool_name and not ev.tool_name:
             ev.tool_name = tool_name
+        if call_input.raw() and not ev.raw_input.raw():
+            ev.raw_input = call_input
     elif result_text or failed:
         ev = TraceEvent(
             index=idx,
@@ -591,6 +738,7 @@ def _coalesce_tool_result(
             content=result_text,
             tool_call_id=call_id,
             tool_name=tool_name,
+            raw_input=call_input,
             is_error=failed,
             update_index=line_no,
         )
@@ -697,27 +845,8 @@ def _merge_fork_parent_timeline(
     return merged
 
 
-def parse_timeline(session_dir: Path) -> list[TraceEvent]:
-    """Parse updates.jsonl (+ events.jsonl turn markers) into a linear timeline.
-
-    Streaming ``tool_call_update`` events (e.g. every ``CC`` line from a long
-    ``make``) are coalesced into a **single** ``tool_result`` row per
-    ``toolCallId``.  Earlier versions appended one row per update, which made
-    builds look like hundreds of separate terminal runs in the TUI.
-
-    Runtime markers from ``events.jsonl`` (``turn_started`` / ``turn_ended`` /
-    errors) are merged with update rows and **ordered by timestamp** (then
-    original index) so multi-turn sessions do not pile all starts at the top
-    and all ends at the bottom.
-
-    Fork-resume children also inherit the seeded parent timeline (see
-    :func:`~groket.session.resume.fork_parent_session_dir`): Grok often writes
-    only the new turn into the child session dir.
-
-    Results are cached by :func:`session_timeline_stamp` (not signals.json) so
-    live context heartbeats do not re-read multi‑MB ``updates.jsonl``. When the
-    file only grows, new lines are scanned incrementally.
-    """
+def _timeline_stamp_for(session_dir: Path) -> tuple[str, TimelineStamp]:
+    """Return ``(cache_key, stamp)`` for *session_dir* (includes fork parent)."""
     sd = Path(session_dir)
     cache_key = str(sd.resolve()) if sd.exists() else str(sd)
     from .session.resume import fork_parent_session_dir
@@ -732,7 +861,16 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
             stamp[2],
             stamp[3],
         )
+    return cache_key, stamp
+
+
+def _parse_timeline_body(
+    session_dir: Path, cache_key: str, stamp: TimelineStamp
+) -> list[TraceEvent]:
+    """Run the uncached parse path and store the result (caller owns single-flight)."""
+    sd = Path(session_dir)
     cached = _timeline_cache.get(cache_key)
+    # Another flight may have filled the cache while we waited for the lock.
     if cached is not None and cached[0] == stamp:
         return cached[1]
 
@@ -753,17 +891,79 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
     return out
 
 
+def parse_timeline(session_dir: Path) -> list[TraceEvent]:
+    """Parse updates.jsonl (+ events.jsonl turn markers) into a linear timeline.
+
+    Streaming ``tool_call_update`` events (e.g. every ``CC`` line from a long
+    ``make``) are coalesced into a **single** ``tool_result`` row per
+    ``toolCallId``.  Earlier versions appended one row per update, which made
+    builds look like hundreds of separate terminal runs in the TUI.
+
+    Runtime markers from ``events.jsonl`` (``turn_started`` / ``turn_ended`` /
+    errors) are merged with update rows and **ordered by timestamp** (then
+    original index) so multi-turn sessions do not pile all starts at the top
+    and all ends at the bottom.
+
+    Fork-resume children also inherit the seeded parent timeline (see
+    :func:`~groket.session.resume.fork_parent_session_dir`): Grok often writes
+    only the new turn into the child session dir.
+
+    Results are cached by :func:`session_timeline_stamp` (not signals.json) so
+    live context heartbeats do not re-read multi‑MB ``updates.jsonl``. When the
+    file only grows, new lines are scanned incrementally.
+
+    Concurrent callers for the same session **join one in-flight parse**
+    (single-flight) so the control owner does not thrash the same multi‑MB file
+    in parallel under HUD overview+timeline+poll pile-ups. Flight is per
+    session path (not stamp) because the incremental scan mutates shared
+    scan state; after a flight completes, waiters re-check the stamp.
+    """
+    # Loop: join any in-flight body, then re-check stamp (file may have grown).
+    while True:
+        cache_key, stamp = _timeline_stamp_for(session_dir)
+        cached = _timeline_cache.get(cache_key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+
+        owner = False
+        with _timeline_inflight_lock:
+            fut = _timeline_inflight.get(cache_key)
+            if fut is None:
+                fut = Future()
+                _timeline_inflight[cache_key] = fut
+                owner = True
+
+        if not owner:
+            # Wait for the owner, then re-check cache/stamp (may need another pass).
+            fut.result()
+            continue
+
+        try:
+            out = _parse_timeline_body(session_dir, cache_key, stamp)
+        except Exception as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        else:
+            fut.set_result(out)
+            return out
+        finally:
+            with _timeline_inflight_lock:
+                if _timeline_inflight.get(cache_key) is fut:
+                    del _timeline_inflight[cache_key]
+
+
 # Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative
 # shell output). Skip full JSON parse unless the line looks terminal.
-_TU_BYTES = b"tool_call_update"
-_TERM_BYTES = (
-    b'"status":"completed"',
-    b'"status": "completed"',
-    b'"status":"failed"',
-    b'"status": "failed"',
-    b'"isError":true',
-    b'"isError": true',
-)
+# Needles live in :mod:`groket.core_scan` (Python twin + optional Rust leaf).
+
+
+def _keep_updates_line(line: bytes) -> bool:
+    """True when *line* should be JSON-parsed."""
+    native = keep_updates_line_native(line)
+    if native is not None:
+        return native
+    return keep_updates_line_py(line)
 
 
 def _scan_updates_jsonl(session_dir: Path, previous: _UpdatesScanState | None) -> _UpdatesScanState:
@@ -818,7 +1018,7 @@ def _scan_updates_jsonl(session_dir: Path, previous: _UpdatesScanState | None) -
 
 def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -> None:
     """Apply one complete ``updates.jsonl`` line into *state*."""
-    if _TU_BYTES in line and not any(m in line for m in _TERM_BYTES):
+    if not _keep_updates_line(line):
         return
 
     raw = json_object_line(line)
@@ -1596,22 +1796,42 @@ def load_session_meta_list(
 ) -> SessionMeta:
     """Metadata for the sessions home list.
 
-    Host rows: summary + signals only (no ``events.jsonl``). Eval rows: light
-    meta including turn markers, without coalesced timeline parse.
+    Reads ``summary.json`` / ``signals.json`` and one cheap ``events.jsonl``
+    pass for turn status. Does not parse ``updates.jsonl``, does not build
+    marker events, and does not consult the turn gate unless a gate directory
+    exists (eval sessions). Missing ``events.jsonl`` is fine.
     """
     origin_key = (origin or "work").strip().lower() or "work"
-    if origin_key == "host":
-        meta = SessionMeta(
-            session_id=Path(session_dir).name,
-            session_dir=Path(session_dir),
-            origin="host",
-        )
-        _load_summary(meta, Path(session_dir))
-        _load_signals(meta, Path(session_dir))
-        if not meta.num_events and meta.num_messages:
-            meta.num_events = int(meta.num_messages)
-        return meta
-    meta = load_session_meta(session_dir, include_timeline_count=False)
+    meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
+    _load_summary(meta, session_dir)
+    _load_signals(meta, session_dir)
+    outcome, loop_count, open_after = _list_runtime_status(session_dir)
+    if outcome:
+        meta.turn_outcome = outcome
+    if loop_count:
+        meta.loop_count = loop_count
+    if not meta.turn_outcome:
+        inferred = _infer_incomplete_turn_outcome(session_dir)
+        if inferred:
+            meta.turn_outcome = inferred
+    if _session_has_turn_gate(session_dir):
+        try:
+            override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
+            if override is not None:
+                meta.turn_outcome = override
+            elif open_after:
+                meta.turn_outcome = "running"
+        except Exception:
+            logger.debug("turn gate status for list %s", session_dir, exc_info=True)
+            if open_after:
+                meta.turn_outcome = "running"
+    elif open_after:
+        meta.turn_outcome = "running"
+    if meta.turn_failed and not meta.error_count:
+        meta.error_count = max(meta.error_count, 1)
+    if not meta.num_events and meta.num_messages:
+        meta.num_events = int(meta.num_messages)
+    _load_run_meta(meta, session_dir)
     meta.origin = origin_key
     return meta
 
@@ -1941,65 +2161,61 @@ def _model_from_run_parent(session_dir: Path) -> str:
     return ""
 
 
-# Host staging / noise under traces/ — never real Grok session dirs.
-_SKIP_SESSION_WALK_DIRS = frozenset(
-    {
-        "groket-plugins",
-        "groket-skills",
-        "subagents",
-        ".git",
-        "node_modules",
-        "__pycache__",
-        ".venv",
-        "venv",
-        # Resume history substrate (see :mod:`groket.session.resume`).
-        ".groket-resume-seed",
-        # Parent /workspace tree for fork restore.
-        ".groket-workspace-seed",
-    }
-)
-
-
 def _prune_session_walk_dirs(dirnames: list[str]) -> None:
     """In-place: do not descend into eval staging, subagent trees, or VCS noise.
 
     Container dirs are named ``groket-<id>-<model>`` and **must** be walked;
     only explicit staging folder names are skipped.
     """
-    kept: list[str] = []
-    for d in dirnames:
-        if d in _SKIP_SESSION_WALK_DIRS:
-            continue
-        # Sibling stage dir: traces/groket-foo-model.stage/
-        if d.endswith(".stage"):
-            continue
-        kept.append(d)
-    dirnames[:] = kept
+    dirnames[:] = [d for d in dirnames if not skip_dir_name(d)]
+
+
+def _native_hit_is_listed(root: Path, path: Path) -> bool:
+    """Apply the Python walk policy to one native ``find_sessions`` hit."""
+    # session/__init__ imports sources, which import find_sessions.
+    from .session.resume import is_resume_seed_path
+
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        rel = path
+    if any(skip_dir_name(part) for part in rel.parts):
+        return False
+    if _is_subagent_session_dir(path):
+        return False
+    return not is_resume_seed_path(path)
 
 
 def _is_subagent_session_dir(path: Path) -> bool:
-    """True for Grok subagent traces (not operator-facing list rows).
+    """True when *path* is under a ``subagents`` segment (nested Grok subagent)."""
+    return "subagents" in path.parts
 
-    Subagents appear as ``<parent>/subagents/<id>`` and are often mirrored as
-    sibling dirs under the same workspace token with full session artifacts.
+
+def _drop_subagent_mirror_sessions(sessions: list[Path]) -> list[Path]:
+    """Remove workspace sibling mirrors of ``parent/subagents/<id>`` trees.
+
+    Nested ``…/subagents/<id>`` dirs are already skipped during the walk. Mirrors
+    are full session dirs next to the parent with the same id — drop those by
+    collecting ids under each kept session's ``subagents/`` (O(sessions), not
+    O(sessions²) sibling probing during the walk).
     """
-    parts = path.parts
-    if "subagents" in parts:
-        return True
-    parent = path.parent
-    name = path.name
-    if not name or not parent.is_dir():
-        return False
-    try:
-        for sib in parent.iterdir():
-            if not sib.is_dir() or sib.name == name:
-                continue
-            marker = sib / "subagents" / name
-            if marker.exists():
-                return True
-    except OSError:
-        return False
-    return False
+    if not sessions:
+        return sessions
+    drop: set[Path] = set()
+    for session in sessions:
+        sub_root = session / "subagents"
+        if not sub_root.is_dir():
+            continue
+        try:
+            with os.scandir(sub_root) as it:
+                for ent in it:
+                    if ent.is_dir(follow_symlinks=False):
+                        drop.add(session.parent / ent.name)
+        except OSError:
+            continue
+    if not drop:
+        return sessions
+    return [s for s in sessions if s not in drop]
 
 
 def _looks_like_session_dir(path: Path, filenames: set[str]) -> bool:
@@ -2023,20 +2239,34 @@ def find_sessions(root: Path) -> list[Path]:
     Skips eval staging trees (``groket-plugins``, ``groket-skills``, ``*.stage``,
     ``.groket-resume-seed``), Grok subagent sessions, and live paths that are
     only symlinks into resume substrate (see :mod:`groket.session.resume`).
-    """
-    from .session.resume import is_resume_seed_path
 
+    Once a session dir is recognized, the walk does **not** descend into it
+    (workspaces under a session are not nested sessions). Descending was the
+    dominant cost on large ``~/.grok/sessions`` trees (tens of seconds).
+    """
     sessions: list[Path] = []
     if not root.exists():
         return sessions
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+    native = native_find_sessions(root)
+    if native is not None:
+        sessions = [path for path in native if _native_hit_is_listed(root, path)]
+        return _drop_subagent_mirror_sessions(sessions)
+    # session/__init__ imports sources, which import find_sessions.
+    from .session.resume import is_resume_seed_path
+
+    # followlinks=False avoids symlink cycles into huge trees from host sessions.
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         _prune_session_walk_dirs(dirnames)
         path = Path(dirpath)
         if _is_subagent_session_dir(path):
+            dirnames.clear()
             continue
         # Resume substrate (.groket-resume-seed/…) or live symlink into it.
         if is_resume_seed_path(path):
+            dirnames.clear()
             continue
         if _looks_like_session_dir(path, set(filenames)):
             sessions.append(path)
-    return sessions
+            # Do not walk workspace / build trees inside a session.
+            dirnames.clear()
+    return _drop_subagent_mirror_sessions(sessions)

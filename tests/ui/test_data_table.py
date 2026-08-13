@@ -6,6 +6,7 @@ import pytest
 from groket.ui.data_table import (
     cursor_row_key,
     preserving_cursor,
+    preserving_scroll,
     restore_cursor,
     selection_mark,
     set_selection_marker,
@@ -69,6 +70,26 @@ async def test_restore_cursor_missing_key_is_safe():
         table.add_row("only", key="only")
         assert restore_cursor(table, "gone") is False
         assert restore_cursor(table, "only") is True
+
+
+@pytest.mark.asyncio
+async def test_preserving_scroll_keeps_horizontal_offset():
+    app = _TableApp()
+    async with app.run_test(size=(40, 12)) as pilot:
+        table = app.query_one("#t", DataTable)
+        style_data_table(table)
+        table.add_columns("name", "wide")
+        table.add_row("a", "x" * 80, key="a")
+        table.add_row("b", "y" * 80, key="b")
+        await pilot.pause()
+        table.scroll_x = 14
+        table.scroll_y = 0
+        with preserving_scroll(table):
+            table.clear()
+            table.add_row("a", "x" * 80, key="a")
+            table.add_row("b", "y" * 80, key="b")
+        await pilot.pause()
+        assert table.scroll_x == 14
 
 
 # ── Cell updates and marker columns ──────────────────────────────────────

@@ -133,10 +133,58 @@ def test_populate_session_table_shows_unanalyzed_rows(tmp_path: Path):
     host._populate_session_table_inner()
     assert len(rows_added) == 1
     cells, key = rows_added[0]
-    # after sel, origin, id, model, task, title, turn, dur, context, events → findings
-    assert str(cells[10]) == "--"
-    assert str(cells[8]) == "—"  # no context telemetry on this stub meta
+    # sel, src, title, model, status, duration, context, events, findings
+    assert len(cells) == 9
+    assert str(cells[6]) == "—"  # no context telemetry on this stub meta
+    assert str(cells[8]) == "--"
     assert key == str(meta.session_dir)
+
+
+@pytest.mark.asyncio
+async def test_home_table_omits_task_id_and_path_label(tmp_path: Path):
+    """Home list shows status + findings, not batch task id or path label."""
+    from groket.ui.app import TraceEvalApp
+    from groket.ui.i18n import t
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_minimal_session(traces, "sess-cols")
+    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    async with app.run_test(size=(140, 30)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        table = app.query_one("#session-table", DataTable)
+        await wait_until(pilot, lambda: table.row_count >= 1, description="session rows populated")
+        headers = [str(col.label) for col in table.columns.values()]
+        assert t("ui-task") not in headers
+        assert t("ui-label") not in headers
+        assert t("ui-session-id") not in headers
+        assert t("ui-title") in headers
+        assert t("ui-status") in headers
+        assert t("ui-findings-1") in headers
+        assert t("ui-high-1") not in headers
+        assert t("ui-med") not in headers
+
+
+@pytest.mark.asyncio
+async def test_home_table_populate_keeps_horizontal_scroll(tmp_path: Path):
+    """Live repaint must not snap scroll_x back to 0."""
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_minimal_session(traces, "sess-scroll")
+    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    async with app.run_test(size=(50, 24)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        table = app.query_one("#session-table", DataTable)
+        await wait_until(pilot, lambda: table.row_count >= 1, description="session rows populated")
+        table.scroll_x = 9
+        meta, label = app._meta_only[0]
+        meta.duration_seconds = float(meta.duration_seconds or 0) + 12
+        app._meta_only[0] = (meta, label)
+        app._populate_session_table()
+        await pilot.pause()
+        assert table.scroll_x == 9
 
 
 @pytest.mark.asyncio
@@ -183,9 +231,6 @@ def test_fill_timeline_counts_ignores_stale_indices(tmp_path: Path) -> None:
     from groket.models import SessionMeta
     from groket.ui.app import TraceEvalApp
 
-    work = tmp_path / "work"
-    work.mkdir()
-    app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
     meta = SessionMeta(session_id="s", session_dir=tmp_path / "s", origin="work")
     rows = [(meta, "lab")]
     # Out-of-range and valid indices — only valid apply.
@@ -304,3 +349,22 @@ async def test_host_footer_label_flips_with_h(tmp_path: Path) -> None:
         await pilot.pause()
         assert show_host_sessions_enabled() is False
         assert _host_desc() == t("bind-show-host")
+
+
+def test_tui_control_client_uses_heavy_rpc_timeout(tmp_path: Path) -> None:
+    from groket.integrations.control_client import HEAVY_RPC_TIMEOUT
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = TraceEvalApp(
+        work_dir=work,
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    client = app.control_client()
+    assert client is not None
+    assert client.timeout == HEAVY_RPC_TIMEOUT

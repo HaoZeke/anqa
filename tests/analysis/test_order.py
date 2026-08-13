@@ -82,6 +82,11 @@ def test_sort_prefers_extras_turn_over_event() -> None:
 
 
 def test_sort_via_tool_call_id_when_no_event_indices() -> None:
+    """Tool-call anchors map to chronological display turns (segment order).
+
+    Harness ``turn_number`` may skip or reorder; findings sort by sequential
+    turn_index after segmentation (first segment first).
+    """
     timeline = [
         TraceEvent(index=0, event_type="session", content="Turn started turn_number=5"),
         TraceEvent(index=1, event_type="tool_call", tool_name="bash", tool_call_id="c-late"),
@@ -93,7 +98,7 @@ def test_sort_via_tool_call_id_when_no_event_indices() -> None:
     a = _finding("via-late", tool_call_ids=["c-late"])
     b = _finding("via-early", tool_call_ids=["c-early"])
     ordered = sort_findings_by_turn([a, b], timeline)
-    assert [f.id for f in ordered] == ["via-early", "via-late"]
+    assert [f.id for f in ordered] == ["via-late", "via-early"]
 
 
 def test_sort_empty() -> None:

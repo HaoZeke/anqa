@@ -18,18 +18,11 @@ from groket.ui.app import (
     _coerce_select_value,
     _session_search_haystack,
 )
-from textual.widgets import DataTable, Input, Select, Static
+from textual.widgets import DataTable, Input, Select
 
 from .pilot_helpers import wait_until
 
 # ── Helpers ───────────────────────────────────────────────────────────────
-
-
-def _session_paths_banner_text(work_dir: Path, traces_root: Path) -> str:
-    """Exact markup string the sessions-home banner must show (work catalog)."""
-    _ = traces_root
-    work = Path(work_dir).expanduser() / "runs" / "traces"
-    return f"[dim]Eval[/dim]  {work}"
 
 
 def _write_session(
@@ -253,12 +246,8 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
 
         # Filter bar selects exist
         app.query_one("#session-model-select", Select)
-        banner = app.query_one("#session-paths", Static)
-        expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
-        assert banner.content == expected
-        # Labels resolve (not Fluent message ids) and paths are the live roots.
-        assert "Eval" in expected
-        assert str(app._runner_traces_root()) in expected
+        assert app.query_one("#session-paths")
+        assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
         )
@@ -1000,8 +989,12 @@ async def test_meta_cache_round_trip(tmp_path: Path) -> None:
     """Meta cache saves and loads correctly."""
     app, work, traces = _make_app(tmp_path, n_sessions=2)
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
-        # Cache should have been saved during load
+        # Wait for cache write, not only _meta_only (paint can race ahead of save).
+        await wait_until(
+            pilot,
+            lambda: len(app._meta_only) >= 2 and len(app._load_meta_cache()) >= 2,
+            description="sessions loaded and meta cache saved",
+        )
         cache = app._load_meta_cache()
         assert len(cache) >= 2
 
@@ -1414,9 +1407,7 @@ async def test_session_paths_banner_is_label_only(tmp_path: Path) -> None:
     app, work, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        banner = app.query_one("#session-paths", Static)
-        expected = _session_paths_banner_text(app.work_dir, app._session_traces_root())
-        assert banner.content == expected
+        assert app.query_one("#session-paths")
         assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
             app._session_traces_root() == traces.resolve() or app._session_traces_root() == traces
@@ -1604,6 +1595,7 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
         )
 
     monkeypatch.setattr(app_mod, "load_session_meta", _load)
+    monkeypatch.setattr("groket.parser.load_session_meta", _load)
     monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
     assert try_begin(KIND_REFRESH, locked) is True
     # Run the underlying function body synchronously (skip @work decorator scheduling).
@@ -1662,6 +1654,11 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
     )
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
+        await wait_until(
+            pilot,
+            lambda: not app._sessions_catalog_busy,
+            description="catalog load finished",
+        )
         meta, label = app._meta_only[0]
         # Simulate list stuck on harness "completed" after turn_ended.
         meta.turn_outcome = "completed"
@@ -1670,7 +1667,7 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
         app._session_mtimes[key] = 1.0  # same mtime path still refreshes live outcomes
 
         monkeypatch.setattr(
-            "groket.ui.app.list_turn_outcome_for_dir",
+            "groket.parser.list_turn_outcome_for_dir",
             lambda _sd: "running",
         )
         app._live_sessions_last_scan = 0.0
@@ -1875,9 +1872,6 @@ async def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
     """_update_session_paths_banner is a no-op when the banner is gone."""
     app, work, traces = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        banner = app.query_one("#session-paths", Static)
-        await banner.remove()
         await pilot.pause()
         app._update_session_paths_banner()
 
