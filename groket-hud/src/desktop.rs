@@ -252,16 +252,24 @@ fn send_blocking(notice: &DesktopNotice) -> Result<(), String> {
     if let Some(path) = icon_file() {
         n.icon(&path);
     }
-    n.urgency(match notice.urgency {
-        UrgencyKind::Low => notify_rust::Urgency::Low,
-        UrgencyKind::Normal => notify_rust::Urgency::Normal,
-        UrgencyKind::Critical => notify_rust::Urgency::Critical,
-    });
+    // macOS notify-rust only exposes urgency with the preview-macos-un feature.
+    #[cfg(not(target_os = "macos"))]
+    {
+        n.urgency(match notice.urgency {
+            UrgencyKind::Low => notify_rust::Urgency::Low,
+            UrgencyKind::Normal => notify_rust::Urgency::Normal,
+            UrgencyKind::Critical => notify_rust::Urgency::Critical,
+        });
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = notice.urgency;
+    }
     n.show().map(|_| ()).map_err(|e| e.to_string())
 }
 
 fn icon_file() -> Option<String> {
-    let home = std::env::var_os("HOME")?;
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let path = std::path::PathBuf::from(home)
         .join(".groket")
         .join("hud-notify.png");

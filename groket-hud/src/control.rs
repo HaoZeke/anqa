@@ -2,14 +2,18 @@
 
 use serde_json::{json, Value};
 use std::env;
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[cfg(unix)]
+use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::path::Path;
+#[cfg(unix)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 static RPC_STREAM: Mutex<Option<std::os::unix::net::UnixStream>> = Mutex::new(None);
@@ -24,6 +28,7 @@ pub fn set_notify_wake(tx: std::sync::mpsc::SyncSender<()>) {
     }
 }
 
+#[cfg(unix)]
 fn ping_notify_wake() {
     if let Ok(slot) = NOTIFY_WAKE.lock() {
         if let Some(tx) = slot.as_ref() {
@@ -33,12 +38,17 @@ fn ping_notify_wake() {
 }
 
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).
+#[cfg(unix)]
 const REQUEST_BUDGET: Duration = Duration::from_secs(30);
+#[cfg(unix)]
 const CONNECT_BUDGET: Duration = Duration::from_secs(5);
+#[cfg(unix)]
 const RETRY_INITIAL_SLEEP: Duration = Duration::from_millis(25);
+#[cfg(unix)]
 const RETRY_MAX_SLEEP: Duration = Duration::from_millis(250);
 /// Large catalogs (hundreds of sessions) can take >10s on cold disk; macOS
 /// surfaces SO_RCVTIMEO expiry as EAGAIN (os error 35).
+#[cfg(unix)]
 const IO_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Error)]
@@ -79,7 +89,9 @@ pub fn default_socket_path() -> PathBuf {
 }
 
 fn dirs_home() -> Option<PathBuf> {
-    env::var_os("HOME").map(PathBuf::from)
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 /// Transient socket failures that succeed on a short retry.
