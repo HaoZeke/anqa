@@ -1077,6 +1077,8 @@ verdict-label = Verdict:
 
 col-index = Index
 
+col-turn = Turn
+
 col-dur = Duration
 
 col-type = Type

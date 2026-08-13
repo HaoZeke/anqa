@@ -34,8 +34,8 @@ class TimelineTable(DataTable):
     _result_by_id: dict[str, TraceEvent] = {}
     #: event.index → sequential operator turn id (0-based); empty when unknown
     _turn_by_index: dict[int, int] = {}
-    #: When True, :meth:`turn_index_for` rebuilds the map (lazy — avoid
-    #: re-segmenting the full timeline on every live ``load_events``).
+    #: When True the turn map is cold; open/rebuild fills it once. Live
+    #: same-length ticks keep it warm; append extends or resegments once.
     _turn_map_stale: bool = True
 
     @property
@@ -47,6 +47,7 @@ class TimelineTable(DataTable):
         style_data_table(self)
         self.add_columns(
             t("col-index"),
+            t("col-turn"),
             t("col-time"),
             t("col-dur"),
             t("col-type"),
@@ -92,13 +93,13 @@ class TimelineTable(DataTable):
         if flags:
             for fl in flags:
                 self.flags_by_index[fl.event_index] = fl
-        # Detail pane asks for turn ids lazily — do not re-segment here (that
-        # froze the UI on large timelines and every live tick).
-        self._turn_map_stale = True
 
         if not row_ok or not prev:
             self._build_tool_pairs()
             self._compute_durations()
+            # One segment pass before paint — never mark stale then rebuild
+            # again per row / per selection (that froze live browse).
+            self._rebuild_turn_map()
             self._refresh_rows()
             return
 
@@ -114,8 +115,10 @@ class TimelineTable(DataTable):
             # streaming). Patching every token froze the TUI; new tool rows still
             # appear when len grows. Full paint happens on F5 / open.
             if new_n == prev_n:
+                # Structure unchanged — keep turn map warm (do not stale).
                 return
             self._index_new_events(new_events[prev_n:])
+            self._extend_turn_map_from(prev_n)
             self._append_rows(new_events[prev_n:])
             self._patch_paired_call_durations(new_events[prev_n:])
             return
@@ -123,6 +126,7 @@ class TimelineTable(DataTable):
         # Structural mid-list change (filters / re-sort): full rebuild.
         self._build_tool_pairs()
         self._compute_durations()
+        self._rebuild_turn_map()
         self._refresh_rows()
 
     @staticmethod
@@ -348,14 +352,55 @@ class TimelineTable(DataTable):
         self._turn_by_index = event_display_turn_map(segment_timeline_turns(self.events))
         self._turn_map_stale = False
 
-    def turn_index_for(self, event_index: int) -> int | None:
-        """Sequential operator turn id for *event_index*, if the event is in a turn."""
-        if self._turn_map_stale:
+    def _extend_turn_map_from(self, start_offset: int) -> None:
+        """Assign turn ids for a live-appended tail without full resegment.
+
+        Most live growth is tools/agent stream inside the open turn — inherit
+        the previous event's turn. Boundary markers (turn_started/ended or a
+        new operator user message) trigger one full :func:`segment_timeline_turns`.
+        """
+        if self._turn_map_stale or not self._turn_by_index:
             self._rebuild_turn_map()
+            return
+        if start_offset <= 0 or start_offset >= len(self.events):
+            return
+        from ...session.turns import is_harness_user_chrome, is_session_level_timeline_event
+
+        prev = self.events[start_offset - 1]
+        cur = self._turn_by_index.get(int(prev.index))
+        if cur is None:
+            self._rebuild_turn_map()
+            return
+        tail = self.events[start_offset:]
+        for ev in tail:
+            if is_session_level_timeline_event(ev):
+                continue
+            etype = ev.event_type or ""
+            head = (ev.content or "")[:48].lower()
+            if etype in et.TURN_BOUNDARY_TYPES or "turn started" in head or "turn ended" in head:
+                self._rebuild_turn_map()
+                return
+            if etype in et.USER_TYPES and not is_harness_user_chrome(ev.content or ""):
+                self._rebuild_turn_map()
+                return
+        for ev in tail:
+            if is_session_level_timeline_event(ev):
+                continue
+            self._turn_by_index[int(ev.index)] = int(cur)
+
+    def turn_index_for(self, event_index: int) -> int | None:
+        """Sequential operator turn id for *event_index*, if the event is in a turn.
+
+        Does **not** re-segment on a cold/stale map during selection — that made
+        every live tick + arrow-key pay a full ``segment_timeline_turns``. The
+        map is built on open/rebuild and extended on append.
+        """
+        if self._turn_map_stale:
+            return None
         return self._turn_by_index.get(int(event_index))
 
-    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str]:
-        """Visible cell values for one event (columns 0–5)."""
+    def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str, str]:
+        """Visible cell values for one event (Index, Turn, Time, Dur, Type, Tool, Summary)."""
         from ...session.turns import harness_user_chrome_heading
 
         chrome_heading = harness_user_chrome_heading(ev.content or "")
@@ -388,7 +433,11 @@ class TimelineTable(DataTable):
             sev = getattr(finding.severity, "value", None) or "low"
             prefix += finding_mark(sev) + " "
         summary = prefix + rich_escape(ev.summary_line[: 56 if prefix else 60])
-        return (str(ev.index), ev.time_str, dur_str, type_style, tool_col, summary)
+        # Prefer the warm map (built on open / extended on append). Avoid
+        # turn_index_for side effects during bulk paint.
+        turn = self._turn_by_index.get(int(ev.index))
+        turn_str = str(turn) if turn is not None else ""
+        return (str(ev.index), turn_str, ev.time_str, dur_str, type_style, tool_col, summary)
 
     def _add_event_row(self, ev: TraceEvent) -> None:
         """Append one timeline row for *ev*.
@@ -476,6 +525,10 @@ class TimelineTable(DataTable):
                     return False
 
                 filtered = [e for e in filtered if _evidence_match(e)]
+        # Session-global turn ids — build from the full list before swapping in
+        # the filtered view (never resegment a subset).
+        if self._turn_map_stale:
+            self._rebuild_turn_map()
         orig = self.events
         self.events = filtered
         self._refresh_rows()

@@ -104,6 +104,10 @@ class TestGuessLexer:
     def test_from_path_hint(self):
         assert _guess_lexer("code", path_hint="src/main.py") == "python"
 
+    def test_python_from_content(self):
+        src = "import os\n\ndef main():\n    return None\n\nclass Foo:\n    pass\n"
+        assert _guess_lexer(src) == "python"
+
 
 class TestLooksLikeConsoleOutput:
     def test_terminal_tool(self):
@@ -154,6 +158,17 @@ class TestToolMarkup:
         assert len(markup) < 100
 
 
+def _group_has_syntax(group: Group) -> bool:
+    from rich.syntax import Syntax
+
+    for item in group.renderables:
+        if isinstance(item, Syntax):
+            return True
+        if isinstance(item, Group) and _group_has_syntax(item):
+            return True
+    return False
+
+
 class TestRenderToolDetail:
     def test_basic_tool_call(self):
         result = render_tool_detail(
@@ -164,6 +179,85 @@ class TestRenderToolDetail:
             is_error=False,
         )
         assert isinstance(result, Group)
+
+    def test_read_file_output_uses_syntax(self):
+        """File dumps are Syntax (code), not plain Text / Markdown."""
+        from rich.syntax import Syntax
+
+        body = "import sys\n\ndef greet(name: str) -> str:\n    return f'hi {name}'\n"
+        result = render_tool_detail(
+            index=0,
+            tool_name="read_file",
+            raw_input={"target_file": "src/greet.py"},
+            output=body,
+        )
+        assert isinstance(result, Group)
+        assert _group_has_syntax(result)
+        # Path-driven python lexer (Rich stores a Pygments lexer instance).
+        syntaxes = [x for x in result.renderables if isinstance(x, Syntax)]
+        assert syntaxes
+        lex = syntaxes[-1].lexer
+        lex_name = (getattr(lex, "name", None) or type(lex).__name__ or "").lower()
+        assert "python" in lex_name
+
+    def test_read_file_large_output_still_syntax(self):
+        """Mid-truncated large reads must not fall back to plain Text."""
+        body = "def foo():\n    return 1\n\n" * 800  # >12k chars
+        assert len(body) > 12_000
+        result = render_tool_detail(
+            index=0,
+            tool_name="read_file",
+            raw_input={"target_file": "pkg/big.py"},
+            output=body,
+        )
+        assert _group_has_syntax(result)
+
+    def test_tool_update_code_without_path_uses_syntax(self):
+        """Code-shaped tool_call_update body without path still renders as code."""
+        body = 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hi")\n}\n'
+        result = render_tool_detail(
+            index=3,
+            tool_name="read_file",
+            raw_input={},
+            output=body,
+            event_type="tool_call_update",
+        )
+        assert _group_has_syntax(result)
+
+    def test_terminal_output_stays_plain_text(self):
+        from rich.syntax import Syntax
+
+        result = render_tool_detail(
+            index=0,
+            tool_name="run_terminal_command",
+            raw_input={"command": "echo hi"},
+            output="hi\n",
+        )
+        bits = list(result.renderables)
+        # Input command is bash Syntax; stdout stays plain Text.
+        cmd_syn = [x for x in bits if isinstance(x, Syntax)]
+        assert cmd_syn
+        cmd_lex = (
+            getattr(cmd_syn[0].lexer, "name", None) or type(cmd_syn[0].lexer).__name__
+        ).lower()
+        assert "bash" in cmd_lex or "shell" in cmd_lex
+        assert any(isinstance(x, Text) and "hi" in x.plain for x in bits)
+
+    def test_python_read_file_output_lexer_from_path(self):
+        from rich.syntax import Syntax
+
+        body = "# module header\nimport os\n\ndef main():\n    return 0\n"
+        result = render_tool_detail(
+            index=1,
+            tool_name="read_file",
+            raw_input={"target_file": "/workspace/pkg/app.py"},
+            output=body,
+            event_type="tool_call_update",
+        )
+        syn = [x for x in result.renderables if isinstance(x, Syntax)]
+        assert syn
+        name = (getattr(syn[-1].lexer, "name", None) or type(syn[-1].lexer).__name__).lower()
+        assert "python" in name
 
     def test_error_tool_call(self):
         result = render_tool_detail(

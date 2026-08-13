@@ -21,7 +21,7 @@ use crate::fuzzy::session_search_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
     first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset,
+    list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
     notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
     previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
     session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
@@ -2145,7 +2145,14 @@ impl Hud {
             self.unbind_event_fields(ix);
             self.timeline_focus = Some(ix);
         }
-        self.scroll_focus_into_view()
+        // Pin the focused row to the top so Esc always lands on a visible
+        // selected card (cover-only can leave it below the fold after detail).
+        let Some(pos) = self.timeline_focus_pos() else {
+            return Task::none();
+        };
+        let view_h = self.tl_window.viewport.max(1.0);
+        self.tl_window.scroll = list_scroll_to_top(&self.tl_heights, pos, view_h);
+        Task::none()
     }
 
     fn turn_row_for_event(&self, index: i64) -> Option<&crate::wire::TurnRow> {
@@ -2245,17 +2252,14 @@ impl Hud {
         self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
         match turn_index {
             None => {
+                // All turns: full paginated timeline (not an empty shell).
                 self.events_turn_index = None;
                 self.timeline_prompt = None;
                 self.timeline_focus = None;
-                self.timeline.clear();
-                self.timeline_sid.clear();
-                self.timeline_total = 0;
-                self.timeline_offset = 0;
-                self.timeline_next = 0;
-                self.tl_filter.clear();
-                self.last_timeline = None;
-                self.timeline_gen = self.timeline_gen.wrapping_add(1);
+                self.rebuild_tl_filter();
+                if let Some(sid) = self.detail_sid() {
+                    return self.ensure_timeline(sid, true);
+                }
                 Task::none()
             }
             Some(ti) => {
@@ -2789,12 +2793,21 @@ impl Hud {
         self.on_focus_search(0)
     }
 
+    /// Drop iced text-input focus so browse keys (Enter, [, ]) are not Captured
+    /// by session / turns / timeline search after a pick or pane change.
+    fn blur_text_inputs() -> Task<Message> {
+        iced::advanced::widget::operate(
+            iced::advanced::widget::operation::focusable::unfocus::<()>(),
+        )
+        .discard()
+    }
+
     /// Window focus without stealing into session search (browse panes).
     fn focus_browse(&self) -> Task<Message> {
         if !self.visible {
             return Task::none();
         }
-        self.x11_focus_only(0)
+        Task::batch([self.x11_focus_only(0), Self::blur_text_inputs()])
     }
 
     /// Summon / hotkey path: picker when no session open, else keep browse focus.
@@ -4926,7 +4939,8 @@ mod tests {
         }));
         assert!(hud.events_turn_index.is_none());
         assert!(hud.timeline_prompt.is_none());
-        assert!(hud.timeline.is_empty());
+        let all = hud.last_timeline().expect("all-turns fetch");
+        assert!(all.prompt_index.is_none());
     }
 
     #[test]
@@ -4942,12 +4956,74 @@ mod tests {
     }
 
     #[test]
-    fn events_tab_without_query_does_not_fetch_timeline() {
+    fn events_tab_all_turns_fetches_full_timeline() {
+        // All turns (no prompt filter) still loads the first page — empty shell
+        // was dishonest (see should_fetch_timeline).
         let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 1,
+                "turns": [{
+                    "turnIndex": 0,
+                    "promptIndex": 1,
+                    "summary": "a",
+                    "userEventIndex": 1,
+                    "eventIndexes": [1, 2]
+                }]
+            },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
         hud.tab = Tab::Turns;
+        hud.events_turn_index = None;
+        hud.timeline_prompt = None;
         let _ = hud.update(Message::SetTab(Tab::Timeline));
-        assert!(hud.last_timeline().is_none());
-        assert!(hud.timeline.is_empty());
+        let req = hud.last_timeline().expect("all-turns page");
+        assert!(req.prompt_index.is_none());
+        assert!(req.query.is_empty());
+    }
+
+    #[test]
+    fn enter_on_turns_opens_turn_scoped_timeline_not_event_detail() {
+        let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 1,
+                "turns": [{
+                    "turnIndex": 0,
+                    "promptIndex": 1,
+                    "label": "only",
+                    "summary": "hi",
+                    "userEventIndex": 10,
+                    "firstIndex": 10,
+                    "eventIndexes": [10, 11]
+                }]
+            },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        hud.tab = Tab::Turns;
+        hud.turns_focus = Some(0);
+        let _ = hud.enter_next();
+        assert_eq!(hud.tab(), Tab::Timeline);
+        assert_eq!(hud.events_turn_index, Some(0));
+        assert!(hud.timeline_open().is_none());
+        let req = hud.last_timeline().expect("turn-scoped");
+        assert_eq!(req.prompt_index, Some(1));
     }
 
     #[test]

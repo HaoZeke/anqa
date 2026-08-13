@@ -424,6 +424,8 @@ pub enum BodyPaint {
     Plain,
     Markdown,
     Json,
+    /// Monospaced code chrome (file dumps, shell commands) — not Markdown.
+    Code,
     Image,
 }
 
@@ -634,10 +636,115 @@ pub fn body_paint_for(kind: &str, event_type: &str, body: &str, expanded: bool) 
     if is_chat_message(kind, event_type) {
         return BodyPaint::Markdown;
     }
+    // Tool bodies: never Markdown (python `#` comments would false-positive).
+    // File dumps → Code chrome; shell streams stay Plain (mono at paint site).
+    if kind == "tool" || kind == "tool_result" {
+        if looks_like_source_code(body) || looks_like_diff_text(body) {
+            return BodyPaint::Code;
+        }
+        return BodyPaint::Plain;
+    }
     if looks_like_markdown(body) {
         return BodyPaint::Markdown;
     }
+    if looks_like_source_code(body) {
+        return BodyPaint::Code;
+    }
     BodyPaint::Plain
+}
+
+/// Lightweight source cue aligned with TUI ``_looks_like_source_code``.
+pub fn looks_like_source_code(text: &str) -> bool {
+    let sample = text.chars().take(6000).collect::<String>();
+    if sample.trim().is_empty() {
+        return false;
+    }
+    let lines: Vec<&str> = sample.lines().collect();
+    if lines.len() < 2 {
+        let s = sample.trim_start();
+        return s.starts_with("def ")
+            || s.starts_with("class ")
+            || s.starts_with("fn ")
+            || s.starts_with("func ")
+            || s.starts_with("import ")
+            || s.starts_with("package ")
+            || s.starts_with("const ")
+            || s.starts_with("let ")
+            || s.starts_with("var ")
+            || s.starts_with("#!/");
+    }
+    let mut hits = 0u32;
+    let mut indented = 0u32;
+    for ln in lines.iter().take(80) {
+        if (ln.starts_with(' ') || ln.starts_with('\t')) && !ln.trim().is_empty() {
+            indented += 1;
+        }
+        let st = ln.trim();
+        // Skip comment-only lines (incl. python `#`) — same as TUI.
+        if st.is_empty()
+            || st.starts_with('#')
+            || st.starts_with("//")
+            || st.starts_with("/*")
+            || st.starts_with('*')
+            || st.starts_with("--")
+        {
+            continue;
+        }
+        // Shape first (TUI): braces / block colons, then keywords.
+        if st.ends_with('{')
+            || st.ends_with('}')
+            || st.ends_with(");")
+            || st.ends_with("};")
+            || st.ends_with("]:")
+            || st.ends_with(':')
+            || st.starts_with("def ")
+            || st.starts_with("class ")
+            || st.starts_with("async ")
+            || st.starts_with("import ")
+            || st.starts_with("from ")
+            || st.starts_with("fn ")
+            || st.starts_with("func ")
+            || st.starts_with("pub ")
+            || st.starts_with("package ")
+            || st.starts_with("const ")
+            || st.starts_with("let ")
+            || st.starts_with("var ")
+            || st.starts_with("export ")
+            || st.starts_with("function ")
+            || st.starts_with("type ")
+            || st.starts_with("interface ")
+            || st.starts_with("impl ")
+            || st.starts_with("struct ")
+            || st.starts_with("enum ")
+            || st.starts_with("return ")
+            || st.starts_with("if ")
+            || st.starts_with("for ")
+            || st.starts_with("while ")
+            || st.starts_with("match ")
+            || st.starts_with("use ")
+            || st.starts_with("mod ")
+            || st.starts_with("#!")
+        {
+            hits += 1;
+        }
+    }
+    // Short dumps (import + def + return) need hits>=3; denser indent keeps 2.
+    if indented >= 2 && hits >= 2 {
+        return true;
+    }
+    hits >= 3
+}
+
+fn looks_like_diff_text(text: &str) -> bool {
+    let mut hits = 0u32;
+    for ln in text.lines().take(40) {
+        if ln.starts_with("@@") || ln.starts_with("--- ") || ln.starts_with("+++ ") {
+            hits += 1;
+        } else if ln.starts_with('+') || ln.starts_with('-') {
+            hits += 1;
+        }
+    }
+    hits >= 3
 }
 
 /// Assistant turn body: markdown when the source has markdown cues or is chat.
@@ -676,7 +783,11 @@ pub fn extract_event(ev: &crate::wire::TimelineEvent) -> String {
     } else {
         ev.heading.as_str()
     };
-    out.push_str(&format!("#{} {head}\n", ev.index));
+    if let Some(turn) = ev.turn_index {
+        out.push_str(&format!("#{} · turn {turn} {head}\n", ev.index));
+    } else {
+        out.push_str(&format!("#{} {head}\n", ev.index));
+    }
     if !ev.tool_name.is_empty() {
         out.push_str(&ev.tool_name);
         out.push('\n');
@@ -1422,10 +1533,11 @@ mod tests {
             tool_name: "read_file".into(),
             content: "1→fn main() {}\n".into(),
             raw_input: serde_json::json!({"target_file": "src/main.rs"}),
+            turn_index: Some(1),
             ..crate::wire::TimelineEvent::default()
         };
         let got = extract_event(&ev);
-        assert!(got.contains("#12 read_file"));
+        assert!(got.contains("#12 · turn 1 read_file"));
         assert!(got.contains("src/main.rs"));
         assert!(got.contains("fn main()"));
         assert!(!got.contains('→'));
@@ -1450,6 +1562,13 @@ mod tests {
         assert_eq!(
             body_paint("tool_result", "{\"a\":1}", true),
             BodyPaint::Json
+        );
+        // Python with # comments must not paint as Markdown.
+        let py = "# header\nimport os\n\ndef main():\n    return 0\n";
+        assert_eq!(body_paint("tool_result", py, true), BodyPaint::Code);
+        assert_eq!(
+            body_paint_for("tool", "tool_call_update", py, true),
+            BodyPaint::Code
         );
         assert_eq!(
             body_paint_for("thought", "agent_thought_chunk", "hmm", true),

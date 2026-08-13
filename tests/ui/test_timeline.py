@@ -166,11 +166,98 @@ async def test_timeline_turn_index_for_maps_events() -> None:
             ),
         ]
         tl.load_events(events)
-        # Map is built lazily on first turn_index_for (not on every load_events).
-        assert tl._turn_map_stale is True
-        assert tl.turn_index_for(1) == 0
+        # Open/rebuild builds the map once before paint (not per selection).
         assert tl._turn_map_stale is False
+        assert tl.turn_index_for(1) == 0
         assert tl.turn_index_for(4) == 1
+        # Turn column (index 1) shows the sequential operator turn id.
+        cells_t0 = tl._row_cell_values(events[1])
+        cells_t1 = tl._row_cell_values(events[4])
+        assert cells_t0[0] == "1" and cells_t0[1] == "0"
+        assert cells_t1[0] == "4" and cells_t1[1] == "1"
+
+
+@pytest.mark.asyncio
+async def test_timeline_same_length_live_tick_keeps_turn_map_warm() -> None:
+    """Content-only live ticks must not stale the turn map (selection speed)."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = _basic_events()
+        tl.load_events(events)
+        assert tl._turn_map_stale is False
+        warm = dict(tl._turn_by_index)
+        # Same structure, rewritten content — early return path.
+        rewritten = [
+            make_trace_event(
+                index=e.index,
+                event_type=e.event_type,
+                content=(e.content or "") + "x",
+                timestamp=e.timestamp,
+                tool_name=e.tool_name,
+                tool_call_id=e.tool_call_id,
+            )
+            for e in events
+        ]
+        tl.load_events(rewritten)
+        assert tl._turn_map_stale is False
+        assert tl._turn_by_index == warm
+
+
+@pytest.mark.asyncio
+async def test_timeline_append_mid_turn_extends_map_without_resegment() -> None:
+    """Live tool rows inside an open turn inherit turn id without full segment."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = [
+            make_trace_event(
+                index=0,
+                event_type="turn_started",
+                content="turn started  turn_number=0",
+                timestamp=1000,
+            ),
+            make_trace_event(
+                index=1,
+                event_type="user_message_chunk",
+                content="hello",
+                timestamp=1001,
+            ),
+            make_trace_event(
+                index=2,
+                event_type="tool_call",
+                content="ls",
+                tool_name="run_terminal_command",
+                tool_call_id="c1",
+                timestamp=1002,
+            ),
+        ]
+        tl.load_events(events)
+        assert tl.turn_index_for(2) == 0
+        from unittest.mock import patch
+
+        import groket.session.turns as turns
+
+        calls = {"n": 0}
+        real = turns.segment_timeline_turns
+
+        def counting(timeline: object) -> object:
+            calls["n"] += 1
+            return real(timeline)
+
+        extra = make_trace_event(
+            index=3,
+            event_type="tool_result",
+            content="ok",
+            tool_name="run_terminal_command",
+            tool_call_id="c1",
+            timestamp=1003,
+        )
+        with patch.object(turns, "segment_timeline_turns", side_effect=counting):
+            tl.load_events([*events, extra])
+        assert calls["n"] == 0
+        assert tl.turn_index_for(3) == 0
+        assert tl._row_cell_values(extra)[1] == "0"
 
 
 @pytest.mark.asyncio

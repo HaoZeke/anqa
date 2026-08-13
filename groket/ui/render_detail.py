@@ -187,6 +187,179 @@ def _path_hint(ri: dict) -> str:
     return ""
 
 
+def _shell_command_text(ri: dict) -> str:
+    """Primary shell command string from tool input (if any)."""
+    for k in ("command", "cmd", "script"):
+        v = ri.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+    return ""
+
+
+def _is_shell_tool(tname: str) -> bool:
+    """Host shell / process tools whose primary body is a bash command."""
+    return tname in (
+        "run_terminal_command",
+        "get_command_or_subagent_output",
+        "monitor",
+        "wait_commands_or_subagents",
+        "kill_command_or_subagent",
+    )
+
+
+def _is_file_body_tool(tname: str) -> bool:
+    """Tools whose *output* is usually a file dump (prefer path lexer)."""
+    return tname in (
+        "read_file",
+        "search_replace",
+        "write_file",
+        "create_file",
+        "edit_file",
+        "apply_patch",
+    )
+
+
+def _looks_like_source_code(text: str) -> bool:
+    """True when *text* looks like source (not prose / not a terminal dump).
+
+    Used so ``tool_call_update`` bodies that are code still get a monospaced
+    Syntax pane even without a path extension.
+    """
+    if not text or not text.strip():
+        return False
+    sample = text[:6000]
+    lines = sample.splitlines()
+    if len(lines) < 2:
+        # Single-line snippets still count when clearly code-shaped.
+        s = sample.lstrip()
+        return bool(
+            s.startswith(
+                (
+                    "def ",
+                    "class ",
+                    "fn ",
+                    "func ",
+                    "import ",
+                    "package ",
+                    "const ",
+                    "let ",
+                    "var ",
+                    "#!/",
+                )
+            )
+            or (" => " in s and ("{" in s or ";" in s))
+        )
+    code_hits = 0
+    for ln in lines[:80]:
+        st = ln.strip()
+        if not st or st.startswith(("#", "//", "/*", "*", "--")):
+            continue
+        if st.endswith(("{", "}", ");", "};", "]:", ":")):
+            code_hits += 1
+        elif st.startswith(
+            (
+                "def ",
+                "class ",
+                "async ",
+                "import ",
+                "from ",
+                "fn ",
+                "func ",
+                "pub ",
+                "package ",
+                "const ",
+                "let ",
+                "var ",
+                "export ",
+                "function ",
+                "type ",
+                "interface ",
+                "impl ",
+                "struct ",
+                "enum ",
+                "return ",
+                "if ",
+                "for ",
+                "while ",
+                "match ",
+                "use ",
+                "mod ",
+                "#!",
+            )
+        ):
+            code_hits += 1
+        elif re.match(r"^(pub\s+)?(async\s+)?fn\s+\w+", st):
+            code_hits += 1
+        elif re.match(r"^[A-Za-z_][\w.]*\s*=\s*.+", st) and ("(" in st or st.endswith((";", ","))):
+            code_hits += 1
+    # Indentation density (source almost always indents).
+    indented = sum(1 for ln in lines[:80] if ln[:1] in " \t" and ln.strip())
+    if indented >= 3 and code_hits >= 2:
+        return True
+    return code_hits >= 4
+
+
+def _guess_source_lexer(text: str) -> str:
+    """Best-effort language from content when path is missing."""
+    sample = (text or "")[:8000]
+    head = sample.lstrip()
+    if head.startswith("#!"):
+        first = head.split("\n", 1)[0].lower()
+        if "python" in first:
+            return "python"
+        if any(x in first for x in ("bash", "sh", "zsh")):
+            return "bash"
+        return "bash"
+    # Prefer strong multi-signal checks over single keyword hits.
+    py = sum(
+        1
+        for tok in (
+            "def ",
+            "class ",
+            "import ",
+            "from ",
+            "async def ",
+            "self.",
+            "None",
+            "True",
+            "False",
+        )
+        if tok in sample
+    )
+    if py >= 3 or (
+        "def " in sample and ":" in sample and ("self" in sample or "import " in sample)
+    ):
+        return "python"
+    rs = sum(1 for tok in ("fn ", "impl ", "pub ", "let mut ", "use ", "::") if tok in sample)
+    if rs >= 3 or ("fn " in sample and "->" in sample and "{" in sample):
+        return "rust"
+    go = sum(1 for tok in ("func ", "package ", ":=", "fmt.") if tok in sample)
+    if go >= 3 or (sample.lstrip().startswith("package ") and "func " in sample):
+        return "go"
+    ts = sum(
+        1
+        for tok in ("interface ", "type ", ": string", ": number", "export ", "const ", "=>")
+        if tok in sample
+    )
+    if ts >= 3 and ("=>" in sample or "export " in sample):
+        if "interface " in sample or ": string" in sample or ": number" in sample:
+            return "typescript"
+        return "javascript"
+    if "function " in sample and ("const " in sample or "=>" in sample or "export " in sample):
+        return "javascript"
+    if (
+        head.startswith("<?xml")
+        or head.startswith("<!DOCTYPE")
+        or (head.startswith("<") and "</" in sample[:500])
+    ):
+        return "xml" if "html" not in head[:40].lower() else "html"
+    if _looks_json(sample):
+        return "json"
+    if _looks_diff(sample):
+        return "diff"
+    return ""
+
+
 def _guess_lexer(text: str, tool_name: str = "", path_hint: str = "") -> str:
     if path_hint:
         lang = _lang_from_path(path_hint)
@@ -203,6 +376,12 @@ def _guess_lexer(text: str, tool_name: str = "", path_hint: str = "") -> str:
         return "bash"
     if head.startswith("<?xml") or head.startswith("<!DOCTYPE"):
         return "xml"
+    src = _guess_source_lexer(text)
+    if src:
+        return src
+    if tool_name == "read_file" or _looks_like_source_code(text):
+        # Unknown language but clearly code — monospaced Syntax ("text" lexer).
+        return "text"
     return "text"
 
 
@@ -256,18 +435,24 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool input sections (trace_viewer render_tool_detail)."""
     parts: list = []
     path_hint = _path_hint(ri)
-    if tname == "run_terminal_command" and "command" in ri:
-        parts.append(_syntax(str(ri.get("command") or ""), "bash"))
-        extra = {k: v for k, v in ri.items() if k != "command"}
+    cmd = _shell_command_text(ri)
+    if cmd and (_is_shell_tool(tname) or tname in ("run_terminal_command",) or "command" in ri):
+        # Shell commands always bash-highlight (not plain Text / not JSON dump).
+        parts.append(_syntax(cmd, "bash"))
+        extra = {k: v for k, v in ri.items() if k not in ("command", "cmd", "script")}
         if extra:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
     if tname == "search_replace":
-        fp = ri.get("file_path") or ri.get("target_file") or ""
+        fp = ri.get("file_path") or ri.get("target_file") or path_hint or ""
         if fp:
             parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
-        lang = _lang_from_path(str(fp)) or "text"
+        lang = (
+            _lang_from_path(str(fp))
+            or _guess_source_lexer(str(ri.get("new_string") or ri.get("old_string") or ""))
+            or "text"
+        )
         old_s, new_s = (str(ri.get("old_string") or ""), str(ri.get("new_string") or ""))
         if old_s:
             parts.append(Text(t("tool-field-old-string"), style="red"))
@@ -408,6 +593,46 @@ def _render_image_result(out: str) -> list:
     return parts
 
 
+def _prefer_syntax_output(tname: str, lexer: str, body: str, *, console_like: bool) -> bool:
+    """Whether tool output should use Rich Syntax (code) vs plain Text.
+
+    Console streams stay plain (sanitize + speed). Source / structured bodies
+    use Syntax so ``tool_call_update`` file dumps read as code, not prose.
+    Display bodies are already mid-truncated — do not drop Syntax solely for
+    length after that cap (the old 12k gate forced plain Text on most reads).
+    """
+    if console_like:
+        return False
+    if not (body or "").strip():
+        return False
+    if lexer and lexer != "text":
+        return True
+    if _is_file_body_tool(tname):
+        return True
+    return _looks_like_source_code(body)
+
+
+def _output_lexer(out_disp: str, tname: str, path_hint: str, *, console_like: bool) -> str:
+    """Pick a Pygments lexer for tool *output* (not the shell command input)."""
+    if console_like:
+        # Terminal streams: no fake bash highlight on mixed stdout/stderr.
+        return "text"
+    path_lang = _lang_from_path(path_hint) if path_hint else ""
+    if path_lang:
+        # read_file / edits: path wins (python file → python, not markdown guess).
+        return path_lang
+    if _looks_json(out_disp):
+        return "json"
+    if _looks_diff(out_disp):
+        return "diff"
+    guessed = _guess_source_lexer(out_disp)
+    if guessed:
+        return guessed
+    if _is_file_body_tool(tname) or _looks_like_source_code(out_disp):
+        return "text"
+    return _guess_lexer(out_disp, tname, path_hint) or "text"
+
+
 def _render_tool_output(out: str, tname: str, path_hint: str, *, truncate: bool = True) -> list:
     """Syntax-highlighted tool output (trace_viewer output block)."""
     if tname in ("image_gen", "image_edit") and (
@@ -430,32 +655,40 @@ def _render_tool_output(out: str, tname: str, path_hint: str, *, truncate: bool 
     if not out_disp.strip():
         parts.append(Text(t("tool-empty-output"), style="dim italic"))
         return parts
-    console_like = _looks_like_console_output(out or "", tname) or tname in (
-        "run_terminal_command",
-        "get_command_or_subagent_output",
-        "monitor",
+    # Shell tools: stdout/stderr is a console stream. File tools never are.
+    console_like = (not _is_file_body_tool(tname)) and (
+        _looks_like_console_output(out or "", tname) or _is_shell_tool(tname)
     )
-    lexer = _guess_lexer(out_disp, tname, path_hint)
-    if tname == "read_file" and path_hint:
-        lexer = _lang_from_path(path_hint) or lexer
-    if console_like and lexer == "bash" and (tname != "run_terminal_command"):
-        lexer = "text"
-    if console_like and tname == "run_terminal_command":
-        lexer = "text"
+    lexer = _output_lexer(out_disp, tname, path_hint, console_like=console_like)
     if lexer == "json" or _looks_json(out_disp):
         with suppress(Exception):
             out_disp = json.dumps(json.loads(out_disp), indent=2, ensure_ascii=False)
             lexer = "json"
-    # Plain Text for console dumps / large blobs — Pygments + Textual reflow on
-    # every timeline keypress made the browser feel frozen (100ms–1s/event).
-    if console_like or (lexer or "text") == "text" or len(out_disp) > 12_000:
+    if not _prefer_syntax_output(tname, lexer or "text", out_disp, console_like=console_like):
         parts.append(Text(out_disp))
         return parts
+    # Unknown language still uses Syntax("text") for monospaced code chrome.
+    use_lexer = lexer or "text"
+    # Line numbers double Pygments work; skip on large dumps (still Syntax).
     ln = (
-        lexer in ("python", "javascript", "typescript", "rust", "go", "tsx", "jsx")
+        use_lexer
+        in (
+            "python",
+            "javascript",
+            "typescript",
+            "rust",
+            "go",
+            "tsx",
+            "jsx",
+            "bash",
+            "c",
+            "cpp",
+            "java",
+        )
         and out_disp.count("\n") > 3
+        and len(out_disp) < 6000
     )
-    parts.append(_syntax(out_disp, lexer or "text", line_numbers=ln))
+    parts.append(_syntax(out_disp, use_lexer, line_numbers=ln))
     return parts
 
 

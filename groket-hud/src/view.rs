@@ -1030,9 +1030,12 @@ fn event_type_human(ev: &TimelineEvent) -> String {
 }
 
 fn event_title(ev: &TimelineEvent) -> String {
-    // Expander title is monochrome; put #index · time here and the colored
-    // human type on the face (TUI scan: type column + summary).
+    // Expander title is monochrome; put #index · turn · time here and the
+    // colored human type on the face (TUI scan: index + turn + type + summary).
     let mut out = format!("#{}", ev.index);
+    if let Some(turn) = ev.turn_index {
+        out.push_str(&format!(" · turn {turn}"));
+    }
     let time = ev.time.trim();
     if !time.is_empty() {
         out.push_str(" · ");
@@ -1063,7 +1066,7 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
         preview
     };
     // One scannable line (TUI type + summary columns), not a markdown stack.
-    let preview = capped_display(preview, 160);
+    let preview = capped_display(&plain_card_text(preview), 160);
     if identity.is_empty() && preview.is_empty() {
         return text("—").size(typo::META).color(tea.muted).into();
     }
@@ -1206,6 +1209,24 @@ fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, M
     plain_face(summary, "—", 280, tea)
 }
 
+/// Strip light markdown so closed cards do not show raw ``**bold**`` markers.
+fn plain_card_text(summary: &str) -> String {
+    let mut out = String::with_capacity(summary.len());
+    let mut chars = summary.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' | '_' | '`' => {
+                // Drop run of the same marker (**, __, ``` fence ticks).
+                while chars.peek() == Some(&c) {
+                    chars.next();
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn plain_face(
     summary: &str,
     empty: &'static str,
@@ -1215,7 +1236,7 @@ fn plain_face(
     if summary.is_empty() {
         return text(empty).size(typo::BODY).color(tea.muted).into();
     }
-    text(capped_display(summary, max_chars))
+    text(capped_display(&plain_card_text(summary), max_chars))
         .size(typo::BODY)
         .font(typo::UI)
         .color(tea.text)
@@ -1692,11 +1713,8 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     } else {
         "Save note"
     };
-    let mut actions = vec![icedtea::action::Action::new(
-        "note.save",
-        save_label,
-        Message::SaveNote,
-    )];
+    // Single Save is a chip (command_bar always paints a leading hairline that
+    // reads as a stray "|" with one action). Multi-action edit keeps the bar.
     if editing {
         let nid = hud.note_draft().id.clone();
         let del = if hud.note_delete_armed() == nid {
@@ -1704,18 +1722,21 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         } else {
             "Delete"
         };
-        actions.push(icedtea::action::Action::new(
-            "note.delete",
-            del,
-            Message::RequestDelete(nid),
+        form = form.push(card_actions(
+            vec![
+                icedtea::action::Action::new("note.save", save_label, Message::SaveNote),
+                icedtea::action::Action::new(
+                    "note.delete",
+                    del,
+                    Message::RequestDelete(nid),
+                ),
+                icedtea::action::Action::new("note.new", "New note", Message::ResetDraft),
+            ],
+            hud.tokens(),
         ));
-        actions.push(icedtea::action::Action::new(
-            "note.new",
-            "New note",
-            Message::ResetDraft,
-        ));
+    } else {
+        form = form.push(chip_btn(save_label.into(), Message::SaveNote, hud.tokens()));
     }
-    form = form.push(card_actions(actions, hud.tokens()));
 
     let rev = o.notes.revision.clone();
     let mut col = column![
@@ -1981,7 +2002,7 @@ fn render_payload_text<'a>(
             .into();
     }
     match paint {
-        BodyPaint::Json => code_inset(hud, field_id, hud.tokens()),
+        BodyPaint::Json | BodyPaint::Code => code_inset(hud, field_id, hud.tokens()),
         BodyPaint::Image => tool_image(trimmed, hud.tokens()),
         BodyPaint::Markdown => {
             // icedtea markdown_view (TUI uses Rich Markdown). Yank still uses
@@ -2004,6 +2025,15 @@ fn render_payload_text<'a>(
                     .font(typo::UI)
                     .color(tok.muted)
                     .into()
+            } else if kind == "tool" || kind == "tool_result" {
+                // Shell stdout / non-source tool bodies: monospaced like TUI.
+                select_bound(
+                    hud,
+                    field_id.to_string(),
+                    &cut,
+                    tok,
+                    icedtea::typo::FontFace::Mono,
+                )
             } else {
                 select_bound(
                     hud,
@@ -2138,6 +2168,15 @@ mod tests {
     }
 
     #[test]
+    fn plain_card_text_strips_markdown_markers() {
+        assert_eq!(
+            plain_card_text("You are an **adversarial** verifier"),
+            "You are an adversarial verifier"
+        );
+        assert_eq!(plain_card_text("see `code` and __x__"), "see code and x");
+    }
+
+    #[test]
     fn closed_faces_are_plain_text_not_markdown() {
         let _ = prompt_face("# heading\n\n**bold**", tea());
         let _ = prompt_face("plain sentence", tea());
@@ -2160,16 +2199,24 @@ mod tests {
     }
 
     #[test]
-    fn event_title_is_hash_and_time_only() {
+    fn event_title_includes_index_turn_and_time() {
         let ev = TimelineEvent {
             index: 12,
             event_type: "user_message_chunk".into(),
             type_label: "user message chunk".into(),
             kind: "user".into(),
             time: "10:32".into(),
+            turn_index: Some(2),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&ev), "#12 · 10:32");
+        assert_eq!(event_title(&ev), "#12 · turn 2 · 10:32");
+        let no_turn = TimelineEvent {
+            index: 12,
+            kind: "user".into(),
+            time: "10:32".into(),
+            ..TimelineEvent::default()
+        };
+        assert_eq!(event_title(&no_turn), "#12 · 10:32");
         let bare = TimelineEvent {
             index: 3,
             kind: "user".into(),
