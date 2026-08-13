@@ -196,12 +196,79 @@ async def test_timeline_same_length_live_tick_keeps_turn_map_warm() -> None:
                 timestamp=e.timestamp,
                 tool_name=e.tool_name,
                 tool_call_id=e.tool_call_id,
+                raw_input=dict(e.raw_input.raw())
+                if hasattr(e.raw_input, "raw")
+                else (e.raw_input if isinstance(e.raw_input, dict) else {}),
             )
             for e in events
         ]
         tl.load_events(rewritten)
         assert tl._turn_map_stale is False
         assert tl._turn_by_index == warm
+
+
+@pytest.mark.asyncio
+async def test_timeline_pair_rebinds_after_same_length_reparse() -> None:
+    """read_file body is on tool_call_update; pairs must track re-parsed objects."""
+    from groket.ui.render_detail import render_tool_detail_from_event
+    from rich.syntax import Syntax
+
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        call = make_trace_event(
+            index=1,
+            event_type="tool_call",
+            tool_name="read_file",
+            tool_call_id="c-read",
+            raw_input={"target_file": "src/app.py"},
+            content="",
+            timestamp=1000,
+        )
+        # Empty body first (incomplete stream)
+        empty_upd = make_trace_event(
+            index=2,
+            event_type="tool_call_update",
+            tool_name="read_file",
+            tool_call_id="c-read",
+            content="",
+            timestamp=1001,
+        )
+        tl.load_events([call, empty_upd])
+        assert tl.get_paired_result(call) is empty_upd
+
+        full_body = "import os\n\ndef main():\n    return 0\n"
+        call2 = make_trace_event(
+            index=1,
+            event_type="tool_call",
+            tool_name="read_file",
+            tool_call_id="c-read",
+            raw_input={"target_file": "src/app.py"},
+            content="",
+            timestamp=1000,
+        )
+        full_upd = make_trace_event(
+            index=2,
+            event_type="tool_call_update",
+            tool_name="read_file",
+            tool_call_id="c-read",
+            content=full_body,
+            timestamp=1002,
+        )
+        # Same length re-parse (new objects, body now filled)
+        tl.load_events([call2, full_upd])
+        paired = tl.get_paired_result(call2)
+        assert paired is full_upd
+        assert paired is not None
+        assert full_body in (paired.content or "")
+
+        g = render_tool_detail_from_event(call2, paired_result=paired)
+        syn = [
+            p for p in g.renderables if isinstance(p, Syntax) and full_body[:10] in (p.code or "")
+        ]
+        assert syn, "expected Syntax-highlighted file body in Output"
+        lex = (getattr(syn[-1].lexer, "name", None) or type(syn[-1].lexer).__name__).lower()
+        assert "python" in lex
 
 
 @pytest.mark.asyncio

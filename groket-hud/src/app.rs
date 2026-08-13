@@ -1365,10 +1365,38 @@ impl Hud {
                 self.bind_field(id, &Self::bind_display(&val));
             }
         }
-        let ev = &self.timeline[pos];
+        // Output body: pair tool_call → tool_call_update. read_file calls have
+        // empty content; the dump lives on the result row only.
+        let (out_tool, out_content) = {
+            let ev = &self.timeline[pos];
+            let call_id = ev.tool_call_id.clone();
+            let ev_tool = ev.tool_name.clone();
+            let ev_content = ev.content.clone();
+            let result = if !call_id.trim().is_empty() {
+                self.timeline.iter().find(|o| {
+                    o.tool_call_id == call_id
+                        && (o.kind == "tool_result"
+                            || o.event_type == "tool_call_update"
+                            || o.event_type == "tool_result")
+                })
+            } else {
+                None
+            };
+            match result {
+                Some(r) if !r.content.is_empty() => {
+                    let tool = if r.tool_name.is_empty() {
+                        ev_tool
+                    } else {
+                        r.tool_name.clone()
+                    };
+                    (tool, r.content.clone())
+                }
+                _ => (ev_tool, ev_content),
+            }
+        };
         let out = crate::format::sanitize_console_text(&crate::format::display_tool_output(
-            &ev.content,
-            &ev.tool_name,
+            &out_content,
+            &out_tool,
         ));
         if !out.trim().is_empty() {
             let id = format!("event.{index}.out");
@@ -5200,6 +5228,53 @@ mod tests {
         let _ = hud.update(Message::Yank);
         // Copy is silent (no success toast).
         assert!(!hud.toasts().iter().any(|t| t.text.contains("Copied")));
+    }
+
+    #[test]
+    fn expanding_read_file_tool_call_binds_paired_result_output() {
+        // tool_call content is empty; file dump is on tool_call_update only.
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![
+                json!({
+                    "index": 10,
+                    "type": "tool_call",
+                    "kind": "tool",
+                    "toolName": "read_file",
+                    "toolCallId": "rf1",
+                    "toolFamily": "read",
+                    "content": "",
+                    "rawInput": {"target_file": "a.py"},
+                    "toolFields": [
+                        {"id": "target_file", "label": "target_file", "value": "a.py"}
+                    ]
+                }),
+                json!({
+                    "index": 11,
+                    "type": "tool_call_update",
+                    "kind": "tool_result",
+                    "toolName": "read_file",
+                    "toolCallId": "rf1",
+                    "toolFamily": "read",
+                    "content": "1→def foo():\n2→    return 1\n",
+                    "rawInput": {"target_file": "a.py"}
+                }),
+            ],
+            10,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(10));
+        let out = hud
+            .field("event.10.out")
+            .map(|c| c.text())
+            .expect("paired read_file output bound on tool_call");
+        assert!(out.contains("def foo"), "got {out:?}");
+        assert!(!out.contains('→'), "prefixes stripped: {out:?}");
+        assert!(hud.field("event.10.in.target_file").is_some());
     }
 
     #[test]

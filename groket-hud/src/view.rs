@@ -22,8 +22,9 @@ use crate::format::{
     body_paint_for, capped_display, display_tool_output, event_brand_role, fmt_duration,
     format_note_time, human_event_type_label, image_result_path, is_chat_message,
     list_status_label, looks_like_markdown, message_markdown_source, note_fields_view,
-    origin_label, overview_fields, sanitize_console_text, status_tone, timeline_body_text,
-    timeline_count_caption, timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
+    origin_label, overview_fields, path_hint_from_raw, sanitize_console_text, status_tone,
+    syntax_for_tool_field, syntax_for_tool_output, timeline_body_text, timeline_count_caption,
+    timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, CardMark, TIMELINE_OVERSCAN,
@@ -200,18 +201,37 @@ fn select_bound<'a>(
     )
 }
 
-fn code_inset<'a>(hud: &'a Hud, id: &str, tea: icedtea::theme::Tokens) -> Element<'a, Message> {
+fn code_inset<'a>(
+    hud: &'a Hud,
+    id: &str,
+    fallback: &str,
+    syntax: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    // Prefer the selectable bind buffer; fall back to *fallback* so a missing
+    // bind (e.g. first paint before extract) does not paint an empty Code pane.
     let Some(buf) = hud.field(id) else {
-        return text(String::new()).size(typo::BODY).font(typo::MONO).into();
+        if fallback.is_empty() {
+            return text(String::new()).size(typo::BODY).font(typo::MONO).into();
+        }
+        return text(fallback.to_string())
+            .size(typo::BODY)
+            .font(typo::MONO)
+            .into();
     };
     let id = id.to_string();
-    icedtea::widget::code_block(
+    // Real iced highlighter (syntect) — not plain mono ``code_block``.
+    let lang = if syntax.is_empty() { "txt" } else { syntax };
+    icedtea::widget::highlighted_code(
         buf,
+        lang,
         move |action| Message::Select {
             id: id.clone(),
             action,
         },
         tea,
+        hud.theme_name(),
+        Length::Shrink,
         A11y::new("code", Role::TextBox),
     )
 }
@@ -1862,6 +1882,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             hud,
             false,
             &field_id,
+            "",
         );
     }
     let mut col = column![].spacing(8);
@@ -1887,6 +1908,16 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     }
     if kind == "tool" || kind == "tool_result" {
         let (call, result) = paired_tool(hud, ev);
+        let path_hint = {
+            let mut p = path_hint_from_raw(&call.raw_input);
+            if p.is_empty() {
+                p = path_hint_from_raw(&result.raw_input);
+            }
+            if p.is_empty() {
+                p = path_hint_from_raw(&ev.raw_input);
+            }
+            p
+        };
         let fields = inspect_fields(call);
         if !fields.is_empty() {
             col = col.push(text("Input").size(typo::META).color(tok.muted));
@@ -1901,6 +1932,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
                     &format!("event.{}.in.{}", ev.index, field.id),
                     &field.id,
                     &field.value,
+                    &path_hint,
                 ));
             }
         }
@@ -1924,6 +1956,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             ));
             col = col.push(tool_image(&img, hud.tokens()));
         } else if !out_body.trim().is_empty() {
+            let out_syn = syntax_for_tool_output(out_tool, &path_hint, &out_body);
             col = col.push(text("Output").size(typo::META).color(tok.muted));
             col = col.push(render_payload_text(
                 &out_body,
@@ -1932,6 +1965,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
                 hud,
                 true,
                 &format!("event.{}.out", ev.index),
+                out_syn,
             ));
         }
     } else {
@@ -1943,6 +1977,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             hud,
             true,
             &field_id,
+            "",
         ));
     }
     col.into()
@@ -1953,15 +1988,19 @@ fn field_body<'a>(
     bind_id: &str,
     field_id: &str,
     value: &str,
+    path_hint: &str,
 ) -> Element<'a, Message> {
     let tea = hud.tokens();
+    let syntax = syntax_for_tool_field(field_id, path_hint, value);
     let body = if field_id == "old_string"
         || field_id == "new_string"
         || field_id == "command"
         || field_id == "pattern"
         || crate::format::looks_like_json(value)
+        || !syntax.is_empty()
     {
-        code_inset(hud, bind_id, tea)
+        let syn = if syntax.is_empty() { "txt" } else { syntax };
+        code_inset(hud, bind_id, value, syn, tea)
     } else {
         select_bound(
             hud,
@@ -1985,6 +2024,7 @@ fn render_payload_text<'a>(
     hud: &'a Hud,
     expanded: bool,
     field_id: &str,
+    syntax: &str,
 ) -> Element<'a, Message> {
     let tok = hud.tokens();
     let trimmed = body.trim();
@@ -2002,7 +2042,16 @@ fn render_payload_text<'a>(
             .into();
     }
     match paint {
-        BodyPaint::Json | BodyPaint::Code => code_inset(hud, field_id, hud.tokens()),
+        BodyPaint::Json => code_inset(hud, field_id, &cut, "json", hud.tokens()),
+        BodyPaint::Code => {
+            let syn = if syntax.is_empty() {
+                syntax_for_tool_output("", "", &cut)
+            } else {
+                syntax
+            };
+            let syn = if syn.is_empty() { "txt" } else { syn };
+            code_inset(hud, field_id, &cut, syn, hud.tokens())
+        }
         BodyPaint::Image => tool_image(trimmed, hud.tokens()),
         BodyPaint::Markdown => {
             // icedtea markdown_view (TUI uses Rich Markdown). Yank still uses
@@ -2019,6 +2068,10 @@ fn render_payload_text<'a>(
             }
         }
         BodyPaint::Plain | BodyPaint::Empty => {
+            // Prefer real highlighting when we still know a language (e.g. file path).
+            if !syntax.is_empty() && (kind == "tool" || kind == "tool_result") {
+                return code_inset(hud, field_id, &cut, syntax, hud.tokens());
+            }
             let plain = if kind == "thought" {
                 text(cut)
                     .size(typo::BODY)
@@ -2330,9 +2383,9 @@ mod tests {
         let mut hud = Hud::default();
         hud.bind_field("code.json", r#"{ "a": 1 }"#);
         hud.bind_field("code.plain", "not json");
-        let _ = code_inset(&hud, "code.json", tea());
-        let _ = code_inset(&hud, "code.plain", tea());
-        let _ = code_inset(&hud, "missing", tea());
+        let _ = code_inset(&hud, "code.json", "", "json", tea());
+        let _ = code_inset(&hud, "code.plain", "", "py", tea());
+        let _ = code_inset(&hud, "missing", "fallback body", "txt", tea());
     }
 
     #[test]
@@ -2363,7 +2416,10 @@ mod tests {
         assert!(prod.contains("widget::tooltip_wrap"));
         assert!(prod.contains("icedtea::widget::themed_pick_list"));
         assert!(prod.contains("icedtea::widget::themed_text_input"));
-        assert!(prod.contains("icedtea::widget::code_block"));
+        assert!(
+            prod.contains("icedtea::widget::highlighted_code"),
+            "tool code panes must use iced highlighter, not plain mono code_block"
+        );
         assert!(prod.contains("icedtea::widget::selectable"));
         // Overview KV uses fixed label gutter + selectable (not value_field()).
         assert!(prod.contains("KV_LABEL_W"));

@@ -115,7 +115,10 @@ class TimelineTable(DataTable):
             # streaming). Patching every token froze the TUI; new tool rows still
             # appear when len grows. Full paint happens on F5 / open.
             if new_n == prev_n:
-                # Structure unchanged — keep turn map warm (do not stale).
+                # Structure unchanged — keep turn map warm. Rebind tool pairs to
+                # the new event objects so detail still finds tool_call_update
+                # bodies after a re-parse (read_file dump lives on the update).
+                self._build_tool_pairs()
                 return
             self._index_new_events(new_events[prev_n:])
             self._extend_turn_map_from(prev_n)
@@ -276,14 +279,30 @@ class TimelineTable(DataTable):
                 self._result_by_id[ev.tool_call_id] = ev
 
     def get_paired_call(self, ev: TraceEvent) -> TraceEvent | None:
-        if ev.event_type in et.TOOL_UPDATE_TYPES and ev.tool_call_id:
-            return self._call_by_id.get(ev.tool_call_id)
-        return None
+        if ev.event_type not in et.TOOL_UPDATE_TYPES or not ev.tool_call_id:
+            return None
+        call = self._call_by_id.get(ev.tool_call_id)
+        if call is not None and self.events and id(call) not in {id(e) for e in self.events}:
+            self._build_tool_pairs()
+            call = self._call_by_id.get(ev.tool_call_id)
+        return call
 
     def get_paired_result(self, ev: TraceEvent) -> TraceEvent | None:
-        if ev.event_type == "tool_call" and ev.tool_call_id:
-            return self._result_by_id.get(ev.tool_call_id)
-        return None
+        """Return the tool_call_update for a tool_call (file body lives here).
+
+        ``read_file`` and similar host tools leave ``tool_call.content`` empty;
+        the dump is only on the paired update. Maps must track *current*
+        timeline objects after re-parse, not stale instances.
+        """
+        if ev.event_type != "tool_call" or not ev.tool_call_id:
+            return None
+        cid = ev.tool_call_id
+        res = self._result_by_id.get(cid)
+        live = self.events
+        if live and (res is None or id(res) not in {id(e) for e in live}):
+            self._build_tool_pairs()
+            res = self._result_by_id.get(cid)
+        return res
 
     def _compute_durations(self) -> None:
         """Compute per-event durations from timestamps.

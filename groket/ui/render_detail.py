@@ -774,7 +774,12 @@ def render_tool_detail_from_event(
     truncate: bool = True,
     turn_index: int | None = None,
 ) -> Group:
-    """Render tool_call / tool_result, merging pair when available (trace_viewer style)."""
+    """Render tool_call / tool_result, merging pair when available (trace_viewer style).
+
+    Host ``read_file`` leaves the call body empty — the file dump is on the
+    paired ``tool_call_update``. Prefer *paired_result* content, then the
+    selected event's own content.
+    """
     call = ev if ev.event_type == "tool_call" else paired_call
     result = ev if ev.event_type in et.TOOL_UPDATE_TYPES else paired_result
     ri: dict[str, JsonValue] = {}
@@ -785,6 +790,16 @@ def render_tool_detail_from_event(
         else ToolInputBag(src_ev.raw_input if isinstance(src_ev.raw_input, dict) else {})
     )
     ri = dict(bag.raw())
+    # Path may only appear on the call; still surface it when viewing the update.
+    if not _path_hint(ri) and result is not None:
+        rbag = (
+            result.raw_input
+            if isinstance(result.raw_input, ToolInputBag)
+            else ToolInputBag(result.raw_input if isinstance(result.raw_input, dict) else {})
+        )
+        for k, v in rbag.raw().items():
+            if k not in ri or ri.get(k) in (None, "", [], {}):
+                ri[k] = v
     tname = (
         (call.tool_name if call else "")
         or (result.tool_name if result else "")
@@ -792,12 +807,12 @@ def render_tool_detail_from_event(
         or "?"
     )
     out = ""
-    if result:
+    if result is not None:
         out = _content_str(result.content, sanitize=True, tool_name=tname)
-    elif ev.event_type == "tool_call":
+    if not (out or "").strip():
         out = _content_str(ev.content, sanitize=True, tool_name=tname)
-    else:
-        out = _content_str(ev.content, sanitize=True, tool_name=tname)
+    if not (out or "").strip() and call is not None and call is not ev:
+        out = _content_str(call.content, sanitize=True, tool_name=tname)
     is_err = bool(
         (result is not None and result.is_error)
         or ev.is_error

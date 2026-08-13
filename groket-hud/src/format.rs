@@ -890,6 +890,144 @@ pub fn looks_like_markdown(text: &str) -> bool {
     s.contains("\n## ") || s.contains("\n# ")
 }
 
+/// iced ``text_editor::highlight`` language token (syntect short name).
+///
+/// Prefer path extension, then tool field id, then light content cues.
+/// Empty string means plain mono (caller may still use a non-highlight path).
+pub fn syntax_for_path(path: &str) -> &'static str {
+    let p = path.trim().to_ascii_lowercase();
+    let base = p.rsplit('/').next().unwrap_or(p.as_str());
+    if base == "dockerfile" || base.ends_with(".dockerfile") {
+        return "dockerfile";
+    }
+    match p.rsplit('.').next().unwrap_or("") {
+        "py" | "pyi" => "py",
+        "rs" => "rs",
+        "js" | "mjs" | "cjs" => "js",
+        "jsx" => "jsx",
+        "ts" => "ts",
+        "tsx" => "tsx",
+        "go" => "go",
+        "java" => "java",
+        "c" | "h" => "c",
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" => "cpp",
+        "json" | "jsonl" => "json",
+        "md" | "markdown" => "md",
+        "toml" => "toml",
+        "yml" | "yaml" => "yaml",
+        "sh" | "bash" | "zsh" => "bash",
+        "css" => "css",
+        "html" | "htm" => "html",
+        "xml" => "xml",
+        "sql" => "sql",
+        "rb" => "rb",
+        "diff" | "patch" => "diff",
+        _ => "",
+    }
+}
+
+/// Language for a tool input field (`command` → bash, path-backed edits → path lang).
+pub fn syntax_for_tool_field(field_id: &str, path_hint: &str, value: &str) -> &'static str {
+    match field_id {
+        "command" | "cmd" | "script" => "bash",
+        "pattern" => "regexp",
+        "old_string" | "new_string" => {
+            let from_path = syntax_for_path(path_hint);
+            if !from_path.is_empty() {
+                return from_path;
+            }
+            syntax_for_source_body(value)
+        }
+        _ if looks_like_json(value) => "json",
+        _ => {
+            let from_path = syntax_for_path(path_hint);
+            if !from_path.is_empty() {
+                return from_path;
+            }
+            if looks_like_json(value) {
+                "json"
+            } else {
+                ""
+            }
+        }
+    }
+}
+
+/// Language for tool *output* body (read_file dump, JSON result, …).
+pub fn syntax_for_tool_output(tool_name: &str, path_hint: &str, body: &str) -> &'static str {
+    let from_path = syntax_for_path(path_hint);
+    if !from_path.is_empty() {
+        return from_path;
+    }
+    if looks_like_json(body) {
+        return "json";
+    }
+    let t = tool_name.trim();
+    if t == "run_terminal_command"
+        || t == "get_command_or_subagent_output"
+        || t == "monitor"
+    {
+        // Shell stdout stays unhighlighted (mixed stream).
+        return "";
+    }
+    if t == "read_file" || t == "search_replace" {
+        return syntax_for_source_body(body);
+    }
+    syntax_for_source_body(body)
+}
+
+fn syntax_for_source_body(body: &str) -> &'static str {
+    let sample: String = body.chars().take(4000).collect();
+    let head = sample.trim_start();
+    if head.starts_with("#!") && head.contains("python") {
+        return "py";
+    }
+    if head.starts_with("#!") {
+        return "bash";
+    }
+    let py = ["def ", "class ", "import ", "from ", "async def "]
+        .iter()
+        .filter(|t| sample.contains(*t))
+        .count();
+    if py >= 2 {
+        return "py";
+    }
+    let rs = ["fn ", "impl ", "pub ", "let mut ", "use "]
+        .iter()
+        .filter(|t| sample.contains(*t))
+        .count();
+    if rs >= 2 {
+        return "rs";
+    }
+    if sample.contains("package ") && sample.contains("func ") {
+        return "go";
+    }
+    if sample.contains("function ") || sample.contains("const ") && sample.contains("=>") {
+        return "js";
+    }
+    if looks_like_json(&sample) {
+        return "json";
+    }
+    ""
+}
+
+/// Path hint from tool rawInput (target_file / file_path / path).
+pub fn path_hint_from_raw(raw: &Value) -> String {
+    let obj = match raw {
+        Value::Object(m) => m,
+        _ => return String::new(),
+    };
+    for key in ["target_file", "file_path", "path", "target_directory"] {
+        if let Some(Value::String(s)) = obj.get(key) {
+            let t = s.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
 /// Same cue as TUI ``render_detail._looks_json``.
 pub fn looks_like_json(text: &str) -> bool {
     let s = text.trim();
@@ -1569,6 +1707,21 @@ mod tests {
         assert_eq!(
             body_paint_for("tool", "tool_call_update", py, true),
             BodyPaint::Code
+        );
+        assert_eq!(syntax_for_path("src/app.py"), "py");
+        assert_eq!(syntax_for_path("groket-hud/src/app.rs"), "rs");
+        assert_eq!(syntax_for_tool_field("command", "", "echo hi"), "bash");
+        assert_eq!(
+            syntax_for_tool_field("old_string", "pkg/main.py", "x = 1"),
+            "py"
+        );
+        assert_eq!(
+            syntax_for_tool_output("read_file", "lib/x.rs", "fn main() {}"),
+            "rs"
+        );
+        assert_eq!(
+            syntax_for_tool_output("run_terminal_command", "", "ok\n"),
+            ""
         );
         assert_eq!(
             body_paint_for("thought", "agent_thought_chunk", "hmm", true),
