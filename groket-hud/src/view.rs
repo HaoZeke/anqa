@@ -549,22 +549,7 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     for field in overview_fields(meta, &o.turns) {
         col = col.push(kv(hud, field.key, field.label, field.value, field.copyable));
     }
-    col.push(
-        row![
-            Space::new().width(Length::Fill),
-            card_actions(overview_commands(), tea),
-        ]
-        .align_y(Alignment::Center),
-    )
-    .into()
-}
-
-fn overview_commands() -> Vec<icedtea::action::Action<Message>> {
-    vec![icedtea::action::Action::new(
-        "session.copy",
-        "Copy path",
-        Message::CopyPath,
-    )]
+    col.into()
 }
 
 thread_local! {
@@ -2074,6 +2059,8 @@ mod tests {
         assert!(prod.contains("fn card_chips"));
         assert!(prod.contains("fn command_end"));
         assert!(prod.contains("Add note"));
+        // Overview path is selectable; no in-pane Copy path button.
+        assert!(!prod.contains("fn overview_commands"));
         assert!(prod.contains("format!(\"f{}\""));
         assert!(prod.contains("format!(\"n{}\""));
         assert!(prod.contains("Tab fields"));
@@ -2094,7 +2081,6 @@ mod tests {
         assert!(prod.contains("meter: None"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("fn turn_note"));
-        assert!(prod.contains("fn overview_commands"));
         assert!(!prod.contains("command_palette_view"));
         assert!(prod.contains("fn event_body"));
         assert!(!prod.contains("time_picker"));
