@@ -754,6 +754,10 @@ pub fn card_marks_from_overview(
 }
 
 /// Keep overview-patched status when a quiet catalog refresh sends a blank label.
+fn catalog_row_key(row: &SessionRow) -> String {
+    crate::desktop::notice_row_key(&row.origin, &row.session_id)
+}
+
 pub fn patch_catalog_delta(
     prev: &[SessionRow],
     upserted: Vec<SessionRow>,
@@ -772,13 +776,14 @@ pub fn patch_catalog_delta(
     let mut by_id: HashMap<String, usize> = kept
         .iter()
         .enumerate()
-        .map(|(i, row)| (row.session_id.clone(), i))
+        .map(|(i, row)| (catalog_row_key(row), i))
         .collect();
     for row in patched {
-        if let Some(idx) = by_id.get(&row.session_id).copied() {
+        let key = catalog_row_key(&row);
+        if let Some(idx) = by_id.get(&key).copied() {
             kept[idx] = row;
         } else {
-            by_id.insert(row.session_id.clone(), kept.len());
+            by_id.insert(key, kept.len());
             kept.push(row);
         }
     }
@@ -788,10 +793,10 @@ pub fn patch_catalog_delta(
 pub fn merge_catalog_rows(prev: &[SessionRow], next: Vec<SessionRow>) -> Vec<SessionRow> {
     use crate::format::{is_blank_status, list_status_label};
 
-    let old: HashMap<&str, &SessionRow> = prev.iter().map(|r| (r.session_id.as_str(), r)).collect();
+    let old: HashMap<String, &SessionRow> = prev.iter().map(|r| (catalog_row_key(r), r)).collect();
     next.into_iter()
         .map(|mut row| {
-            if let Some(p) = old.get(row.session_id.as_str()) {
+            if let Some(p) = old.get(&catalog_row_key(&row)) {
                 if is_blank_status(&row.status) && !is_blank_status(&p.status) {
                     row.status = p.status.clone();
                 }
@@ -857,6 +862,32 @@ mod tests {
         assert!(!is_live_status("cancelled"));
         assert!(!is_live_status("—"));
         assert!(!is_live_status(""));
+    }
+
+    #[test]
+    fn catalog_delta_keeps_host_and_work_copies() {
+        let work = SessionRow {
+            session_id: "s1".into(),
+            origin: "work".into(),
+            status: "complete".into(),
+            ..SessionRow::default()
+        };
+        let host = SessionRow {
+            session_id: "s1".into(),
+            origin: "host".into(),
+            status: "running".into(),
+            ..SessionRow::default()
+        };
+        let out = patch_catalog_delta(&[work.clone()], vec![host.clone()], &[]);
+        assert_eq!(out.len(), 2);
+        assert!(out
+            .iter()
+            .any(|r| r.origin == "work" && r.status == "complete"));
+        assert!(out
+            .iter()
+            .any(|r| r.origin == "host" && r.status == "running"));
+        let again = patch_catalog_delta(&out, vec![work, host], &[]);
+        assert_eq!(again.len(), 2);
     }
 
     #[test]

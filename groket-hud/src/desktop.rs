@@ -200,6 +200,15 @@ fn analysis_terminal_state(params: &Value) -> Option<&'static str> {
     }
 }
 
+/// Seen-map key so host and work copies of the same id do not fight.
+pub fn notice_row_key(origin: &str, sid: &str) -> String {
+    if origin.is_empty() {
+        sid.to_string()
+    } else {
+        format!("{origin}:{sid}")
+    }
+}
+
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
 pub fn notices_from_rows(
     seen: &mut HashMap<String, String>,
@@ -389,6 +398,21 @@ mod tests {
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
         assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
         assert_eq!(seen.get("abc").map(String::as_str), Some("complete"));
+    }
+
+    #[test]
+    fn host_and_work_same_id_do_not_refire_complete() {
+        let work = notice_row_key("work", "s1");
+        let host = notice_row_key("host", "s1");
+        let mut seen = HashMap::new();
+        let rows = vec![
+            (work.clone(), "Feedback Analysis".into(), "complete".into()),
+            (host.clone(), "Feedback Analysis".into(), "running".into()),
+        ];
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
+        assert_eq!(seen.get(&work).map(String::as_str), Some("complete"));
+        assert_eq!(seen.get(&host).map(String::as_str), Some("running"));
     }
 
     #[test]
