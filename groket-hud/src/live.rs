@@ -14,18 +14,21 @@ pub const TIMELINE_BUFFER_CAP: usize = 10_000;
 /// Preview bytes per row on a page. Opened cards refetch a larger slice.
 pub const TIMELINE_PREVIEW_CHARS: u32 = 720;
 pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
-/// Session rail width. Cards inside it grow with wrapped title and meta.
-pub const SESSION_LIST_W: f32 = 260.0;
-/// Closed timeline card plus gap (flat list card, not expander Peek).
-pub const TIMELINE_ROW_H: f32 = 88.0;
-/// Floor for an expanded timeline card (header + padding + short body).
-pub const OPEN_TIMELINE_ROW_H: f32 = 320.0;
+/// Vertical gap after each virtual list card (must be inside row height —
+/// ``virtual_column`` clips each row to ``heights[i]``).
+pub const LIST_GAP: f32 = 4.0;
+/// Closed timeline card + gap. Chips sit on the title row so face fits.
+/// pad×2 + title/chip row + face + inner gap + list gap (density 8 grid).
+pub const TIMELINE_ROW_H: f32 = 92.0;
+/// Floor for an expanded timeline card (short chat / chrome event).
+/// Must stay below a typical detail viewport so neighbors remain visible.
+pub const OPEN_TIMELINE_ROW_H: f32 = 152.0;
 /// Ceiling for open-card height estimates (virtual_column clips to this).
 pub const OPEN_TIMELINE_ROW_MAX: f32 = 6_000.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Fixed Turns list card (title + meta + prompt + chips + gap).
-pub const CLOSED_TURN_CARD_H: f32 = 120.0;
+/// Fixed Turns card + gap: title+chips, stats, 2-line prompt.
+pub const CLOSED_TURN_CARD_H: f32 = 136.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 1;
 
@@ -81,13 +84,13 @@ fn wrap_line_count(s: &str, cols: usize) -> usize {
 /// Gap icedtea `RowFace::Card` inserts between mounted rows (not in face paint).
 pub const LIST_CARD_GAP: f32 = 2.0;
 
-/// Pixel height of one session tile in the 260px rail.
+/// Pixel height of one session tile in the full-width picker.
 ///
 /// Includes [`LIST_CARD_GAP`] so `RowHeights` totals match list_view Card
 /// spacing (otherwise the last cards cannot scroll fully into view).
 pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
-    // 8+8 list pad, 12+12 card pad; ~7px at 14px Fira.
-    let cols = 28usize;
+    // Full-width picker (~780 shell − pad); ~7px at 14px Fira → ~90 cols.
+    let cols = 72usize;
     let mut h = 20.0;
     h += wrap_line_count(title, cols) as f32 * 18.0;
     if !meta.is_empty() {
@@ -1087,8 +1090,11 @@ mod tests {
     #[test]
     fn session_card_grows_when_the_title_wraps() {
         let short = session_card_height("Fix the rail", "running · grok-4", false);
+        // Full-width picker uses ~72 columns — need a long line to wrap.
+        let long_title = "Rewrite the session catalog filter and keep the host path readable "
+            .repeat(3);
         let long = session_card_height(
-            "Rewrite the session catalog filter and keep the host path readable",
+            &long_title,
             "running · grok-4 · 12%",
             true,
         );

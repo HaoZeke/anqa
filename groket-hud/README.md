@@ -24,9 +24,12 @@ Sol-style session **command palette** for the local groket control plane
   Notes tab **Edit** / **Delete** match the TUI (delete is two presses).
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
-- Typeahead over the ``session/list`` catalog (first paint is one page; the
-  rest fills in the background; empty search does not clone the catalog)
-- Detail defaults to **Overview**. Selecting a session loads overview only —
+- Spotlight session pick: type in **Search sessions**, arrow/click a match,
+  Enter to open. That enters full-width **browse** (Overview / Turns /
+  Timeline / Findings / Notes). Type in search again to switch sessions —
+  there is no permanent left session rail. Catalog typeahead uses
+  ``session/list`` (first page on paint; more in the background).
+- Browse defaults to **Overview**. Picking a session loads overview only —
   it does not fetch the session event list.
   **Turns** is a fixed list of prompt cards (status, tool counts, marks) with
   search, **Add note**, and **Go to Timeline** — click a card to open Timeline

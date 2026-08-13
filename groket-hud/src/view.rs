@@ -26,8 +26,8 @@ use crate::format::{
     timeline_count_caption, timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
-    context_fraction, finding_severity_rank, finding_severity_title, CardMark, SESSION_LIST_W,
-    TIMELINE_OVERSCAN, TURNS_OVERSCAN,
+    context_fraction, finding_severity_rank, finding_severity_title, CardMark, TIMELINE_OVERSCAN,
+    TURNS_OVERSCAN,
 };
 use crate::model::{KindFilter, Tab};
 use crate::typo;
@@ -74,6 +74,15 @@ fn empty_sessions(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::pattern::status_page("No sessions", "Is groket serve running?", None, tea)
 }
 
+fn no_session_matches(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    icedtea::pattern::status_page(
+        "No matches",
+        "Try another query, or clear search for recent sessions.",
+        None,
+        tea,
+    )
+}
+
 fn loading_session(sid: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     column![
         icedtea::widget::placeholder_skeleton(tea, A11y::new("Loading", Role::Progress)),
@@ -84,7 +93,12 @@ fn loading_session(sid: &str, tea: icedtea::theme::Tokens) -> Element<'static, M
 }
 
 fn select_session(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::pattern::status_page("Select a session", "", None, tea)
+    icedtea::pattern::status_page(
+        "Search for a session",
+        "Type above, then Enter or click a match. Search again to switch.",
+        None,
+        tea,
+    )
 }
 
 fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -226,10 +240,12 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     }
     let search = search.padding(Padding::from([12, 16]));
 
-    let list = session_list(hud);
-    let detail = detail_pane(hud);
-    let body =
-        icedtea::pattern::list_detail(list, detail, icedtea::layout::fixed(SESSION_LIST_W), tea);
+    // Spotlight: search → pick → full-width browse. Type again to switch.
+    let body: Element<'_, Message> = if hud.browse_mode() {
+        detail_pane(hud)
+    } else {
+        session_picker(hud)
+    };
 
     let foot = footer(hud, tea);
 
@@ -271,14 +287,18 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     busy
 }
 
-fn session_list(hud: &Hud) -> Element<'_, Message> {
-    responsive(move |size| session_list_at(hud, size.height.max(1.0))).into()
+/// Full-width session matches (Spotlight results). No permanent left rail.
+fn session_picker(hud: &Hud) -> Element<'_, Message> {
+    responsive(move |size| session_picker_at(hud, size.height.max(1.0))).into()
 }
 
-fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
+fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     let tea = hud.tokens();
     if hud.sessions().is_empty() {
-        return empty_sessions(tea);
+        if hud.query().trim().is_empty() {
+            return empty_sessions(tea);
+        }
+        return no_session_matches(tea);
     }
     let mut window = hud.list_window();
     window.viewport = viewport.max(1.0);
@@ -302,7 +322,7 @@ fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
             tone_color(status_tone(&status), hud_tok)
         },
         Some(hud.list_scroll_id()),
-        // Context fill lives on Overview only — rail meters were noise at catalog scale.
+        // Context fill lives on Overview only — picker meters were noise.
         icedtea::collection::RowFace::Card {
             meter: None::<fn(usize) -> f32>,
         },
@@ -312,9 +332,14 @@ fn session_list_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     let session_ready = hud.overview().is_some() || !hud.overview_pending().is_empty();
+    let tea = hud.tokens();
     let tabs = container(detail_tab_bar(hud, session_ready)).padding(Padding::from([8, 12]));
 
-    let mut stack = column![tabs].spacing(0).height(Length::Fill);
+    let mut stack = column![].spacing(0).height(Length::Fill);
+    if let Some(bar) = browse_session_bar(hud, tea) {
+        stack = stack.push(bar);
+    }
+    stack = stack.push(tabs);
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
         stack = stack.push(timeline_filter(hud));
     }
@@ -332,7 +357,6 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
             Tab::Notes => notes_tab(hud),
         }
     };
-    let tea = hud.tokens();
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
         stack = stack.push(
             container(timeline_tab(hud))
@@ -361,6 +385,68 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+/// Session identity under the search bar while browsing (no left rail).
+fn browse_session_bar<'a>(
+    hud: &'a Hud,
+    tea: icedtea::theme::Tokens,
+) -> Option<Element<'a, Message>> {
+    let title = if let Some(o) = hud.overview() {
+        let t = o.meta.title.trim();
+        if t.is_empty() {
+            let l = o.meta.label.trim();
+            if l.is_empty() {
+                hud.overview_sid().to_string()
+            } else {
+                l.to_string()
+            }
+        } else {
+            t.to_string()
+        }
+    } else if !hud.overview_pending().is_empty() {
+        hud.overview_pending().to_string()
+    } else {
+        return None;
+    };
+    let status = if let Some(o) = hud.overview() {
+        let s = o.meta.status_label();
+        if s.is_empty() {
+            String::new()
+        } else {
+            s
+        }
+    } else {
+        "Loading…".into()
+    };
+    let mut row = row![
+        text(title)
+            .size(typo::BODY)
+            .font(typo::UI_BOLD)
+            .color(tea.text),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center)
+    .width(Length::Fill);
+    if !status.is_empty() {
+        row = row.push(
+            text(status)
+                .size(typo::META)
+                .color(tea.muted),
+        );
+    }
+    row = row.push(Space::new().width(Length::Fill));
+    row = row.push(
+        text("Search again to switch")
+            .size(typo::META)
+            .color(tea.muted),
+    );
+    Some(
+        container(row)
+            .padding(Padding::from([6, 16]))
+            .width(Length::Fill)
+            .into(),
+    )
 }
 
 /// Pane tabs: secondary panes only pressable once a session overview exists.
@@ -670,8 +756,36 @@ fn card_chips(
     note: Option<Message>,
     jump: Option<Message>,
 ) -> Element<'static, Message> {
+    // Full-width bar (open cards / forms): marks left, commands right.
+    row![
+        card_marks_row(hud, mark),
+        Space::new().width(Length::Fill),
+        card_cmds_row(hud, note, jump),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .width(Length::Fill)
+    .into()
+}
+
+/// Compact chips for closed-card title rows (no flex fill — sits beside title).
+fn card_chips_inline(
+    hud: &Hud,
+    mark: Option<CardMark>,
+    note: Option<Message>,
+    jump: Option<Message>,
+) -> Element<'static, Message> {
+    row![
+        card_marks_row(hud, mark),
+        card_cmds_row(hud, note, jump),
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+fn card_marks_row(hud: &Hud, mark: Option<CardMark>) -> Element<'static, Message> {
     let tea = hud.tokens();
-    let tok = hud.tokens();
     let mut marks = row![].spacing(4);
     if let Some(m) = mark {
         if m.findings > 0 {
@@ -699,8 +813,17 @@ fn card_chips(
             ));
         }
         // Tool errors are already in turn_stats_row ("N tools · M tool errors").
-        // A bare red "e5" looked like a broken type label.
     }
+    marks.into()
+}
+
+fn card_cmds_row(
+    hud: &Hud,
+    note: Option<Message>,
+    jump: Option<Message>,
+) -> Element<'static, Message> {
+    let tea = hud.tokens();
+    let tok = hud.tokens();
     let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
         cmds = cmds.push(chip_btn("Add note".into(), msg, tea));
@@ -708,11 +831,7 @@ fn card_chips(
     if let Some(msg) = jump {
         cmds = cmds.push(jump_control(msg, tok.muted, tea));
     }
-    row![marks, Space::new().width(Length::Fill), cmds]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into()
+    cmds.into()
 }
 
 fn card_actions(
@@ -744,6 +863,9 @@ fn expand_card<'a>(
 ///
 /// Expander always mounts a peeked child tree; at virtual-list density that
 /// dominated frame time. Open rows still use [`expand_card`].
+///
+/// Chips share the title row so the virtual height only needs title + face
+/// (a third chips row was clipped by ``TIMELINE_ROW_H`` under ``clip(true)``).
 fn closed_list_card<'a>(
     title: String,
     face: Element<'a, Message>,
@@ -757,15 +879,16 @@ fn closed_list_card<'a>(
             .font(typo::UI_BOLD)
             .color(tea.text),
         Space::new().width(Length::Fill),
+        chips,
         text("▸").size(typo::META).color(tea.muted),
     ]
-    .spacing(8)
+    .spacing(6)
     .align_y(Alignment::Center)
     .width(Length::Fill);
-    let body = column![header, face, chips].spacing(6).width(Length::Fill);
+    let body = column![header, face].spacing(4).width(Length::Fill);
     mouse_area(
         container(body)
-            .padding(12)
+            .padding(10)
             .width(Length::Fill)
             .style(move |_| icedtea::style::card(tea, false)),
     )
@@ -1024,7 +1147,8 @@ fn note_commands(id: &str, delete_armed: &str) -> Vec<icedtea::action::Action<Me
 }
 
 fn closed_turn_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    plain_face(summary, "No user prompt in this turn", 320, tea)
+    // ~2 lines at typical detail width; keeps closed-card height honest.
+    plain_face(summary, "No user prompt in this turn", 180, tea)
 }
 
 /// Closed-card preview only. Markdown parse/layout per visible row was the
@@ -1050,6 +1174,9 @@ fn plain_face(
 }
 
 /// Fixed Turns card: prompt + light meta + jump/note (no expander / assistant body).
+///
+/// Title row carries chips so the 2-line prompt is not pushed under the
+/// virtual clip (``CLOSED_TURN_CARD_H``).
 fn turn_list_card(
     hud: &Hud,
     t: &TurnRow,
@@ -1061,17 +1188,24 @@ fn turn_list_card(
         .size(typo::BODY)
         .font(typo::UI_BOLD)
         .color(tea.text);
-    let body = column![
+    let header = row![
         title,
-        turn_stats_row(t, tea),
-        closed_turn_face(&t.summary, tea),
-        card_chips(hud, mark, Some(turn_note(t)), Some(jump.clone())),
+        Space::new().width(Length::Fill),
+        card_chips_inline(hud, mark, Some(turn_note(t)), Some(jump.clone())),
     ]
     .spacing(6)
+    .align_y(Alignment::Center)
+    .width(Length::Fill);
+    let body = column![
+        header,
+        turn_stats_row(t, tea),
+        closed_turn_face(&t.summary, tea),
+    ]
+    .spacing(4)
     .width(Length::Fill);
     mouse_area(
         container(body)
-            .padding(12)
+            .padding(10)
             .width(Length::Fill)
             .style(move |_| icedtea::style::card(tea, false)),
     )
@@ -1135,7 +1269,11 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     return Space::new().height(0).into();
                 };
                 let mark = turn_marks.get(&t.turn_index).cloned();
-                column![turn_list_card(hud, t, mark, tea), Space::new().height(4)].into()
+                column![
+                    turn_list_card(hud, t, mark, tea),
+                    Space::new().height(crate::live::LIST_GAP),
+                ]
+                .into()
             },
             A11y::new("Turns", Role::List),
         )
@@ -1208,12 +1346,12 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
                 closed_list_card(
                     event_title(ev),
                     event_face(ev, tea),
-                    card_chips(hud, mark, Some(event_note(ev)), None),
+                    card_chips_inline(hud, mark, Some(event_note(ev)), None),
                     Message::SelectTimeline(ix),
                     tea,
                 )
             };
-            column![card, Space::new().height(2)].into()
+            column![card, Space::new().height(crate::live::LIST_GAP)].into()
         },
         A11y::new("Timeline", Role::List),
     );
@@ -1950,7 +2088,7 @@ mod tests {
         let hud = Hud::default();
         assert!(hud.sessions().is_empty());
         let _ = timeline_filter(&hud);
-        let _ = session_list_at(&hud, 400.0);
+        let _ = session_picker_at(&hud, 400.0);
         let _ = layout(&hud);
         let src = include_str!("view.rs");
         assert!(
@@ -1997,16 +2135,19 @@ mod tests {
     }
 
     #[test]
-    fn session_rail_uses_icedtea_card_list() {
+    fn session_picker_is_spotlight_not_list_detail_rail() {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod source");
+        assert!(prod.contains("fn session_picker"));
+        assert!(prod.contains("browse_mode()"));
+        assert!(prod.contains("fn browse_session_bar"));
         assert!(prod.contains("widget::list_view("));
         assert!(prod.contains("RowFace::Card"));
         assert!(prod.contains("RowHeights::PerRow"));
         assert!(!prod.contains("fn tea_two_line"));
         assert!(!prod.contains("fn tea_list_view"));
-        assert!(prod.contains("SESSION_LIST_W"));
-        assert!(prod.contains("pattern::list_detail"));
+        assert!(!prod.contains("SESSION_LIST_W"));
+        assert!(!prod.contains("pattern::list_detail"));
         assert!(prod.contains("widget::rule_h"));
         assert!(prod.contains("widget::tooltip_wrap"));
         assert!(prod.contains("icedtea::widget::themed_pick_list"));

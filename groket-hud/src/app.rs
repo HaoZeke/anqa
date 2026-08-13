@@ -38,7 +38,7 @@ use crate::theme;
 use crate::view;
 use crate::wire::{
     decode_overview, decode_session_list, decode_session_list_response, decode_timeline_page,
-    FindingRow, NotesBlock, Overview, TimelineEvent, TurnsBlock,
+    FindingRow, NotesBlock, Overview, TimelineEvent,
 };
 
 const HUD_W: f32 = 780.0;
@@ -556,27 +556,31 @@ impl Hud {
                 Task::none()
             }
             Message::SelectSession(i) => {
-                if i >= self.sessions().len() {
+                // Capture the row before clearing the query (index is into the
+                // filtered list; browse mode uses the full catalog).
+                let Some(row) = self.sessions().get(i).cloned() else {
+                    return self.focus_overlay();
+                };
+                let sid = row.session_id.clone();
+                if sid.is_empty() {
                     return self.focus_overlay();
                 }
-                // Same rail row *and* same overview session — not only active index
-                // (search can leave active on a different row while detail stays open).
-                let row_sid = self
-                    .sessions()
-                    .get(i)
-                    .map(|r| r.session_id.as_str())
-                    .unwrap_or("");
                 let same = self.overview.is_some()
                     && !self.overview_sid.is_empty()
-                    && row_sid == self.overview_sid
-                    && self.active == i;
-                self.set_active(i);
+                    && sid == self.overview_sid;
+                // Spotlight: pick → clear search → full-width browse.
+                self.query.clear();
+                self.rerank_visible_keeping(sid.clone());
+                if let Some(idx) = self.sessions().iter().position(|r| r.session_id == sid) {
+                    self.set_active(idx);
+                } else {
+                    self.set_active(0);
+                }
                 if same {
                     return self.focus_overlay();
                 }
                 self.reset_detail_chrome();
-                // Chrome (active rail + loading placeholder) updates this frame;
-                // overview body fills async via OverviewLoaded.
+                // Loading placeholder this frame; body fills via OverviewLoaded.
                 Task::batch([self.load_overview(false), self.focus_overlay()])
             }
             Message::SetTab(tab) => {
@@ -774,7 +778,20 @@ impl Hud {
                 Task::none()
             }
             Message::ActivateSelected => {
+                if self.browse_mode() {
+                    // Already in full-width browse with an empty search — no re-pick.
+                    return Task::none();
+                }
                 self.ensure_rail_selection_for_activate();
+                let Some(sid) = self.selected_sid() else {
+                    return Task::none();
+                };
+                // Same as click: clear search so layout leaves the picker.
+                self.query.clear();
+                self.rerank_visible_keeping(sid.clone());
+                if let Some(idx) = self.sessions().iter().position(|r| r.session_id == sid) {
+                    self.set_active(idx);
+                }
                 self.load_overview(false)
             }
             Message::FindingExpand { id, open } => {
@@ -1177,6 +1194,14 @@ impl Hud {
     pub fn query(&self) -> &str {
         &self.query
     }
+
+    /// Full-width session browse (tabs + detail). False while the search field
+    /// has text or no session is open — then the body is the session picker.
+    pub fn browse_mode(&self) -> bool {
+        self.query.trim().is_empty()
+            && (self.overview.is_some() || !self.overview_pending.is_empty())
+    }
+
     pub fn sessions(&self) -> &[SessionRow] {
         if self.query.trim().is_empty() {
             &self.all_sessions
@@ -3231,43 +3256,60 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
 /// Virtual list row height for an expanded event.
 ///
 /// ``virtual_column`` clips each row to this height, so under-estimates hide
-/// body text with no way to scroll inside the card. Built from icedtea
-/// density (4px grid) + type scale — not free-hand magic numbers.
+/// body text and over-estimates leave empty shells that push neighbors off
+/// screen. Built from icedtea density (4px grid) + type scale.
 fn estimate_open_event_height(ev: &TimelineEvent) -> f32 {
     use icedtea::density::Density;
 
-    let d = Density::default(); // space=8, pad=8, tile=48
+    let d = Density::default(); // space=8, pad=8
     let space = d.space as f32;
     let pad = d.pad as f32;
-    // Line box ≈ body px + half space (tight reading stack).
-    let line = crate::typo::BODY as f32 + space * 0.5;
-    // Card chrome: title row + outer pad + chips row + gaps.
-    let chrome = d.tile() as f32 + pad * 2.0 + space * 3.0;
+    // Line box ≈ body px + quarter space (tight reading stack).
+    let line = crate::typo::BODY as f32 + space * 0.25;
+    // Expander title + type label + chips + outer pad + list gap + inner gaps.
+    let chrome = (crate::typo::BODY as f32 + space)
+        + (crate::typo::META as f32 + space * 0.5)
+        + (crate::typo::BODY as f32 + pad) // chips / command row
+        + pad * 2.0
+        + space * 2.0
+        + crate::live::LIST_GAP;
 
     let body = event_body_text(ev);
     let text = if !ev.content.is_empty() {
         ev.content.as_str()
+    } else if !ev.preview.is_empty() {
+        ev.preview.as_str()
     } else {
         body.as_str()
     };
+    // Cap wrap estimate to what the open payload actually paints (not full buffer).
+    let paint_chars = text.chars().count().min(12_000);
     let line_count = text.lines().count().max(1);
-    // ~2.5 glyphs per body-px ≈ wrap at typical detail column width.
-    let chars = text.chars().count();
-    let wrap_cols = ((crate::typo::BODY as f32) * 2.5).max(24.0);
-    let wrapped = ((chars as f32) / wrap_cols).ceil() as usize;
-    let lines = line_count.max(wrapped).max(2) as f32;
+    // ~3 glyphs per body-px at typical detail column (~900px / 14 ≈ 64 cols).
+    let wrap_cols = 64.0_f32;
+    let wrapped = ((paint_chars as f32) / wrap_cols).ceil() as usize;
+    let lines = (line_count.max(wrapped).max(1) as f32).min(80.0);
 
     let field_n = if !ev.tool_fields.is_empty() {
-        ev.tool_fields.len()
+        ev.tool_fields.len().min(8)
     } else if matches!(ev.kind.as_str(), "tool" | "tool_result") || ev.event_type.contains("tool")
     {
-        3
+        // Closed preview may not ship fields yet; reserve a modest stack.
+        2
     } else {
         0
     };
-    // One tool field: label meta + value tile-ish block.
-    let field_h = (crate::typo::META as f32 + d.tile() as f32 + space) * field_n as f32;
-    let body_h = lines * line;
+    // Label + short value block per field (not full tile — values are often one line).
+    let field_h = (crate::typo::META as f32 + line + space) * field_n as f32;
+    // Chat inset padding.
+    let inset = if matches!(ev.kind.as_str(), "user" | "agent" | "assistant" | "system")
+        || ev.event_type.contains("message")
+    {
+        pad * 2.0 + space
+    } else {
+        0.0
+    };
+    let body_h = lines * line + inset;
     let h = chrome + field_h + body_h;
     let snapped = Density::snap(h.round() as u32).max(OPEN_TIMELINE_ROW_H as u32);
     (snapped as f32).min(OPEN_TIMELINE_ROW_MAX)
@@ -3400,6 +3442,50 @@ fn hotkey_stream() -> impl iced::futures::Stream<Item = Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wire::TurnsBlock;
+
+    #[test]
+    fn browse_mode_is_full_width_only_with_session_and_empty_search() {
+        let mut hud = Hud::default();
+        assert!(!hud.browse_mode(), "cold start is the picker");
+        hud.query = "disk".into();
+        assert!(!hud.browse_mode(), "searching is the picker");
+        hud.query.clear();
+        hud.overview_pending = "s1".into();
+        assert!(hud.browse_mode(), "loading a pick is browse");
+        hud.overview_pending.clear();
+        hud.overview_sid = "s1".into();
+        hud.overview = Some(Overview::default());
+        assert!(hud.browse_mode());
+        hud.query = "switch".into();
+        assert!(!hud.browse_mode(), "type again to switch sessions");
+    }
+
+    #[test]
+    fn open_event_height_keeps_short_chat_under_viewport() {
+        let short = TimelineEvent {
+            index: 2,
+            kind: "user".into(),
+            event_type: "user message chunk".into(),
+            type_label: "user message chunk".into(),
+            content: "can you check disk space?".into(),
+            preview: "can you check disk space?".into(),
+            time: "03:57:45".into(),
+            ..TimelineEvent::default()
+        };
+        let h = estimate_open_event_height(&short);
+        assert!(
+            h >= OPEN_TIMELINE_ROW_H,
+            "floor {OPEN_TIMELINE_ROW_H}, got {h}"
+        );
+        // Detail pane is typically ~400–500px; open card must leave room for neighbors.
+        assert!(
+            h < 360.0,
+            "short chat open height {h} still floods the viewport"
+        );
+        let closed = TIMELINE_ROW_H;
+        assert!(h > closed, "open must exceed closed row");
+    }
 
     #[test]
     fn timeline_filter_cache_avoids_per_frame_scan() {
@@ -3648,7 +3734,12 @@ mod tests {
         // Click the only visible row (index 0) must load it, not no-op as "same".
         let gen_before = hud.overview_gen;
         let _ = hud.update(Message::SelectSession(0));
-        assert_eq!(hud.active(), 0);
+        // Spotlight clears the query; active remaps to the full-catalog index.
+        assert!(hud.query().is_empty());
+        assert_eq!(
+            hud.sessions().get(hud.active()).map(|r| r.session_id.as_str()),
+            Some("visible")
+        );
         assert!(hud.overview_gen > gen_before || !hud.overview_pending.is_empty());
         assert_eq!(hud.overview_pending, "visible");
     }
