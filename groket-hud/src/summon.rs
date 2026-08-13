@@ -7,6 +7,7 @@
 //! Commands are one line each: ``show``, ``hide``, ``toggle`` (optional trailing
 //! newline). Clients: ``groket-hud --show`` / ``groket hud --toggle``.
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvError, SyncSender};
