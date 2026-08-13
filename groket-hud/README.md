@@ -85,8 +85,9 @@ Sol-style session **command palette** for the local groket control plane
   moving or rebuilding it. Runtime tray and iced window icons still work
   without this step.
 - Tray (when the host has one): StatusNotifier on Linux (Swaybar, Waybar),
-  menu bar on macOS, notification area on Windows. Left-click or **Show HUD**
-  reveals and focuses the palette. **Quit Groket HUD** exits the HUD process
+  menu bar on macOS, notification area on Windows. Left-click **toggles**
+  the overlay (same as ``groket hud --toggle``). Menu **Show HUD** always
+  shows. **Quit Groket HUD** exits the HUD process
   only; ``groket serve`` stays up. Escape hides the overlay and leaves the
   tray item in place. A missing tray host is logged; the HUD stays up
   (tray and pop-out still work without a global hotkey).

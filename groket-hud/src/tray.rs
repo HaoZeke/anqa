@@ -1,7 +1,7 @@
 //! StatusNotifier / menu-bar tray for the long-lived HUD process.
 //!
-//! Left-click and **Show HUD** call the same show operation as the summon
-//! hotkey. **Quit Groket HUD** exits this process only.
+//! Left-click toggles the overlay (same as ``groket hud --toggle``).
+//! Menu **Show HUD** always shows. **Quit Groket HUD** exits this process only.
 
 use std::sync::mpsc::{self, Receiver, RecvError, SyncSender};
 use std::sync::{Mutex, OnceLock};
@@ -25,6 +25,7 @@ pub const SHOW_ON_START_ENV: &str = "GROKET_HUD_SHOW_ON_START";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayAction {
     Show,
+    Toggle,
     Quit,
 }
 
@@ -68,10 +69,10 @@ pub fn action_from_menu_id(id: &str) -> Option<TrayAction> {
     }
 }
 
-/// Left-button release shows the palette. Other clicks do not.
+/// Left-button release toggles the palette. Other clicks do not.
 pub fn action_from_click(button: TrayButton, state: TrayClickState) -> Option<TrayAction> {
     match (button, state) {
-        (TrayButton::Left, TrayClickState::Up) => Some(TrayAction::Show),
+        (TrayButton::Left, TrayClickState::Up) => Some(TrayAction::Toggle),
         _ => None,
     }
 }
@@ -214,7 +215,7 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
-            let _ = self.tx.send(TrayAction::Show);
+            let _ = self.tx.send(TrayAction::Toggle);
         }
 
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -351,10 +352,10 @@ mod tests {
     }
 
     #[test]
-    fn left_click_release_shows() {
+    fn left_click_release_toggles() {
         assert_eq!(
             action_from_click(TrayButton::Left, TrayClickState::Up),
-            Some(TrayAction::Show)
+            Some(TrayAction::Toggle)
         );
         assert_eq!(
             action_from_click(TrayButton::Left, TrayClickState::Down),

@@ -249,6 +249,7 @@ pub struct Hud {
     turn_marks: std::collections::HashMap<i64, CardMark>,
     event_marks: std::collections::HashMap<i64, CardMark>,
     seen_status: std::collections::HashMap<String, String>,
+    notices_primed: bool,
     seen_analysis: std::collections::HashMap<String, String>,
     toasts: icedtea::toast::ToastQueue,
     last_tick: Instant,
@@ -340,6 +341,7 @@ impl Default for Hud {
             turn_marks: std::collections::HashMap::new(),
             event_marks: std::collections::HashMap::new(),
             seen_status: std::collections::HashMap::new(),
+            notices_primed: false,
             seen_analysis: std::collections::HashMap::new(),
             toasts: icedtea::toast::ToastQueue::new(),
             last_tick: Instant::now(),
@@ -2029,7 +2031,9 @@ impl Hud {
     }
 
     fn emit_session_notices(&mut self) {
-        let seed = self.seen_status.is_empty();
+        // Hold notices until the first complete catalog page so a sparse
+        // first paint (blank / "—") does not fire "complete" for every row.
+        let seed = !self.notices_primed;
         let rows: Vec<(String, String, String)> = self
             .all_sessions
             .iter()
@@ -2043,6 +2047,9 @@ impl Hud {
             .collect();
         for notice in crate::desktop::notices_from_rows(&mut self.seen_status, &rows, seed) {
             crate::desktop::post(notice);
+        }
+        if !self.catalog_busy && !self.all_sessions.is_empty() {
+            self.notices_primed = true;
         }
     }
 
@@ -2942,6 +2949,7 @@ impl Hud {
     fn on_tray(&mut self, action: crate::tray::TrayAction) -> Task<Message> {
         match action {
             crate::tray::TrayAction::Show => self.show_palette(),
+            crate::tray::TrayAction::Toggle => self.on_hotkey(),
             crate::tray::TrayAction::Quit => self.quit(),
         }
     }
@@ -5799,6 +5807,21 @@ mod tests {
         assert!(hud.visible);
         assert!(!hud.window_mode);
         assert_eq!(hud.window_id, Some(id));
+    }
+
+    #[test]
+    fn tray_toggle_hides_visible_overlay() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            window_mode: false,
+            window_id: Some(id),
+            ..Hud::default()
+        };
+        let _ = hud.on_tray(crate::tray::TrayAction::Toggle);
+        assert!(!hud.visible);
+        assert!(hud.window_id.is_none());
     }
 
     #[test]
