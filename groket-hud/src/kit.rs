@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn label_gutter_matches_icedtea_form_label() {
         assert!((LABEL_GUTTER - icedtea::layout::FORM_LABEL).abs() < f32::EPSILON);
-        assert!(LABEL_GUTTER >= 96.0);
+        const { assert!(LABEL_GUTTER >= 96.0) };
     }
 
     #[test]

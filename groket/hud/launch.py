@@ -274,6 +274,27 @@ def stop_hud_processes(*, wait_s: float = 1.5) -> int:
     return len(pids)
 
 
+def install_desktop(*, rebuild: bool = False, debug: bool = False) -> int:
+    """Run ``groket-hud --install-desktop`` (user-local icons + launcher).
+
+    Ensures a binary first (same profile rules as launch). Does not start the
+    control owner or the HUD process.
+
+    :returns: Process exit code, or 127 when the binary is missing.
+    """
+    binary = ensure_hud_binary(rebuild=rebuild, debug=debug)
+    if binary is None:
+        return 127
+    sys.stderr.write(f"groket hud: install-desktop via {binary}\n")
+    sys.stderr.flush()
+    try:
+        proc = subprocess.run([str(binary), "--install-desktop"], check=False)
+    except OSError as exc:
+        sys.stderr.write(f"error: could not run {binary} --install-desktop: {exc}\n")
+        return 1
+    return int(proc.returncode)
+
+
 def launch_tauri_hud(
     *,
     socket_path: Path,
@@ -368,6 +389,7 @@ __all__ = [
     "hud_binary_is_stale",
     "hud_checkout_dir",
     "hud_process_running",
+    "install_desktop",
     "launch_hud_dev",
     "launch_tauri_hud",
     "stop_hud_processes",

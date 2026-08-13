@@ -240,13 +240,24 @@ def cmd_hud(
             help="Stop any running groket-hud process, then start a new one.",
         ),
     ] = False,
+    install_desktop: Annotated[
+        bool,
+        typer.Option(
+            "--install-desktop",
+            help=(
+                "Write user-local icons and a launcher (Linux .desktop, "
+                "macOS ~/Applications app, Windows Start Menu). Does not start the HUD."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Desktop session palette (control client).
 
     Starts in the background by default (macOS: no Dock, no Cmd+Tab). Summon with
     Cmd+Shift+G. Launches the iced ``groket-hud`` binary (rebuilds from an editable)
     checkout when missing or stale). ``--debug`` for unoptimized; ``--dev``
-    cargo run; ``--restart`` replaces a running HUD.
+    cargo run; ``--restart`` replaces a running HUD. ``--install-desktop`` only
+    installs icons/launcher entries for this user (no package/DMG/MSI).
     """
     from .hud.app import run_hud
     from .integrations.control import default_socket_path
@@ -261,6 +272,7 @@ def cmd_hud(
         rebuild=rebuild,
         foreground=foreground,
         restart=restart,
+        install_desktop=install_desktop,
     )
     raise typer.Exit(code)
 

@@ -25,10 +25,10 @@ use crate::live::{
     notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
     previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
     session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
-    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    spotlight_recent, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
-    LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK,
-    TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
+    timeline_window_start, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H,
+    IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
+    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -1260,9 +1260,10 @@ impl Hud {
         if n == 0 {
             return None;
         }
-        let pos = self.tl_filter.iter().position(|&src| {
-            self.timeline.get(src).is_some_and(|e| e.index == ix)
-        })?;
+        let pos = self
+            .tl_filter
+            .iter()
+            .position(|&src| self.timeline.get(src).is_some_and(|e| e.index == ix))?;
         Some((pos + 1, n))
     }
     pub fn field(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
@@ -3246,11 +3247,7 @@ impl Hud {
                 if idxs.is_empty() {
                     return Task::none();
                 }
-                let src = if home {
-                    idxs[0]
-                } else {
-                    *idxs.last().unwrap()
-                };
+                let src = if home { idxs[0] } else { *idxs.last().unwrap() };
                 if let Some(t) = self.overview.as_ref().and_then(|o| o.turns.turns.get(src)) {
                     self.turns_focus = Some(t.turn_index);
                     return self.scroll_turn_into_view();
@@ -3900,11 +3897,7 @@ mod tests {
             0,
             false,
             true,
-            vec![
-                ev_json(10, "a"),
-                ev_json(11, "b"),
-                ev_json(12, "c"),
-            ],
+            vec![ev_json(10, "a"), ev_json(11, "b"), ev_json(12, "c")],
             3,
             0,
         );
@@ -4335,7 +4328,9 @@ mod tests {
         // Spotlight clears the query; active remaps to the full-catalog index.
         assert!(hud.query().is_empty());
         assert_eq!(
-            hud.sessions().get(hud.active()).map(|r| r.session_id.as_str()),
+            hud.sessions()
+                .get(hud.active())
+                .map(|r| r.session_id.as_str()),
             Some("visible")
         );
         assert!(hud.overview_gen > gen_before || !hud.overview_pending.is_empty());

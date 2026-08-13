@@ -738,9 +738,12 @@ pub fn looks_like_source_code(text: &str) -> bool {
 fn looks_like_diff_text(text: &str) -> bool {
     let mut hits = 0u32;
     for ln in text.lines().take(40) {
-        if ln.starts_with("@@") || ln.starts_with("--- ") || ln.starts_with("+++ ") {
-            hits += 1;
-        } else if ln.starts_with('+') || ln.starts_with('-') {
+        if ln.starts_with("@@")
+            || ln.starts_with("--- ")
+            || ln.starts_with("+++ ")
+            || ln.starts_with('+')
+            || ln.starts_with('-')
+        {
             hits += 1;
         }
     }
@@ -963,10 +966,7 @@ pub fn syntax_for_tool_output(tool_name: &str, path_hint: &str, body: &str) -> &
         return "json";
     }
     let t = tool_name.trim();
-    if t == "run_terminal_command"
-        || t == "get_command_or_subagent_output"
-        || t == "monitor"
-    {
+    if t == "run_terminal_command" || t == "get_command_or_subagent_output" || t == "monitor" {
         // Shell stdout stays unhighlighted (mixed stream).
         return "";
     }

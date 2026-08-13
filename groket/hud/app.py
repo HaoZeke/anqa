@@ -33,21 +33,39 @@ def run_hud(
     rebuild: bool = False,
     foreground: bool = False,
     restart: bool = False,
+    install_desktop: bool = False,
 ) -> int:
     """Ensure control owner is live, then launch the iced ``groket-hud`` binary.
 
     In an editable checkout, missing/stale binaries rebuild with
-    ``cargo build --release`` by default (Vite frontend first). Pass *debug*
-    for an unoptimized build, or *dev* for hot reload.
+    ``cargo build --release`` by default. Pass *debug* for an unoptimized
+    binary, or *dev* for ``cargo run`` in the checkout.
 
-    By default the HUD is detached in the background (Sol-style agent: no Dock
-    / Cmd+Tab on macOS). Pass *foreground* to attach the terminal to the process.
+    By default the HUD is detached in the background (macOS overlay starts as
+    an accessory: no Dock / Cmd+Tab until pop-out). Pass *foreground* to attach
+    the terminal to the process.
+
+    *install_desktop* only writes user-local icons/launcher entries (no serve,
+    no HUD process).
 
     The HUD is always a **client**. A live TUI or ``groket serve`` already
     holding the socket is success (attach), not an error.
 
     :returns: Process exit code (0 normal, 1 failure, 127 binary missing).
     """
+    if install_desktop:
+        from .launch import install_desktop as do_install
+
+        code = do_install(rebuild=rebuild, debug=debug)
+        if code == 127:
+            sys.stderr.write(
+                "error: groket-hud binary not found.\n"
+                "From a checkout with Rust installed, ``groket hud`` auto-builds.\n"
+                "  groket hud --rebuild --install-desktop\n"
+                "Override path with GROKET_HUD_BIN.\n"
+            )
+        return code
+
     sock = Path(socket_path or default_socket_path()).expanduser()
     wd, tr = resolve_work_and_traces(work_dir)
     if auto_serve:

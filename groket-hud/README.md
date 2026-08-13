@@ -13,9 +13,11 @@ Sol-style session **command palette** for the local groket control plane
   palette from the window.
 - Colors follow the TUI ``theme`` name in ``config.json`` (baked Textual
   tokens in ``groket-hud/assets/textual-themes.json``; regenerate with
-  ``make hud-themes``). Dock and window icon use the light 1024 app icon.
-  The search bar uses the colour mark on a light ``$surface`` and the reverse
-  mark on a dark one (gruvbox, nord) at 32px.
+  ``make hud-themes``). Window / tray / notify use the cream three-bar tray
+  tile (128 window, 64 tray/notify). ``--install-desktop`` and the macOS Dock
+  tile (when popped out to a normal app) use the square app icon. The search
+  bar uses the colour mark on a light ``$surface`` and the reverse mark on a
+  dark one (gruvbox, nord) at 32px.
 - Turn and timeline cards show quiet pills for findings, notes, and errors;
   **Add note** opens the Notes tab with turn (and event) filled in.
   A go-to icon (arrow into a bar) loads **that turn’s events** only
@@ -63,26 +65,37 @@ Sol-style session **command palette** for the local groket control plane
   override with ``~/.groket/config.json`` ``hud.global_shortcut`` or env
   ``GROKET_HUD_SHORTCUT``
 - ``groket hud`` detaches; ``groket hud --restart`` replaces a running agent
-- Linux StatusNotifier tray (Swaybar, Waybar, and other SNI hosts): left-click
-  or **Show HUD** reveals and focuses the palette. **Quit Groket HUD** exits
-  the HUD process only; ``groket serve`` stays up. Escape hides the overlay
-  and leaves the tray item in place. A missing tray host is logged; the
-  HUD stays up (summon hotkey and pop-out still work).
+- ``groket hud --install-desktop`` (or ``groket-hud --install-desktop``) writes
+  **user-local** icons and a launcher — not a system package, DMG, or MSI:
+  - **Linux:** ``~/.local/share/applications/dev.indynull.groket-hud.desktop``
+    and hicolor PNGs under ``~/.local/share/icons/hicolor/*/apps/``
+  - **macOS:** ``~/Applications/Groket HUD.app`` (shell wrapper to this binary;
+    ``iconutil`` builds ``AppIcon.icns`` when Xcode CLT is present)
+  - **Windows:** PNGs + ``.ico`` under ``%LOCALAPPDATA%\\Groket\\hud\\`` and a
+    Start Menu ``.lnk`` via PowerShell
+  The launcher targets the binary path used at install time. Re-run after
+  moving or rebuilding it. Runtime tray and iced window icons still work
+  without this step.
+- Tray (when the host has one): StatusNotifier on Linux (Swaybar, Waybar),
+  menu bar on macOS, notification area on Windows. Left-click or **Show HUD**
+  reveals and focuses the palette. **Quit Groket HUD** exits the HUD process
+  only; ``groket serve`` stays up. Escape hides the overlay and leaves the
+  tray item in place. A missing tray host is logged; the HUD stays up
+  (summon hotkey and pop-out still work).
 - Desktop notifications (awaiting / complete / cancelled / failed, and
   analysis done or error) go to the host daemon: dunst, mako, fnott, or
   swaync on Linux (org.freedesktop.Notifications), Notification Center on
-  macOS, toasts on Windows. The packaged 32px mark is attached when it
-  can be written under ``~/.groket``. ``GROKET_HUD_NOTIFY=0`` or
+  macOS, toasts on Windows. The cream three-bar tray tile (64px) is written
+  to ``~/.groket/hud-notify.png`` when possible. ``GROKET_HUD_NOTIFY=0`` or
   ``hud.desktop_notifications: false`` turns them off.
-- Overlay: hides on **Esc** or the summon hotkey. It is a floating card
-  (macOS system dialog / Linux override-redirect) so a tiler does not
-  insert it. Decorated window: stays open until you close it; the summon
-  hotkey focuses it. That window is a normal desktop client, so a tiler
-  (yabai, i3, sway) tiles it and a stacking desktop just shows it.
-  Closing the window does not stop the HUD process. Tiling shells unfocus
-  a new overlay on map, so blur does not hide it.
-  On Wayland (Sway) the compositor owns focus: the HUD does not X11-grab
-  or remap an already-visible overlay (tray Show is idempotent).
+- Overlay: hides on **Esc** or the summon hotkey only (focus loss does not
+  hide). It is a floating card (macOS system dialog / Linux override-redirect)
+  so a tiler does not insert it. Decorated window: stays open until you close
+  it; the summon hotkey focuses it. That window is a normal desktop client, so
+  a tiler (yabai, i3, sway) tiles it and a stacking desktop just shows it.
+  Closing the window does not stop the HUD process. On Wayland (Sway) the
+  compositor owns focus: the HUD does not X11-grab or remap an already-visible
+  overlay (tray Show is idempotent).
 
 ## Prerequisites
 
@@ -101,6 +114,7 @@ uv run groket hud --restart   # stop the running HUD and start again
 uv run groket hud --rebuild   # force cargo rebuild
 uv run groket hud --dev       # cargo run (debug)
 uv run groket hud --debug     # unoptimized cargo binary
+uv run groket hud --install-desktop  # user-local desktop icons + launcher
 ```
 
 ``make hud-check`` (from the repo root) checks the Textual theme map, rustfmt,

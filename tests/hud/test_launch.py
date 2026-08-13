@@ -112,6 +112,41 @@ def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
     assert mock_build.call_args.kwargs.get("debug") is True
 
 
+def test_install_desktop_runs_binary_flag(tmp_path: Path) -> None:
+    binary = tmp_path / "groket-hud"
+    binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    binary.chmod(0o755)
+    with (
+        patch.object(launch_mod, "ensure_hud_binary", return_value=binary) as mock_ensure,
+        patch.object(launch_mod.subprocess, "run", return_value=_Proc(0)) as mock_run,
+    ):
+        code = launch_mod.install_desktop(rebuild=True, debug=False)
+    assert code == 0
+    mock_ensure.assert_called_once_with(rebuild=True, debug=False)
+    mock_run.assert_called_once()
+    assert mock_run.call_args.args[0] == [str(binary), "--install-desktop"]
+
+
+def test_install_desktop_missing_binary() -> None:
+    with patch.object(launch_mod, "ensure_hud_binary", return_value=None):
+        assert launch_mod.install_desktop() == 127
+
+
+def test_run_hud_install_desktop_skips_serve(tmp_path: Path) -> None:
+    from groket.hud import app as hud_app
+
+    with (
+        patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
+        patch("groket.hud.launch.install_desktop", return_value=0) as mock_install,
+        patch.object(hud_app, "launch_tauri_hud") as mock_launch,
+    ):
+        code = hud_app.run_hud(install_desktop=True, rebuild=False, debug=True)
+    assert code == 0
+    mock_daemon.assert_not_called()
+    mock_launch.assert_not_called()
+    mock_install.assert_called_once_with(rebuild=False, debug=True)
+
+
 def test_launch_tauri_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")

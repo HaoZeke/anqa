@@ -8,8 +8,7 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
 
 use iced::widget::{
-    column, container, image, markdown, mouse_area, responsive, row, scrollable, stack, text,
-    Space,
+    column, container, image, markdown, mouse_area, responsive, row, scrollable, stack, text, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -18,7 +17,6 @@ use icedtea::variant::Variant;
 
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
-use crate::kit;
 use crate::format::{
     body_paint_for, capped_display, display_tool_output, event_brand_role, fmt_duration,
     format_note_time, human_event_type_label, image_result_path, is_chat_message,
@@ -27,6 +25,7 @@ use crate::format::{
     syntax_for_tool_field, syntax_for_tool_output, timeline_body_text, timeline_count_caption,
     timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
 };
+use crate::kit;
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, CardMark, TIMELINE_OVERSCAN,
     TURNS_OVERSCAN,
@@ -98,6 +97,7 @@ fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, M
     .into()
 }
 
+#[allow(dead_code)] // kept for footer status chrome; exercised in tests
 fn status_copy(text: &str, err: bool, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let a11y = A11y::new(text.to_string(), Role::Status);
     if err {
@@ -323,11 +323,7 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     if idle {
         // Spotlight: recent strip under a short hint (not the whole catalog).
         return column![
-            icedtea::widget::meta(
-                "Recent",
-                tea,
-                A11y::new("Recent", Role::Header),
-            ),
+            icedtea::widget::meta("Recent", tea, A11y::new("Recent", Role::Header),),
             list,
         ]
         .spacing(8)
@@ -344,7 +340,8 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     let session_ready = hud.overview().is_some() || !hud.overview_pending().is_empty();
     let tea = hud.tokens();
-    let tabs = container(kit::pane_tabs(hud.tab(), session_ready, tea)).padding(Padding::from([8, 12]));
+    let tabs =
+        container(kit::pane_tabs(hud.tab(), session_ready, tea)).padding(Padding::from([8, 12]));
 
     let mut stack = column![].spacing(0).height(Length::Fill);
     if let Some(bar) = browse_session_bar(hud, tea) {
@@ -352,10 +349,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     }
     stack = stack.push(tabs);
     // List filters stay off while reading a full-pane event.
-    if hud.tab() == Tab::Timeline
-        && hud.overview().is_some()
-        && hud.timeline_open().is_none()
-    {
+    if hud.tab() == Tab::Timeline && hud.overview().is_some() && hud.timeline_open().is_none() {
         stack = stack.push(timeline_filter(hud));
     }
     let body: Element<'_, Message> = if hud.overview().is_none() {
@@ -439,21 +433,15 @@ fn browse_session_bar<'a>(
     } else {
         "Loading…".into()
     };
-    let mut row = row![
-        text(title)
-            .size(typo::BODY)
-            .font(typo::UI_BOLD)
-            .color(tea.text),
-    ]
+    let mut row = row![text(title)
+        .size(typo::BODY)
+        .font(typo::UI_BOLD)
+        .color(tea.text),]
     .spacing(10)
     .align_y(Alignment::Center)
     .width(Length::Fill);
     if !status.is_empty() {
-        row = row.push(
-            text(status)
-                .size(typo::META)
-                .color(tea.muted),
-        );
+        row = row.push(text(status).size(typo::META).color(tea.muted));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(
@@ -647,7 +635,11 @@ fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<
 }
 
 /// Always markdown (TUI chat messages): hard breaks + icedtea markdown_view.
-fn chat_md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+fn chat_md_body(
+    src: &str,
+    max_chars: usize,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
     let prepared = message_markdown_source(src);
     let cut: String = prepared.chars().take(max_chars).collect();
     if cut.trim().is_empty() {
@@ -745,13 +737,10 @@ fn card_chips_inline(
     note: Option<Message>,
     jump: Option<Message>,
 ) -> Element<'static, Message> {
-    row![
-        card_marks_row(hud, mark),
-        card_cmds_row(hud, note, jump),
-    ]
-    .spacing(4)
-    .align_y(Alignment::Center)
-    .into()
+    row![card_marks_row(hud, mark), card_cmds_row(hud, note, jump),]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 fn card_marks_row(hud: &Hud, mark: Option<CardMark>) -> Element<'static, Message> {
@@ -1302,11 +1291,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
                 .color(hud.tokens().muted)
                 .into();
         }
-        return kit::status_empty(
-            "No events",
-            "Nothing matches this filter.",
-            hud.tokens(),
-        );
+        return kit::status_empty("No events", "Nothing matches this filter.", hud.tokens());
     }
     let (_, ev_marks) = hud.card_marks();
     let tea = hud.tokens();
@@ -1370,9 +1355,7 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
             event_detail_chrome(ix, None, pos, tea),
-            text("Loading event…")
-                .size(typo::BODY)
-                .color(tea.muted),
+            text("Loading event…").size(typo::BODY).color(tea.muted),
         ]
         .spacing(10)
         .height(Length::Fill)
@@ -1416,12 +1399,10 @@ fn event_detail_chrome(
         (human, color)
     });
     // Title + type left; quiet ‹ · n · › stepper right. Esc → list (footer hint).
-    let mut head = row![
-        text(title)
-            .size(typo::BODY)
-            .font(typo::UI_BOLD)
-            .color(tea.text),
-    ]
+    let mut head = row![text(title)
+        .size(typo::BODY)
+        .font(typo::UI_BOLD)
+        .color(tea.text),]
     .spacing(10)
     .align_y(Alignment::Center)
     .width(Length::Fill);
@@ -1460,10 +1441,7 @@ fn event_detail_stepper(
     };
     let cluster = row![
         chip_btn("‹".into(), Message::TimelineDetailStep(-1), tea),
-        text(count)
-            .size(typo::META)
-            .font(typo::UI)
-            .color(tea.muted),
+        text(count).size(typo::META).font(typo::UI).color(tea.muted),
         chip_btn("›".into(), Message::TimelineDetailStep(1), tea),
     ]
     .spacing(6)
@@ -1646,11 +1624,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         form = form.push(card_actions(
             vec![
                 icedtea::action::Action::new("note.save", save_label, Message::SaveNote),
-                icedtea::action::Action::new(
-                    "note.delete",
-                    del,
-                    Message::RequestDelete(nid),
-                ),
+                icedtea::action::Action::new("note.delete", del, Message::RequestDelete(nid)),
                 icedtea::action::Action::new("note.new", "New note", Message::ResetDraft),
             ],
             hud.tokens(),
@@ -1776,15 +1750,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     let tok = hud.tokens();
     let field_id = ExtractKey::Event(ev.index).id();
     if !selected {
-        return render_payload_text(
-            &body,
-            &kind,
-            &event_type,
-            hud,
-            false,
-            &field_id,
-            "",
-        );
+        return render_payload_text(&body, &kind, &event_type, hud, false, &field_id, "");
     }
     let mut col = column![].spacing(8);
     let family = ev.tool_family.clone();

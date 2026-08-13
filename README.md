@@ -198,8 +198,17 @@ uv run groket hud --restart   # replace the running HUD
 uv run groket hud --rebuild   # force cargo rebuild then start
 uv run groket hud --dev       # cargo run (debug)
 uv run groket hud --debug     # unoptimized binary
+uv run groket hud --install-desktop  # user-local icons + launcher (no package)
 # Override binary: GROKET_HUD_BIN=/path/to/groket-hud
 ```
+
+``--install-desktop`` writes icons and a launcher for the **current user**
+only (no DMG/MSI/system package). Linux: ``~/.local/share/applications`` +
+hicolor icons. macOS: ``~/Applications/Groket HUD.app`` (wrapper to this
+binary). Windows: Start Menu shortcut under the user profile. The launcher
+``Exec`` path is the binary used at install time — re-run after moving or
+rebuilding it. Runtime tray and iced window icons work without this step.
+Details: ``groket-hud/README.md``.
 
 **Linux build deps** (iced graphics; once per machine — not shipped by the
 Python package)::
@@ -215,15 +224,17 @@ turns, timeline, findings, notes). Awaiting sessions get a follow-up field and D
 capped so a large host session remains usable. Launch is always the overlay; the pop-out icon in the
 search bar opens a decorated desktop window. Close that window to keep the
 HUD process running; the summon hotkey or the tray **Show HUD** item brings
-the overlay back. Linux registers a StatusNotifier tray icon (Swaybar / Waybar).
-Left-click shows the palette; **Quit Groket HUD** exits the HUD only.
-Create, edit,
-and delete operator notes the
-same way as the TUI. While the palette is open, a **live poll** re-reads
-overview and the timeline tail for running/awaiting turns (~2s) so a mid-turn
+the overlay back. A tray icon is registered when the host supports it:
+StatusNotifier on Linux (Swaybar / Waybar), menu bar on macOS, notification
+area on Windows. Left-click shows the palette; **Quit Groket HUD** exits the
+HUD only. Create, edit, and delete operator notes the same way as the TUI.
+While the palette is open, a **live poll** re-reads overview and the timeline
+tail for running/awaiting turns (~3s; idle sessions slower) so a mid-turn
 Timeline tab updates without reopening the HUD. The HUD does not start evals,
 recipes, or Docker. ``groket hud`` **detaches** like Sol
-(background agent); on macOS it is **not** in the Dock or **Cmd+Tab** when accessory policy applies. Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G**
+(background agent); on macOS the overlay starts as an accessory process (**not**
+in the Dock or **Cmd+Tab**) until you pop out to a normal window. Default
+hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G**
 (Linux/Windows); override in ``~/.groket/config.json``::
 
 ```json
@@ -242,7 +253,9 @@ While the HUD process is running it posts desktop notifications when a
 session becomes awaiting, completes, is cancelled, or fails, and when
 analysis finishes. Linux uses the freedesktop Notifications bus (dunst,
 mako, fnott, swaync). macOS uses Notification Center. Windows uses
-toasts. Disable with ``GROKET_HUD_NOTIFY=0`` or::
+toasts. The cream three-bar tray tile (64px) is written under
+``~/.groket/hud-notify.png`` when possible. Disable with
+``GROKET_HUD_NOTIFY=0`` or::
 
 ```json
 {
@@ -252,12 +265,11 @@ toasts. Disable with ``GROKET_HUD_NOTIFY=0`` or::
 }
 ```
 
-Focuses the search field on show; hides on **Esc** or when the
-window loses
-focus. Use ``groket hud --foreground`` to attach for debugging, or
-``--restart`` to replace a running agent. Client of the control plane only —
-quitting the agent (tray **Quit Groket HUD**, or killing the process) leaves
-``groket serve`` running. Build details: ``groket-hud/README.md``.
+Focuses the search field on show. The overlay hides on **Esc** or the summon
+hotkey (not on focus loss). Use ``groket hud --foreground`` to attach for
+debugging, or ``--restart`` to replace a running agent. Client of the control
+plane only — quitting the agent (tray **Quit Groket HUD**, or killing the
+process) leaves ``groket serve`` running. Build details: ``groket-hud/README.md``.
 
 **List search contract.** ``session/list`` ``query`` is a **case-insensitive
 substring** over id/title/label/model/status/outcome/origin (not the filesystem

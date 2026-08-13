@@ -144,9 +144,7 @@ pub fn list_scroll_to_cover(heights: &[f32], active: usize, scroll: f32, view_h:
     let row_h = bot - top;
     let mut y = scroll;
     // Tall open cards: pin the top so the list can scroll through the body.
-    if row_h > view_h {
-        y = top;
-    } else if top < y {
+    if row_h > view_h || top < y {
         y = top;
     } else if bot > y + view_h {
         y = (bot - view_h).max(0.0);
@@ -1164,13 +1162,9 @@ mod tests {
     fn session_card_grows_when_the_title_wraps() {
         let short = session_card_height("Fix the rail", "running · grok-4", false);
         // Full-width picker uses ~72 columns — need a long line to wrap.
-        let long_title = "Rewrite the session catalog filter and keep the host path readable "
-            .repeat(3);
-        let long = session_card_height(
-            &long_title,
-            "running · grok-4 · 12%",
-            true,
-        );
+        let long_title =
+            "Rewrite the session catalog filter and keep the host path readable ".repeat(3);
+        let long = session_card_height(&long_title, "running · grok-4 · 12%", true);
         assert!(short >= 50.0, "{short}");
         assert!(long > short + 10.0, "short={short} long={long}");
         assert!(

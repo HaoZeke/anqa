@@ -4,9 +4,10 @@
 //! - **Window / tray / notify** → dual-contrast badge (``groket-tray-*.png``):
 //!   cream plate, ink rim, **7×3 three-bar small mark**. Cream reads on dark
 //!   panels; rim + bars read on light. Full rocket icons mud at 16–22px.
+//! - **Dock / desktop install** → square app icons (``groket-app-icon-*.png``).
 //!
-//! Installer dock tiles (1024) stay separate; small tray PNGs keep X11 and
-//! StatusNotifier happy.
+//! Small tray PNGs keep X11 and StatusNotifier happy; large tiles are for
+//! ``--install-desktop`` and the macOS application image.
 
 use std::sync::OnceLock;
 
@@ -15,8 +16,21 @@ use iced::window::icon;
 use iced::Length;
 
 /// Taskbar / Alt-Tab / tray / notify: cream + three bars (built by brand/build.py).
+pub const TRAY_32_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-32.png");
+pub const TRAY_48_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-48.png");
 pub const TRAY_64_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-64.png");
 pub const TRAY_128_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-128.png");
+
+/// Browser-tab / 16px theme slot (favicon art).
+pub const FAVICON_16_PNG: &[u8] = include_bytes!("../../brand/png/groket-favicon-16.png");
+
+/// Square dock / desktop tiles (rocket on plate).
+pub const APP_ICON_256_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-256.png");
+pub const APP_ICON_512_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-512.png");
+pub const APP_ICON_1024_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-1024.png");
+
+/// macOS ``NSApplication`` / Dock tile (512 is enough without a 1024 decode hit).
+pub const APP_ICON_PNG: &[u8] = APP_ICON_512_PNG;
 
 /// Colour mark (transparent). Light ``$surface``. Guidelines: search chrome 32px.
 pub const MARK_PNG: &[u8] = include_bytes!("../../brand/png/groket-mark.png");
@@ -36,6 +50,20 @@ pub fn window_icon() -> Option<iced::window::Icon> {
 /// Tray and desktop-notify pixmap (64px three-bar tile).
 pub fn tray_icon_png() -> &'static [u8] {
     TRAY_64_PNG
+}
+
+/// Theme / installer sizes: (pixel edge, PNG bytes).
+pub fn desktop_icon_pngs() -> &'static [(u32, &'static [u8])] {
+    &[
+        (16, FAVICON_16_PNG),
+        (32, TRAY_32_PNG),
+        (48, TRAY_48_PNG),
+        (64, TRAY_64_PNG),
+        (128, TRAY_128_PNG),
+        (256, APP_ICON_256_PNG),
+        (512, APP_ICON_512_PNG),
+        (1024, APP_ICON_1024_PNG),
+    ]
 }
 
 /// Search-bar mark: colour on light canvas, reverse (knocked-out ink) on dark.
@@ -127,7 +155,10 @@ mod tests {
             } => {
                 assert_eq!((width, height), (1200, 507));
                 let clear = pixels.chunks_exact(4).filter(|p| p[3] == 0).count();
-                assert!(clear * 2 > pixels.len() / 4, "reverse chrome knocks out ink field");
+                assert!(
+                    clear * 2 > pixels.len() / 4,
+                    "reverse chrome knocks out ink field"
+                );
             }
             _ => panic!("reverse chrome should be decoded RGBA"),
         }

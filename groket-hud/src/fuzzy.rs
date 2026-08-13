@@ -240,10 +240,7 @@ pub fn session_search_indices(query: &str, items: &[SessionRow]) -> Vec<usize> {
     }
     scored.sort_by(|a, b| {
         b.0.cmp(&a.0)
-            .then_with(|| {
-                b.1.partial_cmp(&a.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+            .then_with(|| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.2.cmp(&b.2))
     });
     scored.into_iter().map(|(_, _, i)| i).collect()
