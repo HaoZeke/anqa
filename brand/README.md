@@ -19,8 +19,8 @@ SVG drawn by `build.py` — not a tracing of the still.
 | Poster / merch | `png/groket-lockup-stacked.png` |
 | Dock / HUD app | `png/groket-app-icon-1024.png` |
 | Dark dock | `png/groket-app-icon-dark-1024.png` |
-| HUD search bar (colour) | `png/groket-mark.png` |
-| HUD search bar (dark) | `png/groket-mark-reverse.png` |
+| HUD search bar (light) | `png/groket-app-icon-256.png` (square dock tile) |
+| HUD search bar (dark) | `png/groket-app-icon-dark-1024.png` |
 | Favicon (square tab) | `png/groket-favicon-32.png` |
 | HUD system tray / notify | `png/groket-app-icon-256.png` (cream tile; dark panels) |
 | TUI header | wordmark + folders when wide + activity |
