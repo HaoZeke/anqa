@@ -19,15 +19,15 @@ use crate::format::{
 };
 use crate::fuzzy::fuzzy_filter_indices;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, filter_timeline_indices, first_list_fetch,
-    is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover, merge_catalog_rows,
-    merge_timeline_by_index, next_list_offset, notes_schema_fields, patch_catalog_delta,
-    patch_list_row_from_meta, plan_tick, previous_timeline_page, scroll_after_prepend,
-    session_card_height, session_needs_live_poll, session_row_meta, session_rpc_ref,
-    should_fetch_timeline, should_load_previous_timeline, timeline_coverage_complete,
-    timeline_page_next, timeline_range_label, timeline_window_start, toggle_expand_set,
-    trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS,
-    LIVE_TAIL_LIMIT, OPEN_TURN_CARD_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
+    card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
+    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
+    merge_catalog_rows, merge_timeline_by_index, next_list_offset, notes_schema_fields,
+    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
+    scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
+    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
+    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
+    toggle_expand_set, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
+    LIVE_POLL_MS, LIVE_TAIL_LIMIT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
     TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
@@ -38,7 +38,7 @@ use crate::theme;
 use crate::view;
 use crate::wire::{
     decode_overview, decode_session_list, decode_session_list_response, decode_timeline_page,
-    decode_turns, FindingRow, NotesBlock, Overview, TimelineEvent, TurnsBlock,
+    FindingRow, NotesBlock, Overview, TimelineEvent, TurnsBlock,
 };
 
 const HUD_W: f32 = 780.0;
@@ -56,10 +56,8 @@ pub enum Message {
     /// Events pane turn pick list (`None` key = all turns / search).
     EventsTurnPicked(EventsTurnPick),
     SelectTimeline(i64),
-    TurnExpand {
-        turn: i64,
-        open: bool,
-    },
+    /// Turns tab search (label / prompt substring).
+    TurnsQuery(String),
     LoadMoreTimeline,
     StartNote {
         turn: String,
@@ -92,12 +90,6 @@ pub enum Message {
         gen: u64,
         sid: String,
         quiet: bool,
-        result: Result<Value, String>,
-    },
-    /// Full ``session/turns`` bodies after overview list previews (open card honesty).
-    FullTurnsLoaded {
-        sid: String,
-        focus: i64,
         result: Result<Value, String>,
     },
     TimelineLoaded {
@@ -158,8 +150,6 @@ pub enum Message {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtractKey {
     Event(i64),
-    TurnUser(i64),
-    TurnAsst(i64),
     Overview(&'static str),
 }
 
@@ -168,8 +158,6 @@ impl ExtractKey {
     pub fn id(self) -> String {
         match self {
             Self::Event(i) => format!("event.{i}"),
-            Self::TurnUser(i) => format!("turn.user.{i}"),
-            Self::TurnAsst(i) => format!("turn.asst.{i}"),
             Self::Overview(k) => format!("overview.{k}"),
         }
     }
@@ -249,9 +237,11 @@ pub struct Hud {
     catalog_busy: bool,
     findings_open: HashSet<String>,
     notes_open: HashSet<String>,
-    turns_open: HashSet<i64>,
-    /// True after ``session/turns`` has filled long assistant wrap-ups into overview rows.
-    full_turns_hydrated: bool,
+    /// Last Turns card focused (jump / `g` / yank).
+    turns_focus: Option<i64>,
+    turns_query: String,
+    turns_filter: Vec<usize>,
+    turns_search_id: Id,
     follow_draft: String,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
@@ -336,8 +326,10 @@ impl Default for Hud {
             catalog_busy: false,
             findings_open: HashSet::new(),
             notes_open: HashSet::new(),
-            turns_open: HashSet::new(),
-            full_turns_hydrated: false,
+            turns_focus: None,
+            turns_query: String::new(),
+            turns_filter: vec![],
+            turns_search_id: Id::new("turns-search"),
             follow_draft: String::new(),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
@@ -697,43 +689,9 @@ impl Hud {
                 self.rebuild_tl_heights();
                 Task::none()
             }
-            Message::TurnExpand { turn, open } => {
-                if open {
-                    self.turns_open.insert(turn);
-                    // Overview may only have a short list preview; hydrate full
-                    // assistant wrap-ups from session/turns before binding body.
-                    if self.turn_assistant_needs_full(turn) {
-                        self.rebuild_turn_heights();
-                        return self.load_full_turn_bodies(turn);
-                    }
-                    self.bind_turn_row(turn);
-                } else {
-                    self.turns_open.remove(&turn);
-                    self.unbind_turn_fields(turn);
-                }
-                self.rebuild_turn_heights();
-                Task::none()
-            }
-            Message::FullTurnsLoaded { sid, focus, result } => {
-                if sid != self.overview_sid {
-                    return Task::none();
-                }
-                match result {
-                    Ok(data) => {
-                        let block = match decode_turns(&data) {
-                            Ok(b) => b,
-                            Err(e) => {
-                                self.mark_down(&e);
-                                return Task::none();
-                            }
-                        };
-                        self.merge_full_turn_bodies(&block);
-                        self.full_turns_hydrated = true;
-                        self.bind_turn_row(focus);
-                        self.mark_up();
-                    }
-                    Err(e) => self.mark_down(&e),
-                }
+            Message::TurnsQuery(q) => {
+                self.turns_query = q;
+                self.rebuild_turns_filter();
                 Task::none()
             }
             Message::LoadMoreTimeline => self.load_more_timeline(),
@@ -962,15 +920,8 @@ impl Hud {
                         // Quiet live ticks: avoid re-filtering the whole timeline and
                         // rebinding every open turn when the operator is not on Events.
                         if quiet {
-                            self.refresh_open_turn_binds();
-                            let n = self
-                                .overview
-                                .as_ref()
-                                .map(|o| o.turns.turns.len())
-                                .unwrap_or(0);
-                            if n != self.turn_heights.len() {
-                                self.rebuild_turn_heights();
-                            }
+                            self.bind_overview_fields();
+                            self.rebuild_turns_filter();
                             // Timeline filter only matters on Events; skip the O(n)
                             // scan while the operator is on Turns/Overview.
                             if self.wants_events() {
@@ -1279,11 +1230,6 @@ impl Hud {
         self.fields.ensure(id, src);
     }
 
-    fn unbind_turn_fields(&mut self, turn: i64) {
-        let _ = self.fields.unbind(&ExtractKey::TurnUser(turn).id());
-        let _ = self.fields.unbind(&ExtractKey::TurnAsst(turn).id());
-    }
-
     fn unbind_event_fields(&mut self, index: i64) {
         let prefix = format!("event.{index}");
         self.fields.retain(|id| {
@@ -1295,26 +1241,19 @@ impl Hud {
         });
     }
 
+    fn rebuild_turns_filter(&mut self) {
+        let turns = self
+            .overview
+            .as_ref()
+            .map(|o| o.turns.turns.as_slice())
+            .unwrap_or(&[]);
+        self.turns_filter = filter_turn_indices(turns, &self.turns_query);
+        self.rebuild_turn_heights();
+    }
+
     fn rebuild_turn_heights(&mut self) {
-        let n = self
-            .overview
-            .as_ref()
-            .map(|o| o.turns.turns.len())
-            .unwrap_or(0);
-        let open: Vec<(usize, f32)> = self
-            .overview
-            .as_ref()
-            .map(|o| {
-                o.turns
-                    .turns
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, t)| self.turns_open.contains(&t.turn_index))
-                    .map(|(i, t)| (i, estimate_open_turn_height(t)))
-                    .collect()
-            })
-            .unwrap_or_default();
-        self.turn_heights = icedtea::collection::expand_card_heights(n, CLOSED_TURN_CARD_H, &open);
+        let n = self.turns_filter.len();
+        self.turn_heights = vec![CLOSED_TURN_CARD_H; n];
         let view_h = self.turn_window.viewport.max(1.0);
         let content: f32 = self.turn_heights.iter().copied().sum();
         self.turn_window.scroll = clamp_scroll(self.turn_window.scroll, content, view_h);
@@ -1418,11 +1357,8 @@ impl Hud {
     }
 
     fn bind_turn_extracts(&mut self) {
-        // Overview fields only — binding every turn summary on load was O(turns)
-        // string work on the UI thread. Open cards bind via [`Self::bind_turn_row`].
         self.bind_overview_fields();
-        self.refresh_open_turn_binds();
-        self.rebuild_turn_heights();
+        self.rebuild_turns_filter();
     }
 
     fn bind_overview_fields(&mut self) {
@@ -1432,90 +1368,6 @@ impl Hud {
         for field in crate::format::overview_fields(&o.meta, &o.turns) {
             if field.copyable && !field.value.is_empty() {
                 self.bind_extract_text(ExtractKey::Overview(field.key), &field.value);
-            }
-        }
-    }
-
-    /// Rebind open turn extract buffers after a live overview tick (no height rebuild).
-    fn refresh_open_turn_binds(&mut self) {
-        self.bind_overview_fields();
-        let open: Vec<i64> = self.turns_open.iter().copied().collect();
-        for turn in open {
-            self.bind_turn_row(turn);
-        }
-    }
-
-    fn bind_turn_row(&mut self, turn: i64) {
-        let Some(t) = self
-            .overview
-            .as_ref()
-            .and_then(|o| o.turns.turns.iter().find(|row| row.turn_index == turn))
-            .cloned()
-        else {
-            return;
-        };
-        if !t.summary.is_empty() {
-            self.bind_extract_text(ExtractKey::TurnUser(turn), &t.summary);
-        }
-        if !t.open && !t.assistant_summary.is_empty() {
-            self.bind_extract_text(ExtractKey::TurnAsst(turn), &t.assistant_summary);
-        }
-    }
-
-    /// Overview list previews cap assistant text; open cards need the full wrap-up.
-    fn turn_assistant_needs_full(&self, turn: i64) -> bool {
-        if self.full_turns_hydrated {
-            return false;
-        }
-        let Some(t) = self
-            .overview
-            .as_ref()
-            .and_then(|o| o.turns.turns.iter().find(|row| row.turn_index == turn))
-        else {
-            return false;
-        };
-        if t.open {
-            return false;
-        }
-        t.assistant_summary.ends_with('…') || t.assistant_summary.ends_with("...")
-    }
-
-    fn load_full_turn_bodies(&mut self, focus: i64) -> Task<Message> {
-        // Must target the open overview session, not the rail cursor (search clear
-        // can leave `active` on a different row than `overview_sid`).
-        let rpc_ref = self.overview_rpc_ref();
-        if rpc_ref.is_empty() {
-            self.bind_turn_row(focus);
-            return Task::none();
-        }
-        let sid = self.overview_sid.clone();
-        Task::perform(
-            rpc(move || control::session_turns(&rpc_ref)),
-            move |result| Message::FullTurnsLoaded {
-                sid: sid.clone(),
-                focus,
-                result,
-            },
-        )
-    }
-
-    fn merge_full_turn_bodies(&mut self, block: &TurnsBlock) {
-        let Some(ov) = self.overview.as_mut() else {
-            return;
-        };
-        for full in &block.turns {
-            if let Some(row) = ov
-                .turns
-                .turns
-                .iter_mut()
-                .find(|t| t.turn_index == full.turn_index)
-            {
-                if !full.assistant_summary.is_empty() {
-                    row.assistant_summary = full.assistant_summary.clone();
-                }
-                if !full.summary.is_empty() {
-                    row.summary = full.summary.clone();
-                }
             }
         }
     }
@@ -1575,9 +1427,7 @@ impl Hud {
                 .overview
                 .as_ref()
                 .and_then(|o| {
-                    let mut open: Vec<i64> = self.turns_open.iter().copied().collect();
-                    open.sort_unstable();
-                    let idx = open.last().copied()?;
+                    let idx = self.turns_focus?;
                     o.turns.turns.iter().find(|t| t.turn_index == idx)
                 })
                 .map(|t| extract_turn(&t.label, &t.summary, &t.assistant_summary))
@@ -1967,7 +1817,9 @@ impl Hud {
         self.timeline_prompt = None;
         self.events_turn_index = None;
         self.last_timeline = None;
-        self.turns_open.clear();
+        self.turns_focus = None;
+        self.turns_query.clear();
+        self.turns_filter.clear();
         self.findings_open.clear();
         self.notes_open.clear();
         self.fields = icedtea::field::Selectables::new();
@@ -2206,7 +2058,8 @@ impl Hud {
             };
         // Chrome: pending sid + loading placeholder this frame; body fills async.
         self.overview_pending = sid.clone();
-        self.full_turns_hydrated = false;
+        self.turns_focus = None;
+        self.turns_query.clear();
         self.overview_gen += 1;
         let gen = self.overview_gen;
         Task::perform(
@@ -2266,12 +2119,9 @@ impl Hud {
         self.turn_row_for_event(index).and_then(|t| t.prompt_index)
     }
 
-    /// Expand this turn on the Turns tab when the Events drawer is scoped to it.
+    /// Remember this turn for `g` / yank when Events scopes to it.
     fn focus_turn(&mut self, turn: i64) {
-        self.turns_open.clear();
-        self.turns_open.insert(turn);
-        self.bind_turn_row(turn);
-        self.rebuild_turn_heights();
+        self.turns_focus = Some(turn);
     }
 
     fn rebuild_events_turn_options(&mut self) {
@@ -3037,8 +2887,16 @@ impl Hud {
     pub fn note_expanded(&self, id: &str) -> bool {
         self.notes_open.contains(id)
     }
-    pub fn turn_expanded(&self, turn: i64) -> bool {
-        self.turns_open.contains(&turn)
+    pub fn turns_query(&self) -> &str {
+        &self.turns_query
+    }
+
+    pub fn filtered_turn_indices(&self) -> &[usize] {
+        &self.turns_filter
+    }
+
+    pub fn turns_search_id(&self) -> Id {
+        self.turns_search_id.clone()
     }
     pub fn follow_draft(&self) -> &str {
         &self.follow_draft
@@ -3141,11 +2999,11 @@ impl Hud {
                 return self.select_events_turn(None);
             }
         }
-        // From Turns: `g` jumps the first open turn into Events with turn scope.
+        // From Turns: `g` jumps the focused turn into Events with turn scope.
         if self.tab == Tab::Turns
             && matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("g"))
         {
-            if let Some(&turn) = self.turns_open.iter().next() {
+            if let Some(turn) = self.turns_focus {
                 if let Some(ix) = self
                     .overview
                     .as_ref()
@@ -3354,13 +3212,6 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
         );
     }
     table
-}
-
-/// Rough open-card height from body text (virtual_column needs known heights).
-fn estimate_open_turn_height(t: &crate::wire::TurnRow) -> f32 {
-    let chars = t.summary.chars().count() + t.assistant_summary.chars().count();
-    let lines = ((chars as f32) / 52.0).ceil().max(3.0);
-    (CLOSED_TURN_CARD_H + lines * 17.0).clamp(OPEN_TURN_CARD_H * 0.6, 1400.0)
 }
 
 fn estimate_open_event_height(ev: &TimelineEvent) -> f32 {
@@ -4046,7 +3897,7 @@ mod tests {
     }
 
     #[test]
-    fn closed_turn_does_not_bind_assistant_text() {
+    fn turns_list_binds_overview_not_turn_bodies() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/overview.json");
         let data: Value =
@@ -4061,10 +3912,9 @@ mod tests {
             quiet: true,
             result: Ok(data),
         });
-        // Lazy bind: closed turns are not bound until expand (overview-scale sessions).
-        assert!(hud.extract(ExtractKey::TurnUser(0)).is_none());
-        assert!(hud.extract(ExtractKey::TurnAsst(0)).is_none());
+        // Turns tab is fixed cards; no per-turn extract buffers.
         assert!(hud.extract(ExtractKey::Overview("session")).is_some());
+        assert!(!hud.filtered_turn_indices().is_empty());
     }
 
     #[test]
@@ -4085,131 +3935,39 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_complete_turn_binds_assistant_text() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/overview.json");
-        let data: Value =
-            serde_json::from_str(&std::fs::read_to_string(path).expect("fixture")).expect("json");
+    fn turns_query_filters_prompt_and_label() {
         let mut hud = Hud {
-            overview_gen: 1,
-            ..Hud::default()
-        };
-        let _ = hud.update(Message::OverviewLoaded {
-            gen: 1,
-            sid: "sess-wire".into(),
-            quiet: true,
-            result: Ok(data),
-        });
-        if let Some(o) = hud.overview.as_mut() {
-            o.turns.turns[0].open = false;
-        }
-        assert!(hud.extract(ExtractKey::TurnAsst(0)).is_none());
-        let _ = hud.update(Message::TurnExpand {
-            turn: 0,
-            open: true,
-        });
-        assert_eq!(
-            hud.extract_src(ExtractKey::TurnAsst(0)).as_deref(),
-            Some("hello agent")
-        );
-    }
-
-    #[test]
-    fn opening_list_preview_merges_full_session_turns_body() {
-        // Overview may ship a capped assistantSummary; open hydrates via session/turns
-        // using overview_rpc_ref (not the rail cursor after search clear).
-        let mut hud = Hud {
-            all_sessions: vec![
-                SessionRow {
-                    session_id: "other".into(),
-                    path: "/tmp/other".into(),
-                    title: "noise".into(),
-                    ..SessionRow::default()
-                },
-                SessionRow {
-                    session_id: "s1".into(),
-                    path: "/tmp/s1".into(),
-                    title: "target".into(),
-                    ..SessionRow::default()
-                },
-            ],
-            active: 1,
-            overview_sid: "s1".into(),
             overview: Some(Overview {
-                meta: crate::wire::SessionMeta {
-                    session_id: "s1".into(),
-                    path: "/tmp/s1".into(),
-                    status: "complete".into(),
-                    ..Default::default()
-                },
                 turns: crate::wire::TurnsBlock {
-                    total: 1,
-                    turns: vec![crate::wire::TurnRow {
-                        turn_index: 0,
-                        open: false,
-                        summary: "ask".into(),
-                        assistant_summary: format!("{}…", "x".repeat(400)),
-                        ..Default::default()
-                    }],
+                    total: 2,
+                    turns: vec![
+                        crate::wire::TurnRow {
+                            turn_index: 0,
+                            label: "first".into(),
+                            summary: "alpha prompt".into(),
+                            ..Default::default()
+                        },
+                        crate::wire::TurnRow {
+                            turn_index: 1,
+                            label: "second".into(),
+                            summary: "beta prompt".into(),
+                            ..Default::default()
+                        },
+                    ],
                     ..Default::default()
                 },
                 ..Default::default()
             }),
             ..Hud::default()
         };
-        // Rail points at a different row than the open overview (search-clear desync shape).
-        hud.active = 0;
-        // Paths that are not real dirs fall back to session id (session_rpc_ref).
-        assert_eq!(hud.overview_rpc_ref(), "s1");
-        assert_eq!(hud.selected_rpc_ref().as_deref(), Some("other"));
-        assert_ne!(
-            hud.selected_rpc_ref().as_deref(),
-            Some(hud.overview_rpc_ref().as_str())
-        );
-        assert!(hud.turn_assistant_needs_full(0));
-        let _task = hud.update(Message::TurnExpand {
-            turn: 0,
-            open: true,
-        });
-        // Expand opens the card and must not pretend the list preview is final.
-        assert!(hud.turns_open.contains(&0));
-        assert!(!hud.full_turns_hydrated);
-        assert!(
-            hud.overview
-                .as_ref()
-                .and_then(|o| o.turns.turns.first())
-                .is_some_and(|t| t.assistant_summary.ends_with('…')),
-            "truncated list preview must remain until FullTurnsLoaded merges session/turns"
-        );
-        // Apply FullTurnsLoaded as the control client would after overview_rpc_ref RPC.
-        let full = json!({
-            "sessionId": "s1",
-            "total": 1,
-            "turns": [{
-                "turnIndex": 0,
-                "open": false,
-                "summary": "ask",
-                "assistantSummary": "y".repeat(800),
-            }]
-        });
-        let _ = hud.update(Message::FullTurnsLoaded {
-            sid: "s1".into(),
-            focus: 0,
-            result: Ok(full),
-        });
-        assert!(hud.full_turns_hydrated);
-        assert_eq!(
-            hud.overview
-                .as_ref()
-                .and_then(|o| o.turns.turns.first())
-                .map(|t| t.assistant_summary.len()),
-            Some(800)
-        );
-        let body = "y".repeat(800);
-        assert_eq!(
-            hud.extract_src(ExtractKey::TurnAsst(0)).as_deref(),
-            Some(body.as_str())
-        );
+        hud.rebuild_turns_filter();
+        assert_eq!(hud.filtered_turn_indices().len(), 2);
+        let _ = hud.update(Message::TurnsQuery("beta".into()));
+        assert_eq!(hud.filtered_turn_indices(), &[1]);
+        let _ = hud.update(Message::TurnsQuery("first".into()));
+        assert_eq!(hud.filtered_turn_indices(), &[0]);
+        let _ = hud.update(Message::TurnsQuery(String::new()));
+        assert_eq!(hud.filtered_turn_indices().len(), 2);
     }
 
     #[test]
@@ -4286,7 +4044,7 @@ mod tests {
         assert_eq!(req.around_index, Some(10));
         assert_eq!(hud.tab(), Tab::Timeline);
         assert_eq!(hud.events_turn_index, Some(1));
-        assert!(hud.turns_open.contains(&1));
+        assert_eq!(hud.turns_focus, Some(1));
     }
 
     #[test]
@@ -4384,7 +4142,7 @@ mod tests {
         let _ = hud.update(Message::JumpTimeline(1));
         assert_eq!(hud.timeline_prompt, Some(1));
         assert_eq!(hud.events_turn_index, Some(0));
-        assert!(hud.turns_open.contains(&0));
+        assert_eq!(hud.turns_focus, Some(0));
         // `]` advances Events turn scope (no dedicated Next chip / message).
         let press_bracket = Event::Keyboard(keyboard::Event::KeyPressed {
             key: Key::Character("]".into()),
@@ -4401,8 +4159,7 @@ mod tests {
         assert_eq!(hud.tab(), Tab::Timeline);
         assert_eq!(hud.timeline_prompt, Some(2));
         assert_eq!(hud.events_turn_index, Some(1));
-        assert!(hud.turns_open.contains(&1));
-        assert!(!hud.turns_open.contains(&0));
+        assert_eq!(hud.turns_focus, Some(1));
         let req = hud.last_timeline().expect("next turn timeline");
         assert_eq!(req.prompt_index, Some(2));
         // Focus is the next turn’s user event when present.
@@ -4439,7 +4196,7 @@ mod tests {
         }));
         assert_eq!(hud.events_turn_index, Some(3));
         assert_eq!(hud.timeline_prompt, Some(9));
-        assert!(hud.turns_open.contains(&3));
+        assert_eq!(hud.turns_focus, Some(3));
         let req = hud.last_timeline().expect("pick timeline");
         assert_eq!(req.prompt_index, Some(9));
         let _ = hud.update(Message::EventsTurnPicked(EventsTurnPick {
@@ -4524,29 +4281,6 @@ mod tests {
         assert_eq!(hud.timeline_focus(), Some(99));
         assert!(hud.timeline_loading());
         assert!(hud.timeline_gen > gen);
-    }
-
-    #[test]
-    fn turn_expanders_open_independently() {
-        let mut hud = Hud::default();
-        assert!(!hud.turn_expanded(2));
-        let _ = hud.update(Message::TurnExpand {
-            turn: 2,
-            open: true,
-        });
-        assert!(hud.turn_expanded(2));
-        let _ = hud.update(Message::TurnExpand {
-            turn: 5,
-            open: true,
-        });
-        assert!(hud.turn_expanded(2));
-        assert!(hud.turn_expanded(5));
-        let _ = hud.update(Message::TurnExpand {
-            turn: 2,
-            open: false,
-        });
-        assert!(!hud.turn_expanded(2));
-        assert!(hud.turn_expanded(5));
     }
 
     #[test]

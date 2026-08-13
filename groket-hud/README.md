@@ -28,20 +28,18 @@ Sol-style session **command palette** for the local groket control plane
   rest fills in the background; empty search does not clone the catalog)
 - Detail defaults to **Overview**. Selecting a session loads overview only —
   it does not fetch the session event list.
-  A closed turn card is the user prompt plus marks. Expanding a complete
-  turn binds and paints the final assistant for select/copy. An open turn
-  shows status and a short last line.
+  **Turns** is a fixed list of prompt cards (status, tool counts, marks) with
+  search, **Add note**, and **Go to Timeline** — click a card to open Timeline
+  on that turn. Full assistant text and tools live on **Timeline**.
   **Timeline** (same name as the TUI tab) has a turn pick list (defaults to
   the turn you jumped from) plus type filter and search-all. Step turns with
-  the dropdown or **]**. Closed turn cards expose **Go to Timeline** without
-  expanding. Overview is a session glance (status, context, summary, tools,
-  last turn, path) aligned like the TUI Summary — not a lifecycle event dump.
-  Event type labels use the TUI brand colors (cream / complete / running /
-  failed / cancelled). Search hits show the matching field and a snippet.
-  Turn and event cards use the same disclosure drawer (▸ / ▾). JSON/code
-  uses the code block. Copy with
-  **y** / **Ctrl+Shift+C** (or right-click Copy).
-  Right-click also offers Copy path.
+  the dropdown or **]**. Overview is a session glance (status, context,
+  summary, tools, last turn, path) aligned like the TUI Summary — not a
+  lifecycle event dump. Event type labels use the TUI brand colors (cream /
+  complete / running / failed / cancelled). Search hits show the matching
+  field and a snippet. Timeline cards use a disclosure drawer (▸ / ▾).
+  JSON/code uses the code block. Copy with **y** / **Ctrl+Shift+C**
+  (or right-click Copy). Right-click also offers Copy path.
   Context fill is an Overview progress bar only (not on every rail card).
 - Live refresh while the palette is open: selected running/awaiting turns
   re-fetch overview about every 3s (idle sessions slower). An open event

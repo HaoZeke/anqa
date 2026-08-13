@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::model::{KindFilter, SchemaField, SessionRow};
-use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnsBlock};
+use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnRow, TurnsBlock};
 
 pub const LIVE_POLL_MS: u64 = 3000;
 pub const IDLE_POLL_MS: u64 = 15_000;
@@ -22,12 +22,29 @@ pub const TIMELINE_ROW_H: f32 = 88.0;
 pub const OPEN_TIMELINE_ROW_H: f32 = 360.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
-/// Closed turn card estimate (title + one-line face + chips + gap).
-pub const CLOSED_TURN_CARD_H: f32 = 96.0;
-/// Expanded turn card estimate for virtual column heights.
-pub const OPEN_TURN_CARD_H: f32 = 420.0;
+/// Fixed Turns list card (title + meta + prompt + chips + gap).
+pub const CLOSED_TURN_CARD_H: f32 = 120.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 1;
+
+/// Indices into ``turns`` whose label or prompt match *query* (casefold substring).
+pub fn filter_turn_indices(turns: &[TurnRow], query: &str) -> Vec<usize> {
+    let q = query.trim().to_ascii_lowercase();
+    if q.is_empty() {
+        return (0..turns.len()).collect();
+    }
+    turns
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| {
+            t.label.to_ascii_lowercase().contains(&q)
+                || t.summary.to_ascii_lowercase().contains(&q)
+                || t.outcome.to_ascii_lowercase().contains(&q)
+                || format!("turn {}", t.turn_index).contains(&q)
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
 
 /// True when a non-delta ``session/list`` body is a page, not a full snapshot.
 pub fn is_partial_list_page(
@@ -869,6 +886,27 @@ mod tests {
     }
 
     #[test]
+    fn filter_turn_indices_matches_label_and_prompt() {
+        let turns = vec![
+            TurnRow {
+                turn_index: 0,
+                label: "setup".into(),
+                summary: "install deps".into(),
+                ..TurnRow::default()
+            },
+            TurnRow {
+                turn_index: 1,
+                label: "fix".into(),
+                summary: "paint cards".into(),
+                ..TurnRow::default()
+            },
+        ];
+        assert_eq!(filter_turn_indices(&turns, "").len(), 2);
+        assert_eq!(filter_turn_indices(&turns, "paint"), vec![1]);
+        assert_eq!(filter_turn_indices(&turns, "setup"), vec![0]);
+        assert!(filter_turn_indices(&turns, "missing").is_empty());
+    }
+
     fn filter_timeline_indices_keeps_order_without_query() {
         let events = vec![
             ev(0, "user", "hello"),

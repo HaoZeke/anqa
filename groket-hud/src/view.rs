@@ -1039,62 +1039,6 @@ fn note_commands(id: &str, delete_armed: &str) -> Vec<icedtea::action::Action<Me
     ]
 }
 
-fn turn_paint<'a>(
-    hud: &'a Hud,
-    key: ExtractKey,
-    src: &str,
-    tea: icedtea::theme::Tokens,
-) -> Element<'a, Message> {
-    // Open bodies must be drag-selectable. markdown_view paints pretty
-    // markdown but has no selection; iced also draws links as buttons.
-    selectable(hud, key, src, tea, icedtea::typo::FontFace::Ui)
-}
-
-fn turn_body<'a>(hud: &'a Hud, t: &'a TurnRow, mark: Option<CardMark>) -> Element<'a, Message> {
-    let idx = t.turn_index;
-    let tea = hud.tokens();
-    let mut col = column![
-        if t.summary.is_empty() {
-            text("No user prompt in this turn")
-                .size(typo::BODY)
-                .color(hud.tokens().muted)
-                .into()
-        } else {
-            turn_paint(hud, ExtractKey::TurnUser(idx), &t.summary, tea)
-        },
-        turn_stats_row(t, tea),
-    ]
-    .spacing(8);
-    if t.open {
-        if !t.assistant_summary.is_empty() {
-            col = col.push(
-                text(capped_display(&t.assistant_summary, 200))
-                    .size(typo::BODY)
-                    .color(hud.tokens().muted),
-            );
-        }
-    } else if !t.assistant_summary.is_empty() {
-        col = col.push(icedtea::widget::meta(
-            "Assistant",
-            tea,
-            A11y::new("Assistant", Role::Header),
-        ));
-        col = col.push(turn_paint(
-            hud,
-            ExtractKey::TurnAsst(idx),
-            &t.assistant_summary,
-            tea,
-        ));
-    }
-    col.push(card_chips(
-        hud,
-        mark,
-        Some(turn_note(t)),
-        Some(turn_jump(t)),
-    ))
-    .into()
-}
-
 fn closed_turn_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     plain_face(summary, "No user prompt in this turn", 320, tea)
 }
@@ -1121,54 +1065,101 @@ fn plain_face(
         .into()
 }
 
+/// Fixed Turns card: prompt + light meta + jump/note (no expander / assistant body).
+fn turn_list_card(
+    hud: &Hud,
+    t: &TurnRow,
+    mark: Option<CardMark>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let jump = turn_jump(t);
+    let title = text(turn_title(t))
+        .size(typo::BODY)
+        .font(typo::UI_BOLD)
+        .color(tea.text);
+    let body = column![
+        title,
+        turn_stats_row(t, tea),
+        closed_turn_face(&t.summary, tea),
+        card_chips(hud, mark, Some(turn_note(t)), Some(jump.clone())),
+    ]
+    .spacing(6)
+    .width(Length::Fill);
+    mouse_area(
+        container(body)
+            .padding(12)
+            .width(Length::Fill)
+            .style(move |_| icedtea::style::card(tea, false)),
+    )
+    .on_press(jump)
+    .into()
+}
+
+fn turns_filter(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.tokens();
+    container(icedtea::widget::themed_text_input(
+        "Search turns",
+        hud.turns_query(),
+        Message::TurnsQuery,
+        None,
+        tea,
+        A11y::new("Search turns", Role::TextBox),
+        Some(hud.turns_search_id()),
+    ))
+    .width(Length::Fill)
+    .padding(Padding {
+        top: 0.0,
+        right: 0.0,
+        bottom: 8.0,
+        left: 0.0,
+    })
+    .into()
+}
+
 fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
     let (turn_marks, _) = hud.card_marks();
+    let tea = hud.tokens();
     if turns.is_empty() {
         return text("No turns segmented.")
             .size(typo::BODY)
             .color(hud.tokens().muted)
             .into();
     }
-    let tea = hud.tokens();
-    let heights = hud.turn_heights();
-    icedtea::widget::virtual_column(
-        heights,
-        hud.turn_window(),
-        TURNS_OVERSCAN,
-        None,
-        Message::TurnScroll,
-        Some(hud.turn_scroll_id()),
-        tea,
-        move |i| {
-            let Some(t) = turns.get(i) else {
-                return Space::new().height(0).into();
-            };
-            let turn = t.turn_index;
-            let open = hud.turn_expanded(turn);
-            let mark = turn_marks.get(&turn).cloned();
-            let card = if open {
-                expand_card(
-                    turn_title(t),
-                    turn_body(hud, t, mark),
-                    true,
-                    move |next| Message::TurnExpand { turn, open: next },
-                    tea,
-                )
-            } else {
-                closed_list_card(
-                    turn_title(t),
-                    closed_turn_face(&t.summary, tea),
-                    card_chips(hud, mark, Some(turn_note(t)), Some(turn_jump(t))),
-                    Message::TurnExpand { turn, open: true },
-                    tea,
-                )
-            };
-            column![card, Space::new().height(4)].into()
-        },
-        A11y::new("Turns", Role::List),
-    )
+    let idxs = hud.filtered_turn_indices();
+    let list = if idxs.is_empty() {
+        text("No turns match this search.")
+            .size(typo::BODY)
+            .color(hud.tokens().muted)
+            .into()
+    } else {
+        let heights = hud.turn_heights();
+        icedtea::widget::virtual_column(
+            heights,
+            hud.turn_window(),
+            TURNS_OVERSCAN,
+            None,
+            Message::TurnScroll,
+            Some(hud.turn_scroll_id()),
+            tea,
+            move |i| {
+                let Some(&src) = idxs.get(i) else {
+                    return Space::new().height(0).into();
+                };
+                let Some(t) = turns.get(src) else {
+                    return Space::new().height(0).into();
+                };
+                let mark = turn_marks.get(&t.turn_index).cloned();
+                column![turn_list_card(hud, t, mark, tea), Space::new().height(4)].into()
+            },
+            A11y::new("Turns", Role::List),
+        )
+    };
+    column![turns_filter(hud), list]
+        .spacing(0)
+        .height(Length::Fill)
+        .into()
 }
 
 fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
@@ -1888,11 +1879,9 @@ mod tests {
     }
 
     #[test]
-    fn closed_list_card_is_not_expander_peek() {
+    fn turns_tab_is_fixed_cards_with_search() {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod");
-        assert!(prod.contains("fn closed_list_card"));
-        // Closed Turns/Timeline must not build expander Peek trees.
         let turns = prod
             .split("fn turns_tab")
             .nth(1)
@@ -1900,8 +1889,10 @@ mod tests {
             .split("fn timeline_tab")
             .next()
             .expect("turns body");
-        assert!(turns.contains("closed_list_card"));
-        assert!(!turns.contains("Peek::Lines(4)"));
+        assert!(turns.contains("turn_list_card"));
+        assert!(turns.contains("turns_filter"));
+        assert!(!turns.contains("expand_card"));
+        assert!(!turns.contains("fn turn_body"));
     }
 
     #[test]
@@ -2064,9 +2055,10 @@ mod tests {
         assert!(!prod.contains("fn drawer"));
         assert!(!prod.contains("fn disclosure"));
         assert!(prod.contains("fn selectable"));
-        assert!(prod.contains("fn turn_paint"));
+        assert!(prod.contains("fn turn_list_card"));
         assert!(prod.contains("fn closed_turn_face"));
         assert!(prod.contains("Search all events"));
+        assert!(prod.contains("Search turns"));
         assert!(!prod.contains("Session events"));
         assert!(prod.contains("fn prompt_face"));
         assert!(!prod.contains("visual_lines("));
@@ -2077,7 +2069,8 @@ mod tests {
         assert!(prod.contains("widget::expander"));
         assert!(prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
-        assert!(prod.contains("TurnExpand"));
+        assert!(!prod.contains("TurnExpand"));
+        assert!(!prod.contains("fn turn_body"));
         assert!(prod.contains("FindingExpand"));
         assert!(prod.contains("NoteExpand"));
     }
