@@ -17,7 +17,7 @@ use crate::format::{
     control_down_message, event_body_text, extract_event, extract_turn, list_status_label,
     new_note_id, tool_fields_from_raw,
 };
-use crate::fuzzy::fuzzy_filter_indices;
+use crate::fuzzy::session_search_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
     first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
@@ -1999,19 +1999,13 @@ impl Hud {
             // Idle Spotlight: latest few only (not the full catalog dump).
             self.sessions = spotlight_recent(&self.all_sessions, SPOTLIGHT_RECENT, &keep);
         } else {
-            let idxs =
-                fuzzy_filter_indices(self.query.trim(), &self.all_sessions, SessionRow::haystack);
-            let mut ranked: Vec<SessionRow> = idxs
+            // Title-first scores (not flat haystack); keep score order — do not
+            // re-sort by recency or a weak id match jumps above a title hit.
+            let idxs = session_search_indices(self.query.trim(), &self.all_sessions);
+            self.sessions = idxs
                 .into_iter()
                 .filter_map(|i| self.all_sessions.get(i).cloned())
                 .collect();
-            ranked.sort_by(|a, b| {
-                b.sort_epoch
-                    .partial_cmp(&a.sort_epoch)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.session_id.cmp(&b.session_id))
-            });
-            self.sessions = ranked;
         }
         self.refresh_session_rows();
         let n = self.sessions().len();

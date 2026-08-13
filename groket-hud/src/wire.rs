@@ -444,6 +444,9 @@ impl SessionListItem {
         }
     }
 
+    /// Flat string for cheap “any field” tests. Prefer
+    /// [`crate::fuzzy::session_search_score`] for ranking — title outranks
+    /// id / model / status. Path and event bodies are not included.
     pub fn haystack(&self) -> String {
         format!(
             "{} {} {} {} {} {} {}",
