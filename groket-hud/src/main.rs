@@ -25,7 +25,8 @@ fn main() {
                                    Windows Start Menu shortcut). No system package.\n\
                --show              Show the palette (running HUD via summon socket)\n\
                --hide              Hide the overlay (running HUD)\n\
-               --toggle            Show or hide (running HUD; Sway bind target)\n\
+               --toggle            Show or hide (running HUD; Sway bind target).
+                                   Forwards XDG_ACTIVATION_TOKEN to the HUD.\n\
                -h, --help          Show this help\n\
              \n\
              With no options, starts the HUD (tray; X11 summon hotkey when available).\n\

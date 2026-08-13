@@ -199,7 +199,7 @@ uv run groket hud --rebuild   # force cargo rebuild then start
 uv run groket hud --dev       # cargo run (debug)
 uv run groket hud --debug     # unoptimized binary
 uv run groket hud --install-desktop  # user-local icons + launcher (no package)
-uv run groket hud --toggle    # show/hide (Wayland/Sway summon socket)
+uv run groket hud --toggle    # show/hide (Wayland summon; forwards XDG_ACTIVATION_TOKEN)
 uv run groket hud --show      # show palette (starts HUD if needed)
 # Override binary: GROKET_HUD_BIN=/path/to/groket-hud
 ```

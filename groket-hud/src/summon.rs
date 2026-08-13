@@ -4,8 +4,11 @@
 //! is: keep a long-lived HUD, then ``show`` / ``hide`` / ``toggle`` over a
 //! per-user runtime Unix socket (same layout as the control plane).
 //!
-//! Commands are one line each: ``show``, ``hide``, ``toggle`` (optional trailing
+//! Commands are one line: ``show``, ``hide``, ``toggle``, or
+//! ``show``/``toggle`` plus an xdg-activation token (optional trailing
 //! newline). Clients: ``groket-hud --show`` / ``groket hud --toggle``.
+//! ``--toggle`` forwards ``XDG_ACTIVATION_TOKEN`` (and unsets
+//! ``DESKTOP_STARTUP_ID``) so the long-lived HUD can activate its surface.
 
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
@@ -26,6 +29,22 @@ pub enum SummonAction {
     Show,
     Hide,
     Toggle,
+}
+
+/// One summon request: verb plus optional xdg-activation token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummonRequest {
+    pub action: SummonAction,
+    pub token: Option<String>,
+}
+
+impl SummonRequest {
+    pub fn new(action: SummonAction) -> Self {
+        Self {
+            action,
+            token: None,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -59,12 +78,50 @@ impl Drop for SummonServer {
 
 /// Parse a single command line (trimmed, case-insensitive).
 pub fn parse_command(raw: &str) -> Option<SummonAction> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "show" => Some(SummonAction::Show),
-        "hide" => Some(SummonAction::Hide),
-        "toggle" => Some(SummonAction::Toggle),
-        _ => None,
+    parse_request(raw).map(|r| r.action)
+}
+
+/// Parse ``show`` / ``hide`` / ``toggle`` and an optional same-line token.
+pub fn parse_request(raw: &str) -> Option<SummonRequest> {
+    let line = raw.trim();
+    if line.is_empty() {
+        return None;
     }
+    let mut parts = line.splitn(2, char::is_whitespace);
+    let verb = parts.next()?.to_ascii_lowercase();
+    let action = match verb.as_str() {
+        "show" => SummonAction::Show,
+        "hide" => SummonAction::Hide,
+        "toggle" => SummonAction::Toggle,
+        _ => return None,
+    };
+    let token = parts
+        .next()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .and_then(sanitize_token);
+    let token = match action {
+        SummonAction::Hide => None,
+        _ => token,
+    };
+    Some(SummonRequest { action, token })
+}
+
+/// Token after trim: 1..=512 bytes, no CR/LF. Empty or oversize is absent.
+pub fn sanitize_token(raw: &str) -> Option<String> {
+    let t = raw.trim();
+    if t.is_empty() || t.len() > 512 || t.contains('\n') || t.contains('\r') {
+        return None;
+    }
+    Some(t.to_string())
+}
+
+/// Read ``XDG_ACTIVATION_TOKEN`` and unset it and ``DESKTOP_STARTUP_ID``.
+pub fn take_env_token() -> Option<String> {
+    let raw = std::env::var("XDG_ACTIVATION_TOKEN").ok();
+    std::env::remove_var("XDG_ACTIVATION_TOKEN");
+    std::env::remove_var("DESKTOP_STARTUP_ID");
+    raw.as_deref().and_then(sanitize_token)
 }
 
 /// Wire form for *action* (one word, no newline).
@@ -115,35 +172,63 @@ pub fn socket_accepts(path: &Path) -> bool {
 
 /// Send one summon command to a running HUD.
 pub fn send_command(action: SummonAction) -> Result<(), SummonError> {
+    let token = match action {
+        SummonAction::Hide => {
+            let _ = take_env_token();
+            None
+        }
+        _ => take_env_token(),
+    };
+    send_request(SummonRequest { action, token })
+}
+
+/// Send a parsed request to the default socket.
+pub fn send_request(req: SummonRequest) -> Result<(), SummonError> {
     #[cfg(unix)]
     {
         let path = default_socket_path().ok_or(SummonError::NoPath)?;
-        send_command_to(&path, action)
+        send_request_to(&path, &req)
     }
     #[cfg(not(unix))]
     {
-        let _ = action;
+        let _ = req;
         Err(SummonError::Unsupported)
     }
 }
 
-/// Send *action* to *path*.
+/// Send *action* to *path* (no env token).
 pub fn send_command_to(path: &Path, action: SummonAction) -> Result<(), SummonError> {
+    send_request_to(path, &SummonRequest::new(action))
+}
+
+/// Write one wire line to *path*.
+pub fn send_request_to(path: &Path, req: &SummonRequest) -> Result<(), SummonError> {
     #[cfg(unix)]
     {
         use std::os::unix::net::UnixStream;
         let mut stream = UnixStream::connect(path)
             .map_err(|err| SummonError::NotRunning(format!("{}: {err}", path.display())))?;
         let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-        let line = format!("{}\n", command_word(action));
+        let line = encode_request(req);
         stream.write_all(line.as_bytes())?;
         stream.flush()?;
         Ok(())
     }
     #[cfg(not(unix))]
     {
-        let _ = (path, action);
+        let _ = (path, req);
         Err(SummonError::Unsupported)
+    }
+}
+
+/// Canonical wire: ``verb`` or ``verb token``, always one LF.
+pub fn encode_request(req: &SummonRequest) -> String {
+    match req.action {
+        SummonAction::Hide => format!("{}\n", command_word(req.action)),
+        _ => match req.token.as_deref().and_then(sanitize_token) {
+            Some(tok) => format!("{} {tok}\n", command_word(req.action)),
+            None => format!("{}\n", command_word(req.action)),
+        },
     }
 }
 
@@ -159,8 +244,8 @@ pub fn install() -> Result<SummonServer, SummonError> {
     }
 }
 
-/// Block until the next summon action (iced subscription).
-pub fn recv_action() -> Result<SummonAction, RecvError> {
+/// Block until the next summon request (iced subscription).
+pub fn recv_action() -> Result<SummonRequest, RecvError> {
     loop {
         let outcome = {
             let guard = action_pair().1.lock().expect("summon action mutex");
@@ -176,8 +261,8 @@ pub fn recv_action() -> Result<SummonAction, RecvError> {
     }
 }
 
-fn action_pair() -> &'static (SyncSender<SummonAction>, Mutex<Receiver<SummonAction>>) {
-    static PAIR: OnceLock<(SyncSender<SummonAction>, Mutex<Receiver<SummonAction>>)> =
+fn action_pair() -> &'static (SyncSender<SummonRequest>, Mutex<Receiver<SummonRequest>>) {
+    static PAIR: OnceLock<(SyncSender<SummonRequest>, Mutex<Receiver<SummonRequest>>)> =
         OnceLock::new();
     PAIR.get_or_init(|| {
         let (tx, rx) = mpsc::sync_channel(16);
@@ -186,8 +271,20 @@ fn action_pair() -> &'static (SyncSender<SummonAction>, Mutex<Receiver<SummonAct
 }
 
 #[cfg(unix)]
-fn action_sender() -> SyncSender<SummonAction> {
+fn action_sender() -> SyncSender<SummonRequest> {
     action_pair().0.clone()
+}
+
+/// Probe before unlink: a live HUD keeps the inode; only a stale path is removed.
+#[cfg(unix)]
+fn prepare_bind_path(path: &Path) -> Result<(), SummonError> {
+    if socket_accepts(path) {
+        return Err(SummonError::AlreadyRunning(path.display().to_string()));
+    }
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -198,8 +295,14 @@ fn install_unix() -> Result<SummonServer, SummonError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    replace_stale_socket(&path)?;
-    let listener = UnixListener::bind(&path)?;
+    prepare_bind_path(&path)?;
+    let listener = UnixListener::bind(&path).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::AddrInUse {
+            SummonError::AlreadyRunning(path.display().to_string())
+        } else {
+            SummonError::Io(err)
+        }
+    })?;
     // Restrict to the user (runtime dir is usually already 0700).
     #[cfg(target_os = "linux")]
     {
@@ -220,18 +323,6 @@ fn install_unix() -> Result<SummonServer, SummonError> {
 }
 
 #[cfg(unix)]
-fn replace_stale_socket(path: &Path) -> Result<(), SummonError> {
-    if !path.exists() {
-        return Ok(());
-    }
-    if socket_accepts(path) {
-        return Err(SummonError::AlreadyRunning(path.display().to_string()));
-    }
-    let _ = std::fs::remove_file(path);
-    Ok(())
-}
-
-#[cfg(unix)]
 fn accept_loop(listener: std::os::unix::net::UnixListener) {
     let tx = action_sender();
     loop {
@@ -239,8 +330,8 @@ fn accept_loop(listener: std::os::unix::net::UnixListener) {
             thread::sleep(Duration::from_millis(50));
             continue;
         };
-        if let Some(action) = read_action(stream) {
-            if tx.send(action).is_err() {
+        if let Some(req) = read_action(stream) {
+            if tx.send(req).is_err() {
                 break;
             }
         }
@@ -248,12 +339,12 @@ fn accept_loop(listener: std::os::unix::net::UnixListener) {
 }
 
 #[cfg(unix)]
-fn read_action(stream: std::os::unix::net::UnixStream) -> Option<SummonAction> {
+fn read_action(stream: std::os::unix::net::UnixStream) -> Option<SummonRequest> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     reader.read_line(&mut line).ok()?;
-    parse_command(&line)
+    parse_request(&line)
 }
 
 #[cfg(test)]
@@ -305,14 +396,125 @@ mod tests {
         });
         send_command_to(&path, SummonAction::Toggle).expect("send");
         let got = rx.recv_timeout(Duration::from_secs(2)).expect("recv");
-        assert_eq!(got, SummonAction::Toggle);
+        assert_eq!(got, SummonRequest::new(SummonAction::Toggle));
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_request_keeps_token_on_show_and_toggle() {
+        assert_eq!(
+            parse_request("toggle abc.def"),
+            Some(SummonRequest {
+                action: SummonAction::Toggle,
+                token: Some("abc.def".into()),
+            })
+        );
+        assert_eq!(
+            parse_request("show  tok-1 "),
+            Some(SummonRequest {
+                action: SummonAction::Show,
+                token: Some("tok-1".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_request_strips_token_on_hide() {
+        assert_eq!(
+            parse_request("hide leftover"),
+            Some(SummonRequest::new(SummonAction::Hide))
+        );
+    }
+
+    #[test]
+    fn sanitize_token_rejects_empty_newline_and_oversize() {
+        assert_eq!(sanitize_token("  "), None);
+        assert_eq!(sanitize_token("a\nb"), None);
+        assert_eq!(sanitize_token("a\rb"), None);
+        assert_eq!(sanitize_token(&"x".repeat(513)), None);
+        assert_eq!(sanitize_token("ok"), Some("ok".into()));
+    }
+
+    #[test]
+    fn encode_request_one_line() {
+        assert_eq!(
+            encode_request(&SummonRequest::new(SummonAction::Toggle)),
+            "toggle\n"
+        );
+        assert_eq!(
+            encode_request(&SummonRequest {
+                action: SummonAction::Show,
+                token: Some("t1".into()),
+            }),
+            "show t1\n"
+        );
+        assert_eq!(
+            encode_request(&SummonRequest {
+                action: SummonAction::Toggle,
+                token: Some("t2".into()),
+            }),
+            "toggle t2\n"
+        );
+        assert_eq!(
+            encode_request(&SummonRequest {
+                action: SummonAction::Toggle,
+                token: Some("a\nb".into()),
+            }),
+            "toggle\n"
+        );
+        assert_eq!(
+            encode_request(&SummonRequest {
+                action: SummonAction::Hide,
+                token: Some("ignored".into()),
+            }),
+            "hide\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn send_request_round_trip_with_token() {
+        use std::os::unix::net::UnixListener;
+        use std::sync::mpsc;
+
+        let dir =
+            std::env::temp_dir().join(format!("groket-hud-summon-tok-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("hud-summon.sock");
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("bind");
+        let (tx, rx) = mpsc::sync_channel(1);
+        let path_server = path.clone();
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            let req = read_action(stream).expect("request");
+            tx.send(req).unwrap();
+            let _ = std::fs::remove_file(&path_server);
+        });
+        send_request_to(
+            &path,
+            &SummonRequest {
+                action: SummonAction::Toggle,
+                token: Some("act.token".into()),
+            },
+        )
+        .expect("send");
+        let got = rx.recv_timeout(Duration::from_secs(2)).expect("recv");
+        assert_eq!(
+            got,
+            SummonRequest {
+                action: SummonAction::Toggle,
+                token: Some("act.token".into()),
+            }
+        );
         handle.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
     #[test]
-    fn install_leaves_live_socket_in_place() {
+    fn prepare_bind_path_keeps_live_socket() {
         use std::os::unix::net::UnixListener;
 
         let dir =
@@ -320,13 +522,26 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("hud-summon.sock");
         let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).expect("bind");
-        assert!(socket_accepts(&path));
-        let err = replace_stale_socket(&path).expect_err("live socket");
+        let _listener = UnixListener::bind(&path).expect("bind");
+        let err = prepare_bind_path(&path).expect_err("live");
+        assert!(path.exists(), "live inode must remain");
         assert!(matches!(err, SummonError::AlreadyRunning(_)));
         assert!(socket_accepts(&path));
-        drop(listener);
+        drop(_listener);
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_bind_path_removes_stale_inode() {
+        let dir =
+            std::env::temp_dir().join(format!("groket-hud-summon-stale-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("hud-summon.sock");
+        std::fs::write(&path, b"").expect("stale file");
+        prepare_bind_path(&path).expect("stale");
+        assert!(!path.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

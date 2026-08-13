@@ -20,7 +20,7 @@ multi-output.
 |------|--------|------|
 | 1 | `groket hud` (no `--show`) | Process + tray; overlay maps once (iced needs a window). With ``sway-hud.conf`` included it is a **floating_con**, not a tile |
 | 2 | `groket doctor` | Wayland line; summon socket listening |
-| 3 | `groket hud --toggle` | Overlay floats, 780×560, not tiled |
+| 3 | `groket hud --toggle` | Overlay floats, 780×560, not tiled. Compositor-issued `XDG_ACTIVATION_TOKEN` is forwarded on the summon socket |
 | 4 | Type immediately | Spotlight filters without clicking |
 | 5 | Esc | Overlay gone; process still running |
 | 6 | `--toggle` again | Remap; still floating; focused output |
