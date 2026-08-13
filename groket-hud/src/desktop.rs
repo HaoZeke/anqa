@@ -13,9 +13,9 @@ use crate::format::list_status_label;
 pub const APP_NAME: &str = "Groket HUD";
 pub const ENV_NAME: &str = "GROKET_HUD_NOTIFY";
 
-/// Three-bar favicon (same family as window / tray).
+/// Host notify face (tray tile on Linux, square app icon elsewhere).
 fn notify_icon_png() -> &'static [u8] {
-    crate::brand::tray_icon_png()
+    crate::brand::notify_icon_png()
 }
 
 /// Urgency the host daemon maps to its own levels.
@@ -262,26 +262,51 @@ pub fn post(notice: DesktopNotice) {
 }
 
 fn send_blocking(notice: &DesktopNotice) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        send_macos(notice)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        send_other(notice)
+    }
+}
+
+/// macOS: ``notify-rust`` ``icon()`` is a no-op. The left face is
+/// ``_identityImage`` (``app_icon``). ``set_application`` claims our bundle
+/// when ``Groket HUD.app`` is registered so Notification Center does not
+/// fall back to Finder.
+#[cfg(target_os = "macos")]
+fn send_macos(notice: &DesktopNotice) -> Result<(), String> {
+    let _ = notify_rust::set_application(crate::install_desktop::APP_ID);
+    let icon = icon_file();
+    let mut n = mac_notification_sys::Notification::new();
+    n.title(&notice.summary).message(&notice.body);
+    if let Some(ref path) = icon {
+        n.app_icon(path);
+    }
+    n.send().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn send_other(notice: &DesktopNotice) -> Result<(), String> {
     let mut n = notify_rust::Notification::new();
     n.appname(APP_NAME)
         .summary(&notice.summary)
         .body(&notice.body);
     if let Some(path) = icon_file() {
         n.icon(&path);
+        // Windows toasts use this image; Linux ``icon()`` is the small slot.
+        #[cfg(target_os = "windows")]
+        {
+            n.image_path(&path);
+        }
     }
-    // macOS notify-rust only exposes urgency with the preview-macos-un feature.
-    #[cfg(not(target_os = "macos"))]
-    {
-        n.urgency(match notice.urgency {
-            UrgencyKind::Low => notify_rust::Urgency::Low,
-            UrgencyKind::Normal => notify_rust::Urgency::Normal,
-            UrgencyKind::Critical => notify_rust::Urgency::Critical,
-        });
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = notice.urgency;
-    }
+    n.urgency(match notice.urgency {
+        UrgencyKind::Low => notify_rust::Urgency::Low,
+        UrgencyKind::Normal => notify_rust::Urgency::Normal,
+        UrgencyKind::Critical => notify_rust::Urgency::Critical,
+    });
     n.show().map(|_| ()).map_err(|e| e.to_string())
 }
 
@@ -301,7 +326,7 @@ fn icon_file() -> Option<String> {
 
 fn ensure_icon_file(path: &std::path::Path) -> std::io::Result<()> {
     if path.is_file() {
-        // Rewrite when the packaged asset changes (favicon → cream dock tile).
+        // Rewrite when the packaged asset changes (tray tile or app icon).
         if let Ok(existing) = std::fs::read(path) {
             if existing.as_slice() == notify_icon_png() {
                 return Ok(());
@@ -536,6 +561,27 @@ mod tests {
         ensure_icon_file(&path).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), notify_icon_png());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn app_name_matches_desktop_entry() {
+        assert_eq!(APP_NAME, crate::install_desktop::APP_NAME);
+    }
+
+    #[test]
+    fn notify_png_matches_host_slot() {
+        #[cfg(target_os = "linux")]
+        assert_eq!(notify_icon_png(), crate::brand::TRAY_64_PNG);
+        #[cfg(not(target_os = "linux"))]
+        assert_eq!(notify_icon_png(), crate::brand::APP_ICON_256_PNG);
+    }
+
+    #[test]
+    fn macos_send_sets_identity_image() {
+        let src = include_str!("desktop.rs");
+        assert!(src.contains("app_icon"));
+        assert!(src.contains("set_application"));
+        assert!(src.contains("send_macos"));
     }
 
     #[test]

@@ -1,9 +1,11 @@
 //! groket identity for the HUD (window icon, tray, search chrome).
 //!
 //! - **Search chrome** → full mark at 32px (colour / reverse), brand guidelines.
-//! - **Window / tray / notify** → dual-contrast badge (``groket-tray-*.png``):
+//! - **Window / tray** → dual-contrast badge (``groket-tray-*.png``):
 //!   cream plate, ink rim, **7×3 three-bar small mark**. Cream reads on dark
 //!   panels; rim + bars read on light. Full rocket icons mud at 16–22px.
+//! - **Desktop notify** → tray tile on Linux (small freedesktop slot);
+//!   square app icon on macOS / Windows (Notification Center / toast face).
 //! - **Dock / desktop install** → square app icons (``groket-app-icon-*.png``).
 //!
 //! Small tray PNGs keep X11 and StatusNotifier happy; large tiles are for
@@ -15,7 +17,7 @@ use iced::widget::image;
 use iced::window::icon;
 use iced::Length;
 
-/// Taskbar / Alt-Tab / tray / notify: cream + three bars (built by brand/build.py).
+/// Taskbar / Alt-Tab / tray: cream + three bars (built by brand/build.py).
 pub const TRAY_32_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-32.png");
 pub const TRAY_48_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-48.png");
 pub const TRAY_64_PNG: &[u8] = include_bytes!("../../brand/png/groket-tray-64.png");
@@ -47,9 +49,25 @@ pub fn window_icon() -> Option<iced::window::Icon> {
     icon::from_file_data(TRAY_128_PNG, None).ok()
 }
 
-/// Tray and desktop-notify pixmap (64px three-bar tile).
+/// Tray pixmap (64px three-bar tile).
 pub fn tray_icon_png() -> &'static [u8] {
     TRAY_64_PNG
+}
+
+/// Desktop-notify pixmap for the host slot.
+///
+/// Linux uses the 64px tray tile (small freedesktop icon). macOS Notification
+/// Center and Windows toasts show a large face, so those hosts use the 256px
+/// square app icon. ``notify-rust`` ``icon()`` is a no-op on macOS.
+pub fn notify_icon_png() -> &'static [u8] {
+    #[cfg(target_os = "linux")]
+    {
+        TRAY_64_PNG
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        APP_ICON_256_PNG
+    }
 }
 
 /// Theme / installer sizes: (pixel edge, PNG bytes).
@@ -136,6 +154,11 @@ mod tests {
         assert!(red > 10, "failed (red) cap should be visible");
         assert_eq!(tray_icon_png()[1..4], *b"PNG");
         assert_eq!(tray_icon_png().len(), TRAY_64_PNG.len());
+        assert_eq!(notify_icon_png()[1..4], *b"PNG");
+        #[cfg(target_os = "linux")]
+        assert_eq!(notify_icon_png().len(), TRAY_64_PNG.len());
+        #[cfg(not(target_os = "linux"))]
+        assert_eq!(notify_icon_png().len(), APP_ICON_256_PNG.len());
     }
 
     #[test]

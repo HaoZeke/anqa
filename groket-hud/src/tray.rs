@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use thiserror::Error;
 
-/// Three-bar small-mark favicon (brand: tab / tray / notify).
+/// Three-bar small-mark favicon (brand: tab / tray).
 pub fn tray_png() -> &'static [u8] {
     crate::brand::tray_icon_png()
 }

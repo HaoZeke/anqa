@@ -20,7 +20,8 @@ SVG drawn by `build.py` — not a tracing of the still.
 | Poster / merch | `png/groket-lockup-stacked.png` |
 | Dock / ``groket hud --install-desktop`` | `png/groket-app-icon-{256,512,1024}.png` (square rocket) |
 | Dark dock | `png/groket-app-icon-dark-1024.png` |
-| HUD window / tray / notify | `png/groket-tray-{32,48,64,128}.png` (cream plate, ink rim, three bars; 128 window, 64 tray/notify) |
+| HUD window / tray | `png/groket-tray-{32,48,64,128}.png` (cream plate, ink rim, three bars; 128 window, 64 tray) |
+| HUD desktop notify | Linux: tray 64px. macOS / Windows: `png/groket-app-icon-256.png` (Notification Center / toast) |
 | Favicon (browser tab) | `png/groket-favicon-32.png` |
 | HUD search bar (light) | `png/groket-mark.png` (32px tall) |
 | HUD search bar (dark) | `png/groket-mark-reverse.png` |

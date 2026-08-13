@@ -61,8 +61,10 @@ without taking keyboard focus. **Quit Groket HUD** exits the palette
 only; serve stays up.
 
 Desktop notifications fire when a session becomes awaiting, completes,
-is cancelled, or fails, and when analysis finishes. Disable with
-`GROKET_HUD_NOTIFY=0` or `hud.desktop_notifications: false`.
+is cancelled, or fails, and when analysis finishes. Linux uses the 64px
+tray tile; macOS and Windows use the square app icon
+(`~/.groket/hud-notify.png`). Disable with `GROKET_HUD_NOTIFY=0` or
+`hud.desktop_notifications: false`.
 
 ## Env
 
