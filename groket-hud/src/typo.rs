@@ -23,6 +23,7 @@ pub const UI_ITALIC: Font = Font {
 pub const MONO: Font = Font::with_name("JetBrains Mono");
 
 pub const UI_BYTES: &[u8] = include_bytes!("../assets/fonts/FiraSans-Regular.ttf");
+pub const UI_BOLD_BYTES: &[u8] = include_bytes!("../assets/fonts/FiraSans-Bold.ttf");
 pub const MONO_BYTES: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
 
 /// Page title (overview heading). Matches icedtea::typo.

@@ -410,6 +410,7 @@ fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
     prep.window.icon = crate::brand::window_icon();
     prep.iced_settings.fonts = vec![
         std::borrow::Cow::Borrowed(crate::typo::UI_BYTES),
+        std::borrow::Cow::Borrowed(crate::typo::UI_BOLD_BYTES),
         std::borrow::Cow::Borrowed(crate::typo::MONO_BYTES),
     ];
     prep.iced_settings.default_font = crate::typo::UI;
@@ -4569,7 +4570,7 @@ mod tests {
         assert_eq!(overlay.window.size, Size::new(HUD_W, HUD_H));
         assert!(!overlay.window.decorations);
         assert_eq!(overlay.window.max_size, Some(Size::new(HUD_W, HUD_H)));
-        assert!(!overlay.iced_settings.fonts.is_empty());
+        assert_eq!(overlay.iced_settings.fonts.len(), 3);
         let desk = desktop_prepared();
         assert!(desk.window.decorations);
         assert!(desk.window.resizable);
