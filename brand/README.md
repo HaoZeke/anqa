@@ -17,12 +17,12 @@ SVG drawn by `build.py` — not a tracing of the still.
 |-----|------|
 | README / site header | `png/groket-lockup-horizontal.png` |
 | Poster / merch | `png/groket-lockup-stacked.png` |
-| Dock / HUD app | `png/groket-app-icon-1024.png` |
+| Dock / installer | `png/groket-app-icon-1024.png` |
 | Dark dock | `png/groket-app-icon-dark-1024.png` |
-| HUD search bar (light) | `png/groket-app-icon-256.png` (square dock tile) |
-| HUD search bar (dark) | `png/groket-app-icon-dark-1024.png` |
-| Favicon (square tab) | `png/groket-favicon-32.png` |
-| HUD system tray / notify | `png/groket-app-icon-256.png` (cream tile; dark panels) |
+| HUD window / Alt-Tab / tray / notify | `png/groket-favicon-64.png` (three-bar small mark) |
+| Favicon (browser tab) | `png/groket-favicon-32.png` |
+| HUD search bar (light) | `png/groket-mark.png` (32px tall) |
+| HUD search bar (dark) | `png/groket-mark-reverse.png` |
 | TUI header | wordmark + folders when wide + activity |
 | TUI help | three equal slats with status tips |
 | CLI (3 rows) | `small.txt` |

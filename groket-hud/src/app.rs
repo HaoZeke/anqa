@@ -682,7 +682,9 @@ impl Hud {
                 };
                 if self.timeline_expanded.contains(&ix) {
                     self.bind_event_extract(ix);
+                    // Heights first so scroll math uses the open card size.
                     self.rebuild_tl_heights();
+                    let _ = self.scroll_focus_into_view();
                     return self.fetch_open_event(ix);
                 }
                 self.unbind_event_fields(ix);
@@ -4644,7 +4646,8 @@ mod tests {
         let mut hud = hud_with_session();
         let stub = "{".to_string() + &"\"k\":".repeat(200) + "1";
         assert!(!stub.ends_with('}'));
-        assert_eq!(body_paint("agent", &stub, true), BodyPaint::Plain);
+        // Incomplete JSON object is not valid JSON → chat agent path is Markdown.
+        assert_eq!(body_paint("agent", &stub, true), BodyPaint::Markdown);
         load_page(
             &mut hud,
             0,

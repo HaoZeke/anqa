@@ -13,8 +13,10 @@ use crate::format::list_status_label;
 pub const APP_NAME: &str = "Groket HUD";
 pub const ENV_NAME: &str = "GROKET_HUD_NOTIFY";
 
-/// Same cream dock tile as the tray — readable on dark notification hosts.
-const ICON_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-256.png");
+/// Three-bar favicon (same family as window / tray).
+fn notify_icon_png() -> &'static [u8] {
+    crate::brand::tray_icon_png()
+}
 
 /// Urgency the host daemon maps to its own levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,7 +278,7 @@ fn ensure_icon_file(path: &std::path::Path) -> std::io::Result<()> {
     if path.is_file() {
         // Rewrite when the packaged asset changes (favicon → cream dock tile).
         if let Ok(existing) = std::fs::read(path) {
-            if existing.as_slice() == ICON_PNG {
+            if existing.as_slice() == notify_icon_png() {
                 return Ok(());
             }
         }
@@ -288,7 +290,7 @@ fn ensure_icon_file(path: &std::path::Path) -> std::io::Result<()> {
         )
     })?;
     std::fs::create_dir_all(parent)?;
-    std::fs::write(path, ICON_PNG)
+    std::fs::write(path, notify_icon_png())
 }
 
 fn display_name(title: &str, sid: &str) -> String {
@@ -459,7 +461,7 @@ mod tests {
         let path = dir.join("hud-notify.png");
         std::fs::write(&path, b"not-the-packaged-tile").unwrap();
         ensure_icon_file(&path).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), ICON_PNG);
+        assert_eq!(std::fs::read(&path).unwrap(), notify_icon_png());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

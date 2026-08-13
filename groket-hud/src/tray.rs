@@ -8,12 +8,10 @@ use std::sync::{Mutex, OnceLock};
 
 use thiserror::Error;
 
-/// Square brand tile for the tray pixmap (Swaybar / menu bar / taskbar).
-///
-/// Light dock icon (cream field + ink rocket). The tab favicon is ink bars on
-/// transparent — unreadable on dark panels. Dark-dock 1024 is cream-on-ink but
-/// most of the tile matches a dark bar, so mean contrast stays low at tray size.
-pub const TRAY_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-256.png");
+/// Three-bar small-mark favicon (brand: tab / tray / notify).
+pub fn tray_png() -> &'static [u8] {
+    crate::brand::tray_icon_png()
+}
 
 pub const TRAY_ID: &str = "dev.indynull.groket-hud";
 pub const TRAY_TOOLTIP: &str = "Groket HUD";
@@ -94,7 +92,7 @@ pub fn show_on_start() -> bool {
 /// Decode the packaged tray PNG to RGBA.
 pub fn decode_tray_rgba() -> Result<(Vec<u8>, u32, u32), TrayError> {
     let icon =
-        iced::window::icon::from_file_data(TRAY_PNG, None).map_err(|_| TrayError::BadIcon)?;
+        iced::window::icon::from_file_data(tray_png(), None).map_err(|_| TrayError::BadIcon)?;
     let (rgba, size) = icon.into_raw();
     if size.width == 0 || size.height == 0 || rgba.len() != (size.width * size.height * 4) as usize
     {
@@ -380,25 +378,19 @@ mod tests {
 
     #[test]
     fn packaged_icon_is_png_square() {
-        assert_eq!(&TRAY_PNG[1..4], b"PNG");
-        let (rgba, width, height) = decode_tray_rgba().expect("tray tile");
+        assert_eq!(&tray_png()[1..4], b"PNG");
+        let (rgba, width, height) = decode_tray_rgba().expect("favicon");
         assert_eq!(width, height);
         assert!(
-            width >= 64,
-            "tray tile should be at least 64px before host scale"
+            width >= 32,
+            "favicon should be at least 32px before host scale"
         );
         assert_eq!(rgba.len(), (width * height * 4) as usize);
-        // Cream field must dominate so the mark stays visible on dark bars
-        // (ink-only favicon measured ~6 mean contrast on #282828).
-        let mut cream = 0usize;
-        for px in rgba.chunks_exact(4) {
-            if px[3] > 200 && px[0] > 200 && px[1] > 180 && px[2] > 140 {
-                cream += 1;
-            }
-        }
+        // Three-bar small mark: sparse opaque ink + status caps, not a solid tile.
+        let opaque = rgba.chunks_exact(4).filter(|p| p[3] > 200).count();
         assert!(
-            cream * 2 > rgba.len() / 4,
-            "expected cream dock field for dark-panel tray contrast"
+            opaque > 20 && opaque * 2 < rgba.len() / 4,
+            "expected sparse three-bar favicon, got opaque={opaque}"
         );
     }
 

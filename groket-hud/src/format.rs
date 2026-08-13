@@ -595,8 +595,32 @@ pub fn timeline_search<'a>(
         .collect()
 }
 
+/// User / agent chat rows (TUI ``MESSAGE_TYPES`` minus thought).
+///
+/// Thought stays plain italic in the TUI; chat always goes through Markdown.
+pub fn is_chat_message(kind: &str, event_type: &str) -> bool {
+    let et = event_type.trim();
+    if et.contains("message_chunk")
+        || et == "user_message"
+        || et == "agent_message"
+        || et == "user"
+        || et == "assistant"
+    {
+        return true;
+    }
+    matches!(kind.trim(), "user" | "agent" | "assistant")
+}
+
 /// Paint path for an expanded timeline / turn body.
+///
+/// Chat message types match the TUI: always Markdown when open (hard breaks
+/// via [`message_markdown_source`]). Tools stay JSON / plain / code.
 pub fn body_paint(kind: &str, body: &str, expanded: bool) -> BodyPaint {
+    body_paint_for(kind, "", body, expanded)
+}
+
+/// Like [`body_paint`] with wire ``event_type`` for chat detection.
+pub fn body_paint_for(kind: &str, event_type: &str, body: &str, expanded: bool) -> BodyPaint {
     if body.trim().is_empty() {
         return BodyPaint::Empty;
     }
@@ -606,16 +630,19 @@ pub fn body_paint(kind: &str, body: &str, expanded: bool) -> BodyPaint {
     if looks_like_json(body) {
         return BodyPaint::Json;
     }
+    // TUI: MESSAGE_TYPES always Markdown(hard-breaks), not cue-gated.
+    if is_chat_message(kind, event_type) {
+        return BodyPaint::Markdown;
+    }
     if looks_like_markdown(body) {
         return BodyPaint::Markdown;
     }
-    let _ = kind;
     BodyPaint::Plain
 }
 
-/// Assistant turn body: markdown when the source has markdown cues.
+/// Assistant turn body: markdown when the source has markdown cues or is chat.
 pub fn turn_assistant_paint(body: &str) -> BodyPaint {
-    body_paint("agent", body, true)
+    body_paint_for("agent", "agent_message_chunk", body, true)
 }
 
 /// Plain text for a turn card (paste into a report).
@@ -1411,13 +1438,22 @@ mod tests {
         assert_eq!(body_paint("agent", md, true), BodyPaint::Markdown);
         assert_eq!(body_paint("agent", md, false), BodyPaint::Plain);
         assert_ne!(turn_assistant_paint(md), BodyPaint::Plain);
+        // TUI always Markdown for chat rows (hard breaks), even without cues.
         assert_eq!(
-            turn_assistant_paint("plain sentence with no cues"),
-            BodyPaint::Plain
+            body_paint_for("agent", "agent_message_chunk", "plain sentence", true),
+            BodyPaint::Markdown
+        );
+        assert_eq!(
+            body_paint_for("user", "user_message_chunk", "hello\nworld", true),
+            BodyPaint::Markdown
         );
         assert_eq!(
             body_paint("tool_result", "{\"a\":1}", true),
             BodyPaint::Json
+        );
+        assert_eq!(
+            body_paint_for("thought", "agent_thought_chunk", "hmm", true),
+            BodyPaint::Plain
         );
     }
 

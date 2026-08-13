@@ -19,11 +19,11 @@ use icedtea::variant::Variant;
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
-    body_paint, capped_display, display_tool_output, event_brand_role, fmt_duration,
-    format_note_time, human_event_type_label, image_result_path, list_status_label,
-    looks_like_markdown, note_fields_view, origin_label, overview_fields, sanitize_console_text,
-    status_tone, timeline_body_text, timeline_count_caption, timeline_query_hit,
-    tool_fields_from_raw, BodyPaint, ToolField,
+    body_paint_for, capped_display, display_tool_output, event_brand_role, fmt_duration,
+    format_note_time, human_event_type_label, image_result_path, is_chat_message,
+    list_status_label, looks_like_markdown, message_markdown_source, note_fields_view,
+    origin_label, overview_fields, sanitize_console_text, status_tone, timeline_body_text,
+    timeline_count_caption, timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, CardMark, SESSION_LIST_W,
@@ -576,8 +576,22 @@ fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<
     if !looks_like_markdown(&cut) {
         return text(cut).size(typo::BODY).font(typo::UI).into();
     }
+    markdown_element(&cut, tea)
+}
+
+/// Always markdown (TUI chat messages): hard breaks + icedtea markdown_view.
+fn chat_md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let prepared = message_markdown_source(src);
+    let cut: String = prepared.chars().take(max_chars).collect();
+    if cut.trim().is_empty() {
+        return text("empty").size(typo::META).color(tea.muted).into();
+    }
+    markdown_element(&cut, tea)
+}
+
+fn markdown_element(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::markdown_view(
-        intern_md(&cut),
+        intern_md(src),
         tea,
         |url| Message::MdLink(url.to_string()),
         A11y::new("markdown", Role::Group),
@@ -1519,14 +1533,23 @@ fn inspect_fields(call: &TimelineEvent) -> Vec<ToolField> {
 
 fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Element<'a, Message> {
     let kind = ev.kind.clone();
+    let event_type = ev.event_type.clone();
     let tool = ev.tool_name.clone();
     let preview = ev.preview.clone();
     let content = ev.content.clone();
     let raw_body = timeline_body_text(&preview, &content, selected, 240);
     let body = sanitize_console_text(&display_tool_output(&raw_body, &tool));
     let tok = hud.tokens();
+    let field_id = ExtractKey::Event(ev.index).id();
     if !selected {
-        return render_payload_text(&body, &kind, hud, false, &ExtractKey::Event(ev.index).id());
+        return render_payload_text(
+            &body,
+            &kind,
+            &event_type,
+            hud,
+            false,
+            &field_id,
+        );
     }
     let mut col = column![].spacing(8);
     let family = ev.tool_family.clone();
@@ -1592,26 +1615,21 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             col = col.push(render_payload_text(
                 &out_body,
                 &result.kind,
+                &result.event_type,
                 hud,
                 true,
                 &format!("event.{}.out", ev.index),
             ));
         }
-    } else if selected {
-        col = col.push(selectable(
-            hud,
-            ExtractKey::Event(ev.index),
-            &body,
-            hud.tokens(),
-            icedtea::typo::FontFace::Ui,
-        ));
     } else {
+        // Chat / thought / plan: same paint path as TUI detail (markdown for messages).
         col = col.push(render_payload_text(
             &body,
             &kind,
+            &event_type,
             hud,
             true,
-            &ExtractKey::Event(ev.index).id(),
+            &field_id,
         ));
     }
     col.into()
@@ -1650,17 +1668,18 @@ fn field_body<'a>(
 fn render_payload_text<'a>(
     body: &str,
     kind: &str,
+    event_type: &str,
     hud: &'a Hud,
     expanded: bool,
     field_id: &str,
 ) -> Element<'a, Message> {
     let tok = hud.tokens();
     let trimmed = body.trim();
-    let paint = body_paint(kind, trimmed, expanded);
+    let paint = body_paint_for(kind, event_type, trimmed, expanded);
     if paint == BodyPaint::Empty {
         return text("empty").size(typo::META).color(tok.muted).into();
     }
-    let max = if expanded { 4_000 } else { 400 };
+    let max = if expanded { 12_000 } else { 400 };
     let cut = capped_display(body, max);
     if !expanded {
         return text(cut)
@@ -1672,23 +1691,37 @@ fn render_payload_text<'a>(
     match paint {
         BodyPaint::Json => code_inset(hud, field_id, hud.tokens()),
         BodyPaint::Image => tool_image(trimmed, hud.tokens()),
-        _ => {
-            let body = select_bound(
-                hud,
-                field_id.to_string(),
-                &cut,
-                tok,
-                icedtea::typo::FontFace::Ui,
-            );
-            if kind == "user"
-                || kind == "agent"
-                || kind == "subagent"
-                || paint == BodyPaint::Markdown
-            {
-                inset_body(body, hud)
+        BodyPaint::Markdown => {
+            // icedtea markdown_view (TUI uses Rich Markdown). Yank still uses
+            // bound plain text / extract_event via y.
+            let md = if is_chat_message(kind, event_type) {
+                chat_md_body(body, max, hud.tokens())
             } else {
-                body
+                md_body(body, max, hud.tokens())
+            };
+            if is_chat_message(kind, event_type) || kind == "subagent" {
+                inset_body(md, hud)
+            } else {
+                md
             }
+        }
+        BodyPaint::Plain | BodyPaint::Empty => {
+            let plain = if kind == "thought" {
+                text(cut)
+                    .size(typo::BODY)
+                    .font(typo::UI)
+                    .color(tok.muted)
+                    .into()
+            } else {
+                select_bound(
+                    hud,
+                    field_id.to_string(),
+                    &cut,
+                    tok,
+                    icedtea::typo::FontFace::Ui,
+                )
+            };
+            plain
         }
     }
 }
