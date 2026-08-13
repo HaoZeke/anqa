@@ -34,8 +34,8 @@ Sol-style session **command palette** for the local groket control plane
   browse (not yanked back into session search). **/** focuses search
   (session switcher, or turns / events on those panes). Type in search
   again to switch sessions. No permanent left rail.
-- **Keyboard in browse:** **Tab** / **Shift+Tab** (or **Ctrl+1…5**) cycle
-  panes. **Enter** drills Overview → Turns → turn-scoped Timeline → event
+- **Keyboard in browse:** **Tab** / **Shift+Tab** cycle panes when no field
+  is focused (**Ctrl+1…5** always). **Enter** drills Overview → Turns → turn-scoped Timeline → event
   detail → next event. **j/k** or **↑/↓** move the list highlight; in event detail
   they step events and cross into the next/previous turn when scoped.
   **Esc** leaves event detail on the current row (footer ``esc timeline``),

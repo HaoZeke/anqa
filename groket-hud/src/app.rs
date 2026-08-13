@@ -652,8 +652,6 @@ impl Hud {
                     self.drop_timeline_detail();
                 }
                 self.tab = tab;
-                // Keep turn scope when returning to Events. Only an explicit
-                // "All turns" pick or search-all clears the drawer.
                 let load = match tab {
                     Tab::Timeline => {
                         if self.wants_events() {
@@ -670,7 +668,9 @@ impl Hud {
                     _ => Task::none(),
                 };
                 // Turns/Timeline keep scroll on VisibleWindow (virtual_column).
-                Task::batch([load, self.focus_browse()])
+                // Do not blur in-pane search — SetTab used to unfocus the
+                // turns/timeline fields so click and / could not stick.
+                load
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
@@ -872,7 +872,8 @@ impl Hud {
             Message::Tick => self.on_tick(),
             Message::FocusSearch(attempt) => {
                 if self.browse_mode() {
-                    self.focus_browse()
+                    // Do not unfocus turns / timeline / session search.
+                    Task::none()
                 } else {
                     self.on_focus_search(attempt)
                 }
@@ -2917,8 +2918,7 @@ impl Hud {
         self.on_focus_search(0)
     }
 
-    /// Drop iced text-input focus so browse keys (Enter, [, ]) are not Captured
-    /// by session / turns / timeline search after a pick or pane change.
+    /// Drop iced text-input focus so Enter / [ / ] reach browse after a pick.
     fn blur_text_inputs() -> Task<Message> {
         iced::advanced::widget::operate(
             iced::advanced::widget::operation::focusable::unfocus::<()>(),
@@ -2926,7 +2926,8 @@ impl Hud {
         .discard()
     }
 
-    /// Window focus without stealing into session search (browse panes).
+    /// Window focus after a pick. Unfocus session search once so Enter drills
+    /// panes; later clicks in turns / timeline search keep the caret.
     fn focus_browse(&self) -> Task<Message> {
         if !self.visible {
             return Task::none();
@@ -3775,18 +3776,7 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     table
 }
 
-/// Arrow / Home / End / Page — list navigation even while a field is focused.
-fn is_tab_key(kev: &keyboard::Event) -> bool {
-    matches!(
-        kev,
-        keyboard::Event::KeyPressed {
-            key: Key::Named(Named::Tab),
-            modifiers,
-            ..
-        } if !modifiers.alt() && !modifiers.logo()
-    )
-}
-
+/// Arrow / Home / End / Page / j / k — list navigation while a field is focused.
 fn is_list_nav_key(kev: &keyboard::Event) -> bool {
     let keyboard::Event::KeyPressed { key, modifiers, .. } = kev else {
         return false;
@@ -3804,8 +3794,7 @@ fn is_list_nav_key(kev: &keyboard::Event) -> bool {
     ) {
         return true;
     }
-    modifiers.is_empty()
-        && matches!(key, Key::Character(ref c) if matches!(c.as_str(), "j" | "k" | "/"))
+    modifiers.is_empty() && matches!(key, Key::Character(ref c) if matches!(c.as_str(), "j" | "k"))
 }
 
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
@@ -3815,7 +3804,9 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
         Event::Keyboard(ref kev) => {
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
-            if is_list_nav_key(kev) || is_tab_key(kev) {
+            // j/k and arrows while Spotlight search is focused. Tab and /
+            // stay with a focused field (turns / timeline / notes).
+            if is_list_nav_key(kev) {
                 return Some(Message::RawEvent(event));
             }
             // Captured: Escape + pane chords (chrome_over_input). Enter stays
@@ -4516,8 +4507,8 @@ mod tests {
             repeat: false,
         });
         assert!(
-            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_some(),
-            "Tab must reach browse pane cycle even when a field captured it"
+            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_none(),
+            "focused search keeps Tab"
         );
         let slash = Event::Keyboard(keyboard::Event::KeyPressed {
             key: Key::Character("/".into()),
@@ -4529,8 +4520,13 @@ mod tests {
             repeat: false,
         });
         assert!(
-            interesting_hud_event(slash, event::Status::Captured, window::Id::unique()).is_some(),
-            "/ must reach search focus even when a widget captured it"
+            interesting_hud_event(slash.clone(), event::Status::Captured, window::Id::unique())
+                .is_none(),
+            "focused search keeps /"
+        );
+        assert!(
+            interesting_hud_event(slash, event::Status::Ignored, window::Id::unique()).is_some(),
+            "unfocused / still focuses the pane search"
         );
     }
 
