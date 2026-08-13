@@ -49,8 +49,10 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
             Message::ActivateSelected,
         );
         push(&mut table, "list.down", "Down", "j", Message::Noop);
+        push(&mut table, "search.focus", "Search", "/", Message::Noop);
         return table;
     }
+    push(&mut table, "search.focus", "Search", "/", Message::Noop);
     push(&mut table, "pane.next", "Panes", "tab", Message::Noop);
     if scope.timeline_detail {
         push(&mut table, "list.down", "Step", "j", Message::Noop);
@@ -114,13 +116,7 @@ pub fn help_table() -> ActionTable<Message> {
         "ctrl+shift+c",
         Message::Yank,
     );
-    push(
-        &mut table,
-        "events.search",
-        "Search events",
-        "/",
-        Message::Noop,
-    );
+    push(&mut table, "search.focus", "Search", "/", Message::Noop);
     push(
         &mut table,
         "events.next_turn",
@@ -169,7 +165,7 @@ mod tests {
         assert!(table.get("pane.1").is_some());
         assert!(table.get("pane.5").is_some());
         assert!(table.get("edit.copy").is_some());
-        assert!(table.get("events.search").is_some());
+        assert!(table.get("search.focus").is_some());
         let hints = table.footer_hints();
         assert!(hints.iter().any(|h| h.starts_with("? ")));
         assert!(hints.iter().any(|h| h.contains("esc")));
@@ -183,6 +179,7 @@ mod tests {
         assert!(blob.contains("esc hide"));
         assert!(blob.contains("enter open"));
         assert!(blob.contains("j down"));
+        assert!(blob.contains("/ search"));
         assert!(!blob.contains("tab "));
         assert!(!blob.contains("y copy"));
     }

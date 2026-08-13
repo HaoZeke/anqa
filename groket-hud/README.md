@@ -31,8 +31,9 @@ Sol-style session **command palette** for the local groket control plane
   while typing); **j/k** or **↑/↓** move the highlight (also
   while typing); **Enter** / click opens browse. **Home/End** and
   **Page Up/Down** jump. No auto-open. After a pick, focus stays in
-  browse (not yanked back into session search). Type in search again to
-  switch sessions. No permanent left rail.
+  browse (not yanked back into session search). **/** focuses search
+  (session switcher, or turns / events on those panes). Type in search
+  again to switch sessions. No permanent left rail.
 - **Keyboard in browse:** **Tab** / **Shift+Tab** (or **Ctrl+1…5**) cycle
   panes. **Enter** drills Overview → Turns → turn-scoped Timeline → event
   detail → next event. **j/k** or **↑/↓** move the list highlight; in event detail

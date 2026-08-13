@@ -232,7 +232,8 @@ StatusNotifier on Linux (Swaybar / Waybar), menu bar on macOS, notification
 area on Windows. Left-click shows the palette; **Quit Groket HUD** exits the
 HUD only. Create, edit, and delete operator notes the same way as the TUI.
 While the palette is open, the footer lists the keys that apply (same role
-as the TUI footer). Press **?** for the full shortcut list. A **live poll**
+as the TUI footer). Press **?** for the full shortcut list; **/** focuses
+search. A **live poll**
 re-reads overview and the timeline
 tail for running/awaiting turns (~3s; idle sessions slower) so a mid-turn
 Timeline tab updates without reopening the HUD. The HUD does not start evals,

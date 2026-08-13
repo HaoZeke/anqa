@@ -1662,6 +1662,25 @@ impl Hud {
     pub fn tl_search_id(&self) -> Id {
         self.tl_search_id.clone()
     }
+
+    /// Search field `/` should focus: events, turns, or session switcher.
+    fn search_focus_id(&self) -> Id {
+        if self.browse_mode() && self.tab == Tab::Timeline {
+            self.tl_search_id.clone()
+        } else if self.browse_mode() && self.tab == Tab::Turns {
+            self.turns_search_id.clone()
+        } else {
+            self.search_id.clone()
+        }
+    }
+
+    fn focus_context_search(&mut self) -> Task<Message> {
+        let focus = operation::focus(self.search_focus_id());
+        if self.browse_mode() && self.tab == Tab::Timeline && self.timeline_open.is_some() {
+            return Task::batch([self.close_timeline_detail(), focus]);
+        }
+        focus
+    }
     pub fn notes_schema(&self) -> Vec<SchemaField> {
         notes_schema_fields(self.overview.as_ref())
     }
@@ -3237,8 +3256,8 @@ impl Hud {
         if self.typing_notes {
             return Task::none();
         }
-        if matches!(key, Key::Character(ref c) if c.as_str() == "/") && self.tab == Tab::Timeline {
-            return operation::focus(self.tl_search_id.clone());
+        if matches!(key, Key::Character(ref c) if c.as_str() == "/") {
+            return self.focus_context_search();
         }
         // Events turn scope without the pick-list mouse: `]` picks the first turn
         // when none is scoped, then advances; `[` clears to all turns.
@@ -3781,7 +3800,8 @@ fn is_list_nav_key(kev: &keyboard::Event) -> bool {
     ) {
         return true;
     }
-    modifiers.is_empty() && matches!(key, Key::Character(ref c) if matches!(c.as_str(), "j" | "k"))
+    modifiers.is_empty()
+        && matches!(key, Key::Character(ref c) if matches!(c.as_str(), "j" | "k" | "/"))
 }
 
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
@@ -4456,6 +4476,44 @@ mod tests {
             interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_some(),
             "Tab must reach browse pane cycle even when a field captured it"
         );
+        let slash = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("/".into()),
+            modified_key: Key::Character("/".into()),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Slash),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: Some("/".into()),
+            repeat: false,
+        });
+        assert!(
+            interesting_hud_event(slash, event::Status::Captured, window::Id::unique()).is_some(),
+            "/ must reach search focus even when a widget captured it"
+        );
+    }
+
+    #[test]
+    fn slash_targets_the_search_on_this_screen() {
+        let hud = Hud::default();
+        assert_eq!(hud.search_focus_id(), hud.search_id());
+        let mut hud = Hud {
+            overview: Some(Overview::default()),
+            overview_sid: "s1".into(),
+            tab: Tab::Timeline,
+            ..Hud::default()
+        };
+        assert!(hud.browse_mode());
+        assert_eq!(hud.search_focus_id(), hud.tl_search_id());
+        hud.tab = Tab::Turns;
+        assert_eq!(hud.search_focus_id(), hud.turns_search_id());
+        hud.tab = Tab::Overview;
+        assert_eq!(hud.search_focus_id(), hud.search_id());
+        hud.tab = Tab::Timeline;
+        hud.timeline_open = Some(3);
+        let _ = hud.focus_context_search();
+        assert!(hud.timeline_open.is_none());
+        hud.typing_notes = true;
+        let _ = hud.on_key(Key::Character("/".into()), KeyMods::default());
+        assert!(hud.typing_notes, "slash must not steal a note field");
     }
 
     #[test]
