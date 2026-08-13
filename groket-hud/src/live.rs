@@ -122,7 +122,7 @@ pub const LIST_CARD_GAP: f32 = 2.0;
 /// Includes [`LIST_CARD_GAP`] so `RowHeights` totals match list_view Card
 /// spacing (otherwise the last cards cannot scroll fully into view).
 pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
-    // Full-width picker (~780 shell − pad); ~7px at 14px Fira → ~90 cols.
+    // Full-width picker (~780 shell − pad); ~7px at 14px body → ~90 cols.
     let cols = 72usize;
     let mut h = 20.0;
     h += wrap_line_count(title, cols) as f32 * 18.0;
