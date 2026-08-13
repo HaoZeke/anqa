@@ -8,8 +8,12 @@ use std::sync::{Mutex, OnceLock};
 
 use thiserror::Error;
 
-/// Square brand mark used as the tray pixmap (Swaybar / menu bar).
-pub const TRAY_PNG: &[u8] = include_bytes!("../../brand/png/groket-favicon-32.png");
+/// Square brand tile for the tray pixmap (Swaybar / menu bar / taskbar).
+///
+/// Light dock icon (cream field + ink rocket). The tab favicon is ink bars on
+/// transparent — unreadable on dark panels. Dark-dock 1024 is cream-on-ink but
+/// most of the tile matches a dark bar, so mean contrast stays low at tray size.
+pub const TRAY_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-256.png");
 
 pub const TRAY_ID: &str = "dev.indynull.groket-hud";
 pub const TRAY_TOOLTIP: &str = "Groket HUD";
@@ -375,11 +379,27 @@ mod tests {
     }
 
     #[test]
-    fn packaged_icon_is_png_32() {
+    fn packaged_icon_is_png_square() {
         assert_eq!(&TRAY_PNG[1..4], b"PNG");
-        let (rgba, width, height) = decode_tray_rgba().expect("favicon");
-        assert_eq!((width, height), (32, 32));
-        assert_eq!(rgba.len(), 32 * 32 * 4);
+        let (rgba, width, height) = decode_tray_rgba().expect("tray tile");
+        assert_eq!(width, height);
+        assert!(
+            width >= 64,
+            "tray tile should be at least 64px before host scale"
+        );
+        assert_eq!(rgba.len(), (width * height * 4) as usize);
+        // Cream field must dominate so the mark stays visible on dark bars
+        // (ink-only favicon measured ~6 mean contrast on #282828).
+        let mut cream = 0usize;
+        for px in rgba.chunks_exact(4) {
+            if px[3] > 200 && px[0] > 200 && px[1] > 180 && px[2] > 140 {
+                cream += 1;
+            }
+        }
+        assert!(
+            cream * 2 > rgba.len() / 4,
+            "expected cream dock field for dark-panel tray contrast"
+        );
     }
 
     #[test]

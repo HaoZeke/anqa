@@ -13,7 +13,8 @@ use crate::format::list_status_label;
 pub const APP_NAME: &str = "Groket HUD";
 pub const ENV_NAME: &str = "GROKET_HUD_NOTIFY";
 
-const ICON_PNG: &[u8] = include_bytes!("../../brand/png/groket-favicon-32.png");
+/// Same cream dock tile as the tray — readable on dark notification hosts.
+const ICON_PNG: &[u8] = include_bytes!("../../brand/png/groket-app-icon-256.png");
 
 /// Urgency the host daemon maps to its own levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -273,7 +274,12 @@ fn icon_file() -> Option<String> {
 
 fn ensure_icon_file(path: &std::path::Path) -> std::io::Result<()> {
     if path.is_file() {
-        return Ok(());
+        // Rewrite when the packaged asset changes (favicon → cream dock tile).
+        if let Ok(existing) = std::fs::read(path) {
+            if existing.as_slice() == ICON_PNG {
+                return Ok(());
+            }
+        }
     }
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(
@@ -439,6 +445,21 @@ mod tests {
         let first_len = std::fs::metadata(&path).unwrap().len();
         ensure_icon_file(&path).unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().len(), first_len);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_icon_rewrites_stale_bytes() {
+        let dir = std::env::temp_dir().join(format!(
+            "groket-hud-notify-icon-stale-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hud-notify.png");
+        std::fs::write(&path, b"not-the-packaged-tile").unwrap();
+        ensure_icon_file(&path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), ICON_PNG);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
