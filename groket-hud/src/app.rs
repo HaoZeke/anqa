@@ -1215,6 +1215,9 @@ impl Hud {
     pub fn timeline_kind(&self) -> KindFilter {
         self.timeline_kind
     }
+    pub fn turns_focus(&self) -> Option<i64> {
+        self.turns_focus
+    }
     pub fn timeline_focus(&self) -> Option<i64> {
         self.timeline_focus
     }
@@ -3054,26 +3057,243 @@ impl Hud {
             return self.update(Message::SetTab(Tab::ALL[next]));
         }
         match key {
-            // Spotlight: arrows only move the highlight; Enter / click opens.
-            Key::Named(Named::ArrowDown) if !self.sessions().is_empty() => {
-                self.set_active((self.active + 1) % self.sessions().len());
-                self.ensure_active_visible()
-            }
-            Key::Named(Named::ArrowUp) if !self.sessions().is_empty() => {
-                let n = self.sessions().len();
-                self.set_active((self.active + n - 1) % n);
-                self.ensure_active_visible()
-            }
-            Key::Named(Named::Home) if !self.sessions().is_empty() => {
-                self.set_active(0);
-                self.ensure_active_visible()
-            }
-            Key::Named(Named::End) if !self.sessions().is_empty() => {
-                self.set_active(self.sessions().len() - 1);
-                self.ensure_active_visible()
-            }
-            Key::Named(Named::Enter) => self.update(Message::ActivateSelected),
+            Key::Named(Named::ArrowDown) => self.nav_step(1),
+            Key::Named(Named::ArrowUp) => self.nav_step(-1),
+            Key::Named(Named::PageDown) => self.nav_step(5),
+            Key::Named(Named::PageUp) => self.nav_step(-5),
+            Key::Named(Named::Home) => self.nav_edge(true),
+            Key::Named(Named::End) => self.nav_edge(false),
+            // Enter drills deeper: pick session → next pane → open event.
+            Key::Named(Named::Enter) => self.enter_next(),
             _ => Task::none(),
+        }
+    }
+
+    /// Spotlight / switcher list is showing (not full-width browse).
+    fn in_session_picker(&self) -> bool {
+        !self.browse_mode()
+    }
+
+    /// Move highlight by *delta* rows (signed). First press from no selection
+    /// lands on the first (down) or last (up) row.
+    fn nav_step(&mut self, delta: i32) -> Task<Message> {
+        if delta == 0 {
+            return Task::none();
+        }
+        if self.in_session_picker() {
+            return self.nav_sessions_step(delta);
+        }
+        match self.tab {
+            Tab::Turns => self.nav_turns_step(delta),
+            Tab::Timeline if self.timeline_open.is_none() => self.nav_timeline_step(delta),
+            Tab::Timeline => self.nav_timeline_detail_step(delta),
+            _ => Task::none(),
+        }
+    }
+
+    fn nav_edge(&mut self, home: bool) -> Task<Message> {
+        if self.in_session_picker() {
+            let n = self.sessions().len();
+            if n == 0 {
+                return Task::none();
+            }
+            self.set_active(if home { 0 } else { n - 1 });
+            return self.ensure_active_visible();
+        }
+        match self.tab {
+            Tab::Turns => {
+                let idxs = self.filtered_turn_indices();
+                if idxs.is_empty() {
+                    return Task::none();
+                }
+                let src = if home {
+                    idxs[0]
+                } else {
+                    *idxs.last().unwrap()
+                };
+                if let Some(t) = self.overview.as_ref().and_then(|o| o.turns.turns.get(src)) {
+                    self.turns_focus = Some(t.turn_index);
+                    return self.scroll_turn_into_view();
+                }
+                Task::none()
+            }
+            Tab::Timeline if self.timeline_open.is_none() => {
+                let n = self.tl_filter.len();
+                if n == 0 {
+                    return Task::none();
+                }
+                let pos = if home { 0 } else { n - 1 };
+                let src = self.tl_filter[pos];
+                if let Some(ev) = self.timeline.get(src) {
+                    self.timeline_focus = Some(ev.index);
+                    return self.scroll_focus_into_view();
+                }
+                Task::none()
+            }
+            _ => Task::none(),
+        }
+    }
+
+    fn nav_sessions_step(&mut self, delta: i32) -> Task<Message> {
+        let n = self.sessions().len();
+        if n == 0 {
+            return Task::none();
+        }
+        if matches!(self.list_selection, icedtea::collection::Selection::None) {
+            self.set_active(if delta > 0 { 0 } else { n - 1 });
+            return self.ensure_active_visible();
+        }
+        let i = self.active as i32;
+        let next = (i + delta).rem_euclid(n as i32) as usize;
+        self.set_active(next);
+        self.ensure_active_visible()
+    }
+
+    fn nav_turns_step(&mut self, delta: i32) -> Task<Message> {
+        let idxs = self.filtered_turn_indices();
+        if idxs.is_empty() {
+            return Task::none();
+        }
+        let cur = self.turns_focus.and_then(|ti| {
+            idxs.iter().position(|&src| {
+                self.overview
+                    .as_ref()
+                    .and_then(|o| o.turns.turns.get(src))
+                    .is_some_and(|t| t.turn_index == ti)
+            })
+        });
+        let pos = match cur {
+            None => {
+                if delta > 0 {
+                    0
+                } else {
+                    idxs.len() - 1
+                }
+            }
+            Some(p) => (p as i32 + delta).rem_euclid(idxs.len() as i32) as usize,
+        };
+        let src = idxs[pos];
+        if let Some(t) = self.overview.as_ref().and_then(|o| o.turns.turns.get(src)) {
+            self.turns_focus = Some(t.turn_index);
+            return self.scroll_turn_into_view();
+        }
+        Task::none()
+    }
+
+    fn nav_timeline_step(&mut self, delta: i32) -> Task<Message> {
+        let n = self.tl_filter.len();
+        if n == 0 {
+            return Task::none();
+        }
+        let cur = self.timeline_focus_pos();
+        let pos = match cur {
+            None => {
+                if delta > 0 {
+                    0
+                } else {
+                    n - 1
+                }
+            }
+            Some(p) => (p as i32 + delta).rem_euclid(n as i32) as usize,
+        };
+        let src = self.tl_filter[pos];
+        if let Some(ev) = self.timeline.get(src) {
+            self.timeline_focus = Some(ev.index);
+            return self.scroll_focus_into_view();
+        }
+        Task::none()
+    }
+
+    /// While reading full-pane detail, Up/Down steps to the previous/next event.
+    fn nav_timeline_detail_step(&mut self, delta: i32) -> Task<Message> {
+        let n = self.tl_filter.len();
+        if n == 0 {
+            return Task::none();
+        }
+        let cur = self
+            .timeline_open
+            .and_then(|ix| {
+                self.tl_filter
+                    .iter()
+                    .position(|&src| self.timeline.get(src).is_some_and(|e| e.index == ix))
+            })
+            .or_else(|| self.timeline_focus_pos());
+        let pos = match cur {
+            None => 0,
+            Some(p) => (p as i32 + delta).rem_euclid(n as i32) as usize,
+        };
+        let src = self.tl_filter[pos];
+        if let Some(ev) = self.timeline.get(src) {
+            return self.open_timeline_detail(ev.index);
+        }
+        Task::none()
+    }
+
+    fn scroll_turn_into_view(&mut self) -> Task<Message> {
+        let Some(ti) = self.turns_focus else {
+            return Task::none();
+        };
+        let idxs = self.filtered_turn_indices();
+        let Some(pos) = idxs.iter().position(|&src| {
+            self.overview
+                .as_ref()
+                .and_then(|o| o.turns.turns.get(src))
+                .is_some_and(|t| t.turn_index == ti)
+        }) else {
+            return Task::none();
+        };
+        let view_h = self.turn_window.viewport.max(1.0);
+        let y = list_scroll_to_cover(&self.turn_heights, pos, self.turn_window.scroll, view_h);
+        self.turn_window.scroll = y;
+        Task::none()
+    }
+
+    /// Enter: open the next level (pick → browse → event detail → next event).
+    fn enter_next(&mut self) -> Task<Message> {
+        if self.in_session_picker() {
+            return self.update(Message::ActivateSelected);
+        }
+        match self.tab {
+            Tab::Overview => self.update(Message::SetTab(Tab::Turns)),
+            Tab::Turns => {
+                let turn = self.turns_focus.or_else(|| {
+                    self.filtered_turn_indices().first().and_then(|&src| {
+                        self.overview
+                            .as_ref()
+                            .and_then(|o| o.turns.turns.get(src))
+                            .map(|t| t.turn_index)
+                    })
+                });
+                if let Some(ti) = turn {
+                    self.turns_focus = Some(ti);
+                    if let Some(ix) = self
+                        .overview
+                        .as_ref()
+                        .and_then(|o| o.turns.turns.iter().find(|t| t.turn_index == ti))
+                        .and_then(|t| t.user_event_index.or(t.first_index))
+                    {
+                        return self.jump_timeline(ix);
+                    }
+                    return self.select_events_turn(Some(ti));
+                }
+                self.update(Message::SetTab(Tab::Timeline))
+            }
+            Tab::Timeline => {
+                if self.timeline_open.is_some() {
+                    // Already in detail: step to the next event.
+                    return self.nav_timeline_detail_step(1);
+                }
+                let ix = self.timeline_focus.or_else(|| {
+                    self.tl_filter
+                        .first()
+                        .and_then(|&src| self.timeline.get(src).map(|e| e.index))
+                });
+                if let Some(ix) = ix {
+                    return self.open_timeline_detail(ix);
+                }
+                Task::none()
+            }
+            Tab::Findings | Tab::Notes => Task::none(),
         }
     }
 }
@@ -3231,12 +3451,35 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
     table
 }
 
+/// Arrow / Home / End / Page — list navigation even while a field is focused.
+fn is_list_nav_key(kev: &keyboard::Event) -> bool {
+    matches!(
+        kev,
+        keyboard::Event::KeyPressed {
+            key: Key::Named(
+                Named::ArrowDown
+                    | Named::ArrowUp
+                    | Named::Home
+                    | Named::End
+                    | Named::PageDown
+                    | Named::PageUp
+            ),
+            ..
+        }
+    )
+}
+
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
         Event::Window(window::Event::Resized(size)) => Some(Message::WindowSize(size)),
         Event::Keyboard(ref kev) => {
-            // Captured: only Escape + pane chords (chrome_over_input). Enter stays
+            // List arrows must work while Search sessions is focused (Spotlight).
+            // Single-line fields capture them; we still want palette navigation.
+            if is_list_nav_key(kev) {
+                return Some(Message::RawEvent(event));
+            }
+            // Captured: Escape + pane chords (chrome_over_input). Enter stays
             // with the focused field's on_submit (or Ignored → RawEvent).
             let ctx = icedtea::key::KeyContext {
                 text_input_focused: true,
@@ -3563,9 +3806,51 @@ mod tests {
             interesting_hud_event(key.clone(), event::Status::Ignored, window::Id::unique())
                 .is_some()
         );
+        // Arrows navigate lists even while a text field has Captured them.
         assert!(
-            interesting_hud_event(key, event::Status::Captured, window::Id::unique()).is_none()
+            interesting_hud_event(key, event::Status::Captured, window::Id::unique()).is_some()
         );
+    }
+
+    #[test]
+    fn nav_step_selects_first_session_then_moves() {
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "a".into(),
+                    sort_epoch: 1.0,
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "b".into(),
+                    sort_epoch: 2.0,
+                    ..SessionRow::default()
+                },
+            ],
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        assert!(matches!(
+            hud.list_selection,
+            icedtea::collection::Selection::None
+        ));
+        let _ = hud.nav_step(1);
+        assert_eq!(hud.selected_sid().as_deref(), Some("b")); // newest first
+        let _ = hud.nav_step(1);
+        assert_eq!(hud.selected_sid().as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn enter_next_drills_picker_to_turns_to_timeline() {
+        let mut hud = hud_with_session();
+        // Picker path with one session.
+        hud.overview = None;
+        hud.overview_sid.clear();
+        hud.query.clear();
+        hud.rerank_visible();
+        let _ = hud.nav_step(1);
+        let _ = hud.enter_next();
+        assert!(!hud.overview_pending.is_empty() || hud.overview.is_some());
     }
 
     fn escape_pressed() -> Event {

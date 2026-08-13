@@ -902,6 +902,7 @@ fn closed_list_card<'a>(
     face: Element<'a, Message>,
     chips: Element<'a, Message>,
     on_open: Message,
+    selected: bool,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
     let header = row![
@@ -921,7 +922,7 @@ fn closed_list_card<'a>(
         container(body)
             .padding(10)
             .width(Length::Fill)
-            .style(move |_| icedtea::style::card(tea, false)),
+            .style(move |_| icedtea::style::card(tea, selected)),
     )
     .on_press(on_open)
     .into()
@@ -1212,6 +1213,7 @@ fn turn_list_card(
     hud: &Hud,
     t: &TurnRow,
     mark: Option<CardMark>,
+    selected: bool,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let jump = turn_jump(t);
@@ -1238,7 +1240,7 @@ fn turn_list_card(
         container(body)
             .padding(10)
             .width(Length::Fill)
-            .style(move |_| icedtea::style::card(tea, false)),
+            .style(move |_| icedtea::style::card(tea, selected)),
     )
     .on_press(jump)
     .into()
@@ -1300,8 +1302,9 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     return Space::new().height(0).into();
                 };
                 let mark = turn_marks.get(&t.turn_index).cloned();
+                let selected = hud.turns_focus() == Some(t.turn_index);
                 column![
-                    turn_list_card(hud, t, mark, tea),
+                    turn_list_card(hud, t, mark, selected, tea),
                     Space::new().height(crate::live::LIST_GAP),
                 ]
                 .into()
@@ -1367,11 +1370,13 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             };
             let ix = ev.index;
             let mark = ev_marks.get(&ix).cloned();
+            let selected = hud.timeline_focus() == Some(ix);
             let card = closed_list_card(
                 event_title(ev),
                 event_face(ev, tea),
                 card_chips_inline(hud, mark, Some(event_note(ev)), None),
                 Message::SelectTimeline(ix),
+                selected,
                 tea,
             );
             column![card, Space::new().height(crate::live::LIST_GAP)].into()

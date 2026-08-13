@@ -25,10 +25,12 @@ Sol-style session **command palette** for the local groket control plane
   Schema fields from overview are the form (same as TUI).
   The HUD does not launch runs, recipes, or Docker.
 - Spotlight session pick: cold start shows a short **Recent** list (latest
-  sessions only) under the search field — not the full catalog. Type to
-  filter, then Enter or click. That opens full-width **browse** (Overview /
-  Turns / Timeline / Findings / Notes). Type in search again to switch.
-  There is no permanent left session rail and no auto-open on launch.
+  sessions only) under the search field — not the full catalog. **↑/↓**
+  (also while typing in search) move the highlight; **Enter** opens.
+  **Home/End** and **Page Up/Down** jump. In browse, **Enter** drills
+  deeper (Overview → Turns → Timeline event → next event); **Esc** steps
+  back from event detail, then hides the overlay. Type in search again to
+  switch sessions. No permanent left rail and no auto-open on launch.
   Catalog typeahead uses ``session/list`` (first page on paint; more in the
   background).
 - Browse defaults to **Overview**. Picking a session loads overview only —
