@@ -502,7 +502,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             A11y::new(cap.to_string(), Role::Status),
         ));
     }
-    let search = container(icedtea::widget::themed_text_input(
+    let search = container(kit::search_field(
         "Search all events",
         hud.timeline_query_draft(),
         Message::TimelineQuery,
@@ -1212,7 +1212,7 @@ fn turn_list_card(
 
 fn turns_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    container(icedtea::widget::themed_text_input(
+    container(kit::search_field(
         "Search turns",
         hud.turns_query(),
         Message::TurnsQuery,
