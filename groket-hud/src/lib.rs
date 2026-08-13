@@ -6,6 +6,7 @@ pub mod control;
 pub mod desktop;
 pub mod format;
 pub mod fuzzy;
+pub mod help;
 pub mod install_desktop;
 pub mod kit;
 pub mod live;

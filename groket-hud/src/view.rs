@@ -258,7 +258,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         A11y::new("Catalog", Role::Progress),
     );
     if let Some(origin) = hud.context_origin() {
-        return stack![
+        let menu = stack![
             busy,
             icedtea::pattern::context_menu(
                 hud.context_actions(),
@@ -269,6 +269,13 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             ),
         ]
         .into();
+        if hud.help_open() {
+            return kit::help_modal(menu, &crate::help::help_table(), tea);
+        }
+        return menu;
+    }
+    if hud.help_open() {
+        return kit::help_modal(busy, &crate::help::help_table(), tea);
     }
     busy
 }
@@ -686,12 +693,12 @@ fn kv<'a>(
 }
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
-    let caption = if hud.timeline_open().is_some() {
-        Some("Esc · timeline")
-    } else {
-        None
-    };
-    kit::status_footer(hud.status(), hud.status_err(), caption, tea)
+    kit::status_footer(
+        hud.status(),
+        hud.status_err(),
+        &crate::help::footer_table(hud.key_scope()),
+        tea,
+    )
 }
 
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -2295,7 +2302,9 @@ mod tests {
         assert!(prod.contains("kit::pane_tabs"));
         assert!(prod.contains("kit::search_field"));
         assert!(prod.contains("kit::status_footer"));
+        assert!(prod.contains("kit::help_modal"));
         assert!(prod.contains("kit::status_empty"));
+        assert!(prod.contains("help_open()"));
         assert!(prod.contains("overview_fields"));
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("event.{}.in.{}"));
@@ -2352,7 +2361,7 @@ mod tests {
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));
         assert!(prod.contains("fn event_detail_stepper"));
-        assert!(prod.contains("Esc · timeline"));
+        assert!(prod.contains("footer_table(hud.key_scope())"));
         assert!(!prod.contains("chip_btn(\"Back\""));
         assert!(!prod.contains("is_timeline_expanded"));
         assert!(!prod.contains("TurnExpand"));

@@ -157,6 +157,8 @@ pub enum Message {
     },
     ToastDismiss(u64),
     FollowDone(Result<Value, String>),
+    /// Toggle the keyboard-shortcut cheatsheet (`?`).
+    ToggleHelp,
     /// Discard — close handlers and contribution-shaped tab chrome.
     Noop,
 }
@@ -271,6 +273,8 @@ pub struct Hud {
     /// Last show/toggle xdg-activation token; cleared on hide.
     #[allow(dead_code)]
     pending_activation_token: Option<String>,
+    /// `?` keyboard-shortcut cheatsheet is open.
+    help_open: bool,
 }
 
 impl Default for Hud {
@@ -367,6 +371,7 @@ impl Default for Hud {
                 Size::new(HUD_W, HUD_H)
             },
             pending_activation_token: None,
+            help_open: false,
         }
     }
 }
@@ -1183,22 +1188,10 @@ impl Hud {
                 Task::none()
             }
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
-            Message::Hide => {
-                if self.context.take().is_some() {
-                    return Task::none();
-                }
-                // Chrome Escape maps here while a field is focused.
-                if self.tab == Tab::Timeline && self.timeline_open.is_some() {
-                    return self.close_timeline_detail();
-                }
-                // Overlay: Escape hides. hide_palette no-ops in window mode.
-                if icedtea::window::should_hide(
-                    icedtea::window::HidePolicy::Escape,
-                    icedtea::window::HideEvent::Escape,
-                    false,
-                ) {
-                    return self.hide_palette();
-                }
+            Message::Hide => self.on_escape(),
+            Message::ToggleHelp => {
+                self.help_open = !self.help_open;
+                self.context = None;
                 Task::none()
             }
             Message::CloseRequested(id) => self.on_close_requested(id),
@@ -1246,6 +1239,19 @@ impl Hud {
     pub fn browse_mode(&self) -> bool {
         self.query.trim().is_empty()
             && (self.overview.is_some() || !self.overview_pending.is_empty())
+    }
+
+    pub fn help_open(&self) -> bool {
+        self.help_open
+    }
+
+    pub fn key_scope(&self) -> crate::help::KeyScope {
+        crate::help::KeyScope {
+            browse: self.browse_mode(),
+            help_open: self.help_open,
+            timeline_detail: self.tab == Tab::Timeline && self.timeline_open.is_some(),
+            tab: self.tab,
+        }
     }
 
     /// Visible Spotlight rows: recent when the query is empty, else search hits.
@@ -2809,6 +2815,7 @@ impl Hud {
     /// Summon lands on Spotlight (Recent + search), never the last open session.
     fn return_to_spotlight(&mut self) {
         self.query.clear();
+        self.help_open = false;
         self.reset_detail_chrome();
         self.timeline_open = None;
         self.active = 0;
@@ -3189,23 +3196,37 @@ impl Hud {
         Task::none()
     }
 
+    fn on_escape(&mut self) -> Task<Message> {
+        if self.help_open {
+            self.help_open = false;
+            return Task::none();
+        }
+        if self.context.take().is_some() {
+            return Task::none();
+        }
+        // Full-pane event detail → list at the current event before hide.
+        if self.tab == Tab::Timeline && self.timeline_open.is_some() {
+            return self.close_timeline_detail();
+        }
+        // Overlay: Escape hides. hide_palette no-ops in window mode.
+        if icedtea::window::should_hide(
+            icedtea::window::HidePolicy::Escape,
+            icedtea::window::HideEvent::Escape,
+            false,
+        ) {
+            return self.hide_palette();
+        }
+        Task::none()
+    }
+
     fn on_key(&mut self, key: Key, modifiers: KeyMods) -> Task<Message> {
         if matches!(key, Key::Named(Named::Escape)) {
-            if self.context.take().is_some() {
-                return Task::none();
-            }
-            // Full-pane event detail → list at the current event before hide.
-            if self.tab == Tab::Timeline && self.timeline_open.is_some() {
-                return self.close_timeline_detail();
-            }
-            // Overlay: Escape hides. hide_palette no-ops in window mode.
-            if icedtea::window::should_hide(
-                icedtea::window::HidePolicy::Escape,
-                icedtea::window::HideEvent::Escape,
-                false,
-            ) {
-                return self.hide_palette();
-            }
+            return self.on_escape();
+        }
+        if matches!(key, Key::Character(ref c) if c.as_str() == "?") && !self.typing_notes {
+            return self.update(Message::ToggleHelp);
+        }
+        if self.help_open {
             return Task::none();
         }
         if modifiers.command() || modifiers.control() {
@@ -3748,10 +3769,7 @@ fn is_tab_key(kev: &keyboard::Event) -> bool {
 }
 
 fn is_list_nav_key(kev: &keyboard::Event) -> bool {
-    let keyboard::Event::KeyPressed {
-        key, modifiers, ..
-    } = kev
-    else {
+    let keyboard::Event::KeyPressed { key, modifiers, .. } = kev else {
         return false;
     };
     if matches!(
@@ -4198,6 +4216,67 @@ mod tests {
         assert!(hud.visible, "first Esc leaves the HUD up");
         let _ = hud.update(Message::Hide);
         assert!(!hud.visible);
+    }
+
+    #[test]
+    fn question_mark_toggles_help() {
+        let mut hud = Hud::default();
+        assert!(!hud.help_open());
+        let _ = hud.update(Message::ToggleHelp);
+        assert!(hud.help_open());
+        let _ = hud.update(Message::ToggleHelp);
+        assert!(!hud.help_open());
+    }
+
+    #[test]
+    fn escape_closes_help_before_timeline_and_hide() {
+        let mut hud = Hud {
+            visible: true,
+            help_open: true,
+            tab: Tab::Timeline,
+            timeline_open: Some(3),
+            timeline_focus: Some(3),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::Hide);
+        assert!(!hud.help_open(), "first Esc closes help");
+        assert!(hud.timeline_open().is_some());
+        assert!(hud.visible);
+        let _ = hud.update(Message::Hide);
+        assert!(hud.timeline_open().is_none());
+        assert!(hud.visible);
+        let _ = hud.update(Message::Hide);
+        assert!(!hud.visible);
+    }
+
+    #[test]
+    fn on_key_question_opens_help_and_blocks_nav() {
+        use iced::keyboard::{key::Named, Key, Modifiers};
+        let mut hud = Hud {
+            visible: true,
+            query: "x".into(),
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "s1".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s2".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            ..Hud::default()
+        };
+        hud.sessions = hud.all_sessions.clone();
+        hud.set_active(0);
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.active, 1);
+        let _ = hud.on_key(Key::Character("?".into()), Modifiers::empty());
+        assert!(hud.help_open());
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.active, 1, "j is swallowed while help is open");
+        let _ = hud.on_key(Key::Named(Named::Escape), Modifiers::empty());
+        assert!(!hud.help_open());
     }
 
     #[test]

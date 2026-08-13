@@ -192,25 +192,33 @@ pub fn labeled_plain<'a>(
         .into()
 }
 
-/// Footer — icedtea [`pattern::status_bar`].
+/// Footer — icedtea [`pattern::status_bar`] + [`ActionTable::footer_hints`].
 pub fn status_footer<'a>(
     status: &str,
     err: bool,
-    caption: Option<&str>,
+    table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
-    use icedtea::action::{Action, ActionTable};
     let tone = if err { Some(ToastKind::Danger) } else { None };
-    let mut table = ActionTable::new();
-    table.insert(Action::new("status.noop", "Status", Message::Noop));
-    icedtea::pattern::status_bar(
-        status.to_string(),
-        tone,
-        caption,
-        &table,
+    icedtea::pattern::status_bar(status.to_string(), tone, None, table, tea, Direction::Ltr)
+}
+
+/// `?` help — icedtea [`pattern::modal_card`] + [`pattern::cheatsheet`].
+pub fn help_modal<'a>(
+    backdrop: Element<'a, Message>,
+    table: &icedtea::action::ActionTable<Message>,
+    tea: Tokens,
+) -> Element<'a, Message> {
+    let sheet = widget::group_box(
+        "Keyboard shortcuts",
+        icedtea::pattern::cheatsheet(table, "", tea),
         tea,
-        Direction::Ltr,
-    )
+        A11y::new("Keyboard shortcuts", Role::Dialog),
+    );
+    let card = container(sheet)
+        .width(Length::Fixed(520.0))
+        .height(Length::Fixed(400.0));
+    icedtea::pattern::modal_card(backdrop, card.into(), tea)
 }
 
 #[cfg(test)]
@@ -261,8 +269,32 @@ mod tests {
     #[test]
     fn status_footer_builds() {
         let tea = icedtea::theme::named("dark").tokens;
-        let _ = status_footer("ready", false, Some("Esc · timeline"), tea);
-        let _ = status_footer("down", true, None, tea);
+        let table = crate::help::footer_table(crate::help::KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: true,
+            tab: crate::model::Tab::Timeline,
+        });
+        let _ = status_footer("ready", false, &table, tea);
+        let _ = status_footer(
+            "down",
+            true,
+            &crate::help::footer_table(crate::help::KeyScope {
+                browse: false,
+                help_open: false,
+                timeline_detail: false,
+                tab: crate::model::Tab::Overview,
+            }),
+            tea,
+        );
+    }
+
+    #[test]
+    fn help_modal_builds() {
+        let tea = icedtea::theme::named("dark").tokens;
+        let table = crate::help::help_table();
+        let backdrop = status_empty("HUD", "backdrop", tea);
+        let _ = help_modal(backdrop, &table, tea);
     }
 
     #[test]
@@ -273,6 +305,8 @@ mod tests {
         assert!(src.contains("widget::tab_bar"));
         assert!(src.contains("pattern::status_bar"));
         assert!(src.contains("pattern::status_page"));
+        assert!(src.contains("pattern::modal_card"));
+        assert!(src.contains("pattern::cheatsheet"));
         assert!(src.contains("FORM_LABEL"));
         assert!(src.contains("contribution"));
     }
