@@ -270,6 +270,10 @@ def main() -> None:
     rsvg(SVG / "groket-favicon.svg", PNG / "groket-favicon-64.png", width=64)
     for n in (32, 16):
         rsvg(SVG / "groket-favicon.svg", PNG / f"groket-favicon-{n}.png", width=n)
+    # Taskbar / tray / notify: cream plate + 7×3 three-bar small mark (no needles).
+    # Full rocket app icons collapse to mud at 16–22px; chunky bars stay readable.
+    for n in (64, 128):
+        _write_tray_tile(PNG / f"groket-tray-{n}.png", n)
 
 
 def _write_lockups(mark: Image.Image, word: Image.Image) -> None:
@@ -332,6 +336,36 @@ def _image_href(png_name: str, size: tuple[int, int]) -> str:
 def _resize_square(src: Path, dest: Path, size: int) -> None:
     im = Image.open(src).convert("RGBA")
     im.resize((size, size), Image.Resampling.LANCZOS).save(dest, "PNG", optimize=True)
+
+
+def _write_tray_tile(dest: Path, tile: int) -> None:
+    """Cream square + 7×3 three-bar small mark (taskbar / StatusNotifier size)."""
+    from PIL import ImageDraw
+
+    cream = tuple(int(CREAM[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
+    ink = tuple(int(INK[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
+    red = tuple(int(RED[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
+    green = tuple(int(GREEN[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
+    yellow = tuple(int(YELLOW[i : i + 2], 16) for i in (1, 3, 5)) + (255,)
+    im = Image.new("RGBA", (tile, tile), cream)
+    draw = ImageDraw.Draw(im)
+    pad = max(2, tile // 8)
+    inner = tile - 2 * pad
+    cell = min(inner // SMALL_COLS, inner // SMALL_ROWS)
+    mark_w = SMALL_COLS * cell
+    mark_h = SMALL_ROWS * cell
+    ox = (tile - mark_w) // 2
+    oy = (tile - mark_h) // 2
+    rows = [(SMALL_LONG, red), (SMALL_LONG, green), (SMALL_SHORT, yellow)]
+    for row, (bar_w, cap) in enumerate(rows):
+        y0 = oy + row * cell
+        y1 = y0 + cell - 1
+        draw.rectangle([ox, y0, ox + bar_w * cell - 1, y1], fill=ink)
+        draw.rectangle(
+            [ox + bar_w * cell, y0, ox + (bar_w + 1) * cell - 1, y1],
+            fill=cap,
+        )
+    im.save(dest, "PNG", optimize=True)
 
 
 if __name__ == "__main__":
