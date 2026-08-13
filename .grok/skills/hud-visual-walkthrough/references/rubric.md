@@ -114,15 +114,30 @@ Polished = **calm density**: clear who/what hierarchy, consistent chip/badge lan
 
 ## Timing interpretation
 
+### Interactive bar (in-bar UI — hard)
+
+**First meaningful pixel after key/click (`response_ms`) must stay under
+100ms** for operator hot-path actions: list nav, typeahead re-rank, pane
+switch chrome, open/close local detail shell. See skill §2b.
+
+| `response_ms` (in-bar) | Verdict |
+|------------------------|---------|
+| &lt; 100ms | ok for latency |
+| ≥ 100ms | **broken** (cite step + ms); overall walk **BROKEN** if in-bar |
+
+Settled step `ms` includes harness settle sleep — **do not** use it for the
+100ms bar. Prefer release binary; note debug as non-binding.
+
+### Control RPC (out of bar — report, separate)
+
 | Class | Guidance |
 |-------|----------|
 | Control RPC &lt; 100ms | Fine for local disk sessions |
 | Control RPC 100ms–1s | Note size; large host sessions expected |
 | Control RPC &gt; 1s | Call out; overview/timeline cost |
-| UI step &gt; 2s after key | Suspect load path or main-thread stall |
-| UI step &gt; 5s | Treat as performance defect unless data is huge |
 
-UI ms include settle sleeps in the harness — subtract documented settle when comparing absolute numbers.
+A slow overview RPC is not an automatic fail if loading chrome painted in
+&lt;100ms; a frozen input loop or blank freeze **is** a fail.
 
 ## Anti-patterns for the reviewing agent
 

@@ -86,6 +86,34 @@ Optional `response_ms` on a step is **first pixel delta** from action delivery
 (external observation). It is **not** product instrumentation. Settled
 `ms` includes settle sleep and is wall-clock only.
 
+### 2b. Interactive latency bar (HUD product)
+
+**Every operator action on the hot path must feel under 100ms** when
+measured externally (first meaningful pixel change after key/click
+delivery — `response_ms` when the harness reports it, not settled `ms`
+which includes settle sleep).
+
+| In bar (must stay snappy) | Out of bar (RPC may be slower) |
+|---------------------------|--------------------------------|
+| Key nav (↑↓ Enter Esc pane digits) | First `session/overview` after pick |
+| Spotlight typeahead re-rank / list step | Timeline page fill / open-event fetch |
+| Tab switch chrome | Analysis / notes save when network-bound |
+| Open/close event detail shell (local) | Cold catalog drain |
+
+**QA rules**
+
+1. Flag any step whose **`response_ms` ≥ 100** for in-bar actions as
+   **broken** (or **ugly** if only borderline and rare). Cite the step
+   name and ms in the report.
+2. Control RPC samples stay reported honestly; a slow overview RPC is
+   not an automatic fail if the shell painted the loading state in
+   &lt;100ms — but a frozen input loop or blank freeze is a fail.
+3. Prefer release binary for timing walks; note debug builds as
+   non-binding for the 100ms bar.
+4. When fixing product code after a failed bar, prefer moving work off
+   the keystroke (defer RPC, virtualize lists, avoid full-catalog clone
+   on each key) — do not raise the bar.
+
 ### 3. Visual review (mandatory — every shot)
 
 For **each** `*.png` under `out_dir/shots/` in step order:
@@ -124,11 +152,14 @@ Write `out_dir/VISUAL_REPORT.md` (or `REPORT.md`) with:
 
 1. **Environment** — branch, serve, walk `DISPLAY`, backend, release vs debug.
 2. **Session** — id and title.
-3. **Timings** — control RPCs from `timings.json`.
+3. **Timings** — control RPCs from `timings.json`; **interactive
+   `response_ms`** vs the **100ms** bar (§2b) for in-bar steps.
 4. **Shot review** — ordered table: step · file · verdict · categories · notes.
 5. **Category rollup** — which of A–G failed (with one example shot each).
-6. **Verdict** — `SHIPPABLE` / `POLISH` / `BROKEN`.
-7. **Top fixes** — concrete product/UI asks (grouped by category when useful).
+6. **Latency rollup** — any in-bar step with `response_ms` ≥ 100 (step + ms).
+7. **Verdict** — `SHIPPABLE` / `POLISH` / `BROKEN` (latency bar failures
+   count as **BROKEN** when in-bar).
+8. **Top fixes** — concrete product/UI asks (grouped by category when useful).
 
 Paste a short summary into chat. Keep the full report on disk.
 
