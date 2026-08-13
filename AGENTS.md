@@ -191,17 +191,11 @@ per-user Unix socket (JSON-RPC for Emacs/Neovim/HUD/TUI). Lifecycle: bare
 ``serve`` starts (foreground; ``-d`` detaches); ``serve stop`` /
 ``restart`` / ``status``. Domain path: ``session/access`` +
 ``session/catalog`` / ``control_views`` + notes on disk; serve also warms the
-catalog, watches the traces tree, runs analysis jobs (``analysis/run`` /
-``analysis/status``), and notifies ``session/changed`` /
-``session/selected`` / ``notes/changed`` / ``analysis/changed``.
-TUI **never owns** the socket: default is detach-start owner if free
-(``--no-serve`` skips spawn; ``--no-socket`` runs offline), then attach,
-load home catalog via ``session/list``, and listen for notifications.
-TUI exit does not stop the owner.
-``session/list`` ``query`` is server-side casefold substring; optional
-``offset`` pages the filtered rows (omit it for the first page). Optional
-``sinceRevision`` is a cheap unchanged/delta poll. Clients that need the full
-catalog drain pages until ``matched`` on first paint only. Do not reimplement
+catalog, watches the traces tree, and runs analysis jobs. TUI **never
+owns** the socket: default is detach-start owner if free (``--no-serve``
+skips spawn; ``--no-socket`` runs offline), then attach and listen.
+TUI exit does not stop the owner. Methods, list paging, and
+notifications: [`docs/control.md`](docs/control.md). Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
 
