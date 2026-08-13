@@ -65,8 +65,9 @@ pub fn wayland_summon_hint(chord_label: &str) -> String {
          (skipped {chord_label}). Summon with tray Show HUD, \
          `groket hud --toggle`, or a compositor bind \
          (bindsym $mod+Shift+g exec groket hud --toggle). Float: \
-         for_window [app_id=\"{app}\"] floating enable",
-        app = crate::install_desktop::APP_ID,
+         include ~/.config/groket/sway-hud.conf \
+         (app_id {overlay})",
+        overlay = crate::install_desktop::OVERLAY_APP_ID,
     )
 }
 
@@ -142,9 +143,9 @@ mod tests {
     #[test]
     fn summon_hint_names_app_id() {
         let h = wayland_summon_hint("Ctrl+Shift+G");
-        assert!(h.contains(crate::install_desktop::APP_ID));
+        assert!(h.contains(crate::install_desktop::OVERLAY_APP_ID));
         assert!(h.contains("Ctrl+Shift+G"));
-        assert!(h.contains("floating enable"));
+        assert!(h.contains("sway-hud.conf"));
         assert!(h.contains("groket hud --toggle"));
     }
 

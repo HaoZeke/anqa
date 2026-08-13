@@ -219,10 +219,11 @@ pub fn notices_from_rows(
             Observe::Same => {}
             Observe::Changed { from, to } => {
                 seen.insert(sid.clone(), to.clone());
-                if !seed {
-                    if let Some(n) = session_notice(title, sid, &from, &to) {
-                        out.push(n);
-                    }
+                if seed || crate::format::is_blank_status(&from) {
+                    continue;
+                }
+                if let Some(n) = session_notice(title, sid, &from, &to) {
+                    out.push(n);
                 }
             }
         }
@@ -379,6 +380,14 @@ mod tests {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
         assert!(notices_from_rows(&mut seen, &rows, true).is_empty());
+        assert_eq!(seen.get("abc").map(String::as_str), Some("complete"));
+    }
+
+    #[test]
+    fn blank_placeholder_to_complete_is_silent() {
+        let mut seen = HashMap::from([("abc".into(), "—".into())]);
+        let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
         assert_eq!(seen.get("abc").map(String::as_str), Some("complete"));
     }
 

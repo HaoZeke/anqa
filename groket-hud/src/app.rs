@@ -44,6 +44,7 @@ use crate::wire::{
 const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
 const APP_ID: &str = "dev.indynull.groket-hud";
+const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
 
 /// Which edge event to open after a turn-scoped pager crosses a turn boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +249,7 @@ pub struct Hud {
     turn_marks: std::collections::HashMap<i64, CardMark>,
     event_marks: std::collections::HashMap<i64, CardMark>,
     seen_status: std::collections::HashMap<String, String>,
+    notices_primed: bool,
     seen_analysis: std::collections::HashMap<String, String>,
     toasts: icedtea::toast::ToastQueue,
     last_tick: Instant,
@@ -339,6 +341,7 @@ impl Default for Hud {
             turn_marks: std::collections::HashMap::new(),
             event_marks: std::collections::HashMap::new(),
             seen_status: std::collections::HashMap::new(),
+            notices_primed: false,
             seen_analysis: std::collections::HashMap::new(),
             toasts: icedtea::toast::ToastQueue::new(),
             last_tick: Instant::now(),
@@ -410,7 +413,7 @@ fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
 }
 
 fn overlay_prepared() -> icedtea::app::Prepared {
-    let boot = icedtea::app::Boot::new("groket", APP_ID)
+    let boot = icedtea::app::Boot::new("groket", OVERLAY_APP_ID)
         .overlay()
         .size(HUD_W, HUD_H)
         .min_size(HUD_W, HUD_H)
@@ -542,6 +545,8 @@ impl Hud {
                 }
             }
         });
+        // iced daemon must own a window or subscriptions (summon/tray) stall.
+        // Overlay maps once; Esc / --hide destroys it so Sway rematches later.
         let (id, open) = open_hud_window(hud.window_mode);
         hud.window_id = Some(id);
         let mut boot = vec![
@@ -2026,7 +2031,9 @@ impl Hud {
     }
 
     fn emit_session_notices(&mut self) {
-        let seed = self.seen_status.is_empty();
+        // Hold notices until the first complete catalog page so a sparse
+        // first paint (blank / "—") does not fire "complete" for every row.
+        let seed = !self.notices_primed;
         let rows: Vec<(String, String, String)> = self
             .all_sessions
             .iter()
@@ -2040,6 +2047,9 @@ impl Hud {
             .collect();
         for notice in crate::desktop::notices_from_rows(&mut self.seen_status, &rows, seed) {
             crate::desktop::post(notice);
+        }
+        if !self.catalog_busy && !self.all_sessions.is_empty() {
+            self.notices_primed = true;
         }
     }
 
@@ -2711,8 +2721,16 @@ impl Hud {
 
     fn place_overlay(&self, id: window::Id) -> Task<Message> {
         if let Some(origin) = place::active_palette_origin(HUD_W, HUD_H) {
-            window::move_to(id, origin)
-        } else if let Some(origin) = self.palette_origin {
+            return window::move_to(id, origin);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Wayland: iced move_to is a no-op; Sway IPC is the place path.
+            if crate::place_linux::place_overlay(HUD_W, HUD_H) {
+                return Task::none();
+            }
+        }
+        if let Some(origin) = self.palette_origin {
             window::move_to(id, origin)
         } else {
             window::position(id).map(Message::WindowPos)
@@ -2771,8 +2789,9 @@ impl Hud {
         self.palette_live = false;
         #[cfg(target_os = "linux")]
         crate::x11focus::release_keyboard();
-        match self.window_id {
-            Some(id) => window::set_mode(id, Mode::Hidden),
+        // Destroy the overlay so Sway rematches for_window on the next show.
+        match self.window_id.take() {
+            Some(id) => window::close(id),
             None => Task::none(),
         }
     }
@@ -2838,8 +2857,15 @@ impl Hud {
         #[cfg(target_os = "linux")]
         {
             if !crate::x11focus::x11_grab_needed() {
-                let _ = attempt;
-                return window::gain_focus(id);
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = crate::place_linux::focus_overlay();
+                }
+                let gain = window::gain_focus(id);
+                if attempt < 6 {
+                    return Task::batch([gain, delayed_focus(attempt.saturating_add(1))]);
+                }
+                return gain;
             }
             Task::batch([
                 window::gain_focus(id),
@@ -2923,6 +2949,7 @@ impl Hud {
     fn on_tray(&mut self, action: crate::tray::TrayAction) -> Task<Message> {
         match action {
             crate::tray::TrayAction::Show => self.show_palette(),
+            crate::tray::TrayAction::Toggle => self.on_hotkey(),
             crate::tray::TrayAction::Quit => self.quit(),
         }
     }
@@ -5743,6 +5770,22 @@ mod tests {
     }
 
     #[test]
+    fn hide_palette_destroys_overlay_window() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            window_mode: false,
+            window_id: Some(id),
+            ..Hud::default()
+        };
+        let _ = hud.hide_palette();
+        assert!(!hud.visible);
+        assert!(!hud.palette_live);
+        assert!(hud.window_id.is_none());
+    }
+
+    #[test]
     fn window_mode_boot_does_not_summon_overlay() {
         assert!(!boot_summons_overlay(true, true));
         assert!(boot_summons_overlay(false, true));
@@ -5764,6 +5807,21 @@ mod tests {
         assert!(hud.visible);
         assert!(!hud.window_mode);
         assert_eq!(hud.window_id, Some(id));
+    }
+
+    #[test]
+    fn tray_toggle_hides_visible_overlay() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            window_mode: false,
+            window_id: Some(id),
+            ..Hud::default()
+        };
+        let _ = hud.on_tray(crate::tray::TrayAction::Toggle);
+        assert!(!hud.visible);
+        assert!(hud.window_id.is_none());
     }
 
     #[test]

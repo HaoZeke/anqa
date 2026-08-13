@@ -85,8 +85,9 @@ Sol-style session **command palette** for the local groket control plane
   moving or rebuilding it. Runtime tray and iced window icons still work
   without this step.
 - Tray (when the host has one): StatusNotifier on Linux (Swaybar, Waybar),
-  menu bar on macOS, notification area on Windows. Left-click or **Show HUD**
-  reveals and focuses the palette. **Quit Groket HUD** exits the HUD process
+  menu bar on macOS, notification area on Windows. Left-click **toggles**
+  the overlay (same as ``groket hud --toggle``). Menu **Show HUD** always
+  shows. **Quit Groket HUD** exits the HUD process
   only; ``groket serve`` stays up. Escape hides the overlay and leaves the
   tray item in place. A missing tray host is logged; the HUD stays up
   (tray and pop-out still work without a global hotkey).
@@ -118,16 +119,24 @@ groket hud --show          # show; starts HUD if needed
 groket hud --hide          # hide overlay
 ```
 
-Example ``~/.config/sway/config`` fragment:
+``groket hud --install-desktop`` writes ``~/.config/groket/sway-hud.conf``.
+Include it from ``~/.config/sway/config``:
 
 ```
-# Float the palette and pop-out so Sway does not tile them.
-for_window [app_id="dev.indynull.groket-hud"] floating enable
-for_window [app_id="dev.indynull.groket-hud"] border pixel 0
-
-# Summon (HUD must already be running, or --toggle starts it via groket).
-bindsym $mod+Shift+g exec groket hud --toggle
+include ~/.config/groket/sway-hud.conf
 ```
+
+That fragment floats **only** the overlay ``app_id``
+(``dev.indynull.groket-hud.overlay``) with ``sticky`` and no border; the
+decorated pop-out keeps ``dev.indynull.groket-hud`` so Sway can tile it.
+``bindsym $mod+Shift+g exec groket hud --toggle`` is included.
+
+On Sway, summon centers the overlay on the **focused** output (pointer
+output when ``focus_follows_mouse`` is on). iced ``move_to`` is unused on
+Wayland. Keyboard focus after ``--toggle`` is ``swaymsg [app_id=overlay]
+focus`` plus iced search focus.
+
+Seat checklist: ``docs/hud-sway-dogfood.md``.
 
 ``groket doctor`` reports the display protocol, ``SWAYSOCK`` when set, and
 whether the summon socket is listening. Optional env:

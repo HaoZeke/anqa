@@ -13,6 +13,8 @@ pub mod log;
 pub mod macoswin;
 pub mod model;
 pub mod place;
+#[cfg(target_os = "linux")]
+pub mod place_linux;
 pub mod prefs;
 pub mod shortcut;
 pub mod summon;

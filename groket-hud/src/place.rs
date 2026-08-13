@@ -22,6 +22,41 @@ impl Rect {
     }
 }
 
+/// Center ``win_w`` x ``win_h`` in ``host`` (top-left origin, y down).
+pub fn center_in_rect(host: Rect, win_w: f64, win_h: f64) -> (f64, f64) {
+    (
+        host.x + (host.w - win_w) / 2.0,
+        host.y + (host.h - win_h) / 2.0,
+    )
+}
+
+/// One Sway output row used to pick the target display.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutputPick {
+    pub name: String,
+    pub rect: Rect,
+    pub focused: bool,
+    pub active: bool,
+}
+
+/// Prefer focused, else first active. Skip inactive / nameless rows.
+pub fn pick_focused_or_active(outputs: &[OutputPick]) -> Option<usize> {
+    let usable: Vec<usize> = outputs
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.active && !o.name.is_empty())
+        .map(|(i, _)| i)
+        .collect();
+    if usable.is_empty() {
+        return None;
+    }
+    usable
+        .iter()
+        .copied()
+        .find(|&i| outputs[i].focused)
+        .or(Some(usable[0]))
+}
+
 /// Iced/winit logical top-left for a palette centered on the display under
 /// ``mouse`` (AppKit points). ``frames[0]`` is the primary display; ``visible``
 /// is the matching ``visibleFrame`` list (menu bar / dock excluded).
@@ -149,5 +184,71 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn center_in_rect_primary() {
+        let host = Rect::new(0.0, 0.0, 1920.0, 1080.0);
+        let (x, y) = center_in_rect(host, 780.0, 560.0);
+        assert!((x - 570.0).abs() < 0.01);
+        assert!((y - 260.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn center_in_rect_external() {
+        let host = Rect::new(1920.0, 0.0, 2560.0, 1440.0);
+        let (x, y) = center_in_rect(host, 780.0, 560.0);
+        assert!((x - (1920.0 + (2560.0 - 780.0) / 2.0)).abs() < 0.01);
+        assert!((y - ((1440.0 - 560.0) / 2.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn pick_focused_wins_over_active() {
+        let outs = [
+            OutputPick {
+                name: "eDP-1".into(),
+                rect: Rect::new(0.0, 0.0, 1920.0, 1200.0),
+                focused: false,
+                active: true,
+            },
+            OutputPick {
+                name: "DP-1".into(),
+                rect: Rect::new(1920.0, 0.0, 2560.0, 1440.0),
+                focused: true,
+                active: true,
+            },
+        ];
+        assert_eq!(pick_focused_or_active(&outs), Some(1));
+    }
+
+    #[test]
+    fn pick_first_active_when_none_focused() {
+        let outs = [
+            OutputPick {
+                name: "eDP-1".into(),
+                rect: Rect::new(0.0, 0.0, 1920.0, 1200.0),
+                focused: false,
+                active: true,
+            },
+            OutputPick {
+                name: "DP-1".into(),
+                rect: Rect::new(1920.0, 0.0, 2560.0, 1440.0),
+                focused: false,
+                active: true,
+            },
+        ];
+        assert_eq!(pick_focused_or_active(&outs), Some(0));
+    }
+
+    #[test]
+    fn pick_skips_inactive_and_empty() {
+        assert_eq!(pick_focused_or_active(&[]), None);
+        let outs = [OutputPick {
+            name: String::new(),
+            rect: Rect::new(0.0, 0.0, 100.0, 100.0),
+            focused: true,
+            active: true,
+        }];
+        assert_eq!(pick_focused_or_active(&outs), None);
     }
 }
