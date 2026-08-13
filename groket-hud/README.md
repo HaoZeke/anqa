@@ -118,16 +118,24 @@ groket hud --show          # show; starts HUD if needed
 groket hud --hide          # hide overlay
 ```
 
-Example ``~/.config/sway/config`` fragment:
+``groket hud --install-desktop`` writes ``~/.config/groket/sway-hud.conf``.
+Include it from ``~/.config/sway/config``:
 
 ```
-# Float the palette and pop-out so Sway does not tile them.
-for_window [app_id="dev.indynull.groket-hud"] floating enable
-for_window [app_id="dev.indynull.groket-hud"] border pixel 0
-
-# Summon (HUD must already be running, or --toggle starts it via groket).
-bindsym $mod+Shift+g exec groket hud --toggle
+include ~/.config/groket/sway-hud.conf
 ```
+
+That fragment floats **only** the overlay ``app_id``
+(``dev.indynull.groket-hud.overlay``) with ``sticky`` and no border; the
+decorated pop-out keeps ``dev.indynull.groket-hud`` so Sway can tile it.
+``bindsym $mod+Shift+g exec groket hud --toggle`` is included.
+
+On Sway, summon centers the overlay on the **focused** output (pointer
+output when ``focus_follows_mouse`` is on). iced ``move_to`` is unused on
+Wayland. Keyboard focus after ``--toggle`` is ``swaymsg [app_id=overlay]
+focus`` plus iced search focus.
+
+Seat checklist: ``docs/hud-sway-dogfood.md``.
 
 ``groket doctor`` reports the display protocol, ``SWAYSOCK`` when set, and
 whether the summon socket is listening. Optional env:

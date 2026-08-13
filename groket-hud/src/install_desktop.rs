@@ -13,10 +13,24 @@ use thiserror::Error;
 
 /// Freedesktop / bundle id (matches iced ``application_id`` and tray id).
 pub const APP_ID: &str = "dev.indynull.groket-hud";
+/// Overlay palette only (Sway ``for_window`` float/sticky; pop-out keeps ``APP_ID``).
+pub const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
 /// Human name on menus and desktop entries.
 pub const APP_NAME: &str = "Groket HUD";
 /// One-line comment for desktop entries.
 pub const APP_COMMENT: &str = "Session palette for the groket control plane";
+
+/// Sway fragment: float/sticky overlay only; pop-out keeps ``APP_ID`` and tiles.
+pub fn sway_overlay_rules() -> String {
+    format!(
+        "# Groket HUD overlay ({OVERLAY_APP_ID}). Include from sway config:\n\
+         #   include ~/.config/groket/sway-hud.conf\n\
+         for_window [app_id=\"{OVERLAY_APP_ID}\"] floating enable\n\
+         for_window [app_id=\"{OVERLAY_APP_ID}\"] border pixel 0\n\
+         for_window [app_id=\"{OVERLAY_APP_ID}\"] sticky enable\n\
+         bindsym $mod+Shift+g exec groket hud --toggle\n"
+    )
+}
 
 /// Paths and notes from a successful install.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,9 +336,11 @@ fn install_linux(layout: &Layout) -> Result<Report, Error> {
         "If the icon is stale, log out or run: gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor"
             .into(),
     );
+    let sway_path = layout.home.join(".config/groket/sway-hud.conf");
+    write_bytes(&sway_path, sway_overlay_rules().as_bytes(), &mut wrote)?;
     notes.push(format!(
-        "Wayland/Sway: in-process hotkey is X11-only — tray Show HUD, or bind a key; \
-         float overlay with: for_window [app_id=\"{APP_ID}\"] floating enable"
+        "Sway: wrote {} — add: include ~/.config/groket/sway-hud.conf",
+        sway_path.display()
     ));
     Ok(Report { wrote, notes })
 }
@@ -641,6 +657,15 @@ mod tests {
         let _ = fs::remove_dir_all(&home);
     }
 
+    #[test]
+    fn sway_overlay_rules_float_overlay_not_popout() {
+        let body = sway_overlay_rules();
+        assert!(body.contains(OVERLAY_APP_ID));
+        assert!(!body.contains(&format!("app_id=\"{APP_ID}\"")));
+        assert!(body.contains("sticky enable"));
+        assert!(body.contains("groket hud --toggle"));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn install_linux_writes_desktop_and_icons() {
@@ -668,6 +693,12 @@ mod tests {
             .join(format!("{APP_ID}.png"))
             .is_file());
         assert!(report.lines().iter().any(|l| l.starts_with("wrote ")));
+        let sway = home.join(".config/groket/sway-hud.conf");
+        assert!(sway.is_file());
+        let fragment = fs::read_to_string(&sway).unwrap();
+        assert!(fragment.contains(OVERLAY_APP_ID));
+        assert!(fragment.contains("floating enable"));
+        assert!(fragment.contains("sticky enable"));
         let _ = fs::remove_dir_all(&home);
     }
 

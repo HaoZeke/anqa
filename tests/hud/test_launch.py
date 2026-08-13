@@ -443,3 +443,60 @@ def test_ensure_hud_binary_prunes_when_release_is_fresh(tmp_path: Path) -> None:
     assert out == built
     mock_build.assert_not_called()
     assert not (checkout / "target" / "debug").exists()
+
+
+def test_summon_socket_accepts_live_unix_listener(tmp_path: Path) -> None:
+    import socket
+    import threading
+
+    path = tmp_path / "hud-summon.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(path))
+    server.listen(1)
+
+    def _accept() -> None:
+        conn, _ = server.accept()
+        conn.close()
+
+    th = threading.Thread(target=_accept, daemon=True)
+    th.start()
+    assert launch_mod.summon_socket_accepts(path) is True
+    th.join(timeout=1)
+    server.close()
+    path.unlink(missing_ok=True)
+    assert launch_mod.summon_socket_accepts(path) is False
+
+
+def test_summon_socket_accepts_rejects_stale_path(tmp_path: Path) -> None:
+    missing = tmp_path / "gone.sock"
+    assert launch_mod.summon_socket_accepts(missing) is False
+    plain = tmp_path / "plain.sock"
+    plain.write_text("not a socket", encoding="utf-8")
+    assert launch_mod.summon_socket_accepts(plain) is False
+
+
+def test_summon_protocol_line_received_by_fake_server(tmp_path: Path) -> None:
+    import socket
+    import threading
+
+    path = tmp_path / "hud-summon.sock"
+    got: list[str] = []
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(path))
+    server.listen(1)
+
+    def _accept() -> None:
+        conn, _ = server.accept()
+        data = conn.recv(64).decode("utf-8")
+        got.append(data.strip())
+        conn.close()
+
+    th = threading.Thread(target=_accept, daemon=True)
+    th.start()
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.connect(str(path))
+    client.sendall(b"toggle\n")
+    client.close()
+    th.join(timeout=1)
+    server.close()
+    assert got == ["toggle"]

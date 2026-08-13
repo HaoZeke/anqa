@@ -252,3 +252,29 @@ def test_models_cache_bad_json(tmp_path: Path, monkeypatch):
 
     r = st._check_models_cache()
     assert r.ok is False
+
+
+def test_hud_summon_doctor_ok_when_fake_server_accepts(tmp_path: Path, monkeypatch):
+    import socket
+    import threading
+
+    path = tmp_path / "hud-summon.sock"
+    monkeypatch.setenv("GROKET_HUD_SUMMON_SOCKET", str(path))
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(path))
+    server.listen(1)
+
+    def _accept() -> None:
+        conn, _ = server.accept()
+        conn.close()
+
+    th = threading.Thread(target=_accept, daemon=True)
+    th.start()
+    from groket.diagnostics import self_test as st
+
+    r = st._check_hud_summon_socket()
+    th.join(timeout=1)
+    server.close()
+    assert r.ok is True
+    assert r.required is False
+    assert "toggle" in r.detail
