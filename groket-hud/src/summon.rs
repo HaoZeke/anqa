@@ -183,6 +183,7 @@ fn action_pair() -> &'static (SyncSender<SummonAction>, Mutex<Receiver<SummonAct
     })
 }
 
+#[cfg(unix)]
 fn action_sender() -> SyncSender<SummonAction> {
     action_pair().0.clone()
 }
