@@ -398,19 +398,21 @@ def _check_hud_summon_socket() -> CheckResult:
 
 
 def _check_leftover_json_config() -> CheckResult:
-    """Former config.json is ignored; prefs live in config.toml."""
-    from ..config import leftover_json_config_path
+    """Leftover config.json after the TOML move (safe to delete once toml exists)."""
+    from ..config import leftover_json_config_path, load_app_config
     from ..paths import app_config_path
 
+    load_app_config()
     old = leftover_json_config_path()
     new = app_config_path()
     if old.is_file():
+        copied = "already copied to" if new.is_file() else "will copy into"
         return CheckResult(
             id="config-toml",
             name="App prefs",
             ok=False,
             required=False,
-            detail=f"{old} is ignored; copy keys into {new}",
+            detail=f"{old} is leftover; {copied} {new} (delete the JSON when ready)",
         )
     return CheckResult(
         id="config-toml",

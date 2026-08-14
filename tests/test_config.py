@@ -80,6 +80,31 @@ def test_dump_roundtrip() -> None:
     assert restored.hud.window_mode is True
 
 
+def test_imports_json_when_toml_missing(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text(
+        '{"theme": "nord", "show_host_sessions": true, '
+        '"hud_global_shortcut": "Ctrl+K", '
+        '"analysis": {"plugins": ["a:b"]}}\n',
+        encoding="utf-8",
+    )
+    invalidate_config_cache()
+    cfg = load_app_config()
+    assert cfg.theme == "nord"
+    assert cfg.show_host_sessions is True
+    assert cfg.hud.global_shortcut == "Ctrl+K"
+    assert cfg.analysis.plugins == ["a:b"]
+    text = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert "nord" in text
+    assert (tmp_path / "config.json").is_file()
+
+
+def test_toml_wins_over_sibling_json(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text('theme = "gruvbox"\n', encoding="utf-8")
+    (tmp_path / "config.json").write_text('{"theme": "nord"}\n', encoding="utf-8")
+    invalidate_config_cache()
+    assert load_app_config().theme == "gruvbox"
+
+
 def test_schema_has_published_id() -> None:
     text = emit_config_schema()
     assert SCHEMA_ID in text

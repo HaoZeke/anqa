@@ -11,6 +11,54 @@ fn config_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".groket").join("config.toml"))
 }
 
+// TODO(remove-json-config): Delete with the Python importer once every
+// install has config.toml. Do not add more JSON prefs readers.
+fn ensure_toml(toml_path: &std::path::Path) {
+    if toml_path.is_file() {
+        return;
+    }
+    let json_path = toml_path.with_file_name("config.json");
+    let Ok(text) = fs::read_to_string(&json_path) else {
+        return;
+    };
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
+    fold_flat_shortcut(&mut v);
+    let Ok(rendered) = toml::to_string_pretty(&v) else {
+        return;
+    };
+    let _ = fs::write(toml_path, rendered);
+}
+
+fn fold_flat_shortcut(root: &mut serde_json::Value) {
+    let Some(obj) = root.as_object_mut() else {
+        return;
+    };
+    let flat = obj
+        .get("hud_global_shortcut")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let Some(flat) = flat else {
+        return;
+    };
+    let hud = obj.entry("hud").or_insert_with(|| serde_json::json!({}));
+    if let Some(hud_obj) = hud.as_object_mut() {
+        let empty = hud_obj
+            .get("global_shortcut")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty();
+        if empty {
+            hud_obj.insert("global_shortcut".into(), serde_json::Value::String(flat));
+        }
+    }
+    obj.remove("hud_global_shortcut");
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct File {
     #[serde(default)]
@@ -35,6 +83,7 @@ fn read_file() -> File {
     let Some(path) = config_path() else {
         return File::default();
     };
+    ensure_toml(&path);
     let Ok(text) = fs::read_to_string(path) else {
         return File::default();
     };
@@ -84,6 +133,7 @@ pub fn save_window_mode(window_mode: bool) {
     let Some(path) = config_path() else {
         return;
     };
+    ensure_toml(&path);
     let mut doc = fs::read_to_string(&path)
         .ok()
         .and_then(|text| text.parse::<DocumentMut>().ok())
@@ -113,5 +163,17 @@ mod tests {
         assert_eq!(f.follow_os, Some(true));
         assert_eq!(f.hud.window_mode, Some(true));
         assert_eq!(f.hud.global_shortcut.as_deref(), Some("Ctrl+K"));
+    }
+
+    #[test]
+    fn fold_flat_shortcut_into_hud() {
+        let mut v = serde_json::json!({
+            "theme": "nord",
+            "hud_global_shortcut": "Ctrl+K",
+            "hud": { "window_mode": true }
+        });
+        fold_flat_shortcut(&mut v);
+        assert_eq!(v["hud"]["global_shortcut"], "Ctrl+K");
+        assert!(v.get("hud_global_shortcut").is_none());
     }
 }

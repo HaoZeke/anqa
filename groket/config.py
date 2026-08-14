@@ -222,9 +222,15 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
     :param raw: Decoded object (may be empty).
     :returns: Canonical config (unknown keys dropped from the model).
     """
+    hud_section = raw.get("hud")
+    hud_raw: JsonObject = as_json_object(hud_section) if isinstance(hud_section, dict) else {}
+    if not str(hud_raw.get("global_shortcut") or "").strip():
+        flat = raw.get("hud_global_shortcut")
+        if isinstance(flat, str) and flat.strip():
+            hud_raw = {**hud_raw, "global_shortcut": flat.strip()}
     payload: JsonObject = {
         "analysis": raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {},
-        "hud": raw.get("hud") if isinstance(raw.get("hud"), dict) else {},
+        "hud": hud_raw,
         "export": raw.get("export") if isinstance(raw.get("export"), dict) else {},
     }
     for key in ("theme", "follow_os", "show_host_sessions", "show_tips", "auto_serve"):
@@ -279,6 +285,7 @@ def load_app_config(path: Path | None = None) -> AppConfig:
     fp = Path(path).expanduser() if path is not None else paths.app_config_path()
     if _CACHE is not None and _CACHE_PATH == fp:
         return _CACHE
+    _import_json_if_needed(fp)
     doc = _read_doc(fp)
     raw = _to_plain(doc)
     cfg = parse_app_config(as_json_object(raw) if isinstance(raw, dict) else {})
@@ -326,6 +333,33 @@ def update_app_config(path: Path | None = None, **changes: object) -> AppConfig:
     return next_cfg
 
 
-def leftover_json_config_path() -> Path:
-    """Former ``config.json`` next to the TOML file (ignored by the product)."""
-    return paths.app_config_path().with_name("config.json")
+def leftover_json_config_path(toml_path: Path | None = None) -> Path:
+    """Sibling ``config.json`` next to the TOML prefs file."""
+    base = Path(toml_path).expanduser() if toml_path is not None else paths.app_config_path()
+    return base.with_name("config.json")
+
+
+# TODO(remove-json-config): Delete this importer, leftover_json_config_path
+# doctor warning, HUD prefs::ensure_toml, and test_imports_json_when_toml_missing
+# once every install has config.toml (after a release or two). Do not add more
+# JSON prefs readers. TOML is the only file after the first successful copy.
+def _import_json_if_needed(toml_path: Path) -> None:
+    if toml_path.is_file():
+        return
+    src = leftover_json_config_path(toml_path)
+    if not src.is_file():
+        return
+    try:
+        data = json.loads(src.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        logger.debug("config: leftover %s unreadable", src, exc_info=True)
+        return
+    if not isinstance(data, dict):
+        return
+    cfg = parse_app_config(as_json_object(data))
+    try:
+        save_app_config(cfg, toml_path)
+    except OSError:
+        logger.warning("config: could not write %s from leftover JSON", toml_path, exc_info=True)
+        return
+    logger.info("config: wrote %s from leftover %s", toml_path, src)

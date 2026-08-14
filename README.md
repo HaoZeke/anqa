@@ -45,6 +45,8 @@ groket /path/to/work        # work root, traces tree, or one session dir
 
 `~/.groket/config.toml` is the only prefs file (terminal app and desktop HUD).
 Missing keys use defaults. Saves keep comments on keys they do not change.
+If `config.toml` is missing and `config.json` is still there, the first
+launch copies it (then you can delete the JSON).
 Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
 (`groket config validate`, `make schema`). Copy
 [`examples/config/config.toml`](examples/config/config.toml).
