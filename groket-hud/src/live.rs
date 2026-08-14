@@ -265,6 +265,8 @@ pub struct TickInput<'a> {
     pub any_live: bool,
     pub on_timeline: bool,
     pub notes_locked: bool,
+    /// Focus gain: same list/overview work as a due poll, without faking elapsed.
+    pub catch_up: bool,
 }
 
 /// Coalesce notify + poll into at most one list fetch and one overview load.
@@ -285,7 +287,7 @@ pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
             plan.load_overview = true;
         }
     }
-    if !input.palette_live {
+    if !input.palette_live && !input.catch_up {
         return plan;
     }
     let interval = if input.any_live {
@@ -293,7 +295,7 @@ pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
     } else {
         IDLE_POLL_MS
     };
-    if input.list_elapsed_ms >= interval {
+    if input.catch_up || input.list_elapsed_ms >= interval {
         plan.fetch_list = true;
         // Only refresh an *open* session — never open one from a list highlight alone.
         if input.selected_live && !input.overview_sid.is_empty() {
@@ -1116,6 +1118,7 @@ mod tests {
             any_live: true,
             on_timeline: false,
             notes_locked: false,
+            catch_up: false,
         });
         assert!(plan.fetch_list);
         assert!(plan.load_overview);
@@ -1150,6 +1153,7 @@ mod tests {
             any_live: true,
             on_timeline: true,
             notes_locked: false,
+            catch_up: false,
         });
         assert!(plan.fetch_list);
         assert!(plan.load_overview);
@@ -1168,6 +1172,7 @@ mod tests {
             any_live: true,
             on_timeline: false,
             notes_locked: false,
+            catch_up: false,
         });
         assert!(!plan.fetch_list);
         assert!(!plan.load_overview);
@@ -1185,6 +1190,7 @@ mod tests {
             any_live: true,
             on_timeline: false,
             notes_locked: false,
+            catch_up: false,
         });
         assert!(plan.fetch_list);
         assert!(
@@ -1431,6 +1437,25 @@ mod tests {
     }
 
     #[test]
+    fn tick_plan_catch_up_fetches_without_elapsed() {
+        let plan = plan_tick(TickInput {
+            notifies: &[],
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: true,
+            list_elapsed_ms: 0,
+            selected_live: true,
+            any_live: true,
+            on_timeline: false,
+            notes_locked: false,
+            catch_up: true,
+        });
+        assert!(plan.fetch_list);
+        assert!(plan.load_overview);
+        assert!(!plan.refresh_timeline);
+    }
+
+    #[test]
     fn tick_plan_idle_poll_refreshes_list() {
         let plan = plan_tick(TickInput {
             notifies: &[],
@@ -1442,6 +1467,7 @@ mod tests {
             any_live: false,
             on_timeline: false,
             notes_locked: false,
+            catch_up: false,
         });
         assert!(plan.fetch_list);
         assert!(!plan.load_overview);

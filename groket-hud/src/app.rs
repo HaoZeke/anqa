@@ -227,6 +227,7 @@ pub struct Hud {
     window_mode: bool,
     visible: bool,
     focused: bool,
+    catch_up: bool,
     palette_live: bool,
     palette_origin: Option<Point>,
     last_live: Instant,
@@ -325,6 +326,7 @@ impl Default for Hud {
             window_mode: std::env::var_os("GROKET_HUD_WINDOW").is_some(),
             visible: true,
             focused: true,
+            catch_up: false,
             palette_live: true,
             palette_origin: None,
             last_live: Instant::now(),
@@ -3076,9 +3078,7 @@ impl Hud {
         let gained = on && !self.focused;
         self.focused = on;
         if gained && self.visible {
-            self.last_live = Instant::now()
-                .checked_sub(Duration::from_secs(60))
-                .unwrap_or_else(Instant::now);
+            self.catch_up = true;
             return self.on_tick();
         }
         Task::none()
@@ -3146,6 +3146,8 @@ impl Hud {
                 .iter()
                 .any(|r| session_needs_live_poll(&r.status, None));
         let elapsed = self.last_live.elapsed().as_millis() as u64;
+        let catch_up = self.catch_up;
+        self.catch_up = false;
         let plan = plan_tick(TickInput {
             notifies: &notify_pairs,
             selected_sid: &selected,
@@ -3157,6 +3159,7 @@ impl Hud {
             any_live,
             on_timeline: self.wants_events(),
             notes_locked: self.note_compose_lock,
+            catch_up,
         });
         if plan.fetch_list {
             cmds.push(fetch_list(true, self.catalog_revision));
@@ -4597,6 +4600,47 @@ mod tests {
             hud.focused,
             hud.window_mode
         ));
+    }
+
+    fn assert_focus_gain_catch_up_does_not_rewind_last_live(window_mode: bool) {
+        let stale = Duration::from_millis(800);
+        let mut hud = Hud {
+            visible: true,
+            focused: false,
+            window_mode,
+            palette_live: true,
+            last_live: Instant::now().checked_sub(stale).expect("stale last_live"),
+            ..Hud::default()
+        };
+        let before = hud.last_live;
+        assert!(
+            before.elapsed() < Duration::from_secs(5),
+            "fixture last_live must be recent, not a minute back"
+        );
+        let _ = hud.update(Message::WindowFocus(true));
+        assert!(hud.focused);
+        assert!(
+            hud.last_live >= before,
+            "focus gain must not rewind last_live"
+        );
+        assert!(
+            hud.last_live.elapsed() < Duration::from_millis(200),
+            "catch-up must schedule a fetch and stamp last_live as now"
+        );
+        assert!(
+            before.elapsed() >= stale,
+            "fixture was overdue on the clock but under LIVE_POLL_MS"
+        );
+    }
+
+    #[test]
+    fn focus_gain_on_pop_out_catches_up_without_rewinding_last_live() {
+        assert_focus_gain_catch_up_does_not_rewind_last_live(true);
+    }
+
+    #[test]
+    fn focus_gain_on_overlay_catches_up_without_rewinding_last_live() {
+        assert_focus_gain_catch_up_does_not_rewind_last_live(false);
     }
 
     #[test]
