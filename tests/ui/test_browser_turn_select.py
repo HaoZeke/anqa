@@ -110,8 +110,43 @@ def test_rebuild_turn_select_discovers_next_turn_when_already_multi(tmp_path: Pa
     values = [v for _, v in calls[-1]]
     assert "0" in values and "1" in values and "2" in values
     labels = [lab for lab, _ in calls[-1]]
-    # Harness turn_number preferred in label (turn 2).
+    # Sequential display id (same as the Turn column), not harness turn_number.
     assert any("2" in str(lab) for lab in labels)
+
+
+def test_rebuild_turn_select_labels_sequential_when_harness_repeats(tmp_path: Path) -> None:
+    """Two harness turn_number=23 rows must not both label as Turn 23."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    screen.timeline = [
+        _ev(0, "turn_started", "turn_number=23"),
+        _ev(1, "user_message_chunk", "first prompt"),
+        _ev(2, "turn_ended", "outcome=completed"),
+        _ev(3, "turn_started", "turn_number=23"),
+        _ev(4, "user_message_chunk", "second prompt"),
+        _ev(5, "turn_ended", "outcome=completed"),
+    ]
+    screen._last_turn_segment_count = -1
+    screen._turn_segments = None
+    screen._turn_rebuild_sig = None
+    screen._turn_filter = "all"
+    calls: list[object] = []
+
+    class _Sel:
+        display = False
+        value = "all"
+
+        def set_options(self, options):
+            calls.append(list(options))
+
+    sel = _Sel()
+    screen.query_one = lambda _q, _t=None: sel  # type: ignore[method-assign]
+    screen._rebuild_turn_select()
+    assert calls
+    labels = [lab for lab, val in calls[-1] if val != "all"]
+    assert labels == ["Turn 0", "Turn 1"]
 
 
 def test_rebuild_turn_select_skips_set_options_when_count_unchanged(tmp_path: Path) -> None:

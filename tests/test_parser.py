@@ -1010,7 +1010,7 @@ def test_timeline_recap_and_compact_rows(tmp_path: Path):
                 "params": {
                     "update": {
                         "sessionUpdate": "session_recap",
-                        "summary": "You asked how to walk the env-audit.",
+                        "summary": "The operator asked for a walkthrough of the failing check.",
                         "auto": True,
                     }
                 },
@@ -1050,7 +1050,7 @@ def test_timeline_recap_and_compact_rows(tmp_path: Path):
                 "params": {
                     "update": {
                         "sessionUpdate": "compaction_checkpoint",
-                        "checkpoint_id": "25e46440-c2b4-4035-9095-391a1fd187f0",
+                        "checkpoint_id": "ckpt-1",
                         "prompt_index_at_compaction": 29,
                     }
                 },
@@ -1064,7 +1064,9 @@ def test_timeline_recap_and_compact_rows(tmp_path: Path):
     done = [e for e in events if e.event_type == "auto_compact_completed"]
     ckpt = [e for e in events if e.event_type == "compaction_checkpoint"]
     assert len(recap) == 1
-    assert recap[0].content.startswith("auto  You asked how to walk the env-audit.")
+    assert recap[0].content.startswith(
+        "auto  The operator asked for a walkthrough of the failing check."
+    )
     assert len(started) == 1
     assert "Context window 80% full" in started[0].content
     assert "401582/500000" in started[0].content
@@ -1072,7 +1074,7 @@ def test_timeline_recap_and_compact_rows(tmp_path: Path):
     assert "401582 -> 24830" in done[0].content
     assert "22052ms" in done[0].content
     assert len(ckpt) == 1
-    assert "25e46440-c2b4-4035-9095-391a1fd187f0" in ckpt[0].content
+    assert "ckpt-1" in ckpt[0].content
     assert "prompt_index=29" in ckpt[0].content
 
 
@@ -1089,7 +1091,7 @@ def test_timeline_hook_execution_and_annotation(tmp_path: Path):
                         "event_name": "session_start",
                         "runs": [
                             {
-                                "name": "global/nest-host-stamp:session_start[0].hooks[0]",
+                                "name": "global/stamp:session_start[0].hooks[0]",
                                 "status": {"status": "success", "elapsed_ms": 892},
                             }
                         ],
@@ -1128,7 +1130,7 @@ def test_timeline_hook_execution_and_annotation(tmp_path: Path):
                         "event_name": "stop",
                         "runs": [
                             {
-                                "name": "global/grok-nest-inject:stop[0].hooks[0]",
+                                "name": "global/stop-block:stop[0].hooks[0]",
                                 "status": {
                                     "status": "failed",
                                     "error": "blocked stop: guest waiting",
@@ -1147,7 +1149,7 @@ def test_timeline_hook_execution_and_annotation(tmp_path: Path):
                 "params": {
                     "update": {
                         "sessionUpdate": "hook_annotation",
-                        "message": "Stop blocked by hook `global/grok-nest-inject:stop[0].hooks[0]`, continuing",
+                        "message": "Stop blocked by hook `global/stop-block:stop[0].hooks[0]`, continuing",
                     }
                 },
             }
@@ -1158,14 +1160,14 @@ def test_timeline_hook_execution_and_annotation(tmp_path: Path):
     hooks = [e for e in events if e.event_type == "hook_execution"]
     notes = [e for e in events if e.event_type == "hook_annotation"]
     assert len(hooks) == 3
-    assert hooks[0].content.startswith("session_start  nest-host-stamp:success")
+    assert hooks[0].content.startswith("session_start  stamp:success")
     assert not hooks[0].is_error
     assert "pre_tool_use" in hooks[1].content
     assert "run_terminal_command" in hooks[1].content
     assert "deny-shell:failed" in hooks[1].content
     assert "timed out after 5000ms" in hooks[1].content
     assert hooks[1].is_error
-    assert "stop  grok-nest-inject:blocked" in hooks[2].content
+    assert "stop  stop-block:blocked" in hooks[2].content
     assert hooks[2].is_error
     assert len(notes) == 1
     assert "Stop blocked by hook" in notes[0].content
