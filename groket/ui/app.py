@@ -55,6 +55,7 @@ from ..session.access import (
     catalog_list_next_offset,
 )
 from . import text as U
+from .appearance import Appearance, appearance
 from .bindings import (
     APP_GLOBAL_PRIORITY,
     APP_SESSIONS,
@@ -78,6 +79,7 @@ from .screens.browser import BrowserScreen
 from .screens.rules import RulesScreen
 from .screens.run_configs import RunConfigsScreen
 from .screens.runner import RunnerPrefill, RunnerScreen
+from .theme import register_brand_themes, resolve_theme
 from .threads import call_ui
 from .widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 
@@ -438,6 +440,9 @@ class TraceEvalApp(App):
         self._sessions_load_gen: int = 0
         self._sessions_catalog_busy: bool = False
         self._sessions_reload_timer: Timer | None = None
+        self._appearance_timer: Timer | None = None
+        self._desktop_appearance: Appearance = "dark"
+        self._applying_saved_theme = False
         self._pending_include_host: bool | None = None
         self._pending_sessions_reload_quiet: bool = False
         self._selected: set[str] = set()
@@ -448,14 +453,13 @@ class TraceEvalApp(App):
         self._delete_row_keys_snapshot: list[str] | None = None
         self._config: JsonObject = self._load_config()
         self._theme_persist = False
-        from .theme import register_brand_themes
-
         register_brand_themes(self)
-        early = str(self._config.get("theme") or "").strip()
+        early = str(self._config.get("theme") or "").strip() or "groket"
+        self._desktop_appearance = appearance()
         try:
-            self.theme = early or "groket"
+            self.theme = self._resolved_theme(early)
         except Exception:
-            logger.debug(t("ui-failed-to-apply-saved-theme-r"), early or "groket")
+            logger.debug(t("ui-failed-to-apply-saved-theme-r"), early)
         self._traces_root_for_reload = traces_root_for_reload
 
     def compose(self) -> ComposeResult:
@@ -544,23 +548,36 @@ class TraceEvalApp(App):
         except Exception:
             return []
 
+    def _follow_os(self) -> bool:
+        return self._config.get("follow_os") is True
+
+    def _resolved_theme(self, pref: str) -> str:
+        if self._follow_os():
+            return resolve_theme(pref, self._desktop_appearance)
+        return pref
+
     def apply_saved_theme(self, *, save: bool = False) -> str | None:
         """Restore theme from config.json (or keep current). Re-applied after refresh.
 
         Textual can reset ``self.theme`` during App/mount; setting only once in
-        ``on_mount`` is unreliable.
+        ``on_mount`` is unreliable. ``follow_os`` may pick a pair member;
+        an explicit theme pick writes ``follow_os: false`` and is left alone.
         """
-        name = str(self._config.get("theme") or "").strip() or self.theme
+        pref = str(self._config.get("theme") or "").strip() or self.theme
         names = set(self._theme_names())
+        self._desktop_appearance = appearance()
+        name = self._resolved_theme(pref)
         if name not in names:
             if not names:
                 return None
             name = self.theme if self.theme in names else next(iter(sorted(names)))
+        self._applying_saved_theme = True
         try:
             self.theme = name
         except Exception:
             return None
-        self._config["theme"] = name
+        finally:
+            self._applying_saved_theme = False
         if save:
             self._save_config()
         return name
@@ -579,15 +596,27 @@ class TraceEvalApp(App):
             return
         self._theme_persist = True
         self.theme_changed_signal.subscribe(self, self._on_theme_changed)
+        if self._follow_os() and self._appearance_timer is None:
+            self._appearance_timer = self.set_interval(2.0, self._follow_desktop_appearance)
+
+    def _follow_desktop_appearance(self) -> None:
+        """Repaint when the host light/dark setting changes (``follow_os`` only)."""
+        if not self._follow_os():
+            return
+        if appearance() != self._desktop_appearance:
+            self.apply_saved_theme(save=False)
 
     def _on_theme_changed(self, theme: Theme) -> None:
-        """Persist the active theme name when Textual applies a new theme."""
-        if not self._theme_persist:
+        """Persist an explicit theme pick. Clears ``follow_os`` so the OS cannot override it."""
+        if not self._theme_persist or self._applying_saved_theme:
             return
         name = (theme.name or self.theme or "").strip()
-        if not name or self._config.get("theme") == name:
+        if not name:
+            return
+        if self._config.get("theme") == name and self._config.get("follow_os") is False:
             return
         self._config["theme"] = name
+        self._config["follow_os"] = False
         self._save_config()
 
     def on_mount(self) -> None:

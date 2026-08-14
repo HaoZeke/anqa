@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from textual.theme import Theme
 
+from .appearance import Appearance
+
 # Same hex as brand/build.py.
 INK = "#282828"
 CREAM = "#FBF1C7"
@@ -40,6 +42,27 @@ GROKET = Theme(
         "footer-background": INK_LIFT,
         "footer-key-foreground": CREAM,
         "footer-description-foreground": CANCELLED,
+    },
+)
+
+# Textual ships dark ``gruvbox`` only. Light member matches that face.
+GRUVBOX_LIGHT = Theme(
+    name="gruvbox-light",
+    primary="#689d6a",
+    secondary="#7c6f64",
+    warning="#d65d0e",
+    error="#9d0006",
+    success="#79740e",
+    accent="#b57614",
+    foreground="#3c3836",
+    background="#fbf1c7",
+    surface="#ebdbb2",
+    panel="#d5c4a1",
+    dark=False,
+    variables={
+        "block-cursor-foreground": "#282828",
+        "input-selection-background": "#689d6a40",
+        "button-color-foreground": "#fbf1c7",
     },
 )
 
@@ -77,3 +100,30 @@ def register_brand_themes(app: object) -> None:
         return
     register(GROKET)
     register(GROKET_LIGHT)
+    register(GRUVBOX_LIGHT)
+
+
+# id / light / dark → (light, dark)
+_PAIRS: dict[str, tuple[str, str]] = {}
+for _id, _pair in {
+    "groket": ("groket-light", "groket"),
+    "gruvbox": ("gruvbox-light", "gruvbox"),
+    "textual": ("textual-light", "textual-dark"),
+    "solarized": ("solarized-light", "solarized-dark"),
+    "atom-one": ("atom-one-light", "atom-one-dark"),
+    "ansi": ("ansi-light", "ansi-dark"),
+    "catppuccin": ("catppuccin-latte", "catppuccin-mocha"),
+    "rose-pine": ("rose-pine-dawn", "rose-pine"),
+}.items():
+    _PAIRS[_id] = _pair
+    _PAIRS[_pair[0]] = _pair
+    _PAIRS[_pair[1]] = _pair
+
+
+def resolve_theme(pref: str, desktop: Appearance) -> str:
+    """Family member for ``pref`` when ``follow_os`` is on. Unpaired names stay."""
+    key = pref.strip()
+    pair = _PAIRS.get(key)
+    if pair is None:
+        return key
+    return pair[0] if desktop == "light" else pair[1]

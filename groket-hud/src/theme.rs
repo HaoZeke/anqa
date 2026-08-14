@@ -54,32 +54,40 @@ fn color_of(colors: &Value, key: &str, fallback: Color) -> Color {
         .unwrap_or(fallback)
 }
 
-fn catalog_colors(name: &str) -> (String, Value) {
-    let Ok(root) = serde_json::from_str::<Value>(CATALOG) else {
-        return ("textual-dark".into(), Value::Null);
-    };
-    let key = if name.trim().is_empty() {
-        "textual-dark"
-    } else {
-        name.trim()
-    };
-    let theme = root
-        .get(key)
-        .or_else(|| root.get("textual-dark"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let resolved = if root.get(key).is_some() {
-        key.to_string()
-    } else {
-        "textual-dark".into()
-    };
-    let colors = theme.get("colors").cloned().unwrap_or(Value::Null);
-    (resolved, colors)
+fn catalog_colors(name: &str) -> Option<Value> {
+    let root = serde_json::from_str::<Value>(CATALOG).ok()?;
+    let key = name.trim();
+    if key.is_empty() {
+        return None;
+    }
+    root.get(key)?.get("colors").cloned()
 }
 
-/// Tokens for ``theme`` in ``~/.groket/config.json`` (TUI name).
+/// Config ``theme``. ``follow`` may pick the pair member; a pinned name stays.
+pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: bool) -> String {
+    if !follow {
+        return pref.to_string();
+    }
+    match icedtea::theme::family_of_name(pref) {
+        Some(_) => icedtea::theme::resolve_pref(pref, None, true, appearance),
+        None => pref.to_string(),
+    }
+}
+
+/// Tokens for ``theme`` in ``~/.groket/config.json``.
 pub fn tokens(name: &str) -> Tokens {
-    let (_key, colors) = catalog_colors(name);
+    let key = name.trim();
+    if catalog_colors(key).is_some() {
+        return textual_tokens(key);
+    }
+    if key.is_empty() {
+        return textual_tokens("textual-dark");
+    }
+    icedtea::theme::named(key).tokens
+}
+
+fn textual_tokens(name: &str) -> Tokens {
+    let colors = catalog_colors(name).unwrap_or(Value::Null);
     let fallback_bg = Color::from_rgb8(18, 18, 20);
     let canvas = color_of(&colors, "surface", fallback_bg);
     let text = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
@@ -140,8 +148,7 @@ pub fn catalog() -> &'static icedtea::theme::ThemeCatalog {
 }
 
 pub fn iced_theme(name: &str) -> Theme {
-    let (key, _) = catalog_colors(name);
-    icedtea::theme::iced_theme(&key, tokens(name))
+    icedtea::theme::iced_theme(name, tokens(name))
 }
 
 #[cfg(test)]
@@ -201,6 +208,26 @@ mod tests {
         assert_eq!(t.accent, Color::from_rgb8(0xF9, 0xBD, 0x2F));
         assert_eq!(t.warning, Color::from_rgb8(0xFE, 0xAB, 0x67));
         assert_eq!(t.danger, Color::from_rgb8(0xFC, 0x86, 0x79));
+    }
+
+    #[test]
+    fn gruvbox_follows_desktop_to_icedtea_light_pair() {
+        use icedtea::theme::Appearance;
+        assert_eq!(
+            resolve_name("gruvbox", Appearance::Light, true),
+            "gruvbox-light"
+        );
+        assert_eq!(resolve_name("gruvbox", Appearance::Dark, true), "gruvbox");
+        assert_eq!(
+            resolve_name("gruvbox-light", Appearance::Dark, false),
+            "gruvbox-light"
+        );
+        assert_eq!(
+            resolve_name("textual-dark", Appearance::Light, true),
+            "textual-dark"
+        );
+        assert!(!canvas_is_dark(tokens("gruvbox-light")));
+        assert_eq!(tokens("gruvbox").text, Color::from_rgb8(0xFB, 0xF1, 0xC7));
     }
 
     #[test]

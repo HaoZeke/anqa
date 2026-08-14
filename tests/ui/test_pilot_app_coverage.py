@@ -424,6 +424,8 @@ async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
             lambda: (
                 app_config_path().is_file()
                 and json.loads(app_config_path().read_text(encoding="utf-8")).get("theme") == target
+                and json.loads(app_config_path().read_text(encoding="utf-8")).get("follow_os")
+                is False
             ),
         )
 
@@ -444,8 +446,35 @@ async def test_apply_saved_theme(tmp_path: Path) -> None:
         names = app._theme_names()
         if names:
             app._config["theme"] = names[0]
+            app._config["follow_os"] = False
             result = app.apply_saved_theme(save=True)
             assert result == names[0]
+            assert app._config.get("theme") == names[0]
+
+
+@pytest.mark.asyncio
+async def test_follow_desktop_appearance(tmp_path: Path) -> None:
+    """``follow_os`` re-resolves the colorway; a pinned pick stays put."""
+    from groket.ui.appearance import appearance
+    from groket.ui.theme import resolve_theme
+
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: app._theme_persist)
+        app._config["theme"] = "gruvbox-light"
+        app._config["follow_os"] = False
+        app.apply_saved_theme(save=False)
+        assert app.theme == "gruvbox-light"
+        app._desktop_appearance = "dark" if appearance() == "light" else "light"
+        app._follow_desktop_appearance()
+        assert app.theme == "gruvbox-light"
+
+        app._config["follow_os"] = True
+        app._config["theme"] = "gruvbox"
+        app._desktop_appearance = appearance()
+        app.apply_saved_theme(save=False)
+        assert app.theme == resolve_theme("gruvbox", appearance())
+        assert app._config.get("theme") == "gruvbox"
 
 
 @pytest.mark.asyncio

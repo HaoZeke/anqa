@@ -56,6 +56,7 @@ enum DetailTurnEdge {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    OsMode(icedtea::iced::theme::Mode),
     SearchChanged(String),
     SelectSession(usize),
     OpenChild {
@@ -264,6 +265,7 @@ pub struct Hud {
     search_id: Id,
     tl_search_id: Id,
     theme_name: String,
+    appearance: icedtea::theme::Appearance,
     _hotkeys: Option<GlobalHotKeyManager>,
     _tray: Option<crate::tray::HudTray>,
     _summon: Option<crate::summon::SummonServer>,
@@ -366,6 +368,7 @@ impl Default for Hud {
             search_id: Id::new("search"),
             tl_search_id: Id::new("tl-search"),
             theme_name: prefs::theme_name(),
+            appearance: icedtea::theme::Appearance::Dark,
             _hotkeys: None,
             _tray: None,
             _summon: None,
@@ -610,6 +613,7 @@ impl Hud {
         hud.window_id = Some(id);
         let mut boot = vec![
             open.map(|id| Message::WindowId(Some(id))),
+            icedtea::iced::system::theme().map(Message::OsMode),
             Task::perform(rpc(control::initialize), |r| {
                 Message::Inited(r.map(|_| String::new()))
             }),
@@ -631,6 +635,7 @@ impl Hud {
             hotkey_subscription(),
             summon_subscription(),
             notify_subscription(),
+            icedtea::iced::system::theme_changes().map(Message::OsMode),
         ];
         if wants_periodic_poll(self.visible, self.focused, self.window_mode) {
             let any_live = session_needs_live_poll(
@@ -653,6 +658,11 @@ impl Hud {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::OsMode(mode) => {
+                self.appearance = icedtea::theme::Appearance::from_mode(mode);
+                self.sync_theme();
+                Task::none()
+            }
             Message::SearchChanged(q) => {
                 // Capture identity before `query` changes which list `sessions()` returns.
                 let keep = self.session_keep_id();
@@ -3176,7 +3186,7 @@ impl Hud {
     }
 
     fn sync_theme(&mut self) {
-        let name = prefs::theme_name();
+        let name = theme::resolve_name(&prefs::theme_name(), self.appearance, prefs::follow_os());
         if name != self.theme_name {
             self.theme_name = name;
         }

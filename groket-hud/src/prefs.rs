@@ -33,6 +33,11 @@ pub fn desktop_notifications() -> bool {
     }
 }
 
+/// When true, paired colorways follow the host light/dark setting.
+pub fn follow_os() -> bool {
+    matches!(read_value().get("follow_os"), Some(Value::Bool(true)))
+}
+
 /// TUI theme name from config, or ``textual-dark``.
 pub fn theme_name() -> String {
     read_value()
