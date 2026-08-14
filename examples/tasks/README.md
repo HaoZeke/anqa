@@ -6,7 +6,7 @@ covers interactive launches.
 ## Schema
 
 - Published: https://indynull.github.io/groket/schemas/tasks.schema.json  
-- In-repo: `schemas/tasks.schema.json` (`make schema` / `groket batch schema`)
+- In-repo: `schemas/tasks.schema.json` (`just schema` / `groket batch schema`)
 
 ## Files
 
@@ -44,4 +44,4 @@ uv run groket gen tasks   # → ~/.groket/tasks/example_tasks.yaml
 ```
 
 Work root defaults to `~/.groket/work` (`-P` to override). Contract:
-`make examples-check`.
+`just examples-check`.

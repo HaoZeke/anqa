@@ -42,7 +42,7 @@ Validate a pack’s YAML:
 
 ```bash
 uv run groket rules validate examples/detection/minimal/rules/demo_rule.yaml
-make examples-check
+just examples-check
 ```
 
 Schema: https://indynull.github.io/groket/schemas/rules.schema.json

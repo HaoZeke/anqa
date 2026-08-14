@@ -11,4 +11,4 @@ mkdir -p ~/.groket/personas
 cp examples/personas/superpowers.json ~/.groket/personas/
 ```
 
-Validated by `make examples-check`.
+Validated by `just examples-check`.

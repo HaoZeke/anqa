@@ -787,7 +787,7 @@ def cmd_batch_schema(
         ),
     ] = None,
 ) -> None:
-    """Emit JSON Schema for tasks YAML (same as ``make schema`` / Pages publish)."""
+    """Emit JSON Schema for tasks YAML (same as ``just schema`` / Pages publish)."""
     from .runs.task_schema import emit_tasks_schema
 
     text = emit_tasks_schema(out)
@@ -837,7 +837,7 @@ def cmd_rules_schema(
         ),
     ] = None,
 ) -> None:
-    """Emit JSON Schema for rules YAML (same as ``make schema`` / Pages publish)."""
+    """Emit JSON Schema for rules YAML (same as ``just schema`` / Pages publish)."""
     from .engine.rule_schema import emit_rules_schema
 
     text = emit_rules_schema(out)
@@ -884,7 +884,7 @@ def cmd_config_schema(
         ),
     ] = None,
 ) -> None:
-    """Emit JSON Schema for config.toml (same as ``make schema`` / Pages publish)."""
+    """Emit JSON Schema for config.toml (same as ``just schema`` / Pages publish)."""
     from .config import emit_config_schema
 
     text = emit_config_schema(out)

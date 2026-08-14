@@ -13,7 +13,7 @@ on:
       - "groket/engine/rule_schema.py"
       - "groket/config.py"
       - ".github/workflows/pages.yml"
-      - "Makefile"
+      - "justfile"
   workflow_dispatch:
 
 permissions:
@@ -35,10 +35,13 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
       - name: Regenerate schemas from Pydantic
-        run: make schema
+        run: just schema
       - name: Assemble site (schemas/ + index)
         run: |
           mkdir -p _site/schemas
@@ -79,7 +82,7 @@ jobs:
                 <code>https://indynull.github.io/groket/schemas/config.schema.json</code>)
               </li>
             </ul>
-            <p>Regenerate locally with <code>make schema</code>; CI fails on drift via <code>make schema-check</code>.</p>
+            <p>Regenerate locally with <code>just schema</code>; CI fails on drift via <code>just schema-check</code>.</p>
           </body>
           </html>
           HTML

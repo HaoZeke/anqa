@@ -1,6 +1,6 @@
 # Examples
 
-**Supported reference packs** — CI and `make examples-check` refuse to break
+**Supported reference packs** — CI and `just examples-check` refuse to break
 them. Copy into `~/.groket/` or pass paths explicitly. Nothing under
 `examples/` is auto-loaded by the product.
 
@@ -54,9 +54,9 @@ uv run groket gen tasks
 ## Contract
 
 ```bash
-make examples-check   # or: uv run python scripts/check_examples.py
+just examples-check   # or: uv run python scripts/check_examples.py
 ```
 
 Validates: rule/task YAML schemas, detector registration vs rule `detector:`
 fields, analysis plugin import/instantiate, sample config plugin entries,
-persona JSON, pack READMEs. Part of `make ci`.
+persona JSON, pack READMEs. Part of `just ci`.

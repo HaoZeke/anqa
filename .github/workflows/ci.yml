@@ -27,14 +27,17 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
       - name: Ruff + mypy + policy scripts
-        run: make lint
+        run: just lint
       - name: Tasks / rules JSON Schema drift
-        run: make schema-check
+        run: just schema-check
       - name: Examples contract
-        run: make examples-check
+        run: just examples-check
 
   # ---------------------------------------------------------------------------
   # Python: unit suite (Linux only).
@@ -47,9 +50,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
-      - run: make test
+      - run: just test
 
   # ---------------------------------------------------------------------------
   # groket-hud (iced): full gate on Linux; clippy/test/release build on
@@ -97,17 +103,17 @@ jobs:
       - name: Sync Python deps
         if: matrix.full
         run: uv sync --group test --group dev
-      - name: cargo-llvm-cov
+      - name: cargo-llvm-cov and just
         if: matrix.full
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov,just
       - name: Linux iced system libraries
         if: matrix.full
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
-      - name: make hud-check
+      - name: just hud-check
         if: matrix.full
-        run: make hud-check
+        run: just hud-check
 
       # macOS / Windows: compile and test the crate (no theme generator / cov).
       - name: rustfmt

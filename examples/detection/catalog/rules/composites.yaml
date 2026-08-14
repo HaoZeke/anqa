@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://indynull.github.io/groket/schemas/rules.schema.json
-# Local schema: schemas/rules.schema.json (make schema)
+# Local schema: schemas/rules.schema.json (just schema)
 # Validate: uv run groket rules validate examples/detection/catalog/rules/composites.yaml
 #
 # =============================================================================

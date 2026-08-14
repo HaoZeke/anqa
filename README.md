@@ -21,7 +21,7 @@ Four clients, all talking to [`groket serve`](#control):
 ## Install
 
 ```bash
-make install    # clone: .venv + `groket` on PATH (editable)
+just install    # clone: .venv + `groket` on PATH (editable)
 groket          # terminal app
 ```
 
@@ -46,7 +46,7 @@ groket /path/to/work        # work root, traces tree, or one session dir
 `~/.groket/config.toml` is the only prefs file (terminal app and desktop HUD).
 Missing keys use defaults. Saves keep comments on keys they do not change.
 Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
-(`groket config validate`, `make schema`). Copy
+(`groket config validate`, `just schema`). Copy
 [`examples/config/config.toml`](examples/config/config.toml).
 
 ```toml
@@ -300,16 +300,16 @@ Supported packs under [`examples/`](examples/README.md) — copy into
 | Batch tasks | [`examples/tasks/demo_tasks.yaml`](examples/tasks/demo_tasks.yaml) |
 
 ```bash
-make examples-check
+just examples-check
 ```
 
 ## Development
 
 ```bash
-make install
-make lint
-make test
-make ci              # lint + schema-check + hud-check + examples-check + test
+just install
+just lint
+just test
+just ci              # lint + schema-check + hud-check + examples-check + test
 ```
 
 Also: `groket doctor`, `groket gen …`, `groket rules validate`, `groket keys`.

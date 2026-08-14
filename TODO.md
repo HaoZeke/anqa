@@ -3,9 +3,9 @@
 Contract for humans and agents. Prefer fixing debt **when editing** the
 module that owns it; do not open a speculative “cleanup epic.”
 
-## Always on (`make ci` / `make lint`)
+## Always on (`just ci` / `just lint`)
 
-- Keep **`make lint`** and **`make test`** green before commit.
+- Keep **`just lint`** and **`just test`** green before commit.
 - Default lint is ruff (F/E/W/I/UP/T20) + format check + mypy + fluent + typing policy.
 - Size / complexity rules are **not** in default lint (too much historical debt).
 
@@ -15,7 +15,7 @@ Documented limits (ruff pylint family): args 5, returns 5, branches 12,
 statements 50, public methods 20 — see `AGENTS.md` §4.6.
 
 ```bash
-make lint-complexity   # report only the size-limit rules on groket/
+just lint-complexity   # report only the size-limit rules on groket/
 ```
 
 When you **touch** a function or class that already exceeds a limit: split or

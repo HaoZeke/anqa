@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://indynull.github.io/groket/schemas/tasks.schema.json
-# Local schema: schemas/tasks.schema.json (make schema)
+# Local schema: schemas/tasks.schema.json (just schema)
 #
 #   groket batch validate examples/tasks/demo_tasks.yaml
 #   groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>

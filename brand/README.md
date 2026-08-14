@@ -39,6 +39,6 @@ Rebuild (fonttools, pillow from the `brand` uv group; `rsvg-convert` from
 librsvg):
 
 ```bash
-make brand
+just brand
 # or: uv run --group brand python brand/build.py
 ```

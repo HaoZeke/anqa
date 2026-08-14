@@ -15,11 +15,11 @@ rejected-design narration.
 ## 1. Quick start
 
 ```bash
-make install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
+just install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
 groket              # interactive TUI (or: uv run groket)
-make test           # pytest (default unit suite; no Docker daemon)
-make lint           # ruff + mypy + fluent/typing policy scripts
-make ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
+just test           # pytest (default unit suite; no Docker daemon)
+just lint           # ruff + mypy + fluent/typing policy scripts
+just ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
 ```
 
 | CLI | Role |
@@ -57,7 +57,7 @@ change the user could revert alone. Verify, then commit before starting the next
 
 Before **any** agent commit:
 
-1. **`make lint`** (or equivalent ruff/mypy/fluent/typing checks) green.
+1. **`just lint`** (or equivalent ruff/mypy/fluent/typing checks) green.
 2. **`uv run pytest tests/ -q`** green (owning subset first is fine, then full).
 3. **`git status`** — stage intended files only; no secrets.
 4. Commit with a clear imperative message (why, not only what).
@@ -65,10 +65,10 @@ Before **any** agent commit:
    ``git -c commit.gpgsign=false commit …`` and note it.
 
 Re-run tests after the final diff for that commit. Prefer
-``make ci`` before claiming a larger slice done.
+``just ci`` before claiming a larger slice done.
 
 Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
-(``make test-cov`` or ``pytest --cov=groket``). Default ``make test`` / CI do
+(``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` / CI do
 **not** pass ``--cov``. Prefer closing gaps with domain tests or deleting dead
 code when you touch a module; do not lower ``fail_under`` or omit package
 source to hide debt.
@@ -94,11 +94,11 @@ later.”
 | **Domain / orchestrator** | Shared path under ``runs/``, ``session/``, ``docker/`` — not a TUI-only fork of the logic |
 | **TUI** | Bindings, palette, Fluent, ``help.rich.txt``; keyboard path for every new action |
 | **HUD** | Same key as the TUI when both do the job (§6.10); ``groket-hud/src/help.rs`` footer + cheatsheet and ``on_key`` in the same change |
-| **Batch / task YAML** | If the feature applies to headless launches: ``task_schema``, ``schemas/tasks.schema.json`` (``make schema``), ``examples/tasks/``, ``batch`` wiring to the **same** domain APIs |
+| **Batch / task YAML** | If the feature applies to headless launches: ``task_schema``, ``schemas/tasks.schema.json`` (``just schema``), ``examples/tasks/``, ``batch`` wiring to the **same** domain APIs |
 | **README.md** | Operator-facing: keys, CLI flags, task fields, what TUI vs batch can do |
 | **AGENTS.md** | Only when the *contract* for agents changes (architecture, gates, layouts) |
 | **Tests** | Domain unit tests + TUI Pilot where UI is involved; batch/schema tests when YAML fields change; no live Docker in default suite |
-| **examples/** | New task/rule/plugin packs when the feature is meant to be copied; keep ``make examples-check`` green |
+| **examples/** | New task/rule/plugin packs when the feature is meant to be copied; keep ``just examples-check`` green |
 
 **Parity rules**
 
@@ -117,7 +117,7 @@ later.”
    incomplete is a process failure.
 5. **Schemas and examples stay honest.** Task/rule schema fields without
    examples or validation are incomplete; examples without CI linkage are
-   incomplete (``make examples-check``).
+   incomplete (``just examples-check``).
 
 **Definition of done (agent checklist)**
 
@@ -127,7 +127,7 @@ later.”
 - [ ] Batch/schema/examples updated **or** README states TUI-only / batch-only
 - [ ] README updated for operators
 - [ ] Tests for domain + UI (and batch if applicable)
-- [ ] ``make lint`` and ``uv run pytest tests/ -q`` green; prefer ``make ci``
+- [ ] ``just lint`` and ``uv run pytest tests/ -q`` green; prefer ``just ci``
       for multi-surface work
 
 ---
@@ -176,7 +176,7 @@ assets/                  # non-Python templates (not coverage source)
   docker/                # entrypoint, Dockerfiles, share helpers
   config/                # empty rules.yaml / composites.yaml stubs
 
-examples/                # supported reference packs (CI: make examples-check) — not auto-loaded
+examples/                # supported reference packs (CI: just examples-check) — not auto-loaded
 schemas/                 # committed JSON Schema (tasks, rules)
 Optional wheel mirror: groket/_embedded_assets/
 ```
@@ -267,7 +267,7 @@ in FTL. Do not use FTL edge spaces for concatenation (Fluent strips them).
 
 ### 3.3a Fluent construction gate
 
-``make lint`` → ``scripts/check_fluent.py`` (exit 1 on violations):
+``just lint`` → ``scripts/check_fluent.py`` (exit 1 on violations):
 
 - No f-string embedding ``t(...)``.
 - No ``re.compile(t(...))`` / regex message ids in FTL.
@@ -311,31 +311,31 @@ Rationale belongs in the **git commit message**.
 Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 ``:raises:``). Private helpers may be one line.
 
-### 4.2b Makefile
+### 4.2b justfile
 
 | Target | Action |
 |--------|--------|
-| ``make install`` | ``uv sync --group test --group dev`` + editable uv tool |
-| ``make lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
-| ``make lint-fix`` | ruff autofix + format + mypy |
-| ``make lint-complexity`` | Size-limit report only (not in ``make ci``); see §4.6 |
-| ``make test`` | pytest (no coverage flag) |
-| ``make test-cov`` | pytest + coverage report (``fail_under`` applies) |
-| ``make schema`` | Regenerate ``schemas/*.schema.json`` |
-| ``make schema-check`` | Fail if schemas drift |
-| ``make examples-check`` | Validate ``examples/`` packs (hard contract) |
-| ``make ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
-| ``make hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
-| ``make hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
+| ``just install`` | ``uv sync --group test --group dev`` + editable uv tool |
+| ``just lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
+| ``just lint-fix`` | ruff autofix + format + mypy |
+| ``just lint-complexity`` | Size-limit report only (not in ``just ci``); see §4.6 |
+| ``just test`` | pytest (no coverage flag) |
+| ``just test-cov`` | pytest + coverage report (``fail_under`` applies) |
+| ``just schema`` | Regenerate ``schemas/*.schema.json`` |
+| ``just schema-check`` | Fail if schemas drift |
+| ``just examples-check`` | Validate ``examples/`` packs (hard contract) |
+| ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
+| ``just hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
+| ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
 
-GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``make hud-check``), macOS, and Windows (fmt/clippy/test/release build).
-| ``make brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
-| ``make clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
+GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build).
+| ``just brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
+| ``just clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
 
-HUD Cargo trees: a passing ``make hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
+HUD Cargo trees: a passing ``just hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
 ``groket hud`` deletes coverage leftovers under ``target/`` and keeps the
 debug and release graphs so iced does not rebuild from scratch.
-``make clean`` runs ``cargo clean``.
+``just clean`` runs ``cargo clean``.
 
 Published schemas (also under ``schemas/``; GitHub Pages via
 ``.github/workflows/pages.yml``):
@@ -381,7 +381,7 @@ Before claiming work done:
 
 1. **Feature delivery** checklist in §2 (docs, parity, schemas/examples) complete
    for the change — not only the code path you touched first.
-2. ``make lint`` (or mypy + fluent + typing policy + ruff) green.
+2. ``just lint`` (or mypy + fluent + typing policy + ruff) green.
 3. ``uv run pytest tests/ -q`` green.
 4. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.
 5. Prefer delete/merge duplicates over parallel JSON/UI helpers.
@@ -391,7 +391,7 @@ Before claiming work done:
 - Textual: ``App.run_test()`` + Pilot; wait helpers in
   ``tests/ui/pilot_helpers.py`` (condition-based, not fixed sleeps).
 - Docker: fake ``python_on_whales`` at the orchestrator boundary. No live
-  daemon in default ``make test``.
+  daemon in default ``just test``.
 - Domain uses ``logging``; only ``cli.py`` may print.
 
 ### 4.5c Test quality
@@ -410,8 +410,8 @@ interactive git. Assert outcomes and what the user reads in the UI.
 | PLR0915 | 50 statements |
 | PLR0904 | 20 public methods / class |
 
-**Not part of default ``make lint`` / CI** (historical debt). Report with
-``make lint-complexity``. When you **edit** a function or class that already
+**Not part of default ``just lint`` / CI** (historical debt). Report with
+``just lint-complexity``. When you **edit** a function or class that already
 exceeds a limit, split or simplify that unit in the same change — no blanket
 ``noqa``. Do not open a mass split of unrelated large modules. Debt notes:
 [TODO.md](TODO.md).
@@ -434,8 +434,8 @@ domain folder.
 
 | What | How |
 |------|-----|
-| Unused imports / locals | ruff F401 / F841 (default ``make lint``) |
-| Size / complexity | §4.6 table via ``make lint-complexity`` (not CI) |
+| Unused imports / locals | ruff F401 / F841 (default ``just lint``) |
+| Size / complexity | §4.6 table via ``just lint-complexity`` (not CI) |
 | ``from __future__ import annotations`` | isort required-imports |
 | ``print`` outside CLI | T20 (``cli.py`` only) |
 
@@ -760,7 +760,7 @@ Copy packs from ``examples/detection/`` (``minimal/``, ``starters/``,
 ``catalog/``) into ``~/.groket`` to enable. Findings type:
 :class:`~groket.analysis.base.Finding`.
 
-**``examples/`` is a hard contract** (``make examples-check`` / CI): rule and
+**``examples/`` is a hard contract** (``just examples-check`` / CI): rule and
 task YAML schemas, detector registration vs rule ``detector:`` fields, analysis
 plugin import/instantiate, sample configs, personas, pack READMEs. Prefer those
 packs as the implementation reference when adding detectors, plugins, or tasks.
@@ -809,9 +809,9 @@ user-visible text; small focused tests.
 
 ### 11.4 Coverage
 
-When measuring (``make test-cov`` / ``--cov=groket``), ``fail_under = 100``
+When measuring (``just test-cov`` / ``--cov=groket``), ``fail_under = 100``
 applies. Meet it with real domain tests; delete dead code rather than
-pragma/omit. Default CI/``make test`` do not fail on coverage percentage.
+pragma/omit. Default CI/``just test`` do not fail on coverage percentage.
 
 ### 11.5 New test checklist
 

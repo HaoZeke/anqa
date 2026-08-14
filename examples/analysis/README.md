@@ -54,7 +54,7 @@ uv run groket --config examples/analysis/configs/all-plugins.json
 uv run groket --config examples/analysis/configs/security-only.json
 ```
 
-Then re-analyze (`a` on the sessions list). Contract: `make examples-check`.
+Then re-analyze (`a` on the sessions list). Contract: `just examples-check`.
 
 ## TeachX V2 Model Feedback handoff
 

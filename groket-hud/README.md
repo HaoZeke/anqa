@@ -101,7 +101,7 @@ tray tile; macOS and Windows use the square app icon
 uv run groket hud             # release; rebuilds when sources are newer
 uv run groket hud --restart
 uv run groket hud --rebuild
-make hud-check                # from the repo root
+just hud-check                # from the repo root
 ```
 
 Linux build packages: `libxkbcommon-dev`, plus Wayland or X11 for your

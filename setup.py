@@ -1,6 +1,7 @@
 """Optional Limited API extension build (groket._listwalk).
 
-Set ``GROKET_BUILD_EXT=1`` so install compiles ``native/listwalk.c``.
+Remote builder only (``just ext``). Set ``GROKET_BUILD_EXT=1`` and run
+this file via setuptools to compile ``native/listwalk.c``.
 Without it, setuptools ships the pure-Python package only.
 """
 

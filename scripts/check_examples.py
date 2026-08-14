@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hard gate: ``examples/`` must stay loadable and schema-valid.
 
-Run via ``make examples-check`` or CI. Exit 0 only when every pack is sound.
+Run via ``just examples-check`` or CI. Exit 0 only when every pack is sound.
 Nothing under ``examples/`` is auto-loaded by the product; this script is the
 contract that copy/paste references do not rot.
 """
