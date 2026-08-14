@@ -31,7 +31,7 @@
 
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
-  v               Timeline filter
+  v               Timeline filter (Subagents lists spawn/finish)
   i               Jump to Findings
   f               Flag this event
   N               New note

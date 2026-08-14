@@ -31,7 +31,7 @@ async def test_detail_view_show_event() -> None:
         body = dv.query_one("#detail-body", Static)
         from .pilot_helpers import assert_static_contains
 
-        assert_static_contains(body, "read_file")
+        assert_static_contains(body, "read file")
         assert dv._current_event is ev
 
 
@@ -88,7 +88,7 @@ async def test_detail_view_show_event_with_pairs() -> None:
         from .pilot_helpers import assert_static_contains
 
         body = dv.query_one("#detail-body", Static)
-        assert_static_contains(body, "read_file")
+        assert_static_contains(body, "read file")
         assert dv._paired_call is call
         assert dv._paired_result is result
 

@@ -2361,6 +2361,30 @@ ui-sub-finding-s =  sub-finding(s):*
 
 ui-subagent = Subagent
 
+ui-subagent-runs = Subagent runs
+
+ui-subagent-none = No subagent runs
+
+ui-subagent-missing = Child session is not on disk
+
+ui-subagent-opened = Opened subagent session
+
+ui-status-running = running
+
+ui-status-done = done
+
+ui-status-failed = failed
+
+ui-subagents-filter = Subagents
+
+ui-subagent-spawned = spawned
+
+ui-subagent-finished = finished
+
+ui-open-child-enter = Enter opens this child
+
+title-browser-extra-subagent = · subagent
+
 ui-succeeded =  succeeded[/green], [red]
 
 ui-succeeded-1 =  succeeded[/green]
@@ -2807,8 +2831,7 @@ ui-origin = Origin
 ui-origin-work = Eval
 ui-origin-host = Host
 
-ui-control-socket-attached = Attached to existing control owner (catalog and notes via control socket)
-ui-control-socket-attach-failed = Control owner not reachable; loading sessions from local disk
+ui-control-socket-attach-failed = Control owner not reachable
 ui-control-socket-start-failed = Editor control socket could not start; this instance continues without the socket
 
 notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)

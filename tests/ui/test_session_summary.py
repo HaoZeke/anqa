@@ -75,6 +75,29 @@ class TestBuildSessionSummary:
         assert "35%" in plain
         assert "178,996" in plain or "179k" in plain
 
+    def test_prefers_signals_counts_over_timeline_tail(self, session_dir):
+        """Host/live tail must not shrink tools/turns below signals.json."""
+        meta = SessionMeta(
+            session_id="live-host",
+            session_dir=session_dir,
+            model_id="grok-4.6",
+            title="live-host",
+            turn_outcome="running",
+            tool_call_count=2752,
+            turn_count=119,
+            num_events=26,
+        )
+        timeline = [
+            make_trace_event(index=0, event_type="user_message_chunk", content="hi"),
+            make_trace_event(index=1, event_type="tool_call", tool_name="grep"),
+        ]
+        plain = rich_plain(render_session_summary(meta, timeline))
+        assert "2,752 tools" in plain
+        assert "119 turns" in plain
+        assert "26 events" in plain
+        assert "grok-4.6" in plain
+        assert "turn 118" in plain
+
     def test_turn_failure_warning(self, session_dir):
         meta = SessionMeta(
             session_id="fail-session",
@@ -115,6 +138,20 @@ class TestBuildSessionSummary:
         assert "2 turns" in summary.lower() or "Turns" in summary
         assert "turn" in summary.lower()
 
+    def test_single_turn_omits_turns_count(self, session_dir):
+        meta = SessionMeta(
+            session_id="one",
+            session_dir=session_dir,
+            turn_outcome="success",
+        )
+        timeline = [
+            make_trace_event(index=0, event_type="session", content="turn started  turn_number=0"),
+            make_trace_event(index=1, event_type="user_message_chunk", content="go"),
+            make_trace_event(index=2, event_type="session", content="turn ended  outcome=success"),
+        ]
+        plain = rich_plain(render_session_summary(meta, timeline))
+        assert "2 turns" not in plain.lower()
+
     def test_with_assistant_text(self, session_dir):
         meta = SessionMeta(
             session_id="at",
@@ -125,7 +162,7 @@ class TestBuildSessionSummary:
             make_trace_event(index=0, event_type="agent_message_chunk", content="Here is help."),
         ]
         summary = build_session_summary(meta, timeline, assistant_text="Help text here")
-        assert "Help text here" in summary or "help" in summary.lower()
+        assert "Help text here" not in summary
 
     def test_with_tool_errors(self, session_dir):
         meta = SessionMeta(
@@ -145,34 +182,28 @@ class TestBuildSessionSummary:
         summary = build_session_summary(meta, timeline)
         assert "error" in summary.lower()
 
-    def test_turn_line_separates_stat_labels(self, session_dir):
-        """Fluent edge-strip must not glue tools=N to user= (e.g. tools=26user)."""
+    def test_glance_omits_snapshot_note_and_assistant_dump(self, session_dir):
         meta = SessionMeta(
             session_id="sep",
             session_dir=session_dir,
             turn_outcome="success",
+            title="Compact glance",
         )
         timeline = [
             make_trace_event(index=0, event_type="session", content="turn started  turn_number=0"),
             make_trace_event(index=1, event_type="user_message_chunk", content="go"),
+            make_trace_event(index=2, event_type="tool_call", tool_name="read_file"),
             make_trace_event(
-                index=2,
-                event_type="tool_call",
-                tool_name="read_file",
+                index=3, event_type="agent_message_chunk", content="long assistant body"
             ),
-            make_trace_event(index=3, event_type="agent_message_chunk", content="done"),
             make_trace_event(index=4, event_type="session", content="turn ended  outcome=success"),
         ]
-        plain = rich_plain(render_session_summary(meta, timeline))
-        assert "tools=" in plain
-        assert "user=" in plain
-        assert "asst=" in plain
-        assert "tools=" not in plain or "tools=26user" not in plain
-        # No digit immediately followed by user= / asst=
-        import re
-
-        assert not re.search(r"tools=\d+user=", plain)
-        assert not re.search(r"user=\d+asst=", plain)
+        plain = rich_plain(render_session_summary(meta, timeline, assistant_text="Help text here"))
+        assert "Compact glance" in plain
+        assert "signals.json" not in plain
+        assert "Help text here" not in plain
+        assert "long assistant body" not in plain
+        assert "tools=" not in plain
 
     def test_with_metadata_fields(self, session_dir):
         meta = SessionMeta(
@@ -413,10 +444,8 @@ class TestSessionSummaryShareDisplay:
 
 
 class TestSessionSummaryUsageException:
-    def test_usage_exception_fallback_tool_mix(self, session_dir):
-        """Tool mix fallback is used when collect_session_usage fails."""
-        from unittest.mock import patch
-
+    def test_usage_exception_keeps_glance(self, session_dir):
+        """Glance header still renders when usage collection is unused."""
         meta = SessionMeta(
             session_id="usagefail",
             session_dir=session_dir,
@@ -427,17 +456,14 @@ class TestSessionSummaryUsageException:
             make_trace_event(index=1, event_type="tool_call", tool_name="grep"),
             make_trace_event(index=2, event_type="tool_call", tool_name="read_file"),
         ]
-        with patch(
-            "groket.session.usage_stats.collect_session_usage",
-            side_effect=RuntimeError("fail"),
-        ):
-            result = build_session_summary(meta, timeline)
-            assert "grep" in result or "Tools" in result
+        result = build_session_summary(meta, timeline)
+        assert "usagefail" in result
+        assert "3 tools" in result
 
 
 class TestSessionSummaryMultiTurnToolMix:
-    def test_per_turn_tool_mix(self, session_dir):
-        """Per-turn tool mix is included in the summary."""
+    def test_multi_turn_count_in_glance(self, session_dir):
+        """Turn count stays on the glance strip; tool mix lives in tables."""
         meta = SessionMeta(
             session_id="toolmix",
             session_dir=session_dir,
@@ -453,7 +479,7 @@ class TestSessionSummaryMultiTurnToolMix:
             make_trace_event(index=6, event_type="session", content="turn ended  outcome=success"),
         ]
         result = build_session_summary(meta, timeline)
-        assert "tools:" in result.lower() or "grep" in result
+        assert "2 turns" in result.lower()
 
 
 class TestSessionSummaryShareSection:

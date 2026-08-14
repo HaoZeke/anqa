@@ -157,6 +157,35 @@ def test_mirrors_real_coredis_layout(tmp_path: Path, mod) -> None:
     assert mod.resolve_primary_session_id(root) == main.name
 
 
+def test_rejects_preferred_subagent_fork(tmp_path: Path, mod) -> None:
+    root = tmp_path / "sessions"
+    token = root / "%2Fworkspace"
+    parent = token / "parent"
+    sub = token / "sub-fork"
+    _session(parent)
+    _session(sub, kind="subagent_fork")
+    (parent / "subagents" / sub.name).mkdir(parents=True)
+    assert mod.resolve_primary_session_id(root, preferred_id=sub.name) == parent.name
+    assert mod.main([str(root), "--check", sub.name]) == 1
+    assert sub.name not in {p.name for p in mod.list_primary_session_dirs(root)}
+
+
+def test_rejects_cross_token_kind_and_child_id(tmp_path: Path, mod) -> None:
+    root = tmp_path / "sessions"
+    token_a = root / "%2Fworkspace"
+    token_b = root / "%2Fother"
+    parent = token_a / "parent"
+    kinded = token_b / "kind-sub"
+    mirrored = token_b / "id-sub"
+    _session(parent)
+    _session(kinded, kind="subagent_resume")
+    _session(mirrored, kind="")
+    (parent / "subagents" / mirrored.name).mkdir(parents=True)
+    ids = {p.name for p in mod.list_primary_session_dirs(root)}
+    assert ids == {parent.name}
+    assert mod.resolve_primary_session_id(root, preferred_id=kinded.name) == parent.name
+
+
 def test_nested_subagents_dir_not_primary(tmp_path: Path, mod) -> None:
     root = tmp_path / "sessions"
     token = root / "%2Fworkspace"
@@ -167,3 +196,13 @@ def test_nested_subagents_dir_not_primary(tmp_path: Path, mod) -> None:
     # nested is under parent, not a top-level candidate — list should only be parent
     ids = {p.name for p in mod.list_primary_session_dirs(root)}
     assert ids == {parent.name}
+
+
+def test_ancestor_named_subagents_is_not_a_stub(tmp_path: Path, mod) -> None:
+    """A sessions root under a folder named ``subagents`` still lists primaries."""
+    root = tmp_path / "subagents" / "sessions"
+    token = root / "%2Fworkspace"
+    primary = token / "main"
+    _session(primary)
+    ids = {p.name for p in mod.list_primary_session_dirs(root)}
+    assert ids == {primary.name}

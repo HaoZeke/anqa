@@ -1596,6 +1596,26 @@ ContentSwitcher {
 }
 
 /* Tables inside cards: no double outer border (card already frames) */
+.summary-pair {
+    height: auto;
+    layout: horizontal;
+}
+
+.summary-pair > .panel-card {
+    width: 1fr;
+    margin: 0 1 1 0;
+}
+
+/* Narrow window: stack the pair instead of squeezing two tables. */
+#summary-scroll.summary-stack .summary-pair {
+    layout: vertical;
+}
+
+#summary-scroll.summary-stack .summary-pair > .panel-card {
+    width: 100%;
+    margin: 0 0 1 0;
+}
+
 .panel-card DataTable {
     height: auto;
     min-height: 5;

@@ -16,7 +16,19 @@ pub struct KeyScope {
     pub help_open: bool,
     pub timeline_detail: bool,
     pub awaiting: bool,
+    pub child_open: bool,
+    pub compact_child: bool,
+    /// Events turn pick is shown (more than one turn).
+    pub turn_pick: bool,
     pub tab: Tab,
+}
+
+fn scope_tabs(scope: KeyScope) -> &'static [Tab] {
+    if scope.compact_child {
+        Tab::CHILD
+    } else {
+        &Tab::ALL
+    }
 }
 
 fn push(table: &mut ActionTable<Message>, id: &str, title: &str, spec: &str, msg: Message) {
@@ -37,6 +49,8 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
     push(&mut table, "help.toggle", "Help", "?", Message::ToggleHelp);
     let hide = if scope.timeline_detail {
         "Timeline"
+    } else if scope.child_open {
+        "Parent"
     } else {
         "Hide"
     };
@@ -81,8 +95,8 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
     table
 }
 
-/// Full shortcut list for the `?` cheatsheet.
-pub fn help_table() -> ActionTable<Message> {
+/// Shortcut list for the `?` cheatsheet (keys that apply in *scope*).
+pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
     let mut table = ActionTable::new();
     push(&mut table, "help.toggle", "Help", "?", Message::ToggleHelp);
     push(
@@ -109,7 +123,7 @@ pub fn help_table() -> ActionTable<Message> {
         "shift+tab",
         Message::Noop,
     );
-    for (i, tab) in Tab::ALL.iter().enumerate() {
+    for (i, tab) in scope_tabs(scope).iter().enumerate() {
         let n = i + 1;
         push(
             &mut table,
@@ -128,14 +142,16 @@ pub fn help_table() -> ActionTable<Message> {
         Message::Yank,
     );
     push(&mut table, "search.focus", "Search", "/", Message::Noop);
-    push(
-        &mut table,
-        "session.follow",
-        "Follow-up",
-        "n",
-        Message::Noop,
-    );
-    push(&mut table, "session.done", "Done", "e", Message::MarkDone);
+    if scope.awaiting {
+        push(
+            &mut table,
+            "session.follow",
+            "Follow-up",
+            "n",
+            Message::Noop,
+        );
+        push(&mut table, "session.done", "Done", "e", Message::MarkDone);
+    }
     push(
         &mut table,
         "pane.notes",
@@ -143,27 +159,31 @@ pub fn help_table() -> ActionTable<Message> {
         "shift+n",
         Message::SetTab(Tab::Notes),
     );
-    push(
-        &mut table,
-        "events.next_turn",
-        "Next turn",
-        "]",
-        Message::Noop,
-    );
-    push(
-        &mut table,
-        "events.all_turns",
-        "All turns",
-        "[",
-        Message::Noop,
-    );
-    push(
-        &mut table,
-        "turns.timeline",
-        "Timeline for turn",
-        "g",
-        Message::Noop,
-    );
+    if scope.turn_pick {
+        push(
+            &mut table,
+            "events.next_turn",
+            "Next turn",
+            "]",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            "events.all_turns",
+            "All turns",
+            "[",
+            Message::Noop,
+        );
+    }
+    if !scope.compact_child {
+        push(
+            &mut table,
+            "turns.timeline",
+            "Timeline for turn",
+            "g",
+            Message::Noop,
+        );
+    }
     table
 }
 
@@ -177,13 +197,16 @@ mod tests {
             help_open: false,
             timeline_detail: false,
             awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
             tab: Tab::Overview,
         }
     }
 
     #[test]
     fn help_table_lists_unique_shortcuts() {
-        let table = help_table();
+        let table = help_table(picker());
         assert!(table.conflicts().is_empty());
         assert!(table.get("help.toggle").is_some());
         assert!(table.get("overlay.hide").is_some());
@@ -191,6 +214,7 @@ mod tests {
         assert!(table.get("list.up").is_some());
         assert!(table.get("pane.1").is_some());
         assert!(table.get("pane.5").is_some());
+        assert!(table.get("session.done").is_none());
         assert!(table.get("edit.copy").is_some());
         assert!(table.get("search.focus").is_some());
         let hints = table.footer_hints();
@@ -218,6 +242,9 @@ mod tests {
             help_open: false,
             timeline_detail: false,
             awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
             tab: Tab::Overview,
         });
         let blob = browse.footer_hints().join("  ·  ");
@@ -231,6 +258,9 @@ mod tests {
             help_open: false,
             timeline_detail: false,
             awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
             tab: Tab::Turns,
         });
         assert!(turns.footer_hints().iter().any(|h| h.contains("j down")));
@@ -240,6 +270,9 @@ mod tests {
             help_open: false,
             timeline_detail: true,
             awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
             tab: Tab::Timeline,
         });
         let blob = detail.footer_hints().join("  ·  ");
@@ -254,6 +287,9 @@ mod tests {
             help_open: true,
             timeline_detail: true,
             awaiting: true,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
             tab: Tab::Timeline,
         })
         .footer_hints();
@@ -270,14 +306,27 @@ mod tests {
             help_open: false,
             timeline_detail: false,
             awaiting: true,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
             tab: Tab::Overview,
         })
         .footer_hints();
         let blob = hints.join("  ·  ");
         assert!(blob.contains("n follow"));
         assert!(blob.contains("e done"));
-        assert!(help_table().get("session.follow").is_some());
-        assert!(help_table().get("session.done").is_some());
-        assert!(help_table().get("pane.notes").is_some());
+        let sheet = help_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: true,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: Tab::Overview,
+        });
+        assert!(sheet.get("session.follow").is_some());
+        assert!(sheet.get("session.done").is_some());
+        assert!(sheet.get("pane.notes").is_some());
     }
 }

@@ -32,18 +32,49 @@ def is_resume_seed_path(path: Path) -> bool:
         return False
 
 
-def is_subagent_session_dir(path: Path) -> bool:
-    """Match host :func:`groket.parser._is_subagent_session_dir` rules."""
-    if "subagents" in path.parts:
-        return True
+def is_subagent_kind(kind: str) -> bool:
+    """True when *kind* is a harness subagent (not an operator fork)."""
+    return (kind or "").strip().lower().startswith("subagent")
+
+
+def read_session_kind(path: Path) -> str:
+    """Return ``session_kind`` from *path*/``summary.json``, or empty."""
     sj = path / "summary.json"
-    if sj.is_file():
+    if not sj.is_file():
+        return ""
+    try:
+        raw = json.loads(sj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    return str(raw.get("session_kind") or raw.get("sessionKind") or "").strip()
+
+
+def nested_child_ids(sessions: list[Path]) -> set[str]:
+    """Basenames listed under any *sessions* entry's ``subagents/``."""
+    ids: set[str] = set()
+    for session in sessions:
+        sub_root = session / "subagents"
+        if not sub_root.is_dir():
+            continue
         try:
-            kind = str(json.loads(sj.read_text(encoding="utf-8")).get("session_kind") or "")
-            if kind.strip().lower() == "subagent":
-                return True
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            pass
+            for ent in sub_root.iterdir():
+                if ent.is_dir():
+                    ids.add(ent.name)
+        except OSError:
+            continue
+    return ids
+
+
+def is_subagent_session_dir(path: Path, *, child_ids: set[str] | None = None) -> bool:
+    """Match host :func:`groket.session.subagents.is_subagent_session_dir` rules."""
+    if path.parent.name == "subagents":
+        return True
+    if is_subagent_kind(read_session_kind(path)):
+        return True
+    if child_ids is not None:
+        return path.name in child_ids
     name = path.name
     parent = path.parent
     try:
@@ -111,16 +142,15 @@ def iter_session_dirs(sessions_root: Path) -> list[Path]:
 
 def list_primary_session_dirs(sessions_root: Path) -> list[Path]:
     """Primary (non-subagent, non-seed) session directories."""
-    primaries: list[Path] = []
+    candidates: list[Path] = []
     for d in iter_session_dirs(sessions_root):
         if is_resume_seed_path(d):
             continue
-        if is_subagent_session_dir(d):
-            continue
         if not looks_like_session_dir(d):
             continue
-        primaries.append(d)
-    return primaries
+        candidates.append(d)
+    child_ids = nested_child_ids(candidates)
+    return [d for d in candidates if not is_subagent_session_dir(d, child_ids=child_ids)]
 
 
 def first_prompt_history_session_id(sessions_root: Path) -> str:

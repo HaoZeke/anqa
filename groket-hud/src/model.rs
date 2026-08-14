@@ -20,6 +20,9 @@ impl Tab {
         Tab::Notes,
     ];
 
+    /// Subagent session with one operator turn — no Turns pane.
+    pub const CHILD: &'static [Tab] = &[Tab::Overview, Tab::Timeline, Tab::Findings, Tab::Notes];
+
     pub fn label(self) -> &'static str {
         match self {
             Tab::Overview => "Overview",
@@ -39,16 +42,18 @@ pub enum KindFilter {
     User,
     Asst,
     Sess,
+    Subagents,
     Errors,
 }
 
 impl KindFilter {
-    pub const ALL: [KindFilter; 6] = [
+    pub const ALL: [KindFilter; 7] = [
         KindFilter::All,
         KindFilter::Tools,
         KindFilter::User,
         KindFilter::Asst,
         KindFilter::Sess,
+        KindFilter::Subagents,
         KindFilter::Errors,
     ];
 
@@ -57,8 +62,9 @@ impl KindFilter {
             KindFilter::All => "All events",
             KindFilter::Tools => "Tools only",
             KindFilter::User => "User messages",
-            KindFilter::Asst => "Assistant",
+            KindFilter::Asst => "Assistant messages",
             KindFilter::Sess => "Session markers",
+            KindFilter::Subagents => "Subagents",
             KindFilter::Errors => "Errors only",
         }
     }
@@ -70,6 +76,7 @@ impl KindFilter {
             KindFilter::User => "User",
             KindFilter::Asst => "Assistant",
             KindFilter::Sess => "Session",
+            KindFilter::Subagents => "Subagents",
             KindFilter::Errors => "Errors",
         }
     }
@@ -81,6 +88,7 @@ impl KindFilter {
             KindFilter::User => "user",
             KindFilter::Asst => "asst",
             KindFilter::Sess => "sess",
+            KindFilter::Subagents => "subagents",
             KindFilter::Errors => "errors",
         }
     }
@@ -171,7 +179,7 @@ mod tests {
         assert_eq!(KindFilter::Tools.wire_name(), "tools");
         assert_eq!(KindFilter::All.wire_name(), "");
         assert_eq!(KindFilter::All.label(), "All events");
-        assert_eq!(KindFilter::Asst.to_string(), "Assistant");
+        assert_eq!(KindFilter::Asst.to_string(), "Assistant messages");
         assert_eq!(KindFilter::Sess.label(), "Session markers");
         let mut draft = NoteDraft::default();
         assert!(!draft.has_content());

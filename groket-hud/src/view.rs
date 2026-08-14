@@ -19,11 +19,12 @@ use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
     body_paint_for, capped_display, display_tool_output, event_brand_role, fmt_duration,
-    format_note_time, human_event_type_label, image_result_path, is_chat_message,
-    list_status_label, looks_like_markdown, message_markdown_source, note_fields_view,
-    origin_label, overview_fields, path_hint_from_raw, sanitize_console_text, status_tone,
-    syntax_for_tool_field, syntax_for_tool_output, timeline_body_text, timeline_count_caption,
-    timeline_query_hit, tool_fields_from_raw, BodyPaint, ToolField,
+    format_note_time, format_tool_display, human_event_type_label, image_result_path,
+    is_chat_message, is_tool_identity, list_event_detail, list_status_label, looks_like_markdown,
+    message_markdown_source, note_fields_view, origin_label, overview_fields, path_hint_from_raw,
+    sanitize_console_text, status_tone, syntax_for_tool_field, syntax_for_tool_output,
+    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_brand_role,
+    tool_fields_from_raw, BodyPaint, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -270,12 +271,12 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         ]
         .into();
         if hud.help_open() {
-            return kit::help_modal(menu, &crate::help::help_table(), tea);
+            return kit::help_modal(menu, &crate::help::help_table(hud.key_scope()), tea);
         }
         return menu;
     }
     if hud.help_open() {
-        return kit::help_modal(busy, &crate::help::help_table(), tea);
+        return kit::help_modal(busy, &crate::help::help_table(hud.key_scope()), tea);
     }
     busy
 }
@@ -328,7 +329,7 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         A11y::new("Sessions", Role::List),
     );
     if idle {
-        // Spotlight: recent strip under a short hint (not the whole catalog).
+        // Spotlight: Recent strip (grows as the list is paged).
         return column![
             icedtea::widget::meta("Recent", tea, A11y::new("Recent", Role::Header),),
             list,
@@ -347,8 +348,13 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     let session_ready = hud.overview().is_some() || !hud.overview_pending().is_empty();
     let tea = hud.tokens();
-    let tabs =
-        container(kit::pane_tabs(hud.tab(), session_ready, tea)).padding(Padding::from([8, 12]));
+    let tabs = container(kit::pane_tabs(
+        hud.tab(),
+        session_ready,
+        hud.visible_tabs(),
+        tea,
+    ))
+    .padding(Padding::from([8, 12]));
 
     let mut stack = column![].spacing(0).height(Length::Fill);
     if let Some(bar) = browse_session_bar(hud, tea) {
@@ -467,29 +473,37 @@ fn browse_session_bar<'a>(
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     // Two rows: picks + optional range; full-width search below so it never
-    // shares width with Turn/Type (one-row bar clipped or overlapped the field).
-    let mut picks = row![
-        icedtea::widget::meta("Turn", tea, A11y::new("Turn", Role::Header)),
-        icedtea::widget::themed_pick_list(
+    // shares width with Turn/Filter (one-row bar clipped or overlapped the field).
+    let mut picks = row![].spacing(8).align_y(Alignment::Center);
+    if !hud.hide_events_turn_pick() {
+        picks = picks.push(icedtea::widget::meta(
+            "Turn",
+            tea,
+            A11y::new("Turn", Role::Header),
+        ));
+        picks = picks.push(icedtea::widget::themed_pick_list(
             hud.events_turn_options(),
             Some(hud.events_turn_selected()),
             Message::EventsTurnPicked,
             tea,
             A11y::new("Turn", Role::ComboBox),
-        ),
-        icedtea::widget::meta("Type", tea, A11y::new("Type", Role::Header)),
-        icedtea::widget::themed_pick_list(
-            &KindFilter::ALL[..],
-            Some(hud.timeline_kind()),
-            Message::TimelineKind,
-            tea,
-            A11y::new("Type", Role::ComboBox),
-        ),
-        Space::new().width(Length::Fill),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center)
-    .width(Length::Fill);
+        ));
+    }
+    picks = picks.push(icedtea::widget::meta(
+        "Filter",
+        tea,
+        A11y::new("Filter", Role::Header),
+    ));
+    picks = picks.push(icedtea::widget::themed_pick_list(
+        &KindFilter::ALL[..],
+        Some(hud.timeline_kind()),
+        Message::TimelineKind,
+        tea,
+        A11y::new("Filter", Role::ComboBox),
+    ));
+    picks = picks
+        .push(Space::new().width(Length::Fill))
+        .width(Length::Fill);
     if let Some(cap) = timeline_count_caption(&hud.timeline_meta()) {
         picks = picks.push(icedtea::widget::meta(
             cap.to_string(),
@@ -498,12 +512,12 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         ));
     }
     let search = container(kit::search_field(
-        "Search all events",
+        "Search events…",
         hud.timeline_query_draft(),
         Message::TimelineQuery,
         None,
         tea,
-        A11y::new("Search all events", Role::TextBox),
+        A11y::new("Search events", Role::TextBox),
         Some(hud.tl_search_id()),
     ))
     .width(Length::Fill);
@@ -520,6 +534,9 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     let mut title = meta.title.clone();
     if title.is_empty() {
         title = hud.overview_sid().to_string();
+    }
+    if meta.is_subagent() && !title.to_ascii_lowercase().starts_with("subagent") {
+        title = format!("Subagent · {title}");
     }
     let mut summary = o.summary.clone();
     if summary.is_empty() {
@@ -545,26 +562,37 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
     let tea = hud.tokens();
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
+    let mut status_row = row![icedtea::widget::badge(
+        if status.is_empty() {
+            "—".to_string()
+        } else {
+            status
+        },
+        tea,
+        tone_variant(tone),
+        A11y::new("status", Role::Status),
+    )]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if meta.is_subagent() {
+        status_row = status_row.push(icedtea::widget::badge(
+            String::from("subagent"),
+            tea,
+            tone_variant(tone),
+            A11y::new("subagent", Role::Status),
+        ));
+    }
+    status_row = status_row.push(icedtea::widget::meta(
+        hero,
+        tea,
+        A11y::new("meta", Role::Status),
+    ));
     let mut col = column![
         text(title.clone())
             .size(typo::PAGE)
             .font(typo::UI_BOLD)
             .color(tok.text),
-        row![
-            icedtea::widget::badge(
-                if status.is_empty() {
-                    "—".to_string()
-                } else {
-                    status
-                },
-                tea,
-                tone_variant(tone),
-                A11y::new("status", Role::Status),
-            ),
-            icedtea::widget::meta(hero, tea, A11y::new("meta", Role::Status)),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center),
+        status_row,
     ]
     .spacing(8);
     // Progress only where context matters (session detail), and only when known.
@@ -862,7 +890,7 @@ fn closed_list_card<'a>(
 
 fn turn_title(t: &TurnRow) -> String {
     let label = if t.label.is_empty() {
-        format!("turn {}", t.turn_index)
+        format!("Turn {}", t.turn_index)
     } else {
         t.label.clone()
     };
@@ -919,6 +947,36 @@ fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
     .into()
 }
 
+fn turn_run_chips(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    if t.subagent_runs.is_empty() {
+        return Space::new().height(0).into();
+    }
+    let mut col = column![].spacing(2);
+    for run in &t.subagent_runs {
+        let kind = if run.subagent_type.is_empty() {
+            "subagent".to_string()
+        } else {
+            run.subagent_type.clone()
+        };
+        let desc = if run.description.is_empty() {
+            run.child_session_id.clone()
+        } else {
+            run.description.clone()
+        };
+        let label = format!("{kind} · {desc} · {}", run.status);
+        let chip = text(label).size(typo::META).color(tea.muted);
+        if run.openable {
+            col = col.push(mouse_area(chip).on_press(Message::OpenChild {
+                path: run.child_path.clone(),
+                sid: run.child_session_id.clone(),
+            }));
+        } else {
+            col = col.push(chip);
+        }
+    }
+    col.into()
+}
+
 fn turn_note(t: &TurnRow) -> Message {
     Message::StartNote {
         turn: t.turn_index.to_string(),
@@ -930,7 +988,7 @@ fn turn_note(t: &TurnRow) -> Message {
 fn turn_jump(t: &TurnRow) -> Message {
     use crate::model::EventsTurnPick;
     let label = if t.label.is_empty() {
-        format!("turn {}", t.turn_index)
+        format!("Turn {}", t.turn_index)
     } else {
         t.label.clone()
     };
@@ -967,28 +1025,46 @@ fn event_title(ev: &TimelineEvent) -> String {
 }
 
 fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let type_color =
-        crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
-    // Prefer tool name for tool rows (TUI tool column); else human type label.
-    let identity = if !ev.tool_name.trim().is_empty()
-        && (ev.kind == "tool" || ev.kind == "tool_result" || ev.event_type.contains("tool"))
-    {
-        ev.tool_name.trim().to_string()
+    let tool_row = is_tool_identity(&ev.kind, &ev.event_type, &ev.tool_name);
+    let identity = if tool_row {
+        format_tool_display(&ev.tool_name)
     } else {
         event_type_human(ev)
     };
-    let preview = if ev.preview.is_empty() {
+    let (id_color, id_bold) = if ev.is_error {
+        (
+            crate::theme::brand_role_color(crate::format::BrandRole::Failed),
+            true,
+        )
+    } else if tool_row {
+        match tool_brand_role(&ev.tool_name, false) {
+            Some(role) => (crate::theme::brand_role_color(role), false),
+            None => (tea.muted, false),
+        }
+    } else {
+        (
+            crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error)),
+            true,
+        )
+    };
+    let raw_preview = if ev.preview.is_empty() {
         ev.content.as_str()
     } else {
         ev.preview.as_str()
     };
-    let preview = if preview.is_empty() {
+    let raw_preview = if raw_preview.is_empty() {
         ev.heading.as_str()
     } else {
-        preview
+        raw_preview
+    };
+    let preview = if tool_row {
+        list_event_detail(raw_preview, &ev.tool_name)
+    } else {
+        raw_preview.to_string()
     };
     // One scannable line (TUI type + summary columns), not a markdown stack.
-    let preview = capped_display(&plain_card_text(preview), 160);
+    let preview = capped_display(&plain_card_text(&preview), 160);
+    let id_font = if id_bold { typo::UI_BOLD } else { typo::UI };
     if identity.is_empty() && preview.is_empty() {
         return text("—").size(typo::META).color(tea.muted).into();
     }
@@ -997,16 +1073,16 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
     }
     if preview.is_empty() {
         return text(identity)
-            .size(typo::META)
-            .font(typo::UI_BOLD)
-            .color(type_color)
+            .size(typo::BODY)
+            .font(id_font)
+            .color(id_color)
             .into();
     }
     row![
         text(identity)
-            .size(typo::META)
-            .font(typo::UI_BOLD)
-            .color(type_color),
+            .size(typo::BODY)
+            .font(id_font)
+            .color(id_color),
         text(preview).size(typo::BODY).color(tea.text),
     ]
     .spacing(8)
@@ -1020,17 +1096,16 @@ fn event_body<'a>(
     mark: Option<CardMark>,
 ) -> Element<'a, Message> {
     let tok = hud.tokens();
-    let type_color =
-        crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
-    let human = event_type_human(ev);
     let mut col = column![].spacing(6);
-    if !human.is_empty() {
-        col = col.push(
-            text(human)
-                .size(typo::META)
-                .font(typo::UI_BOLD)
-                .color(type_color),
-        );
+    if !ev.child_session_id.is_empty() {
+        let mut line = ev.child_session_id.clone();
+        if !ev.subagent_status.is_empty() {
+            line = format!("{line} · {}", ev.subagent_status);
+        }
+        if let Some(ms) = ev.duration_ms {
+            line = format!("{line} · {ms} ms");
+        }
+        col = col.push(text(line).size(typo::META).color(tok.muted));
     }
     if let Some(hit) = timeline_query_hit(ev, hud.timeline_query()) {
         col = col.push(
@@ -1192,6 +1267,7 @@ fn turn_list_card(
     let body = column![
         header,
         turn_stats_row(t, tea),
+        turn_run_chips(t, tea),
         closed_turn_face(&t.summary, tea),
     ]
     .spacing(4)
@@ -1400,12 +1476,27 @@ fn event_detail_chrome(
 ) -> Element<'static, Message> {
     let title = ev.map(event_title).unwrap_or_else(|| format!("#{ix}"));
     let type_line = ev.map(|e| {
-        let color =
-            crate::theme::brand_role_color(event_brand_role(&e.event_type, &e.kind, e.is_error));
-        let human = event_type_human(e);
-        (human, color)
+        let tool_row = is_tool_identity(&e.kind, &e.event_type, &e.tool_name);
+        if tool_row {
+            let color = if e.is_error {
+                crate::theme::brand_role_color(crate::format::BrandRole::Failed)
+            } else {
+                match tool_brand_role(&e.tool_name, false) {
+                    Some(role) => crate::theme::brand_role_color(role),
+                    None => tea.muted,
+                }
+            };
+            (format_tool_display(&e.tool_name), color, false)
+        } else {
+            let color = crate::theme::brand_role_color(event_brand_role(
+                &e.event_type,
+                &e.kind,
+                e.is_error,
+            ));
+            (event_type_human(e), color, true)
+        }
     });
-    // Title + type left; quiet ‹ · n · › stepper right. Esc → list (footer hint).
+    // Title + type/tool left; quiet ‹ · n · › stepper right. Esc → list (footer hint).
     let mut head = row![text(title)
         .size(typo::BODY)
         .font(typo::UI_BOLD)
@@ -1413,12 +1504,12 @@ fn event_detail_chrome(
     .spacing(10)
     .align_y(Alignment::Center)
     .width(Length::Fill);
-    if let Some((human, color)) = type_line {
+    if let Some((human, color, bold)) = type_line {
         if !human.is_empty() {
             head = head.push(
                 text(human)
-                    .size(typo::META)
-                    .font(typo::UI_BOLD)
+                    .size(typo::BODY)
+                    .font(if bold { typo::UI_BOLD } else { typo::UI })
                     .color(color),
             );
         }
@@ -1760,21 +1851,26 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
         return render_payload_text(&body, &kind, &event_type, hud, false, &field_id, "");
     }
     let mut col = column![].spacing(8);
-    let family = ev.tool_family.clone();
     let call_id = ev.tool_call_id.clone();
-    if !tool.is_empty() || !family.is_empty() || !call_id.is_empty() {
-        let mut bits = vec![];
-        if !tool.is_empty() {
-            bits.push(tool.clone());
-        }
-        if !family.is_empty() {
-            bits.push(family);
-        }
-        if !call_id.is_empty() {
-            bits.push(call_id);
-        }
+    if !tool.is_empty() {
+        let name_color = if ev.is_error {
+            crate::theme::brand_role_color(crate::format::BrandRole::Failed)
+        } else {
+            match tool_brand_role(&tool, false) {
+                Some(role) => crate::theme::brand_role_color(role),
+                None => tok.muted,
+            }
+        };
         col = col.push(
-            text(bits.join(" · "))
+            text(format_tool_display(&tool))
+                .size(typo::BODY)
+                .font(typo::UI)
+                .color(name_color),
+        );
+    }
+    if !call_id.is_empty() {
+        col = col.push(
+            text(call_id)
                 .size(typo::META)
                 .color(tok.muted)
                 .font(typo::MONO),
@@ -2155,6 +2251,22 @@ mod tests {
             "user message chunk",
             "human type lives on the face with brand color"
         );
+        let prod = include_str!("view.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("prod");
+        let body = prod
+            .split("fn event_body")
+            .nth(1)
+            .expect("event_body")
+            .split("fn finding_jump")
+            .next()
+            .expect("body");
+        assert!(
+            !body.contains("event_type_human"),
+            "detail body must not repeat the chrome type line"
+        );
+        assert!(prod.contains("fn event_detail_chrome"));
     }
 
     #[test]
@@ -2230,7 +2342,7 @@ mod tests {
         let _ = layout(&hud);
         let src = include_str!("view.rs");
         assert!(
-            src.contains("Search all events"),
+            src.contains("Search events…"),
             "timeline filter keeps search"
         );
         // Search is a second row so pick lists cannot crush the field.
@@ -2347,7 +2459,7 @@ mod tests {
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("fn turn_list_card"));
         assert!(prod.contains("fn closed_turn_face"));
-        assert!(prod.contains("Search all events"));
+        assert!(prod.contains("Search events…"));
         assert!(prod.contains("Search turns"));
         assert!(!prod.contains("Session events"));
         assert!(prod.contains("fn prompt_face"));

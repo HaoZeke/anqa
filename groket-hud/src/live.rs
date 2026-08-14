@@ -92,6 +92,20 @@ pub fn spotlight_recent(all: &[SessionRow], n: usize, keep_sid: &str) -> Vec<Ses
     out
 }
 
+/// True when the mounted window has reached the tail of the Recent list.
+pub fn should_page_recent(window_end: usize, visible_len: usize) -> bool {
+    visible_len > 0 && window_end.saturating_add(2) >= visible_len
+}
+
+/// Next Recent cap after a scroll or Down at the tail, or ``None`` when the
+/// loaded catalog is already fully shown.
+pub fn next_spotlight_limit(shown: usize, have: usize, page: usize) -> Option<usize> {
+    if page == 0 || shown >= have {
+        return None;
+    }
+    Some(shown.saturating_add(page).min(have))
+}
+
 /// True when a non-delta ``session/list`` body is a page, not a full snapshot.
 pub fn is_partial_list_page(
     incoming_len: usize,
@@ -1260,6 +1274,22 @@ mod tests {
         assert_eq!(pinned[0].session_id, "s0");
         assert_eq!(pinned.len(), 5);
         assert!(pinned.iter().any(|r| r.session_id == "s11"));
+    }
+
+    #[test]
+    fn should_page_recent_at_the_tail() {
+        assert!(!should_page_recent(0, 0));
+        assert!(!should_page_recent(3, 8));
+        assert!(should_page_recent(7, 8));
+        assert!(should_page_recent(8, 8));
+    }
+
+    #[test]
+    fn next_spotlight_limit_grows_by_page() {
+        assert_eq!(next_spotlight_limit(8, 40, 8), Some(16));
+        assert_eq!(next_spotlight_limit(16, 20, 8), Some(20));
+        assert_eq!(next_spotlight_limit(20, 20, 8), None);
+        assert_eq!(next_spotlight_limit(8, 40, 0), None);
     }
 
     #[test]

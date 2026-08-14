@@ -22,14 +22,14 @@ use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
     first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
     list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
-    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
-    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
-    session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
-    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
-    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
-    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT,
-    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
-    TIMELINE_ROW_H,
+    next_spotlight_limit, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
+    plan_tick, previous_timeline_page, scroll_after_prepend, session_card_height,
+    session_needs_live_poll, session_row_meta, session_rpc_ref, should_fetch_timeline,
+    should_load_previous_timeline, should_page_recent, spotlight_recent,
+    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
+    trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, CLOSED_TURN_CARD_H,
+    IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
+    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -58,7 +58,13 @@ enum DetailTurnEdge {
 pub enum Message {
     SearchChanged(String),
     SelectSession(usize),
+    OpenChild {
+        path: String,
+        sid: String,
+    },
     SetTab(Tab),
+    /// Ctrl+1…N over the tabs that are visible for this session.
+    PaneDigit(u8),
     TimelineQuery(String),
     TimelineKind(KindFilter),
     JumpTimeline(i64),
@@ -166,6 +172,23 @@ pub enum Message {
     Noop,
 }
 
+/// Where Esc lands after leaving a child session.
+#[derive(Debug, Clone)]
+struct ParentFrame {
+    path: String,
+    sid: String,
+    tab: Tab,
+    timeline_kind: KindFilter,
+    timeline_query: String,
+    timeline_query_draft: String,
+    timeline_focus: Option<i64>,
+    timeline_prompt: Option<i64>,
+    events_turn_index: Option<i64>,
+    turns_focus: Option<i64>,
+    turns_query: String,
+    turn_scroll: f32,
+}
+
 /// One selectable body buffer (expanded event or turn text).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtractKey {
@@ -187,12 +210,18 @@ pub struct Hud {
     query: String,
     all_sessions: Vec<SessionRow>,
     sessions: Vec<SessionRow>,
+    /// How many idle Recent rows to show (grows on scroll / Down at the tail).
+    spotlight_limit: usize,
     active: usize,
     tab: Tab,
     overview: Option<Overview>,
     overview_sid: String,
     overview_pending: String,
     overview_gen: u64,
+    /// Parent sessions to restore when Esc leaves a child overview.
+    parent_stack: Vec<ParentFrame>,
+    /// One-shot: fetch the restored parent timeline around this event.
+    restore_around: Option<i64>,
     timeline: Vec<TimelineEvent>,
     timeline_sid: String,
     timeline_total: u32,
@@ -288,12 +317,15 @@ impl Default for Hud {
             query: String::new(),
             all_sessions: vec![],
             sessions: vec![],
+            spotlight_limit: SPOTLIGHT_RECENT,
             active: 0,
             tab: Tab::Overview,
             overview: None,
             overview_sid: String::new(),
             overview_pending: String::new(),
             overview_gen: 0,
+            parent_stack: vec![],
+            restore_around: None,
             timeline: vec![],
             timeline_sid: String::new(),
             timeline_total: 0,
@@ -478,11 +510,13 @@ fn open_hud_window(window_mode: bool) -> (window::Id, Task<window::Id>) {
 pub fn run() -> iced::Result {
     crate::log::info(&format!("hud start log={}", crate::log::path().display()));
     if crate::summon::already_running() {
-        eprintln!(
-            "groket-hud: already running — groket hud --toggle / tray \
-             (use groket hud --restart to replace)"
-        );
-        return Ok(());
+        return match crate::summon::send_command(crate::summon::SummonAction::Show) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                eprintln!("groket: {err}");
+                Ok(())
+            }
+        };
     }
     // icedtea::daemon! is equivalent; catalog + dual window modes stay manual
     // via Prepared + iced::daemon. Call the same face remap the macro would.
@@ -495,17 +529,12 @@ pub fn run() -> iced::Result {
         .run()
 }
 
-#[cfg(target_os = "macos")]
-pub fn set_macos_accessory() {
-    crate::macoswin::set_accessory_policy();
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn set_macos_accessory() {}
-
 impl Hud {
     fn new() -> (Self, Task<Message>) {
         let mut hud = Hud::default();
+        // iced/winit creates NSApplication as Regular after main() ran
+        // accessory. Re-pin before the first window maps.
+        crate::macoswin::set_desktop_app(hud.window_mode);
         let (hk, label) = shortcut::resolve_summon_shortcut();
         hud.hotkey_hint = label.clone();
         let skip_hotkey = hud.window_mode;
@@ -538,7 +567,12 @@ impl Hud {
                 hud._summon = Some(server);
             }
             Err(crate::summon::SummonError::AlreadyRunning(path)) => {
-                eprintln!("groket-hud: already running ({path}) — groket hud --toggle / tray");
+                match crate::summon::send_command(crate::summon::SummonAction::Show) {
+                    Ok(()) => {}
+                    Err(err) => {
+                        eprintln!("groket: already running ({path}): {err}");
+                    }
+                }
                 std::process::exit(0);
             }
             Err(err) => {
@@ -626,7 +660,9 @@ impl Hud {
                 self.rerank_visible_keeping(keep);
                 Task::none()
             }
+            Message::OpenChild { path, sid } => self.open_child_session(path, sid),
             Message::SelectSession(i) => {
+                self.parent_stack.clear();
                 // Capture the row before clearing the query (index is into the
                 // filtered list; browse mode uses the full catalog).
                 let Some(row) = self.sessions().get(i).cloned() else {
@@ -655,7 +691,19 @@ impl Hud {
                 // Do not yank keyboard into session search after a pick.
                 Task::batch([self.load_overview(false), self.focus_browse()])
             }
+            Message::PaneDigit(n) => {
+                let tabs = self.visible_tabs();
+                let Some(&tab) = tabs.get((n as usize).saturating_sub(1)) else {
+                    return Task::none();
+                };
+                self.update(Message::SetTab(tab))
+            }
             Message::SetTab(tab) => {
+                let tab = if tab == Tab::Turns && self.compact_child_chrome() {
+                    Tab::Timeline
+                } else {
+                    tab
+                };
                 // Without an overview, secondary panes only paint "Select a session".
                 // Load the rail selection first, or refuse the tab flip.
                 if self.overview.is_none() && tab != Tab::Overview {
@@ -741,7 +789,13 @@ impl Hud {
             }
             Message::JumpTimeline(ix) => self.jump_timeline(ix),
             Message::EventsTurnPicked(pick) => self.select_events_turn(pick.turn_index),
-            Message::SelectTimeline(ix) => self.open_timeline_detail(ix),
+            Message::SelectTimeline(ix) => {
+                self.timeline_focus = Some(ix);
+                if let Some((path, sid)) = self.openable_child_at(ix) {
+                    return self.open_child_session(path, sid);
+                }
+                self.open_timeline_detail(ix)
+            }
             Message::CloseTimelineDetail => self.close_timeline_detail(),
             Message::TimelineDetailStep(delta) => self.nav_timeline_detail_step(delta),
             Message::TurnsQuery(q) => {
@@ -790,6 +844,11 @@ impl Hud {
             Message::Hotkey => self.on_hotkey(),
             Message::ListScroll(win) => {
                 self.list_window = win;
+                if self.query.trim().is_empty()
+                    && should_page_recent(win.end, self.sessions().len())
+                {
+                    self.grow_recent();
+                }
                 Task::none()
             }
             Message::TimelineScroll(win) => {
@@ -982,6 +1041,9 @@ impl Hud {
                         self.overview = Some(ov);
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
+                        if self.tab == Tab::Turns && self.compact_child_chrome() {
+                            self.tab = Tab::Timeline;
+                        }
                         // Pin open session into the Spotlight recent strip.
                         self.rerank_visible_keeping(sid.clone());
                         self.sync_rail_to_overview_sid();
@@ -1277,12 +1339,15 @@ impl Hud {
             help_open: self.help_open,
             timeline_detail: self.tab == Tab::Timeline && self.timeline_open.is_some(),
             awaiting: self.selected_awaiting(),
+            child_open: !self.parent_stack.is_empty(),
+            compact_child: self.compact_child_chrome(),
+            turn_pick: !self.hide_events_turn_pick(),
             tab: self.tab,
         }
     }
 
-    /// Visible Spotlight rows: recent when the query is empty, else search hits.
-    /// Full catalog stays on ``all_sessions`` (not shown until the user types).
+    /// Visible Spotlight rows: Recent when the query is empty, else search hits.
+    /// Recent starts at [`SPOTLIGHT_RECENT`] and grows as the list is paged.
     pub fn sessions(&self) -> &[SessionRow] {
         &self.sessions
     }
@@ -1291,6 +1356,30 @@ impl Hud {
     }
     pub fn tab(&self) -> Tab {
         self.tab
+    }
+
+    /// Subagent with exactly one operator turn — no Turns pane.
+    pub fn compact_child_chrome(&self) -> bool {
+        let Some(o) = &self.overview else {
+            return false;
+        };
+        o.meta.is_subagent() && o.turns.turns.len() == 1
+    }
+
+    /// Hide the Events turn pick when there is nothing to choose.
+    pub fn hide_events_turn_pick(&self) -> bool {
+        self.overview
+            .as_ref()
+            .map(|o| o.turns.turns.len() <= 1)
+            .unwrap_or(true)
+    }
+
+    pub fn visible_tabs(&self) -> &'static [Tab] {
+        if self.compact_child_chrome() {
+            Tab::CHILD
+        } else {
+            &Tab::ALL
+        }
     }
     pub fn overview(&self) -> Option<&Overview> {
         self.overview.as_ref()
@@ -1377,8 +1466,24 @@ impl Hud {
     }
 
     fn rebuild_turn_heights(&mut self) {
-        let n = self.turns_filter.len();
-        self.turn_heights = vec![CLOSED_TURN_CARD_H; n];
+        let ov = self.overview.as_ref();
+        self.turn_heights = self
+            .turns_filter
+            .iter()
+            .map(|&src| {
+                let extra = ov
+                    .and_then(|o| o.turns.turns.get(src))
+                    .map(|t| {
+                        if t.subagent_runs.is_empty() {
+                            0.0
+                        } else {
+                            22.0 * (t.subagent_runs.len().min(4) as f32)
+                        }
+                    })
+                    .unwrap_or(0.0);
+                CLOSED_TURN_CARD_H + extra
+            })
+            .collect();
         let view_h = self.turn_window.viewport.max(1.0);
         let content: f32 = self.turn_heights.iter().copied().sum();
         self.turn_window.scroll = clamp_scroll(self.turn_window.scroll, content, view_h);
@@ -2158,8 +2263,7 @@ impl Hud {
 
     fn rerank_visible_keeping(&mut self, keep: String) {
         if self.query.trim().is_empty() {
-            // Idle Spotlight: latest few only (not the full catalog dump).
-            self.sessions = spotlight_recent(&self.all_sessions, SPOTLIGHT_RECENT, &keep);
+            self.sessions = spotlight_recent(&self.all_sessions, self.spotlight_limit, &keep);
         } else {
             // Title-first scores (not flat haystack); keep score order — do not
             // re-sort by recency or a weak id match jumps above a title hit.
@@ -2200,24 +2304,32 @@ impl Hud {
     fn load_overview(&mut self, quiet: bool) -> Task<Message> {
         // Explicit activate needs a rail choice. Quiet refresh may target the
         // open overview while search cleared the highlight (never wipe body).
-        let (sid, rpc_ref) =
-            if let (Some(s), Some(r)) = (self.selected_sid(), self.selected_rpc_ref()) {
-                (s, r)
-            } else if quiet {
-                let Some(s) = self.detail_sid() else {
-                    return Task::none();
-                };
-                let Some(r) = self.detail_rpc_ref() else {
-                    return Task::none();
-                };
-                (s, r)
-            } else {
-                // Explicit open with nothing selected and no open overview: clear.
-                self.overview = None;
-                self.overview_sid.clear();
-                self.overview_pending.clear();
+        let child_off_rail = quiet
+            && !self.overview_sid.is_empty()
+            && self.selected_sid().as_deref() != Some(self.overview_sid.as_str());
+        let (sid, rpc_ref) = if child_off_rail {
+            let r = self.overview_rpc_ref();
+            if r.is_empty() {
+                return Task::none();
+            }
+            (self.overview_sid.clone(), r)
+        } else if let (Some(s), Some(r)) = (self.selected_sid(), self.selected_rpc_ref()) {
+            (s, r)
+        } else if quiet {
+            let Some(s) = self.detail_sid() else {
                 return Task::none();
             };
+            let Some(r) = self.detail_rpc_ref() else {
+                return Task::none();
+            };
+            (s, r)
+        } else {
+            // Explicit open with nothing selected and no open overview: clear.
+            self.overview = None;
+            self.overview_sid.clear();
+            self.overview_pending.clear();
+            return Task::none();
+        };
         // Chrome: pending sid + loading placeholder this frame; body fills async.
         self.overview_pending = sid.clone();
         self.turns_focus = None;
@@ -2233,6 +2345,138 @@ impl Hud {
                 result,
             },
         )
+    }
+
+    fn open_child_session(&mut self, path: String, sid: String) -> Task<Message> {
+        if self.tab == Tab::Turns && self.turns_focus.is_none() {
+            self.turns_focus = self
+                .subagent_run_for_child(&sid)
+                .and_then(|run| run.turn_index);
+        }
+        if let Some(frame) = self.capture_parent_frame() {
+            self.parent_stack.push(frame);
+        }
+        self.load_session_ref(path, sid)
+    }
+
+    fn load_session_ref(&mut self, path: String, sid: String) -> Task<Message> {
+        let rpc_ref = session_rpc_ref(&path, &sid);
+        if rpc_ref.is_empty() {
+            return Task::none();
+        }
+        let sid_keep = if sid.is_empty() {
+            std::path::Path::new(&path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(rpc_ref.as_str())
+                .to_string()
+        } else {
+            sid
+        };
+        self.reset_detail_chrome();
+        self.overview_pending = sid_keep.clone();
+        self.overview_gen += 1;
+        let gen = self.overview_gen;
+        Task::perform(
+            rpc(move || control::session_overview(&rpc_ref)),
+            move |result| Message::OverviewLoaded {
+                gen,
+                sid: sid_keep.clone(),
+                quiet: false,
+                result,
+            },
+        )
+    }
+
+    fn return_to_parent(&mut self) -> Task<Message> {
+        let Some(frame) = self.parent_stack.pop() else {
+            return Task::none();
+        };
+        let task = self.load_session_ref(frame.path.clone(), frame.sid.clone());
+        self.apply_parent_frame(&frame);
+        task
+    }
+
+    fn capture_parent_frame(&self) -> Option<ParentFrame> {
+        let path = self.overview.as_ref()?.meta.path.clone();
+        let sid = self.overview_sid.clone();
+        if sid.is_empty() {
+            return None;
+        }
+        Some(ParentFrame {
+            path,
+            sid,
+            tab: self.tab,
+            timeline_kind: self.timeline_kind,
+            timeline_query: self.timeline_query.clone(),
+            timeline_query_draft: self.timeline_query_draft.clone(),
+            timeline_focus: self.timeline_focus,
+            timeline_prompt: self.timeline_prompt,
+            events_turn_index: self.events_turn_index,
+            turns_focus: self.turns_focus,
+            turns_query: self.turns_query.clone(),
+            turn_scroll: self.turn_window.scroll,
+        })
+    }
+
+    fn apply_parent_frame(&mut self, frame: &ParentFrame) {
+        self.tab = frame.tab;
+        self.timeline_kind = frame.timeline_kind;
+        self.timeline_query = frame.timeline_query.clone();
+        self.timeline_query_draft = frame.timeline_query_draft.clone();
+        self.timeline_focus = frame.timeline_focus;
+        self.timeline_open = None;
+        self.timeline_prompt = frame.timeline_prompt;
+        self.events_turn_index = frame.events_turn_index;
+        self.turns_focus = frame.turns_focus;
+        self.turns_query = frame.turns_query.clone();
+        self.turn_window.scroll = frame.turn_scroll;
+        self.restore_around = if frame.tab == Tab::Timeline {
+            frame.timeline_focus
+        } else {
+            None
+        };
+    }
+
+    fn event_is_subagent_bookend(ev: &TimelineEvent) -> bool {
+        ev.event_type == "subagent_spawned"
+            || ev.event_type == "subagent_finished"
+            || ev.kind == "subagent"
+    }
+
+    fn openable_child_at(&self, ix: i64) -> Option<(String, String)> {
+        let ev = self.timeline.iter().find(|e| e.index == ix)?;
+        if !Self::event_is_subagent_bookend(ev) || ev.child_session_id.is_empty() {
+            return None;
+        }
+        let run = self.subagent_run_for_child(&ev.child_session_id)?;
+        if !run.openable || run.child_path.is_empty() {
+            return None;
+        }
+        Some((run.child_path.clone(), run.child_session_id.clone()))
+    }
+
+    pub fn subagent_run_for_child(&self, child: &str) -> Option<&crate::wire::SubagentRunRow> {
+        self.overview
+            .as_ref()
+            .and_then(|ov| Self::run_for_child(ov, child))
+    }
+
+    fn run_for_child<'a>(
+        ov: &'a crate::wire::Overview,
+        child: &str,
+    ) -> Option<&'a crate::wire::SubagentRunRow> {
+        ov.turns
+            .subagent_runs
+            .iter()
+            .find(|r| r.child_session_id == child)
+            .or_else(|| {
+                ov.turns
+                    .turns
+                    .iter()
+                    .flat_map(|t| t.subagent_runs.iter())
+                    .find(|r| r.child_session_id == child)
+            })
     }
 
     fn scroll_focus_into_view(&mut self) -> Task<Message> {
@@ -2471,6 +2715,13 @@ impl Hud {
             self.tl_filter.clear();
             self.tl_heights.clear();
         }
+        let around = self.restore_around.take().or_else(|| {
+            if self.timeline_query.trim().is_empty() && self.timeline_kind == KindFilter::All {
+                self.timeline_focus
+            } else {
+                None
+            }
+        });
         self.start_timeline(TimelineFetch {
             rpc_ref: self.overview_rpc_ref(),
             sid,
@@ -2481,13 +2732,7 @@ impl Hud {
             limit: 40,
             kind: self.timeline_kind.wire_name().to_string(),
             query: self.timeline_query.clone(),
-            around: if self.timeline_query.trim().is_empty()
-                && self.timeline_kind == KindFilter::All
-            {
-                self.timeline_focus
-            } else {
-                None
-            },
+            around,
             at_index: None,
             prompt_index: self.timeline_prompt,
             content_chars: TIMELINE_PREVIEW_CHARS,
@@ -2859,11 +3104,33 @@ impl Hud {
         }
     }
 
+    fn grow_recent(&mut self) -> bool {
+        if !self.query.trim().is_empty() {
+            return false;
+        }
+        let Some(next) = next_spotlight_limit(
+            self.spotlight_limit,
+            self.all_sessions.len(),
+            SPOTLIGHT_RECENT,
+        ) else {
+            return false;
+        };
+        if next == self.spotlight_limit {
+            return false;
+        }
+        self.spotlight_limit = next;
+        self.rerank_visible();
+        true
+    }
+
     /// Summon lands on Spotlight (Recent + search), never the last open session.
     fn return_to_spotlight(&mut self) {
         self.query.clear();
+        self.spotlight_limit = SPOTLIGHT_RECENT;
         self.help_open = false;
         self.reset_detail_chrome();
+        self.parent_stack.clear();
+        self.restore_around = None;
         self.timeline_open = None;
         self.active = 0;
         self.list_selection = icedtea::collection::Selection::None;
@@ -3280,6 +3547,9 @@ impl Hud {
         if self.tab == Tab::Timeline && self.timeline_open.is_some() {
             return self.close_timeline_detail();
         }
+        if !self.parent_stack.is_empty() {
+            return self.return_to_parent();
+        }
         // Overlay: Escape hides. hide_palette no-ops in window mode.
         if icedtea::window::should_hide(
             icedtea::window::HidePolicy::Escape,
@@ -3302,7 +3572,7 @@ impl Hud {
             if let Key::Character(c) = &key {
                 if let Some(n) = c.chars().next().and_then(|ch| ch.to_digit(10)) {
                     if (1..=5).contains(&n) {
-                        return self.update(Message::SetTab(Tab::ALL[(n as usize) - 1]));
+                        return self.update(Message::PaneDigit(n as u8));
                     }
                 }
             }
@@ -3329,7 +3599,7 @@ impl Hud {
         }
         // Events turn scope without the pick-list mouse: `]` picks the first turn
         // when none is scoped, then advances; `[` clears to all turns.
-        if self.tab == Tab::Timeline {
+        if self.tab == Tab::Timeline && !self.hide_events_turn_pick() {
             if matches!(key, Key::Character(ref c) if c.as_str() == "]") {
                 if self.events_turn_index.is_none() {
                     let first = self.events_turn_options.iter().find_map(|p| p.turn_index);
@@ -3352,6 +3622,7 @@ impl Hud {
                 return self.select_events_turn(Some(turn));
             }
         }
+
         if matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("y"))
             || ((modifiers.command() || modifiers.control())
                 && modifiers.shift()
@@ -3366,25 +3637,27 @@ impl Hud {
             && !modifiers.logo()
             && self.browse_mode()
         {
-            let i = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
+            let tabs = self.visible_tabs();
+            let i = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
             let next = if modifiers.shift() {
-                (i + Tab::ALL.len() - 1) % Tab::ALL.len()
+                (i + tabs.len() - 1) % tabs.len()
             } else {
-                (i + 1) % Tab::ALL.len()
+                (i + 1) % tabs.len()
             };
-            return self.update(Message::SetTab(Tab::ALL[next]));
+            return self.update(Message::SetTab(tabs[next]));
         }
         if matches!(key, Key::Named(Named::Tab))
             && (modifiers.control() || modifiers.command())
             && self.browse_mode()
         {
-            let i = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0);
+            let tabs = self.visible_tabs();
+            let i = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
             let next = if modifiers.shift() {
-                (i + Tab::ALL.len() - 1) % Tab::ALL.len()
+                (i + tabs.len() - 1) % tabs.len()
             } else {
-                (i + 1) % Tab::ALL.len()
+                (i + 1) % tabs.len()
             };
-            return self.update(Message::SetTab(Tab::ALL[next]));
+            return self.update(Message::SetTab(tabs[next]));
         }
         match key {
             Key::Named(Named::ArrowDown) => self.nav_step(1),
@@ -3470,6 +3743,13 @@ impl Hud {
         if matches!(self.list_selection, icedtea::collection::Selection::None) {
             self.set_active(if delta > 0 { 0 } else { n - 1 });
             return self.ensure_active_visible();
+        }
+        if delta > 0 && self.active + 1 == n && self.grow_recent() {
+            let grown = self.sessions().len();
+            if self.active + 1 < grown {
+                self.set_active(self.active + 1);
+                return self.ensure_active_visible();
+            }
         }
         let i = self.active as i32;
         let next = (i + delta).rem_euclid(n as i32) as usize;
@@ -3649,7 +3929,13 @@ impl Hud {
             return self.update(Message::ActivateSelected);
         }
         match self.tab {
-            Tab::Overview => self.update(Message::SetTab(Tab::Turns)),
+            Tab::Overview => {
+                if self.compact_child_chrome() {
+                    self.update(Message::SetTab(Tab::Timeline))
+                } else {
+                    self.update(Message::SetTab(Tab::Turns))
+                }
+            }
             Tab::Turns => {
                 let turn = self.turns_focus.or_else(|| {
                     self.filtered_turn_indices().first().and_then(|&src| {
@@ -3667,6 +3953,11 @@ impl Hud {
                 self.update(Message::SetTab(Tab::Timeline))
             }
             Tab::Timeline => {
+                if let Some(ix) = self.timeline_open.or(self.timeline_focus) {
+                    if let Some((path, sid)) = self.openable_child_at(ix) {
+                        return self.open_child_session(path, sid);
+                    }
+                }
                 if self.timeline_open.is_some() {
                     // Already in detail: step to the next event.
                     return self.nav_timeline_detail_step(1);
@@ -3833,11 +4124,14 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
         Action::new("help.toggle", "Help", Message::ToggleHelp)
             .with_shortcut(Shortcut::parse("?").expect("?")),
     );
-    for (i, tab) in Tab::ALL.iter().enumerate() {
-        let n = i + 1;
+    for n in 1u8..=5 {
         table.insert(
-            Action::new(format!("pane.{n}"), tab.label(), Message::SetTab(*tab))
-                .with_shortcut(Shortcut::parse(&format!("ctrl+{n}")).expect("pane chord")),
+            Action::new(
+                format!("pane.{n}"),
+                format!("Pane {n}"),
+                Message::PaneDigit(n),
+            )
+            .with_shortcut(Shortcut::parse(&format!("ctrl+{n}")).expect("pane chord")),
         );
     }
     table
@@ -4481,6 +4775,75 @@ mod tests {
         use icedtea::collection::ListModel;
         assert_eq!(hud.len(), SPOTLIGHT_RECENT);
         assert_eq!(hud.title(0), "Session 19");
+    }
+
+    #[test]
+    fn scroll_at_recent_tail_pages_more_sessions() {
+        let mut hud = Hud {
+            all_sessions: (0..20)
+                .map(|i| SessionRow {
+                    session_id: format!("s{i}"),
+                    title: format!("Session {i}"),
+                    sort_epoch: i as f64,
+                    ..SessionRow::default()
+                })
+                .collect(),
+            query: String::new(),
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT);
+        let _ = hud.update(Message::ListScroll(icedtea::collection::VisibleWindow {
+            start: 0,
+            end: SPOTLIGHT_RECENT,
+            scroll: 200.0,
+            viewport: 400.0,
+        }));
+        assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT * 2);
+        assert_eq!(hud.sessions()[0].session_id, "s19");
+        assert_eq!(hud.sessions()[8].session_id, "s11");
+    }
+
+    #[test]
+    fn down_at_last_recent_pages_instead_of_wrapping() {
+        let mut hud = Hud {
+            all_sessions: (0..20)
+                .map(|i| SessionRow {
+                    session_id: format!("s{i}"),
+                    title: format!("Session {i}"),
+                    sort_epoch: i as f64,
+                    ..SessionRow::default()
+                })
+                .collect(),
+            query: String::new(),
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        hud.set_active(SPOTLIGHT_RECENT - 1);
+        assert_eq!(hud.active(), SPOTLIGHT_RECENT - 1);
+        let _ = hud.nav_sessions_step(1);
+        assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT * 2);
+    }
+
+    #[test]
+    fn summon_resets_recent_to_the_first_page() {
+        let mut hud = Hud {
+            all_sessions: (0..20)
+                .map(|i| SessionRow {
+                    session_id: format!("s{i}"),
+                    sort_epoch: i as f64,
+                    ..SessionRow::default()
+                })
+                .collect(),
+            spotlight_limit: 16,
+            visible: false,
+            window_id: Some(window::Id::unique()),
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        assert_eq!(hud.sessions().len(), 16);
+        let _ = hud.show_palette();
+        assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT);
     }
 
     #[test]
@@ -6463,5 +6826,150 @@ mod tests {
         };
         let _ = hud.update(Message::WindowId(None));
         assert_eq!(hud.window_id, Some(id));
+    }
+
+    fn openable_run() -> crate::wire::SubagentRunRow {
+        crate::wire::SubagentRunRow {
+            child_session_id: "child-1".into(),
+            child_path: "/tmp/child-1".into(),
+            openable: true,
+            turn_index: Some(2),
+            subagent_type: "coder".into(),
+            ..Default::default()
+        }
+    }
+
+    fn parent_with_openable_child() -> Hud {
+        let ev = TimelineEvent {
+            index: 7,
+            event_type: "subagent_spawned".into(),
+            kind: "subagent".into(),
+            child_session_id: "child-1".into(),
+            ..Default::default()
+        };
+        Hud {
+            tab: Tab::Timeline,
+            timeline_kind: KindFilter::Subagents,
+            timeline_focus: Some(7),
+            overview_sid: "parent-1".into(),
+            overview: Some(Overview {
+                session_id: "parent-1".into(),
+                meta: crate::wire::SessionMeta {
+                    session_id: "parent-1".into(),
+                    path: "/tmp/parent-1".into(),
+                    ..Default::default()
+                },
+                turns: TurnsBlock {
+                    subagent_runs: vec![openable_run()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            timeline: vec![ev],
+            timeline_sid: "parent-1".into(),
+            ..Hud::default()
+        }
+    }
+
+    #[test]
+    fn select_timeline_on_spawn_opens_child() {
+        let mut hud = parent_with_openable_child();
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert_eq!(hud.parent_stack.len(), 1);
+        assert_eq!(hud.parent_stack[0].sid, "parent-1");
+        assert_eq!(hud.parent_stack[0].tab, Tab::Timeline);
+        assert_eq!(hud.parent_stack[0].timeline_kind, KindFilter::Subagents);
+        assert_eq!(hud.parent_stack[0].timeline_focus, Some(7));
+        assert_eq!(hud.overview_pending, "child-1");
+        assert!(hud.timeline_open.is_none());
+    }
+
+    #[test]
+    fn select_timeline_on_agent_opens_detail() {
+        let mut hud = parent_with_openable_child();
+        hud.timeline.push(TimelineEvent {
+            index: 3,
+            event_type: "agent_message_chunk".into(),
+            kind: "agent".into(),
+            ..Default::default()
+        });
+        let _ = hud.update(Message::SelectTimeline(3));
+        assert!(hud.parent_stack.is_empty());
+        assert_eq!(hud.timeline_open, Some(3));
+        assert!(hud.overview_pending.is_empty());
+    }
+
+    #[test]
+    fn select_timeline_on_unopenable_spawn_opens_detail() {
+        let mut hud = parent_with_openable_child();
+        hud.overview.as_mut().expect("overview").turns.subagent_runs[0].openable = false;
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert!(hud.parent_stack.is_empty());
+        assert_eq!(hud.timeline_open, Some(7));
+    }
+
+    #[test]
+    fn return_from_child_restores_timeline_place() {
+        let mut hud = parent_with_openable_child();
+        let _ = hud.update(Message::SelectTimeline(7));
+        assert_eq!(hud.tab, Tab::Overview);
+        let _ = hud.return_to_parent();
+        assert!(hud.parent_stack.is_empty());
+        assert_eq!(hud.tab, Tab::Timeline);
+        assert_eq!(hud.timeline_kind, KindFilter::Subagents);
+        assert_eq!(hud.timeline_focus, Some(7));
+        assert!(hud.timeline_open.is_none());
+        assert_eq!(hud.overview_pending, "parent-1");
+        assert_eq!(hud.restore_around, Some(7));
+    }
+
+    #[test]
+    fn return_from_turns_chip_restores_turns_tab() {
+        let mut hud = parent_with_openable_child();
+        hud.tab = Tab::Turns;
+        hud.turns_focus = Some(2);
+        let _ = hud.update(Message::OpenChild {
+            path: "/tmp/child-1".into(),
+            sid: "child-1".into(),
+        });
+        assert_eq!(hud.parent_stack[0].tab, Tab::Turns);
+        assert_eq!(hud.parent_stack[0].turns_focus, Some(2));
+        let _ = hud.return_to_parent();
+        assert_eq!(hud.tab, Tab::Turns);
+        assert_eq!(hud.turns_focus, Some(2));
+        assert!(hud.restore_around.is_none());
+    }
+
+    #[test]
+    fn compact_child_hides_turns_and_remaps_pane() {
+        let mut hud = parent_with_openable_child();
+        {
+            let ov = hud.overview.as_mut().expect("overview");
+            ov.meta.session_kind = "subagent".into();
+            ov.turns.turns = vec![crate::wire::TurnRow {
+                turn_index: 0,
+                ..Default::default()
+            }];
+        }
+        assert!(hud.compact_child_chrome());
+        assert_eq!(hud.visible_tabs(), Tab::CHILD);
+        assert!(hud.hide_events_turn_pick());
+        let _ = hud.update(Message::SetTab(Tab::Turns));
+        assert_eq!(hud.tab(), Tab::Timeline);
+        hud.tab = Tab::Overview;
+        let _ = hud.update(Message::PaneDigit(2));
+        assert_eq!(hud.tab(), Tab::Timeline);
+    }
+
+    #[test]
+    fn turns_chip_records_run_turn_when_focus_empty() {
+        let mut hud = parent_with_openable_child();
+        hud.tab = Tab::Turns;
+        hud.turns_focus = None;
+        let _ = hud.update(Message::OpenChild {
+            path: "/tmp/child-1".into(),
+            sid: "child-1".into(),
+        });
+        assert_eq!(hud.parent_stack[0].turns_focus, Some(2));
     }
 }

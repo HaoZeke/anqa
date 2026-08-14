@@ -43,6 +43,8 @@ pub struct SessionListItem {
     #[serde(default)]
     pub tool_call_count: i64,
     #[serde(default)]
+    pub turn_count: i64,
+    #[serde(default)]
     pub error_count: i64,
     #[serde(default)]
     pub created_at: String,
@@ -103,6 +105,8 @@ pub struct SessionMeta {
     #[serde(default)]
     pub origin: String,
     #[serde(default)]
+    pub session_kind: String,
+    #[serde(default)]
     pub created_at: String,
     #[serde(default)]
     pub updated_at: String,
@@ -150,6 +154,8 @@ pub struct SessionMeta {
     pub run_id: String,
     #[serde(default)]
     pub loop_count: i64,
+    #[serde(default)]
+    pub turn_count: i64,
     #[serde(default)]
     pub turn_in_progress: bool,
     #[serde(default)]
@@ -200,6 +206,40 @@ pub struct TurnRow {
     pub duration_seconds: Option<f64>,
     #[serde(default)]
     pub event_indexes: Vec<i64>,
+    #[serde(default)]
+    pub subagent_runs: Vec<SubagentRunRow>,
+}
+
+/// One ``subagentRuns`` row from turns / overview.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentRunRow {
+    #[serde(default)]
+    pub subagent_id: String,
+    #[serde(default)]
+    pub child_session_id: String,
+    #[serde(default)]
+    pub child_path: String,
+    #[serde(default)]
+    pub openable: bool,
+    #[serde(default)]
+    pub subagent_type: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub turn_index: Option<i64>,
+    #[serde(default)]
+    pub parent_prompt_id: String,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub tool_calls: Option<i64>,
+    #[serde(default)]
+    pub tokens_used: Option<i64>,
+    #[serde(default)]
+    pub output_preview: String,
 }
 
 /// ``session/turns`` body (also overview ``turns``).
@@ -212,6 +252,8 @@ pub struct TurnsBlock {
     pub total: i64,
     #[serde(default)]
     pub turns: Vec<TurnRow>,
+    #[serde(default)]
+    pub subagent_runs: Vec<SubagentRunRow>,
 }
 
 /// One ``timeline_event_mapping`` row.
@@ -266,6 +308,20 @@ pub struct TimelineEvent {
     pub match_field: String,
     #[serde(default)]
     pub match_snippet: String,
+    #[serde(default)]
+    pub child_session_id: String,
+    #[serde(default)]
+    pub subagent_id: String,
+    #[serde(default)]
+    pub subagent_type: String,
+    #[serde(default)]
+    pub subagent_status: String,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub tool_calls: Option<i64>,
+    #[serde(default)]
+    pub tokens_used: Option<i64>,
 }
 
 /// One ``toolFields`` row from ``session/timeline``.
@@ -488,6 +544,13 @@ impl SessionMeta {
         } else {
             &self.context_usage
         }
+    }
+
+    pub fn is_subagent(&self) -> bool {
+        self.session_kind
+            .trim()
+            .to_ascii_lowercase()
+            .starts_with("subagent")
     }
 }
 
@@ -762,6 +825,49 @@ mod tests {
             ..TurnsBlock::default()
         };
         assert!(turns.has_open_turn());
+    }
+
+    #[test]
+    fn turns_decode_subagent_runs_and_timeline_child_id() {
+        let turns = decode_turns(&serde_json::json!({
+            "sessionId": "parent",
+            "total": 1,
+            "turns": [{
+                "turnIndex": 0,
+                "subagentRuns": [{
+                    "childSessionId": "child-1",
+                    "childPath": "/tmp/child-1",
+                    "openable": true,
+                    "subagentType": "coder",
+                    "description": "worker",
+                    "status": "done"
+                }]
+            }],
+            "subagentRuns": [{
+                "childSessionId": "child-1",
+                "openable": true,
+                "status": "done"
+            }]
+        }))
+        .expect("turns");
+        assert_eq!(turns.subagent_runs[0].child_session_id, "child-1");
+        assert_eq!(turns.turns[0].subagent_runs[0].subagent_type, "coder");
+        assert!(turns.turns[0].subagent_runs[0].openable);
+        let page = decode_timeline_page(&serde_json::json!({
+            "sessionId": "parent",
+            "total": 1,
+            "offset": 0,
+            "limit": 1,
+            "events": [{
+                "index": 2,
+                "type": "subagent_spawned",
+                "childSessionId": "child-1",
+                "durationMs": 250
+            }]
+        }))
+        .expect("page");
+        assert_eq!(page.events[0].child_session_id, "child-1");
+        assert_eq!(page.events[0].duration_ms, Some(250));
     }
 
     #[test]

@@ -214,6 +214,56 @@ async def test_browser_tabs_and_stats_turns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_summary_turn_row_opens_timeline_at_start(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-summary")
+        screen._update_stats()
+        await wait_until(
+            pilot,
+            lambda: bool(screen._summary_turn_first),
+            description="turn first-event map filled",
+        )
+        turn_i, ev_i = sorted(screen._summary_turn_first.items())[0]
+        screen._jump_timeline_to_event(ev_i, turn_index=turn_i)
+        tabs = screen.query_one("#browser-tabs", TabbedContent)
+        await wait_until(
+            pilot,
+            lambda: tabs.active == "tab-timeline",
+            description="timeline tab after turn jump",
+        )
+        await wait_until(
+            pilot,
+            lambda: cursor_row_key(screen.query_one("#timeline-list", TimelineTable)) == str(ev_i),
+            description="timeline cursor on turn start",
+        )
+
+
+@pytest.mark.asyncio
+async def test_summary_pairs_stack_when_narrow(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-summary")
+        scroll = screen.query_one("#summary-scroll")
+        screen._SUMMARY_STACK_WIDTH = 200
+        screen._sync_summary_stack()
+        assert scroll.has_class("summary-stack")
+        screen._SUMMARY_STACK_WIDTH = 40
+        screen._sync_summary_stack()
+        assert not scroll.has_class("summary-stack")
+
+
+@pytest.mark.asyncio
 async def test_browser_idle_awaiting_skips_live_timeline(tmp_path: Path) -> None:
     """Awaiting follow-up keeps the pending bar but does not need timeline polls."""
     work = tmp_path / "work"

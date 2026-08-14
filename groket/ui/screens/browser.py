@@ -10,7 +10,7 @@ from pathlib import Path
 from textual import on, work
 from textual.app import ComposeResult
 
-from ..data_table import style_data_table
+from ..data_table import cursor_row_key, restore_cursor, style_data_table
 from ..i18n import join_ui, t
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_tu
 from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
 from ...integrations.control import ControlError
-from ...models import Flag, SessionMeta, TraceEvent
+from ...models import Flag, SessionMeta, ToolInputBag, TraceEvent
 from ...notes import (
     NoteEntry,
     NotesConflict,
@@ -48,6 +48,12 @@ from ...notes import (
     upsert_note,
 )
 from ...parser import load_session_meta, parse_timeline
+from ...session.subagents import (
+    SubagentRun,
+    is_subagent_session_dir,
+    subagent_runs_for_session,
+)
+from ...session.turns import event_display_turn_map, segment_timeline_turns
 from ...session.workspace_diff import format_diff_meta_line, load_workspace_diff
 from ...utils import fmt_duration
 from .. import text as U
@@ -65,7 +71,7 @@ from ..panel_render import (
 )
 from ..report_panes import split_report_markdown_panes
 from ..selectable_static import SelectableStatic, is_extractable_static
-from ..session_summary import assistant_text_from_timeline, render_session_summary
+from ..session_summary import render_session_summary
 from ..styles import SEVERITY_LABEL, severity_style
 from ..tab_panes import TabPaneNavigation
 from ..threads import call_ui, resolve_ui_app
@@ -168,6 +174,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         from ...session.context_samples import ContextSampleStore
 
         self._context_samples = ContextSampleStore()
+        self._subagent_runs: list[SubagentRun] = []
+        self._summary_turn_first: dict[int, int] = {}
 
     def _analysis_svc(self):
         """Use the app's analysis service (work_dir / config), not a bare default."""
@@ -218,6 +226,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                                     (U.user_messages(), "user"),
                                     (U.assistant_messages(), "asst"),
                                     (U.session_markers(), "sess"),
+                                    (t("ui-subagents-filter"), "subagents"),
                                     (U.errors_only(), "errors"),
                                 ],
                                 value="all",
@@ -243,16 +252,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 with VerticalScroll(id="summary-scroll"):
                     with Vertical(classes="panel-card"):
                         yield SelectableStatic(id="summary-content")
-                        # Share open is on the footer / ``s`` — no permanent tip box.
-                    with Vertical(classes="panel-card"):
-                        yield Static(t("ui-turns-1"), classes="panel-card-title")
-                        yield DataTable(id="stats-turns-table")
-                    with Vertical(classes="panel-card"):
-                        yield Static(U.event_types(), classes="panel-card-title")
-                        yield DataTable(id="stats-events-table")
-                    with Vertical(classes="panel-card"):
-                        yield Static(U.tool_timing(), classes="panel-card-title")
-                        yield DataTable(id="stats-tools-table")
+                    with Horizontal(id="summary-turns-pair", classes="summary-pair"):
+                        with Vertical(id="summary-turns-card", classes="panel-card"):
+                            yield Static(t("ui-turns-1"), classes="panel-card-title")
+                            yield DataTable(id="stats-turns-table")
+                        with Vertical(id="summary-subagents-card", classes="panel-card"):
+                            yield Static(t("ui-subagent-runs"), classes="panel-card-title")
+                            yield DataTable(id="stats-subagents-table")
+                    with Horizontal(id="summary-stats-pair", classes="summary-pair"):
+                        with Vertical(classes="panel-card"):
+                            yield Static(U.event_types(), classes="panel-card-title")
+                            yield DataTable(id="stats-events-table")
+                        with Vertical(classes="panel-card"):
+                            yield Static(U.tool_timing(), classes="panel-card-title")
+                            yield DataTable(id="stats-tools-table")
                     with Vertical(classes="panel-card"):
                         yield Static(U.time_breakdown(), classes="panel-card-title")
                         yield DataTable(id="stats-phases-table")
@@ -309,6 +322,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             style_data_table(self.query_one("#findings-table", DataTable))
             for tid in (
                 "#stats-turns-table",
+                "#stats-subagents-table",
                 "#stats-events-table",
                 "#stats-tools-table",
                 "#stats-phases-table",
@@ -1218,6 +1232,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 errors_only=False,
                 search_query=search,
             )
+        elif mode == "subagents":
+            self._apply_filter(
+                event_types=set(et.SUBAGENT_TYPES),
+                errors_only=False,
+                search_query=search,
+            )
         elif mode == "errors":
             self._apply_filter(errors_only=True, search_query=search)
         else:
@@ -1700,6 +1720,181 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             for cid in finding.all_tool_call_ids:
                 if cid not in self._findings_by_call:
                     self._findings_by_call[cid] = finding
+        self._rebuild_subagent_runs()
+
+    def _rebuild_subagent_runs(self) -> None:
+        """Refresh turn-linked runs from the current parent timeline."""
+        if not self.timeline:
+            self._subagent_runs = []
+            return
+        segs = segment_timeline_turns(self.timeline)
+        turn_by_index = event_display_turn_map(segs)
+        self._subagent_runs = subagent_runs_for_session(
+            self.session_dir, self.timeline, segs, turn_by_index
+        )
+
+    def _subagent_status_label(self, status: str) -> str:
+        key = {
+            "running": "ui-status-running",
+            "completed": "status-complete",
+            "done": "status-complete",
+            "cancelled": "status-cancelled",
+            "failed": "ui-status-failed",
+        }.get(status, "")
+        return t(key) if key else (status or "—")
+
+    def _update_subagents_table(self) -> None:
+        try:
+            table = self.query_one("#stats-subagents-table", DataTable)
+        except Exception:
+            return
+        style_data_table(table)
+        table.clear(columns=True)
+        table.add_columns(
+            t("col-index"),
+            t("col-type"),
+            t("ui-label"),
+            t("col-status"),
+            t("ui-dur"),
+            t("ui-tools"),
+        )
+        if not self._subagent_runs:
+            table.add_row("—", "—", t("ui-subagent-none"), "—", "—", "—")
+            return
+        for i, run in enumerate(self._subagent_runs):
+            dur = self._fmt_dur(run.duration_ms / 1000.0) if run.duration_ms is not None else "—"
+            tools = str(run.tool_calls) if run.tool_calls is not None else "—"
+            turn = str(run.parent_turn_index) if run.parent_turn_index is not None else "—"
+            table.add_row(
+                turn,
+                run.subagent_type or "—",
+                run.description or run.child_session_id or run.subagent_id or "—",
+                self._subagent_status_label(run.status),
+                dur,
+                tools,
+                key=f"sub-{i}",
+            )
+
+    def _focused_subagent_run(self) -> SubagentRun | None:
+        focused = getattr(self, "focused", None)
+        if isinstance(focused, DataTable) and focused.id == "stats-subagents-table":
+            raw = cursor_row_key(focused) or ""
+            if raw.startswith("sub-"):
+                try:
+                    idx = int(raw.split("-", 1)[1])
+                except ValueError:
+                    idx = -1
+                if 0 <= idx < len(self._subagent_runs):
+                    return self._subagent_runs[idx]
+        ev = self._current_event
+        if ev is None:
+            return None
+        return self._run_for_bookend_event(ev)
+
+    def _run_for_bookend_event(self, ev: TraceEvent) -> SubagentRun | None:
+        if ev.event_type not in ("subagent_spawned", "subagent_finished"):
+            return None
+        child = ""
+        if isinstance(ev.raw_input, ToolInputBag):
+            child = ev.raw_input.as_str("childSessionId") or ev.raw_input.as_str("child_session_id")
+        if not child:
+            return None
+        for run in self._subagent_runs:
+            if run.child_session_id == child:
+                return run
+        return None
+
+    def _open_subagent_run(self, run: SubagentRun | None) -> None:
+        if run is None:
+            return
+        if not run.openable or run.child_path is None:
+            self.notify(t("ui-subagent-missing"))
+            return
+        opener = getattr(self.app, "open_session_path", None)
+        if not callable(opener):
+            return
+        opener(run.child_path)
+        self.notify(t("ui-subagent-opened"))
+
+    def _focused_subagent_path(self) -> Path | None:
+        run = self._focused_subagent_run()
+        if run is None or not run.openable or run.child_path is None:
+            return None
+        return run.child_path
+
+    def action_open_subagent(self) -> None:
+        """Open the highlighted subagent run as a normal session."""
+        self._open_subagent_run(self._focused_subagent_run())
+
+    @on(DataTable.RowSelected, "#stats-subagents-table")
+    def _on_subagent_row_selected(self, event: DataTable.RowSelected) -> None:
+        raw = str(event.row_key.value) if event.row_key is not None else ""
+        if not raw.startswith("sub-"):
+            return
+        try:
+            idx = int(raw.split("-", 1)[1])
+        except ValueError:
+            return
+        if not (0 <= idx < len(self._subagent_runs)):
+            return
+        run = self._subagent_runs[idx]
+        if not run.openable or run.child_path is None:
+            self.notify(t("ui-subagent-missing"))
+            return
+        opener = getattr(self.app, "open_session_path", None)
+        if callable(opener):
+            opener(run.child_path)
+
+    @on(DataTable.RowSelected, "#stats-turns-table")
+    def _on_turn_row_selected(self, event: DataTable.RowSelected) -> None:
+        raw = str(event.row_key.value) if event.row_key is not None else ""
+        if not raw.startswith("turn-"):
+            return
+        try:
+            turn_i = int(raw.split("-")[1])
+        except (IndexError, ValueError):
+            return
+        first = self._summary_turn_first.get(turn_i)
+        if first is None:
+            return
+        self._jump_timeline_to_event(first, turn_index=turn_i)
+
+    def _jump_timeline_to_event(self, event_index: int, *, turn_index: int | None = None) -> None:
+        """Open Timeline and place the cursor on *event_index*."""
+        if turn_index is not None:
+            self._turn_filter = str(turn_index)
+            with suppress(Exception):
+                sel = self.query_one("#timeline-turn-select", Select)
+                if sel.display:
+                    sel.value = str(turn_index)
+        self._ensure_timeline_tab()
+        self._apply_timeline_filters()
+
+        def _place() -> None:
+            try:
+                tl = self.query_one("#timeline-list", TimelineTable)
+                restore_cursor(tl, str(event_index), scroll=True)
+                focus_primary_list(tl)
+                ev = next((e for e in tl.events if int(e.index) == int(event_index)), None)
+                if ev is not None:
+                    self._current_event = ev
+                    self._paint_selected_event_detail()
+            except Exception:
+                logger.debug("jump to turn start", exc_info=True)
+
+        self.call_after_refresh(lambda: self.call_after_refresh(_place))
+
+    _SUMMARY_STACK_WIDTH = 88
+
+    def on_resize(self) -> None:
+        self._sync_summary_stack()
+
+    def _sync_summary_stack(self) -> None:
+        try:
+            scroll = self.query_one("#summary-scroll")
+        except Exception:
+            return
+        scroll.set_class(self.size.width < self._SUMMARY_STACK_WIDTH, "summary-stack")
 
     def _set_title_from_meta(self) -> None:
         label = self.meta.label if self.meta else self.session_dir.name
@@ -1707,17 +1902,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         # Full Fluent extras (not edge-space fragments). LIVE only while the agent
         # is writing traces — not for idle awaiting_follow_up or settled outcomes.
         outcome_bit = ""
+        if is_subagent_session_dir(self.session_dir):
+            outcome_bit = t("title-browser-extra-subagent")
         if self.meta and self.meta.turn_outcome:
             oc = (self.meta.turn_outcome or "").strip()
             oc_key = oc.lower().replace(" ", "_")
             if oc_key == "awaiting_follow_up":
-                outcome_bit = t("title-browser-extra-awaiting")
+                outcome_bit = join_ui(outcome_bit, t("title-browser-extra-awaiting"))
             elif oc_key in ("ending", "finishing"):
-                outcome_bit = t("title-browser-extra-ending")
+                outcome_bit = join_ui(outcome_bit, t("title-browser-extra-ending"))
             elif oc_key in ("running", "in_progress", "pending"):
-                outcome_bit = t("title-browser-extra-live-turn", outcome=oc)
+                outcome_bit = join_ui(outcome_bit, t("title-browser-extra-live-turn", outcome=oc))
             else:
-                outcome_bit = t("title-browser-extra-turn", outcome=oc)
+                outcome_bit = join_ui(outcome_bit, t("title-browser-extra-turn", outcome=oc))
         self.title = t(
             "title-browser-session",
             label=label,
@@ -1952,8 +2149,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _update_summary_tab(self) -> None:
         if not self.meta:
             return
-        asst = assistant_text_from_timeline(self.timeline)
-        renderable = render_session_summary(self.meta, self.timeline, assistant_text=asst)
+        renderable = render_session_summary(self.meta, self.timeline)
         try:
             widget = self.query_one("#summary-content", Static)
             if self._widget_has_text_selection(widget):
@@ -2555,6 +2751,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
         except Exception:
             turn_rows = []
+        self._update_subagents_table()
         try:
             turns_table = self.query_one("#stats-turns-table", DataTable)
             style_data_table(turns_table)
@@ -2565,14 +2762,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 t("ui-outcome"),
                 t("ui-events"),
                 t("ui-tools"),
-                t("ui-tool-err"),
-                t("ui-user"),
-                t("ui-asst"),
                 t("ui-dur"),
-                t("ui-context"),
-                t("ui-top-tools"),
-                t("ui-span"),
             )
+            self._summary_turn_first = {}
             if turn_rows:
                 seen_turn_keys: set[str] = set()
                 for i, row in enumerate(turn_rows):
@@ -2580,11 +2772,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     dur_s = (
                         self._fmt_dur(float(dur_raw)) if isinstance(dur_raw, (int, float)) else "—"
                     )
-                    fi, li = (row.get("first_index"), row.get("last_index"))
-                    span = f"#{fi}–#{li}" if fi is not None and li is not None else "—"
-                    ctx = str(row.get("context") or "").strip() or "—"
-                    # Unique keys even when turn index is missing/duplicated.
-                    tkey = f"turn-{row.get('turn', i)}-{i}"
+                    turn_i = row.get("turn", i)
+                    first = row.get("first_index")
+                    if isinstance(turn_i, int) and isinstance(first, int):
+                        self._summary_turn_first[turn_i] = first
+                    tkey = f"turn-{turn_i}-{i}"
                     if tkey in seen_turn_keys:
                         continue
                     seen_turn_keys.add(tkey)
@@ -2594,13 +2786,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         str(row.get("outcome", "—")),
                         str(row.get("events", 0)),
                         str(row.get("tools", 0)),
-                        str(row.get("tool_errors", 0) or "—"),
-                        str(row.get("users", 0)),
-                        str(row.get("assistants", 0)),
                         dur_s,
-                        ctx[:28],
-                        str(row.get("top_tools", "—"))[:40],
-                        span,
                         key=tkey,
                     )
             else:
@@ -2611,13 +2797,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     "0",
                     "0",
                     "—",
-                    "0",
-                    "0",
-                    "—",
-                    "—",
-                    "—",
-                    "—",
                 )
+        except Exception:
+            pass
+        show_turns = len(turn_rows) > 1
+        show_subs = bool(self._subagent_runs)
+        try:
+            self.query_one("#summary-turns-card").display = show_turns
+            self.query_one("#summary-subagents-card").display = show_subs
+            self.query_one("#summary-turns-pair").display = show_turns or show_subs
         except Exception:
             pass
         ev_table = self.query_one("#stats-events-table", DataTable)
@@ -2625,7 +2813,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         ev_table.clear(columns=True)
         ev_table.add_columns(U.col_event_type(), U.col_count())
         for etype, count in type_counts.most_common():
-            ev_table.add_row(etype, str(count))
+            ev_table.add_row(et.type_label(etype), str(count))
         if not type_counts:
             ev_table.add_row("(none)", "0")
         tool_cat: dict[str, str] = {}
@@ -2652,9 +2840,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             t("ui-errors-2"),
             t("ui-total-1"),
             t("ui-avg"),
-            t("ui-min"),
-            t("ui-max"),
-            t("ui-kind"),
         )
         for tool, count in sorted(tool_counts.items(), key=_tool_sort_key):
             errs = tool_errors.get(tool, 0)
@@ -2662,20 +2847,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if durs:
                 total_s = self._fmt_dur(sum(durs))
                 avg_s = self._fmt_dur(sum(durs) / len(durs))
-                mn_s = self._fmt_dur(min(durs))
-                mx_s = self._fmt_dur(max(durs))
             else:
-                total_s = avg_s = mn_s = mx_s = "—"
-            cat = tool_cat.get(tool, "")
-            if cat == "mcp_bridge":
-                kind_s = t("ui-mcp-bridge")
-            elif cat and cat != "builtin":
-                kind_s = cat
-            else:
-                kind_s = "host"
-            tools_table.add_row(
-                tool, str(count), str(errs) if errs else "—", total_s, avg_s, mn_s, mx_s, kind_s
-            )
+                total_s = avg_s = "—"
+            tools_table.add_row(tool, str(count), str(errs) if errs else "—", total_s, avg_s)
         all_durs = [d for dlist in tool_durations.values() for d in dlist]
         if all_durs:
             tools_table.add_row(
@@ -2684,9 +2858,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 str(sum(tool_errors.values()) or "—"),
                 self._fmt_dur(sum(all_durs)),
                 "—",
-                "—",
-                "—",
-                "",
             )
         phase_durations: dict[str, float] = defaultdict(float)
         phase_labels = {
@@ -2722,6 +2893,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 phases_table.add_row("overhead", self._fmt_dur(unaccounted), "—")
         else:
             phases_table.add_row("(none)", "—", "—")
+
+    @on(DataTable.RowSelected, "#timeline-list")
+    def _on_timeline_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Enter or click on a spawn/finish bookend opens that child."""
+        raw = str(event.row_key.value) if event.row_key is not None else ""
+        if not raw.isdigit():
+            return
+        idx = int(raw)
+        ev = next((e for e in self.timeline if int(e.index) == idx), None)
+        if ev is None:
+            return
+        self._open_subagent_run(self._run_for_bookend_event(ev))
 
     @on(TimelineTable.EventSelected)
     def _on_event_selected(self, message: TimelineTable.EventSelected) -> None:
@@ -2795,7 +2978,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception as exc:
             self.notify(U.share_failed(str(exc)), severity="error")
 
-    _TIMELINE_VIEWS: tuple[str, ...] = ("all", "tools", "user", "asst", "sess", "errors")
+    _TIMELINE_VIEWS: tuple[str, ...] = (
+        "all",
+        "tools",
+        "user",
+        "asst",
+        "sess",
+        "subagents",
+        "errors",
+    )
 
     def _sync_timeline_view_select(self, mode: str) -> None:
         try:
@@ -3002,10 +3193,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if n_segs == self._last_turn_segment_count and sel.display:
             self._last_turn_segment_count = n_segs
             return
-        # Newest turns first (same order as the Summary turns table).
+        # Chronological (same order as the Summary turns table).
         # Prefer harness turn_number when present so labels match Grok (turn 42).
         options: list[tuple[str, str]] = [(t("turn-filter-all"), "all")]
-        for seg in reversed(self._turn_segments):
+        for seg in self._turn_segments:
             label_n = int(seg.turn_number) if seg.turn_number is not None else int(seg.turn_index)
             options.append((t("turn-filter-n", n=label_n), str(seg.turn_index)))
         sel.display = True

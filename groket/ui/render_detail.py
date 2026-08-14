@@ -11,7 +11,8 @@ from pathlib import Path
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.rule import Rule
-from rich.syntax import Syntax
+from rich.style import Style
+from rich.syntax import Syntax, SyntaxTheme
 from rich.text import Text
 from textual.app import App
 
@@ -20,12 +21,14 @@ from ..analysis.base import Finding
 from ..models import Flag, JsonObject, JsonValue, ToolInputBag, TraceEvent
 from ..tool_display import (
     display_tool_output,
+    format_tool_display,
     image_result_message,
     image_result_path,
 )
 from ..utils import fmt_duration
 from .i18n import t
-from .styles import severity_style
+from .styles import EVENT_TYPE_STYLE as KIND_STYLES
+from .styles import SYNTAX_THEME_DARK, severity_style, syntax_theme_for_app, tool_style
 
 logger = logging.getLogger(__name__)
 # Regexes stay in Python (not Fluent — catalogs are for UI copy only).
@@ -92,9 +95,6 @@ def _looks_like_console_output(text: str, tool_name: str = "") -> bool:
     return noisy > 8
 
 
-from .styles import EVENT_TYPE_STYLE as KIND_STYLES
-from .styles import SYNTAX_THEME_DARK, syntax_theme_for_app, tool_style
-
 _EXT_LANG = {
     ".py": "python",
     ".pyi": "python",
@@ -144,15 +144,38 @@ def set_static_renderable(widget, renderable: RenderableType) -> None:
         widget.update(Text(str(renderable)))
 
 
+class _SurfaceSyntaxTheme(SyntaxTheme):
+    """Pygments token colors without the style's code-block background.
+
+    Pygments paints ``bgcolor`` on every token. With ``background_color=
+    "default"`` Rich then adds ``on default`` (often black) only behind
+    characters, so the panel color shows in the rest of the line.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._inner = Syntax.get_theme(name)
+
+    def get_style_for_token(self, token_type: tuple[str, ...]) -> Style:
+        st = self._inner.get_style_for_token(token_type)
+        return Style(
+            color=st.color,
+            bold=st.bold,
+            italic=st.italic,
+            underline=st.underline,
+        )
+
+    def get_background_style(self) -> Style:
+        return Style.null()
+
+
 def _syntax(code: str, lexer: str, line_numbers: bool = False, *, app: App | None = None) -> Syntax:
-    theme = syntax_theme_for_app(app) if app is not None else SYNTAX_THEME_DARK
+    name = syntax_theme_for_app(app) if app is not None else SYNTAX_THEME_DARK
     return Syntax(
         code or "",
         lexer,
-        theme=theme,
+        theme=_SurfaceSyntaxTheme(name),
         line_numbers=line_numbers,
         word_wrap=True,
-        background_color="default",
     )
 
 
@@ -725,7 +748,7 @@ def render_tool_detail(
     head = Text()
     head.append(f"#{index} ", style="dim")
     head.append("tool ", style="dim")
-    head.append(tname, style=style if not is_error else "bold red")
+    head.append(format_tool_display(tname), style=style if not is_error else "bold red")
     if is_error:
         head.append(" ✗ ERROR", style="bold red")
     # Avoid redundant "(tool_call)" / "(tool_result)" after the tool name.
@@ -959,6 +982,14 @@ def render_event_detail(
         ]
     elif ev.event_type == "plan":
         chunks += [Text(""), Rule(t("ui-plan"), style="bright_black"), Text(body, style="magenta")]
+    elif ev.event_type in et.SUBAGENT_TYPES:
+        chunks += [
+            Text(""),
+            Rule(t("ui-subagent"), style="bright_black"),
+            Text(body) if body.strip() else Text("(empty)", style="dim"),
+            Text(""),
+            Text(t("ui-open-child-enter"), style="bold"),
+        ]
     elif ev.event_type == "subagent" and body.strip():
         chunks += [
             Text(""),

@@ -151,7 +151,7 @@ from .pilot_helpers import assert_rich_contains, rich_plain
 class TestToolMarkup:
     def test_known_tool(self):
         markup = tool_markup("run_terminal_command")
-        assert "run_terminal_command" in markup
+        assert "run terminal command" in markup
 
     def test_truncates_long_name(self):
         markup = tool_markup("a" * 50, max_len=10)
@@ -199,6 +199,8 @@ class TestRenderToolDetail:
         lex = syntaxes[-1].lexer
         lex_name = (getattr(lex, "name", None) or type(lex).__name__ or "").lower()
         assert "python" in lex_name
+        assert syntaxes[-1].background_color is None
+        assert syntaxes[-1]._theme.get_background_style().bgcolor is None
 
     def test_read_file_large_output_still_syntax(self):
         """Mid-truncated large reads must not fall back to plain Text."""
@@ -441,7 +443,7 @@ class TestRenderEventDetail:
         )
         result = render_event_detail(ev, duration=5.0)
         plain = rich_plain(result)
-        assert "run_terminal_command" in plain or "sleep 5" in plain or "5" in plain
+        assert "run terminal command" in plain or "sleep 5" in plain or "5" in plain
 
     def test_turn_index_in_detail_meta(self):
         """Selected-event detail shows sequential operator turn in the meta line."""
