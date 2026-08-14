@@ -305,6 +305,62 @@ def test_render_json_document_is_structured(tmp_path: Path) -> None:
     assert payload["promptIndexes"] == [4, 9]
     assert payload["prompts"][0]["promptIndex"] == 4
     assert payload["prompts"][0]["messages"][0]["role"] == "user"
+    assert payload["subagentRuns"] == []
+
+
+def test_render_includes_subagent_runs_block(tmp_path: Path) -> None:
+    parent = tmp_path / "parent-ed"
+    child = tmp_path / "child-ed"
+    parent.mkdir()
+    child.mkdir()
+    (parent / "summary.json").write_text(
+        json.dumps({"sessionId": "parent-ed", "title": "Parent"}),
+        encoding="utf-8",
+    )
+    (child / "summary.json").write_text(
+        json.dumps({"sessionId": "child-ed", "session_kind": "subagent", "title": "Child"}),
+        encoding="utf-8",
+    )
+    (child / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    (parent / "subagents" / "child-ed").mkdir(parents=True)
+    (parent / "subagents" / "child-ed" / "meta.json").write_text(
+        json.dumps(
+            {
+                "child_session_id": "child-ed",
+                "subagent_type": "coder",
+                "description": "worker",
+                "status": "completed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (parent / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "subagent_spawned",
+                        "childSessionId": "child-ed",
+                        "subagentType": "coder",
+                        "description": "worker",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    org = _render_editor_document(parent, format="org")
+    assert "* Subagent runs" in org.text
+    assert f":GROKET_CHILD_SESSION: {child}" in org.text
+    assert "- On disk: yes" in org.text
+    md = _render_editor_document(parent, format="markdown")
+    assert "## Subagent runs" in md.text
+    assert f"child-session={child}" in md.text
+    payload = json.loads(_render_editor_document(parent, format="json").text)
+    assert payload["subagentRuns"][0]["childSessionId"] == "child-ed"
+    assert payload["subagentRuns"][0]["openable"] is True
 
 
 def test_render_rejects_unknown_format(tmp_path: Path) -> None:

@@ -12,7 +12,17 @@ from .. import event_types as et
 from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
 from ..parser import load_session_meta, parse_timeline
-from ..session.turns import TurnSegment, is_operator_user_event, segment_timeline_turns
+from ..session.subagents import (
+    SubagentRun,
+    subagent_run_mapping,
+    subagent_runs_for_session,
+)
+from ..session.turns import (
+    TurnSegment,
+    event_display_turn_map,
+    is_operator_user_event,
+    segment_timeline_turns,
+)
 
 _FENCE_RUN = re.compile(r"`+")
 _ORG_ESCAPE_RE = re.compile(r"^,*(\*|#\+)")
@@ -275,6 +285,7 @@ def _render_org(
     segments: list[TurnSegment],
     notes_by_turn: dict[int, list[NoteEntry]],
     schema: NotesSchema,
+    runs: list[SubagentRun],
 ) -> str:
     lines = [
         f"#+TITLE: {title}",
@@ -291,6 +302,7 @@ def _render_org(
         f"- Events: {event_count}",
         "",
     ]
+    lines.extend(_render_subagent_runs_org(runs))
     for segment in segments:
         lines.extend(
             _render_segment_org(segment, notes_by_turn.get(segment.turn_index, []), schema)
@@ -308,6 +320,7 @@ def _render_markdown(
     segments: list[TurnSegment],
     notes_by_turn: dict[int, list[NoteEntry]],
     schema: NotesSchema,
+    runs: list[SubagentRun],
 ) -> str:
     lines = [
         "---",
@@ -325,6 +338,7 @@ def _render_markdown(
         f"- Events: {event_count}",
         "",
     ]
+    lines.extend(_render_subagent_runs_md(runs))
     for segment in segments:
         lines.extend(_render_segment_md(segment, notes_by_turn.get(segment.turn_index, []), schema))
     return "\n".join(lines).rstrip() + "\n"
@@ -353,6 +367,60 @@ def _note_json(note: NoteEntry) -> JsonObject:
     }
 
 
+def _render_subagent_runs_org(runs: list[SubagentRun]) -> list[str]:
+    if not runs:
+        return []
+    lines = ["* Subagent runs", ""]
+    for run in runs:
+        label = run.subagent_type or "subagent"
+        if run.description:
+            label = f"{label} — {run.description}"
+        child = run.child_session_id or run.subagent_id
+        ref = str(run.child_path) if run.openable and run.child_path is not None else child
+        on_disk = "yes" if run.openable else "no"
+        lines.extend(
+            [
+                f"** {label}",
+                ":PROPERTIES:",
+                f":GROKET_CHILD_SESSION: {ref}",
+                f":GROKET_CHILD_OPENABLE: {'t' if run.openable else 'nil'}",
+                ":END:",
+                f"- Status: {run.status or 'running'}",
+                f"- On disk: {on_disk}",
+                "",
+            ]
+        )
+    return lines
+
+
+def _render_subagent_runs_md(runs: list[SubagentRun]) -> list[str]:
+    if not runs:
+        return []
+    lines = ["## Subagent runs", ""]
+    for run in runs:
+        label = run.subagent_type or "subagent"
+        if run.description:
+            label = f"{label} — {run.description}"
+        child = run.child_session_id or run.subagent_id
+        ref = str(run.child_path) if run.openable and run.child_path is not None else child
+        on_disk = "yes" if run.openable else "no"
+        lines.extend(
+            [
+                f"### {label}",
+                _md_comment(
+                    **{
+                        "child-session": ref,
+                        "child-openable": 1 if run.openable else 0,
+                    }
+                ),
+                f"- Status: {run.status or 'running'}",
+                f"- On disk: {on_disk}",
+                "",
+            ]
+        )
+    return lines
+
+
 def _render_json(
     session_id: str,
     revision: str,
@@ -363,6 +431,7 @@ def _render_json(
     prompt_indexes: tuple[int, ...],
     segments: list[TurnSegment],
     notes_by_turn: dict[int, list[NoteEntry]],
+    runs: list[SubagentRun],
 ) -> str:
     prompts: list[JsonValue] = []
     for segment in segments:
@@ -392,6 +461,7 @@ def _render_json(
         "eventCount": event_count,
         "promptIndexes": list(prompt_indexes),
         "prompts": prompts,
+        "subagentRuns": [subagent_run_mapping(run) for run in runs],
     }
     return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
@@ -427,6 +497,11 @@ def render_editor_document(
         event_count,
     ) = _load_session_bundle(session_dir)
 
+    events = [event for segment in segments for event in segment.events]
+    runs = subagent_runs_for_session(
+        session_dir, events, segments, event_display_turn_map(segments)
+    )
+
     if fmt == "org":
         text = _render_org(
             session_id,
@@ -438,6 +513,7 @@ def render_editor_document(
             segments,
             notes_by_turn,
             schema,
+            runs,
         )
     elif fmt == "markdown":
         text = _render_markdown(
@@ -450,6 +526,7 @@ def render_editor_document(
             segments,
             notes_by_turn,
             schema,
+            runs,
         )
     else:
         text = _render_json(
@@ -462,6 +539,7 @@ def render_editor_document(
             prompt_indexes,
             segments,
             notes_by_turn,
+            runs,
         )
 
     return EditorDocument(

@@ -763,7 +763,7 @@ local function session_help()
   local show = (ll == " ") and "<Space>" or ll
   notify(
     string.format(
-      "Groket: %sc save · %ss all · %sn new · %sk del · %so prompt · %sr refresh · %sh highlight (%s) · :w all",
+      "Groket: %sc save · %ss all · %sn new · %sk del · %so child/prompt · %sr refresh · %sh highlight (%s) · :w all",
       show,
       show,
       show,
@@ -1723,6 +1723,12 @@ function M.open_prompt_at_cursor()
       error("not a groket session buffer")
     end
     local row = vim.api.nvim_win_get_cursor(0)[1]
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local child = meta_near_row(lines, row, "child-session")
+    if child ~= nil and child ~= "" then
+      M.open_session(child)
+      return
+    end
     local prompt_index = prompt_index_at_row(buf, row)
     if prompt_index == nil then
       error("cursor is not inside a prompt")

@@ -601,6 +601,14 @@ argument, prompt for QUERY first."
      (groket-connect) "session/open"
      `(:session ,groket-session-reference :promptIndex ,prompt-index))))
 
+(defun groket-open-at-point ()
+  "Open the subagent child at point, or select the prompt in the TUI."
+  (interactive)
+  (let ((child (groket--ancestor-property "GROKET_CHILD_SESSION")))
+    (if (and child (not (string-empty-p child)))
+        (groket-open-session child)
+      (groket-open-prompt-at-point))))
+
 (defun groket--rendered-note-id-p (note-id)
   "Return non-nil when NOTE-ID belongs to the rendered document."
   (and note-id (member note-id groket--rendered-note-ids) t))
@@ -752,7 +760,7 @@ The TUI terminal buffer stays: it belongs to the user, not to this client."
   "C-c C-r" #'groket-refresh
   "C-c C-n" #'groket-new-note
   "C-c C-k" #'groket-delete-note
-  "C-c C-o" #'groket-open-prompt-at-point
+  "C-c C-o" #'groket-open-at-point
   "C-c C-c" #'groket-save-note
   "C-x C-s" #'groket-save-buffer)
 
@@ -761,7 +769,7 @@ The TUI terminal buffer stays: it belongs to the user, not to this client."
 
 Transcript is read-only Markdown in source blocks; only note field bodies edit.
 Keys: C-c C-c save note, C-x C-s save all, C-c C-n new note, C-c C-k delete,
-C-c C-o select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
+C-c C-o open child or select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
   (setq-local write-contents-functions '(groket-save-buffer))
   (add-hook 'kill-buffer-hook #'groket--kill-buffer-hook nil t)
   (setq-local org-src-fontify-natively t)
