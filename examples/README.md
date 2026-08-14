@@ -7,7 +7,8 @@ them. Copy into `~/.groket/` or pass paths explicitly. Nothing under
 | Pack | What it teaches | Install / use |
 |------|-----------------|---------------|
 | [`detection/`](detection/) | Detectors (`@detector`) + rule YAML | `~/.groket/detectors/` + `~/.groket/rules/` |
-| [`analysis/`](analysis/) | Analysis `Analyzer` plugins + sample configs | `~/.groket/plugins/` + `config.json` |
+| [`analysis/`](analysis/) | Analysis `Analyzer` plugins + sample configs | `~/.groket/plugins/` + `config.toml` |
+| [`config/`](config/) | Prefs TOML (`config.toml`) | `~/.groket/config.toml` |
 | [`tasks/`](tasks/) | Batch task catalogs | `groket batch -t <file>` |
 | [`personas/`](personas/) | Persona JSON (e.g. marketplace plugins) | `~/.groket/personas/` |
 | [`notes/`](notes/) | Operator notes schema TOML (field list) | `~/.groket/notes_schema.toml` |

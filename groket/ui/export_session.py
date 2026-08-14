@@ -113,7 +113,7 @@ def start_export_with_profile_picker(
 def start_export_smart(owner: Screen | App, session_dir: Path) -> None:
     """Export with configured profile, or ask once when none is configured.
 
-    If ``export.default_profile`` is set in config.json, export immediately.
+    If ``export.default_profile`` is set in config.toml, export immediately.
     Otherwise open the profile picker and save the choice as the default so
     the next ``E`` is silent.
     """

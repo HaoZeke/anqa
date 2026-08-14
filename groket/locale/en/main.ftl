@@ -192,7 +192,7 @@ close-btn = close
 
 cmd-analysis-settings = Analysis settings
 
-cmd-analysis-settings-help = Configure analysis plugins (config.json)
+cmd-analysis-settings-help = Configure analysis plugins (config.toml)
 
 cmd-analyze = Analyze selected sessions
 

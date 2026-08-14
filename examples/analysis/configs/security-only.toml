@@ -1,0 +1,4 @@
+#:schema https://indynull.github.io/groket/schemas/config.schema.json
+
+[analysis]
+plugins = ["security_scanner:SecurityScannerAnalyzer"]

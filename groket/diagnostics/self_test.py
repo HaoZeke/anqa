@@ -397,6 +397,30 @@ def _check_hud_summon_socket() -> CheckResult:
     )
 
 
+def _check_leftover_json_config() -> CheckResult:
+    """Former config.json is ignored; prefs live in config.toml."""
+    from ..config import leftover_json_config_path
+    from ..paths import app_config_path
+
+    old = leftover_json_config_path()
+    new = app_config_path()
+    if old.is_file():
+        return CheckResult(
+            id="config-toml",
+            name="App prefs",
+            ok=False,
+            required=False,
+            detail=f"{old} is ignored; copy keys into {new}",
+        )
+    return CheckResult(
+        id="config-toml",
+        name="App prefs",
+        ok=True,
+        required=False,
+        detail=str(new),
+    )
+
+
 def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
@@ -411,4 +435,4 @@ def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
         _check_sway_socket(),
         _check_hud_summon_socket(),
     ]
-    return SelfTestReport(checks=checks)
+    return SelfTestReport(checks=[*checks, _check_leftover_json_config()])

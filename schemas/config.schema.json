@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "AnalysisPrefs": {
+      "description": "``[analysis]``: plugins and worker pools.",
+      "properties": {
+        "plugins": {
+          "description": "``module:Class`` analyzers under ~/.groket/plugins/.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Plugins",
+          "type": "array"
+        },
+        "auto_analyze_when": {
+          "default": "session_complete",
+          "description": "When to run analyzers: session_complete or never.",
+          "title": "Auto Analyze When",
+          "type": "string"
+        },
+        "analysis_workers": {
+          "default": 1,
+          "description": "Serial analysis pool size.",
+          "minimum": 1,
+          "title": "Analysis Workers",
+          "type": "integer"
+        },
+        "live_refresh_workers": {
+          "default": 1,
+          "description": "Live timeline refresh pool size.",
+          "minimum": 1,
+          "title": "Live Refresh Workers",
+          "type": "integer"
+        }
+      },
+      "title": "AnalysisPrefs",
+      "type": "object"
+    },
+    "ExportPrefs": {
+      "description": "``[export]``: default session-export profile id.",
+      "properties": {
+        "default_profile": {
+          "default": "",
+          "description": "Export profile id. Empty uses archive-full.",
+          "title": "Default Profile",
+          "type": "string"
+        }
+      },
+      "title": "ExportPrefs",
+      "type": "object"
+    },
+    "HudPrefs": {
+      "description": "``[hud]``: desktop palette only.",
+      "properties": {
+        "window_mode": {
+          "default": false,
+          "description": "Start the HUD as a normal window.",
+          "title": "Window Mode",
+          "type": "boolean"
+        },
+        "global_shortcut": {
+          "default": "",
+          "description": "Summon chord (Cmd+Shift+G / Ctrl+Shift+G when empty).",
+          "title": "Global Shortcut",
+          "type": "string"
+        },
+        "desktop_notifications": {
+          "default": true,
+          "description": "Desktop notifications for session status changes.",
+          "title": "Desktop Notifications",
+          "type": "boolean"
+        }
+      },
+      "title": "HudPrefs",
+      "type": "object"
+    }
+  },
+  "description": "Prefs file ~/.groket/config.toml. Authoring format is TOML; this schema describes the same keys for editors and groket config validate.",
+  "properties": {
+    "theme": {
+      "default": "groket",
+      "description": "Textual / HUD theme name.",
+      "title": "Theme",
+      "type": "string"
+    },
+    "follow_os": {
+      "default": false,
+      "description": "Paired colorways follow the host light/dark setting.",
+      "title": "Follow Os",
+      "type": "boolean"
+    },
+    "show_host_sessions": {
+      "default": false,
+      "description": "List native ~/.grok/sessions next to Docker eval traces.",
+      "title": "Show Host Sessions",
+      "type": "boolean"
+    },
+    "show_tips": {
+      "default": true,
+      "description": "Show framed tip callouts in the terminal app.",
+      "title": "Show Tips",
+      "type": "boolean"
+    },
+    "auto_serve": {
+      "default": true,
+      "description": "Detach-start groket serve when the control socket is free.",
+      "title": "Auto Serve",
+      "type": "boolean"
+    },
+    "analysis": {
+      "$ref": "#/$defs/AnalysisPrefs"
+    },
+    "hud": {
+      "$ref": "#/$defs/HudPrefs"
+    },
+    "export": {
+      "$ref": "#/$defs/ExportPrefs"
+    }
+  },
+  "title": "groket-config",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://indynull.github.io/groket/schemas/config.schema.json"
+}

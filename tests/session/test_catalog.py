@@ -94,8 +94,8 @@ def test_list_session_catalog_follows_show_host_config(
         "groket.session.sources.host_grok_sessions_root",
         lambda: host,
     )
-    cfg = tmp_path / "config.json"
-    cfg.write_text('{"show_host_sessions": true}\n', encoding="utf-8")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("show_host_sessions = true\n", encoding="utf-8")
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     from groket.config import invalidate_config_cache
 
@@ -144,8 +144,8 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
         "groket.session.sources.host_grok_sessions_root",
         lambda: host,
     )
-    cfg = tmp_path / "config.json"
-    cfg.write_text('{"show_host_sessions": true}\n', encoding="utf-8")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("show_host_sessions = true\n", encoding="utf-8")
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     from groket.config import invalidate_config_cache
 

@@ -406,7 +406,8 @@ async def test_analyze_no_sessions_notifies(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
-    """Setting ``App.theme`` (e.g. Ctrl+P Change theme) writes config.json."""
+    """Setting ``App.theme`` (e.g. Ctrl+P Change theme) writes config.toml."""
+    import tomlkit
     from groket.paths import app_config_path
 
     app, _, _ = _make_app(tmp_path, n_sessions=0)
@@ -423,8 +424,9 @@ async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
             pilot,
             lambda: (
                 app_config_path().is_file()
-                and json.loads(app_config_path().read_text(encoding="utf-8")).get("theme") == target
-                and json.loads(app_config_path().read_text(encoding="utf-8")).get("follow_os")
+                and tomlkit.parse(app_config_path().read_text(encoding="utf-8")).get("theme")
+                == target
+                and tomlkit.parse(app_config_path().read_text(encoding="utf-8")).get("follow_os")
                 is False
             ),
         )

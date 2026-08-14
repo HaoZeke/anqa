@@ -1,6 +1,6 @@
 # Publish JSON Schema(s) to GitHub Pages (project site).
 # Repo Settings → Pages → Source: GitHub Actions.
-# URLs: …/schemas/tasks.schema.json , …/schemas/rules.schema.json
+# URLs: …/schemas/tasks.schema.json , …/schemas/rules.schema.json , …/schemas/config.schema.json
 
 name: Pages
 
@@ -11,6 +11,7 @@ on:
       - "schemas/**"
       - "groket/runs/task_schema.py"
       - "groket/engine/rule_schema.py"
+      - "groket/config.py"
       - ".github/workflows/pages.yml"
       - "Makefile"
   workflow_dispatch:
@@ -43,6 +44,7 @@ jobs:
           mkdir -p _site/schemas
           cp schemas/tasks.schema.json _site/schemas/tasks.schema.json
           cp schemas/rules.schema.json _site/schemas/rules.schema.json
+          cp schemas/config.schema.json _site/schemas/config.schema.json
           cat > _site/index.html << 'HTML'
           <!DOCTYPE html>
           <html lang="en">
@@ -69,6 +71,12 @@ jobs:
                 — detection rules / composites YAML
                 (<code>$id</code>:
                 <code>https://indynull.github.io/groket/schemas/rules.schema.json</code>)
+              </li>
+              <li>
+                <a href="schemas/config.schema.json"><code>config.schema.json</code></a>
+                — app prefs TOML (<code>~/.groket/config.toml</code>)
+                (<code>$id</code>:
+                <code>https://indynull.github.io/groket/schemas/config.schema.json</code>)
               </li>
             </ul>
             <p>Regenerate locally with <code>make schema</code>; CI fails on drift via <code>make schema-check</code>.</p>

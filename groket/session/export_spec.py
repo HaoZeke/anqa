@@ -272,7 +272,7 @@ def save_export_profile(
 
 
 def configured_export_profile_id() -> str | None:
-    """Return ``export.default_profile`` when set in config.json; else ``None``.
+    """Return ``export.default_profile`` when set in config.toml; else ``None``.
 
     Distinguishes “operator chose a default” from the built-in fallback used by
     :func:`default_export_profile_id`.
@@ -284,12 +284,12 @@ def configured_export_profile_id() -> str | None:
 
 
 def default_export_profile_id() -> str:
-    """``export.default_profile`` from config.json, else :data:`DEFAULT_PROFILE_ID`."""
+    """``export.default_profile`` from config.toml, else :data:`DEFAULT_PROFILE_ID`."""
     return configured_export_profile_id() or DEFAULT_PROFILE_ID
 
 
 def set_default_export_profile_id(profile_id: str) -> None:
-    """Persist ``export.default_profile`` in config.json."""
+    """Persist ``export.default_profile`` in config.toml."""
     from ..config import ExportPrefs, update_app_config
 
     update_app_config(

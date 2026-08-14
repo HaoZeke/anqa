@@ -1,7 +1,7 @@
 """Pluggable analysis — enabled plugins run on every analysis call.
 
 Built-ins: ``basic``, ``engine`` (always enabled). Everything else is
-external: load via ``analysis.plugins`` in config.json (see ``plugins/``
+external: load via ``analysis.plugins`` in config.toml (see ``plugins/``
 and ``examples/analysis/plugins/``). Only analyzers registered for *this* config
 are enabled — not leftovers in the process registry or on-disk cache.
 

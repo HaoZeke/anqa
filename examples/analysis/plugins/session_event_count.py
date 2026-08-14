@@ -5,13 +5,10 @@ Install::
     mkdir -p ~/.groket/plugins
     cp examples/analysis/plugins/session_event_count.py ~/.groket/plugins/
 
-Enable in ~/.groket/config.json::
+Enable in ~/.groket/config.toml::
 
-    {
-      "analysis": {
-        "plugins": ["session_event_count:SessionEventCountAnalyzer"]
-      }
-    }
+    [analysis]
+    plugins = ["session_event_count:SessionEventCountAnalyzer"]
 
 Or scaffold + register::
 

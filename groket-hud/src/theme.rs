@@ -1,4 +1,4 @@
-//! Map Textual theme tokens (``config.json`` ``theme``) onto iced.
+//! Map Textual theme tokens (``config.toml`` ``theme``) onto iced.
 
 use std::sync::OnceLock;
 
@@ -119,7 +119,7 @@ pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: 
     }
 }
 
-/// Tokens for ``theme`` in ``~/.groket/config.json``.
+/// Tokens for ``theme`` in ``~/.groket/config.toml``.
 pub fn tokens(name: &str) -> Tokens {
     let key = name.trim();
     if catalog_colors(key).is_some() {

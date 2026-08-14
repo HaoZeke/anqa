@@ -1,7 +1,7 @@
-"""App-global UI preferences (``~/.groket/config.json``).
+"""App-global UI preferences (``~/.groket/config.toml``).
 
 Thin accessors over :mod:`groket.config`. Screens and ``panel_render``
-read these — do not scatter ad-hoc config.json I/O.
+read these — do not scatter ad-hoc config.toml I/O.
 """
 
 from __future__ import annotations

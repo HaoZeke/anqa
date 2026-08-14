@@ -1,91 +1,95 @@
-//! Read ``~/.groket/config.json`` (same shape as Python ``groket.config``).
+//! Read ``~/.groket/config.toml`` (same shape as Python ``groket.config``).
 
-use serde_json::{json, Value};
+use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use toml_edit::{value, DocumentMut};
 
 fn config_path() -> Option<PathBuf> {
     let home = env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".groket").join("config.json"))
+    Some(PathBuf::from(home).join(".groket").join("config.toml"))
 }
 
-fn read_value() -> Value {
+#[derive(Debug, Default, Deserialize)]
+struct File {
+    #[serde(default)]
+    theme: Option<String>,
+    #[serde(default)]
+    follow_os: Option<bool>,
+    #[serde(default)]
+    hud: HudFile,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct HudFile {
+    #[serde(default)]
+    window_mode: Option<bool>,
+    #[serde(default)]
+    global_shortcut: Option<String>,
+    #[serde(default)]
+    desktop_notifications: Option<bool>,
+}
+
+fn read_file() -> File {
     let Some(path) = config_path() else {
-        return json!({});
+        return File::default();
     };
     let Ok(text) = fs::read_to_string(path) else {
-        return json!({});
+        return File::default();
     };
-    serde_json::from_str(&text).unwrap_or_else(|_| json!({}))
-}
-
-fn hud_section() -> Value {
-    read_value()
-        .get("hud")
-        .cloned()
-        .unwrap_or_else(|| json!({}))
+    toml::from_str(&text).unwrap_or_default()
 }
 
 /// Desktop notifications (dunst / mako / Notification Center / toasts).
 ///
-/// Default on. ``hud.desktop_notifications`` in config.json overrides.
+/// Default on. ``hud.desktop_notifications`` in config.toml overrides.
 pub fn desktop_notifications() -> bool {
-    match hud_section().get("desktop_notifications") {
-        Some(Value::Bool(v)) => *v,
-        _ => true,
-    }
+    read_file().hud.desktop_notifications.unwrap_or(true)
 }
 
 /// Persistent window (not overlay) from ``hud.window_mode``.
 pub fn window_mode() -> bool {
-    matches!(hud_section().get("window_mode"), Some(Value::Bool(true)))
+    read_file().hud.window_mode.unwrap_or(false)
 }
 
 /// When true, paired colorways follow the host light/dark setting.
 pub fn follow_os() -> bool {
-    matches!(read_value().get("follow_os"), Some(Value::Bool(true)))
+    read_file().follow_os.unwrap_or(false)
 }
 
 /// Theme name from config, or ``groket``.
 pub fn theme_name() -> String {
-    read_value()
-        .get("theme")
-        .and_then(|x| x.as_str())
+    read_file()
+        .theme
+        .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("groket")
         .to_string()
 }
 
-/// Merge ``hud.window_mode`` into an existing config object (other keys kept).
-pub fn merge_window_mode(mut root: Value, window_mode: bool) -> Value {
-    if !root.is_object() {
-        root = json!({});
-    }
-    let obj = root.as_object_mut().expect("object");
-    let hud = obj.entry("hud").or_insert_with(|| json!({}));
-    if !hud.is_object() {
-        *hud = json!({});
-    }
-    if let Some(hud_obj) = hud.as_object_mut() {
-        hud_obj.insert("window_mode".into(), Value::Bool(window_mode));
-        hud_obj.remove("pinned");
-        hud_obj.remove("hud_global_shortcut");
-    }
-    obj.remove("hud_global_shortcut");
-    root
+/// HUD summon chord from ``hud.global_shortcut`` (empty = binary default).
+pub fn global_shortcut() -> String {
+    read_file()
+        .hud
+        .global_shortcut
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
-/// Write ``hud.window_mode`` into ``config.json`` (other keys kept).
+/// Write ``hud.window_mode`` into ``config.toml`` (other keys and comments kept).
 pub fn save_window_mode(window_mode: bool) {
     let Some(path) = config_path() else {
         return;
     };
-    let root = merge_window_mode(read_value(), window_mode);
-    if let Ok(text) = serde_json::to_string_pretty(&root) {
-        let _ = fs::write(path, format!("{text}\n"));
-    }
+    let mut doc = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| text.parse::<DocumentMut>().ok())
+        .unwrap_or_default();
+    doc["hud"]["window_mode"] = value(window_mode);
+    let _ = fs::write(path, doc.to_string());
 }
 
 #[cfg(test)]
@@ -93,21 +97,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn merge_window_mode_keeps_theme_and_shortcut() {
-        let src = json!({
-            "theme": "gruvbox",
-            "hud": { "global_shortcut": "Ctrl+Shift+G", "pinned": true }
-        });
-        let out = merge_window_mode(src, true);
-        assert_eq!(out["theme"], "gruvbox");
-        assert_eq!(out["hud"]["global_shortcut"], "Ctrl+Shift+G");
-        assert_eq!(out["hud"]["window_mode"], true);
-        assert!(out["hud"].get("pinned").is_none());
+    fn file_defaults_are_empty() {
+        let f = File::default();
+        assert!(f.theme.is_none());
+        assert!(f.hud.window_mode.is_none());
     }
 
     #[test]
-    fn merge_window_mode_creates_hud_object() {
-        let out = merge_window_mode(json!({"theme": "nord"}), false);
-        assert_eq!(out["hud"]["window_mode"], false);
+    fn parse_hud_table() {
+        let f: File = toml::from_str(
+            "theme = \"nord\"\nfollow_os = true\n[hud]\nwindow_mode = true\nglobal_shortcut = \"Ctrl+K\"\n",
+        )
+        .expect("toml");
+        assert_eq!(f.theme.as_deref(), Some("nord"));
+        assert_eq!(f.follow_os, Some(true));
+        assert_eq!(f.hud.window_mode, Some(true));
+        assert_eq!(f.hud.global_shortcut.as_deref(), Some("Ctrl+K"));
     }
 }

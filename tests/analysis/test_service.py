@@ -377,8 +377,8 @@ class TestAnalysisService:
         monkeypatch.setattr(paths, "user_analysis_plugins_dir", lambda: plugins)
         monkeypatch.chdir(tmp_path)
         sys.modules.pop("live_svc", None)
-        cfg = tmp_path / "config.json"
-        cfg.write_text("{}", encoding="utf-8")
+        cfg = tmp_path / "config.toml"
+        cfg.write_text("", encoding="utf-8")
         svc = AnalysisService(
             tmp_path,
             config=AnalysisPipelineConfig(plugins=["live_svc:A"]),

@@ -84,7 +84,7 @@ def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) 
 def show_host_sessions_from_config() -> bool:
     """Whether operator config includes host Grok sessions in the catalog.
 
-    Reads ``show_host_sessions`` from ``~/.groket/config.json`` (same key as
+    Reads ``show_host_sessions`` from ``~/.groket/config.toml`` (same key as
     the TUI ``H`` toggle). Used by the headless control owner so editor
     ``session/list`` matches the TUI home list without importing the UI package.
     """

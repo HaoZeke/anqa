@@ -23,6 +23,7 @@ def test_help_lists_main_commands() -> None:
     assert "hud" in out
     assert "tui" in out
     assert "editor" in out
+    assert "config" in out
     assert "keys" in out
     assert "self-test" not in out
     assert "emacs-path" not in out or "editor" in out
@@ -47,6 +48,7 @@ def test_tool_commands() -> None:
             "doctor",
             "editor",
             "keys",
+            "config",
         }
     )
 
@@ -238,8 +240,8 @@ class TestLaunchTui:
             launch_tui(path=None, config=None, ensure_serve=False)
             assert len(captured_calls) == 1
 
-            cfg = tmp_path / "config.json"
-            cfg.write_text("{}", encoding="utf-8")
+            cfg = tmp_path / "config.toml"
+            cfg.write_text("", encoding="utf-8")
             captured_calls.clear()
             launch_tui(path=tmp_path, config=cfg, ensure_serve=False)
             assert captured_calls[0]["config_path"] == cfg.expanduser()
@@ -358,6 +360,19 @@ class TestBatchCommands:
         assert result.exit_code == 0
         out = result.stdout or result.output or ""
         assert "tasks.schema.json" in out or "TaskDefinition" in out or "$id" in out
+
+    def test_config_schema_stdout(self) -> None:
+        result = runner.invoke(app, ["config", "schema"])
+        assert result.exit_code == 0
+        out = result.stdout or result.output or ""
+        assert "config.schema.json" in out
+        assert "show_host_sessions" in out
+
+    def test_config_validate_default(self) -> None:
+        result = runner.invoke(app, ["config", "validate"])
+        assert result.exit_code == 0
+        out = result.stdout or result.output or ""
+        assert "OK" in out
 
     def test_batch_not_rewritten_as_path(self) -> None:
         with patch("groket.cli.app") as mock_app:

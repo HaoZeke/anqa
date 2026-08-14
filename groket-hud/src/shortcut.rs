@@ -1,9 +1,7 @@
 //! Parse and resolve the HUD global summon shortcut.
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
-use serde_json::Value;
 use std::env;
-use std::path::PathBuf;
 
 pub fn default_hotkey() -> HotKey {
     if cfg!(target_os = "macos") {
@@ -44,16 +42,12 @@ fn load_override_string() -> Option<String> {
             return Some(t.to_string());
         }
     }
-    let home = env::var_os("HOME")?;
-    let path = PathBuf::from(home).join(".groket").join("config.json");
-    let text = std::fs::read_to_string(path).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
-    v.get("hud")
-        .and_then(|h| h.get("global_shortcut"))
-        .and_then(|x| x.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    let chord = crate::prefs::global_shortcut();
+    if chord.is_empty() {
+        None
+    } else {
+        Some(chord)
+    }
 }
 
 pub fn parse_shortcut(raw: &str) -> Result<(HotKey, String), String> {

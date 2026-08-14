@@ -84,8 +84,8 @@ def test_save_and_reload_profile(tmp_path: Path) -> None:
 def test_default_profile_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from groket.session.export_spec import configured_export_profile_id
 
-    cfg = tmp_path / "config.json"
-    cfg.write_text('{"export": {"default_profile": "trace-only"}}\n', encoding="utf-8")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[export]\ndefault_profile = "trace-only"\n', encoding="utf-8")
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     from groket.config import invalidate_config_cache
 
@@ -99,8 +99,8 @@ def test_configured_profile_none_without_config(
 ) -> None:
     from groket.session.export_spec import configured_export_profile_id
 
-    cfg = tmp_path / "config.json"
-    cfg.write_text("{}\n", encoding="utf-8")
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("", encoding="utf-8")
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     from groket.config import invalidate_config_cache
 
@@ -109,7 +109,7 @@ def test_configured_profile_none_without_config(
 
 
 def test_set_default_export_profile_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = tmp_path / "config.json"
+    cfg = tmp_path / "config.toml"
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     from groket.config import invalidate_config_cache
 
@@ -117,4 +117,4 @@ def test_set_default_export_profile_id(tmp_path: Path, monkeypatch: pytest.Monke
     set_default_export_profile_id("trace-only")
     data = cfg.read_text(encoding="utf-8")
     assert "trace-only" in data
-    assert '"export"' in data
+    assert "[export]" in data

@@ -75,6 +75,16 @@ rules_app = typer.Typer(
 )
 app.add_typer(rules_app, name="rules")
 
+config_app = typer.Typer(
+    name="config",
+    help=(
+        "Validate ``~/.groket/config.toml``. "
+        "Schema: [cyan]https://indynull.github.io/groket/schemas/config.schema.json[/cyan]."
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(config_app, name="config")
+
 serve_app = typer.Typer(
     name="serve",
     help=(
@@ -108,6 +118,7 @@ TOOL_COMMANDS = frozenset(
         "doctor",
         "editor",
         "keys",
+        "config",
     }
 )
 
@@ -339,7 +350,7 @@ _ServeHost = Annotated[
     typer.Option(
         "--host/--no-host",
         help=(
-            "Include ~/.grok/sessions in session/list. Default: show_host_sessions in config.json."
+            "Include ~/.grok/sessions in session/list. Default: show_host_sessions in config.toml."
         ),
     ),
 ]
@@ -559,7 +570,7 @@ def main_callback(
         typer.Option(
             "-c",
             "--config",
-            help="Path to config.json (default: ~/.groket/config.json).",
+            help="Path to config.toml (default: ~/.groket/config.toml).",
             show_default=False,
         ),
     ] = None,
@@ -617,7 +628,7 @@ def cmd_tui(
     ] = None,
     config: Annotated[
         Path | None,
-        typer.Option("-c", "--config", help="Path to config.json.", show_default=False),
+        typer.Option("-c", "--config", help="Path to config.toml.", show_default=False),
     ] = None,
     socket: Annotated[
         Path | None,
@@ -836,6 +847,53 @@ def cmd_rules_schema(
         typer.echo(f"Wrote {out}")
 
 
+@config_app.command("validate")
+def cmd_config_validate(
+    path: Annotated[
+        Path | None,
+        typer.Argument(
+            help="config.toml to validate (default: ~/.groket/config.toml).",
+        ),
+    ] = None,
+) -> None:
+    """Validate a prefs TOML file against the published schema."""
+    from .config import load_app_config
+    from .paths import app_config_path
+
+    target = path.expanduser() if path is not None else app_config_path()
+    if path is not None and not target.is_file():
+        typer.echo(f"error: {target} is not a file", err=True)
+        raise typer.Exit(2)
+    try:
+        cfg = load_app_config(target if path is not None else None)
+    except Exception as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    n = len(cfg.analysis.plugins)
+    typer.echo(f"OK  {target}  (theme={cfg.theme}, analysis.plugins={n})")
+
+
+@config_app.command("schema")
+def cmd_config_schema(
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "-o",
+            "--out",
+            help="Write JSON Schema to this path (default: stdout).",
+        ),
+    ] = None,
+) -> None:
+    """Emit JSON Schema for config.toml (same as ``make schema`` / Pages publish)."""
+    from .config import emit_config_schema
+
+    text = emit_config_schema(out)
+    if out is None:
+        typer.echo(text, nl=False)
+    else:
+        typer.echo(f"Wrote {out}")
+
+
 @app.command("keys")
 def cmd_keys(
     occupancy: Annotated[
@@ -984,7 +1042,7 @@ def gen_plugin(
         typer.Option(
             "-r",
             "--register",
-            help="Append module:ClassName to ~/.groket/config.json analysis.plugins.",
+            help="Append module:ClassName to ~/.groket/config.toml analysis.plugins.",
         ),
     ] = False,
     force: Annotated[bool, typer.Option("-f", "--force")] = False,

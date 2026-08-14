@@ -1,8 +1,9 @@
 """Multi-turn LLM feedback review using :class:`~groket.analysis.llm.LlmReviewAnalyzer`.
 
-Enable in ``~/.groket/config.json``::
+Enable in ``~/.groket/config.toml``::
 
-    "analysis": { "plugins": ["gte_feedback_grok:FeedbackReportAnalyzer"] }
+    [analysis]
+    plugins = ["gte_feedback_grok:FeedbackReportAnalyzer"]
 
 Copy to ``~/.groket/plugins/`` or keep under ``examples/analysis/plugins/`` on
 the plugin search path.

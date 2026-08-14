@@ -24,7 +24,7 @@ config). Directory on `sys.path` → module stem = filename without `.py`.
    attaches operator turns, timeline digest, and runtime fairness; your method
    returns the rubric string (use `pack` fields such as `pack.turn_count` for
    dynamic text).
-3. Register via `analysis.plugins` in `~/.groket/config.json`.
+3. Register via `analysis.plugins` in `~/.groket/config.toml`.
 
 ## Install
 
@@ -33,11 +33,9 @@ mkdir -p ~/.groket/plugins
 cp examples/analysis/plugins/session_event_count.py ~/.groket/plugins/
 ```
 
-```json
-{
-  "analysis": {
-    "plugins": ["session_event_count:SessionEventCountAnalyzer"]
-  }
+```toml
+[analysis]
+plugins = ["session_event_count:SessionEventCountAnalyzer"]
 }
 ```
 

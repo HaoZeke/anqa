@@ -35,7 +35,7 @@ uv tool upgrade groket
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.groket` | `config.json`, personas, detectors, rules, plugins, optional `keys.toml` |
+| Config home | `~/.groket` | `config.toml`, personas, detectors, rules, plugins, optional `keys.toml` |
 | Work root | `~/.groket/work` | `runs/traces/`, recipes, Docker contexts, batch results |
 
 ```bash
@@ -43,36 +43,37 @@ groket                      # default work root
 groket /path/to/work        # work root, traces tree, or one session dir
 ```
 
-`~/.groket/config.json` is the only prefs file (terminal app and desktop HUD).
-Missing keys use defaults. A save rewrites the canonical object:
+`~/.groket/config.toml` is the only prefs file (terminal app and desktop HUD).
+Missing keys use defaults. Saves keep comments on keys they do not change.
+Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
+(`groket config validate`, `make schema`). Copy
+[`examples/config/config.toml`](examples/config/config.toml).
 
-```json
-{
-  "theme": "groket",
-  "follow_os": false,
-  "show_host_sessions": false,
-  "show_tips": true,
-  "auto_serve": true,
-  "analysis": {
-    "plugins": [],
-    "auto_analyze_when": "session_complete",
-    "analysis_workers": 1,
-    "live_refresh_workers": 1
-  },
-  "hud": {
-    "window_mode": false,
-    "global_shortcut": "",
-    "desktop_notifications": true
-  },
-  "export": {
-    "default_profile": ""
-  }
-}
+```toml
+#:schema https://indynull.github.io/groket/schemas/config.schema.json
+
+theme = "groket"
+follow_os = false
+show_host_sessions = false
+show_tips = true
+auto_serve = true
+
+[analysis]
+plugins = []
+auto_analyze_when = "session_complete"
+analysis_workers = 1
+live_refresh_workers = 1
+
+[hud]
+window_mode = false
+global_shortcut = ""
+desktop_notifications = true
+
+[export]
+default_profile = ""
 ```
 
-An older flat `hud_global_shortcut` is read once and stored under
-`hud.global_shortcut` on the next save. Key remaps stay in `keys.toml`
-(below), not in this file.
+Key remaps stay in `keys.toml` (below), not in this file.
 
 Optional key diffs: `~/.groket/keys.toml` (`GROKET_KEYS` overrides the path).
 A missing file keeps the catalog defaults. Esc, Enter, Tab, Shift+Tab, and
@@ -214,7 +215,7 @@ groket hud --restart   # replace the running palette
 
 Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
-`~/.groket/config.json` or `GROKET_HUD_SHORTCUT`. On Wayland bind
+`~/.groket/config.toml` or `GROKET_HUD_SHORTCUT`. On Wayland bind
 `groket hud --toggle`: a compositor bind forwards an activation token so
 you can type immediately; tray **Show** or a terminal `--toggle`
 does not steal the keyboard. Sway places the overlay (float/center);
@@ -283,7 +284,8 @@ groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
 ```
 
 Schemas: [tasks](https://indynull.github.io/groket/schemas/tasks.schema.json),
-[rules](https://indynull.github.io/groket/schemas/rules.schema.json).
+[rules](https://indynull.github.io/groket/schemas/rules.schema.json),
+[config](https://indynull.github.io/groket/schemas/config.schema.json).
 
 ## Examples
 

@@ -204,7 +204,7 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
                 t(
                     "analysis-settings-help",
                     list=plugin_list,
-                    config=str(config_path or "~/.groket/config.json"),
+                    config=str(config_path or "~/.groket/config.toml"),
                 ),
                 id="analysis-settings-help",
             )
@@ -567,7 +567,7 @@ class TraceEvalApp(App):
         return pref
 
     def apply_saved_theme(self, *, save: bool = False) -> str | None:
-        """Restore theme from config.json (or keep current). Re-applied after refresh.
+        """Restore theme from config.toml (or keep current). Re-applied after refresh.
 
         Textual can reset ``self.theme`` during App/mount; setting only once in
         ``on_mount`` is unreliable. ``follow_os`` may pick a pair member;
@@ -3801,7 +3801,7 @@ class TraceEvalApp(App):
         self.push_screen(AnalysisSettingsModal(self.work_dir), _done)
 
     def action_toggle_tips(self) -> None:
-        """Show/hide framed admonitions **app-wide** (``show_tips`` in config.json).
+        """Show/hide framed admonitions **app-wide** (``show_tips`` in config.toml).
 
         Invoked from the command palette (Ctrl+P → Toggle tips / callouts) or
         Analysis settings — not a Footer key binding.

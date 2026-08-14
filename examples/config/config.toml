@@ -1,0 +1,24 @@
+#:schema https://indynull.github.io/groket/schemas/config.schema.json
+
+# Prefs for the terminal app and the desktop HUD.
+# Copy to ~/.groket/config.toml. Missing keys use defaults.
+
+theme = "groket"
+follow_os = false
+show_host_sessions = false
+show_tips = true
+auto_serve = true
+
+[analysis]
+plugins = []
+auto_analyze_when = "session_complete"
+analysis_workers = 1
+live_refresh_workers = 1
+
+[hud]
+window_mode = false
+global_shortcut = ""
+desktop_notifications = true
+
+[export]
+default_profile = ""

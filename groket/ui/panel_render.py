@@ -229,7 +229,7 @@ def admonition(message: str, *, kind: str = "tip") -> Text:
     Kinds: ``tip``, ``info``, ``note``, ``warning``, ``danger``, ``success``.
     Unknown kinds fall back to ``tip``.
 
-    Respects app pref ``show_tips`` (``~/.groket/config.json``): when false,
+    Respects app pref ``show_tips`` (``~/.groket/config.toml``): when false,
     returns an empty ``Text`` so learned users can hide callouts globally.
 
     Geometry uses the **actual** rendered body width (including key-chip spaces).

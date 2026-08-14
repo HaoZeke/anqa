@@ -1,7 +1,7 @@
 """Application paths: config under ``~/.groket``, runs under a work dir.
 
 **Config home** (``APP_HOME`` / ``~/.groket``) holds identity and extensions —
-config, personas, rules, detectors, analysis plugins, tasks scaffolds, analysis
+config.toml, personas, rules, detectors, analysis plugins, tasks scaffolds, analysis
 cache, exported reports, flag fallbacks, notes schema / notes fallbacks,
 optional ``models.yaml``, optional ``keys.toml``.
 
@@ -53,8 +53,8 @@ def personas_home() -> Path:
 
 
 def app_config_path() -> Path:
-    """``~/.groket/config.json`` — app-global config file."""
-    return APP_HOME / "config.json"
+    """``~/.groket/config.toml`` — app-global prefs file."""
+    return APP_HOME / "config.toml"
 
 
 def user_models_path() -> Path:

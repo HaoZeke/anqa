@@ -6,7 +6,7 @@ DEFAULT_DOCKER_IMAGE = "fully-loaded"
 DEFAULT_MODEL_ID = "unknown"
 # Grok CLI ``--max-turns`` for one agent invocation (tool/plan loop per prompt).
 DEFAULT_MAX_TURNS = 50
-CONFIG_FILENAME = "config.json"
+CONFIG_FILENAME = "config.toml"
 META_CACHE_FILENAME = "_meta_cache.json"
 
 INTERRUPTED_MARKER_FILENAME = "groket-interrupted.json"  # on-disk marker

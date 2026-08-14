@@ -39,7 +39,7 @@ Windows Start Menu). Re-run after moving the binary.
 ## Hotkey
 
 Default **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and X11
-Linux). Override with `hud.global_shortcut` in `~/.groket/config.json`
+Linux). Override with `hud.global_shortcut` in `~/.groket/config.toml`
 or `GROKET_HUD_SHORTCUT`. On Wayland bind `groket hud --toggle` (the
 compositor sends an activation token so you can type). Tray **Show**
 and a terminal `--toggle` do not steal the keyboard. Sway

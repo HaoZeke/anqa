@@ -1,13 +1,15 @@
-"""Canonical ``~/.groket/config.json`` load, save, and leftover-key fold."""
+"""Canonical ``~/.groket/config.toml`` load, save, and comment keep."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+import tomlkit
 from groket.config import (
+    SCHEMA_ID,
     config_dump,
+    emit_config_schema,
     invalidate_config_cache,
     load_app_config,
     parse_app_config,
@@ -18,7 +20,7 @@ from groket.config import (
 
 @pytest.fixture(autouse=True)
 def _iso(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr("groket.paths.app_config_path", lambda: tmp_path / "config.toml")
     invalidate_config_cache()
     yield
     invalidate_config_cache()
@@ -38,38 +40,37 @@ def test_defaults_when_missing() -> None:
     assert cfg.export.default_profile == ""
 
 
-def test_fold_flat_hud_shortcut() -> None:
-    cfg = parse_app_config({"hud_global_shortcut": "Ctrl+K"})
-    assert cfg.hud.global_shortcut == "Ctrl+K"
-
-
-def test_nested_shortcut_wins_over_flat() -> None:
-    cfg = parse_app_config(
-        {
-            "hud_global_shortcut": "Ctrl+K",
-            "hud": {"global_shortcut": "Ctrl+Shift+G"},
-        }
-    )
-    assert cfg.hud.global_shortcut == "Ctrl+Shift+G"
-
-
-def test_save_is_canonical(tmp_path: Path) -> None:
-    save_app_config(parse_app_config({"hud_global_shortcut": "Ctrl+K", "junk": 1}))
-    data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert "hud_global_shortcut" not in data
-    assert "junk" not in data
+def test_save_writes_toml_tables(tmp_path: Path) -> None:
+    save_app_config(parse_app_config({"theme": "nord", "hud": {"global_shortcut": "Ctrl+K"}}))
+    text = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert SCHEMA_ID in text
+    data = tomlkit.parse(text)
+    assert data["theme"] == "nord"
     assert data["hud"]["global_shortcut"] == "Ctrl+K"
-    assert data["theme"] == "groket"
     assert "analysis" in data
     assert "export" in data
 
 
-def test_update_keeps_other_sections(tmp_path: Path) -> None:
-    save_app_config(parse_app_config({"theme": "nord", "analysis": {"plugins": ["a:b"]}}))
+def test_update_keeps_comment(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '# keep me\ntheme = "nord"\n[analysis]\nplugins = ["a:b"]\n',
+        encoding="utf-8",
+    )
+    invalidate_config_cache()
     update_app_config(theme="gruvbox")
-    data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    assert "keep me" in text
+    data = tomlkit.parse(text)
     assert data["theme"] == "gruvbox"
-    assert data["analysis"]["plugins"] == ["a:b"]
+    assert list(data["analysis"]["plugins"]) == ["a:b"]
+
+
+def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text("not = [toml", encoding="utf-8")
+    invalidate_config_cache()
+    cfg = load_app_config()
+    assert cfg.theme == "groket"
 
 
 def test_dump_roundtrip() -> None:
@@ -77,3 +78,10 @@ def test_dump_roundtrip() -> None:
     restored = parse_app_config(config_dump(cfg))
     assert restored.show_host_sessions is True
     assert restored.hud.window_mode is True
+
+
+def test_schema_has_published_id() -> None:
+    text = emit_config_schema()
+    assert SCHEMA_ID in text
+    assert "show_host_sessions" in text
+    assert "global_shortcut" in text

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -141,11 +140,10 @@ def write_analysis_plugin(name: str, *, force: bool = False) -> Path:
         f'''"""User analysis plugin: {class_name}
 
 Place this file in ~/.groket/plugins/ (on sys.path for analysis loads).
-Enable in ~/.groket/config.json:
+Enable in ~/.groket/config.toml:
 
-  "analysis": {{
-    "plugins": ["{slug}:{class_name}"]
-  }}
+  [analysis]
+  plugins = ["{slug}:{class_name}"]
 
 Or: uv run groket gen plugin {slug}  # already wrote the file
 """
@@ -227,27 +225,21 @@ tasks:
 
 
 def append_analysis_plugin_to_config(module_stem: str, class_name: str) -> Path:
-    """Append ``module:Class`` to ``~/.groket/config.json`` analysis.plugins if missing."""
+    """Append ``module:Class`` to ``~/.groket/config.toml`` analysis.plugins if missing."""
+    from ..config import AnalysisPrefs, load_app_config, update_app_config
+
     cfg_path = app_config_path()
-    data: dict = {}
-    if cfg_path.is_file():
-        try:
-            data = json.loads(cfg_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            data = {}
-    if not isinstance(data, dict):
-        data = {}
-    analysis = data.setdefault("analysis", {})
-    if not isinstance(analysis, dict):
-        analysis = {}
-        data["analysis"] = analysis
-    plugins = analysis.setdefault("plugins", [])
-    if not isinstance(plugins, list):
-        plugins = []
-        analysis["plugins"] = plugins
+    current = load_app_config()
     entry = f"{module_stem}:{class_name}"
+    plugins = list(current.analysis.plugins)
     if entry not in plugins:
         plugins.append(entry)
-    cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        update_app_config(
+            analysis=AnalysisPrefs(
+                plugins=plugins,
+                auto_analyze_when=current.analysis.auto_analyze_when,
+                analysis_workers=current.analysis.analysis_workers,
+                live_refresh_workers=current.analysis.live_refresh_workers,
+            )
+        )
     return cfg_path

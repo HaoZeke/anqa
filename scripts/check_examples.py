@@ -215,20 +215,17 @@ def check_analysis_plugins() -> dict[str, type]:
 
 def check_analysis_configs(plugin_classes: dict[str, type]) -> None:
     cfg_dir = EXAMPLES / "analysis" / "configs"
-    files = sorted(cfg_dir.glob("*.json"))
+    files = sorted(cfg_dir.glob("*.toml"))
     if not files:
-        _err(cfg_dir, "no config JSON files")
+        _err(cfg_dir, "no config TOML files")
+    from groket.config import load_app_config
+
     for path in files:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            _err(path, f"invalid JSON: {exc}")
-        if not isinstance(data, dict):
-            _err(path, "root must be an object")
-        analysis = data.get("analysis")
-        if not isinstance(analysis, dict):
-            _err(path, "missing analysis object")
-        plugins = analysis.get("plugins")
+            cfg = load_app_config(path)
+        except Exception as exc:
+            _err(path, f"invalid config.toml: {exc}")
+        plugins = cfg.analysis.plugins
         if not isinstance(plugins, list) or not plugins:
             _err(path, "analysis.plugins must be a non-empty list")
         for entry in plugins:
@@ -299,6 +296,7 @@ def check_readmes() -> None:
         EXAMPLES / "tasks" / "README.md",
         EXAMPLES / "notes" / "README.md",
         EXAMPLES / "keys" / "README.md",
+        EXAMPLES / "config" / "README.md",
     ]
     for path in required:
         if not path.is_file() or path.stat().st_size < 40:
@@ -322,6 +320,22 @@ def check_keys_overlay() -> None:
         if not keymap.loaded_overlay:
             _err(path, "overlay did not apply")
         _ok(f"{_repo_rel(path)}  leader={keymap.leader or '-'} bindings={len(keymap.bindings)}")
+
+
+def check_app_config() -> None:
+    """Validate examples/config/config.toml against AppConfig."""
+    from groket.config import SCHEMA_ID, load_app_config
+
+    path = EXAMPLES / "config" / "config.toml"
+    if not path.is_file():
+        _err(path, "missing prefs example")
+    text = path.read_text(encoding="utf-8")
+    if SCHEMA_ID not in text:
+        _err(path, f"missing schema comment {SCHEMA_ID}")
+    cfg = load_app_config(path)
+    if cfg.theme != "groket":
+        _err(path, f"expected default theme groket, got {cfg.theme!r}")
+    _ok(f"{_repo_rel(path)}  theme={cfg.theme}")
 
 
 def check_notes_schema() -> None:
@@ -353,6 +367,7 @@ def main() -> int:
         check_personas()
         check_notes_schema()
         check_keys_overlay()
+        check_app_config()
     except _Fail as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

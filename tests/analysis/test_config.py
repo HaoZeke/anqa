@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+import tomlkit
 from groket.analysis.config import (
     AnalysisPipelineConfig,
     load_pipeline_config,
@@ -72,25 +72,17 @@ class TestAnalysisPipelineConfig:
 
 class TestLoadPipelineConfig:
     def test_no_config_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("groket.paths.app_config_path", lambda: tmp_path / "missing.json")
+        monkeypatch.setattr("groket.paths.app_config_path", lambda: tmp_path / "missing.toml")
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         cfg = load_pipeline_config()
         assert cfg.plugins == []
 
-    def test_load_from_config_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        fp = tmp_path / "config.json"
+    def test_load_from_config_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fp = tmp_path / "config.toml"
         fp.write_text(
-            json.dumps(
-                {
-                    "analysis": {
-                        "plugins": [
-                            "groket.analysis.plugins.engine.analyzer:EngineDetectorAnalyzer"
-                        ],
-                    }
-                }
-            )
+            '[analysis]\nplugins = ["groket.analysis.plugins.engine.analyzer:EngineDetectorAnalyzer"]\n'
         )
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
@@ -100,17 +92,15 @@ class TestLoadPipelineConfig:
         assert len(cfg.plugins) == 1
 
     def test_explicit_config_path(self, tmp_path: Path) -> None:
-        config_file = tmp_path / "custom.json"
-        config_file.write_text(
-            json.dumps({"analysis": {"plugins": ["x:y"], "auto_analyze_when": "never"}})
-        )
+        config_file = tmp_path / "custom.toml"
+        config_file.write_text('[analysis]\nplugins = ["x:y"]\nauto_analyze_when = "never"\n')
         cfg = load_pipeline_config(config_path=config_file)
         assert cfg.plugins == ["x:y"]
         assert cfg.auto_analyze_when == "never"
 
-    def test_malformed_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        fp = tmp_path / "config.json"
-        fp.write_text("not json {{{")
+    def test_malformed_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fp = tmp_path / "config.toml"
+        fp.write_text("not = [toml")
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
@@ -121,74 +111,73 @@ class TestLoadPipelineConfig:
 
 class TestSavePipelineConfig:
     def test_save_creates_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        fp = tmp_path / "config.json"
+        fp = tmp_path / "config.toml"
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         save_pipeline_config(cfg=AnalysisPipelineConfig(plugins=["a:b"]))
         assert fp.is_file()
-        data = json.loads(fp.read_text())
-        assert data["analysis"]["plugins"] == ["a:b"]
+        data = tomlkit.parse(fp.read_text())
+        assert list(data["analysis"]["plugins"]) == ["a:b"]
 
     def test_save_keeps_theme(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        fp = tmp_path / "config.json"
-        fp.write_text(json.dumps({"theme": "nord", "analysis": {"plugins": []}}))
+        fp = tmp_path / "config.toml"
+        fp.write_text('theme = "nord"\n[analysis]\nplugins = []\n')
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         save_pipeline_config(cfg=AnalysisPipelineConfig(plugins=["new:plugin"]))
-        data = json.loads(fp.read_text())
+        data = tomlkit.parse(fp.read_text())
         assert data["theme"] == "nord"
-        assert data["analysis"]["plugins"] == ["new:plugin"]
-        assert "other_key" not in data
+        assert list(data["analysis"]["plugins"]) == ["new:plugin"]
 
-    def test_save_drops_unknown_keys(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        fp = tmp_path / "config.json"
-        fp.write_text(json.dumps({"other_key": "value", "analysis": {"plugins": []}}))
+    def test_save_keeps_unknown_keys(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fp = tmp_path / "config.toml"
+        fp.write_text('other_key = "value"\n[analysis]\nplugins = []\n')
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         save_pipeline_config(cfg=AnalysisPipelineConfig(plugins=["new:plugin"]))
-        data = json.loads(fp.read_text())
-        assert "other_key" not in data
-        assert data["analysis"]["plugins"] == ["new:plugin"]
+        data = tomlkit.parse(fp.read_text())
+        assert data["other_key"] == "value"
+        assert list(data["analysis"]["plugins"]) == ["new:plugin"]
 
     def test_save_with_no_existing_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        fp = tmp_path / "config.json"
+        fp = tmp_path / "config.toml"
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         save_pipeline_config(cfg=AnalysisPipelineConfig(plugins=["a:b"], auto_analyze_when="never"))
-        data = json.loads(fp.read_text())
-        assert data["analysis"]["plugins"] == ["a:b"]
+        data = tomlkit.parse(fp.read_text())
+        assert list(data["analysis"]["plugins"]) == ["a:b"]
 
     def test_save_corrupt_existing_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        fp = tmp_path / "config.json"
-        fp.write_text("not json {{{")
+        fp = tmp_path / "config.toml"
+        fp.write_text("not = [toml")
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         save_pipeline_config(cfg=AnalysisPipelineConfig(plugins=["x:y"]))
-        data = json.loads(fp.read_text())
-        assert data["analysis"]["plugins"] == ["x:y"]
+        data = tomlkit.parse(fp.read_text())
+        assert list(data["analysis"]["plugins"]) == ["x:y"]
 
     def test_save_default_config_when_none(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        fp = tmp_path / "config.json"
+        fp = tmp_path / "config.toml"
         monkeypatch.setattr("groket.paths.app_config_path", lambda: fp)
         from groket.config import invalidate_config_cache
 
         invalidate_config_cache()
         save_pipeline_config(cfg=None)
-        data = json.loads(fp.read_text())
-        assert data["analysis"]["plugins"] == []
+        data = tomlkit.parse(fp.read_text())
+        assert list(data["analysis"]["plugins"]) == []

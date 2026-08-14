@@ -415,7 +415,7 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
         return app_home
 
     monkeypatch.setattr(paths, "app_home", _app_home)
-    monkeypatch.setattr(paths, "app_config_path", lambda: app_home / "config.json")
+    monkeypatch.setattr(paths, "app_config_path", lambda: app_home / "config.toml")
 
     def _subdir(name: str):
         def _fn() -> _Path:
@@ -446,7 +446,7 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     if hasattr(ui_app, "APP_HOME"):
         monkeypatch.setattr(ui_app, "APP_HOME", app_home)
     if hasattr(ui_app.TraceEvalApp, "_CONFIG_PATH"):
-        monkeypatch.setattr(ui_app.TraceEvalApp, "_CONFIG_PATH", app_home / "config.json")
+        monkeypatch.setattr(ui_app.TraceEvalApp, "_CONFIG_PATH", app_home / "config.toml")
 
     import groket.ui.prefs as prefs_mod
 

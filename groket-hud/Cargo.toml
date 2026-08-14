@@ -29,6 +29,8 @@ notify-rust = "4"
 icedtea = "0.6.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
+toml_edit = "0.22"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 uuid = { version = "1", features = ["v4"] }

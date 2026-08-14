@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomlkit
 from groket.paths import (
     analysis_cache_dir,
     app_config_path,
@@ -135,7 +136,7 @@ class TestAppHome:
         fake = tmp_path / "app-home"
         monkeypatch.setattr("groket.paths.APP_HOME", fake)
         result = app_config_path()
-        assert result == fake / "config.json"
+        assert result == fake / "config.toml"
 
     def test_user_keys_path(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
@@ -275,9 +276,9 @@ def test_extensions_scaffold_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(paths, "user_rules_dir", lambda: home / "rules")
     monkeypatch.setattr(paths, "user_analysis_plugins_dir", lambda: home / "plugins")
     monkeypatch.setattr(paths, "user_tasks_dir", lambda: home / "tasks")
-    monkeypatch.setattr(paths, "app_config_path", lambda: home / "config.json")
+    monkeypatch.setattr(paths, "app_config_path", lambda: home / "config.toml")
     # Scaffold imports these at module level; patch its own references too
-    monkeypatch.setattr(scaffold, "app_config_path", lambda: home / "config.json")
+    monkeypatch.setattr(scaffold, "app_config_path", lambda: home / "config.toml")
     monkeypatch.setattr(scaffold, "user_detectors_dir", lambda: home / "detectors")
     monkeypatch.setattr(scaffold, "user_rules_dir", lambda: home / "rules")
     monkeypatch.setattr(scaffold, "user_analysis_plugins_dir", lambda: home / "plugins")
@@ -305,30 +306,16 @@ def test_extensions_scaffold_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     with pytest.raises(FileExistsError):
         scaffold.write_tasks_file(home / "tasks" / "t2.yaml", force=False)
 
-    # append_analysis_plugin_to_config with bad JSON in config (lines 228-239)
-    cfg = home / "config.json"
-    cfg.write_text("not-json", encoding="utf-8")
+    cfg = home / "config.toml"
+    cfg.write_text("not = [toml", encoding="utf-8")
     scaffold.append_analysis_plugin_to_config("new_plug", "NewAnalyzer")
-    data = __import__("json").loads(cfg.read_text(encoding="utf-8"))
-    assert "new_plug:NewAnalyzer" in data["analysis"]["plugins"]
+    data = tomlkit.parse(cfg.read_text(encoding="utf-8"))
+    assert "new_plug:NewAnalyzer" in list(data["analysis"]["plugins"])
 
-    # Non-dict config.json (line 231)
-    cfg.write_text('"just a string"', encoding="utf-8")
+    cfg.write_text("analysis = 1\n", encoding="utf-8")
     scaffold.append_analysis_plugin_to_config("p2", "P2")
-    data2 = __import__("json").loads(cfg.read_text(encoding="utf-8"))
-    assert "p2:P2" in data2["analysis"]["plugins"]
-
-    # Config with non-dict analysis key (line 234-235)
-    cfg.write_text('{"analysis": "string"}', encoding="utf-8")
-    scaffold.append_analysis_plugin_to_config("p3", "P3")
-    data3 = __import__("json").loads(cfg.read_text(encoding="utf-8"))
-    assert "p3:P3" in data3["analysis"]["plugins"]
-
-    # Config with non-list plugins key (line 238-239)
-    cfg.write_text('{"analysis": {"plugins": "string"}}', encoding="utf-8")
-    scaffold.append_analysis_plugin_to_config("p4", "P4")
-    data4 = __import__("json").loads(cfg.read_text(encoding="utf-8"))
-    assert "p4:P4" in data4["analysis"]["plugins"]
+    data2 = tomlkit.parse(cfg.read_text(encoding="utf-8"))
+    assert "p2:P2" in list(data2["analysis"]["plugins"])
 
 
 from groket.paths import (

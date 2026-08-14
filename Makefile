@@ -51,12 +51,13 @@ lint-complexity:
 		--select PLR0911,PLR0912,PLR0913,PLR0915,PLR0904 \
 		groket
 
-# JSON Schema for batch tasks + detection rules (Pydantic sources).
+# JSON Schema for batch tasks, detection rules, and config.toml (Pydantic sources).
 # Committed under schemas/ for editors; published on GitHub Pages at
 # https://indynull.github.io/groket/schemas/ (see .github/workflows/pages.yml).
 schema:
 	uv run python -c "from pathlib import Path; from groket.runs.task_schema import emit_tasks_schema; emit_tasks_schema(Path('schemas/tasks.schema.json'))"
 	uv run python -c "from pathlib import Path; from groket.engine.rule_schema import emit_rules_schema; emit_rules_schema(Path('schemas/rules.schema.json'))"
+	uv run python -c "from pathlib import Path; from groket.config import emit_config_schema; emit_config_schema(Path('schemas/config.schema.json'))"
 
 schema-check:
 	@tmp=$$(mktemp) && \
@@ -68,6 +69,11 @@ schema-check:
 	  uv run python -c "from pathlib import Path; from groket.engine.rule_schema import emit_rules_schema; import sys; emit_rules_schema(Path(sys.argv[1]))" "$$tmp" && \
 	  diff -q "$$tmp" schemas/rules.schema.json >/dev/null || \
 	  (echo "schemas/rules.schema.json is stale — run make schema and commit" >&2; rm -f "$$tmp"; exit 1) && \
+	  rm -f "$$tmp"
+	@tmp=$$(mktemp) && \
+	  uv run python -c "from pathlib import Path; from groket.config import emit_config_schema; import sys; emit_config_schema(Path(sys.argv[1]))" "$$tmp" && \
+	  diff -q "$$tmp" schemas/config.schema.json >/dev/null || \
+	  (echo "schemas/config.schema.json is stale — run make schema and commit" >&2; rm -f "$$tmp"; exit 1) && \
 	  rm -f "$$tmp"
 
 examples-check:

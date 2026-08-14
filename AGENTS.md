@@ -210,7 +210,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.json``, ``hud.log``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.toml``, ``hud.log``, personas, detectors, rules, analysis plugins, tasks scaffolds, analysis cache, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
@@ -219,7 +219,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
-- Gitignored trees under a checkout (``/runs/``, ``/flags/``, ``/config.json``,
+- Gitignored trees under a checkout (``/runs/``, ``/flags/``, ``/config.toml``,
   ``/_meta_cache.json``) are **local leftovers**, not the install layout.
 
 ### 3.1 Live sessions (product behaviour)
@@ -342,6 +342,7 @@ Published schemas (also under ``schemas/``; GitHub Pages via
 
 - https://indynull.github.io/groket/schemas/tasks.schema.json  
 - https://indynull.github.io/groket/schemas/rules.schema.json  
+- https://indynull.github.io/groket/schemas/config.schema.json  
 
 ### 4.3 Module purity
 
@@ -441,7 +442,7 @@ domain folder.
 **Not dead without checking call paths:** Textual hooks (``compose``,
 ``action_*``, ``on_*``, ``BINDINGS``, …); ``@detector`` modules loaded from
 ``~/.groket/detectors`` and user rules YAML; analysis plugins listed in
-``config.json`` ``analysis.plugins``; model fields filled from traces.
+``config.toml`` ``analysis.plugins``; model fields filled from traces.
 
 ---
 
@@ -744,7 +745,7 @@ Extend without editing package source: ``~/.groket/`` + ``groket gen …``.
 | ``~/.groket/rules/*.yaml`` | Rule YAML (same schema as ``assets/config`` stubs / published schema) |
 | ``~/.groket/plugins/*.py`` | Analysis ``Analyzer`` classes (+ optional detectors) |
 | ``~/.groket/tasks/*.yaml`` | Optional task lists (never auto-loaded) |
-| ``~/.groket/config.json`` | Prefs + ``analysis.plugins`` |
+| ``~/.groket/config.toml`` | Prefs + ``analysis.plugins`` |
 
 ```bash
 uv run groket gen detector my_check
