@@ -50,7 +50,9 @@ from ...notes import (
 from ...parser import load_session_meta, parse_timeline
 from ...session.subagents import (
     SubagentRun,
+    compact_child_chrome,
     is_subagent_session_dir,
+    read_session_kind,
     subagent_runs_for_session,
 )
 from ...session.turns import event_display_turn_map, segment_timeline_turns
@@ -1932,6 +1934,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         # load_events always paints the full list; restore View/Turn/search.
         self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
+        self._sync_compact_child_chrome()
         if self._requested_prompt_index is not None:
             self.select_prompt_index(self._requested_prompt_index)
         self._update_diff_tab()
@@ -3188,6 +3191,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._turn_filter = "all"
             sel.display = False
             self._last_turn_segment_count = n_segs
+            self._sync_compact_child_chrome()
             return
         # Skip set_options when turn count is unchanged (live ticks mid-turn).
         if n_segs == self._last_turn_segment_count and sel.display:
@@ -3205,6 +3209,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._turn_filter = "all"
         sel.value = getattr(self, "_turn_filter", "all")
         self._last_turn_segment_count = n_segs
+        self._sync_compact_child_chrome()
+
+    def _sync_compact_child_chrome(self) -> None:
+        """Hide the Summary turns card for a one-turn subagent child."""
+        n = len(getattr(self, "_turn_segments", None) or [])
+        compact = compact_child_chrome(read_session_kind(self.session_dir), n)
+        try:
+            self.query_one("#summary-turns-card").display = not compact
+        except Exception:
+            return
 
     def _apply_filter(self, **kwargs) -> None:
         timeline_table = self.query_one("#timeline-list", TimelineTable)

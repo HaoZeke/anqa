@@ -130,6 +130,50 @@ async def test_browser_lists_runs_and_opens_child(tmp_path: Path) -> None:
         assert app.opened == child
 
 
+@pytest.mark.asyncio
+async def test_one_turn_child_hides_summary_turns_card(tmp_path: Path) -> None:
+    child = tmp_path / "child-one"
+    child.mkdir()
+    (child / "summary.json").write_text(
+        json.dumps(
+            {
+                "info": {"id": "child-one"},
+                "generated_title": "Child",
+                "session_kind": "subagent",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (child / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "do it"},
+                        "_meta": {"promptIndex": 1},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (child / "events.jsonl").write_text(
+        json.dumps({"type": "turn_started", "turn_number": 1, "ts": 1}) + "\n",
+        encoding="utf-8",
+    )
+    app = _Host(child)
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = app.query_one(BrowserScreen)
+        await wait_until(pilot, lambda: bool(screen.timeline), description="child timeline")
+        screen._stop_live_refresh()
+        screen.action_tab_summary()
+        card = screen.query_one("#summary-turns-card")
+        assert card.display is False
+
+
 def _write_parent_with_two_children(root: Path) -> tuple[Path, Path, Path]:
     parent = root / "parent-two"
     child_a = root / "child-a"
