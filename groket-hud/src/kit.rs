@@ -274,6 +274,7 @@ mod tests {
             compact_child: false,
             turn_pick: true,
             tab: crate::model::Tab::Timeline,
+            leader_armed: false,
         });
         let _ = status_footer("ready", false, &table, tea);
         let _ = status_footer(
@@ -288,6 +289,7 @@ mod tests {
                 compact_child: false,
                 turn_pick: false,
                 tab: crate::model::Tab::Overview,
+                leader_armed: false,
             }),
             tea,
         );

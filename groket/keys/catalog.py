@@ -9,7 +9,7 @@ remappable only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, field
 from enum import Enum
 
 # Overlay cannot steal dismiss, activate, focus-traversal, or ``?``.
@@ -63,6 +63,7 @@ class KeyAction:
     :ivar default: Textual notation; comma-list for alternatives.
     :ivar surfaces: ``shared``, ``tui``, or ``hud``.
     :ivar remappable: False when :func:`chord_is_reserved` is true for *default*.
+    :ivar overlay_scopes: Overlay tables that may remap this id (includes *scope*).
     """
 
     id: str
@@ -70,6 +71,7 @@ class KeyAction:
     default: str
     surfaces: ActionSurface
     remappable: bool
+    overlay_scopes: frozenset[ActionScope] = field(default_factory=frozenset)
 
 
 def _alias(token: str) -> str:
@@ -127,28 +129,46 @@ def _row(
     scope: ActionScope,
     default: str,
     surfaces: ActionSurface,
+    *,
+    overlay_scopes: frozenset[ActionScope] | None = None,
 ) -> KeyAction:
+    scopes = frozenset({scope}) if overlay_scopes is None else frozenset(overlay_scopes) | {scope}
     return KeyAction(
         id=action_id,
         scope=scope,
         default=default,
         surfaces=surfaces,
         remappable=not chord_is_reserved(default),
+        overlay_scopes=scopes,
     )
 
+
+_NAV = frozenset({ActionScope.HOME, ActionScope.BROWSER})
 
 ACTIONS: tuple[KeyAction, ...] = (
     # Shared TUI + HUD.
     _row("help.toggle", ActionScope.GLOBAL, "?", ActionSurface.SHARED),
     _row("overlay.hide", ActionScope.GLOBAL, "escape", ActionSurface.SHARED),
     _row("session.open", ActionScope.HOME, "enter", ActionSurface.SHARED),
-    _row("list.down", ActionScope.HOME, "j", ActionSurface.SHARED),
-    _row("list.up", ActionScope.HOME, "k", ActionSurface.SHARED),
+    _row("list.down", ActionScope.HOME, "j", ActionSurface.SHARED, overlay_scopes=_NAV),
+    _row("list.up", ActionScope.HOME, "k", ActionSurface.SHARED, overlay_scopes=_NAV),
     _row("search.focus", ActionScope.HOME, "slash", ActionSurface.SHARED),
     _row("edit.copy", ActionScope.BROWSER, "y", ActionSurface.SHARED),
     _row("edit.copy_chord", ActionScope.BROWSER, "ctrl+shift+c", ActionSurface.SHARED),
-    _row("session.follow", ActionScope.HOME, "n", ActionSurface.SHARED),
-    _row("session.done", ActionScope.HOME, "e", ActionSurface.SHARED),
+    _row(
+        "session.follow",
+        ActionScope.HOME,
+        "n",
+        ActionSurface.SHARED,
+        overlay_scopes=_NAV,
+    ),
+    _row(
+        "session.done",
+        ActionScope.HOME,
+        "e",
+        ActionSurface.SHARED,
+        overlay_scopes=_NAV,
+    ),
     _row("pane.notes", ActionScope.BROWSER, "N", ActionSurface.SHARED),
     # HUD-only (Tab / Shift+Tab / Ctrl+1–5 panes; [ ] turn scope; g).
     _row("pane.next", ActionScope.BROWSER, "tab", ActionSurface.HUD),

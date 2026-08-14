@@ -3,6 +3,7 @@
 //! icedtea [`pattern::status_bar`] prints [`ActionTable::footer_hints`];
 //! [`pattern::cheatsheet`] lists the full table. One table shape, two views.
 
+use iced::keyboard::Key;
 use icedtea::action::{Action, ActionTable};
 use icedtea::shortcut::Shortcut;
 
@@ -22,6 +23,7 @@ pub struct KeyScope {
     /// Events turn pick is shown (more than one turn).
     pub turn_pick: bool,
     pub tab: Tab,
+    pub leader_armed: bool,
 }
 
 fn scope_tabs(scope: KeyScope) -> &'static [Tab] {
@@ -40,9 +42,27 @@ fn push(
     spec: &str,
     msg: Message,
 ) {
+    if let Some(label) = overlay.sequence_display(id, spec) {
+        table.insert(Action::new(id, title, msg).with_shortcut(Shortcut::new(
+            iced::keyboard::Modifiers::empty(),
+            Key::Character(label.into()),
+        )));
+        return;
+    }
     let resolved = overlay.hud_spec(id, spec);
     let parsed = Shortcut::parse(&resolved).expect("HUD shortcut spec");
     table.insert(Action::new(id, title, msg).with_shortcut(parsed));
+}
+
+fn push_leader(table: &mut ActionTable<Message>, overlay: &KeyOverlay) {
+    let Some(leader) = overlay.leader() else {
+        return;
+    };
+    let spec = overlay.hud_spec("leader.prefix", leader);
+    let Some(parsed) = Shortcut::parse(&spec).or_else(|| Shortcut::parse(leader)) else {
+        return;
+    };
+    table.insert(Action::new("leader.prefix", "Leader", Message::Noop).with_shortcut(parsed));
 }
 
 /// Primary keys for the status-bar footer (short, context-filtered).
@@ -53,6 +73,9 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
 /// Footer table using a resolved overlay (production HUD path).
 pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Message> {
     let mut table = ActionTable::new();
+    if scope.leader_armed {
+        push_leader(&mut table, overlay);
+    }
     if scope.help_open {
         push(
             &mut table,
@@ -182,6 +205,9 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
 /// Cheatsheet using a resolved overlay (production HUD path).
 pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Message> {
     let mut table = ActionTable::new();
+    if overlay.leader().is_some() {
+        push_leader(&mut table, overlay);
+    }
     push(
         &mut table,
         overlay,
@@ -347,6 +373,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Overview,
+            leader_armed: false,
         }
     }
 
@@ -392,6 +419,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Overview,
+            leader_armed: false,
         });
         let blob = browse.footer_hints().join("  ·  ");
         assert!(blob.contains("tab panes"));
@@ -409,6 +437,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Turns,
+            leader_armed: false,
         });
         assert!(turns.footer_hints().iter().any(|h| h.contains("j down")));
 
@@ -421,6 +450,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Timeline,
+            leader_armed: false,
         });
         let blob = detail.footer_hints().join("  ·  ");
         assert!(blob.contains("esc timeline"));
@@ -438,6 +468,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Timeline,
+            leader_armed: false,
         })
         .footer_hints();
         let blob = hints.join("  ·  ");
@@ -457,6 +488,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Overview,
+            leader_armed: false,
         })
         .footer_hints();
         let blob = hints.join("  ·  ");
@@ -475,6 +507,72 @@ mod tests {
         assert!(sheet.get("session.follow").is_some());
         assert!(sheet.get("session.done").is_some());
         assert!(sheet.get("pane.notes").is_some());
+    }
+
+    #[test]
+    fn armed_leader_shows_in_footer() {
+        let overlay = crate::keys::KeyOverlay::parse(
+            "leader = \";\"\n[home]\n\"session.follow\" = \"leader+n\"\n\"list.down\" = \"n\"\n",
+        )
+        .expect("leader overlay");
+        let hints = footer_table_for(
+            KeyScope {
+                browse: false,
+                help_open: false,
+                timeline_detail: false,
+                awaiting: false,
+                tab: Tab::Overview,
+                leader_armed: true,
+            },
+            &overlay,
+        )
+        .footer_hints();
+        let blob = hints.join("  ·  ");
+        assert!(
+            blob.contains(';') || blob.to_lowercase().contains("leader"),
+            "{blob}"
+        );
+        let help = help_table_for(&overlay);
+        assert!(help.get("leader.prefix").is_some());
+    }
+
+    #[test]
+    fn sequence_actions_show_leader_plus_letter() {
+        let overlay = crate::keys::KeyOverlay::parse(concat!(
+            "leader = \";\"\n",
+            "[home]\n",
+            "\"list.down\" = \"n\"\n",
+            "\"list.up\" = \"e\"\n",
+            "\"session.follow\" = \"leader+n\"\n",
+            "\"session.done\" = \"leader+e\"\n",
+        ))
+        .expect("colemak");
+        let hints = footer_table_for(
+            KeyScope {
+                browse: true,
+                help_open: false,
+                timeline_detail: false,
+                awaiting: true,
+                tab: Tab::Overview,
+                leader_armed: false,
+            },
+            &overlay,
+        )
+        .footer_hints();
+        let blob = hints.join("  ·  ");
+        assert!(blob.contains("; n"), "{blob}");
+        assert!(blob.contains("; e"), "{blob}");
+        let help = help_table_for(&overlay);
+        let follow = help.get("session.follow").expect("follow");
+        assert_eq!(
+            follow.shortcut.as_ref().map(ToString::to_string).as_deref(),
+            Some("; n")
+        );
+        let done = help.get("session.done").expect("done");
+        assert_eq!(
+            done.shortcut.as_ref().map(ToString::to_string).as_deref(),
+            Some("; e")
+        );
     }
 
     #[test]

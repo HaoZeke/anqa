@@ -53,9 +53,12 @@ cheatsheet. Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
 `n`/`e` `N`); panes are Tab and Ctrl+1–5. `u` or the logo leaves an
 open session for the session list (`Esc` still hides, or steps out of
 Timeline detail / a child first). A `keys.toml` remap applies on both
-surfaces. Subagent runs stay off the session list; open them from the
-parent Turns chips or by clicking a Timeline spawn/finish tile (Enter
-does the same). Esc returns to that Timeline or Turns place.
+surfaces. A configured leader (Colemak example: `;`) then one letter
+runs `leader+X`; Esc or timeout cancels. Copy
+`examples/keys/colemak.toml` to `~/.groket/keys.toml`. Subagent runs
+stay off the session list; open them from the parent Turns chips or by
+clicking a Timeline spawn/finish tile (Enter does the same). Esc
+returns to that Timeline or Turns place.
 
 ## Overlay, pop-out, tray, notify
 
