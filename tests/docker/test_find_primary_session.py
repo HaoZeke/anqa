@@ -59,6 +59,29 @@ def test_skips_subagent_sibling_mirror(tmp_path: Path, mod) -> None:
     assert mod.main([str(root), "--check", sub.name]) == 1
 
 
+def test_list_primary_matches_drop_subagent_sessions(tmp_path: Path, mod) -> None:
+    from groket.session.subagents import drop_subagent_sessions
+
+    root = tmp_path / "sessions"
+    token = root / "%2Fworkspace"
+    parent = token / "019f-parent"
+    nested = parent / "subagents" / "019f-nested"
+    sibling = token / "019f-sib"
+    kinded = token / "019f-kind"
+    fork = token / "019f-fork"
+    _session(parent)
+    nested.mkdir(parents=True)
+    (nested / "meta.json").write_text("{}", encoding="utf-8")
+    _session(sibling)
+    (parent / "subagents" / sibling.name).mkdir(parents=True)
+    _session(kinded, kind="subagent")
+    _session(fork, kind="fork")
+    docker_names = {p.name for p in mod.list_primary_session_dirs(root)}
+    host_names = {p.name for p in drop_subagent_sessions(mod.iter_session_dirs(root))}
+    assert docker_names == host_names
+    assert docker_names == {"019f-parent", "019f-fork"}
+
+
 def test_preferred_sticky_primary(tmp_path: Path, mod) -> None:
     import os
     import time
