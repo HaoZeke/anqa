@@ -5599,7 +5599,7 @@ mod tests {
         });
         assert!(matches!(
             interesting_hud_event(digit, event::Status::Captured, window::Id::unique()),
-            Some(Message::SetTab(Tab::Turns))
+            Some(Message::PaneDigit(2))
         ));
     }
 

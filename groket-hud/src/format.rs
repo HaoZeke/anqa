@@ -469,20 +469,19 @@ const TOOL_FAMILY_MCP_WRAPPER: &[&str] = &["use_tool", "call_mcp", "call_mcp_too
 /// Map a tool id to read | write | shell | agent | mcp | other.
 pub fn tool_family(name: &str) -> &'static str {
     let n = name.trim();
-    if n.contains("__") || n.starts_with("mcp_") || TOOL_FAMILY_MCP_WRAPPER.iter().any(|k| *k == n)
-    {
+    if n.contains("__") || n.starts_with("mcp_") || TOOL_FAMILY_MCP_WRAPPER.contains(&n) {
         return "mcp";
     }
-    if TOOL_FAMILY_READ.iter().any(|k| *k == n) {
+    if TOOL_FAMILY_READ.contains(&n) {
         return "read";
     }
-    if TOOL_FAMILY_WRITE.iter().any(|k| *k == n) {
+    if TOOL_FAMILY_WRITE.contains(&n) {
         return "write";
     }
-    if TOOL_FAMILY_SHELL.iter().any(|k| *k == n) {
+    if TOOL_FAMILY_SHELL.contains(&n) {
         return "shell";
     }
-    if TOOL_FAMILY_AGENT.iter().any(|k| *k == n) {
+    if TOOL_FAMILY_AGENT.contains(&n) {
         return "agent";
     }
     let low = n.to_ascii_lowercase();
@@ -508,7 +507,7 @@ pub fn tool_family(name: &str) -> &'static str {
 }
 
 fn human_tool_token(part: &str) -> String {
-    part.replace('_', " ").replace('-', " ").trim().to_string()
+    part.replace(['_', '-'], " ").trim().to_string()
 }
 
 /// Operator tool label: spaces, not snake_case; marketplace ``server · method``.
