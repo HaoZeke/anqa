@@ -175,6 +175,40 @@ pub fn socket_accepts(path: &Path) -> bool {
     }
 }
 
+/// What `--show` / `--hide` / `--toggle` should do after talking to the socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SummonCli {
+    /// Command delivered, or hide with nothing running.
+    Done,
+    /// Start a new HUD and show the overlay.
+    StartShown,
+}
+
+/// True when the socket is absent so a compositor bind cannot talk to a HUD.
+pub fn is_summon_miss(err: &SummonError) -> bool {
+    matches!(
+        err,
+        SummonError::NotRunning(_) | SummonError::NoPath | SummonError::Unsupported
+    )
+}
+
+/// Plan the binary's next step after [`send_command`].
+///
+/// Hide with no listener exits successfully. Show and toggle start a HUD.
+pub fn plan_summon_cli(
+    action: SummonAction,
+    result: Result<(), SummonError>,
+) -> Result<SummonCli, SummonError> {
+    match result {
+        Ok(()) => Ok(SummonCli::Done),
+        Err(err) if is_summon_miss(&err) && matches!(action, SummonAction::Hide) => {
+            Ok(SummonCli::Done)
+        }
+        Err(err) if is_summon_miss(&err) => Ok(SummonCli::StartShown),
+        Err(err) => Err(err),
+    }
+}
+
 /// Send one summon command to a running HUD.
 pub fn send_command(action: SummonAction) -> Result<(), SummonError> {
     let token = match action {
@@ -363,6 +397,28 @@ mod tests {
         assert_eq!(parse_command("Toggle"), Some(SummonAction::Toggle));
         assert_eq!(parse_command("quit"), None);
         assert_eq!(parse_command(""), None);
+    }
+
+    #[test]
+    fn plan_summon_cli_starts_when_show_misses() {
+        let miss = SummonError::NotRunning("gone".into());
+        assert_eq!(
+            plan_summon_cli(SummonAction::Show, Err(miss)).unwrap(),
+            SummonCli::StartShown
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Toggle, Err(SummonError::NoPath)).unwrap(),
+            SummonCli::StartShown
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Hide, Err(SummonError::Unsupported)).unwrap(),
+            SummonCli::Done
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Show, Ok(())).unwrap(),
+            SummonCli::Done
+        );
+        assert!(plan_summon_cli(SummonAction::Show, Err(SummonError::Other("x".into()))).is_err());
     }
 
     #[test]

@@ -84,17 +84,22 @@ pub fn search_field<'a>(
 /// When some tabs must stay disabled (no session yet), paint the same underbar
 /// strip with per-tab enable flags — contribution candidate for icedtea
 /// `tab_bar` (`enabled: &[bool]` or similar).
-pub fn pane_tabs<'a>(active: Tab, session_ready: bool, tea: Tokens) -> Element<'a, Message> {
-    let titles: Vec<String> = Tab::ALL.iter().map(|t| t.label().to_string()).collect();
-    let active_i = Tab::ALL.iter().position(|t| *t == active).unwrap_or(0);
+pub fn pane_tabs<'a>(
+    active: Tab,
+    session_ready: bool,
+    tabs: &'static [Tab],
+    tea: Tokens,
+) -> Element<'a, Message> {
+    let titles: Vec<String> = tabs.iter().map(|t| t.label().to_string()).collect();
+    let active_i = tabs.iter().position(|t| *t == active).unwrap_or(0);
 
     if session_ready {
-        let mut tabs = Tabs::new(titles);
-        tabs.select(active_i);
-        tabs.closable = false;
+        let mut bar = Tabs::new(titles);
+        bar.select(active_i);
+        bar.closable = false;
         return widget::tab_bar(
-            &tabs,
-            |i| Message::SetTab(Tab::ALL[i.min(Tab::ALL.len() - 1)]),
+            &bar,
+            |i| Message::SetTab(tabs[i.min(tabs.len() - 1)]),
             |_| Message::Noop,
             tea,
             A11y::new("panes", Role::Tab),
@@ -102,7 +107,7 @@ pub fn pane_tabs<'a>(active: Tab, session_ready: bool, tea: Tokens) -> Element<'
     }
 
     let mut r = row![].spacing(0).align_y(Alignment::End);
-    for (i, tab) in Tab::ALL.iter().enumerate() {
+    for (i, tab) in tabs.iter().enumerate() {
         let title = tab.label().to_string();
         let enabled = *tab == Tab::Overview;
         let show_active = enabled && i == active_i;
@@ -282,8 +287,8 @@ mod tests {
     #[test]
     fn pane_tabs_ready_uses_tab_bar_path() {
         let tea = icedtea::theme::named("dark").tokens;
-        let _ = pane_tabs(Tab::Overview, true, tea);
-        let _ = pane_tabs(Tab::Timeline, false, tea);
+        let _ = pane_tabs(Tab::Overview, true, &Tab::ALL, tea);
+        let _ = pane_tabs(Tab::Timeline, false, &Tab::ALL, tea);
     }
 
     #[test]
@@ -308,6 +313,9 @@ mod tests {
             help_open: false,
             timeline_detail: true,
             awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
             tab: crate::model::Tab::Timeline,
         });
         let _ = status_footer("ready", false, &table, tea);
@@ -319,6 +327,9 @@ mod tests {
                 help_open: false,
                 timeline_detail: false,
                 awaiting: false,
+                child_open: false,
+                compact_child: false,
+                turn_pick: false,
                 tab: crate::model::Tab::Overview,
             }),
             tea,
@@ -328,7 +339,16 @@ mod tests {
     #[test]
     fn help_modal_builds() {
         let tea = icedtea::theme::named("dark").tokens;
-        let table = crate::help::help_table();
+        let table = crate::help::help_table(crate::help::KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: crate::model::Tab::Overview,
+        });
         let backdrop = status_empty("HUD", "backdrop", tea);
         let _ = help_modal(backdrop, &table, tea);
     }

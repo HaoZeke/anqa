@@ -9,7 +9,7 @@ fn main() {
         let code = match groket_hud::install_desktop::run_cli() {
             Ok(_) => 0,
             Err(err) => {
-                eprintln!("groket-hud: {err}");
+                eprintln!("groket: {err}");
                 1
             }
         };
@@ -17,39 +17,42 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         eprintln!(
-            "groket-hud — session palette (control client)\n\
+            "groket — session palette (control client)\n\
              \n\
              Options:\n\
                --install-desktop   Write user-local icons and a launcher entry\n\
-                                   (Linux .desktop, macOS ~/Applications app,\n\
+                                   (Linux .desktop, macOS ~/Applications/groket.app,\n\
                                    Windows Start Menu shortcut). No system package.\n\
-               --show              Show the palette (running HUD via summon socket)\n\
-               --hide              Hide the overlay (running HUD)\n\
-               --toggle            Show or hide (running HUD; Sway bind target).
-                                   Forwards XDG_ACTIVATION_TOKEN to the HUD.\n\
+               --show              Show the palette. Starts groket when nothing is running.\n\
+               --hide              Hide the overlay (running groket)\n\
+               --toggle            Show or hide (running groket; Sway bind target).
+                                   Forwards XDG_ACTIVATION_TOKEN to the palette.\n\
                -h, --help          Show this help\n\
              \n\
-             With no options, starts the HUD (tray; X11 summon hotkey when available).\n\
-             Wayland: use --show/--toggle, tray Show HUD, or a compositor bind."
+             With no options, starts groket (tray; X11 summon hotkey when available).\n\
+             Wayland: use --show/--toggle, tray Show, or a compositor bind."
         );
         std::process::exit(0);
     }
     if let Some(action) = cli_summon_action(&args) {
-        let code = match groket_hud::summon::send_command(action) {
-            Ok(()) => 0,
-            Err(err) => {
-                eprintln!("groket-hud: {err}");
-                1
+        match groket_hud::summon::plan_summon_cli(action, groket_hud::summon::send_command(action))
+        {
+            Ok(groket_hud::summon::SummonCli::Done) => std::process::exit(0),
+            Ok(groket_hud::summon::SummonCli::StartShown) => {
+                std::env::set_var(groket_hud::tray::SHOW_ON_START_ENV, "1");
             }
-        };
-        std::process::exit(code);
+            Err(err) => {
+                eprintln!("groket: {err}");
+                std::process::exit(1);
+            }
+        }
     }
     #[cfg(target_os = "macos")]
-    groket_hud::app::set_macos_accessory();
+    groket_hud::macoswin::prepare_host();
     let code = match groket_hud::run() {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("groket-hud: {err}");
+            eprintln!("groket: {err}");
             1
         }
     };

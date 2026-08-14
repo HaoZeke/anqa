@@ -51,9 +51,14 @@ pub fn set_desktop_app(desktop: bool) {
     let _ = desktop;
 }
 
-/// Boot: accessory (no Dock / Command-Tab) until pop-out.
-pub fn set_accessory_policy() {
-    set_desktop_app(false);
+/// Process name plus accessory. Call before iced so Command-Tab does not
+/// inherit ``groket-hud``; iced/winit may reset the policy — re-apply after.
+pub fn prepare_host() {
+    #[cfg(target_os = "macos")]
+    {
+        set_process_display_name();
+        set_desktop_app(false);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -79,6 +84,8 @@ fn apply_macos(handle: WindowHandle<'_>, overlay: bool) -> bool {
         return false;
     };
     window.setCollectionBehavior(NSWindowCollectionBehavior(collection_mask(overlay) as _));
+    // winit starts Regular; pin accessory again once the NSWindow exists.
+    set_activation_macos(!overlay);
     // SAFETY: AppKit string constants are immutable process-lifetime data.
     let subrole = unsafe {
         if overlay {
@@ -96,13 +103,22 @@ fn apply_macos(handle: WindowHandle<'_>, overlay: bool) -> bool {
     true
 }
 
+/// Command-Tab / Activity Monitor use this when there is no .app bundle.
+#[cfg(target_os = "macos")]
+fn set_process_display_name() {
+    use objc2_foundation::{NSProcessInfo, NSString};
+
+    NSProcessInfo::processInfo()
+        .setProcessName(&NSString::from_str(crate::install_desktop::APP_NAME));
+}
+
 #[cfg(target_os = "macos")]
 fn set_activation_macos(desktop: bool) {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
     let Some(mtm) = MainThreadMarker::new() else {
-        eprintln!("groket-hud: activation policy skipped (not on main thread)");
+        eprintln!("groket: activation policy skipped (not on main thread)");
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
@@ -113,7 +129,7 @@ fn set_activation_macos(desktop: bool) {
     };
     if !app.setActivationPolicy(policy) {
         eprintln!(
-            "groket-hud: setActivationPolicy({}) failed",
+            "groket: setActivationPolicy({}) failed",
             if desktop { "Regular" } else { "Accessory" }
         );
     }
@@ -166,7 +182,7 @@ fn set_app_icon_macos(app: &objc2_app_kit::NSApplication) {
 
     let data = NSData::with_bytes(crate::brand::APP_ICON_PNG);
     let Some(img) = NSImage::initWithData(NSImage::alloc(), &data) else {
-        eprintln!("groket-hud: NSImage from groket app icon failed");
+        eprintln!("groket: NSImage from groket app icon failed");
         return;
     };
     // SAFETY: NSApplication is on the main thread; icon is retained by AppKit.
@@ -195,5 +211,12 @@ mod tests {
         assert_eq!(m & TRANSIENT, 0);
         assert_eq!(m & JOIN_ALL_SPACES, 0);
         assert_eq!(m & FULL_SCREEN_DISALLOWS_TILING, 0);
+    }
+
+    #[test]
+    fn prepare_host_runs() {
+        prepare_host();
+        set_desktop_app(false);
+        set_desktop_app(true);
     }
 }

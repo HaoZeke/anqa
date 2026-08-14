@@ -16,14 +16,14 @@ pub const APP_ID: &str = "dev.indynull.groket-hud";
 /// Overlay palette only (Sway ``for_window`` float/sticky; pop-out keeps ``APP_ID``).
 pub const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
 /// Human name on menus and desktop entries.
-pub const APP_NAME: &str = "Groket HUD";
+pub const APP_NAME: &str = "groket";
 /// One-line comment for desktop entries.
-pub const APP_COMMENT: &str = "Session palette for the groket control plane";
+pub const APP_COMMENT: &str = "Session palette";
 
 /// Sway fragment: float/sticky overlay only; pop-out keeps ``APP_ID`` and tiles.
 pub fn sway_overlay_rules() -> String {
     format!(
-        "# Groket HUD overlay ({OVERLAY_APP_ID}). Include from sway config:\n\
+        "# groket overlay ({OVERLAY_APP_ID}). Include from sway config:\n\
          #   include ~/.config/groket/sway-hud.conf\n\
          for_window [app_id=\"{OVERLAY_APP_ID}\"] floating enable\n\
          for_window [app_id=\"{OVERLAY_APP_ID}\"] border pixel 0\n\
@@ -148,7 +148,7 @@ pub fn linux_desktop_entry(exe: &Path, icon_name: &str) -> String {
          Version=1.0\n\
          Name={APP_NAME}\n\
          Comment={APP_COMMENT}\n\
-         Exec={exec}\n\
+         Exec={exec} --show\n\
          TryExec={exec}\n\
          Icon={icon_name}\n\
          Terminal=false\n\
@@ -225,7 +225,7 @@ pub fn macos_info_plist(has_icns: bool) -> String {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>groket-hud</string>
+  <string>{APP_NAME}</string>
   <key>CFBundleIdentifier</key>
   <string>{APP_ID}</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -245,7 +245,7 @@ pub fn macos_info_plist(has_icns: bool) -> String {
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>LSUIElement</key>
-  <false/>
+  <true/>
 {icon_keys}</dict>
 </plist>
 "#
@@ -412,7 +412,7 @@ pub fn write_macos_app_bundle(layout: &Layout) -> Result<Report, Error> {
     let plist = contents.join("Info.plist");
     write_bytes(&plist, macos_info_plist(has_icns).as_bytes(), &mut wrote)?;
 
-    let launcher = macos_dir.join("groket-hud");
+    let launcher = macos_dir.join(APP_NAME);
     write_bytes(
         &launcher,
         macos_launcher_script(&layout.exe).as_bytes(),
@@ -522,7 +522,7 @@ fn install_windows(layout: &Layout) -> Result<Report, Error> {
             }
             report
                 .notes
-                .push("Start Menu shortcut created (Groket HUD).".into());
+                .push("Start Menu shortcut created (groket).".into());
         }
         Ok(st) => {
             report.notes.push(format!(
@@ -561,8 +561,8 @@ mod tests {
     fn desktop_entry_names_app_and_exec() {
         let exe = Path::new("/opt/groket/bin/groket-hud");
         let body = linux_desktop_entry(exe, APP_ID);
-        assert!(body.contains("Name=Groket HUD"));
-        assert!(body.contains("Exec=/opt/groket/bin/groket-hud"));
+        assert!(body.contains("Name=groket"));
+        assert!(body.contains("Exec=/opt/groket/bin/groket-hud --show"));
         assert!(body.contains(&format!("Icon={APP_ID}")));
         assert!(body.contains("Type=Application"));
     }
@@ -593,6 +593,9 @@ mod tests {
         let with_icon = macos_info_plist(true);
         assert!(with_icon.contains(APP_ID));
         assert!(with_icon.contains("AppIcon"));
+        assert!(with_icon.contains(&format!("<string>{APP_NAME}</string>")));
+        assert!(with_icon.contains("LSUIElement"));
+        assert!(with_icon.contains("<true/>"));
         let bare = macos_info_plist(false);
         assert!(!bare.contains("CFBundleIconFile"));
     }
@@ -628,11 +631,12 @@ mod tests {
             xdg_data_home: None,
         })
         .unwrap();
-        let app = home.join("Applications").join("Groket HUD.app");
+        let app = home.join("Applications").join("groket.app");
         assert!(app.join("Contents/Info.plist").is_file());
-        assert!(app.join("Contents/MacOS/groket-hud").is_file());
+        assert!(app.join("Contents/MacOS").join(APP_NAME).is_file());
         let plist = fs::read_to_string(app.join("Contents/Info.plist")).unwrap();
         assert!(plist.contains(APP_ID));
+        assert!(plist.contains(&format!("<string>{APP_NAME}</string>")));
         assert!(!report.wrote.is_empty());
         let _ = fs::remove_dir_all(&home);
     }
@@ -683,6 +687,8 @@ mod tests {
         let desktop = data.join("applications").join(format!("{APP_ID}.desktop"));
         assert!(desktop.is_file());
         let body = fs::read_to_string(&desktop).unwrap();
+        assert!(body.contains("Name=groket"));
+        assert!(body.contains(" --show"));
         assert!(body.contains(&exe.to_string_lossy().to_string()) || body.contains("groket-hud"));
         assert!(data
             .join("icons/hicolor/128x128/apps")

@@ -263,7 +263,7 @@ def test_launch_hud_detaches_by_default(tmp_path: Path) -> None:
     assert kwargs.get("start_new_session") is True
 
 
-def test_launch_hud_skips_when_summon_socket_live(tmp_path: Path) -> None:
+def test_launch_hud_shows_when_summon_socket_live(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -271,16 +271,16 @@ def test_launch_hud_skips_when_summon_socket_live(tmp_path: Path) -> None:
         patch.object(launch_mod, "ensure_hud_binary", return_value=binary),
         patch.object(launch_mod, "hud_process_running", return_value=False),
         patch.object(launch_mod, "summon_socket_accepts", return_value=True),
+        patch.object(launch_mod, "send_summon_command", return_value=0) as mock_send,
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
-        patch.object(launch_mod.subprocess, "run") as mock_run,
     ):
         code = launch_mod.launch_hud(socket_path=tmp_path / "c.sock")
     assert code == 0
     mock_popen.assert_not_called()
-    mock_run.assert_not_called()
+    mock_send.assert_called_once_with("show")
 
 
-def test_launch_hud_skips_when_already_running(tmp_path: Path) -> None:
+def test_launch_hud_shows_when_already_running(tmp_path: Path) -> None:
     binary = tmp_path / "groket-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
@@ -288,13 +288,13 @@ def test_launch_hud_skips_when_already_running(tmp_path: Path) -> None:
         patch.object(launch_mod, "ensure_hud_binary", return_value=binary),
         patch.object(launch_mod, "hud_process_running", return_value=True),
         patch.object(launch_mod, "summon_socket_accepts", return_value=True),
+        patch.object(launch_mod, "send_summon_command", return_value=0) as mock_send,
         patch.object(launch_mod.subprocess, "Popen") as mock_popen,
-        patch.object(launch_mod.subprocess, "run") as mock_run,
     ):
         code = launch_mod.launch_hud(socket_path=tmp_path / "c.sock")
     assert code == 0
     mock_popen.assert_not_called()
-    mock_run.assert_not_called()
+    mock_send.assert_called_once_with("show")
 
 
 def test_launch_hud_replaces_process_when_summon_socket_dead(tmp_path: Path) -> None:
@@ -377,6 +377,22 @@ def test_launch_hud_dev_restart_stops_then_runs_cargo(tmp_path: Path) -> None:
     assert code == 0
     mock_stop.assert_called_once()
     mock_run.assert_called_once()
+
+
+def test_launch_hud_dev_shows_when_summon_socket_live(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    checkout.mkdir()
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    with (
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "summon_socket_accepts", return_value=True),
+        patch.object(launch_mod, "send_summon_command", return_value=0) as mock_send,
+        patch.object(launch_mod.subprocess, "run") as mock_run,
+    ):
+        code = launch_mod.launch_hud_dev(socket_path=tmp_path / "c.sock")
+    assert code == 0
+    mock_send.assert_called_once_with("show")
+    mock_run.assert_not_called()
 
 
 def test_launch_hud_dev_runs_cargo(tmp_path: Path) -> None:

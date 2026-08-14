@@ -193,9 +193,14 @@ def launch_hud_dev(
     env.update(_hud_shortcut_env())
     if extra_env:
         env.update(extra_env)
-    if hud_process_running() or summon_socket_accepts():
-        sys.stderr.write("groket hud: already running (use groket hud --restart to replace)\n")
-        return 0
+    if summon_socket_accepts():
+        return send_summon_command("show")
+    if hud_process_running():
+        n = stop_hud_processes()
+        if n:
+            sys.stderr.write(
+                f"groket hud: replaced {n} process(es); summon socket was not accepting\n"
+            )
     sys.stderr.write(f"groket hud: cargo run (debug) in {checkout}\n")
     sys.stderr.flush()
     try:
@@ -394,15 +399,10 @@ def launch_hud(
 
     attach = bool(foreground) if foreground is not None else _truthy_env("GROKET_HUD_FOREGROUND")
     chord_hint = env.get("GROKET_HUD_SHORTCUT", "").strip() or "Cmd+Shift+G / Ctrl+Shift+G"
-    summon_hint = "groket hud --toggle (Wayland/Sway); tray Show HUD"
+    summon_hint = "groket hud --toggle (Wayland/Sway); tray Show"
 
     if not restart and summon_socket_accepts():
-        sys.stderr.write(
-            "groket hud: already running "
-            f"(summon: {summon_hint}; X11/macOS/Windows hotkey {chord_hint}; "
-            "use --restart to replace)\n"
-        )
-        return 0
+        return send_summon_command("show")
     elif hud_process_running():
         n = stop_hud_processes()
         if n:

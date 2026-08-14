@@ -151,22 +151,11 @@ def launch_tui(
             work_dir=wd,
             traces_path=tr,
         )
-        if result.ok:
-            if result.spawned:
-                typer.echo(
-                    f"groket: started control owner pid={result.pid} socket={socket_path}",
-                    err=True,
-                )
-            elif result.already_running:
-                typer.echo(f"groket: control owner already live at {socket_path}", err=True)
-        else:
+        if not result.ok:
             typer.echo(
                 f"groket: warning: could not start control owner: {result.error}",
                 err=True,
             )
-    typer.echo(f"groket: work_dir={wd}", err=True)
-    typer.echo(f"  traces: {tr}", err=True)
-    typer.echo(f"  runner writes: {wd / 'runs' / 'traces'}", err=True)
     TraceEvalApp(
         traces_path=tr,
         work_dir=wd,
@@ -275,7 +264,7 @@ def cmd_hud(
     """Desktop session palette (control client).
 
     Starts in the background by default (macOS: no Dock, no Cmd+Tab). Summon with
-    Cmd+Shift+G on macOS / X11; on Wayland use ``--toggle``, tray Show HUD, or a
+    Cmd+Shift+G on macOS / X11; on Wayland use ``--toggle``, tray Show, or a
     compositor bind. Launches the iced ``groket-hud`` binary (rebuilds from an
     editable checkout when missing or stale). ``--debug`` for unoptimized;
     ``--dev`` cargo run; ``--restart`` replaces a running HUD.

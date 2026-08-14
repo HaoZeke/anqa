@@ -49,7 +49,10 @@ groket /path/to/work        # work root, traces tree, or one session dir
 sessions are native Grok trees at `~/.grok/sessions` (real paths; `H`
 shows or hides them). `groket -P ~/.grok/sessions` browses Host while
 keeping the default work root for new runs. Notes on Host sessions write
-under `~/.groket/notes/<session_id>/`.
+under `~/.groket/notes/<session_id>/`. Subagent runs stay off the top
+list; open them from the parent (Summary run table, or Timeline
+Subagents filter — Enter, or click the tile in the desktop HUD). Esc
+returns to that Timeline or Turns place.
 
 ## Terminal app
 
@@ -87,7 +90,7 @@ the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-5 | browser | Timeline, Summary, Diff, Findings, Report |
-| v | browser | Timeline filter |
+| v | browser | Timeline filter (Subagents lists spawn/finish) |
 | i | browser | Jump to Findings |
 | f | browser | Flag this event |
 | N | browser | New note |
@@ -149,13 +152,15 @@ YOLO mode uses `grok --yolo`. Max turns (default **50**) is Grok
 
 ## Desktop HUD
 
-Summonable palette: search sessions, then Overview / Turns / Timeline /
-Findings / Notes. Follow-up and Done when awaiting. It does not launch
-evals. Details: [`groket-hud/README.md`](groket-hud/README.md).
+Summonable palette: Recent sessions (scroll or `j` for more), search,
+then Overview / Turns / Timeline / Findings / Notes. Follow-up and Done
+when awaiting. It does not launch evals. Desktop notices are for eval
+sessions and analysis; Host Grok chats already notify on their own.
+Details: [`groket-hud/README.md`](groket-hud/README.md).
 
 ```bash
 groket serve -d        # or let the client start serve
-groket hud             # one process + tray; second start is a no-op
+groket hud             # one process + tray; second start shows the palette
 groket hud --toggle    # show or hide (Wayland bind this)
 groket hud --restart   # replace the running palette
 ```
@@ -164,14 +169,17 @@ Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
 `~/.groket/config.json` or `GROKET_HUD_SHORTCUT`. On Wayland bind
 `groket hud --toggle`: a compositor bind forwards an activation token so
-you can type immediately; tray **Show HUD** or a terminal `--toggle`
+you can type immediately; tray **Show** or a terminal `--toggle`
 does not steal the keyboard. Sway places the overlay (float/center);
 focus is that token. While the overlay is on screen, a live poll
 re-reads overview about every **3 seconds** (idle sessions slower).
 An unfocused pop-out or hidden overlay waits on control notifies instead.
 
-`groket hud --install-desktop` writes user-local icons and a launcher.
-**Quit Groket HUD** exits the palette only. [Emacs](#emacs) and
+`groket hud --install-desktop` writes user-local icons and a launcher
+named **groket** (Linux `.desktop` `Exec` uses `--show`, macOS
+`~/Applications/groket.app`, Windows Start Menu). Re-run after moving
+the binary or to refresh the launcher. Tray **Quit groket** exits the
+palette only. [Emacs](#emacs) and
 [Neovim](#neovim-09) attach to the same [control](#control) socket.
 
 ## Control

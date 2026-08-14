@@ -63,7 +63,7 @@ pub fn global_hotkey_supported() -> bool {
 pub fn wayland_summon_hint(chord_label: &str) -> String {
     format!(
         "Wayland session — in-process global hotkey is X11-only \
-         (skipped {chord_label}). Summon with tray Show HUD, \
+         (skipped {chord_label}). Summon with tray Show, \
          `groket hud --toggle`, or a compositor bind \
          (bindsym $mod+Shift+g exec groket hud --toggle). Float: \
          include ~/.config/groket/sway-hud.conf \

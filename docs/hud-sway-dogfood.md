@@ -1,4 +1,4 @@
-# Groket HUD — Sway dogfood checklist
+# groket — Sway dogfood checklist
 
 Manual seat checks. **Not** a CI job: GitHub Actions never starts Sway,
 Xephyr, or iced on a compositor.

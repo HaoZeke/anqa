@@ -1,7 +1,7 @@
 //! StatusNotifier / menu-bar tray for the long-lived HUD process.
 //!
 //! Left-click toggles the overlay (same as ``groket hud --toggle``).
-//! Menu **Show HUD** always shows. **Quit Groket HUD** exits this process only.
+//! Menu **Show** always shows. **Quit groket** exits this process only.
 
 use std::sync::mpsc::{self, Receiver, RecvError, SyncSender};
 use std::sync::{Mutex, OnceLock};
@@ -14,11 +14,11 @@ pub fn tray_png() -> &'static [u8] {
 }
 
 pub const TRAY_ID: &str = "dev.indynull.groket-hud";
-pub const TRAY_TOOLTIP: &str = "Groket HUD";
+pub const TRAY_TOOLTIP: &str = "groket";
 pub const MENU_SHOW_ID: &str = "show";
 pub const MENU_QUIT_ID: &str = "quit";
-pub const MENU_SHOW_LABEL: &str = "Show HUD";
-pub const MENU_QUIT_LABEL: &str = "Quit Groket HUD";
+pub const MENU_SHOW_LABEL: &str = "Show";
+pub const MENU_QUIT_LABEL: &str = "Quit groket";
 pub const SHOW_ON_START_ENV: &str = "GROKET_HUD_SHOW_ON_START";
 
 /// Operator action the iced loop should run.

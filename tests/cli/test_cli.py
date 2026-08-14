@@ -295,6 +295,23 @@ class TestLaunchTui:
         assert captured_calls[0]["control_socket"] is None
         assert captured_calls[0]["control_attach_only"] is False
 
+    def test_launch_is_silent_when_control_is_fine(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        class FakeApp:
+            def __init__(self, **kw: object):
+                del kw
+
+            def run(self) -> None:
+                pass
+
+        with patch("groket.ui.app.TraceEvalApp", FakeApp):
+            launch_tui(path=tmp_path, config=None, ensure_serve=False)
+        err = capsys.readouterr().err
+        assert "work_dir=" not in err
+        assert "already live" not in err
+        assert "started control owner" not in err
+
 
 class TestMainEntryArgv:
     def test_main_path_positional_rewrite(self) -> None:
