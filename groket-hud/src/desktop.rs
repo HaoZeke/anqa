@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::brand::notify_icon_png;
 use crate::format::list_status_label;
 
-pub const APP_NAME: &str = "Groket HUD";
+pub const APP_NAME: &str = "groket";
 pub const ENV_NAME: &str = "GROKET_HUD_NOTIFY";
 
 /// Urgency the host daemon maps to its own levels.
@@ -205,6 +205,12 @@ pub fn notice_row_key(origin: &str, sid: &str) -> String {
     }
 }
 
+/// Host Grok already posts turn / session bubbles; groket must not repeat them.
+fn is_host_notice_key(key: &str) -> bool {
+    key.split_once(':')
+        .is_some_and(|(origin, _)| origin == "host")
+}
+
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
 ///
 /// Hydrate flicker (complete → running → complete) is stopped in
@@ -228,6 +234,7 @@ pub fn notices_from_rows(
             Observe::Same => {}
             Observe::Changed { from, to } => {
                 let skip = seed
+                    || is_host_notice_key(sid)
                     || crate::format::is_blank_status(&from)
                     || (normalize(&from) == "ending" && normalize(&to) == "complete");
                 seen.insert(sid.clone(), to.clone());
@@ -270,7 +277,7 @@ fn send_blocking(notice: &DesktopNotice) -> Result<(), String> {
 
 /// macOS: ``notify-rust`` ``icon()`` is a no-op. The left face is
 /// ``_identityImage`` (``app_icon``). ``set_application`` claims our bundle
-/// when ``Groket HUD.app`` is registered so Notification Center does not
+/// when ``groket.app`` is registered so Notification Center does not
 /// fall back to Finder.
 #[cfg(target_os = "macos")]
 fn send_macos(notice: &DesktopNotice) -> Result<(), String> {
@@ -447,6 +454,32 @@ mod tests {
     fn running_to_complete_notifies() {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
+        let notes = notices_from_rows(&mut seen, &rows, false);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].summary, "Session complete");
+    }
+
+    #[test]
+    fn host_running_to_complete_is_silent() {
+        let key = notice_row_key("host", "abc");
+        let mut seen = HashMap::from([(key.clone(), "running".into())]);
+        let rows = vec![(key, "Demo".into(), "complete".into())];
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
+    }
+
+    #[test]
+    fn host_running_to_awaiting_is_silent() {
+        let key = notice_row_key("host", "abc");
+        let mut seen = HashMap::from([(key.clone(), "running".into())]);
+        let rows = vec![(key, "Demo".into(), "awaiting".into())];
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
+    }
+
+    #[test]
+    fn eval_running_to_complete_still_notifies() {
+        let key = notice_row_key("work", "abc");
+        let mut seen = HashMap::from([(key.clone(), "running".into())]);
+        let rows = vec![(key, "Demo".into(), "complete".into())];
         let notes = notices_from_rows(&mut seen, &rows, false);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].summary, "Session complete");

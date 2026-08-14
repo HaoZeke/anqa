@@ -101,6 +101,8 @@ def test_build_session_timeline_pages(tmp_path: Path) -> None:
     tools = build_session_timeline(sd, offset=0, limit=50, kind="tools")
     assert tools["total"] >= 1
     assert all(ev.get("kind") in {"tool", "tool_result"} for ev in tools["events"])
+    subs = build_session_timeline(sd, offset=0, limit=50, kind="subagents")
+    assert all(ev.get("kind") == "subagent" for ev in subs["events"])
     users = build_session_timeline(sd, offset=0, limit=50, kind="user")
     assert users["total"] >= 1
     assert all(ev.get("kind") == "user" for ev in users["events"])
@@ -306,6 +308,8 @@ def test_timeline_event_kind_and_tool_family() -> None:
 
     assert tool_family("read_file") == "read"
     assert tool_family("run_terminal_command") == "shell"
+    assert tool_family("search_tool") == "read"
+    assert tool_family("use_tool") == "mcp"
     assert tool_family("foo__bar") == "mcp"
     ev = TraceEvent(
         index=1,
@@ -318,6 +322,7 @@ def test_timeline_event_kind_and_tool_family() -> None:
     assert m["kind"] == "tool"
     assert m["toolFamily"] == "read"
     assert m["heading"]
+    assert m["preview"] == "read file /tmp/x"
     assert m["rawInput"] == {"target_file": "/tmp/x"}
 
 

@@ -34,6 +34,7 @@ def _write_list_fixture(
         json.dumps(
             {
                 "toolCallCount": 4,
+                "turnCount": 7,
                 "errorCount": 1,
                 "sessionDurationSeconds": 99.5,
                 "contextWindowUsage": ctx_pct,
@@ -90,6 +91,7 @@ def test_session_catalog_row_num_events_from_summary_messages(tmp_path: Path) ->
     assert row["numEvents"] == 27
     assert row["durationSeconds"] == 99.5
     assert row["toolCallCount"] == 4
+    assert row["turnCount"] == 7
     assert row["errorCount"] == 1
     assert row["contextWindowUsagePct"] == 40
     assert row["contextTokensUsed"] == 1200
@@ -116,6 +118,7 @@ def test_session_meta_hydrate_preserves_context_fraction(tmp_path: Path) -> None
     meta = session_meta_from_catalog_row(row)
     assert meta is not None
     assert meta.num_events == 12
+    assert meta.turn_count == 7
     assert meta.context_window_usage_pct == 40
     assert meta.context_tokens_used == 1200
     assert meta.context_window_tokens == 128_000

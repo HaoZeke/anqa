@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..parser import find_sessions
+from .subagents import drop_subagent_sessions
 
 _HOST_SKIP_DIR_NAMES = frozenset(
     {
@@ -258,7 +259,7 @@ def collect_host_session_dirs(root: Path) -> list[Path]:
             continue
         if is_encoded_cwd_name(name):
             found.extend(_immediate_session_children(child))
-    return found
+    return drop_subagent_sessions(found)
 
 
 def collect_session_dirs(
@@ -284,7 +285,8 @@ def collect_session_dirs(
                 continue
             seen.add(key)
             found.append((sd, root.origin))
-    return found
+    kept = {str(p) for p in drop_subagent_sessions([sd for sd, _ in found])}
+    return [(sd, origin) for sd, origin in found if str(sd) in kept]
 
 
 __all__ = [

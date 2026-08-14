@@ -77,6 +77,20 @@ def test_session_meta_from_overview(tmp_path: Path) -> None:
     assert meta.session_dir == sd or meta.session_dir.name == "w2"
 
 
+def test_session_meta_from_overview_uses_signals_turn_count(tmp_path: Path) -> None:
+    """Attached TUI must see signals turnCount, not only the loaded tail."""
+    sd = _write_session(tmp_path, "w-turns")
+    (sd / "signals.json").write_text(
+        json.dumps({"turnCount": 119, "toolCallCount": 2752, "primaryModelId": "grok-4.6"}),
+        encoding="utf-8",
+    )
+    ov = build_session_overview(sd)
+    assert ov["meta"]["turnCount"] == 119
+    meta = session_meta_from_overview(ov, fallback_dir=sd)
+    assert meta.turn_count == 119
+    assert meta.tool_call_count == 2752
+
+
 @pytest.mark.asyncio
 async def test_fetch_timeline_events_pages(tmp_path: Path) -> None:
     sd = _write_session(tmp_path, "w3")

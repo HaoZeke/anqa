@@ -36,10 +36,18 @@ from ..session.usage_stats import SessionUsageStats, collect_session_usage
 from ..tool_display import (
     display_tool_output,
     image_result_path,
+    list_event_preview,
     preserve_primary_raw_input,
+    tool_family,
     tool_input_fields,
 )
 from .catalog import session_catalog_row
+from .subagents import (
+    SubagentRun,
+    event_subagent_fields,
+    subagent_run_mapping,
+    subagent_runs_for_session,
+)
 
 DEFAULT_FINDINGS_LIMIT = 80
 
@@ -56,79 +64,6 @@ _overview_inflight_lock = threading.Lock()
 _TurnViewCache = tuple[TimelineStamp, list[TurnSegment], dict[int, int]]
 _turn_view_cache: dict[str, _TurnViewCache] = {}
 _turn_view_lock = threading.Lock()
-
-# Tool families aligned with ``ui.styles.tool_family`` (domain copy — no UI import).
-_TOOL_FAMILY_READ = frozenset(
-    {
-        "read_file",
-        "grep",
-        "list_dir",
-        "web_search",
-        "read_resource",
-        "list_resources",
-    }
-)
-_TOOL_FAMILY_WRITE = frozenset(
-    {
-        "search_replace",
-        "write_file",
-        "create_file",
-        "todo_write",
-        "update_goal",
-        "image_gen",
-        "image_edit",
-        "image_to_video",
-        "reference_to_video",
-    }
-)
-_TOOL_FAMILY_SHELL = frozenset(
-    {
-        "run_terminal_command",
-        "get_command_or_subagent_output",
-        "kill_command_or_subagent",
-        "wait_commands_or_subagents",
-        "monitor",
-        "scheduler_create",
-        "scheduler_delete",
-        "scheduler_list",
-    }
-)
-_TOOL_FAMILY_AGENT = frozenset(
-    {
-        "spawn_subagent",
-        "ask_user_question",
-        "enter_plan_mode",
-        "exit_plan_mode",
-        "use_tool",
-        "search_tool",
-        "call_mcp",
-        "search_mcp",
-    }
-)
-
-
-def tool_family(name: str) -> str:
-    """Map a tool name to read | write | shell | agent | mcp | other."""
-    n = (name or "").strip()
-    if "__" in n or n.startswith("mcp_"):
-        return "mcp"
-    if n in _TOOL_FAMILY_READ:
-        return "read"
-    if n in _TOOL_FAMILY_WRITE:
-        return "write"
-    if n in _TOOL_FAMILY_SHELL:
-        return "shell"
-    if n in _TOOL_FAMILY_AGENT:
-        return "agent"
-    low = n.lower()
-    if any(k in low for k in ("read", "get", "list", "search", "grep", "find")):
-        return "read"
-    if any(k in low for k in ("write", "edit", "create", "update", "delete", "save")):
-        return "write"
-    if any(k in low for k in ("run", "shell", "exec", "kill", "wait")):
-        return "shell"
-    return "other"
-
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +85,9 @@ def session_meta_mapping(
     except OSError:
         path_str = str(path or meta.session_dir)
     origin_key = (origin or meta.origin or "work").strip() or "work"
+    from .subagents import read_session_kind
+
+    kind_path = path or meta.session_dir
     return {
         "sessionId": (meta.session_id or meta.session_dir.name).strip(),
         "path": path_str,
@@ -186,8 +124,10 @@ def session_meta_mapping(
         "taskId": meta.task_id or "",
         "runId": meta.run_id or "",
         "loopCount": int(meta.loop_count or 0),
+        "turnCount": int(meta.turn_count or 0),
         "turnInProgress": bool(meta.turn_in_progress),
         "turnFailed": bool(meta.turn_failed),
+        "sessionKind": read_session_kind(kind_path) if kind_path else "",
     }
 
 
@@ -254,14 +194,14 @@ def timeline_event_mapping(
     else:
         heading = event.type_label
     type_label = chrome_heading.lower() if chrome_heading else event.type_label
-    preview = body.split("\n", 1)[0][:200] if body else event.summary_line
+    preview = list_event_preview(event.summary_line, tname)[:200]
     raw_map = as_json_object(raw) if isinstance(raw, dict) else {}
     fields = tool_input_fields(tname, raw_map, max_chars=cap) if raw_map else []
     tool_fields: list[JsonValue] = list(fields)
     img_path = image_result_path(content_raw, None) if tname in ("image_gen", "image_edit") else ""
     if not img_path and tname in ("image_gen", "image_edit"):
         img_path = image_result_path(body)
-    return {
+    row: JsonObject = {
         "index": int(event.index),
         "type": event.event_type or "",
         "typeLabel": type_label,
@@ -285,6 +225,16 @@ def timeline_event_mapping(
         "toolFields": tool_fields,
         "imagePath": img_path,
     }
+    extra = event_subagent_fields(event)
+    if extra:
+        row.update(extra)
+        raw_out = row.get("rawInput")
+        if isinstance(raw_out, dict):
+            merged = dict(raw_out)
+            for key, val in extra.items():
+                merged.setdefault(key, val)
+            row["rawInput"] = merged
+    return row
 
 
 def _capped_raw_input(raw: JsonValue, max_chars: int) -> JsonValue:
@@ -344,6 +294,7 @@ def turn_segment_mapping(
     *,
     include_event_indexes: bool = True,
     assistant_max_chars: int = 12_000,
+    subagent_runs: list[SubagentRun] | None = None,
 ) -> JsonObject:
     """Serialize one turn segment for ``session/turns`` / overview turns.
 
@@ -376,6 +327,12 @@ def turn_segment_mapping(
     }
     if include_event_indexes:
         row["eventIndexes"] = [int(e.index) for e in seg.events]
+    if subagent_runs is not None:
+        row["subagentRuns"] = [
+            subagent_run_mapping(run)
+            for run in subagent_runs
+            if run.parent_turn_index == seg.turn_index
+        ]
     return row
 
 
@@ -657,7 +614,8 @@ def _build_session_overview_uncached(
     meta.origin = origin
     events = parse_timeline(sd)
     meta.num_events = len(events)
-    segs, _turn_map = _turn_view_for_session(sd, events)
+    segs, turn_map = _turn_view_for_session(sd, events)
+    runs = subagent_runs_for_session(sd, events, segs, turn_map)
     notes_rev = ""
     notes_count = 0
     notes_rows: list[JsonValue] = []
@@ -698,9 +656,11 @@ def _build_session_overview_uncached(
                     s,
                     include_event_indexes=False,
                     assistant_max_chars=400,
+                    subagent_runs=runs,
                 )
                 for s in segs
             ],
+            "subagentRuns": [subagent_run_mapping(r) for r in runs],
         },
         "timeline": {
             "total": len(events),
@@ -820,7 +780,7 @@ def _turn_view_for_session(
 
 
 def _timeline_kind_matches(event: TraceEvent, kind: str) -> bool:
-    """HUD kind filter: all / tools / user / asst / sess / errors."""
+    """HUD kind filter: all / tools / user / asst / sess / subagents / errors."""
     mode = (kind or "").strip().casefold()
     if not mode or mode == "all":
         return True
@@ -835,6 +795,8 @@ def _timeline_kind_matches(event: TraceEvent, kind: str) -> bool:
         return mapped in {"system", "session", "error"}
     if mode in {"errors", "error"}:
         return bool(event.is_error) or mapped == "error"
+    if mode in {"subagents", "subagent"}:
+        return mapped == "subagent"
     return True
 
 
@@ -861,7 +823,7 @@ def timeline_query_hit(event: TraceEvent, query: str) -> tuple[str, str] | None:
         ("type_label", event.type_label or ""),
         ("tool", event.tool_name or ""),
         ("heading", event.summary_line or ""),
-        ("preview", (body.split("\n", 1)[0] if body else "")[:200]),
+        ("preview", list_event_preview(event.summary_line, event.tool_name)[:200]),
         ("content", body[:8_000]),
     )
     for field, text in fields:
@@ -979,11 +941,13 @@ def build_session_turns(session_dir: Path) -> JsonObject:
     """Turn segments for ``session/turns``."""
     sd = Path(session_dir)
     events = parse_timeline(sd)
-    segs, _turn_map = _turn_view_for_session(sd, events)
+    segs, turn_map = _turn_view_for_session(sd, events)
+    runs = subagent_runs_for_session(sd, events, segs, turn_map)
     return {
         "sessionId": sd.name,
         "total": len(segs),
-        "turns": [turn_segment_mapping(s) for s in segs],
+        "turns": [turn_segment_mapping(s, subagent_runs=runs) for s in segs],
+        "subagentRuns": [subagent_run_mapping(r) for r in runs],
     }
 
 

@@ -88,3 +88,6 @@ DIFF_TRUNCATE_THRESHOLD = 120_000
 DIFF_TRUNCATE_HEAD = 60_000
 DIFF_TRUNCATE_TAIL = 40_000
 INCOMPLETE_STALE_SECONDS = 20 * 60
+# Host Grok at a prompt writes nothing; 20 minutes left dead sessions on running
+# after a dangling turn_started. Eight minutes still covers a long think.
+HOST_INCOMPLETE_STALE_SECONDS = 8 * 60

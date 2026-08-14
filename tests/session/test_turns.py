@@ -31,6 +31,71 @@ def test_no_markers_single_open_segment():
     assert segs[0].turn_index == 0
 
 
+def test_host_turn_completed_splits_turns():
+    """Host live traces close turns with turn_completed, not turn_ended."""
+    tl = [
+        _ev(0, "user_message_chunk", "<user_query>first</user_query>"),
+        _ev(1, "agent_message_chunk", "ok"),
+        _ev(2, "turn_completed", "turn_completed  prompt_id=a"),
+        _ev(3, "user_message_chunk", "<user_query>second</user_query>"),
+        _ev(4, "tool_call", tool="grep"),
+        _ev(5, "turn_completed", "turn_completed  prompt_id=b"),
+    ]
+    tl[4] = TraceEvent(index=4, event_type="tool_call", tool_name="grep", timestamp=1_000_040)
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 2
+    assert segs[0].user_count == 1
+    assert segs[1].user_count == 1
+    assert segs[0].open is False
+    assert segs[1].open is False
+
+
+def test_host_turn_completed_leaves_outcome_empty():
+    """Host turn_completed has no outcome= field; Summary shows an em dash."""
+    tl = [
+        _ev(0, "user_message_chunk", "<user_query>first</user_query>"),
+        _ev(1, "agent_message_chunk", "ok"),
+        _ev(2, "turn_completed", "turn_completed  prompt_id=a"),
+        _ev(3, "user_message_chunk", "<user_query>second</user_query>"),
+        _ev(4, "turn_completed", "turn_completed  prompt_id=b"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.outcome for s in segs] == ["", ""]
+    rows = turn_summary_rows(segs)
+    assert rows[0]["outcome"] == "—"
+    assert rows[1]["outcome"] == "—"
+    assert segs[0].label == "turn 0"
+    assert segs[1].label == "turn 1"
+
+
+def test_turn_completed_then_turn_ended_is_one_turn():
+    """Host updates and events.jsonl both close the same turn."""
+    tl = [
+        _ev(0, "user_message_chunk", "<user_query>first</user_query>"),
+        _ev(1, "agent_message_chunk", "ok"),
+        _ev(2, "turn_completed", "turn_completed  prompt_id=a"),
+        _ev(3, "turn_ended", "turn ended  outcome=completed"),
+        _ev(4, "user_message_chunk", "<user_query>second</user_query>"),
+        _ev(5, "turn_completed", "turn_completed  prompt_id=b"),
+        _ev(6, "turn_ended", "turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 2
+    assert segs[0].outcome == "completed"
+    assert segs[1].outcome == "completed"
+    assert segs[0].open is False
+    assert segs[1].open is False
+
+
+def test_turn_ended_without_outcome_is_unknown():
+    tl = [
+        _ev(0, "turn_started", "turn started  turn_number=0"),
+        _ev(1, "turn_ended", "turn ended"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert segs[0].outcome == "unknown"
+
+
 def test_two_turns_with_markers():
     tl = [
         _ev(0, "turn_started", "turn started  turn_number=0"),
@@ -56,11 +121,11 @@ def test_two_turns_with_markers():
     assert segs[1].tool_error_count == 1
     assert segs[1].user_count == 1
     rows = turn_summary_rows(segs)
-    # Newest first: turn 1 is top, turn 0 below.
-    assert rows[0]["turn"] == 1
-    assert rows[0]["tool_errors"] == 1
-    assert rows[-1]["turn"] == 0
-    assert rows[-1]["tools"] == 1
+    # Chronological: turn 0 first, turn 1 last.
+    assert rows[0]["turn"] == 0
+    assert rows[0]["tools"] == 1
+    assert rows[-1]["turn"] == 1
+    assert rows[-1]["tool_errors"] == 1
     assert "turn" in format_turns_plain(segs).lower()
 
 
@@ -306,11 +371,11 @@ def test_turn_summary_rows_session_context_on_latest_only():
     segs = segment_timeline_turns(tl)
     rows = turn_summary_rows(segs, session_context_compact="35% 179k/500k")
     assert len(rows) >= 2
-    # Newest first: session-level context attaches to the latest turn only.
-    assert rows[0]["context"] == "35% 179k/500k"
-    assert rows[0]["turn"] == segs[-1].turn_index
-    assert rows[-1]["context"] == ""
-    assert rows[-1]["turn"] == segs[0].turn_index
+    # Chronological: session-level context attaches to the latest turn only.
+    assert rows[-1]["context"] == "35% 179k/500k"
+    assert rows[-1]["turn"] == segs[-1].turn_index
+    assert rows[0]["context"] == ""
+    assert rows[0]["turn"] == segs[0].turn_index
 
 
 def test_turn_summary_rows_context_by_turn_samples():
@@ -328,9 +393,9 @@ def test_turn_summary_rows_context_by_turn_samples():
         session_context_compact="99% 1/1",
         context_by_turn={segs[0].turn_index: "10% 50k/500k", segs[-1].turn_index: "35% 179k/500k"},
     )
-    # Newest first.
-    assert rows[0]["context"] == "35% 179k/500k"
-    assert rows[-1]["context"] == "10% 50k/500k"
+    # Chronological: latest turn is last.
+    assert rows[-1]["context"] == "35% 179k/500k"
+    assert rows[0]["context"] == "10% 50k/500k"
 
 
 def test_first_last_index_empty():

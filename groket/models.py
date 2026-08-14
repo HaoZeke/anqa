@@ -508,6 +508,8 @@ class SessionMeta:
     # success | error | cancelled | interrupted | running | ""
     turn_outcome: str = ""
     loop_count: int = 0
+    # From signals.json ``turnCount`` (host/live aggregates; timeline may be a tail).
+    turn_count: int = 0
 
     @property
     def model_display(self) -> str:

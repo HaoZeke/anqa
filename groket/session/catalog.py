@@ -185,6 +185,7 @@ def session_catalog_row(
         "contextTokensUsed": meta.context_tokens_used,
         "contextWindowTokens": meta.context_window_tokens,
         "toolCallCount": int(meta.tool_call_count or 0),
+        "turnCount": int(meta.turn_count or 0),
         "errorCount": int(meta.error_count or 0),
         # Newest-first list ordering for all control clients.
         "createdAt": created,
@@ -789,6 +790,7 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     meta.duration_seconds = _as_float(row.get("durationSeconds"), 0.0)
     meta.num_events = _as_int(row.get("numEvents"), 0)
     meta.tool_call_count = _as_int(row.get("toolCallCount"), 0)
+    meta.turn_count = _as_int(row.get("turnCount"), 0)
     meta.error_count = _as_int(row.get("errorCount"), 0)
 
     pct = _opt_int("contextWindowUsagePct")

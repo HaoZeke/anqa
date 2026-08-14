@@ -656,8 +656,8 @@ class TraceEvalApp(App):
     async def _attach_control_client(self) -> None:
         """Confirm the live owner, then start notify + switch catalog to control.
 
-        On initialize failure, leave ``_control_attached`` false so home list
-        stays on the local disk catalog path.
+        On initialize failure, leave ``_control_attached`` false and toast.
+        Catalog stays empty until attach succeeds (no disk fallback).
         """
         if self._control_socket is None:
             return
@@ -667,13 +667,11 @@ class TraceEvalApp(App):
             with suppress(Exception):
                 self.notify(
                     t("ui-control-socket-attach-failed"),
-                    severity="warning",
+                    severity="error",
                     timeout=8,
                 )
             return
         self._control_attached = True
-        with suppress(Exception):
-            self.notify(t("ui-control-socket-attached"), severity="information", timeout=6)
         stop = asyncio.Event()
         self._control_notify_stop = stop
         # Separate long-lived worker so attach itself can finish cleanly.
@@ -683,7 +681,7 @@ class TraceEvalApp(App):
             group="editor-control-notify",
             exclusive=True,
         )
-        # First on_mount catalog is empty until attach; reload quietly (attach toast).
+        # First on_mount catalog is empty until attach; reload quietly.
         self._load_sessions(include_host=None, quiet=True)
 
     async def _control_notify_loop(self, stop: asyncio.Event) -> None:
@@ -830,11 +828,22 @@ class TraceEvalApp(App):
         if client is None:
             return False
         try:
+            from ..integrations.control import PROTOCOL_VERSION
+
             result = await client.initialize()
+            ver = result.get("protocolVersion")
+            if not isinstance(ver, int) or ver < PROTOCOL_VERSION:
+                logger.warning(
+                    "Control owner at %s speaks protocol %s (need %s)",
+                    self._control_socket,
+                    ver,
+                    PROTOCOL_VERSION,
+                )
+                return False
             logger.info(
                 "Attached to control owner at %s (protocol %s)",
                 self._control_socket,
-                result.get("protocolVersion"),
+                ver,
             )
             return True
         except Exception:
@@ -1030,7 +1039,7 @@ class TraceEvalApp(App):
                 mtime = 0.0
             cached = cache.get(key) if isinstance(cache.get(key), dict) else None
             cached_n: int | None = None
-            if isinstance(cached, dict) and origin != ORIGIN_HOST:
+            if isinstance(cached, dict):
                 try:
                     if float(cached.get("trace_mtime") or -1) == mtime:
                         ne = cached.get("num_events")
@@ -3350,6 +3359,23 @@ class TraceEvalApp(App):
             )
             # While live, light meta reload so generated_title / status update
             # without restarting the app (outcome-only probe skips summary.json).
+            prev = (prev_outcome.get(key) or "").strip().lower().replace(" ", "_")
+            prev_live = prev in (
+                "running",
+                "ending",
+                "in_progress",
+                "pending",
+                "awaiting_follow_up",
+            )
+            if not live_oc and prev_live:
+                try:
+                    origin = self._origin_for_dir(sd_res)
+                    fresh = parser_mod.load_session_meta_list(sd_res, origin=origin)
+                    label = self._label_for_session(sd_res, origin)
+                    new_metas.append((key, fresh, label))
+                except Exception:
+                    logger.debug("settle list row %s", sd_res, exc_info=True)
+                continue
             if live_oc:
                 try:
                     fresh = parser_mod.load_session_meta(sd_res, include_timeline_count=False)

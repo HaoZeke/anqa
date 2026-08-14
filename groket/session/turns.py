@@ -109,6 +109,9 @@ def _is_turn_started(ev: TraceEvent) -> bool:
 def _is_turn_ended(ev: TraceEvent) -> bool:
     if ev.event_type == et.TURN_ENDED:
         return True
+    # Host ``updates.jsonl`` closes a turn with ``turn_completed`` (no events.jsonl).
+    if ev.event_type == et.TURN_COMPLETED:
+        return True
     if ev.event_type in ("session", "session_error"):
         return "turn ended" in (ev.content or "").lower()
     return False
@@ -123,7 +126,49 @@ def _turn_number_from_event(ev: TraceEvent) -> int | None:
 
 def _outcome_from_event(ev: TraceEvent) -> str:
     m = _OUTCOME_RE.search(ev.content or "")
-    return m.group(1) if m else ("error" if ev.is_error else "unknown")
+    if m:
+        return m.group(1)
+    if ev.is_error:
+        return "error"
+    # Host ``turn_completed`` has no ``outcome=`` field.
+    if ev.event_type == et.TURN_COMPLETED:
+        return ""
+    return "unknown"
+
+
+def _append_turn_end(
+    ev: TraceEvent,
+    current: TurnSegment | None,
+    segments: list[TurnSegment],
+    display_i: int,
+) -> tuple[TurnSegment | None, int]:
+    """Close *current*, or fold a second end marker into the previous turn."""
+    outcome = _outcome_from_event(ev)
+    if current is not None:
+        current.events.append(ev)
+        if outcome:
+            current.outcome = outcome
+        current.open = False
+        segments.append(current)
+        return None, display_i
+    if segments:
+        prev = segments[-1]
+        prev.events.append(ev)
+        if outcome:
+            prev.outcome = outcome
+        prev.open = False
+        return None, display_i
+    display_i += 1
+    segments.append(
+        TurnSegment(
+            turn_index=display_i,
+            turn_number=display_i,
+            open=False,
+            outcome=outcome,
+            events=[ev],
+        )
+    )
+    return None, display_i
 
 
 def is_session_level_timeline_event(ev: TraceEvent) -> bool:
@@ -308,11 +353,6 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     current: TurnSegment | None = None
     display_i = -1
 
-    def _close(seg: TurnSegment, outcome: str = "") -> None:
-        if outcome:
-            seg.outcome = outcome
-        seg.open = False
-
     for ev in turn_events:
         if _is_turn_started(ev):
             tn = _turn_number_from_event(ev)
@@ -344,23 +384,7 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
             continue
 
         if _is_turn_ended(ev):
-            outcome = _outcome_from_event(ev)
-            if current is None:
-                display_i += 1
-                current = TurnSegment(
-                    turn_index=display_i,
-                    turn_number=display_i,
-                    open=False,
-                    outcome=outcome,
-                    events=[ev],
-                )
-                segments.append(current)
-                current = None
-            else:
-                current.events.append(ev)
-                _close(current, outcome)
-                segments.append(current)
-                current = None
+            current, display_i = _append_turn_end(ev, current, segments, display_i)
             continue
 
         if current is None:
@@ -409,14 +433,11 @@ def turn_summary_rows(
     session_context_compact: str = "",
     context_by_turn: dict[int, str] | None = None,
 ) -> list[dict[str, JsonValue]]:
-    """Tabular rows for the Summary turns table (newest first).
+    """Tabular rows for the Summary turns table (chronological, turn 0 first).
 
     Grok writes context fill only as a session snapshot in ``signals.json``.
     *context_by_turn* holds read-only samples observed during live refresh.
     When absent, *session_context_compact* is shown on the latest segment only.
-
-    Row order is reverse chronological so the open / most recent turn is first;
-    ``turn`` indices stay chronological (0…N−1).
     """
     rows: list[dict[str, JsonValue]] = []
     last_idx = len(segments) - 1
@@ -448,7 +469,6 @@ def turn_summary_rows(
                 "last_index": seg.last_index,
             }
         )
-    rows.reverse()
     return rows
 
 

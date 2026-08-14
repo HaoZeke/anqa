@@ -13,7 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from .constants import INCOMPLETE_STALE_SECONDS, INTERRUPTED_MARKER_FILENAME
+from .constants import (
+    HOST_INCOMPLETE_STALE_SECONDS,
+    INCOMPLETE_STALE_SECONDS,
+    INTERRUPTED_MARKER_FILENAME,
+)
 from .core_scan import keep_updates_line as keep_updates_line_native
 from .core_scan import keep_updates_line_py
 from .models import (
@@ -1172,27 +1176,45 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
         state.idx = idx + 1
 
     elif etype == "subagent_spawned":
-        desc = update.get("description", "")
-        agent_type = update.get("subagentType", "")
+        desc = json_as_str(update.get("description"))
+        agent_type = json_as_str(update.get("subagentType") or update.get("subagent_type"))
+        child = json_as_str(update.get("childSessionId") or update.get("child_session_id"))
+        bits = [f"Spawned {agent_type}: {desc}".strip()]
+        if child:
+            bits.append(child)
         events.append(
             TraceEvent(
                 index=idx,
                 event_type="subagent_spawned",
                 timestamp=ts,
                 update_index=line_no,
-                content=f"Spawned {agent_type}: {desc}",
+                content="  ".join(b for b in bits if b),
+                raw_input=ToolInputBag(as_json_object(update)),
             )
         )
         state.idx = idx + 1
 
     elif etype == "subagent_finished":
+        child = json_as_str(update.get("childSessionId") or update.get("child_session_id"))
+        status = json_as_str(update.get("status"))
+        dur = update.get("durationMs")
+        if dur is None:
+            dur = update.get("duration_ms")
+        bits = ["Subagent finished"]
+        if child:
+            bits.append(child)
+        if status:
+            bits.append(status)
+        if dur is not None and str(dur).strip() != "":
+            bits.append(f"duration_ms={dur}")
         events.append(
             TraceEvent(
                 index=idx,
                 event_type="subagent_finished",
                 timestamp=ts,
                 update_index=line_no,
-                content="Subagent finished",
+                content="  ".join(bits),
+                raw_input=ToolInputBag(as_json_object(update)),
             )
         )
         state.idx = idx + 1
@@ -1351,27 +1373,119 @@ def parse_chat_history(session_dir: Path) -> list[ChatMessage]:
 
 
 def extract_prompt(session_dir: Path) -> str:
-    """Extract the user prompt from the chat history (the <user_query> block)."""
-    messages = parse_chat_history(session_dir)
-    for msg in messages:
-        content = msg.get("content", "")
-        texts: list[str] = []
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict):
-                    text = block.get("text", "")
-                    if isinstance(text, str):
-                        texts.append(text)
-        elif isinstance(content, str):
-            texts = [content]
-        for text in texts:
-            start = text.find("<user_query>")
-            if start < 0:
-                continue
-            end = text.find("</user_query>", start)
-            if end < 0:
-                continue
-            return text[start + len("<user_query>") : end].strip()
+    """Extract the first ``<user_query>`` block from ``chat_history.jsonl``."""
+    return _first_user_query(session_dir)
+
+
+def _chat_row_texts(row: JsonObject) -> list[str]:
+    content = row.get("content", "")
+    if isinstance(content, str):
+        return [content]
+    if not isinstance(content, list):
+        return []
+    texts: list[str] = []
+    for block in content:
+        if isinstance(block, dict):
+            text = block.get("text", "")
+            if isinstance(text, str):
+                texts.append(text)
+    return texts
+
+
+def _user_query_in_text(text: str) -> str:
+    start = text.find("<user_query>")
+    if start < 0:
+        return ""
+    end = text.find("</user_query>", start)
+    if end < 0:
+        return ""
+    return text[start + len("<user_query>") : end].strip()
+
+
+def _first_user_query(session_dir: Path) -> str:
+    """First closed ``<user_query>`` in ``chat_history.jsonl``, or empty."""
+    chat_file = session_dir / "chat_history.jsonl"
+    if not chat_file.is_file():
+        return ""
+    try:
+        with open(chat_file, encoding="utf-8") as handle:
+            for line in handle:
+                row = json_object_line(line)
+                if row is None:
+                    continue
+                for text in _chat_row_texts(row):
+                    query = _user_query_in_text(text)
+                    if query:
+                        return query
+    except OSError:
+        return ""
+    return ""
+
+
+def _first_updates_user_ask(session_dir: Path) -> str:
+    """First operator ask in ``updates.jsonl`` (full history, not compacted chat)."""
+    updates_file = session_dir / "updates.jsonl"
+    if not updates_file.is_file():
+        return ""
+    try:
+        with updates_file.open(encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                row = json_object_line(line)
+                if row is None:
+                    continue
+                params = row.get("params")
+                update = params.get("update") if isinstance(params, dict) else None
+                if not isinstance(update, dict):
+                    continue
+                if str(update.get("sessionUpdate") or "") != "user_message_chunk":
+                    continue
+                text = _extract_message_text(update.get("content", ""))
+                body = (_user_query_in_text(text) or text).strip()
+                if not body:
+                    continue
+                low = body.casefold()
+                if low.startswith("<system-reminder") or low.startswith("<user_info"):
+                    continue
+                return body
+    except OSError:
+        return ""
+    return ""
+
+
+def _goal_objective(session_dir: Path) -> str:
+    """Goal-mode ``objective`` from ``goal/state.json``, if present."""
+    goal_file = session_dir / "goal" / "state.json"
+    if not goal_file.is_file():
+        return ""
+    try:
+        raw = json.loads(goal_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    objective = raw.get("objective")
+    if isinstance(objective, str) and objective.strip():
+        return objective.strip()
+    return ""
+
+
+def _one_line_title(raw: str, *, limit: int = 80) -> str:
+    """Collapse *raw* to a single list/summary title line."""
+    line = " ".join((raw or "").split())
+    if len(line) > limit:
+        return line[: limit - 1].rstrip() + "…"
+    return line
+
+
+def _title_from_session_files(session_dir: Path) -> str:
+    """Title when ``summary.json`` has no ``generated_title`` (live / compacted)."""
+    for raw in (
+        _goal_objective(session_dir),
+        _first_updates_user_ask(session_dir),
+        _first_user_query(session_dir),
+    ):
+        if raw:
+            return _one_line_title(raw)
     return ""
 
 
@@ -1602,7 +1716,20 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
     return None
 
 
-def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
+def _traces_are_fresh(session_dir: Path, *, origin: str = "") -> bool:
+    """True when session traces were written inside the live window."""
+    mtime = session_trace_mtime(session_dir)
+    if mtime <= 0:
+        return False
+    stale = (
+        HOST_INCOMPLETE_STALE_SECONDS
+        if _is_host_session_dir(session_dir, origin=origin)
+        else INCOMPLETE_STALE_SECONDS
+    )
+    return (datetime.now(UTC).timestamp() - mtime) < stale
+
+
+def _infer_incomplete_turn_outcome(session_dir: Path, *, origin: str = "") -> str:
     """Outcome when harness never wrote turn_ended.
 
     Live eval containers write traces incrementally; those sessions should show
@@ -1620,12 +1747,7 @@ def _infer_incomplete_turn_outcome(session_dir: Path) -> str:
     if not has_body:
         return ""
 
-    mtime = session_trace_mtime(session_dir)
-    if mtime <= 0:
-        return "interrupted"
-
-    age = datetime.now(UTC).timestamp() - mtime
-    if age < INCOMPLETE_STALE_SECONDS:
+    if _traces_are_fresh(session_dir, origin=origin):
         return "running"
     return "interrupted"
 
@@ -1643,38 +1765,39 @@ def _git_remote_url(raw: object) -> str:
 
 
 def _load_summary(meta: SessionMeta, session_dir: Path) -> None:
-    """Populate meta from summary.json."""
+    """Populate meta from summary.json, then first user ask if still untitled."""
     summary_file = session_dir / "summary.json"
-    if not summary_file.exists():
-        return
-    try:
-        with open(summary_file) as f:
-            data = json.load(f)
-        meta.model_id = data.get("current_model_id", "unknown")
-        meta.title = data.get("generated_title", "") or data.get("session_summary", "")
-        meta.summary_text = data.get("session_summary", "")
-        meta.created_at = data.get("created_at", "")
-        meta.updated_at = data.get("updated_at", "")
-        meta.num_messages = data.get("num_messages", 0)
-        info = data.get("info", {})
-        if isinstance(info, dict):
-            meta.git_repo = str(info.get("git_repo_url") or meta.git_repo or "").strip()
-            meta.git_branch = str(info.get("git_branch") or meta.git_branch or "").strip()
-        # Top-level Grok fields (often present when info.* is empty).
-        if not meta.git_branch:
-            meta.git_branch = str(data.get("head_branch") or "").strip()
-        if not meta.git_commit:
-            meta.git_commit = str(data.get("head_commit") or "").strip()
-        if not meta.git_repo:
-            remotes = data.get("git_remotes")
-            if isinstance(remotes, list):
-                for item in remotes:
-                    url = _git_remote_url(item)
-                    if url:
-                        meta.git_repo = url
-                        break
-    except (json.JSONDecodeError, KeyError, TypeError, OSError):
-        pass
+    if summary_file.exists():
+        try:
+            with open(summary_file) as f:
+                data = json.load(f)
+            meta.model_id = data.get("current_model_id", "unknown")
+            meta.title = data.get("generated_title", "") or data.get("session_summary", "")
+            meta.summary_text = data.get("session_summary", "")
+            meta.created_at = data.get("created_at", "")
+            meta.updated_at = data.get("updated_at", "")
+            meta.num_messages = data.get("num_messages", 0)
+            info = data.get("info", {})
+            if isinstance(info, dict):
+                meta.git_repo = str(info.get("git_repo_url") or meta.git_repo or "").strip()
+                meta.git_branch = str(info.get("git_branch") or meta.git_branch or "").strip()
+            # Top-level Grok fields (often present when info.* is empty).
+            if not meta.git_branch:
+                meta.git_branch = str(data.get("head_branch") or "").strip()
+            if not meta.git_commit:
+                meta.git_commit = str(data.get("head_commit") or "").strip()
+            if not meta.git_repo:
+                remotes = data.get("git_remotes")
+                if isinstance(remotes, list):
+                    for item in remotes:
+                        url = _git_remote_url(item)
+                        if url:
+                            meta.git_repo = url
+                            break
+        except (json.JSONDecodeError, KeyError, TypeError, OSError):
+            pass
+    if not (meta.title or "").strip():
+        meta.title = _title_from_session_files(session_dir)
 
 
 def _load_signals(meta: SessionMeta, session_dir: Path) -> None:
@@ -1688,6 +1811,22 @@ def _load_signals(meta: SessionMeta, session_dir: Path) -> None:
         meta.tool_call_count = sig.get("toolCallCount", 0)
         meta.tool_failure_count = sig.get("toolFailureCount", 0)
         meta.error_count = sig.get("errorCount", 0)
+        mid = sig.get("primaryModelId")
+        if not (isinstance(mid, str) and mid.strip()):
+            used = sig.get("modelsUsed")
+            if isinstance(used, list) and used and isinstance(used[0], str):
+                mid = used[0]
+        if isinstance(mid, str) and mid.strip():
+            mid = mid.strip()
+            if not meta.model_id or meta.model_id in ("unknown", "v9", "grok-build"):
+                meta.model_id = mid
+        turns = sig.get("turnCount")
+        if isinstance(turns, bool):
+            pass
+        elif isinstance(turns, int) and turns >= 0:
+            meta.turn_count = turns
+        elif isinstance(turns, float) and turns >= 0:
+            meta.turn_count = int(turns)
         meta.doom_loop_warnings = sig.get("doomLoopWarnings", 0)
         meta.duration_seconds = sig.get("sessionDurationSeconds", 0)
         meta.lines_added = sig.get("agentLinesAdded", 0)
@@ -1789,6 +1928,61 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
         meta.reasoning_effort = _reasoning_effort_from_run_config(session_dir)
 
 
+def _is_host_session_dir(session_dir: Path, *, origin: str = "") -> bool:
+    """True for native Grok sessions (catalog origin or under ``~/.grok/sessions``)."""
+    if (origin or "").strip().lower() == "host":
+        return True
+    try:
+        host = (Path.home() / ".grok" / "sessions").resolve()
+        resolved = session_dir.resolve()
+    except OSError:
+        return False
+    return resolved == host or host in resolved.parents
+
+
+_UPDATES_TAIL_BYTES = 64 * 1024
+
+
+def _last_session_update_type(session_dir: Path) -> str:
+    """Last ``sessionUpdate`` in a tail of ``updates.jsonl``, or empty."""
+    updates_file = session_dir / "updates.jsonl"
+    if not updates_file.is_file():
+        return ""
+    try:
+        size = int(updates_file.stat().st_size)
+        with updates_file.open("rb") as handle:
+            if size > _UPDATES_TAIL_BYTES:
+                handle.seek(size - _UPDATES_TAIL_BYTES)
+                handle.readline()
+            raw = handle.read()
+    except OSError:
+        return ""
+    last = ""
+    for line in raw.decode("utf-8", errors="replace").splitlines():
+        row = json_object_line(line)
+        if row is None:
+            continue
+        params = row.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict):
+            continue
+        etype = str(update.get("sessionUpdate") or "").strip()
+        if etype:
+            last = etype
+    return last
+
+
+def _list_timeline_event_count(session_dir: Path) -> int:
+    """Coalesced event count when summary.json has no message total."""
+    if not (session_dir / "updates.jsonl").is_file():
+        return 0
+    try:
+        return len(parse_timeline(session_dir))
+    except Exception:
+        logger.debug("list timeline count for %s", session_dir, exc_info=True)
+        return 0
+
+
 def load_session_meta_list(
     session_dir: Path,
     *,
@@ -1797,9 +1991,10 @@ def load_session_meta_list(
     """Metadata for the sessions home list.
 
     Reads ``summary.json`` / ``signals.json`` and one cheap ``events.jsonl``
-    pass for turn status. Does not parse ``updates.jsonl``, does not build
-    marker events, and does not consult the turn gate unless a gate directory
-    exists (eval sessions). Missing ``events.jsonl`` is fine.
+    pass for turn status. Tails ``updates.jsonl`` when events have no
+    ``turn_ended`` so host ``turn_completed`` still closes the list row.
+    Does not build marker events. Consults the turn gate only when a gate
+    directory exists (eval sessions). Missing ``events.jsonl`` is fine.
     """
     origin_key = (origin or "work").strip().lower() or "work"
     meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
@@ -1811,27 +2006,34 @@ def load_session_meta_list(
     if loop_count:
         meta.loop_count = loop_count
     if not meta.turn_outcome:
-        inferred = _infer_incomplete_turn_outcome(session_dir)
-        if inferred:
-            meta.turn_outcome = inferred
+        if _last_session_update_type(session_dir) == "turn_completed":
+            meta.turn_outcome = "completed"
+        else:
+            inferred = _infer_incomplete_turn_outcome(session_dir, origin=origin_key)
+            if inferred:
+                meta.turn_outcome = inferred
+    traces_live = _traces_are_fresh(session_dir, origin=origin_key)
     if _session_has_turn_gate(session_dir):
         try:
             override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
             if override is not None:
                 meta.turn_outcome = override
-            elif open_after:
+            elif open_after and traces_live:
                 meta.turn_outcome = "running"
         except Exception:
             logger.debug("turn gate status for list %s", session_dir, exc_info=True)
-            if open_after:
+            if open_after and traces_live:
                 meta.turn_outcome = "running"
-    elif open_after:
+    elif open_after and traces_live:
         meta.turn_outcome = "running"
     if meta.turn_failed and not meta.error_count:
         meta.error_count = max(meta.error_count, 1)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
-    _load_run_meta(meta, session_dir)
+    if not meta.num_events:
+        meta.num_events = _list_timeline_event_count(session_dir)
+    if not _is_host_session_dir(session_dir, origin=origin_key):
+        _load_run_meta(meta, session_dir)
     meta.origin = origin_key
     return meta
 
@@ -1866,9 +2068,12 @@ def load_session_meta(
 
     # Incomplete / in-progress: no turn_ended yet (live jobs vs killed runs)
     if not meta.turn_outcome:
-        inferred = _infer_incomplete_turn_outcome(session_dir)
-        if inferred:
-            meta.turn_outcome = inferred
+        if _last_session_update_type(session_dir) == "turn_completed":
+            meta.turn_outcome = "completed"
+        else:
+            inferred = _infer_incomplete_turn_outcome(session_dir)
+            if inferred:
+                meta.turn_outcome = inferred
 
     # Interactive gate overrides while the eval is open. Awaiting only when the
     # gate is awaiting_follow_up. Host ``command=done`` / stuck ``final_turn``
@@ -1879,11 +2084,12 @@ def load_session_meta(
         if override is not None:
             meta.turn_outcome = override
         elif _events_open_turn_after_completed(session_dir):
-            meta.turn_outcome = "running"
+            if _traces_are_fresh(session_dir):
+                meta.turn_outcome = "running"
     except Exception:
         logger.debug("turn gate status for %s", session_dir, exc_info=True)
         if _events_have_open_turn(session_dir):
-            if _infer_incomplete_turn_outcome(session_dir) == "running":
+            if _traces_are_fresh(session_dir):
                 meta.turn_outcome = "running"
 
     if meta.turn_failed and not meta.error_count:
@@ -1904,7 +2110,8 @@ def load_session_meta(
     else:
         meta.num_events = 0
 
-    _load_run_meta(meta, session_dir)
+    if not _is_host_session_dir(session_dir):
+        _load_run_meta(meta, session_dir)
 
     return meta
 
@@ -1938,6 +2145,8 @@ def list_turn_outcome_for_dir(session_dir: Path) -> str:
         except Exception:
             marker_outcome = ""
         if _normalize_terminal_turn_outcome(marker_outcome):
+            return ""
+        if _last_session_update_type(sd) == "turn_completed":
             return ""
 
     # Live only while an open turn is still being written, or no terminal
@@ -2110,6 +2319,8 @@ def _reasoning_effort_from_run_config(session_dir: Path) -> str:
     names = ("gte-config.toml", "groket-config.toml", "config.toml")
     candidates: list[Path] = [session_dir / n for n in names]
     for ancestor in session_dir.parents:
+        if ancestor.name == "sessions" and ancestor.parent.name == ".grok":
+            break
         for n in names:
             candidates.append(ancestor / n)
         if ancestor.name == "traces" or is_run_dir_name(ancestor.name):
@@ -2187,35 +2398,25 @@ def _native_hit_is_listed(root: Path, path: Path) -> bool:
 
 
 def _is_subagent_session_dir(path: Path) -> bool:
-    """True when *path* is under a ``subagents`` segment (nested Grok subagent)."""
+    """True when *path* is under a ``subagents`` segment (nested Grok stub).
+
+    Kind and global child-id drops run after the walk in
+    :func:`_drop_subagent_mirror_sessions` so the walk stays a cheap path check.
+    """
     return "subagents" in path.parts
 
 
 def _drop_subagent_mirror_sessions(sessions: list[Path]) -> list[Path]:
-    """Remove workspace sibling mirrors of ``parent/subagents/<id>`` trees.
+    """Keep primary sessions only (path, ``session_kind``, known child ids).
 
-    Nested ``…/subagents/<id>`` dirs are already skipped during the walk. Mirrors
-    are full session dirs next to the parent with the same id — drop those by
-    collecting ids under each kept session's ``subagents/`` (O(sessions), not
-    O(sessions²) sibling probing during the walk).
+    Walk already skips nested ``…/subagents/…``. This pass drops kind
+    ``subagent*`` mirrors and any basename listed under a scanned session's
+    ``subagents/`` (cross-token included). Operator ``fork`` stays listed.
     """
-    if not sessions:
-        return sessions
-    drop: set[Path] = set()
-    for session in sessions:
-        sub_root = session / "subagents"
-        if not sub_root.is_dir():
-            continue
-        try:
-            with os.scandir(sub_root) as it:
-                for ent in it:
-                    if ent.is_dir(follow_symlinks=False):
-                        drop.add(session.parent / ent.name)
-        except OSError:
-            continue
-    if not drop:
-        return sessions
-    return [s for s in sessions if s not in drop]
+    # session/__init__ imports sources, which import find_sessions.
+    from .session.subagents import drop_subagent_sessions
+
+    return drop_subagent_sessions(sessions)
 
 
 def _looks_like_session_dir(path: Path, filenames: set[str]) -> bool:

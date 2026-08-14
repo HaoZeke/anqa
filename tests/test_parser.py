@@ -13,6 +13,7 @@ from groket.parser import (
     extract_prompt,
     find_sessions,
     load_session_meta,
+    load_session_meta_list,
     parse_chat_history,
     parse_runtime_markers,
     parse_timeline,
@@ -334,6 +335,127 @@ class TestLoadSessionMeta:
         meta = load_session_meta(sd)
         assert meta.session_id == "bare-session"
         assert meta.model_id == "unknown"
+
+    def test_host_signals_model_and_skips_home_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Host sessions take model/turns from signals, not ~/.grok/config.toml."""
+        home = tmp_path / "home"
+        sess = home / ".grok" / "sessions" / "%2Fproj" / "live-chat"
+        sess.mkdir(parents=True)
+        (home / ".grok" / "config.toml").write_text(
+            '[models]\ndefault_reasoning_effort = "high"\n',
+            encoding="utf-8",
+        )
+        (sess / "signals.json").write_text(
+            json.dumps(
+                {
+                    "toolCallCount": 2752,
+                    "primaryModelId": "grok-4.6",
+                    "turnCount": 119,
+                }
+            ),
+            encoding="utf-8",
+        )
+        (sess / "chat_history.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "<user_query>fix the missing session title</user_query>",
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+        listed = load_session_meta_list(sess, origin="host")
+        full = load_session_meta(sess, include_timeline_count=False)
+        for meta in (listed, full):
+            assert meta.model_id == "grok-4.6"
+            assert meta.reasoning_effort == ""
+            assert meta.model_display == "grok-4.6"
+            assert meta.tool_call_count == 2752
+            assert meta.turn_count == 119
+            assert meta.title == "fix the missing session title"
+
+    def test_untitled_compacted_chat_uses_first_updates_ask(self, tmp_path: Path) -> None:
+        """After compaction, chat_history keeps a late ask; updates still has the first."""
+        sd = tmp_path / "compacted-title"
+        sd.mkdir()
+        (sd / "chat_history.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "content": [{"type": "text", "text": "<user_query>later ask</user_query>"}],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (sd / "updates.jsonl").write_text(
+            json.dumps(
+                {
+                    "timestamp": 1,
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "user_message_chunk",
+                            "content": {"type": "text", "text": "original first ask"},
+                        }
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        meta = load_session_meta(sd, include_timeline_count=False)
+        assert meta.title == "original first ask"
+
+    def test_untitled_session_uses_first_user_query(self, tmp_path: Path) -> None:
+        sd = tmp_path / "no-summary"
+        sd.mkdir()
+        (sd / "chat_history.jsonl").write_text(
+            json.dumps({"type": "system", "content": "You are Grok."})
+            + "\n"
+            + json.dumps(
+                {
+                    "type": "user",
+                    "content": [{"type": "text", "text": "<user_query>align the HUD</user_query>"}],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        meta = load_session_meta(sd, include_timeline_count=False)
+        assert meta.title == "align the HUD"
+
+    def test_generated_title_wins_over_user_query(self, tmp_path: Path) -> None:
+        sd = tmp_path / "named"
+        sd.mkdir()
+        (sd / "summary.json").write_text(
+            json.dumps({"generated_title": "Named session", "current_model_id": "grok-4.6"}),
+            encoding="utf-8",
+        )
+        (sd / "chat_history.jsonl").write_text(
+            json.dumps({"type": "user", "content": "<user_query>later ask</user_query>"}) + "\n",
+            encoding="utf-8",
+        )
+        meta = load_session_meta(sd, include_timeline_count=False)
+        assert meta.title == "Named session"
+
+    def test_goal_objective_titles_goal_session(self, tmp_path: Path) -> None:
+        sd = tmp_path / "goal-sess"
+        (sd / "goal").mkdir(parents=True)
+        (sd / "goal" / "state.json").write_text(
+            json.dumps({"objective": "group the handbook topics"}),
+            encoding="utf-8",
+        )
+        meta = load_session_meta(sd, include_timeline_count=False)
+        assert meta.title == "group the handbook topics"
 
     def test_run_json_fields(self, session_dir):
         meta = load_session_meta(session_dir)
@@ -3020,6 +3142,44 @@ def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     assert meta.num_events == 9  # proxy from messages
 
 
+def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) -> None:
+    """Live host sessions without summary.json still get an Events column."""
+    from groket.parser import load_session_meta_list, parse_timeline
+
+    sd = tmp_path / "live-host"
+    sd.mkdir()
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "<user_query>hi</user_query>"},
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "timestamp": 2,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "hello"},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    meta = load_session_meta_list(sd, origin="host")
+    assert meta.num_events == len(parse_timeline(sd))
+    assert meta.num_events >= 2
+
+
 def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
     """Host catalog rows must expose the same turn status as a full meta load."""
     from groket.parser import load_session_meta, load_session_meta_list
@@ -3069,6 +3229,115 @@ def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> N
     full = load_session_meta(sd, include_timeline_count=False)
     assert listed.list_status_label() == "running"
     assert listed.list_status_label() == full.list_status_label()
+
+
+def test_load_session_meta_list_stale_open_turn_is_not_running(tmp_path: Path) -> None:
+    """A dangling turn_started after Grok exits must not stay running."""
+    import time
+
+    from groket.parser import load_session_meta_list
+
+    sd = tmp_path / "host-stale-open"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Stale open","num_messages":3}',
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0}),
+                json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"}),
+                json.dumps({"ts": 3, "type": "turn_started", "turn_number": 1}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (20 * 60)
+    os.utime(sd / "summary.json", (old, old))
+    os.utime(sd / "events.jsonl", (old, old))
+    listed = load_session_meta_list(sd, origin="host")
+    assert listed.list_status_label() == "complete"
+
+
+def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> None:
+    """Host updates close the turn; missing events.jsonl must not become cancelled."""
+    import time
+
+    from groket.parser import load_session_meta_list
+
+    sd = tmp_path / "host-updates-only"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Updates only","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "hi"},
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "timestamp": 2,
+                "params": {"update": {"sessionUpdate": "turn_completed", "prompt_id": "p1"}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (20 * 60)
+    os.utime(sd / "summary.json", (old, old))
+    os.utime(sd / "updates.jsonl", (old, old))
+    listed = load_session_meta_list(sd, origin="host")
+    assert listed.list_status_label() == "complete"
+    assert listed.turn_outcome == "completed"
+
+
+def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> None:
+    """A just-closed host turn is complete, not running, with no events.jsonl."""
+    from groket.parser import list_turn_outcome_for_dir, load_session_meta_list
+
+    sd = tmp_path / "host-just-closed"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Just closed","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "hi"},
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "timestamp": 2,
+                "params": {"update": {"sessionUpdate": "turn_completed", "prompt_id": "p1"}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    listed = load_session_meta_list(sd, origin="host")
+    assert listed.list_status_label() == "complete"
+    assert list_turn_outcome_for_dir(sd) == ""
 
 
 def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
