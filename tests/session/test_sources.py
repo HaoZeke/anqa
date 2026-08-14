@@ -13,6 +13,7 @@ from groket.session.sources import (
     host_grok_sessions_root,
     is_host_grok_sessions_root,
     is_under_host_grok_sessions,
+    session_dir_for_watch_path,
     session_scan_roots,
     work_traces_root,
 )
@@ -98,3 +99,25 @@ def test_is_host_sessions_root(tmp_path: Path, monkeypatch) -> None:
     )
     assert is_host_grok_sessions_root(host)
     assert not is_host_grok_sessions_root(tmp_path)
+
+
+def test_watch_path_maps_encoded_cwd_to_session_not_bucket(tmp_path: Path) -> None:
+    host = tmp_path / "sessions"
+    sess = _seed_session(host, cwd_token="%2FUsers%2Fali%2F_dev%2F_git%2Fgroket", sid="019abc")
+    ev = sess / "updates.jsonl"
+    got = session_dir_for_watch_path(ev, host)
+    assert got is not None
+    assert got.resolve() == sess.resolve()
+    bucket = host / "%2FUsers%2Fali%2F_dev%2F_git%2Fgroket"
+    assert session_dir_for_watch_path(bucket, host) is None
+
+
+def test_watch_path_maps_flat_eval_session(tmp_path: Path) -> None:
+    traces = tmp_path / "runs" / "traces"
+    sess = traces / "one"
+    sess.mkdir(parents=True)
+    (sess / "summary.json").write_text("{}", encoding="utf-8")
+    (sess / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    got = session_dir_for_watch_path(sess / "updates.jsonl", traces)
+    assert got is not None
+    assert got.resolve() == sess.resolve()

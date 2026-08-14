@@ -19,6 +19,7 @@ from ..session.catalog import (
     catalog_scan_roots,
     resolve_session_reference,
 )
+from ..session.sources import session_dir_for_watch_path
 from .control import (
     ControlServer,
     ControlSocketInUse,
@@ -393,8 +394,8 @@ def _session_dirs_from_event_paths(
                 continue
             if not rel.parts:
                 continue
-            session = root / rel.parts[0]
-            if session.is_dir():
+            session = session_dir_for_watch_path(p, root)
+            if session is not None:
                 found[str(session)] = session
             break
     return list(found.values())

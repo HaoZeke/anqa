@@ -169,6 +169,20 @@ def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
     assert by_id["one"]["status"] == "complete"
 
 
+def test_event_paths_skip_encoded_cwd_bucket(tmp_path: Path) -> None:
+    from groket.integrations.daemon import _session_dirs_from_event_paths
+
+    traces = tmp_path / "sessions"
+    bucket = traces / "%2FUsers%2Fali%2F_dev%2F_git%2Fgroket"
+    sess = bucket / "019abc"
+    sess.mkdir(parents=True)
+    (sess / "summary.json").write_text("{}", encoding="utf-8")
+    (sess / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    found = _session_dirs_from_event_paths([str(sess / "updates.jsonl")], roots=[traces])
+    assert [p.resolve() for p in found] == [sess.resolve()]
+    assert _session_dirs_from_event_paths([str(bucket)], roots=[traces]) == []
+
+
 def test_catalog_cache_refresh_rows_updates_one_status(tmp_path: Path) -> None:
     """FS watch must patch the dirty session instead of rescanning the tree."""
     work = tmp_path / "work"

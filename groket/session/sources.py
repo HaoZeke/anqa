@@ -142,6 +142,40 @@ def session_scan_roots(
     return out
 
 
+def session_dir_for_watch_path(path: Path, root: Path) -> Path | None:
+    """Nearest session directory on *path* that lives under *root*.
+
+    Host (and some eval) trees nest sessions under a percent-encoded cwd
+    bucket. The first component under the watch root is that bucket, not
+    the session.
+    """
+    try:
+        cur = Path(path).expanduser().resolve()
+        root_r = Path(root).expanduser().resolve()
+    except OSError:
+        cur = Path(path).expanduser()
+        root_r = Path(root).expanduser()
+    try:
+        cur.relative_to(root_r)
+    except ValueError:
+        return None
+    if cur.is_file() or not cur.exists():
+        cur = cur.parent
+    while True:
+        try:
+            if cur == root_r:
+                return None
+            cur.relative_to(root_r)
+        except ValueError:
+            return None
+        if _dir_is_session(cur):
+            return cur
+        parent = cur.parent
+        if parent == cur:
+            return None
+        cur = parent
+
+
 def is_encoded_cwd_name(name: str) -> bool:
     """True for URL-encoded absolute paths used as Grok host session buckets."""
     n = (name or "").casefold()
@@ -263,6 +297,7 @@ __all__ = [
     "collect_session_dirs",
     "host_grok_sessions_root",
     "is_encoded_cwd_name",
+    "session_dir_for_watch_path",
     "is_host_skip_dir_name",
     "is_host_grok_sessions_root",
     "is_under_host_grok_sessions",
