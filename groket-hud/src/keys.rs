@@ -535,15 +535,7 @@ const ACTIONS: &[CatalogRow] = &[
 ];
 
 const KNOWN_SCOPES: &[&str] = &[
-    "global",
-    "home",
-    "browser",
-    "runner",
-    "personas",
-    "configs",
-    "rules",
-    "jobs",
-    "modal",
+    "global", "home", "browser", "runner", "personas", "configs", "rules", "jobs", "modal",
 ];
 
 const RESERVED: &[&str] = &["escape", "enter", "tab", "shift+tab", "?"];
