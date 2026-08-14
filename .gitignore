@@ -36,3 +36,4 @@ groket-hud/dist/
 .superpowers/
 # Local scratch (HUD walk screenshots, ad-hoc probes — never commit)
 /tmp/
+.DS_Store
