@@ -155,20 +155,23 @@ evals. Details: [`groket-hud/README.md`](groket-hud/README.md).
 
 ```bash
 groket serve -d        # or let the client start serve
-groket hud             # detaches; rebuilds the binary when sources are newer
+groket hud             # one process + tray; second start is a no-op
 groket hud --toggle    # show or hide (Wayland bind this)
+groket hud --restart   # replace the running palette
 ```
 
 Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
-`~/.groket/config.json` or `GROKET_HUD_SHORTCUT`. On Wayland use
-`groket hud --toggle`. While the palette is open, a live poll re-reads
+`~/.groket/config.json` or `GROKET_HUD_SHORTCUT`. On Wayland bind
+`groket hud --toggle`: a compositor bind forwards an activation token so
+you can type immediately; tray **Show HUD** or a terminal `--toggle`
+does not steal the keyboard. Sway places the overlay (float/center);
+focus is that token. While the palette is open, a live poll re-reads
 overview about every **3 seconds** (idle sessions slower).
 
 `groket hud --install-desktop` writes user-local icons and a launcher.
-Tray **Show HUD** brings the overlay back; **Quit Groket HUD** exits the
-palette only. [Emacs](#emacs) and [Neovim](#neovim-09) attach to the
-same [control](#control) socket.
+**Quit Groket HUD** exits the palette only. [Emacs](#emacs) and
+[Neovim](#neovim-09) attach to the same [control](#control) socket.
 
 ## Control
 

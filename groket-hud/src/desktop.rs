@@ -3,7 +3,7 @@
 //! Linux uses the freedesktop Notifications bus (dunst, mako, fnott, swaync,
 //! notification-daemon). macOS uses Notification Center. Windows uses toasts.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::thread;
 
 use serde_json::Value;
@@ -211,12 +211,11 @@ pub fn notice_row_key(origin: &str, sid: &str) -> String {
 
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
 ///
-/// ``stable`` holds ids whose last status was seen on two consecutive
-/// catalogs. A one-shot ``running``/``ending`` → ``complete`` is hydrate
-/// flicker and stays silent; ``awaiting`` → ``complete`` still posts.
+/// Hydrate flicker (complete → running → complete) is stopped in
+/// ``merge_catalog_rows``. ``ending`` → ``complete`` stays silent (Done
+/// already acknowledged). ``running`` → ``complete`` still posts.
 pub fn notices_from_rows(
     seen: &mut HashMap<String, String>,
-    stable: &mut HashSet<String>,
     rows: &[(String, String, String)],
     seed: bool,
 ) -> Vec<DesktopNotice> {
@@ -229,17 +228,13 @@ pub fn notices_from_rows(
         match observe_status(seen.get(sid).map(String::as_str), &to) {
             Observe::First => {
                 seen.insert(sid.clone(), normalize(&to));
-                stable.remove(sid);
             }
-            Observe::Same => {
-                stable.insert(sid.clone());
-            }
+            Observe::Same => {}
             Observe::Changed { from, to } => {
                 let skip = seed
                     || crate::format::is_blank_status(&from)
-                    || settle_complete_is_silent(&from, &to, stable.contains(sid));
+                    || (normalize(&from) == "ending" && normalize(&to) == "complete");
                 seen.insert(sid.clone(), to.clone());
-                stable.remove(sid);
                 if skip {
                     continue;
                 }
@@ -250,17 +245,6 @@ pub fn notices_from_rows(
         }
     }
     out
-}
-
-fn settle_complete_is_silent(from: &str, to: &str, was_stable: bool) -> bool {
-    if normalize(to) != "complete" {
-        return false;
-    }
-    match normalize(from).as_str() {
-        "ending" => true,
-        "running" | "pending" | "in_progress" => !was_stable,
-        _ => false,
-    }
 }
 
 /// Post on a worker thread. Host failure is ignored (no daemon is fine).
@@ -392,18 +376,16 @@ mod tests {
     #[test]
     fn first_sighting_is_silent() {
         let mut seen = HashMap::new();
-        let mut stable = HashSet::new();
         let rows = vec![("abc".into(), "Demo".into(), "running".into())];
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, false).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
         assert_eq!(seen.get("abc").map(String::as_str), Some("running"));
     }
 
     #[test]
     fn awaiting_transition_notifies() {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
-        let mut stable = HashSet::new();
         let rows = vec![("abc".into(), "Demo".into(), "awaiting".into())];
-        let notes = notices_from_rows(&mut seen, &mut stable, &rows, false);
+        let notes = notices_from_rows(&mut seen, &rows, false);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].summary, "Awaiting a reply");
         assert!(notes[0].body.contains("Demo"));
@@ -412,18 +394,16 @@ mod tests {
     #[test]
     fn seed_pass_swallows_transitions() {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
-        let mut stable = HashSet::new();
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, true).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, true).is_empty());
         assert_eq!(seen.get("abc").map(String::as_str), Some("complete"));
     }
 
     #[test]
     fn blank_placeholder_to_complete_is_silent() {
         let mut seen = HashMap::from([("abc".into(), "—".into())]);
-        let mut stable = HashSet::new();
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, false).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
         assert_eq!(seen.get("abc").map(String::as_str), Some("complete"));
     }
 
@@ -432,31 +412,21 @@ mod tests {
         let work = notice_row_key("work", "s1");
         let host = notice_row_key("host", "s1");
         let mut seen = HashMap::new();
-        let mut stable = HashSet::new();
         let rows = vec![
             (work.clone(), "Feedback Analysis".into(), "complete".into()),
             (host.clone(), "Feedback Analysis".into(), "running".into()),
         ];
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, false).is_empty());
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, false).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
         assert_eq!(seen.get(&work).map(String::as_str), Some("complete"));
         assert_eq!(seen.get(&host).map(String::as_str), Some("running"));
     }
 
     #[test]
-    fn one_shot_running_to_complete_is_silent() {
+    fn running_to_complete_notifies() {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
-        let mut stable = HashSet::new();
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, false).is_empty());
-    }
-
-    #[test]
-    fn stable_running_to_complete_notifies() {
-        let mut seen = HashMap::from([("abc".into(), "running".into())]);
-        let mut stable = HashSet::from(["abc".into()]);
-        let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        let notes = notices_from_rows(&mut seen, &mut stable, &rows, false);
+        let notes = notices_from_rows(&mut seen, &rows, false);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].summary, "Session complete");
     }
@@ -464,17 +434,15 @@ mod tests {
     #[test]
     fn ending_to_complete_is_silent() {
         let mut seen = HashMap::from([("abc".into(), "ending".into())]);
-        let mut stable = HashSet::from(["abc".into()]);
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        assert!(notices_from_rows(&mut seen, &mut stable, &rows, false).is_empty());
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
     }
 
     #[test]
     fn awaiting_to_complete_notifies() {
         let mut seen = HashMap::from([("abc".into(), "awaiting".into())]);
-        let mut stable = HashSet::new();
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        let notes = notices_from_rows(&mut seen, &mut stable, &rows, false);
+        let notes = notices_from_rows(&mut seen, &rows, false);
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].summary, "Session complete");
     }

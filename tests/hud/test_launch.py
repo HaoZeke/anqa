@@ -356,6 +356,29 @@ def test_launch_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
     mock_popen.assert_called_once()
 
 
+def test_launch_hud_dev_restart_stops_then_runs_cargo(tmp_path: Path) -> None:
+    checkout = tmp_path / "groket-hud"
+    checkout.mkdir()
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    with (
+        patch.object(launch_mod, "stop_hud_processes", return_value=1) as mock_stop,
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_hud_shortcut_env", return_value={}),
+        patch.object(launch_mod, "hud_process_running", return_value=False),
+        patch.object(launch_mod, "summon_socket_accepts", return_value=False),
+        patch.object(launch_mod.shutil, "which", return_value="/usr/bin/cargo"),
+        patch.object(launch_mod.subprocess, "run", return_value=_Proc(0)) as mock_run,
+    ):
+        code = launch_mod.launch_hud(
+            socket_path=tmp_path / "c.sock",
+            dev=True,
+            restart=True,
+        )
+    assert code == 0
+    mock_stop.assert_called_once()
+    mock_run.assert_called_once()
+
+
 def test_launch_hud_dev_runs_cargo(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
     checkout.mkdir()

@@ -18,10 +18,11 @@ groket serve -d
 groket hud
 ```
 
-`groket hud` detaches and starts serve when the socket is free.
-`--restart` replaces a running palette. `--rebuild` forces a cargo
-rebuild. `--dev` / `--debug` keep a debug binary. `--foreground` attaches
-to this terminal.
+`groket hud` detaches and starts serve when the socket is free. One
+process, one tray tile: a second `groket hud` is a no-op. `--restart`
+replaces a running palette (including `--dev --restart`). `--rebuild`
+forces a cargo rebuild. `--dev` / `--debug` keep a debug binary.
+`--foreground` attaches to this terminal.
 
 ```bash
 groket hud --toggle    # show or hide
@@ -37,7 +38,10 @@ Re-run after moving the binary.
 
 Default **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and X11
 Linux). Override with `hud.global_shortcut` in `~/.groket/config.json`
-or `GROKET_HUD_SHORTCUT`. On Wayland bind `groket hud --toggle`.
+or `GROKET_HUD_SHORTCUT`. On Wayland bind `groket hud --toggle` (the
+compositor sends an activation token so you can type). Tray **Show
+HUD** and a terminal `--toggle` do not steal the keyboard. Sway
+places the overlay; focus is the token.
 
 While the palette is open, a live poll re-reads overview about every
 **3 seconds** (idle sessions slower). Press **?** for the shortcut
@@ -52,8 +56,9 @@ the HUD running; the hotkey or tray **Show HUD** brings the overlay
 back. **Esc** hides the overlay.
 
 A tray icon appears when the host has one (Linux StatusNotifier, macOS
-menu bar, Windows notification area). Left-click toggles the overlay.
-**Quit Groket HUD** exits the palette only; serve stays up.
+menu bar, Windows notification area). Left-click toggles the overlay
+without taking keyboard focus. **Quit Groket HUD** exits the palette
+only; serve stays up.
 
 Desktop notifications fire when a session becomes awaiting, completes,
 is cancelled, or fails, and when analysis finishes. Disable with

@@ -44,19 +44,10 @@ pub fn is_blank_status(status: &str) -> bool {
 
 /// Home-list terminal labels. A later live label without a live outcome is hydrate flicker.
 pub fn is_terminal_status(status: &str) -> bool {
-    let s = status
-        .trim()
-        .to_ascii_lowercase()
-        .replace(char::is_whitespace, "_");
-    s == "complete"
-        || s.contains("complete")
-        || s == "ok"
-        || s == "success"
-        || s.contains("cancel")
-        || s.contains("interrupt")
-        || s.contains("abort")
-        || s == "error"
-        || s.contains("fail")
+    matches!(
+        list_status_label(status, "").to_ascii_lowercase().as_str(),
+        "complete" | "cancelled" | "canceled" | "failed" | "error"
+    )
 }
 
 /// Same short labels as :meth:`SessionMeta.list_status_label`.
@@ -1478,6 +1469,7 @@ mod tests {
         assert!(is_terminal_status("complete"));
         assert!(is_terminal_status("cancelled"));
         assert!(!is_terminal_status("running"));
+        assert!(!is_terminal_status("incomplete"));
     }
 
     #[test]

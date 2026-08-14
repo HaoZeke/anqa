@@ -252,7 +252,6 @@ pub struct Hud {
     turn_marks: std::collections::HashMap<i64, CardMark>,
     event_marks: std::collections::HashMap<i64, CardMark>,
     seen_status: std::collections::HashMap<String, String>,
-    notice_stable: std::collections::HashSet<String>,
     notices_primed: bool,
     seen_analysis: std::collections::HashMap<String, String>,
     toasts: icedtea::toast::ToastQueue,
@@ -350,7 +349,6 @@ impl Default for Hud {
             turn_marks: std::collections::HashMap::new(),
             event_marks: std::collections::HashMap::new(),
             seen_status: std::collections::HashMap::new(),
-            notice_stable: std::collections::HashSet::new(),
             notices_primed: false,
             seen_analysis: std::collections::HashMap::new(),
             toasts: icedtea::toast::ToastQueue::new(),
@@ -2102,12 +2100,7 @@ impl Hud {
                 )
             })
             .collect();
-        for notice in crate::desktop::notices_from_rows(
-            &mut self.seen_status,
-            &mut self.notice_stable,
-            &rows,
-            seed,
-        ) {
+        for notice in crate::desktop::notices_from_rows(&mut self.seen_status, &rows, seed) {
             crate::desktop::post(notice);
         }
         if !self.catalog_busy && !self.all_sessions.is_empty() {
@@ -2921,18 +2914,19 @@ impl Hud {
         {
             if !crate::x11focus::x11_grab_needed() {
                 let _ = crate::place_linux::place_overlay(HUD_W, HUD_H);
+                // Retry while the token is still pending: attempt 0 often
+                // runs before iced has Wayland handles. Clear on success
+                // only (`ActivationApplied(true)`). No `gain_focus` here —
+                // tray / token-less toggle must not steal the keyboard.
                 let activate = match self.pending_activation_token.clone() {
-                    Some(tok) if attempt == 0 => {
-                        window::run(id, move |win| crate::wlactivate::activate(win, &tok))
-                            .map(Message::ActivationApplied)
-                    }
-                    _ => Task::none(),
+                    Some(tok) => window::run(id, move |win| crate::wlactivate::activate(win, &tok))
+                        .map(Message::ActivationApplied),
+                    None => Task::none(),
                 };
-                let gain = window::gain_focus(id);
                 if attempt < 6 {
-                    return Task::batch([activate, gain, delayed_focus(attempt.saturating_add(1))]);
+                    return Task::batch([activate, delayed_focus(attempt.saturating_add(1))]);
                 }
-                return Task::batch([activate, gain]);
+                return activate;
             }
             Task::batch([
                 window::gain_focus(id),

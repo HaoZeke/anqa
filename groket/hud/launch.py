@@ -202,9 +202,7 @@ def launch_hud_dev(
     if extra_env:
         env.update(extra_env)
     if hud_process_running() or summon_socket_accepts():
-        sys.stderr.write(
-            "groket hud: already running (use groket hud --restart to replace)\n"
-        )
+        sys.stderr.write("groket hud: already running (use groket hud --restart to replace)\n")
         return 0
     sys.stderr.write(f"groket hud: cargo run (debug) in {checkout}\n")
     sys.stderr.flush()
@@ -384,6 +382,11 @@ def launch_hud(
     :returns: Process exit code when the child exits (or 0 after detach),
         or 127 if unavailable.
     """
+    if restart:
+        n = stop_hud_processes()
+        if n:
+            sys.stderr.write(f"groket hud: stopped {n} running process(es)\n")
+
     if dev or _truthy_env("GROKET_HUD_DEV"):
         return launch_hud_dev(socket_path=socket_path, extra_env=extra_env)
 
@@ -401,11 +404,7 @@ def launch_hud(
     chord_hint = env.get("GROKET_HUD_SHORTCUT", "").strip() or "Cmd+Shift+G / Ctrl+Shift+G"
     summon_hint = "groket hud --toggle (Wayland/Sway); tray Show HUD"
 
-    if restart:
-        n = stop_hud_processes()
-        if n:
-            sys.stderr.write(f"groket hud: stopped {n} running process(es)\n")
-    elif summon_socket_accepts():
+    if not restart and summon_socket_accepts():
         sys.stderr.write(
             "groket hud: already running "
             f"(summon: {summon_hint}; X11/macOS/Windows hotkey {chord_hint}; "
