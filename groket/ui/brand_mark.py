@@ -124,6 +124,10 @@ class AppChrome(Widget):
     def on_resize(self) -> None:
         self._sync_paths()
 
+    def set_wordmark(self, text: str) -> None:
+        """Set the centered location line (brand on home, session when open)."""
+        self.query_one("#app-chrome-title", Static).update(text)
+
     def _sync_paths(self) -> None:
         slot = self.query_one("#session-paths", Static)
         if self.size.width < _PATHS_MIN_WIDTH:

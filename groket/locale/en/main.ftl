@@ -2740,6 +2740,9 @@ notify-run-finished = Run { $id } finished in { $elapsed }: { $ok }/{ $total } o
 title-groket-batch = groket batch { $batch }… · { $n } run(s) · j=jobs
 title-groket-runs = groket · { $n } run(s) · latest { $id } · j=jobs
 title-browser-session = Browser — { $label } ({ $model }){ $extra }
+title-chrome-session = { $brand } · { $label }
+title-chrome-subagent = { $brand } · { $kind } · { $label }
+title-chrome-subagent-under = { $brand } · { $parent } · { $kind } · { $label }
 notify-turn-ended-outcome = Turn ended with outcome { $outcome } — see Summary tab or session/session_error timeline events
 notify-queued-follow-up-sent = Queued follow-up sent: { $preview }
 notify-open-session-failed = Open session failed: { $exc }

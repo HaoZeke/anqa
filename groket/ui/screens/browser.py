@@ -52,6 +52,7 @@ from ...session.subagents import (
     SubagentRun,
     compact_child_chrome,
     is_subagent_session_dir,
+    parent_session_dir,
     read_session_kind,
     subagent_runs_for_session,
 )
@@ -82,6 +83,16 @@ from ..widgets.detail_view import DetailView
 from ..widgets.flag_panel import FlagModal
 from ..widgets.notes_modal import NotesModal, NotesPickModal
 from ..widgets.timeline import TimelineTable
+
+_CHROME_LABEL_MAX = 48
+
+
+def _clip_chrome_label(text: str) -> str:
+    """Fit a session name in the one-row header wordmark."""
+    one = text.replace("\n", " ").strip()
+    if len(one) <= _CHROME_LABEL_MAX:
+        return one
+    return one[: _CHROME_LABEL_MAX - 1] + "…"
 
 
 class BrowserScreen(TabPaneNavigation, ChromeActions):
@@ -1923,6 +1934,57 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             model=model,
             extra=outcome_bit or "",
         )
+        self._sync_chrome_title()
+
+    def _chrome_location_label(self) -> str:
+        """Short name for the header wordmark (title, else kind, else id)."""
+        title = (self.meta.title if self.meta else "").strip()
+        if title:
+            return _clip_chrome_label(title)
+        if is_subagent_session_dir(self.session_dir):
+            kind = read_session_kind(self.session_dir).strip()
+            if kind and kind.casefold() not in {"subagent", "subagent_child"}:
+                return _clip_chrome_label(kind.replace("_", " "))
+        if self.meta:
+            return _clip_chrome_label(self.meta.label)
+        return _clip_chrome_label(self.session_dir.name)
+
+    def _chrome_parent_label(self) -> str:
+        parent = parent_session_dir(self.session_dir)
+        if parent is None:
+            return ""
+        pmeta = load_session_meta(parent, include_timeline_count=False)
+        return _clip_chrome_label((pmeta.title or "").strip())
+
+    def _sync_chrome_title(self) -> None:
+        """Put session location on AppChrome; leave LIVE/awaiting on screen.title."""
+        from ..brand_mark import AppChrome
+
+        brand = t("help-brand-name")
+        label = self._chrome_location_label()
+        if is_subagent_session_dir(self.session_dir):
+            parent = self._chrome_parent_label()
+            if parent:
+                text = t(
+                    "title-chrome-subagent-under",
+                    brand=brand,
+                    parent=parent,
+                    kind=t("ui-subagent"),
+                    label=label,
+                )
+            else:
+                text = t(
+                    "title-chrome-subagent",
+                    brand=brand,
+                    kind=t("ui-subagent"),
+                    label=label,
+                )
+        else:
+            text = t("title-chrome-session", brand=brand, label=label)
+        try:
+            self.query_one(AppChrome).set_wordmark(text)
+        except Exception:
+            return
 
     def _populate_ui(self) -> None:
         """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""

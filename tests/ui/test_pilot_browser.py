@@ -24,7 +24,7 @@ from groket.ui.screens.browser import BrowserScreen
 from groket.ui.widgets.timeline import TimelineTable
 from textual.widgets import Input, Static, TabbedContent
 
-from .pilot_helpers import wait_until
+from .pilot_helpers import static_plain, wait_until
 
 
 def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-pilot-sess") -> Path:
@@ -279,6 +279,10 @@ async def test_browser_idle_awaiting_skips_live_timeline(tmp_path: Path) -> None
         screen._set_title_from_meta()
         assert "LIVE" not in (screen.title or "")
         assert "awaiting" in (screen.title or "").lower()
+        chrome = static_plain(screen.query_one("#app-chrome-title", Static))
+        assert "Pilot multi-turn" in chrome
+        assert "LIVE" not in chrome
+        assert "awaiting" not in chrome.lower()
 
 
 @pytest.mark.asyncio

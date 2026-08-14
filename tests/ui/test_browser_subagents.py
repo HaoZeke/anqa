@@ -10,10 +10,10 @@ from groket.models import TraceEvent
 from groket.ui.screens.browser import BrowserScreen
 from groket.ui.widgets.timeline import TimelineTable
 from textual.app import App, ComposeResult
-from textual.widgets import DataTable
+from textual.widgets import DataTable, Static
 from textual.widgets.data_table import RowKey
 
-from .pilot_helpers import wait_until
+from .pilot_helpers import static_plain, wait_until
 
 
 def _write_parent_with_child(root: Path) -> tuple[Path, Path]:
@@ -169,9 +169,28 @@ async def test_one_turn_child_hides_summary_turns_card(tmp_path: Path) -> None:
         screen = app.query_one(BrowserScreen)
         await wait_until(pilot, lambda: bool(screen.timeline), description="child timeline")
         screen._stop_live_refresh()
+        screen._set_title_from_meta()
+        chrome = static_plain(screen.query_one("#app-chrome-title", Static))
+        assert "Subagent" in chrome
+        assert "Child" in chrome
         screen.action_tab_summary()
         card = screen.query_one("#summary-turns-card")
         assert card.display is False
+
+
+@pytest.mark.asyncio
+async def test_child_chrome_includes_parent_title(tmp_path: Path) -> None:
+    _parent, child = _write_parent_with_child(tmp_path)
+    app = _Host(child)
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = app.query_one(BrowserScreen)
+        await wait_until(pilot, lambda: screen.meta is not None, description="child meta")
+        screen._stop_live_refresh()
+        screen._set_title_from_meta()
+        chrome = static_plain(screen.query_one("#app-chrome-title", Static))
+        assert "Parent" in chrome
+        assert "Subagent" in chrome
+        assert "Child" in chrome
 
 
 def _write_parent_with_two_children(root: Path) -> tuple[Path, Path, Path]:
