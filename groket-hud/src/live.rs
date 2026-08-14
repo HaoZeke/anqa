@@ -8,10 +8,12 @@ use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnRow, TurnsBlock};
 pub const LIVE_POLL_MS: u64 = 3000;
 pub const IDLE_POLL_MS: u64 = 15_000;
 
-/// Periodic catalog/overview RPC only while the palette is on screen and focused.
-/// Hidden overlay and an unfocused pop-out rely on control notifies instead.
-pub fn wants_periodic_poll(visible: bool, focused: bool) -> bool {
-    visible && focused
+/// Periodic catalog/overview RPC while the palette is on screen.
+/// Overlay follows visibility (tray/token-less show does not take keyboard
+/// focus). Pop-out also requires window focus. Hidden overlay and an
+/// unfocused pop-out rely on control notifies instead.
+pub fn wants_periodic_poll(visible: bool, focused: bool, window_mode: bool) -> bool {
+    visible && (!window_mode || focused)
 }
 pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 80;
@@ -1121,11 +1123,18 @@ mod tests {
     }
 
     #[test]
-    fn wants_periodic_poll_only_when_visible_and_focused() {
-        assert!(wants_periodic_poll(true, true));
-        assert!(!wants_periodic_poll(true, false));
-        assert!(!wants_periodic_poll(false, true));
-        assert!(!wants_periodic_poll(false, false));
+    fn wants_periodic_poll_overlay_tracks_visibility() {
+        assert!(wants_periodic_poll(true, true, false));
+        assert!(wants_periodic_poll(true, false, false));
+        assert!(!wants_periodic_poll(false, true, false));
+        assert!(!wants_periodic_poll(false, false, false));
+    }
+
+    #[test]
+    fn wants_periodic_poll_pop_out_requires_focus() {
+        assert!(wants_periodic_poll(true, true, true));
+        assert!(!wants_periodic_poll(true, false, true));
+        assert!(!wants_periodic_poll(false, true, true));
     }
 
     #[test]

@@ -202,8 +202,8 @@ async def test_warm_loop_refreshes_after_start(tmp_path: Path) -> None:
         first = await client.session_list()
         assert first["matched"] == 1
         _write_sess(traces, "b", "B")
-        # Wait for a refresh tick (interval 0.4s) + force rebuild
-        await asyncio.sleep(0.9)
+        # New session dirs land through the FS watch (CONTROL_FS_DEBOUNCE_S).
+        await asyncio.sleep(daemon_mod.CONTROL_FS_DEBOUNCE_S + 0.6)
         second = await client.session_list()
         assert second["matched"] == 2
     finally:

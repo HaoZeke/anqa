@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 # Background catalog refresh while the headless owner is alive (seconds).
 CATALOG_WARM_INTERVAL = 15.0
+# Coalesce live jsonl/signals writes. Still notifies session/changed so
+# Emacs, Neovim, and the terminal list refresh the trace.
+CONTROL_FS_DEBOUNCE_S = 3.0
 
 
 def configure_serve_logging() -> None:
@@ -484,7 +487,7 @@ async def serve_control_forever(
         watch = TraceTreeWatch(
             root,
             on_change=lambda: None,
-            debounce_s=0.6,
+            debounce_s=CONTROL_FS_DEBOUNCE_S,
             on_paths=_on_paths,
         )
         if watch.start():

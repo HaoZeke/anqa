@@ -166,9 +166,9 @@ X11 Linux). Override with `hud.global_shortcut` in
 `groket hud --toggle`: a compositor bind forwards an activation token so
 you can type immediately; tray **Show HUD** or a terminal `--toggle`
 does not steal the keyboard. Sway places the overlay (float/center);
-focus is that token. While the palette is open and focused, a live poll
+focus is that token. While the overlay is on screen, a live poll
 re-reads overview about every **3 seconds** (idle sessions slower).
-Unfocused or hidden, it waits on control notifies instead.
+An unfocused pop-out or hidden overlay waits on control notifies instead.
 
 `groket hud --install-desktop` writes user-local icons and a launcher.
 **Quit Groket HUD** exits the palette only. [Emacs](#emacs) and

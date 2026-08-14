@@ -81,6 +81,19 @@ def test_catalog_rebuild_invokes_on_rebuilt(tmp_path: Path) -> None:
     assert hits == [1]
 
 
+def test_catalog_rebuild_skips_on_rebuilt_when_ids_unchanged(tmp_path: Path) -> None:
+    """TTL/force rescan of the same sessions must not wake every client."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_sess(traces, "one", "One")
+    hits: list[int] = []
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache._on_rebuilt = lambda: hits.append(1)
+    cache.get(force=True)
+    cache.get(force=True)
+    assert hits == [1]
+
+
 def test_catalog_cache_second_get_is_cached(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

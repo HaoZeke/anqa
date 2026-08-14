@@ -459,13 +459,19 @@ class SessionCatalogCache:
                 host_root=self._host_root,
             )
             with self._lock:
+                prev_ids = (
+                    {str(row.get("sessionId") or "").strip() for row in self._rows}
+                    if self._rows is not None
+                    else None
+                )
                 self._rows = rows
                 self._mono = self._time.monotonic()
                 self._host_key = host_key
                 self._fingerprint = fp
                 self._bump_locked(clear_deltas=True)
+            new_ids = {str(row.get("sessionId") or "").strip() for row in rows}
             cb = self._on_rebuilt
-            if callable(cb):
+            if callable(cb) and (prev_ids is None or prev_ids != new_ids):
                 cb()
         finally:
             with self._lock:

@@ -596,7 +596,7 @@ impl Hud {
             summon_subscription(),
             notify_subscription(),
         ];
-        if wants_periodic_poll(self.visible, self.focused) {
+        if wants_periodic_poll(self.visible, self.focused, self.window_mode) {
             let any_live = session_needs_live_poll(
                 &self.selected_status(),
                 self.overview.as_ref().map(|o| &o.turns),
@@ -3150,7 +3150,8 @@ impl Hud {
             notifies: &notify_pairs,
             selected_sid: &selected,
             overview_sid: &self.overview_sid,
-            palette_live: self.palette_live && wants_periodic_poll(self.visible, self.focused),
+            palette_live: self.palette_live
+                && wants_periodic_poll(self.visible, self.focused, self.window_mode),
             list_elapsed_ms: elapsed,
             selected_live: live,
             any_live,
@@ -4563,16 +4564,39 @@ mod tests {
     }
 
     #[test]
-    fn unfocused_stops_periodic_poll_flag() {
+    fn unfocused_pop_out_stops_periodic_poll_flag() {
         let mut hud = Hud {
             visible: true,
             focused: true,
+            window_mode: true,
             palette_live: true,
             ..Hud::default()
         };
         let _ = hud.update(Message::WindowFocus(false));
         assert!(!hud.focused);
-        assert!(!wants_periodic_poll(hud.visible, hud.focused));
+        assert!(!wants_periodic_poll(
+            hud.visible,
+            hud.focused,
+            hud.window_mode
+        ));
+    }
+
+    #[test]
+    fn unfocused_overlay_keeps_periodic_poll_flag() {
+        let mut hud = Hud {
+            visible: true,
+            focused: true,
+            window_mode: false,
+            palette_live: true,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::WindowFocus(false));
+        assert!(!hud.focused);
+        assert!(wants_periodic_poll(
+            hud.visible,
+            hud.focused,
+            hud.window_mode
+        ));
     }
 
     #[test]
