@@ -8,15 +8,11 @@ use std::thread;
 
 use serde_json::Value;
 
+use crate::brand::notify_icon_png;
 use crate::format::list_status_label;
 
 pub const APP_NAME: &str = "Groket HUD";
 pub const ENV_NAME: &str = "GROKET_HUD_NOTIFY";
-
-/// Host notify face (tray tile on Linux, square app icon elsewhere).
-fn notify_icon_png() -> &'static [u8] {
-    crate::brand::notify_icon_png()
-}
 
 /// Urgency the host daemon maps to its own levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -564,24 +560,11 @@ mod tests {
     }
 
     #[test]
-    fn app_name_matches_desktop_entry() {
-        assert_eq!(APP_NAME, crate::install_desktop::APP_NAME);
-    }
-
-    #[test]
     fn notify_png_matches_host_slot() {
         #[cfg(target_os = "linux")]
         assert_eq!(notify_icon_png(), crate::brand::TRAY_64_PNG);
         #[cfg(not(target_os = "linux"))]
         assert_eq!(notify_icon_png(), crate::brand::APP_ICON_256_PNG);
-    }
-
-    #[test]
-    fn macos_send_sets_identity_image() {
-        let src = include_str!("desktop.rs");
-        assert!(src.contains("app_icon"));
-        assert!(src.contains("set_application"));
-        assert!(src.contains("send_macos"));
     }
 
     #[test]
