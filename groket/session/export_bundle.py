@@ -33,6 +33,7 @@ from shutil import which
 
 from ..models import JsonObject, JsonValue, as_json_object, json_as_object
 from ..notes import collect_notes_for_export
+from ..parser import parse_timeline
 from ..paths import analysis_cache_dir, is_run_dir_name, reports_dir
 from .export_render import (
     SessionSummaryData,
@@ -47,6 +48,8 @@ from .export_spec import (
     Packaging,
     get_export_profile,
 )
+from .subagents import subagent_runs_for_session
+from .turns import event_display_turn_map, segment_timeline_turns
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ _GROK_TRACE_CORE_FILES = frozenset(
 )
 
 # Manifest schema for this outer bundle layout (bump when fields/layout change).
-_MANIFEST_SCHEMA = 7
+_MANIFEST_SCHEMA = 8
 
 
 @dataclass
@@ -501,6 +504,8 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
         f"flags.json       Operator flags (session or ~/.groket/flags fallback).\n"
         f"notes/           operator_notes.toml when notes exist.\n"
         f"                 Schema: ~/.groket/notes_schema.toml (not bundled).\n"
+        f"children/<id>/{GROK_TRACE_ARCHIVE_NAME}\n"
+        f"                 Official grok-trace of each openable child.\n"
         f"manifest.json    Inventory of this outer bundle.\n\n"
         f"To recover the pure grok-trace archive (when included)::\n"
         f"  tar -xzf <this-bundle>.tar.gz {GROK_TRACE_ARCHIVE_NAME}\n"
@@ -509,16 +514,46 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
     (staging / "README.txt").write_text(text, encoding="utf-8")
 
 
+def _collect_child_traces(session_dir: Path, staging: Path) -> list[JsonObject]:
+    """Write ``children/<id>/grok-trace.tar.gz`` for each openable child."""
+    timeline = parse_timeline(session_dir)
+    segs = segment_timeline_turns(timeline)
+    runs = subagent_runs_for_session(session_dir, timeline, segs, event_display_turn_map(segs))
+    written: list[JsonObject] = []
+    parent = Path(session_dir).resolve()
+    for run in runs:
+        if not run.openable or run.child_path is None:
+            continue
+        child = Path(run.child_path).resolve()
+        if child == parent:
+            continue
+        cid = run.child_session_id or run.subagent_id or child.name
+        dest = staging / "children" / cid / GROK_TRACE_ARCHIVE_NAME
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        build_grok_trace_archive(child, dest)
+        written.append(
+            {
+                "sessionId": cid,
+                "member": f"children/{cid}/{GROK_TRACE_ARCHIVE_NAME}",
+            }
+        )
+    return written
+
+
 def _assert_outer_layout(arcnames: list[str], *, sid: str, want_grok_trace: bool) -> None:
     """Fail if the outer package drifts from the nested-grok-trace contract."""
     if want_grok_trace:
         if GROK_TRACE_ARCHIVE_NAME not in arcnames:
             raise RuntimeError(f"export bundle missing {GROK_TRACE_ARCHIVE_NAME}")
         nested_tars = [n for n in arcnames if n.endswith(".tar.gz")]
-        if nested_tars != [GROK_TRACE_ARCHIVE_NAME]:
-            raise RuntimeError(
-                f"export must embed only {GROK_TRACE_ARCHIVE_NAME}, got {nested_tars}"
-            )
+        if GROK_TRACE_ARCHIVE_NAME not in nested_tars:
+            raise RuntimeError(f"export must embed {GROK_TRACE_ARCHIVE_NAME}")
+        extra = [n for n in nested_tars if n != GROK_TRACE_ARCHIVE_NAME]
+        prefix = "children/"
+        suffix = f"/{GROK_TRACE_ARCHIVE_NAME}"
+        bad = [n for n in extra if not (n.startswith(prefix) and n.endswith(suffix))]
+        if bad:
+            raise RuntimeError(f"unexpected nested archives: {bad}")
     if any(n == sid or n.startswith(f"{sid}/") for n in arcnames):
         raise RuntimeError(
             f"session files must live inside {GROK_TRACE_ARCHIVE_NAME}, not outer {sid}/"
@@ -613,10 +648,12 @@ def export_session_bundle(
     with tempfile.TemporaryDirectory(prefix="groket-bundle-") as tmp:
         staging = Path(tmp)
 
+        child_members: list[JsonObject] = []
         if want_trace:
             nested = staging / GROK_TRACE_ARCHIVE_NAME
             build_grok_trace_archive(session_dir, nested)
             nested_members = assert_grok_trace_archive_shape(nested, sid)
+            child_members = _collect_child_traces(session_dir, staging)
 
         if resolved.includes(IncludeUnit.RUN):
             run_vol = run_volume_for_session(session_dir)
@@ -686,6 +723,7 @@ def export_session_bundle(
                     "renderer_options": resolved.renderer_options,
                     "grok_trace": GROK_TRACE_ARCHIVE_NAME if want_trace else None,
                     "grok_trace_members": nested_members if want_trace else [],
+                    "children": child_members,
                     "members": members,
                 }
             )

@@ -213,6 +213,8 @@ YOLO mode uses `grok --yolo`. Max turns (default **50**) is Grok
 
 `E` on the list or browser writes a session bundle under
 `~/.groket/reports/` (profile in `export.default_profile`, or pick once).
+A parent bundle includes `children/<id>/grok-trace.tar.gz` for each
+openable child. Exporting an opened child is that child only.
 `T` on the runner or recipes writes a batch task YAML under
 `~/.groket/tasks/`.
 

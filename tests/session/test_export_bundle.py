@@ -130,6 +130,52 @@ def test_build_grok_trace_no_fallback_raises(
         build_grok_trace_archive(sess, tmp_path / "x.tar.gz")
 
 
+def test_export_parent_packs_openable_child_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = _seed_session(tmp_path)
+    token = parent.parent
+    child = token / "child-exp"
+    child.mkdir()
+    (child / "summary.json").write_text(
+        json.dumps({"info": {"id": "child-exp"}, "session_kind": "subagent"}),
+        encoding="utf-8",
+    )
+    (child / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    (parent / "subagents" / "child-exp").mkdir(parents=True)
+    (parent / "subagents" / "child-exp" / "meta.json").write_text(
+        json.dumps({"child_session_id": "child-exp", "subagent_type": "coder"}),
+        encoding="utf-8",
+    )
+    (parent / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "subagent_spawned",
+                        "childSessionId": "child-exp",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _patch_cli(monkeypatch)
+    dest = tmp_path / "with-child.tar.gz"
+    result = export_session_bundle(parent, dest=dest)
+    child_member = f"children/child-exp/{GROK_TRACE_ARCHIVE_NAME}"
+    assert child_member in result.arcnames
+    with tarfile.open(dest, "r:gz") as tf:
+        names = set(tf.getnames())
+        assert child_member in names
+        manifest = json.loads(tf.extractfile("manifest.json").read().decode())  # type: ignore[union-attr]
+    assert manifest["schema"] == 8
+    assert manifest["children"][0]["sessionId"] == "child-exp"
+    assert manifest["children"][0]["member"] == child_member
+
+
 def test_export_session_bundle_embeds_nested_grok_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -253,7 +299,8 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "# Plugin report" in report_text
     assert manifest["session_id"] == SID
     assert manifest["grok_trace"] == GROK_TRACE_ARCHIVE_NAME
-    assert manifest["schema"] == 7
+    assert manifest["schema"] == 8
+    assert manifest["children"] == []
     assert manifest["profile"] == "archive-full"
     assert manifest["packaging"] == "tar.gz"
     assert "grok_trace" in manifest["include"]
