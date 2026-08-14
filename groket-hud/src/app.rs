@@ -26,9 +26,10 @@ use crate::live::{
     previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
     session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
-    timeline_window_start, trim_timeline_buffer, CardMark, TickInput, CLOSED_TURN_CARD_H,
-    IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
-    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
+    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT,
+    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
+    TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
 use crate::place;
@@ -124,6 +125,7 @@ pub enum Message {
         attempt: u8,
     },
     Hide,
+    WindowFocus(bool),
     CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
     Summon(crate::summon::SummonRequest),
@@ -224,6 +226,7 @@ pub struct Hud {
     hotkey_hint: String,
     window_mode: bool,
     visible: bool,
+    focused: bool,
     palette_live: bool,
     palette_origin: Option<Point>,
     last_live: Instant,
@@ -321,6 +324,7 @@ impl Default for Hud {
             hotkey_hint: shortcut::default_shortcut_label().into(),
             window_mode: std::env::var_os("GROKET_HUD_WINDOW").is_some(),
             visible: true,
+            focused: true,
             palette_live: true,
             palette_origin: None,
             last_live: Instant::now(),
@@ -592,7 +596,7 @@ impl Hud {
             summon_subscription(),
             notify_subscription(),
         ];
-        if self.visible {
+        if wants_periodic_poll(self.visible, self.focused) {
             let any_live = session_needs_live_poll(
                 &self.selected_status(),
                 self.overview.as_ref().map(|o| &o.turns),
@@ -1198,6 +1202,7 @@ impl Hud {
                 Task::none()
             }
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
+            Message::WindowFocus(on) => self.on_window_focus(on),
             Message::Hide => self.on_escape(),
             Message::ToggleHelp => {
                 if self.typing_notes {
@@ -2808,6 +2813,7 @@ impl Hud {
         }
         self.window_mode = true;
         self.visible = true;
+        self.focused = true;
         self.palette_live = true;
         crate::macoswin::set_desktop_app(true);
         #[cfg(target_os = "linux")]
@@ -2868,6 +2874,7 @@ impl Hud {
         }
         self.window_mode = false;
         self.visible = true;
+        self.focused = true;
         self.palette_live = true;
         self.last_live = Instant::now();
         self.sync_theme();
@@ -3065,6 +3072,18 @@ impl Hud {
         }
     }
 
+    fn on_window_focus(&mut self, on: bool) -> Task<Message> {
+        let gained = on && !self.focused;
+        self.focused = on;
+        if gained && self.visible {
+            self.last_live = Instant::now()
+                .checked_sub(Duration::from_secs(60))
+                .unwrap_or_else(Instant::now);
+            return self.on_tick();
+        }
+        Task::none()
+    }
+
     fn on_tick(&mut self) -> Task<Message> {
         let now = Instant::now();
         let dt = now.saturating_duration_since(self.last_tick).as_millis() as u64;
@@ -3131,7 +3150,7 @@ impl Hud {
             notifies: &notify_pairs,
             selected_sid: &selected,
             overview_sid: &self.overview_sid,
-            palette_live: self.palette_live && self.visible,
+            palette_live: self.palette_live && wants_periodic_poll(self.visible, self.focused),
             list_elapsed_ms: elapsed,
             selected_live: live,
             any_live,
@@ -3845,6 +3864,8 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
         Event::Window(window::Event::Resized(size)) => Some(Message::WindowSize(size)),
+        Event::Window(window::Event::Focused) => Some(Message::WindowFocus(true)),
+        Event::Window(window::Event::Unfocused) => Some(Message::WindowFocus(false)),
         Event::Keyboard(ref kev) => {
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
@@ -4518,6 +4539,40 @@ mod tests {
         assert!(w.icon.is_some());
         #[cfg(target_os = "linux")]
         assert!(w.platform_specific.override_redirect);
+    }
+
+    #[test]
+    fn window_focus_events_map() {
+        let id = window::Id::unique();
+        assert!(matches!(
+            interesting_hud_event(
+                Event::Window(window::Event::Focused),
+                event::Status::Ignored,
+                id
+            ),
+            Some(Message::WindowFocus(true))
+        ));
+        assert!(matches!(
+            interesting_hud_event(
+                Event::Window(window::Event::Unfocused),
+                event::Status::Ignored,
+                id
+            ),
+            Some(Message::WindowFocus(false))
+        ));
+    }
+
+    #[test]
+    fn unfocused_stops_periodic_poll_flag() {
+        let mut hud = Hud {
+            visible: true,
+            focused: true,
+            palette_live: true,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::WindowFocus(false));
+        assert!(!hud.focused);
+        assert!(!wants_periodic_poll(hud.visible, hud.focused));
     }
 
     #[test]

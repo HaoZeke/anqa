@@ -43,8 +43,10 @@ compositor sends an activation token so you can type). Tray **Show
 HUD** and a terminal `--toggle` do not steal the keyboard. Sway
 places the overlay; focus is the token.
 
-While the palette is open, a live poll re-reads overview about every
-**3 seconds** (idle sessions slower). Press **?** for the shortcut
+While the palette is open and focused, a live poll re-reads overview
+about every **3 seconds** (idle sessions slower). An unfocused pop-out
+or hidden overlay does not poll; control notifies still refresh the
+catalog and fire desktop notifications. Press **?** for the shortcut
 cheatsheet. Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
 `n`/`e` `N`); panes are Tab and Ctrl+1–5.
 

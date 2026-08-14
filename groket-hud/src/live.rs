@@ -7,6 +7,12 @@ use crate::wire::{Overview, SessionMeta, TimelineEvent, TurnRow, TurnsBlock};
 
 pub const LIVE_POLL_MS: u64 = 3000;
 pub const IDLE_POLL_MS: u64 = 15_000;
+
+/// Periodic catalog/overview RPC only while the palette is on screen and focused.
+/// Hidden overlay and an unfocused pop-out rely on control notifies instead.
+pub fn wants_periodic_poll(visible: bool, focused: bool) -> bool {
+    visible && focused
+}
 pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 80;
 /// Hard cap on buffered timeline rows. Host sessions of 5k–10k stay in memory.
@@ -1107,6 +1113,33 @@ mod tests {
             selected_live: true,
             any_live: true,
             on_timeline: false,
+            notes_locked: false,
+        });
+        assert!(plan.fetch_list);
+        assert!(plan.load_overview);
+        assert!(!plan.refresh_timeline);
+    }
+
+    #[test]
+    fn wants_periodic_poll_only_when_visible_and_focused() {
+        assert!(wants_periodic_poll(true, true));
+        assert!(!wants_periodic_poll(true, false));
+        assert!(!wants_periodic_poll(false, true));
+        assert!(!wants_periodic_poll(false, false));
+    }
+
+    #[test]
+    fn tick_plan_unfocused_still_fetches_on_session_changed() {
+        let notifies = vec![("session/changed".into(), "a".into())];
+        let plan = plan_tick(TickInput {
+            notifies: &notifies,
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: false,
+            list_elapsed_ms: LIVE_POLL_MS,
+            selected_live: true,
+            any_live: true,
+            on_timeline: true,
             notes_locked: false,
         });
         assert!(plan.fetch_list);
