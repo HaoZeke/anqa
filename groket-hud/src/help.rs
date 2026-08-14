@@ -503,6 +503,7 @@ mod tests {
             compact_child: false,
             turn_pick: true,
             tab: Tab::Overview,
+            leader_armed: false,
         });
         assert!(sheet.get("session.follow").is_some());
         assert!(sheet.get("session.done").is_some());
@@ -515,24 +516,24 @@ mod tests {
             "leader = \";\"\n[home]\n\"session.follow\" = \"leader+n\"\n\"list.down\" = \"n\"\n",
         )
         .expect("leader overlay");
-        let hints = footer_table_for(
-            KeyScope {
-                browse: false,
-                help_open: false,
-                timeline_detail: false,
-                awaiting: false,
-                tab: Tab::Overview,
-                leader_armed: true,
-            },
-            &overlay,
-        )
-        .footer_hints();
+        let scope = KeyScope {
+            browse: false,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            tab: Tab::Overview,
+            leader_armed: true,
+        };
+        let hints = footer_table_for(scope, &overlay).footer_hints();
         let blob = hints.join("  ·  ");
         assert!(
             blob.contains(';') || blob.to_lowercase().contains("leader"),
             "{blob}"
         );
-        let help = help_table_for(&overlay);
+        let help = help_table_for(scope, &overlay);
         assert!(help.get("leader.prefix").is_some());
     }
 
@@ -547,22 +548,22 @@ mod tests {
             "\"session.done\" = \"leader+e\"\n",
         ))
         .expect("colemak");
-        let hints = footer_table_for(
-            KeyScope {
-                browse: true,
-                help_open: false,
-                timeline_detail: false,
-                awaiting: true,
-                tab: Tab::Overview,
-                leader_armed: false,
-            },
-            &overlay,
-        )
-        .footer_hints();
+        let scope = KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: true,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            tab: Tab::Overview,
+            leader_armed: false,
+        };
+        let hints = footer_table_for(scope, &overlay).footer_hints();
         let blob = hints.join("  ·  ");
         assert!(blob.contains("; n"), "{blob}");
         assert!(blob.contains("; e"), "{blob}");
-        let help = help_table_for(&overlay);
+        let help = help_table_for(scope, &overlay);
         let follow = help.get("session.follow").expect("follow");
         assert_eq!(
             follow.shortcut.as_ref().map(ToString::to_string).as_deref(),
@@ -594,6 +595,7 @@ mod tests {
             compact_child: false,
             turn_pick: false,
             tab: Tab::Overview,
+            leader_armed: false,
         };
         let help = help_table_for(awaiting, &overlay);
         let hints = help.footer_hints();

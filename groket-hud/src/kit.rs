@@ -307,6 +307,7 @@ mod tests {
             compact_child: false,
             turn_pick: true,
             tab: crate::model::Tab::Overview,
+            leader_armed: false,
         });
         let backdrop = status_empty("HUD", "backdrop", tea);
         let _ = help_modal(backdrop, &table, tea);
