@@ -35,6 +35,51 @@ pub fn canvas_is_dark(tok: Tokens) -> bool {
     relative_luma(tok.canvas) < 0.45
 }
 
+fn srgb_lin(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn wcag_luma(c: Color) -> f32 {
+    0.2126 * srgb_lin(c.r) + 0.7152 * srgb_lin(c.g) + 0.0722 * srgb_lin(c.b)
+}
+
+/// WCAG relative-luminance contrast between two sRGB colors.
+pub fn contrast_ratio(a: Color, b: Color) -> f32 {
+    let (l1, l2) = (wcag_luma(a), wcag_luma(b));
+    let (hi, lo) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+/// Mix ``ink`` toward black or white until it holds 4.5:1 on ``canvas``.
+pub fn ink_on(ink: Color, canvas: Color) -> Color {
+    if contrast_ratio(ink, canvas) >= 4.5 {
+        return ink;
+    }
+    let toward = if relative_luma(canvas) < 0.45 {
+        Color::WHITE
+    } else {
+        Color::BLACK
+    };
+    let mut lo = 0.0f32;
+    let mut hi = 1.0f32;
+    let mut best = toward;
+    for _ in 0..12 {
+        let mid = (lo + hi) * 0.5;
+        let candidate = mix(toward, ink, mid);
+        if contrast_ratio(candidate, canvas) >= 4.5 {
+            best = candidate;
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    best
+}
+
 fn parse_hex(s: &str) -> Option<Color> {
     let t = s.trim().trim_start_matches('#');
     if t.len() < 6 || !t.as_bytes()[..6].iter().all(|c| c.is_ascii_hexdigit()) {
@@ -305,5 +350,18 @@ mod tests {
                 "{name} sel text"
             );
         }
+    }
+
+    #[test]
+    fn ink_on_lifts_brand_olive_off_cream_and_keeps_it_on_ink() {
+        let cream = Color::from_rgb8(0xFB, 0xF1, 0xC7);
+        let ink = Color::from_rgb8(0x28, 0x28, 0x28);
+        let olive = BRAND_COMPLETE;
+        let gold = BRAND_RUNNING;
+        assert!(contrast_ratio(olive, cream) < 4.5);
+        assert!(contrast_ratio(ink_on(olive, cream), cream) >= 4.5);
+        assert!(contrast_ratio(ink_on(gold, cream), cream) >= 4.5);
+        assert_eq!(ink_on(olive, ink), olive);
+        assert!(contrast_ratio(ink_on(olive, ink), ink) >= 4.5);
     }
 }

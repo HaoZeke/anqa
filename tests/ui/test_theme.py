@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from groket.ui.styles import (
+    COMPLETE_ON_LIGHT,
+    RUNNING_ON_LIGHT,
+    status_rich_style,
+    theme_is_light,
+)
 from groket.ui.theme import (
     GROKET,
     GROKET_LIGHT,
@@ -47,6 +53,18 @@ def test_gruvbox_light_is_cream_paper() -> None:
     assert GRUVBOX_LIGHT.name == "gruvbox-light"
     assert GRUVBOX_LIGHT.dark is False
     assert GRUVBOX_LIGHT.background == "#fbf1c7"
+
+
+def test_status_rich_style_uses_darker_ink_on_light_paper() -> None:
+    assert theme_is_light("groket-light")
+    assert theme_is_light("catppuccin-latte")
+    assert theme_is_light("rose-pine-dawn")
+    assert not theme_is_light("groket")
+    assert status_rich_style("running") == "bold #D79921"
+    assert status_rich_style("completed") == "bold #98971A"
+    assert status_rich_style("running", light=True) == f"bold {RUNNING_ON_LIGHT}"
+    assert status_rich_style("completed", light=True) == f"bold {COMPLETE_ON_LIGHT}"
+    assert status_rich_style("running", light=True) != status_rich_style("completed", light=True)
 
 
 def test_resolve_theme_follows_desktop_pairs() -> None:

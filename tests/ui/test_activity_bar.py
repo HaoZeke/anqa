@@ -51,6 +51,9 @@ def test_build_activity_line_lifecycle_and_spinner():
     assert status_rich_style("running") == "bold #D79921"
     styles = {str(span.style) for span in text.spans}
     assert any("D79921" in s for s in styles)
+    light = build_activity_line(running=1, sessions_loaded=1, light=True)
+    light_styles = {str(span.style) for span in light.spans}
+    assert any("7A5410" in s for s in light_styles)
     assert not any("cyan" in s for s in styles)
 
 

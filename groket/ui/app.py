@@ -1837,24 +1837,26 @@ class TraceEvalApp(App):
     def _session_home_fp(cells: tuple[str | Text, ...]) -> str:
         return "\u0001".join(str(c) for c in cells)
 
-    @staticmethod
-    def _session_status_cell(meta: SessionMeta) -> Text:
-        from .styles import status_rich_style
+    def _session_status_cell(self, meta: SessionMeta) -> Text:
+        from .styles import status_rich_style, theme_is_light
 
+        light = theme_is_light(str(self.theme or ""))
         status = meta.list_status_label()
         if status == "awaiting":
-            return Text(t("status-waiting-prompt"), style=status_rich_style("awaiting"))
+            return Text(
+                t("status-waiting-prompt"), style=status_rich_style("awaiting", light=light)
+            )
         if status == "ending":
-            return Text(t("status-ending"), style=status_rich_style("ending"))
+            return Text(t("status-ending"), style=status_rich_style("ending", light=light))
         if status == "running":
-            return Text(t("status-running"), style=status_rich_style("running"))
+            return Text(t("status-running"), style=status_rich_style("running", light=light))
         if status == "cancelled":
-            return Text(t("status-cancelled"), style=status_rich_style("failed"))
+            return Text(t("status-cancelled"), style=status_rich_style("failed", light=light))
         if status == "complete":
-            return Text(t("status-complete"), style=status_rich_style("completed"))
+            return Text(t("status-complete"), style=status_rich_style("completed", light=light))
         return Text(
             status if status != "—" else t("status-unknown"),
-            style=status_rich_style("idle"),
+            style=status_rich_style("idle", light=light),
         )
 
     @staticmethod

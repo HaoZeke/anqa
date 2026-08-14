@@ -120,11 +120,30 @@ fn status_copy(text: &str, err: bool, tea: icedtea::theme::Tokens) -> Element<'s
 fn tone_variant(tone: &str) -> Variant {
     match tone {
         "complete" => Variant::Success,
-        "running" => Variant::Primary,
-        "awaiting" | "ending" => Variant::Warning,
+        "running" => Variant::Warning,
         "cancelled" => Variant::Danger,
         _ => Variant::Quiet,
     }
+}
+
+/// Session / turn status pill. Filter chips keep on-surface ink on a tinted wash
+/// (``badge`` paints primary-on-primary for ``Variant::Primary``).
+fn status_chip(
+    label: impl Into<String>,
+    tone: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let label = label.into();
+    icedtea::widget::chip(
+        label.clone(),
+        None,
+        None,
+        tea,
+        tone_variant(tone),
+        icedtea::widget::ChipKind::Filter,
+        icedtea::icon::Icons::NONE,
+        A11y::new(label, Role::Status),
+    )
 }
 
 fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -582,29 +601,19 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
     let tea = hud.tokens();
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
-    let mut status_row = row![icedtea::widget::badge(
+    let mut status_row = row![status_chip(
         if status.is_empty() {
             "—".to_string()
         } else {
             status
         },
-        None,
+        tone,
         tea,
-        tone_variant(tone),
-        icedtea::widget::BadgeSize::Large,
-        A11y::new("status", Role::Status),
     )]
     .spacing(8)
     .align_y(Alignment::Center);
     if meta.is_subagent() {
-        status_row = status_row.push(icedtea::widget::badge(
-            String::from("subagent"),
-            None,
-            tea,
-            tone_variant(tone),
-            icedtea::widget::BadgeSize::Large,
-            A11y::new("subagent", Role::Status),
-        ));
+        status_row = status_row.push(status_chip(String::from("subagent"), "", tea));
     }
     status_row = status_row.push(icedtea::widget::meta(
         hero,
@@ -962,14 +971,7 @@ fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
         t.event_count,
     );
     row![
-        icedtea::widget::badge(
-            status.clone(),
-            None,
-            tea,
-            tone_variant(tone),
-            icedtea::widget::BadgeSize::Large,
-            A11y::new(status, Role::Status),
-        ),
+        status_chip(status, tone, tea),
         icedtea::widget::meta(hero.clone(), tea, A11y::new(hero, Role::Status)),
     ]
     .spacing(8)
@@ -1822,14 +1824,13 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn tone_color(tone: &str, tok: icedtea::theme::Tokens) -> Color {
-    match tone {
-        "awaiting" => tok.warning,
-        "running" => tok.success,
-        "complete" => tok.primary,
-        "ending" => tok.accent,
+    let raw = match tone {
+        "running" => tok.warning,
+        "complete" => tok.success,
         "cancelled" => tok.danger,
         _ => tok.muted,
-    }
+    };
+    crate::theme::ink_on(raw, tok.surface)
 }
 
 fn paired_tool<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> (&'a TimelineEvent, &'a TimelineEvent) {
@@ -2421,6 +2422,31 @@ mod tests {
     }
 
     #[test]
+    fn session_status_tones_stay_distinct_and_readable() {
+        assert_eq!(tone_variant("complete"), Variant::Success);
+        assert_eq!(tone_variant("running"), Variant::Warning);
+        assert_eq!(tone_variant("awaiting"), Variant::Quiet);
+        assert_eq!(tone_variant("ending"), Variant::Quiet);
+        assert_eq!(tone_variant("cancelled"), Variant::Danger);
+        for name in ["dark", "light"] {
+            let tok = icedtea::theme::named(name).tokens;
+            let run = tone_color("running", tok);
+            let done = tone_color("complete", tok);
+            assert_ne!(run, done, "{name} running vs complete");
+            assert!(
+                crate::theme::contrast_ratio(run, tok.surface) >= 4.5,
+                "{name} running"
+            );
+            assert!(
+                crate::theme::contrast_ratio(done, tok.surface) >= 4.5,
+                "{name} complete"
+            );
+        }
+        let _ = status_chip("complete", "complete", tea());
+        let _ = status_chip("running", "running", tea());
+    }
+
+    #[test]
     fn session_picker_is_spotlight_not_list_detail_rail() {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod source");
@@ -2428,6 +2454,8 @@ mod tests {
         assert!(prod.contains("browse_mode()"));
         assert!(prod.contains("fn browse_session_bar"));
         assert!(prod.contains("Message::SessionsHome"));
+        assert!(prod.contains("fn status_chip"));
+        assert!(prod.contains("ChipKind::Filter"));
         assert!(prod.contains("widget::list_view("));
         assert!(prod.contains("RowFace::Card"));
         assert!(prod.contains("RowHeights::PerRow"));

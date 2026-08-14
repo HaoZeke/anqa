@@ -11,7 +11,7 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from ..i18n import t
-from ..styles import status_rich_style
+from ..styles import status_rich_style, theme_is_light
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ def build_activity_line(
     refresh_active: int = 0,
     sessions_loaded: int = 0,
     spinner: str = "",
+    light: bool = False,
 ) -> Text:
     """Right-aligned strip using Jobs/session vocabulary.
 
@@ -68,7 +69,7 @@ def build_activity_line(
 
     Active work phases use a braille *spinner* prefix when *spinner* is set.
     """
-    idle = status_rich_style("idle")
+    idle = status_rich_style("idle", light=light)
     counts = {
         "pending": pending,
         "building": building,
@@ -95,14 +96,14 @@ def build_activity_line(
         if phase == "pending":
             style_key = "building"
         prefix = f"{spinner} " if (use_spin and spinner) else ""
-        line.append(prefix + t(msg_id, n=n), style=status_rich_style(style_key))
+        line.append(prefix + t(msg_id, n=n), style=status_rich_style(style_key, light=light))
 
     if analyze_active > 0:
         _sep()
         prefix = f"{spinner} " if spinner else ""
         line.append(
             prefix + t("activity-analysis", n=analyze_active),
-            style=status_rich_style("building"),
+            style=status_rich_style("building", light=light),
         )
     # Intentional: omit short-lived live-refresh pool counts. FS-watch scans
     # pulse inflight every tick and flashed cyan "Refresh N" beside Running.
@@ -351,6 +352,7 @@ class ActivityBar(Static):
                     refresh_active=0,
                     sessions_loaded=counts["sessions"],
                     spinner=spin,
+                    light=theme_is_light(str(self.app.theme or "")),
                 )
             )
         except Exception:

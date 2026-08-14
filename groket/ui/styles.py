@@ -22,6 +22,10 @@ FAILED = "#CC241D"
 RUNNING = "#D79921"
 CANCELLED = "#928374"
 CREAM = "#FBF1C7"
+# Olive / gold / gray that hold 4.5:1 on cream paper.
+COMPLETE_ON_LIGHT = "#5C5B12"
+RUNNING_ON_LIGHT = "#7A5410"
+CANCELLED_ON_LIGHT = "#6B6358"
 
 SEVERITY_STYLE: dict[str, str] = {
     "high": f"{FAILED} bold",
@@ -118,6 +122,25 @@ STATUS_RICH_STYLE: dict[str, str] = {
     "idle": "dim",
 }
 
+STATUS_RICH_STYLE_LIGHT: dict[str, str] = {
+    "pending": "dim",
+    "building": f"bold {RUNNING_ON_LIGHT}",
+    "running": f"bold {RUNNING_ON_LIGHT}",
+    "ending": f"bold {CANCELLED_ON_LIGHT}",
+    "awaiting": f"bold {CANCELLED_ON_LIGHT}",
+    "extracting": f"bold {RUNNING_ON_LIGHT}",
+    "completed": f"bold {COMPLETE_ON_LIGHT}",
+    "failed": f"bold {FAILED}",
+    "idle": "dim",
+}
+
+
+def theme_is_light(name: str) -> bool:
+    """True when a Textual theme name is a light paper colorway."""
+    n = (name or "").strip().lower()
+    return any(tok in n for tok in ("light", "latte", "dawn"))
+
+
 STATUS_LABEL: dict[str, str] = {
     "pending": f"[{STATUS_RICH_STYLE['pending']}]Pending[/]",
     "building": f"[{STATUS_RICH_STYLE['building']}]Building…[/]",
@@ -129,9 +152,13 @@ STATUS_LABEL: dict[str, str] = {
 }
 
 
-def status_rich_style(status: str) -> str:
-    """Rich style for a container/run status name (``running``, ``failed``, …)."""
-    return STATUS_RICH_STYLE.get((status or "").strip().lower(), STATUS_RICH_STYLE["idle"])
+def status_rich_style(status: str, *, light: bool = False) -> str:
+    """Rich style for a container/run status name (``running``, ``failed``, …).
+
+    :param light: Use darker brand inks that hold contrast on cream paper.
+    """
+    table = STATUS_RICH_STYLE_LIGHT if light else STATUS_RICH_STYLE
+    return table.get((status or "").strip().lower(), table["idle"])
 
 
 SYNTAX_THEME_LIGHT = "friendly"
