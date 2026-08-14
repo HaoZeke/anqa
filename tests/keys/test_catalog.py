@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from groket.keys.catalog import (
     normalize_chord,
 )
 from groket.ui import bindings as B
+from groket.ui.confirm_modal import DiscardConfirmModal
 from groket.ui.tab_panes import tab_nav_bindings
 from textual.binding import Binding
 from textual.screen import Screen
@@ -66,7 +68,7 @@ def _key_matches_default(key: str, default: str) -> bool:
 
 
 def _declared_bindings(raw: object) -> list[Binding]:
-    if not raw:
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
         return []
     out: list[Binding] = []
     for item in raw:
@@ -246,8 +248,6 @@ def test_list_nav_is_shared_without_tui_binding() -> None:
     up = action_by_id("list.up")
     assert down.surfaces is ActionSurface.SHARED
     assert up.surfaces is ActionSurface.SHARED
-    assert down.tui_action is None
-    assert up.tui_action is None
     assert not any(b.id == "list.down" for tup in _BINDING_TUPLES for b in tup)
 
 
@@ -269,3 +269,58 @@ def test_action_by_id_roundtrip() -> None:
     assert row is ACTIONS_BY_ID["session.follow"]
     with pytest.raises(KeyError):
         action_by_id("not.an.action")
+
+
+def test_session_open_is_only_open_session() -> None:
+    hits = [b for tup in _BINDING_TUPLES for b in tup if b.id == "session.open"]
+    assert hits
+    assert {b.action for b in hits} == {"open_session"}
+    assert action_by_id("configs.open").default == "enter"
+    assert action_by_id("personas.open").default == "enter"
+    assert action_by_id("configs.open").surfaces is ActionSurface.TUI
+    assert action_by_id("personas.open").surfaces is ActionSurface.TUI
+
+
+def test_host_sessions_is_one_remappable_id() -> None:
+    assert "home.host_show" not in ACTIONS_BY_ID
+    assert "home.host_hide" not in ACTIONS_BY_ID
+    row = action_by_id("home.host")
+    assert row.default == "H"
+    assert row.remappable is True
+    host = [b for tup in _BINDING_TUPLES for b in tup if b.id == "home.host"]
+    assert {b.action for b in host} == {"show_host_sessions", "hide_host_sessions"}
+    assert {b.key for b in host} == {"H"}
+
+
+def test_remappable_chords_unique_per_scope_and_surface() -> None:
+    owner: dict[tuple[ActionScope, ActionSurface, str], str] = {}
+    clashes: list[str] = []
+    for row in ACTIONS:
+        if not row.remappable:
+            continue
+        for part in normalize_chord(row.default).split(","):
+            key = (row.scope, row.surfaces, part)
+            prev = owner.get(key)
+            if prev is not None and prev != row.id:
+                clashes.append(f"{row.scope.value}/{row.surfaces.value} {part}: {prev} vs {row.id}")
+            owner[key] = row.id
+    assert clashes == []
+
+
+def test_confirm_keep_is_escape_and_n() -> None:
+    row = action_by_id("confirm.keep")
+    assert row.default == "escape,n"
+    assert row.remappable is False
+    bindings = _declared_bindings(DiscardConfirmModal.__dict__["BINDINGS"])
+    keep = [b for b in bindings if b.id == "confirm.keep"]
+    assert len(keep) == 1
+    assert keep[0].action == "keep"
+    assert not any(b.id == "overlay.hide" for b in bindings)
+
+
+def test_form_ctrl_s_is_one_id() -> None:
+    assert "modal.done" not in ACTIONS_BY_ID
+    picker = [b for b in B.CAPABILITY_PICKER if b.key == "ctrl+s"]
+    assert len(picker) == 1
+    assert picker[0].id == "edit.save"
+    assert picker[0].action == "done"

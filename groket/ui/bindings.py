@@ -87,8 +87,8 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("a", "analyze", U.bind_analyze(), id="session.analyze", show=False),
     _b("d", "open_rules", U.bind_rules(), id="home.rules", show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), id="session.export", show=False),
-    _b("H", "show_host_sessions", U.bind_show_host(), id="home.host_show", show=True),
-    _b("H", "hide_host_sessions", U.bind_hide_host(), id="home.host_hide", show=True),
+    _b("H", "show_host_sessions", U.bind_show_host(), id="home.host", show=True),
+    _b("H", "hide_host_sessions", U.bind_hide_host(), id="home.host", show=True),
     _b("n", "follow_up_sessions", U.bind_next_prompt(), id="session.follow", show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), id="session.done", show=True),
 )
@@ -187,7 +187,7 @@ RUNNER: tuple[Binding, ...] = (
 RUN_CONFIGS: tuple[Binding, ...] = (
     SCREEN_CHROME
     + (
-        _b("enter", "open_in_runner", U.bind_open(), id="session.open", show=True),
+        _b("enter", "open_in_runner", U.bind_open(), id="configs.open", show=True),
         _b("l", "launch_config", U.bind_launch(), id="configs.launch", show=True),
         _b(
             "w",
@@ -209,11 +209,11 @@ CAPABILITY_PICKER: tuple[Binding, ...] = (
     _b("escape", "cancel", U.bind_cancel(), id="overlay.hide", show=True),
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
     _b("s,space", "toggle_select", U.bind_select(), id="list.select", show=True),
-    _ctrl_s("done", U.bind_done(), id="modal.done", show=True),
+    _ctrl_s("done", U.bind_done(), id="edit.save", show=True),
 )
 PERSONAS: tuple[Binding, ...] = SCREEN_CHROME + (
     _b("n", "new_persona", U.bind_new(), id="personas.new", show=True),
-    _b("enter", "edit_persona", U.bind_edit(), id="session.open", show=True),
+    _b("enter", "edit_persona", U.bind_edit(), id="personas.open", show=True),
     _b("e", "edit_persona", U.bind_edit(), id="personas.edit", show=False),
     _b("x,delete", "delete_persona", U.bind_delete(), id="personas.delete", show=True),
 )
