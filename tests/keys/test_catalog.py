@@ -150,6 +150,7 @@ def test_default_chords_match_today() -> None:
     assert action_by_id("list.down").default == "j"
     assert action_by_id("list.up").default == "k"
     assert action_by_id("edit.copy_chord").default == "ctrl+shift+c"
+    assert action_by_id("sessions.home").default == "u"
 
 
 def test_tuple_bindings_match_catalog_defaults() -> None:
@@ -235,6 +236,7 @@ def test_hud_named_ids_present() -> None:
         "events.next_turn",
         "events.all_turns",
         "turns.timeline",
+        "sessions.home",
     ):
         assert action_id in ACTIONS_BY_ID
 

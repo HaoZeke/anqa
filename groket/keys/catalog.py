@@ -281,6 +281,13 @@ ACTIONS: tuple[KeyAction, ...] = (
         ActionSurface.HUD,
         hud_message="noop",
     ),
+    _a(
+        "sessions.home",
+        ActionScope.HOME,
+        "u",
+        ActionSurface.HUD,
+        hud_message="sessions_home",
+    ),
     # TUI chrome (every screen).
     _a(
         "app.refresh",
