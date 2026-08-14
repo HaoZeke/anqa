@@ -40,10 +40,8 @@ def test_missing_file_keeps_defaults(tmp_path: Path, monkeypatch) -> None:
     assert keymap.ok
     assert keymap.loaded_overlay is False
     assert _follow_chord(keymap) == action_by_id("session.follow").default
-    assert keymap.binding("home.host_show").chord == "H"
-    assert keymap.binding("home.host_hide").chord == "H"
+    assert keymap.binding("home.host").chord == "H"
     assert keymap.binding("edit.save").chord == "ctrl+s"
-    assert keymap.binding("modal.done").chord == "ctrl+s"
 
 
 def test_missing_app_home_file_is_defaults() -> None:
@@ -187,8 +185,7 @@ def test_third_occupant_on_dual_home_h_clashes(tmp_path: Path, monkeypatch) -> N
     assert not keymap.ok
     assert keymap.loaded_overlay is False
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
-    assert keymap.binding("home.host_show").chord == "H"
-    assert keymap.binding("home.host_hide").chord == "H"
+    assert keymap.binding("home.host").chord == "H"
     assert _follow_chord(keymap) == "n"
 
 
@@ -207,11 +204,11 @@ def test_slash_and_slash_name_are_the_same_key(tmp_path: Path, monkeypatch) -> N
     assert any(err.chord == "slash" for err in keymap.errors)
 
 
-def test_default_dual_bindings_are_not_clashes() -> None:
+def test_default_shared_chords_are_not_clashes() -> None:
     keymap = load_keymap()
     assert keymap.ok
-    assert keymap.binding("home.host_show").chord == keymap.binding("home.host_hide").chord
-    assert keymap.binding("edit.save").chord == keymap.binding("modal.done").chord
+    assert keymap.binding("home.host").chord == "H"
+    assert keymap.binding("edit.save").chord == "ctrl+s"
 
 
 def test_leader_sequence_parses_but_resolve_fails(tmp_path: Path, monkeypatch) -> None:
