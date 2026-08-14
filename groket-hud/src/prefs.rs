@@ -28,7 +28,9 @@ fn ensure_toml(toml_path: &std::path::Path) {
     let Ok(rendered) = toml::to_string_pretty(&v) else {
         return;
     };
-    let _ = fs::write(toml_path, rendered);
+    if fs::write(toml_path, rendered).is_ok() && toml_path.is_file() {
+        let _ = fs::remove_file(json_path);
+    }
 }
 
 fn fold_flat_shortcut(root: &mut serde_json::Value) {

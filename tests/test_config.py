@@ -95,7 +95,7 @@ def test_imports_json_when_toml_missing(tmp_path: Path) -> None:
     assert cfg.analysis.plugins == ["a:b"]
     text = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert "nord" in text
-    assert (tmp_path / "config.json").is_file()
+    assert not (tmp_path / "config.json").exists()
 
 
 def test_toml_wins_over_sibling_json(tmp_path: Path) -> None:

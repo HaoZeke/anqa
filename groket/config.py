@@ -362,4 +362,11 @@ def _import_json_if_needed(toml_path: Path) -> None:
     except OSError:
         logger.warning("config: could not write %s from leftover JSON", toml_path, exc_info=True)
         return
-    logger.info("config: wrote %s from leftover %s", toml_path, src)
+    if not toml_path.is_file():
+        return
+    try:
+        src.unlink()
+    except OSError:
+        logger.warning("config: wrote %s but could not remove leftover %s", toml_path, src)
+        return
+    logger.info("config: wrote %s and removed leftover %s", toml_path, src)
