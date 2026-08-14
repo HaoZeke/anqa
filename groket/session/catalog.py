@@ -28,6 +28,11 @@ from .sources import (
     session_scan_roots,
     work_traces_root,
 )
+from .subagents import (
+    drop_subagent_sessions,
+    is_subagent_session_dir,
+    nested_child_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +244,11 @@ def list_session_catalog(
         )
     )
     return rows
+
+
+def _watch_session_hidden(session_dir: Path, child_ids: set[str]) -> bool:
+    """True when a filesystem-watch hit is a harness child, not a catalog row."""
+    return is_subagent_session_dir(session_dir) or session_dir.name in child_ids
 
 
 def catalog_roots_fingerprint(
@@ -560,6 +570,8 @@ class SessionCatalogCache:
             else work_traces_root(self._work_dir)
         )
         known_paths = {str(row.get("path") or "").strip() for row in current}
+        catalog_paths = [Path(p) for p in known_paths if p]
+        child_ids = nested_child_ids([*catalog_paths, *dirs])
         drop: set[str] = set()
         replacements: dict[str, JsonObject] = {}
         appended: list[JsonObject] = []
@@ -568,6 +580,9 @@ class SessionCatalogCache:
                 resolved = str(session_dir.resolve())
             except OSError:
                 resolved = str(session_dir)
+            if _watch_session_hidden(session_dir, child_ids):
+                drop.add(resolved)
+                continue
             origin = classify_session_origin(
                 session_dir,
                 work_traces=work,
@@ -606,6 +621,37 @@ class SessionCatalogCache:
             self._rows = rows
             self._mono = self._time.monotonic()
             self._bump_locked(upserted=upserted, removed=removed_ids)
+        return list(rows)
+
+    def drop_subagent_rows(self) -> list[JsonObject]:
+        """Remove harness child sessions from the warm snapshot.
+
+        Full scans already omit these. A filesystem watch can still append a
+        sibling mirror (``session_kind: subagent``, or a basename listed under
+        a parent's ``subagents/``). The owner warm loop calls this so those
+        rows leave ``session/list`` without a full tree walk.
+        """
+        with self._lock:
+            if self._building or self._rows is None:
+                return list(self._rows or [])
+            current = list(self._rows)
+            snap_rev = self._revision
+        paths = [Path(p) for row in current if (p := str(row.get("path") or "").strip())]
+        kept = {str(path) for path in drop_subagent_sessions(paths)}
+        rows = [row for row in current if str(row.get("path") or "").strip() in kept]
+        if len(rows) == len(current):
+            return rows
+        removed_ids = [
+            str(row.get("sessionId") or "").strip()
+            for row in current
+            if str(row.get("path") or "").strip() not in kept
+        ]
+        with self._lock:
+            if self._building or self._revision != snap_rev:
+                return list(self._rows or rows)
+            self._rows = rows
+            self._mono = self._time.monotonic()
+            self._bump_locked(removed=removed_ids)
         return list(rows)
 
     def list_for_rpc(

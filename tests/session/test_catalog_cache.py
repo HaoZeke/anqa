@@ -13,13 +13,13 @@ from groket.session.catalog import (
 )
 
 
-def _write_sess(root: Path, name: str, title: str) -> Path:
+def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
     sd = root / name
     sd.mkdir(parents=True)
-    (sd / "summary.json").write_text(
-        json.dumps({"info": {"id": name}, "generated_title": title}),
-        encoding="utf-8",
-    )
+    body: dict[str, object] = {"info": {"id": name}, "generated_title": title}
+    if kind:
+        body["session_kind"] = kind
+    (sd / "summary.json").write_text(json.dumps(body), encoding="utf-8")
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     return sd
 
@@ -207,6 +207,76 @@ def test_catalog_cache_refresh_rows_updates_one_status(tmp_path: Path) -> None:
     assert len(updated) == 2
     cached = cache.get()
     assert {str(r["sessionId"]): r["status"] for r in cached}["one"] == "complete"
+
+
+def test_refresh_rows_does_not_list_subagent_sibling(tmp_path: Path) -> None:
+    """A watch on a new subagent mirror must not append it to session/list."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    parent = _write_sess(traces, "parent", "Parent")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent"}
+    child = _write_sess(traces, "child", "Adversarial verifier Grok Build harness", kind="subagent")
+    (parent / "subagents" / "child").mkdir(parents=True)
+    updated = cache.refresh_rows([child])
+    assert {str(r["sessionId"]) for r in updated} == {"parent"}
+
+
+def test_refresh_rows_does_not_list_child_id_mirror(tmp_path: Path) -> None:
+    """Basename listed under a catalog parent's subagents/ is not operator-facing."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    parent = _write_sess(traces, "parent", "Parent")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    (parent / "subagents" / "child").mkdir(parents=True)
+    child = _write_sess(traces, "child", "Adversarial verifier")
+    updated = cache.refresh_rows([child])
+    assert {str(r["sessionId"]) for r in updated} == {"parent"}
+
+
+def test_refresh_rows_drops_cached_row_after_subagent_kind(tmp_path: Path) -> None:
+    """A sibling listed before summary.json has a kind is removed on the next watch."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_sess(traces, "parent", "Parent")
+    child = _write_sess(traces, "child", "Adversarial verifier")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent", "child"}
+    (child / "summary.json").write_text(
+        json.dumps(
+            {
+                "info": {"id": "child"},
+                "generated_title": "Adversarial verifier",
+                "session_kind": "subagent",
+            }
+        ),
+        encoding="utf-8",
+    )
+    updated = cache.refresh_rows([child])
+    assert {str(r["sessionId"]) for r in updated} == {"parent"}
+
+
+def test_drop_subagent_rows_clears_cached_children(tmp_path: Path) -> None:
+    """Periodic owner sweep removes kinded children without a full tree walk."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_sess(traces, "parent", "Parent")
+    child = _write_sess(traces, "child", "Adversarial verifier")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent", "child"}
+    (child / "summary.json").write_text(
+        json.dumps(
+            {
+                "info": {"id": "child"},
+                "generated_title": "Adversarial verifier",
+                "session_kind": "subagent",
+            }
+        ),
+        encoding="utf-8",
+    )
+    updated = cache.drop_subagent_rows()
+    assert {str(r["sessionId"]) for r in updated} == {"parent"}
 
 
 def test_session_meta_from_catalog_row_status() -> None:

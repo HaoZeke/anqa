@@ -307,7 +307,12 @@ async def _catalog_warm_loop(
     while True:
         try:
             await asyncio.sleep(max(5.0, float(interval)))
-            await asyncio.to_thread(cache.get)
+
+            def _refresh() -> None:
+                cache.get()
+                cache.drop_subagent_rows()
+
+            await asyncio.to_thread(_refresh)
             logger.debug("control catalog refresh complete")
         except asyncio.CancelledError:
             raise
