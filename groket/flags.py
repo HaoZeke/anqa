@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 from .models import Flag
-from .paths import flags_fallback_dir
+from .paths import flags_fallback_dir, flags_fallback_file
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ def load_flags(session_dir: Path) -> list[Flag]:
     """Load user flags from a session directory or config-home fallback."""
     candidates = [
         session_dir / "flags.json",
-        flags_fallback_dir(session_dir.name) / "flags.json",
+        flags_fallback_file(session_dir.name),
     ]
     for flags_file in candidates:
         if not flags_file.exists():

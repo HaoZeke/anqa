@@ -6,7 +6,6 @@ code; user YAML under ``~/.groket/export_profiles/`` overrides by id.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -17,7 +16,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models import JsonObject, as_json_object
-from ..paths import app_config_path, user_export_profiles_dir
+from ..paths import user_export_profiles_dir
 
 logger = logging.getLogger(__name__)
 
@@ -272,33 +271,16 @@ def save_export_profile(
     return path
 
 
-def _read_export_config_section() -> JsonObject:
-    fp = app_config_path()
-    if not fp.is_file():
-        return {}
-    try:
-        data = json.loads(fp.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    section = data.get("export")
-    if isinstance(section, dict):
-        return as_json_object(section)
-    return {}
-
-
 def configured_export_profile_id() -> str | None:
     """Return ``export.default_profile`` when set in config.json; else ``None``.
 
     Distinguishes “operator chose a default” from the built-in fallback used by
     :func:`default_export_profile_id`.
     """
-    section = _read_export_config_section()
-    raw = section.get("default_profile")
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    return None
+    from ..config import load_app_config
+
+    raw = load_app_config().export.default_profile
+    return raw or None
 
 
 def default_export_profile_id() -> str:
@@ -308,23 +290,11 @@ def default_export_profile_id() -> str:
 
 def set_default_export_profile_id(profile_id: str) -> None:
     """Persist ``export.default_profile`` in config.json."""
-    fp = app_config_path()
-    data: JsonObject = {}
-    if fp.is_file():
-        try:
-            loaded = json.loads(fp.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                data = as_json_object(loaded)
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            data = {}
-    section_raw = data.get("export")
-    section: JsonObject = as_json_object(section_raw) if isinstance(section_raw, dict) else {}
-    section = as_json_object(
-        {**section, "default_profile": (profile_id or DEFAULT_PROFILE_ID).strip()}
+    from ..config import ExportPrefs, update_app_config
+
+    update_app_config(
+        export=ExportPrefs(default_profile=(profile_id or DEFAULT_PROFILE_ID).strip())
     )
-    data = as_json_object({**data, "export": section})
-    fp.parent.mkdir(parents=True, exist_ok=True)
-    fp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 __all__ = [

@@ -364,7 +364,8 @@ impl Default for Hud {
             status: "connecting…".into(),
             status_err: false,
             hotkey_hint: shortcut::default_shortcut_label().into(),
-            window_mode: std::env::var_os("GROKET_HUD_WINDOW").is_some(),
+            window_mode: crate::prefs::window_mode()
+                || std::env::var_os("GROKET_HUD_WINDOW").is_some(),
             visible: true,
             focused: true,
             catch_up: false,
@@ -415,7 +416,9 @@ impl Default for Hud {
             fields: icedtea::field::Selectables::new(),
             pointer: Point::ORIGIN,
             context: None,
-            window_size: if std::env::var_os("GROKET_HUD_WINDOW").is_some() {
+            window_size: if crate::prefs::window_mode()
+                || std::env::var_os("GROKET_HUD_WINDOW").is_some()
+            {
                 Size::new(980.0, 700.0)
             } else {
                 Size::new(HUD_W, HUD_H)

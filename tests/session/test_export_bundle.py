@@ -297,8 +297,8 @@ def test_export_fallback_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "groket.flags.flags_fallback_dir",
-        lambda sid: tmp_path / "flag-fallback" / sid,
+        "groket.flags.flags_fallback_file",
+        lambda sid: tmp_path / "flag-fallback" / sid / "flags.json",
     )
     dest = tmp_path / "with-flags.tar.gz"
     result = export_session_bundle(sess, dest=dest)

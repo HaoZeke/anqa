@@ -86,7 +86,10 @@ def test_default_profile_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     cfg = tmp_path / "config.json"
     cfg.write_text('{"export": {"default_profile": "trace-only"}}\n', encoding="utf-8")
-    monkeypatch.setattr("groket.session.export_spec.app_config_path", lambda: cfg)
+    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
+    from groket.config import invalidate_config_cache
+
+    invalidate_config_cache()
     assert configured_export_profile_id() == "trace-only"
     assert get_export_profile(profiles_dir=tmp_path / "empty").profile_id == "trace-only"
 
@@ -98,13 +101,19 @@ def test_configured_profile_none_without_config(
 
     cfg = tmp_path / "config.json"
     cfg.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr("groket.session.export_spec.app_config_path", lambda: cfg)
+    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
+    from groket.config import invalidate_config_cache
+
+    invalidate_config_cache()
     assert configured_export_profile_id() is None
 
 
 def test_set_default_export_profile_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = tmp_path / "config.json"
-    monkeypatch.setattr("groket.session.export_spec.app_config_path", lambda: cfg)
+    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
+    from groket.config import invalidate_config_cache
+
+    invalidate_config_cache()
     set_default_export_profile_id("trace-only")
     data = cfg.read_text(encoding="utf-8")
     assert "trace-only" in data

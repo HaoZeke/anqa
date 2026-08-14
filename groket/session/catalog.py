@@ -7,7 +7,6 @@ needs the same discovery rules as the TUI home list.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -17,7 +16,6 @@ from pathlib import Path
 
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import load_session_meta_list, session_trace_mtime
-from ..paths import app_config_path
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
@@ -90,17 +88,13 @@ def show_host_sessions_from_config() -> bool:
     the TUI ``H`` toggle). Used by the headless control owner so editor
     ``session/list`` matches the TUI home list without importing the UI package.
     """
-    path = app_config_path()
-    if not path.is_file():
-        return False
+    from ..config import load_app_config
+
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        logger.debug("catalog: could not read %s for show_host_sessions", path, exc_info=True)
+        return load_app_config().show_host_sessions
+    except OSError:
+        logger.debug("catalog: could not read config for show_host_sessions", exc_info=True)
         return False
-    if not isinstance(raw, dict):
-        return False
-    return bool(raw.get("show_host_sessions", False))
 
 
 def effective_include_host(include_host: bool | None) -> bool:

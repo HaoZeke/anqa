@@ -212,22 +212,11 @@ class PersonaStore:
         return self.root / f"{persona_id}.json"
 
     def list(self) -> list[Persona]:
-        idx = self._load_index()
-        raw_ids = idx.get("personas") or []
-        ids = raw_ids if isinstance(raw_ids, list) else []
         out: list[Persona] = []
-        for pid in ids:
-            p = self.get(str(pid))
-            if p:
-                out.append(p)
-        # Also pick up orphan files not in index
         for fp in sorted(self.root.glob("*.json")):
             if fp.name == "index.json":
                 continue
-            pid = fp.stem
-            if any(x.persona_id == pid for x in out):
-                continue
-            p = self.get(pid)
+            p = self.get(fp.stem)
             if p:
                 out.append(p)
         return out

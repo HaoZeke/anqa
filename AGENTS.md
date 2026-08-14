@@ -138,7 +138,7 @@ Root modules are **foundational**. Domain logic lives in packages.
 
 ```
 groket/
-  cli.py, models.py, parser.py, paths.py, constants.py, utils.py, flags.py
+  cli.py, models.py, config.py, parser.py, paths.py, constants.py, utils.py, flags.py
   event_types.py         # event type sets for filters / segmentation
   fs_watch.py            # TraceTreeWatch (live session / trace FS events)
   job_pools.py           # serial analysis + live-refresh worker pools

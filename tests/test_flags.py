@@ -51,6 +51,16 @@ class TestLoadFlags:
         result = load_flags(sd)
         assert result == []
 
+    def test_load_does_not_create_fallback_dir(self, tmp_path, monkeypatch):
+        import groket.paths as paths_mod
+
+        home = tmp_path / "fakehome" / ".groket"
+        monkeypatch.setattr(paths_mod, "APP_HOME", home)
+        sd = tmp_path / "sess"
+        sd.mkdir()
+        assert load_flags(sd) == []
+        assert not (home / "flags").exists()
+
     def test_malformed_json(self, tmp_path):
         sd = tmp_path / "sess"
         sd.mkdir()

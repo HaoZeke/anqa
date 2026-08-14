@@ -48,23 +48,12 @@ fn load_override_string() -> Option<String> {
     let path = PathBuf::from(home).join(".groket").join("config.json");
     let text = std::fs::read_to_string(path).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
-    if let Some(s) = v
-        .get("hud")
+    v.get("hud")
         .and_then(|h| h.get("global_shortcut"))
         .and_then(|x| x.as_str())
-    {
-        let t = s.trim();
-        if !t.is_empty() {
-            return Some(t.to_string());
-        }
-    }
-    if let Some(s) = v.get("hud_global_shortcut").and_then(|x| x.as_str()) {
-        let t = s.trim();
-        if !t.is_empty() {
-            return Some(t.to_string());
-        }
-    }
-    None
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub fn parse_shortcut(raw: &str) -> Result<(HotKey, String), String> {

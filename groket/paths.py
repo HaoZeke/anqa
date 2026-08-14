@@ -74,9 +74,14 @@ def reports_dir() -> Path:
     return d
 
 
+def flags_fallback_file(session_id: str) -> Path:
+    """``~/.groket/flags/<session_id>/flags.json`` — path only, no mkdir."""
+    return APP_HOME / "flags" / session_id / "flags.json"
+
+
 def flags_fallback_dir(session_id: str) -> Path:
-    """``~/.groket/flags/<session_id>`` — flags when session dir is not writable."""
-    d = APP_HOME / "flags" / session_id
+    """``~/.groket/flags/<session_id>`` — created when saving a fallback flag."""
+    d = flags_fallback_file(session_id).parent
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -404,7 +404,9 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(_Path, "home", classmethod(lambda cls: user_home))
 
     from groket import paths
+    from groket.config import invalidate_config_cache
 
+    invalidate_config_cache()
     monkeypatch.setattr(paths, "APP_HOME", app_home)
     monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", work_root)
 

@@ -77,8 +77,6 @@ def test_list_session_catalog_follows_show_host_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Headless catalog includes host when config show_host_sessions is true."""
-    from groket.session import catalog as catalog_mod
-
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     host = tmp_path / "host-sessions"
@@ -98,7 +96,10 @@ def test_list_session_catalog_follows_show_host_config(
     )
     cfg = tmp_path / "config.json"
     cfg.write_text('{"show_host_sessions": true}\n', encoding="utf-8")
-    monkeypatch.setattr(catalog_mod, "app_config_path", lambda: cfg)
+    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
+    from groket.config import invalidate_config_cache
+
+    invalidate_config_cache()
 
     # include_host=None → config
     rows = list_session_catalog(work, include_host=None)
@@ -145,7 +146,10 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     )
     cfg = tmp_path / "config.json"
     cfg.write_text('{"show_host_sessions": true}\n', encoding="utf-8")
-    monkeypatch.setattr(catalog_mod, "app_config_path", lambda: cfg)
+    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
+    from groket.config import invalidate_config_cache
+
+    invalidate_config_cache()
 
     calls: list[str] = []
     real_row = catalog_mod.session_catalog_row

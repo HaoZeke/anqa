@@ -1,6 +1,6 @@
 """groket — Trace evaluation for hunting bad model behaviors.
 
-* Root: ``models``, ``parser``, ``paths``, ``constants``, ``utils``, ``flags``, ``cli``
+* Root: ``models``, ``config``, ``parser``, ``paths``, ``constants``, ``utils``, ``flags``, ``cli``
 * ``runs/`` — personas, run configs, batch, background manager, shares, log services
 * ``session/`` — usage stats and workspace diffs
 * ``analysis/``, ``engine/``, ``capabilities/``, ``docker/``

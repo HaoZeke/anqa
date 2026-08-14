@@ -204,7 +204,7 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
                 t(
                     "analysis-settings-help",
                     list=plugin_list,
-                    config=str(config_path or "~/.groket or work_dir"),
+                    config=str(config_path or "~/.groket/config.json"),
                 ),
                 id="analysis-settings-help",
             )
@@ -265,7 +265,7 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
             analysis_workers=prev.analysis_workers,
             live_refresh_workers=prev.live_refresh_workers,
         )
-        save_pipeline_config(self._work_dir, cfg)
+        save_pipeline_config(cfg=cfg, config_path=config_path)
         from ..paths import analysis_cache_dir
 
         svc = AnalysisService(
@@ -524,40 +524,32 @@ class TraceEvalApp(App):
             banner.update(paths_banner(work))
 
     def _load_config(self) -> JsonObject:
-        """Load ``~/.groket/config.json`` (empty mapping when missing or invalid)."""
-        fp = app_config_path()
-        try:
-            data = json.loads(fp.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
-            return {}
-        return data if isinstance(data, dict) else {}
+        """Load the canonical app config (defaults when the file is missing)."""
+        from ..config import config_dump, load_app_config
+
+        return config_dump(load_app_config(self._config_path))
 
     def _save_config(self) -> None:
-        """Merge in-memory keys into ``~/.groket/config.json`` and write.
+        """Write shared prefs through :mod:`groket.config` (canonical object)."""
+        from ..config import config_dump, load_app_config, update_app_config
 
-        Re-reads the file so concurrent writers (prefs, analysis settings)
-        are not clobbered by a partial in-memory snapshot.
-        """
-        fp = app_config_path()
-        fp.parent.mkdir(parents=True, exist_ok=True)
-        on_disk: JsonObject = {}
-        if fp.is_file():
-            try:
-                loaded = json.loads(fp.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    on_disk = loaded
-            except (OSError, json.JSONDecodeError):
-                logger.debug(t("ui-failed-to-read-prefs-from-s"), fp, exc_info=True)
-                on_disk = {}
-        on_disk.update(self._config)
-        self._config = on_disk
-        text = json.dumps(on_disk, indent=2)
-        if not text.endswith("\n"):
-            text += "\n"
         try:
-            fp.write_text(text, encoding="utf-8")
+            update_app_config(
+                self._config_path,
+                theme=str(self._config.get("theme") or "groket"),
+                follow_os=self._config.get("follow_os") is True,
+                show_host_sessions=bool(self._config.get("show_host_sessions")),
+                show_tips=self._config.get("show_tips") is not False,
+                auto_serve=self._config.get("auto_serve") is not False,
+            )
         except OSError:
-            logger.warning(t("ui-failed-to-write-prefs-to-s"), fp, exc_info=True)
+            logger.warning(
+                t("ui-failed-to-write-prefs-to-s"),
+                app_config_path(),
+                exc_info=True,
+            )
+            return
+        self._config = config_dump(load_app_config(self._config_path))
 
     def _theme_names(self) -> list[str]:
         reg = getattr(self, "available_themes", None) or {}

@@ -35,13 +35,44 @@ uv tool upgrade groket
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.groket` | `config.json`, personas, detectors, rules, plugins, prefs, optional `keys.toml` |
+| Config home | `~/.groket` | `config.json`, personas, detectors, rules, plugins, optional `keys.toml` |
 | Work root | `~/.groket/work` | `runs/traces/`, recipes, Docker contexts, batch results |
 
 ```bash
 groket                      # default work root
 groket /path/to/work        # work root, traces tree, or one session dir
 ```
+
+`~/.groket/config.json` is the only prefs file (terminal app and desktop HUD).
+Missing keys use defaults. A save rewrites the canonical object:
+
+```json
+{
+  "theme": "groket",
+  "follow_os": false,
+  "show_host_sessions": false,
+  "show_tips": true,
+  "auto_serve": true,
+  "analysis": {
+    "plugins": [],
+    "auto_analyze_when": "session_complete",
+    "analysis_workers": 1,
+    "live_refresh_workers": 1
+  },
+  "hud": {
+    "window_mode": false,
+    "global_shortcut": "",
+    "desktop_notifications": true
+  },
+  "export": {
+    "default_profile": ""
+  }
+}
+```
+
+An older flat `hud_global_shortcut` is read once and stored under
+`hud.global_shortcut` on the next save. Key remaps stay in `keys.toml`
+(below), not in this file.
 
 Optional key diffs: `~/.groket/keys.toml` (`GROKET_KEYS` overrides the path).
 A missing file keeps the catalog defaults. Esc, Enter, Tab, Shift+Tab, and

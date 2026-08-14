@@ -1007,10 +1007,14 @@ async def test_config_save_and_load(tmp_path: Path) -> None:
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
+        app._config["theme"] = "nord"
         app._config["custom_key"] = "custom_value"
         app._save_config()
         loaded = app._load_config()
-        assert loaded.get("custom_key") == "custom_value"
+        assert loaded.get("theme") == "nord"
+        assert "custom_key" not in loaded
+        assert "analysis" in loaded
+        assert "hud" in loaded
 
 
 @pytest.mark.asyncio
