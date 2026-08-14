@@ -954,6 +954,223 @@ def test_timeline_subagent_events(tmp_path: Path):
     assert "coder" in subs[0].content
 
 
+def test_timeline_goal_updated_coalesces_same_goal_id(tmp_path: Path):
+    sd = tmp_path / "s"
+    sd.mkdir()
+    lines = [
+        json.dumps(
+            {
+                "timestamp": 10,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "goal_updated",
+                        "goal_id": "g1",
+                        "objective": "fix the catch-up path",
+                        "status": "active",
+                        "phase": "executing",
+                        "last_event": "goal_created",
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 11,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "goal_updated",
+                        "goal_id": "g1",
+                        "objective": "fix the catch-up path",
+                        "status": "complete",
+                        "phase": "idle",
+                        "last_event": "goal_completed",
+                        "last_classifier_verdict": "achieved",
+                    }
+                },
+            }
+        ),
+    ]
+    (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    events = parse_timeline(sd)
+    goals = [e for e in events if e.event_type == "goal_updated"]
+    assert len(goals) == 1
+    assert "fix the catch-up path" in goals[0].content
+    assert "status=complete" in goals[0].content
+    assert "last=goal_completed" in goals[0].content
+    assert "verdict=achieved" in goals[0].content
+
+
+def test_timeline_recap_and_compact_rows(tmp_path: Path):
+    sd = tmp_path / "s"
+    sd.mkdir()
+    lines = [
+        json.dumps(
+            {
+                "timestamp": 20,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "session_recap",
+                        "summary": "You asked how to walk the env-audit.",
+                        "auto": True,
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 21,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "auto_compact_started",
+                        "tokens_used": 401582,
+                        "context_window": 500000,
+                        "percentage": 80,
+                        "reason": "Context window 80% full",
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 22,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "auto_compact_completed",
+                        "tokens_before": 401582,
+                        "tokens_after": 24830,
+                        "elapsed_ms": 22052,
+                        "summary_preview": None,
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 23,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "compaction_checkpoint",
+                        "checkpoint_id": "25e46440-c2b4-4035-9095-391a1fd187f0",
+                        "prompt_index_at_compaction": 29,
+                    }
+                },
+            }
+        ),
+    ]
+    (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    events = parse_timeline(sd)
+    recap = [e for e in events if e.event_type == "session_recap"]
+    started = [e for e in events if e.event_type == "auto_compact_started"]
+    done = [e for e in events if e.event_type == "auto_compact_completed"]
+    ckpt = [e for e in events if e.event_type == "compaction_checkpoint"]
+    assert len(recap) == 1
+    assert recap[0].content.startswith("auto  You asked how to walk the env-audit.")
+    assert len(started) == 1
+    assert "Context window 80% full" in started[0].content
+    assert "401582/500000" in started[0].content
+    assert len(done) == 1
+    assert "401582 -> 24830" in done[0].content
+    assert "22052ms" in done[0].content
+    assert len(ckpt) == 1
+    assert "25e46440-c2b4-4035-9095-391a1fd187f0" in ckpt[0].content
+    assert "prompt_index=29" in ckpt[0].content
+
+
+def test_timeline_hook_execution_and_annotation(tmp_path: Path):
+    sd = tmp_path / "s"
+    sd.mkdir()
+    lines = [
+        json.dumps(
+            {
+                "timestamp": 30,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "hook_execution",
+                        "event_name": "session_start",
+                        "runs": [
+                            {
+                                "name": "global/nest-host-stamp:session_start[0].hooks[0]",
+                                "status": {"status": "success", "elapsed_ms": 892},
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 31,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "hook_execution",
+                        "event_name": "pre_tool_use",
+                        "tool_name": "run_terminal_command",
+                        "runs": [
+                            {
+                                "name": "global/deny-shell:pre_tool_use[0].hooks[0]",
+                                "status": {
+                                    "status": "failed",
+                                    "error": "timed out after 5000ms",
+                                    "elapsed_ms": 5106,
+                                },
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 32,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "hook_execution",
+                        "event_name": "stop",
+                        "runs": [
+                            {
+                                "name": "global/grok-nest-inject:stop[0].hooks[0]",
+                                "status": {
+                                    "status": "failed",
+                                    "error": "blocked stop: guest waiting",
+                                    "elapsed_ms": 2909,
+                                    "blocked": True,
+                                },
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 33,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "hook_annotation",
+                        "message": "Stop blocked by hook `global/grok-nest-inject:stop[0].hooks[0]`, continuing",
+                    }
+                },
+            }
+        ),
+    ]
+    (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    events = parse_timeline(sd)
+    hooks = [e for e in events if e.event_type == "hook_execution"]
+    notes = [e for e in events if e.event_type == "hook_annotation"]
+    assert len(hooks) == 3
+    assert hooks[0].content.startswith("session_start  nest-host-stamp:success")
+    assert not hooks[0].is_error
+    assert "pre_tool_use" in hooks[1].content
+    assert "run_terminal_command" in hooks[1].content
+    assert "deny-shell:failed" in hooks[1].content
+    assert "timed out after 5000ms" in hooks[1].content
+    assert hooks[1].is_error
+    assert "stop  grok-nest-inject:blocked" in hooks[2].content
+    assert hooks[2].is_error
+    assert len(notes) == 1
+    assert "Stop blocked by hook" in notes[0].content
+
+
 def test_timeline_only_markers_no_updates(tmp_path: Path):
     """Session with events.jsonl but no updates.jsonl (open turn kept)."""
     sd = tmp_path / "s"

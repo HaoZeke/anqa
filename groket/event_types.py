@@ -24,6 +24,13 @@ SUBAGENT_SPAWNED = "subagent_spawned"
 SUBAGENT_FINISHED = "subagent_finished"
 CURRENT_MODE_UPDATE = "current_mode_update"
 RETRY_STATE = "retry_state"
+GOAL_UPDATED = "goal_updated"
+SESSION_RECAP = "session_recap"
+AUTO_COMPACT_STARTED = "auto_compact_started"
+AUTO_COMPACT_COMPLETED = "auto_compact_completed"
+COMPACTION_CHECKPOINT = "compaction_checkpoint"
+HOOK_EXECUTION = "hook_execution"
+HOOK_ANNOTATION = "hook_annotation"
 
 # ── events.jsonl runtime markers ──────────────────────────────────────────
 TURN_STARTED = "turn_started"
@@ -52,8 +59,21 @@ TURN_STARTED_TYPES = frozenset({TURN_STARTED})
 TURN_ENDED_TYPES = frozenset({TURN_ENDED})
 ERROR_TYPES = frozenset({SESSION_ERROR, ERROR, TURN_ERROR, FATAL_ERROR})
 MODE_TYPES = frozenset({CURRENT_MODE_UPDATE, RETRY_STATE})
+GOAL_TYPES = frozenset({GOAL_UPDATED})
+RECAP_TYPES = frozenset({SESSION_RECAP})
+COMPACT_TYPES = frozenset({AUTO_COMPACT_STARTED, AUTO_COMPACT_COMPLETED, COMPACTION_CHECKPOINT})
+HOOK_TYPES = frozenset({HOOK_EXECUTION, HOOK_ANNOTATION})
 # Session chrome in the Turn / Session filter
-SESSION_CHROME_TYPES = TURN_BOUNDARY_TYPES | ERROR_TYPES | MODE_TYPES | frozenset({SYSTEM})
+SESSION_CHROME_TYPES = (
+    TURN_BOUNDARY_TYPES
+    | ERROR_TYPES
+    | MODE_TYPES
+    | GOAL_TYPES
+    | RECAP_TYPES
+    | COMPACT_TYPES
+    | HOOK_TYPES
+    | frozenset({SYSTEM})
+)
 
 # sessionUpdate values we materialize as timeline rows (1:1 identity map).
 SESSION_UPDATE_TIMELINE_TYPES = frozenset(
@@ -71,6 +91,13 @@ SESSION_UPDATE_TIMELINE_TYPES = frozenset(
         SUBAGENT_FINISHED,
         CURRENT_MODE_UPDATE,
         RETRY_STATE,
+        GOAL_UPDATED,
+        SESSION_RECAP,
+        AUTO_COMPACT_STARTED,
+        AUTO_COMPACT_COMPLETED,
+        COMPACTION_CHECKPOINT,
+        HOOK_EXECUTION,
+        HOOK_ANNOTATION,
     }
 )
 

@@ -1231,6 +1231,262 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
         )
         state.idx = idx + 1
 
+    elif etype == "goal_updated":
+        _apply_goal_updated(update, ts, line_no, state)
+
+    elif etype == "session_recap":
+        _append_session_update_row(
+            state,
+            event_type=etype,
+            ts=ts,
+            line_no=line_no,
+            content=_session_recap_content(update),
+            raw=update,
+        )
+
+    elif etype in (
+        "auto_compact_started",
+        "auto_compact_completed",
+        "compaction_checkpoint",
+    ):
+        _append_session_update_row(
+            state,
+            event_type=etype,
+            ts=ts,
+            line_no=line_no,
+            content=_compact_family_content(etype, update),
+            raw=update,
+        )
+
+    elif etype == "hook_execution":
+        content, failed = _hook_execution_row(update)
+        _append_session_update_row(
+            state,
+            event_type=etype,
+            ts=ts,
+            line_no=line_no,
+            content=content,
+            raw=update,
+            is_error=failed,
+        )
+
+    elif etype == "hook_annotation":
+        _append_session_update_row(
+            state,
+            event_type=etype,
+            ts=ts,
+            line_no=line_no,
+            content=_hook_annotation_content(update),
+            raw=update,
+        )
+
+
+def _goal_updated_content(update: JsonObject) -> str:
+    """One-line goal spine: objective, status/phase, last event or verdict."""
+    bits: list[str] = []
+    objective = json_as_str(update.get("objective")).strip()
+    if objective:
+        bits.append(objective)
+    mid: list[str] = []
+    status = json_as_str(update.get("status")).strip()
+    phase = json_as_str(update.get("phase")).strip()
+    if status:
+        mid.append(f"status={status}")
+    if phase:
+        mid.append(f"phase={phase}")
+    last = json_as_str(update.get("last_event")).strip()
+    if last:
+        mid.append(f"last={last}")
+    verdict = json_as_str(update.get("last_classifier_verdict")).strip()
+    if verdict:
+        mid.append(f"verdict={verdict}")
+    if mid:
+        bits.append(" ".join(mid))
+    detail = json_as_str(update.get("last_event_detail")).strip()
+    if detail:
+        bits.append(detail[:240])
+    return "  ".join(bits) if bits else "goal_updated"
+
+
+def _goal_id_from_update(update: JsonObject) -> str:
+    return json_as_str(update.get("goal_id") or update.get("goalId")).strip()
+
+
+def _last_goal_row(events: list[TraceEvent], goal_id: str) -> TraceEvent | None:
+    for ev in reversed(events):
+        if ev.event_type != "goal_updated":
+            continue
+        bag = ev.raw_input.raw() if isinstance(ev.raw_input, ToolInputBag) else {}
+        prev = ""
+        if isinstance(bag, dict):
+            prev = str(bag.get("goal_id") or bag.get("goalId") or "").strip()
+        if goal_id and prev == goal_id:
+            return ev
+        if not goal_id and not prev:
+            return ev
+    return None
+
+
+def _apply_goal_updated(
+    update: JsonObject,
+    ts: float | None,
+    line_no: int,
+    state: _UpdatesScanState,
+) -> None:
+    """Append or refresh the row for this ``goal_id`` (no one-row-per-tick spam)."""
+    goal_id = _goal_id_from_update(update)
+    content = _goal_updated_content(update)
+    bag = ToolInputBag(as_json_object(update))
+    existing = _last_goal_row(state.events, goal_id)
+    if existing is not None:
+        existing.content = content
+        existing.raw_input = bag
+        existing.update_index = line_no
+        if ts is not None:
+            existing.timestamp = ts
+        return
+    state.events.append(
+        TraceEvent(
+            index=state.idx,
+            event_type="goal_updated",
+            timestamp=ts,
+            update_index=line_no,
+            content=content,
+            raw_input=bag,
+        )
+    )
+    state.idx += 1
+
+
+def _append_session_update_row(
+    state: _UpdatesScanState,
+    *,
+    event_type: str,
+    ts: float | None,
+    line_no: int,
+    content: str,
+    raw: JsonObject,
+    is_error: bool = False,
+) -> None:
+    """Append one sessionUpdate row with the update bag attached."""
+    state.events.append(
+        TraceEvent(
+            index=state.idx,
+            event_type=event_type,
+            timestamp=ts,
+            update_index=line_no,
+            content=content,
+            raw_input=ToolInputBag(as_json_object(raw)),
+            is_error=is_error,
+        )
+    )
+    state.idx += 1
+
+
+def _session_recap_content(update: JsonObject) -> str:
+    """Recap summary; mark auto recaps so a human can tell them from typed ones."""
+    summary = json_as_str(update.get("summary")).strip()
+    auto = update.get("auto") is True
+    if not summary:
+        return "auto recap" if auto else "session_recap"
+    text = f"auto  {summary}" if auto else summary
+    return text[:500]
+
+
+def _compact_family_content(etype: str, update: JsonObject) -> str:
+    """One-line compact start / complete / checkpoint text."""
+    if etype == "auto_compact_started":
+        bits: list[str] = []
+        reason = json_as_str(update.get("reason")).strip()
+        if reason:
+            bits.append(reason)
+        pct = update.get("percentage")
+        if pct is not None and str(pct).strip() != "":
+            bits.append(f"{pct}%")
+        used = update.get("tokens_used")
+        window = update.get("context_window")
+        if used is not None and window is not None:
+            bits.append(f"{used}/{window}")
+        return "  ".join(bits) if bits else etype
+    if etype == "auto_compact_completed":
+        bits = []
+        before = update.get("tokens_before")
+        after = update.get("tokens_after")
+        if before is not None and after is not None:
+            bits.append(f"{before} -> {after}")
+        elapsed = update.get("elapsed_ms")
+        if elapsed is not None and str(elapsed).strip() != "":
+            bits.append(f"{elapsed}ms")
+        preview = json_as_str(update.get("summary_preview")).strip()
+        if preview:
+            bits.append(preview[:240])
+        return "  ".join(bits) if bits else etype
+    cid = json_as_str(update.get("checkpoint_id")).strip()
+    bits = [cid] if cid else []
+    pidx = update.get("prompt_index_at_compaction")
+    if pidx is not None and str(pidx).strip() != "":
+        bits.append(f"prompt_index={pidx}")
+    return "  ".join(bits) if bits else etype
+
+
+def _hook_short_name(name: str) -> str:
+    """``global/pack:event[0].hooks[0]`` → ``pack``."""
+    head = name.split(":", 1)[0]
+    return head.rsplit("/", 1)[-1] if head else name
+
+
+def _hook_run_label(run: JsonObject) -> tuple[str, str, bool]:
+    """Hook pack, outcome, error text, and whether the run failed or blocked."""
+    raw_name = json_as_str(run.get("name")).strip()
+    short = _hook_short_name(raw_name) if raw_name else "hook"
+    st = run.get("status")
+    status_s = ""
+    error = ""
+    blocked = False
+    if isinstance(st, dict):
+        status_s = json_as_str(st.get("status")).strip()
+        error = json_as_str(st.get("error")).strip()
+        blocked = st.get("blocked") is True
+    elif st is not None:
+        status_s = json_as_str(st).strip()
+    if blocked:
+        outcome = "blocked"
+    else:
+        outcome = status_s or "ran"
+    failed = blocked or status_s in {"failed", "error"}
+    return f"{short}:{outcome}", error, failed
+
+
+def _hook_execution_row(update: JsonObject) -> tuple[str, bool]:
+    """Event name, tool, and each run outcome — not the full payload dump."""
+    bits: list[str] = []
+    event_name = json_as_str(update.get("event_name")).strip()
+    if event_name:
+        bits.append(event_name)
+    tool = json_as_str(update.get("tool_name")).strip()
+    if tool:
+        bits.append(tool)
+    failed = False
+    error = ""
+    runs = update.get("runs")
+    if isinstance(runs, list):
+        for run in runs:
+            if not isinstance(run, dict):
+                continue
+            label, run_error, run_failed = _hook_run_label(as_json_object(run))
+            bits.append(label)
+            failed = failed or run_failed
+            if run_error and not error:
+                error = run_error[:200]
+    if error:
+        bits.append(error)
+    return ("  ".join(bits) if bits else "hook_execution", failed)
+
+
+def _hook_annotation_content(update: JsonObject) -> str:
+    msg = json_as_str(update.get("message")).strip()
+    return msg[:500] if msg else "hook_annotation"
+
 
 def _is_turn_started_marker(ev: TraceEvent) -> bool:
     if ev.event_type == "turn_started":

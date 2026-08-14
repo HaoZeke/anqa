@@ -51,6 +51,31 @@ def test_session_update_types_are_identity_mapped(tmp_path: Path) -> None:
     assert et.USER_MESSAGE_CHUNK in types
 
 
+def test_goal_updated_is_session_chrome() -> None:
+    assert et.GOAL_UPDATED in et.SESSION_UPDATE_TIMELINE_TYPES
+    assert et.GOAL_UPDATED in et.SESSION_CHROME_TYPES
+    assert et.event_kind(et.GOAL_UPDATED) == "session"
+
+
+def test_hooks_are_session_chrome() -> None:
+    for name in (et.HOOK_EXECUTION, et.HOOK_ANNOTATION):
+        assert name in et.SESSION_UPDATE_TIMELINE_TYPES
+        assert name in et.SESSION_CHROME_TYPES
+        assert et.event_kind(name) == "session"
+
+
+def test_recap_and_compact_are_session_chrome() -> None:
+    for name in (
+        et.SESSION_RECAP,
+        et.AUTO_COMPACT_STARTED,
+        et.AUTO_COMPACT_COMPLETED,
+        et.COMPACTION_CHECKPOINT,
+    ):
+        assert name in et.SESSION_UPDATE_TIMELINE_TYPES
+        assert name in et.SESSION_CHROME_TYPES
+        assert et.event_kind(name) == "session"
+
+
 def test_type_label_uses_grok_names() -> None:
     assert et.type_label("user_message_chunk") == "user message chunk"
     assert et.type_label("tool_call_update") == "tool call update"

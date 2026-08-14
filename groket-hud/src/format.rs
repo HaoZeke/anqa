@@ -609,6 +609,13 @@ pub fn event_type_brand_role(event_type: &str) -> BrandRole {
         | "turn_completed"
         | "current_mode_update"
         | "retry_state"
+        | "goal_updated"
+        | "session_recap"
+        | "auto_compact_started"
+        | "auto_compact_completed"
+        | "compaction_checkpoint"
+        | "hook_execution"
+        | "hook_annotation"
         | "turn_started"
         | "turn_ended"
         | "session" => BrandRole::Running,
@@ -1799,6 +1806,13 @@ mod tests {
             "turn_completed",
             "current_mode_update",
             "retry_state",
+            "goal_updated",
+            "session_recap",
+            "auto_compact_started",
+            "auto_compact_completed",
+            "compaction_checkpoint",
+            "hook_execution",
+            "hook_annotation",
             "turn_started",
             "turn_ended",
             "session",
