@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="brand/png/groket-lockup-horizontal.png#gh-light-mode-only" alt="groket" width="520" />
-  <img src="brand/png/groket-lockup-horizontal-reverse.png#gh-dark-mode-only" alt="groket" width="520" />
+  <img src="brand/png/groket-mark.png#gh-light-mode-only" alt="groket" width="400" />
+  <img src="brand/png/groket-mark-reverse.png#gh-dark-mode-only" alt="groket" width="400" />
 </p>
 
 # groket
