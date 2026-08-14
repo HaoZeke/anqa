@@ -21,7 +21,9 @@ from groket.session.subagents import (
     is_subagent_kind,
     is_subagent_session_dir,
     normalize_run_status,
+    parent_session_dir,
     resolve_child_session_path,
+    session_changed_targets,
     subagent_runs_for_session,
 )
 from groket.session.turns import TurnSegment
@@ -130,6 +132,22 @@ def test_collect_host_and_catalog_hide_subagents(tmp_path: Path) -> None:
     assert "eval-1" in names
     assert "p1" in names
     assert "op-fork" in names
+
+
+def test_parent_and_changed_targets_for_nested_and_sibling(tmp_path: Path) -> None:
+    token = tmp_path / "%2Fws"
+    parent = _write_session(token / "parent-1")
+    nested = token / "parent-1" / "subagents" / "child-1"
+    nested.mkdir(parents=True)
+    (nested / "meta.json").write_text("{}", encoding="utf-8")
+    sibling = _write_session(token / "child-1", kind="subagent")
+    assert parent_session_dir(nested) == parent
+    assert parent_session_dir(sibling) == parent
+    nested_targets = {p.name for p in session_changed_targets(nested)}
+    assert nested_targets == {"parent-1"}
+    sibling_targets = {p.name for p in session_changed_targets(sibling)}
+    assert sibling_targets == {"parent-1", "child-1"}
+    assert [p.name for p in session_changed_targets(parent)] == ["parent-1"]
 
 
 def test_is_subagent_session_dir_path_and_kind(tmp_path: Path) -> None:

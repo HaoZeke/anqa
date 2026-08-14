@@ -99,6 +99,45 @@ def drop_subagent_sessions(sessions: list[Path]) -> list[Path]:
     return kept
 
 
+def parent_session_dir(child: Path) -> Path | None:
+    """Parent session for a nested stub or a sibling listed under ``subagents/``."""
+    if is_nested_subagent_stub(child):
+        parent = child.parent.parent
+        return parent if parent.is_dir() else None
+    name = child.name
+    try:
+        with os.scandir(child.parent) as it:
+            siblings = list(it)
+    except OSError:
+        return None
+    for ent in siblings:
+        if not ent.is_dir(follow_symlinks=False) or ent.name == name:
+            continue
+        if (Path(ent.path) / "subagents" / name).is_dir():
+            return Path(ent.path)
+    return None
+
+
+def session_changed_targets(session_dir: Path) -> list[Path]:
+    """Sessions that should hear ``session/changed`` for a write under *session_dir*.
+
+    Hidden children notify the parent (open parent buffers reload) and the
+    child itself when it is a full on-disk session (someone may have it open).
+    Ordinary catalog sessions notify themselves only.
+    """
+    if not is_subagent_session_dir(session_dir):
+        return [session_dir]
+    out: list[Path] = []
+    seen: set[str] = set()
+    parent = parent_session_dir(session_dir)
+    if parent is not None:
+        out.append(parent)
+        seen.add(str(parent))
+    if is_full_session_mirror(session_dir) and str(session_dir) not in seen:
+        out.append(session_dir)
+    return out
+
+
 def is_full_session_mirror(path: Path) -> bool:
     """True when *path* has a full child timeline (not only a nested stub)."""
     if not path.is_dir():

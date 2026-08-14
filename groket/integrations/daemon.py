@@ -20,6 +20,7 @@ from ..session.catalog import (
     resolve_session_reference,
 )
 from ..session.sources import session_dir_for_watch_path
+from ..session.subagents import session_changed_targets
 from .control import (
     ControlError,
     ControlServer,
@@ -477,11 +478,17 @@ async def serve_control_forever(
             ]
 
         async def _publish() -> None:
+            seen: set[str] = set()
             for session in sessions:
-                try:
-                    await server.publish_session_changed(session)
-                except Exception:
-                    logger.debug("publish session/changed failed", exc_info=True)
+                for target in session_changed_targets(session):
+                    key = str(target)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    try:
+                        await server.publish_session_changed(target)
+                    except Exception:
+                        logger.debug("publish session/changed failed", exc_info=True)
             for session in notes_sessions:
                 try:
                     await server.publish_notes_changed(session)
