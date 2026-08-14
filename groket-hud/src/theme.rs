@@ -99,33 +99,46 @@ fn textual_tokens(name: &str) -> Tokens {
     let primary = color_of(&colors, "primary", Color::from_rgb8(1, 120, 212));
     let accent = color_of(&colors, "accent", Color::from_rgb8(254, 166, 43));
     let highlight = color_of(&colors, "primary-background", mix(primary, canvas, 0.35));
-    Tokens {
-        canvas,
-        surface: canvas,
-        panel: color_of(&colors, "panel", mix(text, canvas, 0.10)),
-        text,
-        muted,
-        primary,
-        accent,
-        success: color_of(
-            &colors,
-            "text-success",
-            color_of(&colors, "success", Color::from_rgb8(78, 191, 113)),
-        ),
-        warning: color_of(
-            &colors,
-            "text-warning",
-            color_of(&colors, "warning", Color::from_rgb8(254, 166, 43)),
-        ),
-        danger: color_of(
-            &colors,
-            "text-error",
-            color_of(&colors, "error", Color::from_rgb8(185, 60, 91)),
-        ),
-        border: highlight,
-        selection: mix(primary, canvas, 0.28),
-        selection_text: text,
-    }
+    let success = color_of(
+        &colors,
+        "text-success",
+        color_of(&colors, "success", Color::from_rgb8(78, 191, 113)),
+    );
+    let warning = color_of(
+        &colors,
+        "text-warning",
+        color_of(&colors, "warning", Color::from_rgb8(254, 166, 43)),
+    );
+    let danger = color_of(
+        &colors,
+        "text-error",
+        color_of(&colors, "error", Color::from_rgb8(185, 60, 91)),
+    );
+    let panel = color_of(&colors, "panel", mix(text, canvas, 0.10));
+    // 0.6 keeps `full` private. Start from the desktop pair, set catalog
+    // aliases, then `apply_os_chrome` rebuilds `scheme()` from those fields.
+    let mut tok = if relative_luma(canvas) < 0.45 {
+        icedtea::theme::named("dark").tokens
+    } else {
+        icedtea::theme::named("light").tokens
+    };
+    tok.accent = accent;
+    tok.success = success;
+    tok.warning = warning;
+    tok.danger = danger;
+    icedtea::theme::apply_os_chrome(
+        tok,
+        true,
+        icedtea::theme::OsChrome {
+            primary: Some(primary),
+            canvas: Some(canvas),
+            surface: Some(canvas),
+            panel: Some(panel),
+            text: Some(text),
+            muted: Some(muted),
+            border: Some(highlight),
+        },
+    )
 }
 
 /// Textual theme names registered on icedtea's catalog.
@@ -268,5 +281,29 @@ mod tests {
             light.selection,
             icedtea::theme::mix(light.primary, light.canvas, 0.28)
         );
+    }
+
+    #[test]
+    fn textual_catalog_scheme_matches_short_fields() {
+        for name in ["textual-dark", "gruvbox", "solarized-light", "flexoki"] {
+            let t = tokens(name);
+            let s = t.scheme();
+            assert_eq!(s.surface, t.canvas, "{name} canvas");
+            assert_eq!(s.surface_container, t.surface, "{name} surface");
+            assert_eq!(s.surface_container_high, t.panel, "{name} panel");
+            assert_eq!(s.on_surface, t.text, "{name} text");
+            assert_eq!(s.on_surface_variant, t.muted, "{name} muted");
+            assert_eq!(s.primary, t.primary, "{name} primary");
+            assert_eq!(s.secondary, t.accent, "{name} accent");
+            assert_eq!(s.success, t.success, "{name} success");
+            assert_eq!(s.warning, t.warning, "{name} warning");
+            assert_eq!(s.error, t.danger, "{name} danger");
+            assert_eq!(s.outline, t.border, "{name} border");
+            assert_eq!(s.secondary_container, t.selection, "{name} selection");
+            assert_eq!(
+                s.on_secondary_container, t.selection_text,
+                "{name} sel text"
+            );
+        }
     }
 }

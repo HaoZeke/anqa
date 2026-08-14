@@ -53,7 +53,14 @@ fn no_session_matches(tea: icedtea::theme::Tokens) -> Element<'static, Message> 
 
 fn loading_session(sid: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     column![
-        icedtea::widget::placeholder_skeleton(tea, A11y::new("Loading", Role::Progress)),
+        icedtea::widget::progress(
+            0.0,
+            None,
+            None,
+            true,
+            tea,
+            A11y::new("Loading", Role::Progress),
+        ),
         kit::status_empty("Loading", sid.to_string(), tea),
     ]
     .spacing(12)
@@ -81,6 +88,7 @@ fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, M
             hud.follow_draft(),
             Message::FollowDraft,
             Some(Message::SendFollow),
+            icedtea::widget::FieldOpts::NONE,
             tea,
             A11y::new("follow-up", Role::TextBox),
             Some(hud.follow_id()),
@@ -91,6 +99,7 @@ fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, M
             Some(Message::SendFollow),
             tea,
             Variant::Primary,
+            icedtea::icon::Icons::NONE,
             A11y::button("Send follow-up"),
         ),
     ]
@@ -326,6 +335,7 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         icedtea::collection::RowFace::Card {
             meter: None::<fn(usize) -> f32>,
         },
+        |_| Message::Noop,
         A11y::new("Sessions", Role::List),
     );
     if idle {
@@ -568,8 +578,10 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         } else {
             status
         },
+        None,
         tea,
         tone_variant(tone),
+        icedtea::widget::BadgeSize::Large,
         A11y::new("status", Role::Status),
     )]
     .spacing(8)
@@ -577,8 +589,10 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     if meta.is_subagent() {
         status_row = status_row.push(icedtea::widget::badge(
             String::from("subagent"),
+            None,
             tea,
             tone_variant(tone),
+            icedtea::widget::BadgeSize::Large,
             A11y::new("subagent", Role::Status),
         ));
     }
@@ -686,6 +700,8 @@ fn chat_md_body(
 fn markdown_element(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::markdown_view(
         intern_md(src),
+        None,
+        |_| Message::Noop,
         tea,
         |url| Message::MdLink(url.to_string()),
         A11y::new("markdown", Role::Group),
@@ -736,6 +752,8 @@ fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element
         None,
         tea,
         Variant::Chip,
+        icedtea::widget::ChipKind::Assist,
+        icedtea::icon::Icons::NONE,
         A11y::button(label),
     )
 }
@@ -936,8 +954,10 @@ fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
     row![
         icedtea::widget::badge(
             status.clone(),
+            None,
             tea,
             tone_variant(tone),
+            icedtea::widget::BadgeSize::Large,
             A11y::new(status, Role::Status),
         ),
         icedtea::widget::meta(hero.clone(), tea, A11y::new(hero, Role::Status)),
@@ -1638,8 +1658,10 @@ fn finding_key(f: &FindingRow) -> String {
 fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let mut card = column![icedtea::widget::badge(
         f.severity.clone(),
+        None,
         tea,
         tone_variant(status_tone(&f.severity)),
+        icedtea::widget::BadgeSize::Large,
         A11y::new(f.severity.clone(), Role::Status),
     )]
     .spacing(8);
@@ -1678,6 +1700,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                 value: v,
             },
             Some(Message::SaveNote),
+            icedtea::widget::FieldOpts::NONE,
             hud.tokens(),
             A11y::new(label.clone(), Role::TextBox),
             None,
@@ -1690,6 +1713,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             &hud.note_draft().turn_index,
             Message::NoteTurn,
             Some(Message::SaveNote),
+            icedtea::widget::FieldOpts::NONE,
             hud.tokens(),
             A11y::new("Turn", Role::TextBox),
             None,
@@ -2092,6 +2116,7 @@ fn jump_control(
     icedtea::widget::tooltip_wrap(
         chip_btn("→".into(), msg, tea),
         "Go to Timeline",
+        icedtea::widget::TooltipAnchor::Follow,
         tea,
         A11y::button("Go to Timeline"),
     )
@@ -2113,6 +2138,7 @@ fn pop_out_control(
         .on_press(Message::PopOutWindow)
         .into(),
         "Open a desktop window",
+        icedtea::widget::TooltipAnchor::Follow,
         tea,
         A11y::new("Pop out", Role::Button),
     )
@@ -2421,7 +2447,7 @@ mod tests {
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("event.{}.in.{}"));
         assert!(prod.contains("icedtea::widget::image_slot"));
-        assert!(prod.contains("icedtea::widget::placeholder_skeleton"));
+        assert!(prod.contains("icedtea::widget::progress"));
         assert!(prod.contains("icedtea::pattern::status_page"));
         assert!(prod.contains("icedtea::widget::info_bar"));
         assert!(prod.contains("icedtea::widget::markdown_view"));

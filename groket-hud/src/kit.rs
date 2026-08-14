@@ -1,11 +1,10 @@
 //! HUD chrome built on icedtea constructors.
 //!
-//! Prefer icedtea public APIs directly. Helpers here exist only when the kit
-//! is missing a parameter (per-tab disable, custom search placeholder/submit)
-//! and are shaped for upstream contribution to icedtea.
+//! Prefer icedtea public APIs directly. Helpers here exist only when icedtea
+//! is missing a parameter (per-tab disable, custom search placeholder/submit).
 
 use iced::widget::{column, container, row, text, Space};
-use iced::{Alignment, Element, Length, Padding};
+use iced::{Alignment, Element, Length};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
 use icedtea::i18n::Direction;
@@ -26,7 +25,9 @@ pub fn context_progress<'a>(frac: f32, tea: Tokens) -> Element<'a, Message> {
     let label = widget::progress_label(frac, None);
     widget::progress(
         frac.clamp(0.0, 1.0),
+        None,
         Some(label.as_str()),
+        false,
         tea,
         A11y::new("context", Role::Progress).with_value(label.clone()),
     )
@@ -41,10 +42,11 @@ pub fn status_empty<'a>(
     icedtea::pattern::status_page(title, detail, None, tea)
 }
 
-/// Search field with icon, matching icedtea [`widget::search_input`] layout.
+/// Search field: icedtea [`widget::themed_text_input`] with a leading search icon.
 ///
-/// icedtea's constructor hard-codes the placeholder and has no submit/id.
-/// This wrapper is the contribution-shaped extension.
+/// [`widget::search_input`] still hard-codes the placeholder and has no submit
+/// or input id. This keeps those parameters and uses [`widget::FieldOpts`] for
+/// the Material prefix.
 pub fn search_field<'a>(
     placeholder: &str,
     value: &str,
@@ -54,28 +56,20 @@ pub fn search_field<'a>(
     a11y: A11y,
     input_id: Option<iced::widget::Id>,
 ) -> Element<'a, Message> {
-    icedtea::a11y::attach(
-        row![
-            widget::icon_svg(
-                icedtea::icon::Icon::Search,
-                tea,
-                A11y::new("search", Role::Image),
-            ),
-            widget::themed_text_input(
-                placeholder,
-                value,
-                on_input,
-                on_submit,
-                tea,
-                a11y.child(Role::TextBox),
-                input_id,
-            ),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into(),
-        &a11y,
+    widget::themed_text_input(
+        placeholder,
+        value,
+        on_input,
+        on_submit,
+        widget::FieldOpts {
+            face: widget::FieldFace::Filled,
+            icons: icedtea::icon::Icons::leading(icedtea::icon::Icon::Search),
+            label: "",
+            max_len: None,
+        },
+        tea,
+        a11y,
+        input_id,
     )
 }
 
@@ -101,6 +95,8 @@ pub fn pane_tabs<'a>(
             &bar,
             |i| Message::SetTab(tabs[i.min(tabs.len() - 1)]),
             |_| Message::Noop,
+            0.0,
+            false,
             tea,
             A11y::new("panes", Role::Tab),
         );
@@ -127,8 +123,7 @@ pub fn pane_tabs<'a>(
             .width(Length::Fill)
             .style(move |_| {
                 if show_active {
-                    // Contribution candidate: icedtea::style::tab_indicator
-                    icedtea::style::fill(tea.primary, tea.text)
+                    icedtea::style::tab_indicator(tea)
                 } else {
                     icedtea::style::fill(iced::Color::TRANSPARENT, tea.text)
                 }
@@ -147,8 +142,7 @@ pub fn pane_tabs<'a>(
     icedtea::a11y::attach(
         container(strip)
             .width(Length::Fill)
-            // Contribution candidate: icedtea::style::app_bar
-            .style(move |_| icedtea::style::panel(tea))
+            .style(move |_| icedtea::style::app_bar(tea))
             .into(),
         &A11y::new("panes", Role::Tab),
     )
@@ -176,25 +170,21 @@ pub fn labeled_value<'a>(
     )
 }
 
-/// Non-copyable labeled readout using the same gutter as [`labeled_value`].
+/// Non-copyable labeled readout via icedtea [`layout::form`] (same gutter).
 pub fn labeled_plain<'a>(
     title: &str,
     value: impl Into<String>,
     tea: Tokens,
 ) -> Element<'a, Message> {
     let value = value.into();
-    let label = container(widget::meta(
-        title.to_string(),
-        tea,
-        A11y::new(title, Role::Status),
-    ))
-    .width(Length::Fixed(LABEL_GUTTER));
-    let val = text(value).size(typo::BODY).color(tea.text);
-    row![label, val]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into()
+    icedtea::layout::form(
+        [(
+            widget::meta(title.to_string(), tea, A11y::new(title, Role::Status)),
+            text(value).size(typo::BODY).color(tea.text).into(),
+        )],
+        8,
+        Direction::Ltr,
+    )
 }
 
 /// Footer — icedtea [`pattern::status_bar`] + [`ActionTable::footer_hints`].
@@ -208,50 +198,17 @@ pub fn status_footer<'a>(
     icedtea::pattern::status_bar(status.to_string(), tone, None, table, tea, Direction::Ltr)
 }
 
-/// `?` help sheet: shortcut rows in a modal, with right pad for the scroll rail.
+/// `?` help sheet: icedtea [`pattern::cheatsheet`] in a modal card.
 pub fn help_modal<'a>(
     backdrop: Element<'a, Message>,
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
-    let rail = icedtea::chrome::SCROLL_RAIL_WIDTH;
-    let mut rows = column![].spacing(4).padding(Padding {
-        top: 8.0,
-        right: 8.0 + rail,
-        bottom: 8.0,
-        left: 8.0,
-    });
-    for a in table.iter() {
-        if !a.enabled {
-            continue;
-        }
-        let keys = a
-            .shortcut
-            .as_ref()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "—".into());
-        rows = rows.push(row![
-            widget::label(
-                a.title.clone(),
-                tea,
-                A11y::new(a.title.clone(), Role::Status),
-            ),
-            Space::new().width(Length::Fill),
-            widget::meta(keys.clone(), tea, A11y::new(keys, Role::Status)),
-        ]);
-    }
-    let list = widget::themed_scroll(
-        rows.into(),
-        tea,
-        A11y::new("cheatsheet", Role::Group),
-        false,
-        None,
-        None::<fn(_) -> Message>,
-    );
     let sheet = widget::group_box(
         "Keyboard shortcuts",
-        list,
+        icedtea::pattern::cheatsheet(table, "", tea),
         tea,
+        widget::CardFace::Elevated,
         A11y::new("Keyboard shortcuts", Role::Dialog),
     );
     let card = container(sheet)
@@ -354,16 +311,20 @@ mod tests {
     }
 
     #[test]
-    fn kit_module_is_contribution_shaped() {
+    fn kit_uses_icedtea_constructors() {
         let src = include_str!("kit.rs");
         assert!(src.contains("widget::value_field"));
         assert!(src.contains("widget::progress"));
         assert!(src.contains("widget::tab_bar"));
+        assert!(src.contains("widget::FieldOpts"));
+        assert!(src.contains("Icons::leading"));
         assert!(src.contains("pattern::status_bar"));
         assert!(src.contains("pattern::status_page"));
         assert!(src.contains("pattern::modal_card"));
-        assert!(src.contains("SCROLL_RAIL_WIDTH"));
+        assert!(src.contains("pattern::cheatsheet"));
+        assert!(src.contains("layout::form"));
+        assert!(src.contains("style::tab_indicator"));
+        assert!(src.contains("style::app_bar"));
         assert!(src.contains("FORM_LABEL"));
-        assert!(src.contains("contribution"));
     }
 }
