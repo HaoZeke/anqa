@@ -898,9 +898,7 @@ fn merge_document(doc: &Document) -> Option<KeyOverlay> {
             if row.id == "list.down" || row.id == "list.up" {
                 return None;
             }
-            if sequence_suffix(&canon).is_none() {
-                return None;
-            }
+            sequence_suffix(&canon)?;
             uses_sequence = true;
         }
         if let Some(prev) = seen.get(row.id) {
