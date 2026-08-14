@@ -14,6 +14,8 @@ from contextlib import suppress
 
 from textual.app import App
 
+from ..tool_display import format_tool_display, tool_family
+
 # Brand hex (same as brand/build.py). Caps = complete / failed / running.
 COMPLETE = "#98971A"
 FAILED = "#CC241D"
@@ -87,55 +89,8 @@ EVENT_TYPE_LABEL: dict[str, str] = {
 #   cream  = read / search / inspect
 #   complete green = write / edit / mutate workspace
 #   running yellow = shell / process / wait
-#   cream  = agent / UI / plan / other (default)
-
-_TOOL_FAMILY_READ = frozenset(
-    {
-        "read_file",
-        "grep",
-        "list_dir",
-        "web_search",
-        "read_resource",
-        "list_resources",
-    }
-)
-_TOOL_FAMILY_WRITE = frozenset(
-    {
-        "search_replace",
-        "write_file",
-        "create_file",
-        "todo_write",
-        "update_goal",
-        "image_gen",
-        "image_edit",
-        "image_to_video",
-        "reference_to_video",
-    }
-)
-_TOOL_FAMILY_SHELL = frozenset(
-    {
-        "run_terminal_command",
-        "get_command_or_subagent_output",
-        "kill_command_or_subagent",
-        "wait_commands_or_subagents",
-        "monitor",
-        "scheduler_create",
-        "scheduler_delete",
-        "scheduler_list",
-    }
-)
-_TOOL_FAMILY_AGENT = frozenset(
-    {
-        "spawn_subagent",
-        "ask_user_question",
-        "enter_plan_mode",
-        "exit_plan_mode",
-        "use_tool",
-        "search_tool",
-        "call_mcp",
-        "search_mcp",
-    }
-)
+#   cream  = agent / plan
+#   cancelled gray = marketplace
 
 TOOL_FAMILY_STYLE: dict[str, str] = {
     "read": CREAM,
@@ -148,46 +103,6 @@ TOOL_FAMILY_STYLE: dict[str, str] = {
 
 # Explicit overrides (optional); prefer families via tool_style().
 TOOL_STYLE: dict[str, str] = {}
-
-
-def tool_family(name: str) -> str:
-    """Map a tool name to read | write | shell | agent | mcp | other."""
-    n = (name or "").strip()
-    # MCP / plugin tools often look like server__method
-    if "__" in n or n.startswith("mcp_"):
-        return "mcp"
-    if n in _TOOL_FAMILY_READ:
-        return "read"
-    if n in _TOOL_FAMILY_WRITE:
-        return "write"
-    if n in _TOOL_FAMILY_SHELL:
-        return "shell"
-    if n in _TOOL_FAMILY_AGENT:
-        return "agent"
-    # Heuristics for MCP / unknown tools
-    low = n.lower()
-    if any(k in low for k in ("read", "get", "list", "search", "grep", "find")):
-        return "read"
-    if any(k in low for k in ("write", "edit", "create", "update", "delete", "save")):
-        return "write"
-    if any(k in low for k in ("run", "exec", "shell", "terminal", "wait", "kill")):
-        return "shell"
-    return "other"
-
-
-def format_tool_display(name: str) -> str:
-    """Human tool column text: host ids stay snake_case; MCP as ``server · method``."""
-    n = (name or "").strip()
-    if not n:
-        return "?"
-    if "__" in n:
-        server, method = n.split("__", 1)
-        server, method = server.strip(), method.strip()
-        if server and method:
-            return f"{server} · {method}"
-    if n.startswith("mcp_") and len(n) > 4:
-        return f"mcp · {n[4:]}"
-    return n
 
 
 # Run / container lifecycle — one palette for tables, activity bar, labels.
@@ -222,16 +137,27 @@ def status_rich_style(status: str) -> str:
 SYNTAX_THEME_LIGHT = "friendly"
 SYNTAX_THEME_DARK = "monokai"
 
+# Textual theme name substring → Pygments style (no code-block background).
+_SYNTAX_BY_THEME: tuple[tuple[str, str], ...] = (
+    ("solarized-light", "solarized-light"),
+    ("solarized", "solarized-dark"),
+    ("gruvbox", "gruvbox-dark"),
+    ("nord", "nord"),
+    ("groket-light", "gruvbox-light"),
+    ("groket", "gruvbox-dark"),
+    ("textual-light", SYNTAX_THEME_LIGHT),
+    ("catppuccin", "dracula"),
+)
+
 
 def syntax_theme_for_app(app: App) -> str:
-    """Pick a Syntax highlight theme matching the active Textual theme.
-
-    ``app`` is the Textual ``App`` instance (or any object with a ``.theme``
-    attribute).  Falls back to the dark theme when detection fails.
-    """
+    """Pick a Pygments style that follows the active Textual theme name."""
     with suppress(Exception):
-        name = getattr(app, "theme", "") or ""
-        if "light" in name.lower():
+        name = (getattr(app, "theme", "") or "").lower()
+        for needle, pygments in _SYNTAX_BY_THEME:
+            if needle in name:
+                return pygments
+        if "light" in name:
             return SYNTAX_THEME_LIGHT
     return SYNTAX_THEME_DARK
 

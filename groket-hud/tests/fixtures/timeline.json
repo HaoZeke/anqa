@@ -53,7 +53,7 @@
       "index": 2,
       "isError": false,
       "kind": "tool",
-      "preview": "read_file /tmp/x",
+      "preview": "read file /tmp/x",
       "promptIndex": null,
       "rawInput": {
         "target_file": "/tmp/x"

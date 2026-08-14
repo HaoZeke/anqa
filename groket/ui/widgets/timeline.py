@@ -9,7 +9,8 @@ from textual.widgets import DataTable
 from ... import event_types as et
 from ...analysis.base import Finding
 from ...constants import LIVE_TIMELINE_TAIL_CHECK
-from ...models import Flag, TraceEvent
+from ...models import Flag, ToolInputBag, TraceEvent
+from ...tool_display import list_event_preview
 from ...utils import fmt_duration
 from ..data_table import preserving_cursor, style_data_table, update_row_cell
 from ..i18n import t
@@ -354,8 +355,12 @@ class TimelineTable(DataTable):
             elif t("ui-turn-started") in c:
                 label = t("ui-turn-started")
             return f"[yellow]{label}[/]"
+        if ev.event_type == et.SUBAGENT_SPAWNED:
+            return "[cyan]" + t("ui-subagent-spawned") + "[/]"
+        if ev.event_type == et.SUBAGENT_FINISHED:
+            return "[cyan]" + t("ui-subagent-finished") + "[/]"
         if ev.event_type in et.SUBAGENT_TYPES:
-            return "[cyan]subagent[/]"
+            return "[cyan]" + t("ui-subagent") + "[/]"
         if ev.event_type in (et.MESSAGE_TYPES | et.PLAN_TYPES):
             return ""
         return ""
@@ -426,6 +431,10 @@ class TimelineTable(DataTable):
         if chrome_heading is not None:
             # Harness injects system-reminder / background-task as user_message_chunk.
             type_style = f"[bold magenta]{chrome_heading.lower()}[/]"
+        elif ev.event_type == et.SUBAGENT_SPAWNED:
+            type_style = "[bold]" + t("ui-subagent-spawned") + "[/]"
+        elif ev.event_type == et.SUBAGENT_FINISHED:
+            type_style = "[bold]" + t("ui-subagent-finished") + "[/]"
         else:
             type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
         tool_err = ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES
@@ -451,7 +460,15 @@ class TimelineTable(DataTable):
             finding = self.findings_by_call[ev.tool_call_id]
             sev = getattr(finding.severity, "value", None) or "low"
             prefix += finding_mark(sev) + " "
-        summary = prefix + rich_escape(ev.summary_line[: 56 if prefix else 60])
+        if ev.event_type in et.SUBAGENT_TYPES and isinstance(ev.raw_input, ToolInputBag):
+            typ = ev.raw_input.as_str("subagentType") or ev.raw_input.as_str("subagent_type")
+            desc = ev.raw_input.as_str("description")
+            bits = [b for b in (typ, desc) if b]
+            raw_sum = " · ".join(bits) if bits else ev.summary_line
+        else:
+            raw_sum = ev.summary_line
+        shown = list_event_preview(raw_sum, ev.tool_name)
+        summary = prefix + rich_escape(shown[: 56 if prefix else 60])
         # Prefer the warm map (built on open / extended on append). Avoid
         # turn_index_for side effects during bulk paint.
         turn = self._turn_by_index.get(int(ev.index))

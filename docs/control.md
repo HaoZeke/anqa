@@ -54,12 +54,12 @@ The owner accepts either and replies in the same frame the client used.
 
 | Method | Role |
 |--------|------|
-| `initialize` | Handshake (version 1) |
+| `initialize` | Handshake (owner reports version 1) |
 | `session/list` | Catalog page (see below) |
 | `session/get` | Session meta (status, context, counts, notes revision) |
-| `session/overview` | Meta + turns + notes (no embedded event list) |
-| `session/timeline` | Paged events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`) |
-| `session/turns` | Turn segments |
+| `session/overview` | Meta + turns + notes (no embedded event list). Turns include `subagentRuns`. |
+| `session/timeline` | Paged events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats. |
+| `session/turns` | Turn segments plus `subagentRuns` (turn-scoped child runs; `openable` + `childPath`). |
 | `session/usage` | Tool / MCP / skill usage |
 | `session/findings` | Cached analysis findings |
 | `session/open` | Resolve a session and notify `session/selected` |

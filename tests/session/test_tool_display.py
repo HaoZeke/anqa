@@ -9,12 +9,31 @@ from groket.parser import parse_timeline, parse_tool_calls
 from groket.session.control_views import timeline_event_mapping
 from groket.tool_display import (
     display_tool_output,
+    format_tool_display,
     image_result_path,
+    list_event_detail,
+    list_event_preview,
     preserve_primary_raw_input,
     strip_inline_line_prefixes,
+    tool_family,
     tool_input_fields,
     web_search_from_raw_output,
 )
+
+
+def test_format_tool_display_uses_spaces_not_snake() -> None:
+    assert format_tool_display("read_file") == "read file"
+    assert format_tool_display("run_terminal_command") == "run terminal command"
+    assert format_tool_display("playwright__browser_navigate") == "playwright · browser navigate"
+    assert format_tool_display("") == "?"
+
+
+def test_tool_family_search_and_marketplace() -> None:
+    assert tool_family("search_tool") == "read"
+    assert tool_family("use_tool") == "mcp"
+    assert tool_family("tasks__list") == "mcp"
+    assert list_event_preview("read_file /tmp/x", "read_file") == "read file /tmp/x"
+    assert list_event_detail("read file /tmp/x", "read_file") == "/tmp/x"
 
 
 def test_strip_inline_line_prefixes_removes_grok_arrows() -> None:

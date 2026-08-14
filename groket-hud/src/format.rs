@@ -64,7 +64,7 @@ pub fn list_status_label(status: &str, outcome: &str) -> String {
         "awaiting_follow_up" | "awaiting" => "awaiting".into(),
         "running" | "in_progress" | "pending" => "running".into(),
         "cancelled" | "canceled" | "interrupted" | "aborted" => "cancelled".into(),
-        "success" | "ok" | "completed" | "complete" => "complete".into(),
+        "success" | "ok" | "completed" | "complete" | "done" => "complete".into(),
         "error" | "failed" | "failure" | "timeout" => "cancelled".into(),
         "" => "—".into(),
         _ => "complete".into(),
@@ -170,26 +170,28 @@ pub fn overview_fields(
             copyable: false,
         });
     }
-    if let Some(last) = turns.turns.last() {
-        let mut value = last.label.clone();
-        if value.is_empty() {
-            value = format!("turn {}", last.turn_index);
-        }
-        match (last.first_index, last.last_index) {
-            (Some(a), Some(b)) => {
-                value = format!("{value} · #{a}–#{b}");
+    if turns.turns.len() > 1 {
+        if let Some(last) = turns.turns.last() {
+            let mut value = last.label.clone();
+            if value.is_empty() {
+                value = format!("turn {}", last.turn_index);
             }
-            (Some(a), None) | (None, Some(a)) => {
-                value = format!("{value} · #{a}");
+            match (last.first_index, last.last_index) {
+                (Some(a), Some(b)) => {
+                    value = format!("{value} · #{a}–#{b}");
+                }
+                (Some(a), None) | (None, Some(a)) => {
+                    value = format!("{value} · #{a}");
+                }
+                (None, None) => {}
             }
-            (None, None) => {}
+            out.push(OverviewField {
+                key: "last_turn",
+                label: "last turn",
+                value,
+                copyable: false,
+            });
         }
-        out.push(OverviewField {
-            key: "last_turn",
-            label: "last turn",
-            value,
-            copyable: false,
-        });
     }
     if meta.num_messages > 0 {
         out.push(OverviewField {
@@ -425,6 +427,150 @@ pub enum BrandRole {
     Cancelled,
 }
 
+const TOOL_FAMILY_READ: &[&str] = &[
+    "read_file",
+    "grep",
+    "list_dir",
+    "web_search",
+    "read_resource",
+    "list_resources",
+    "search_tool",
+    "search_mcp",
+];
+const TOOL_FAMILY_WRITE: &[&str] = &[
+    "search_replace",
+    "write_file",
+    "create_file",
+    "todo_write",
+    "update_goal",
+    "image_gen",
+    "image_edit",
+    "image_to_video",
+    "reference_to_video",
+];
+const TOOL_FAMILY_SHELL: &[&str] = &[
+    "run_terminal_command",
+    "get_command_or_subagent_output",
+    "kill_command_or_subagent",
+    "wait_commands_or_subagents",
+    "monitor",
+    "scheduler_create",
+    "scheduler_delete",
+    "scheduler_list",
+];
+const TOOL_FAMILY_AGENT: &[&str] = &[
+    "spawn_subagent",
+    "ask_user_question",
+    "enter_plan_mode",
+    "exit_plan_mode",
+];
+const TOOL_FAMILY_MCP_WRAPPER: &[&str] = &["use_tool", "call_mcp", "call_mcp_tool", "mcp_tool"];
+
+/// Map a tool id to read | write | shell | agent | mcp | other.
+pub fn tool_family(name: &str) -> &'static str {
+    let n = name.trim();
+    if n.contains("__") || n.starts_with("mcp_") || TOOL_FAMILY_MCP_WRAPPER.iter().any(|k| *k == n)
+    {
+        return "mcp";
+    }
+    if TOOL_FAMILY_READ.iter().any(|k| *k == n) {
+        return "read";
+    }
+    if TOOL_FAMILY_WRITE.iter().any(|k| *k == n) {
+        return "write";
+    }
+    if TOOL_FAMILY_SHELL.iter().any(|k| *k == n) {
+        return "shell";
+    }
+    if TOOL_FAMILY_AGENT.iter().any(|k| *k == n) {
+        return "agent";
+    }
+    let low = n.to_ascii_lowercase();
+    if ["read", "get", "list", "search", "grep", "find"]
+        .iter()
+        .any(|k| low.contains(k))
+    {
+        return "read";
+    }
+    if ["write", "edit", "create", "update", "delete", "save"]
+        .iter()
+        .any(|k| low.contains(k))
+    {
+        return "write";
+    }
+    if ["run", "exec", "shell", "terminal", "wait", "kill"]
+        .iter()
+        .any(|k| low.contains(k))
+    {
+        return "shell";
+    }
+    "other"
+}
+
+fn human_tool_token(part: &str) -> String {
+    part.replace('_', " ").replace('-', " ").trim().to_string()
+}
+
+/// Operator tool label: spaces, not snake_case; marketplace ``server · method``.
+pub fn format_tool_display(name: &str) -> String {
+    let n = name.trim();
+    if n.is_empty() {
+        return "?".into();
+    }
+    if let Some((server, method)) = n.split_once("__") {
+        let server = human_tool_token(server);
+        let method = human_tool_token(method);
+        if !server.is_empty() && !method.is_empty() {
+            return format!("{server} · {method}");
+        }
+    }
+    if let Some(rest) = n.strip_prefix("mcp_") {
+        if !rest.is_empty() {
+            return format!("mcp · {}", human_tool_token(rest));
+        }
+    }
+    human_tool_token(n)
+}
+
+/// Timeline summary remainder after the tool label (name already shown beside it).
+pub fn list_event_detail(summary: &str, tool_name: &str) -> String {
+    let s = summary.trim();
+    let label = if tool_name.trim().is_empty() {
+        String::new()
+    } else {
+        format_tool_display(tool_name)
+    };
+    if !label.is_empty() {
+        if let Some(rest) = s.strip_prefix(&label) {
+            return rest.trim().to_string();
+        }
+        let raw = tool_name.trim();
+        if let Some(rest) = s.strip_prefix(raw) {
+            return rest.trim().to_string();
+        }
+    }
+    s.to_string()
+}
+
+/// Brand color for a tool name. ``None`` is dim / muted (unknown family).
+pub fn tool_brand_role(name: &str, is_error: bool) -> Option<BrandRole> {
+    if is_error {
+        return Some(BrandRole::Failed);
+    }
+    match tool_family(name) {
+        "read" | "agent" => Some(BrandRole::Cream),
+        "write" => Some(BrandRole::Complete),
+        "shell" => Some(BrandRole::Running),
+        "mcp" => Some(BrandRole::Cancelled),
+        _ => None,
+    }
+}
+
+pub fn is_tool_identity(kind: &str, event_type: &str, tool_name: &str) -> bool {
+    !tool_name.trim().is_empty()
+        && (kind == "tool" || kind == "tool_result" || event_type.contains("tool"))
+}
+
 /// How an expanded body should paint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyPaint {
@@ -509,7 +655,11 @@ pub fn human_event_type_label(event_type: &str, type_label: &str, kind: &str) ->
     if raw.is_empty() {
         return String::new();
     }
-    raw.replace('_', " ")
+    match raw {
+        "subagent_spawned" | "subagent spawned" => "spawned".into(),
+        "subagent_finished" | "subagent finished" => "finished".into(),
+        _ => raw.replace('_', " "),
+    }
 }
 
 /// Caption for filter range meta: never empty (avoids a11y name paint).
@@ -1165,6 +1315,7 @@ pub fn event_matches_kind(kind: &str, is_error: bool, mode: KindFilter) -> bool 
             // TUI sess = SESSION_CHROME_TYPES → kind session | system | error.
             matches!(kind.as_str(), "system" | "session" | "error")
         }
+        KindFilter::Subagents => kind == "subagent",
         KindFilter::Errors => is_error || kind == "error",
     }
 }
@@ -1460,6 +1611,7 @@ mod tests {
         assert_eq!(list_status_label("—", "completed"), "complete");
         assert_eq!(list_status_label("", "awaiting_follow_up"), "awaiting");
         assert_eq!(list_status_label("", "cancelled"), "cancelled");
+        assert_eq!(list_status_label("", "done"), "complete");
         assert_eq!(list_status_label("", "running"), "running");
         assert_eq!(list_status_label("", ""), "—");
         assert_eq!(status_tone("cancelled"), "cancelled");
@@ -1479,6 +1631,8 @@ mod tests {
         assert!(event_matches_kind("error", false, KindFilter::Sess));
         assert!(!event_matches_kind("plan", false, KindFilter::Sess));
         assert!(!event_matches_kind("subagent", false, KindFilter::Sess));
+        assert!(event_matches_kind("subagent", false, KindFilter::Subagents));
+        assert!(!event_matches_kind("agent", false, KindFilter::Subagents));
         assert!(!event_matches_kind("agent", false, KindFilter::Sess));
         assert!(event_matches_kind("agent", false, KindFilter::Asst));
         assert!(event_matches_kind("thought", false, KindFilter::Asst));
@@ -1593,6 +1747,14 @@ mod tests {
             "tool call"
         );
         assert_eq!(human_event_type_label("", "", "agent"), "agent");
+        assert_eq!(
+            human_event_type_label("subagent_spawned", "", "subagent"),
+            "spawned"
+        );
+        assert_eq!(
+            human_event_type_label("subagent_finished", "subagent finished", "subagent"),
+            "finished"
+        );
         assert_eq!(timeline_count_caption(""), None);
         assert_eq!(
             timeline_count_caption("  1-40 of 100  "),
@@ -1667,6 +1829,36 @@ mod tests {
             event_brand_role("agent_message_chunk", "agent", true),
             BrandRole::Failed
         );
+    }
+
+    #[test]
+    fn tool_family_and_display_match_tui() {
+        assert_eq!(tool_family("read_file"), "read");
+        assert_eq!(tool_family("search_tool"), "read");
+        assert_eq!(tool_family("search_replace"), "write");
+        assert_eq!(tool_family("run_terminal_command"), "shell");
+        assert_eq!(tool_family("spawn_subagent"), "agent");
+        assert_eq!(tool_family("use_tool"), "mcp");
+        assert_eq!(tool_family("tasks__list"), "mcp");
+        assert_eq!(tool_family("mystery"), "other");
+        assert_eq!(format_tool_display("read_file"), "read file");
+        assert_eq!(
+            format_tool_display("playwright__browser_navigate"),
+            "playwright · browser navigate"
+        );
+        assert_eq!(list_event_detail("read file /tmp/x", "read_file"), "/tmp/x");
+        assert_eq!(list_event_detail("read_file /tmp/x", "read_file"), "/tmp/x");
+        assert_eq!(tool_brand_role("read_file", false), Some(BrandRole::Cream));
+        assert_eq!(
+            tool_brand_role("run_terminal_command", false),
+            Some(BrandRole::Running)
+        );
+        assert_eq!(
+            tool_brand_role("use_tool", false),
+            Some(BrandRole::Cancelled)
+        );
+        assert_eq!(tool_brand_role("xyz", false), None);
+        assert_eq!(tool_brand_role("read_file", true), Some(BrandRole::Failed));
     }
 
     #[test]

@@ -194,8 +194,13 @@ per-user Unix socket (JSON-RPC for Emacs/Neovim/HUD/TUI). Lifecycle: bare
 catalog, watches the traces tree, and runs analysis jobs. TUI **never
 owns** the socket: default is detach-start owner if free (``--no-serve``
 skips spawn; ``--no-socket`` runs offline), then attach and listen.
-TUI exit does not stop the owner. Methods, list paging, and
-notifications: [`docs/control.md`](docs/control.md). Do not reimplement
+When a socket is configured, the home catalog is control-only — attach
+failure toasts and does not walk traces on disk. TUI exit does not stop
+the owner. Bump ``PROTOCOL_VERSION`` only after a version has shipped to clients
+that would otherwise keep a stale owner. Unpublished local work stays on
+the current unpublished version. Editor clients may keep an older
+``initialize`` version — the owner still accepts ``MIN_PROTOCOL_VERSION``.
+Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
 
@@ -232,6 +237,9 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
   optional in-memory per-turn samples while a browser is open
   (``session.context_samples``). Grok does not export a full per-turn series.
 - **Subagent** session directories are excluded from the sessions list.
+  Inspect them from the parent (Summary run table / Timeline Subagents
+  filter; Enter or HUD tile click opens the child; Esc returns to that
+  Timeline or Turns place). Operator ``session_kind: fork`` stays listed.
 
 ### 3.2 Localization (mandatory for UI copy)
 
@@ -587,9 +595,9 @@ modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
 | ``s`` / ``space`` | Select (multi-select lists) |
 
 Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
-(§6.5a); ``n``/``e`` follow-up/Done when awaiting; ``x`` delete (double-press);
-``f`` flag; ``N``/``O`` notes; ``E`` export; ``H`` show/hide host sessions
-(sessions home).
+(§6.5a); Enter on a spawn/finish bookend opens the child; ``n``/``e`` follow-up/Done
+when awaiting; ``x`` delete (double-press); ``f`` flag; ``N``/``O`` notes;
+``E`` export; ``H`` show/hide host sessions (sessions home).
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
 (double-press); ``a`` analyze; ``d`` rules; ``r``/``C``/``P`` runner/configs/personas;
@@ -624,12 +632,13 @@ follow-up, and Done stay off the rail when they do not apply.
 | ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 
+
 **TUI only** — the HUD is a session palette (follow-up, Done, notes). It
 does not launch evals, open Jobs, run analysis, export, flag, or delete.
 
 | Key | Action |
 |-----|--------|
-| ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit Groket HUD** exits the process) |
+| ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit groket** exits the process) |
 | ``J`` | Jobs / logs |
 | ``Ctrl+P`` | Command palette |
 | ``F5`` / ``Ctrl+R`` | Refresh |
@@ -670,6 +679,42 @@ Prefer Textual design tokens (``$primary``, ``$surface``, ``$text``, …).
 
 UI chrome via ``panel_render`` / panel-card; Markdown **content** only through
 ``md_content()`` / ``content_block()``.
+
+### 7.1 Timeline tool names and event filter (TUI and HUD)
+
+One rule on both surfaces. Stored ids stay snake_case; the list never shows them.
+
+**Label.** Underscores become spaces (``read_file`` → ``read file``). Marketplace
+ids are ``server · method``. Same words as event types (``tool call``).
+
+**Color the name by action family** (brand cream / green / yellow / gray / dim).
+Not “every tool is green.” Error is red and wins.
+
+| Family | Color | Members |
+|--------|-------|---------|
+| read | cream | ``read_file``, ``grep``, ``list_dir``, ``web_search``, ``search_tool`` |
+| write | green | ``search_replace``, ``todo_write``, ``update_goal``, image tools |
+| shell | yellow | ``run_terminal_command``, wait / kill / monitor / scheduler |
+| agent | cream | ``spawn_subagent``, ``ask_user_question``, plan mode |
+| marketplace | gray | ``server__method``, leftover ``use_tool`` / ``call_mcp`` |
+| other | dim | unknown |
+
+Event *type* (``tool call``, ``user message``) still uses the event-type map
+(all tools green). The **name** uses the family map. Name face is regular
+weight; type labels stay bold.
+
+**Summary.** The list preview is the same ``summary_line`` on both surfaces
+(humanized tool id + args). The HUD face shows the name, then the remainder
+(path, ``$ command``) so the tool id is not repeated.
+
+**Filter.** Bar label is **Filter**. Options: All events, Tools only, User
+messages, Assistant messages, Session markers, Subagents, Errors only.
+
+**Turns.** Turn tables and turn pickers are chronological (turn 0 first).
+Session catalog stays newest activity first.
+
+Domain: ``groket.tool_display.tool_family`` / ``format_tool_display``. HUD:
+``format.rs`` same tables.
 
 ---
 

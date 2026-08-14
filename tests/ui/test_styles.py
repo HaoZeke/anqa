@@ -39,7 +39,7 @@ class TestFindingMark:
 
 class TestToolFamily:
     def test_read_tools(self) -> None:
-        for name in ("read_file", "grep", "list_dir", "web_search"):
+        for name in ("read_file", "grep", "list_dir", "web_search", "search_tool"):
             assert tool_family(name) == "read"
 
     def test_write_tools(self) -> None:
@@ -51,8 +51,12 @@ class TestToolFamily:
             assert tool_family(name) == "shell"
 
     def test_agent_tools(self) -> None:
-        for name in ("spawn_subagent", "ask_user_question", "use_tool", "search_tool"):
+        for name in ("spawn_subagent", "ask_user_question", "enter_plan_mode"):
             assert tool_family(name) == "agent"
+
+    def test_leftover_mcp_wrapper(self) -> None:
+        assert tool_family("use_tool") == "mcp"
+        assert tool_family("call_mcp") == "mcp"
 
     def test_mcp_qualified(self) -> None:
         assert tool_family("playwright__browser_navigate") == "mcp"
@@ -85,6 +89,10 @@ class TestSyntaxThemeForApp:
         app = SimpleNamespace(theme="textual-light")
         assert syntax_theme_for_app(app) == "friendly"
 
+    def test_solarized_uses_pygments_solarized(self) -> None:
+        assert syntax_theme_for_app(SimpleNamespace(theme="solarized")) == "solarized-dark"
+        assert syntax_theme_for_app(SimpleNamespace(theme="solarized-light")) == "solarized-light"
+
     def test_no_theme_attr(self) -> None:
         app = SimpleNamespace()
         assert syntax_theme_for_app(app) == "monokai"
@@ -110,17 +118,17 @@ class TestToolStyle:
 class TestToolLabel:
     def test_label_contains_name(self) -> None:
         label = tool_label("read_file")
-        assert "read_file" in label
+        assert "read file" in label
 
     def test_mcp_uses_middle_dot(self) -> None:
         from groket.ui.styles import format_tool_display
 
         assert format_tool_display("playwright__browser_navigate") == (
-            "playwright · browser_navigate"
+            "playwright · browser navigate"
         )
         label = tool_label("playwright__browser_navigate")
         assert "playwright" in label
-        assert "browser_navigate" in label
+        assert "browser navigate" in label
         assert "#928374" in label
 
     def test_truncates_long_names(self) -> None:

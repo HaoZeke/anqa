@@ -12,6 +12,122 @@ from collections.abc import Mapping
 
 from .models import JsonObject, JsonValue, as_json_object, json_as_str
 
+# Action family for tool-name color (TUI + HUD). Stored ids stay snake_case.
+_TOOL_FAMILY_READ = frozenset(
+    {
+        "read_file",
+        "grep",
+        "list_dir",
+        "web_search",
+        "read_resource",
+        "list_resources",
+        "search_tool",
+        "search_mcp",
+    }
+)
+_TOOL_FAMILY_WRITE = frozenset(
+    {
+        "search_replace",
+        "write_file",
+        "create_file",
+        "todo_write",
+        "update_goal",
+        "image_gen",
+        "image_edit",
+        "image_to_video",
+        "reference_to_video",
+    }
+)
+_TOOL_FAMILY_SHELL = frozenset(
+    {
+        "run_terminal_command",
+        "get_command_or_subagent_output",
+        "kill_command_or_subagent",
+        "wait_commands_or_subagents",
+        "monitor",
+        "scheduler_create",
+        "scheduler_delete",
+        "scheduler_list",
+    }
+)
+_TOOL_FAMILY_AGENT = frozenset(
+    {
+        "spawn_subagent",
+        "ask_user_question",
+        "enter_plan_mode",
+        "exit_plan_mode",
+    }
+)
+_TOOL_FAMILY_MCP_WRAPPER = frozenset(
+    {
+        "use_tool",
+        "call_mcp",
+        "call_mcp_tool",
+        "mcp_tool",
+    }
+)
+
+
+def tool_family(name: str) -> str:
+    """Map a tool id to read | write | shell | agent | mcp | other."""
+    n = (name or "").strip()
+    if "__" in n or n.startswith("mcp_") or n in _TOOL_FAMILY_MCP_WRAPPER:
+        return "mcp"
+    if n in _TOOL_FAMILY_READ:
+        return "read"
+    if n in _TOOL_FAMILY_WRITE:
+        return "write"
+    if n in _TOOL_FAMILY_SHELL:
+        return "shell"
+    if n in _TOOL_FAMILY_AGENT:
+        return "agent"
+    low = n.lower()
+    if any(k in low for k in ("read", "get", "list", "search", "grep", "find")):
+        return "read"
+    if any(k in low for k in ("write", "edit", "create", "update", "delete", "save")):
+        return "write"
+    if any(k in low for k in ("run", "exec", "shell", "terminal", "wait", "kill")):
+        return "shell"
+    return "other"
+
+
+def _human_tool_token(part: str) -> str:
+    return part.replace("_", " ").replace("-", " ").strip()
+
+
+def format_tool_display(name: str) -> str:
+    """Operator tool label: spaces, not snake_case; marketplace ``server · method``."""
+    n = (name or "").strip()
+    if not n:
+        return "?"
+    if "__" in n:
+        server, method = n.split("__", 1)
+        server, method = _human_tool_token(server), _human_tool_token(method)
+        if server and method:
+            return f"{server} · {method}"
+    if n.startswith("mcp_") and len(n) > 4:
+        return f"mcp · {_human_tool_token(n[4:])}"
+    return _human_tool_token(n)
+
+
+def list_event_preview(summary: str, tool_name: str = "") -> str:
+    """Timeline summary text: same words as ``summary_line``, tool id humanized."""
+    s = (summary or "").strip()
+    n = (tool_name or "").strip()
+    if n and s.startswith(n):
+        return f"{format_tool_display(n)}{s[len(n) :]}"
+    return s
+
+
+def list_event_detail(summary: str, tool_name: str = "") -> str:
+    """Remainder after the tool label (name already shown beside it)."""
+    s = list_event_preview(summary, tool_name)
+    label = format_tool_display(tool_name) if tool_name else ""
+    if label and s.startswith(label):
+        return s[len(label) :].strip()
+    return s
+
+
 # Grok read_file dumps ``1→`` / ``12->`` before each source line.
 _LINE_PREFIX = re.compile(r"^(\s*)(\d+)(?:→|->)[ \t]?", re.MULTILINE)
 
