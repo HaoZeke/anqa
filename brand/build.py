@@ -251,15 +251,29 @@ def main() -> None:
         f'  <g fill="{INK}">\n    {wp}\n  </g>',
         (int(ww) + 32, 100),
     )
+    word_rev = write_svg(
+        "groket-wordmark-reverse.svg",
+        "groket",
+        f'  <g fill="{CREAM}">\n    {wp}\n  </g>',
+        (int(ww) + 32, 100),
+    )
+    cream_mark = write_svg("groket-mark-cream.svg", "groket", reverse, MARK_VB)
 
     rsvg(mark, PNG / "groket-mark.png", width=1200)
     rsvg(SVG / "groket-mark-mono.svg", PNG / "groket-mark-mono.png", width=1200)
     rsvg(SVG / "groket-mark-reverse.svg", PNG / "groket-mark-reverse.png", width=1200)
+    rsvg(cream_mark, PNG / "groket-mark-cream.png", width=1200)
     rsvg(mark, PNG / "groket-mark@2x.png", width=2400)
     rsvg(word, PNG / "groket-wordmark.png", width=1200)
+    rsvg(word_rev, PNG / "groket-wordmark-reverse.png", width=1200)
     _write_lockups(
         Image.open(PNG / "groket-mark.png").convert("RGBA"),
         Image.open(PNG / "groket-wordmark.png").convert("RGBA"),
+    )
+    _write_lockups(
+        Image.open(PNG / "groket-mark-cream.png").convert("RGBA"),
+        Image.open(PNG / "groket-wordmark-reverse.png").convert("RGBA"),
+        suffix="-reverse",
     )
     rsvg(SVG / "groket-app-icon.svg", PNG / "groket-app-icon-1024.png", width=1024)
     for n in (512, 256):
@@ -277,25 +291,27 @@ def main() -> None:
         _write_tray_tile(PNG / f"groket-tray-{n}.png", n)
 
 
-def _write_lockups(mark: Image.Image, word: Image.Image) -> None:
+def _write_lockups(mark: Image.Image, word: Image.Image, *, suffix: str = "") -> None:
     mark_h = _scale_to_height(mark, 280)
     word_h = _scale_to_height(word, 72)
     horizontal = _compose_row(mark_h, word_h, gap=36)
-    horizontal.save(PNG / "groket-lockup-horizontal.png", "PNG", optimize=True)
+    h_name = f"groket-lockup-horizontal{suffix}.png"
+    horizontal.save(PNG / h_name, "PNG", optimize=True)
     write_svg(
-        "groket-lockup-horizontal.svg",
+        f"groket-lockup-horizontal{suffix}.svg",
         "groket",
-        _image_href("groket-lockup-horizontal.png", horizontal.size),
+        _image_href(h_name, horizontal.size),
         horizontal.size,
     )
     mark_s = _scale_to_height(mark, 520)
     word_s = _scale_to_width(word, int(mark_s.width * 0.72))
     stacked = _compose_stack(mark_s, word_s, gap=28)
-    stacked.save(PNG / "groket-lockup-stacked.png", "PNG", optimize=True)
+    s_name = f"groket-lockup-stacked{suffix}.png"
+    stacked.save(PNG / s_name, "PNG", optimize=True)
     write_svg(
-        "groket-lockup-stacked.svg",
+        f"groket-lockup-stacked{suffix}.svg",
         "groket",
-        _image_href("groket-lockup-stacked.png", stacked.size),
+        _image_href(s_name, stacked.size),
         stacked.size,
     )
 

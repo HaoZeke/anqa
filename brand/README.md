@@ -15,7 +15,8 @@ SVG drawn by `build.py` — not a tracing of the still.
 
 | Job | File |
 |-----|------|
-| README / site header | `png/groket-lockup-horizontal.png` |
+| README / site header (light) | `png/groket-lockup-horizontal.png` |
+| README / site header (dark) | `png/groket-lockup-horizontal-reverse.png` |
 | Poster / merch | `png/groket-lockup-stacked.png` |
 | Dock / ``groket hud --install-desktop`` | `png/groket-app-icon-{256,512,1024}.png` (square rocket) |
 | Dark dock | `png/groket-app-icon-dark-1024.png` |

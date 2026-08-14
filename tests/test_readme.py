@@ -99,3 +99,13 @@ def test_hud_readme_states_three_second_poll_and_links_clients() -> None:
 def test_readme_has_no_html_heading_anchors() -> None:
     assert "<a id" not in README.read_text(encoding="utf-8")
     assert "<a id" not in HUD_README.read_text(encoding="utf-8")
+
+
+def test_readme_lockup_switches_with_github_color_scheme() -> None:
+    text = README.read_text(encoding="utf-8")
+    light = ROOT / "brand" / "png" / "groket-lockup-horizontal.png"
+    dark = ROOT / "brand" / "png" / "groket-lockup-horizontal-reverse.png"
+    assert light.is_file()
+    assert dark.is_file()
+    assert "groket-lockup-horizontal.png#gh-light-mode-only" in text
+    assert "groket-lockup-horizontal-reverse.png#gh-dark-mode-only" in text
