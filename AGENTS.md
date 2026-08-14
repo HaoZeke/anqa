@@ -661,6 +661,7 @@ panes. Digits type into search, so pane jump is **Ctrl+1–5**.
 | ``Ctrl+1``…``Ctrl+5`` | Jump Overview … Notes |
 | ``]`` / ``[`` | Timeline: next turn / all turns |
 | ``g`` | Turns → Timeline for the focused turn |
+| ``u`` | Leave the open session for the session list (logo click does the same) |
 
 When the HUD cannot do a TUI action, README says so. Do not bind a HUD key
 that collides with a shared key in this table.

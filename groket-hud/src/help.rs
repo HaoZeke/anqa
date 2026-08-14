@@ -68,6 +68,13 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
         return table;
     }
     push(&mut table, "search.focus", "Search", "/", Message::Noop);
+    push(
+        &mut table,
+        "sessions.home",
+        "Sessions",
+        "u",
+        Message::SessionsHome,
+    );
     push(&mut table, "pane.next", "Panes", "tab", Message::Noop);
     if scope.timeline_detail {
         push(&mut table, "list.down", "Step", "j", Message::Noop);
@@ -142,6 +149,15 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
         Message::Yank,
     );
     push(&mut table, "search.focus", "Search", "/", Message::Noop);
+    if scope.browse {
+        push(
+            &mut table,
+            "sessions.home",
+            "Session list",
+            "u",
+            Message::SessionsHome,
+        );
+    }
     if scope.awaiting {
         push(
             &mut table,
@@ -249,6 +265,7 @@ mod tests {
         });
         let blob = browse.footer_hints().join("  ·  ");
         assert!(blob.contains("tab panes"));
+        assert!(blob.contains("u sessions"));
         assert!(blob.contains("y copy"));
         assert!(!blob.contains("j "));
         assert!(!blob.contains("n "));

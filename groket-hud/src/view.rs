@@ -216,9 +216,19 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let tok = hud.tokens();
     let tea = hud.tokens();
     let mut search = row![
-        image(brand::chrome_handle(crate::theme::canvas_is_dark(tok)))
-            .width(brand::chrome_width())
-            .height(brand::chrome_height()),
+        icedtea::widget::tooltip_wrap(
+            mouse_area(
+                image(brand::chrome_handle(crate::theme::canvas_is_dark(tok)))
+                    .width(brand::chrome_width())
+                    .height(brand::chrome_height()),
+            )
+            .on_press(Message::SessionsHome)
+            .into(),
+            "Session list",
+            icedtea::widget::TooltipAnchor::Follow,
+            tea,
+            A11y::button("Session list"),
+        ),
         kit::search_field(
             "Search sessions",
             hud.query(),
@@ -2417,6 +2427,7 @@ mod tests {
         assert!(prod.contains("fn session_picker"));
         assert!(prod.contains("browse_mode()"));
         assert!(prod.contains("fn browse_session_bar"));
+        assert!(prod.contains("Message::SessionsHome"));
         assert!(prod.contains("widget::list_view("));
         assert!(prod.contains("RowFace::Card"));
         assert!(prod.contains("RowHeights::PerRow"));

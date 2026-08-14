@@ -121,7 +121,7 @@ the keys that apply now; `?` is the full list.
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
 / `n` `e` (awaiting) / `N`. HUD panes are Tab and Ctrl+1–5; `[` `]` scope
-Timeline turns.
+Timeline turns. `u` or the logo leaves the open session for the session list.
 
 ### Follow-up, fork, and re-run
 
@@ -153,7 +153,8 @@ YOLO mode uses `grok --yolo`. Max turns (default **50**) is Grok
 ## Desktop HUD
 
 Summonable palette: Recent sessions (scroll or `j` for more), search,
-then Overview / Turns / Timeline / Findings / Notes. Follow-up and Done
+then Overview / Turns / Timeline / Findings / Notes. `u` or the logo
+returns to the session list. Follow-up and Done
 when awaiting. It does not launch evals. Desktop notices are for eval
 sessions and analysis; Host Grok chats already notify on their own.
 Details: [`groket-hud/README.md`](groket-hud/README.md).

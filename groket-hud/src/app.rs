@@ -132,6 +132,8 @@ pub enum Message {
         attempt: u8,
     },
     Hide,
+    /// Leave the open session and show Recent + session search.
+    SessionsHome,
     WindowFocus(bool),
     CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
@@ -1278,6 +1280,7 @@ impl Hud {
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
             Message::WindowFocus(on) => self.on_window_focus(on),
             Message::Hide => self.on_escape(),
+            Message::SessionsHome => self.go_sessions_home(),
             Message::ToggleHelp => {
                 if self.typing_notes {
                     return Task::none();
@@ -2105,6 +2108,7 @@ impl Hud {
         self.typing_notes = false;
         self.overview = None;
         self.overview_sid.clear();
+        self.overview_pending.clear();
         self.tl_filter.clear();
         self.turn_marks.clear();
         self.event_marks.clear();
@@ -3133,6 +3137,12 @@ impl Hud {
         true
     }
 
+    /// Leave browse (and any child) for Recent + session search.
+    fn go_sessions_home(&mut self) -> Task<Message> {
+        self.return_to_spotlight();
+        self.on_focus_search(0)
+    }
+
     /// Summon lands on Spotlight (Recent + search), never the last open session.
     fn return_to_spotlight(&mut self) {
         self.query.clear();
@@ -3606,6 +3616,12 @@ impl Hud {
         }
         if matches!(key, Key::Character(ref c) if c.as_str() == "/") {
             return self.focus_context_search();
+        }
+        if self.browse_mode()
+            && modifiers.is_empty()
+            && matches!(key, Key::Character(ref c) if c.as_str() == "u")
+        {
+            return self.go_sessions_home();
         }
         // Events turn scope without the pick-list mouse: `]` picks the first turn
         // when none is scoped, then advances; `[` clears to all turns.
@@ -4418,6 +4434,42 @@ mod tests {
             hud.list_selection,
             icedtea::collection::Selection::None
         ));
+    }
+
+    #[test]
+    fn sessions_home_leaves_browse_for_the_picker() {
+        let mut hud = Hud {
+            query: String::new(),
+            overview_pending: "s1".into(),
+            overview_sid: "s1".into(),
+            overview: Some(Overview {
+                session_id: "s1".into(),
+                ..Overview::default()
+            }),
+            all_sessions: vec![SessionRow {
+                session_id: "s1".into(),
+                title: "Open".into(),
+                ..SessionRow::default()
+            }],
+            ..Hud::default()
+        };
+        assert!(hud.browse_mode());
+        let _ = hud.update(Message::SessionsHome);
+        assert!(!hud.browse_mode());
+        assert!(hud.overview.is_none());
+        assert!(hud.overview_sid.is_empty());
+        assert!(hud.query.is_empty());
+
+        hud.overview_pending = "s1".into();
+        hud.overview_sid = "s1".into();
+        hud.overview = Some(Overview {
+            session_id: "s1".into(),
+            ..Overview::default()
+        });
+        assert!(hud.browse_mode());
+        let _ = hud.on_key(Key::Character("u".into()), KeyMods::default());
+        assert!(!hud.browse_mode());
+        assert!(hud.overview.is_none());
     }
 
     #[test]
