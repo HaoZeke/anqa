@@ -325,8 +325,9 @@ GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lin
 | ``make clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
 
 HUD Cargo trees: a passing ``make hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
-``groket hud`` (release) deletes ``target/debug`` and coverage leftovers.
-``--dev`` / ``--debug`` keep debug objects. ``make clean`` runs ``cargo clean``.
+``groket hud`` deletes coverage leftovers under ``target/`` and keeps the
+debug and release graphs so iced does not rebuild from scratch.
+``make clean`` runs ``cargo clean``.
 
 Published schemas (also under ``schemas/``; GitHub Pages via
 ``.github/workflows/pages.yml``):

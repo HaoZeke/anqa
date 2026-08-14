@@ -427,7 +427,7 @@ def test_build_hud_runs_cargo_only(tmp_path: Path) -> None:
     assert out == binary
 
 
-def test_build_hud_release_drops_debug_and_coverage_trees(tmp_path: Path) -> None:
+def test_build_hud_release_keeps_debug_drops_coverage_trees(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
@@ -454,7 +454,7 @@ def test_build_hud_release_drops_debug_and_coverage_trees(tmp_path: Path) -> Non
         out = launch_mod.build_hud(checkout, debug=False)
     assert out == binary
     assert binary.is_file()
-    assert not (checkout / "target" / "debug").exists()
+    assert debug_obj.is_file()
     assert not (checkout / "target" / "llvm-cov-target").exists()
 
 
@@ -485,7 +485,7 @@ def test_build_hud_debug_keeps_debug_drops_coverage(tmp_path: Path) -> None:
     assert not (checkout / "target" / "llvm-cov-target").exists()
 
 
-def test_ensure_hud_binary_prunes_when_release_is_fresh(tmp_path: Path) -> None:
+def test_ensure_hud_binary_keeps_debug_when_release_is_fresh(tmp_path: Path) -> None:
     checkout = tmp_path / "groket-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
@@ -508,7 +508,7 @@ def test_ensure_hud_binary_prunes_when_release_is_fresh(tmp_path: Path) -> None:
         out = launch_mod.ensure_hud_binary()
     assert out == built
     mock_build.assert_not_called()
-    assert not (checkout / "target" / "debug").exists()
+    assert debug_obj.is_file()
 
 
 def test_summon_socket_accepts_live_unix_listener(tmp_path: Path) -> None:
