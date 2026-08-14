@@ -32,6 +32,7 @@
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
   v               Timeline filter (Subagents lists spawn/finish)
+  Enter           Open a child from a spawn/finish row or the Summary table
   i               Jump to Findings
   f               Flag this event
   N               New note
