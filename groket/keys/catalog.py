@@ -9,7 +9,7 @@ remappable only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, field
+from dataclasses import dataclass, field
 from enum import Enum
 
 # Overlay cannot steal dismiss, activate, focus-traversal, or ``?``.
