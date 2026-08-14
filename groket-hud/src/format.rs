@@ -661,11 +661,7 @@ pub fn human_event_type_label(event_type: &str, type_label: &str, kind: &str) ->
     if raw.is_empty() {
         return String::new();
     }
-    match raw {
-        "subagent_spawned" | "subagent spawned" => "spawned".into(),
-        "subagent_finished" | "subagent finished" => "finished".into(),
-        _ => raw.replace('_', " "),
-    }
+    raw.replace('_', " ")
 }
 
 /// Caption for filter range meta: never empty (avoids a11y name paint).
@@ -1755,11 +1751,11 @@ mod tests {
         assert_eq!(human_event_type_label("", "", "agent"), "agent");
         assert_eq!(
             human_event_type_label("subagent_spawned", "", "subagent"),
-            "spawned"
+            "subagent spawned"
         );
         assert_eq!(
             human_event_type_label("subagent_finished", "subagent finished", "subagent"),
-            "finished"
+            "subagent finished"
         );
         assert_eq!(timeline_count_caption(""), None);
         assert_eq!(

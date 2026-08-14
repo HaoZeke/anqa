@@ -355,10 +355,6 @@ class TimelineTable(DataTable):
             elif t("ui-turn-started") in c:
                 label = t("ui-turn-started")
             return f"[yellow]{label}[/]"
-        if ev.event_type == et.SUBAGENT_SPAWNED:
-            return "[cyan]" + t("ui-subagent-spawned") + "[/]"
-        if ev.event_type == et.SUBAGENT_FINISHED:
-            return "[cyan]" + t("ui-subagent-finished") + "[/]"
         if ev.event_type in et.SUBAGENT_TYPES:
             return "[cyan]" + t("ui-subagent") + "[/]"
         if ev.event_type in (et.MESSAGE_TYPES | et.PLAN_TYPES):
@@ -431,10 +427,6 @@ class TimelineTable(DataTable):
         if chrome_heading is not None:
             # Harness injects system-reminder / background-task as user_message_chunk.
             type_style = f"[bold magenta]{chrome_heading.lower()}[/]"
-        elif ev.event_type == et.SUBAGENT_SPAWNED:
-            type_style = "[bold]" + t("ui-subagent-spawned") + "[/]"
-        elif ev.event_type == et.SUBAGENT_FINISHED:
-            type_style = "[bold]" + t("ui-subagent-finished") + "[/]"
         else:
             type_style = TYPE_MARKUP.get(ev.event_type, ev.event_type.upper())
         tool_err = ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES

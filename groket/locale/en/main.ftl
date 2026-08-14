@@ -2379,10 +2379,6 @@ ui-status-failed = failed
 
 ui-subagents-filter = Subagents
 
-ui-subagent-spawned = spawned
-
-ui-subagent-finished = finished
-
 ui-open-child-enter = Enter opens this child
 
 title-browser-extra-subagent = · subagent

@@ -79,3 +79,5 @@ def test_recap_and_compact_are_session_chrome() -> None:
 def test_type_label_uses_grok_names() -> None:
     assert et.type_label("user_message_chunk") == "user message chunk"
     assert et.type_label("tool_call_update") == "tool call update"
+    assert et.type_label("subagent_spawned") == "subagent spawned"
+    assert et.type_label("subagent_finished") == "subagent finished"
