@@ -318,6 +318,15 @@ def test_confirm_keep_is_escape_and_n() -> None:
     assert not any(b.id == "overlay.hide" for b in bindings)
 
 
+def test_jobs_open_is_the_letter_o() -> None:
+    assert "jobs.open_alt" not in ACTIONS_BY_ID
+    row = action_by_id("jobs.open")
+    assert row.default == "o"
+    hits = [b for b in B.JOBS_MODAL if b.id == "jobs.open"]
+    assert len(hits) == 1
+    assert hits[0].action == "open_session"
+
+
 def test_form_ctrl_s_is_one_id() -> None:
     assert "modal.done" not in ACTIONS_BY_ID
     picker = [b for b in B.CAPABILITY_PICKER if b.key == "ctrl+s"]

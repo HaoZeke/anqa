@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 # Overlay cannot steal dismiss, activate, focus-traversal, or ``?``.
+# Canonical Textual names only; ``esc`` becomes ``escape`` in normalize.
 RESERVED_KEYS: frozenset[str] = frozenset(
     {
         "escape",
-        "esc",
         "enter",
         "tab",
         "shift+tab",
@@ -40,7 +40,6 @@ class ActionScope(str, Enum):
     BROWSER = "browser"
     RUNNER = "runner"
     PERSONAS = "personas"
-    PERSONA_EDIT = "persona_edit"
     CONFIGS = "configs"
     RULES = "rules"
     JOBS = "jobs"
@@ -73,26 +72,28 @@ class KeyAction:
     remappable: bool
 
 
+def _alias(token: str) -> str:
+    low = token.lower()
+    return _KEY_ALIASES.get(token, _KEY_ALIASES.get(low, low if token.isalpha() else token))
+
+
 def _normalize_part(part: str) -> str:
     raw = part.strip()
     if not raw:
         return ""
-    if "+" in raw:
-        bits = [b.strip() for b in raw.split("+") if b.strip()]
-        if not bits:
-            return ""
-        *mods, key = bits
-        mods_l = [m.lower() for m in mods]
-        if len(key) == 1 and key.isalpha() and key.isupper() and "shift" not in mods_l:
-            mods_l.append("shift")
-            key = key.lower()
-        key_l = key.lower()
-        key_c = _KEY_ALIASES.get(key, _KEY_ALIASES.get(key_l, key_l if key.isalpha() else key))
-        return "+".join([*mods_l, key_c])
-    if len(raw) == 1 and raw.isalpha() and raw.isupper():
-        return f"shift+{raw.lower()}"
-    low = raw.lower()
-    return _KEY_ALIASES.get(raw, _KEY_ALIASES.get(low, low if raw.isalpha() else raw))
+    if "+" not in raw:
+        if len(raw) == 1 and raw.isalpha() and raw.isupper():
+            return f"shift+{raw.lower()}"
+        return _alias(raw)
+    bits = [b.strip() for b in raw.split("+") if b.strip()]
+    if not bits:
+        return ""
+    *mods, key = bits
+    mods_l = [m.lower() for m in mods]
+    if len(key) == 1 and key.isalpha() and key.isupper() and "shift" not in mods_l:
+        mods_l.append("shift")
+        key = key.lower()
+    return "+".join([*mods_l, _alias(key)])
 
 
 def normalize_chord(chord: str) -> str:
@@ -118,7 +119,7 @@ def chord_is_reserved(chord: str) -> bool:
     :param chord: Textual-style chord or comma-list.
     :returns: Whether the chord is reserved.
     """
-    return any(part.strip().lower() in RESERVED_KEYS for part in chord.split(",") if part.strip())
+    return any(part in RESERVED_KEYS for part in normalize_chord(chord).split(",") if part)
 
 
 def _row(
@@ -212,7 +213,7 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("rules.disable_all", ActionScope.RULES, "A", ActionSurface.TUI),
     # Jobs modal.
     _row("jobs.close", ActionScope.JOBS, "J", ActionSurface.TUI),
-    _row("jobs.open_alt", ActionScope.JOBS, "o", ActionSurface.TUI),
+    _row("jobs.open", ActionScope.JOBS, "o", ActionSurface.TUI),
     _row("jobs.clear_logs", ActionScope.JOBS, "c", ActionSurface.TUI),
     # Generic modal / picker.
     _row("modal.submit", ActionScope.MODAL, "ctrl+r", ActionSurface.TUI),
