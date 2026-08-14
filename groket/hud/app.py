@@ -107,6 +107,9 @@ def run_hud(
         # Start a long-lived HUD and show on boot.
         os.environ["GROKET_HUD_SHOW_ON_START"] = "1"
 
+    from ..config import load_app_config
+
+    load_app_config()
     sock = Path(socket_path or default_socket_path()).expanduser()
     wd, tr = resolve_work_and_traces(work_dir)
     if auto_serve:

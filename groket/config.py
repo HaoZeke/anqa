@@ -339,10 +339,10 @@ def leftover_json_config_path(toml_path: Path | None = None) -> Path:
     return base.with_name("config.json")
 
 
-# TODO(remove-json-config): Delete this importer, leftover_json_config_path
-# doctor warning, HUD prefs::ensure_toml, and test_imports_json_when_toml_missing
-# once every install has config.toml (after a release or two). Do not add more
-# JSON prefs readers. TOML is the only file after the first successful copy.
+# TODO(remove-json-config): Delete this importer, leftover_json_config_path,
+# the doctor warning, and test_imports_json_when_toml_missing once every
+# install has config.toml (after a release or two). Do not add more JSON
+# prefs readers. TOML is the only file after the first successful copy.
 def _import_json_if_needed(toml_path: Path) -> None:
     if toml_path.is_file():
         return
