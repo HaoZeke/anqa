@@ -313,6 +313,8 @@ pub struct Hud {
     pending_activation_token: Option<String>,
     /// `?` keyboard-shortcut cheatsheet is open.
     help_open: bool,
+    /// Resolved keys.toml overlay (defaults when missing or refused).
+    keys: crate::keys::KeyOverlay,
 }
 
 impl Default for Hud {
@@ -417,6 +419,7 @@ impl Default for Hud {
             },
             pending_activation_token: None,
             help_open: false,
+            keys: crate::keys::KeyOverlay::default(),
         }
     }
 }
@@ -540,6 +543,9 @@ impl Hud {
         // iced/winit creates NSApplication as Regular after main() ran
         // accessory. Re-pin before the first window maps.
         crate::macoswin::set_desktop_app(hud.window_mode);
+        let overlay = crate::keys::KeyOverlay::load();
+        crate::keys::install_process_overlay(overlay.clone());
+        hud.keys = overlay;
         let (hk, label) = shortcut::resolve_summon_shortcut();
         hud.hotkey_hint = label.clone();
         let skip_hotkey = hud.window_mode;
@@ -1357,6 +1363,10 @@ impl Hud {
             turn_pick: !self.hide_events_turn_pick(),
             tab: self.tab,
         }
+    }
+
+    pub fn key_overlay(&self) -> &crate::keys::KeyOverlay {
+        &self.keys
     }
 
     /// Visible Spotlight rows: Recent when the query is empty, else search hits.
@@ -3581,6 +3591,10 @@ impl Hud {
         Task::none()
     }
 
+    fn key_is(&self, id: &str, default: &str, key: &Key, modifiers: KeyMods) -> bool {
+        self.keys.matches(id, default, key, modifiers)
+    }
+
     fn on_key(&mut self, key: Key, modifiers: KeyMods) -> Task<Message> {
         if matches!(key, Key::Named(Named::Escape)) {
             return self.on_escape();
@@ -3588,45 +3602,35 @@ impl Hud {
         if self.help_open {
             return Task::none();
         }
-        if modifiers.command() || modifiers.control() {
-            if let Key::Character(c) = &key {
-                if let Some(n) = c.chars().next().and_then(|ch| ch.to_digit(10)) {
-                    if (1..=5).contains(&n) {
-                        return self.update(Message::PaneDigit(n as u8));
-                    }
-                }
+        for n in 1u8..=self.visible_tabs().len() as u8 {
+            if self.key_is(&format!("pane.{n}"), &format!("ctrl+{n}"), &key, modifiers) {
+                return self.update(Message::PaneDigit(n));
             }
         }
         if self.typing_notes {
             return Task::none();
         }
-        if self.browse_mode()
-            && modifiers.shift()
-            && matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("n"))
-        {
+        if self.browse_mode() && self.key_is("pane.notes", "shift+n", &key, modifiers) {
             return self.update(Message::SetTab(Tab::Notes));
         }
-        if self.browse_mode() && self.selected_awaiting() && modifiers.is_empty() {
-            if matches!(key, Key::Character(ref c) if c.as_str() == "n") {
+        if self.browse_mode() && self.selected_awaiting() {
+            if self.key_is("session.follow", "n", &key, modifiers) {
                 return operation::focus(self.follow_id.clone());
             }
-            if matches!(key, Key::Character(ref c) if c.as_str() == "e") {
+            if self.key_is("session.done", "e", &key, modifiers) {
                 return self.mark_done();
             }
         }
-        if matches!(key, Key::Character(ref c) if c.as_str() == "/") {
+        if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();
         }
-        if self.browse_mode()
-            && modifiers.is_empty()
-            && matches!(key, Key::Character(ref c) if c.as_str() == "u")
-        {
+        if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();
         }
         // Events turn scope without the pick-list mouse: `]` picks the first turn
         // when none is scoped, then advances; `[` clears to all turns.
         if self.tab == Tab::Timeline && !self.hide_events_turn_pick() {
-            if matches!(key, Key::Character(ref c) if c.as_str() == "]") {
+            if self.key_is("events.next_turn", "right_square_bracket", &key, modifiers) {
                 if self.events_turn_index.is_none() {
                     let first = self.events_turn_options.iter().find_map(|p| p.turn_index);
                     if first.is_some() {
@@ -3636,23 +3640,18 @@ impl Hud {
                     return self.jump_next_turn();
                 }
             }
-            if matches!(key, Key::Character(ref c) if c.as_str() == "[") {
+            if self.key_is("events.all_turns", "left_square_bracket", &key, modifiers) {
                 return self.select_events_turn(None);
             }
         }
         // From Turns: `g` opens Timeline filtered to the focused turn’s events.
-        if self.tab == Tab::Turns
-            && matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("g"))
-        {
+        if self.tab == Tab::Turns && self.key_is("turns.timeline", "g", &key, modifiers) {
             if let Some(turn) = self.turns_focus {
                 return self.select_events_turn(Some(turn));
             }
         }
-
-        if matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("y"))
-            || ((modifiers.command() || modifiers.control())
-                && modifiers.shift()
-                && matches!(key, Key::Character(ref c) if c.eq_ignore_ascii_case("c")))
+        if self.key_is("edit.copy", "y", &key, modifiers)
+            || self.key_is("edit.copy_chord", "ctrl+shift+c", &key, modifiers)
         {
             return self.yank_active();
         }
@@ -3685,11 +3684,15 @@ impl Hud {
             };
             return self.update(Message::SetTab(tabs[next]));
         }
+        if self.key_is("list.down", "j", &key, modifiers) {
+            return self.nav_step(1);
+        }
+        if self.key_is("list.up", "k", &key, modifiers) {
+            return self.nav_step(-1);
+        }
         match key {
             Key::Named(Named::ArrowDown) => self.nav_step(1),
-            Key::Character(ref c) if c.as_str() == "j" => self.nav_step(1),
             Key::Named(Named::ArrowUp) => self.nav_step(-1),
-            Key::Character(ref c) if c.as_str() == "k" => self.nav_step(-1),
             Key::Named(Named::PageDown) => self.nav_step(5),
             Key::Named(Named::PageUp) => self.nav_step(-5),
             Key::Named(Named::Home) => self.nav_edge(true),
@@ -4150,14 +4153,17 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
         Action::new("help.toggle", "Help", Message::ToggleHelp)
             .with_shortcut(Shortcut::parse("?").expect("?")),
     );
+    let overlay = crate::keys::process_overlay();
     for n in 1u8..=5 {
+        let spec = overlay.hud_spec(&format!("pane.{n}"), &format!("ctrl+{n}"));
+        let parsed = Shortcut::parse(&spec).expect("pane chord");
         table.insert(
             Action::new(
                 format!("pane.{n}"),
                 format!("Pane {n}"),
                 Message::PaneDigit(n),
             )
-            .with_shortcut(Shortcut::parse(&format!("ctrl+{n}")).expect("pane chord")),
+            .with_shortcut(parsed),
         );
     }
     table
@@ -4181,7 +4187,9 @@ fn is_list_nav_key(kev: &keyboard::Event) -> bool {
     ) {
         return true;
     }
-    modifiers.is_empty() && matches!(key, Key::Character(ref c) if matches!(c.as_str(), "j" | "k"))
+    let overlay = crate::keys::process_overlay();
+    overlay.matches("list.down", "j", key, *modifiers)
+        || overlay.matches("list.up", "k", key, *modifiers)
 }
 
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
@@ -4717,6 +4725,37 @@ mod tests {
         assert_eq!(hud.active, 1, "j is swallowed while help is open");
         let _ = hud.on_key(Key::Named(Named::Escape), Modifiers::empty());
         assert!(!hud.help_open());
+    }
+
+    #[test]
+    fn on_key_remapped_list_down_uses_n() {
+        use iced::keyboard::{Key, Modifiers};
+        let overlay = crate::keys::KeyOverlay::parse(
+            "[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
+        )
+        .expect("valid overlay");
+        let mut hud = Hud {
+            visible: true,
+            query: "x".into(),
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "s1".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s2".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            keys: overlay,
+            ..Hud::default()
+        };
+        hud.sessions = hud.all_sessions.clone();
+        hud.set_active(0);
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.active, 0, "default j no longer moves after remap");
+        let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
+        assert_eq!(hud.active, 1, "remapped list.down = n takes the j nav path");
     }
 
     #[test]

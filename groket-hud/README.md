@@ -52,10 +52,10 @@ catalog and fire desktop notifications. Press **?** for the shortcut
 cheatsheet. Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
 `n`/`e` `N`); panes are Tab and Ctrl+1–5. `u` or the logo leaves an
 open session for the session list (`Esc` still hides, or steps out of
-Timeline detail / a child first). Subagent runs stay off the
-session list; open them from the parent Turns chips or by clicking a
-Timeline spawn/finish tile (Enter does the same). Esc returns to that
-Timeline or Turns place.
+Timeline detail / a child first). A `keys.toml` remap applies on both
+surfaces. Subagent runs stay off the session list; open them from the
+parent Turns chips or by clicking a Timeline spawn/finish tile (Enter
+does the same). Esc returns to that Timeline or Turns place.
 
 ## Overlay, pop-out, tray, notify
 

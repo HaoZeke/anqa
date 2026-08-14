@@ -7,6 +7,7 @@ use icedtea::action::{Action, ActionTable};
 use icedtea::shortcut::Shortcut;
 
 use crate::app::Message;
+use crate::keys::KeyOverlay;
 use crate::model::Tab;
 
 /// What the footer should advertise right now.
@@ -31,22 +32,54 @@ fn scope_tabs(scope: KeyScope) -> &'static [Tab] {
     }
 }
 
-fn push(table: &mut ActionTable<Message>, id: &str, title: &str, spec: &str, msg: Message) {
-    table.insert(
-        Action::new(id, title, msg)
-            .with_shortcut(Shortcut::parse(spec).expect("static HUD shortcut spec")),
-    );
+fn push(
+    table: &mut ActionTable<Message>,
+    overlay: &KeyOverlay,
+    id: &str,
+    title: &str,
+    spec: &str,
+    msg: Message,
+) {
+    let resolved = overlay.hud_spec(id, spec);
+    let parsed = Shortcut::parse(&resolved).expect("HUD shortcut spec");
+    table.insert(Action::new(id, title, msg).with_shortcut(parsed));
 }
 
 /// Primary keys for the status-bar footer (short, context-filtered).
 pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
+    footer_table_for(scope, &KeyOverlay::default())
+}
+
+/// Footer table using a resolved overlay (production HUD path).
+pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Message> {
     let mut table = ActionTable::new();
     if scope.help_open {
-        push(&mut table, "help.toggle", "Help", "?", Message::ToggleHelp);
-        push(&mut table, "overlay.hide", "Close", "escape", Message::Hide);
+        push(
+            &mut table,
+            overlay,
+            "help.toggle",
+            "Help",
+            "?",
+            Message::ToggleHelp,
+        );
+        push(
+            &mut table,
+            overlay,
+            "overlay.hide",
+            "Close",
+            "escape",
+            Message::Hide,
+        );
         return table;
     }
-    push(&mut table, "help.toggle", "Help", "?", Message::ToggleHelp);
+    push(
+        &mut table,
+        overlay,
+        "help.toggle",
+        "Help",
+        "?",
+        Message::ToggleHelp,
+    );
     let hide = if scope.timeline_detail {
         "Timeline"
     } else if scope.child_open {
@@ -54,60 +87,112 @@ pub fn footer_table(scope: KeyScope) -> ActionTable<Message> {
     } else {
         "Hide"
     };
-    push(&mut table, "overlay.hide", hide, "escape", Message::Hide);
+    push(
+        &mut table,
+        overlay,
+        "overlay.hide",
+        hide,
+        "escape",
+        Message::Hide,
+    );
     if !scope.browse {
         push(
             &mut table,
+            overlay,
             "session.open",
             "Open",
             "enter",
             Message::ActivateSelected,
         );
-        push(&mut table, "list.down", "Down", "j", Message::Noop);
-        push(&mut table, "search.focus", "Search", "/", Message::Noop);
+        push(&mut table, overlay, "list.down", "Down", "j", Message::Noop);
+        push(
+            &mut table,
+            overlay,
+            "search.focus",
+            "Search",
+            "/",
+            Message::Noop,
+        );
         return table;
     }
-    push(&mut table, "search.focus", "Search", "/", Message::Noop);
     push(
         &mut table,
+        overlay,
+        "search.focus",
+        "Search",
+        "/",
+        Message::Noop,
+    );
+    push(
+        &mut table,
+        overlay,
         "sessions.home",
         "Sessions",
         "u",
         Message::SessionsHome,
     );
-    push(&mut table, "pane.next", "Panes", "tab", Message::Noop);
+    push(
+        &mut table,
+        overlay,
+        "pane.next",
+        "Panes",
+        "tab",
+        Message::Noop,
+    );
     if scope.timeline_detail {
-        push(&mut table, "list.down", "Step", "j", Message::Noop);
+        push(&mut table, overlay, "list.down", "Step", "j", Message::Noop);
     } else if matches!(scope.tab, Tab::Turns | Tab::Timeline) {
-        push(&mut table, "list.down", "Down", "j", Message::Noop);
+        push(&mut table, overlay, "list.down", "Down", "j", Message::Noop);
     }
     push(
         &mut table,
+        overlay,
         "session.open",
         "Next",
         "enter",
         Message::ActivateSelected,
     );
-    push(&mut table, "edit.copy", "Copy", "y", Message::Yank);
+    push(&mut table, overlay, "edit.copy", "Copy", "y", Message::Yank);
     if scope.awaiting {
         push(
             &mut table,
+            overlay,
             "session.follow",
             "Follow-up",
             "n",
             Message::Noop,
         );
-        push(&mut table, "session.done", "Done", "e", Message::MarkDone);
+        push(
+            &mut table,
+            overlay,
+            "session.done",
+            "Done",
+            "e",
+            Message::MarkDone,
+        );
     }
     table
 }
 
 /// Shortcut list for the `?` cheatsheet (keys that apply in *scope*).
 pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
+    help_table_for(scope, &KeyOverlay::default())
+}
+
+/// Cheatsheet using a resolved overlay (production HUD path).
+pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Message> {
     let mut table = ActionTable::new();
-    push(&mut table, "help.toggle", "Help", "?", Message::ToggleHelp);
     push(
         &mut table,
+        overlay,
+        "help.toggle",
+        "Help",
+        "?",
+        Message::ToggleHelp,
+    );
+    push(
+        &mut table,
+        overlay,
         "overlay.hide",
         "Hide overlay",
         "escape",
@@ -115,16 +200,39 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
     );
     push(
         &mut table,
+        overlay,
         "session.open",
         "Open or next",
         "enter",
         Message::ActivateSelected,
     );
-    push(&mut table, "list.down", "Move down", "j", Message::Noop);
-    push(&mut table, "list.up", "Move up", "k", Message::Noop);
-    push(&mut table, "pane.next", "Next pane", "tab", Message::Noop);
     push(
         &mut table,
+        overlay,
+        "list.down",
+        "Move down",
+        "j",
+        Message::Noop,
+    );
+    push(
+        &mut table,
+        overlay,
+        "list.up",
+        "Move up",
+        "k",
+        Message::Noop,
+    );
+    push(
+        &mut table,
+        overlay,
+        "pane.next",
+        "Next pane",
+        "tab",
+        Message::Noop,
+    );
+    push(
+        &mut table,
+        overlay,
         "pane.prev",
         "Previous pane",
         "shift+tab",
@@ -134,24 +242,34 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
         let n = i + 1;
         push(
             &mut table,
+            overlay,
             &format!("pane.{n}"),
             tab.label(),
             &format!("ctrl+{n}"),
             Message::SetTab(*tab),
         );
     }
-    push(&mut table, "edit.copy", "Copy", "y", Message::Yank);
+    push(&mut table, overlay, "edit.copy", "Copy", "y", Message::Yank);
     push(
         &mut table,
+        overlay,
         "edit.copy_chord",
         "Copy",
         "ctrl+shift+c",
         Message::Yank,
     );
-    push(&mut table, "search.focus", "Search", "/", Message::Noop);
+    push(
+        &mut table,
+        overlay,
+        "search.focus",
+        "Search",
+        "/",
+        Message::Noop,
+    );
     if scope.browse {
         push(
             &mut table,
+            overlay,
             "sessions.home",
             "Session list",
             "u",
@@ -161,15 +279,24 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
     if scope.awaiting {
         push(
             &mut table,
+            overlay,
             "session.follow",
             "Follow-up",
             "n",
             Message::Noop,
         );
-        push(&mut table, "session.done", "Done", "e", Message::MarkDone);
+        push(
+            &mut table,
+            overlay,
+            "session.done",
+            "Done",
+            "e",
+            Message::MarkDone,
+        );
     }
     push(
         &mut table,
+        overlay,
         "pane.notes",
         "Notes",
         "shift+n",
@@ -178,6 +305,7 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
     if scope.turn_pick {
         push(
             &mut table,
+            overlay,
             "events.next_turn",
             "Next turn",
             "]",
@@ -185,6 +313,7 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
         );
         push(
             &mut table,
+            overlay,
             "events.all_turns",
             "All turns",
             "[",
@@ -194,6 +323,7 @@ pub fn help_table(scope: KeyScope) -> ActionTable<Message> {
     if !scope.compact_child {
         push(
             &mut table,
+            overlay,
             "turns.timeline",
             "Timeline for turn",
             "g",
@@ -345,5 +475,32 @@ mod tests {
         assert!(sheet.get("session.follow").is_some());
         assert!(sheet.get("session.done").is_some());
         assert!(sheet.get("pane.notes").is_some());
+    }
+
+    #[test]
+    fn overlay_remap_shows_in_footer_and_help() {
+        let overlay = crate::keys::KeyOverlay::parse(
+            "[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
+        )
+        .expect("valid overlay");
+        let hints = footer_table_for(picker(), &overlay).footer_hints();
+        let blob = hints.join("  ·  ");
+        assert!(blob.contains("n down"), "{blob}");
+        assert!(!blob.contains("j down"), "{blob}");
+        let awaiting = KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: true,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            tab: Tab::Overview,
+        };
+        let help = help_table_for(awaiting, &overlay);
+        let hints = help.footer_hints();
+        let blob = hints.join("  ·  ");
+        assert!(blob.contains("n "), "{blob}");
+        assert!(blob.contains("z "), "{blob}");
     }
 }
