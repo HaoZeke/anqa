@@ -116,7 +116,7 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
             "initialize",
             {"protocolVersion": 1, "clientInfo": {"name": "test-editor"}},
         )
-        assert initialized["result"]["protocolVersion"] == 1
+        assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         assert "session/render" in initialized["result"]["capabilities"]
 
         rendered = await _request(
@@ -165,7 +165,51 @@ async def test_control_server_supports_emacs_jsonrpc_framing(tmp_path: Path) -> 
             "initialize",
             {"protocolVersion": 1, "clientInfo": {"name": "Emacs"}},
         )
-        assert initialized["result"]["protocolVersion"] == 1
+        assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_initialize_accepts_legacy_editor_version(tmp_path: Path) -> None:
+    """Emacs/Neovim still send protocol 1; the owner must accept it."""
+    control = import_module("groket.integrations.control")
+    server = control.ControlServer(socket_path=_short_sock("legacy-init.sock"))
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        initialized = await _request(
+            reader,
+            writer,
+            1,
+            "initialize",
+            {"protocolVersion": 1, "clientInfo": {"name": "Emacs"}},
+        )
+        assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_initialize_rejects_newer_client_version(tmp_path: Path) -> None:
+    control = import_module("groket.integrations.control")
+    server = control.ControlServer(socket_path=_short_sock("future-init.sock"))
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        response = await _request(
+            reader,
+            writer,
+            1,
+            "initialize",
+            {"protocolVersion": control.PROTOCOL_VERSION + 1},
+        )
+        assert "error" in response
+        assert response["error"]["code"] == -32602
         writer.close()
         await writer.wait_closed()
     finally:
@@ -417,7 +461,7 @@ async def test_control_server_accepts_content_type_first_framing(tmp_path: Path)
         length = int(header.split(b":", 1)[1])
         assert await reader.readline() == b"\r\n"
         response = json.loads(await reader.readexactly(length))
-        assert response["result"]["protocolVersion"] == 1
+        assert response["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         writer.close()
         await writer.wait_closed()
     finally:
@@ -438,7 +482,7 @@ async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path
         await asyncio.sleep(0.05)
         await server.publish_session_changed(session_dir)
         initialized = await _header_request(reader, writer, 1, "initialize", {"protocolVersion": 1})
-        assert initialized["result"]["protocolVersion"] == 1
+        assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         writer.close()
         await writer.wait_closed()
     finally:

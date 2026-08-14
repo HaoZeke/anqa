@@ -65,7 +65,9 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
         getattr(server, "_catalog_cache").get(force=True)
         client = client_mod.ControlClient(sock, client_name="test-daemon")
         init = await client.initialize()
-        assert init["protocolVersion"] == 1
+        assert (
+            init["protocolVersion"] == import_module("groket.integrations.control").PROTOCOL_VERSION
+        )
         assert "session/list" in init["capabilities"]
         assert "notes/upsert" in init["capabilities"]
 
@@ -387,7 +389,10 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
 
         asyncio.run(_rpc_roundtrip())
         rpc_log.write_text(json.dumps(transcript, indent=2), encoding="utf-8")
-        assert transcript[0]["initialize"]["protocolVersion"] == 1
+        assert (
+            transcript[0]["initialize"]["protocolVersion"]
+            == import_module("groket.integrations.control").PROTOCOL_VERSION
+        )
         assert any(
             row["sessionId"] == "session-cli-serve"
             for row in transcript[1]["session/list"]["sessions"]
@@ -564,6 +569,20 @@ def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
         lines.append(f"ensure_again={again}")
         assert again.ok
         assert again.already_running
+
+        from unittest.mock import patch
+
+        old_pid = again.pid
+        with patch.object(daemon, "owner_protocol_probe", return_value=False):
+            replaced = daemon.ensure_control_daemon(
+                socket_path=sock,
+                work_dir=work,
+                traces_path=traces,
+            )
+        lines.append(f"ensure_replaced={replaced}")
+        assert replaced.ok, replaced.error
+        assert replaced.spawned
+        assert replaced.pid != old_pid
 
         code = daemon.stop_control_daemon(sock, timeout=5.0)
         lines.append(f"stop_code={code}")
@@ -810,3 +829,31 @@ def test_domain_server_defers_analysis_service(
     assert constructed == []
     assert server._analysis_service is None
     assert server._work_dir == work
+
+
+def test_ensure_does_not_stop_owner_when_protocol_probe_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed initialize must not SIGTERM an accepting owner."""
+    daemon = import_module("groket.integrations.daemon")
+    sock = tmp_path / "probe.sock"
+    stopped: list[Path] = []
+
+    monkeypatch.setattr(daemon, "control_socket_accepts", lambda _p: True)
+    monkeypatch.setattr(daemon, "owner_protocol_probe", lambda _p, **_k: None)
+    monkeypatch.setattr(daemon, "read_control_pid", lambda _p: 4242)
+    monkeypatch.setattr(
+        daemon,
+        "stop_control_daemon",
+        lambda p, **_k: stopped.append(p) or 0,
+    )
+    monkeypatch.setattr(
+        daemon,
+        "start_control_daemon_detached",
+        lambda **_k: (_ for _ in ()).throw(AssertionError("must not spawn")),
+    )
+    result = daemon.ensure_control_daemon(socket_path=sock)
+    assert result.ok
+    assert result.already_running
+    assert not result.spawned
+    assert stopped == []

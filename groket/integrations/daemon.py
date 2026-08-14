@@ -21,13 +21,15 @@ from ..session.catalog import (
 )
 from ..session.sources import session_dir_for_watch_path
 from .control import (
+    PROTOCOL_VERSION,
+    ControlError,
     ControlServer,
     ControlSocketInUse,
     NotesChanged,
     OpenSession,
     default_socket_path,
 )
-from .control_client import is_transient_unix_connect_error
+from .control_client import ControlClient, is_transient_unix_connect_error
 
 logger = logging.getLogger(__name__)
 
@@ -1091,6 +1093,36 @@ def start_control_daemon_detached(
     )
 
 
+def owner_protocol_probe(socket_path: Path, *, timeout: float = 2.0) -> bool | None:
+    """Whether the live owner speaks this client's protocol.
+
+    :returns: ``True`` when ``protocolVersion`` is current, ``False`` when
+        initialize succeeded on an older version or rejected this client as
+        unsupported, ``None`` when the probe failed (do not replace).
+    """
+
+    async def _probe() -> bool:
+        client = ControlClient(socket_path, client_name="groket-protocol-probe", timeout=timeout)
+        result = await client.initialize()
+        ver = result.get("protocolVersion")
+        return isinstance(ver, int) and ver >= PROTOCOL_VERSION
+
+    try:
+        return bool(asyncio.run(_probe()))
+    except ControlError as exc:
+        msg = (exc.message or "").lower()
+        if exc.code == -32602 and "protocol" in msg:
+            return False
+        return None
+    except Exception:
+        return None
+
+
+def owner_protocol_current(socket_path: Path, *, timeout: float = 2.0) -> bool:
+    """True when the live owner reports ``protocolVersion`` >= this client."""
+    return owner_protocol_probe(socket_path, timeout=timeout) is True
+
+
 def ensure_control_daemon(
     *,
     socket_path: Path | None = None,
@@ -1101,19 +1133,33 @@ def ensure_control_daemon(
 ) -> EnsureDaemonResult:
     """Ensure a live control owner exists (attach if up, else detach-start).
 
-    Shared by ``groket serve start --daemon`` and TUI auto-start. Never steals
-    a live non-daemon owner; if the socket already accepts, returns success
-    without spawning.
+    Shared by ``groket serve -d`` and TUI/HUD auto-start. If the socket already
+    accepts but ``initialize`` reports an older protocol (or rejects this
+    client's version), stop that owner and start a current one. A live owner
+    without a daemon pid file is left in place. A failed probe does not stop
+    an accepting owner.
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
     if control_socket_accepts(sock):
-        return EnsureDaemonResult(
-            ok=True,
-            already_running=True,
-            spawned=False,
-            pid=read_control_pid(sock),
-            socket_path=sock,
-        )
+        probe = owner_protocol_probe(sock)
+        if probe is not False:
+            return EnsureDaemonResult(
+                ok=True,
+                already_running=True,
+                spawned=False,
+                pid=read_control_pid(sock),
+                socket_path=sock,
+            )
+        stop_control_daemon(sock, timeout=min(5.0, timeout))
+        if control_socket_accepts(sock):
+            return EnsureDaemonResult(
+                ok=False,
+                already_running=True,
+                spawned=False,
+                pid=read_control_pid(sock),
+                socket_path=sock,
+                error="stale control owner could not be replaced",
+            )
     return start_control_daemon_detached(
         socket_path=sock,
         work_dir=work_dir,
@@ -1134,6 +1180,8 @@ __all__ = [
     "control_pid_path",
     "control_socket_accepts",
     "ensure_control_daemon",
+    "owner_protocol_current",
+    "owner_protocol_probe",
     "lock_holder_pids",
     "pid_is_alive",
     "read_control_lock_pid",

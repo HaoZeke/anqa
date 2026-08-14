@@ -83,7 +83,9 @@ async def test_control_client_initialize_and_list(tmp_path: Path) -> None:
     try:
         client = client_mod.ControlClient(sock, client_name="unit")
         init = await client.initialize()
-        assert init["protocolVersion"] == 1
+        assert (
+            init["protocolVersion"] == import_module("groket.integrations.control").PROTOCOL_VERSION
+        )
         listed = await client.session_list(query="One")
         assert listed["matched"] == 1
         assert listed["sessions"][0]["sessionId"] == "s1"

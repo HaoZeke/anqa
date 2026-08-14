@@ -138,6 +138,18 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_attach_copy_toasts_failure_only() -> None:
+    """Success attach has no toast id; failure copy does not mention disk."""
+    from groket.ui.i18n import t
+
+    app_src = Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.py"
+    text = app_src.read_text(encoding="utf-8")
+    assert "ui-control-socket-attached" not in text
+    assert "ui-control-socket-attach-failed" in text
+    assert "local disk" not in t("ui-control-socket-attach-failed").lower()
+
+
+@pytest.mark.asyncio
 async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> None:
     """Attach catalog load must not toast ``Scanning control…`` (disk-scan copy)."""
     daemon = import_module("groket.integrations.daemon")
@@ -175,6 +187,7 @@ async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> Non
                 description="catalog rows from control",
             )
             assert not any("Scanning" in msg for msg in toasts)
+            assert not any("Attached" in msg for msg in toasts)
             toasts.clear()
             app._control_session_changed_ui(session_dir.name)
             assert app._pending_sessions_reload_quiet is True

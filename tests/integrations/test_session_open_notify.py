@@ -55,7 +55,9 @@ async def test_session_open_notifies_without_open_callback(tmp_path: Path) -> No
         )
         await writer.drain()
         init = json.loads(await asyncio.wait_for(reader.readline(), timeout=3))
-        assert init["result"]["protocolVersion"] == 1
+        from groket.integrations.control import PROTOCOL_VERSION
+
+        assert init["result"]["protocolVersion"] == PROTOCOL_VERSION
 
         writer.write(
             json.dumps(

@@ -156,7 +156,9 @@ async def test_attach_client_uses_rpc_only_for_list(tmp_path: Path) -> None:
         getattr(server, "_catalog_cache").get(force=True)  # type: ignore[union-attr]
         client = ControlClient(sock, client_name="attach-tui", timeout=20)
         init = await client.initialize()
-        assert init["protocolVersion"] == 1
+        from groket.integrations.control import PROTOCOL_VERSION
+
+        assert init["protocolVersion"] == PROTOCOL_VERSION
         assert "session/list" in init["capabilities"]
         listed = await client.session_list()
         assert listed["matched"] >= 1

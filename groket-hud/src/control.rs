@@ -37,6 +37,9 @@ fn ping_notify_wake() {
     }
 }
 
+/// Must match ``groket.integrations.control.PROTOCOL_VERSION``.
+pub const PROTOCOL_VERSION: i64 = 1;
+
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).
 #[cfg(unix)]
 const REQUEST_BUDGET: Duration = Duration::from_secs(30);
@@ -310,7 +313,7 @@ pub fn initialize() -> Result<Value, ControlError> {
     request(
         "initialize",
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": PROTOCOL_VERSION,
             "clientInfo": { "name": "groket-hud" }
         }),
     )
@@ -551,7 +554,7 @@ where
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": 1,
+                    "protocolVersion": PROTOCOL_VERSION,
                     "clientInfo": { "name": "groket-hud-notify" }
                 }
             });

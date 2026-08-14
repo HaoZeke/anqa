@@ -32,6 +32,7 @@ from .editor import SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
+MIN_PROTOCOL_VERSION = 1
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
 NOTIFY_TIMEOUT_SECONDS = 2.0
@@ -802,11 +803,11 @@ class ControlServer:
     ) -> JsonValue:
         if method == "initialize":
             requested = json_as_int(params.get("protocolVersion"))
-            if requested != PROTOCOL_VERSION:
+            if requested < MIN_PROTOCOL_VERSION or requested > PROTOCOL_VERSION:
                 raise ControlError(
                     -32602,
                     "unsupported protocol version",
-                    {"supported": PROTOCOL_VERSION},
+                    {"supported": PROTOCOL_VERSION, "minimum": MIN_PROTOCOL_VERSION},
                 )
             return {
                 "protocolVersion": PROTOCOL_VERSION,
