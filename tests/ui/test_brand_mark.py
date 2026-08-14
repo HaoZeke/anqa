@@ -12,17 +12,15 @@ from groket.ui.brand_mark import (
     RUNNING,
     AppChrome,
     AppFooter,
-    HelpBrand,
     help_mark,
     paths_banner,
 )
-from groket.ui.i18n import t
 from groket.ui.widgets.activity_bar import ActivityBar
 from groket.ui.widgets.help_modal import HelpModal
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
-from .pilot_helpers import assert_static_contains, static_plain, wait_until
+from .pilot_helpers import static_plain, wait_until
 
 
 def _styles(mark) -> str:
@@ -86,7 +84,7 @@ async def test_home_chrome_hides_paths_when_narrow(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_help_modal_shows_brand() -> None:
+async def test_help_modal_has_no_logo() -> None:
     class H(App[None]):
         def compose(self) -> ComposeResult:
             yield Static("main")
@@ -96,12 +94,8 @@ async def test_help_modal_shows_brand() -> None:
         app.push_screen(HelpModal())
         await wait_until(
             pilot,
-            lambda: bool(list(app.screen.query(HelpBrand))),
-            description="HelpBrand mounted",
+            lambda: bool(list(app.screen.query("#help-modal-text"))),
+            description="help text mounted",
         )
-        brand = app.screen.query_one(HelpBrand)
-        assert_static_contains(brand.query_one("#help-brand-name", Static), t("help-brand-name"))
-        assert_static_contains(
-            brand.query_one("#help-brand-tagline", Static), t("help-brand-tagline")
-        )
-        assert "█" in static_plain(brand.query_one("#help-brand-mark", Static))
+        assert not list(app.screen.query("#help-brand-mark"))
+        assert not list(app.screen.query("#help-brand-name"))

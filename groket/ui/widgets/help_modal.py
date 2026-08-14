@@ -11,7 +11,6 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button
 
 from .. import text as U
-from ..brand_mark import HelpBrand
 from ..i18n import t
 from ..quit_actions import QuitActions
 from ..selectable_static import SelectableStatic
@@ -93,7 +92,6 @@ class HelpModal(QuitActions, ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="help-modal"):
-            yield HelpBrand()
             with VerticalScroll(id="help-modal-body"):
                 yield SelectableStatic(help_markup(), id="help-modal-text")
             with Horizontal(id="help-modal-actions"):
