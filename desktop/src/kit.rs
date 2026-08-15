@@ -187,15 +187,42 @@ pub fn labeled_plain<'a>(
     )
 }
 
-/// Footer — icedtea [`pattern::status_bar`] + [`ActionTable::footer_hints`].
+/// Footer — shortcut hints on the first line, status on the second.
 pub fn status_footer<'a>(
     status: &str,
     err: bool,
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
-    let tone = if err { Some(ToastKind::Danger) } else { None };
-    icedtea::pattern::status_bar(status.to_string(), tone, None, table, tea, Direction::Ltr)
+    let keys = table.footer_hints().join("  ·  ");
+    let key_row: Element<'a, Message> = if keys.is_empty() {
+        Space::new().height(0).into()
+    } else {
+        widget::meta(keys.clone(), tea, A11y::new(keys, Role::Status))
+    };
+    let status = status.to_string();
+    let info: Element<'a, Message> = if err {
+        widget::info_bar(
+            ToastKind::Danger,
+            status.clone(),
+            tea,
+            A11y::new(status, Role::Status),
+        )
+    } else {
+        widget::meta(status.clone(), tea, A11y::new(status, Role::Status))
+    };
+    icedtea::a11y::attach(
+        container(
+            column![key_row, info]
+                .spacing(2)
+                .width(Length::Fill)
+                .padding(Padding::from([6, 12])),
+        )
+        .width(Length::Fill)
+        .style(move |_| icedtea::style::footer(tea))
+        .into(),
+        &A11y::new("statusbar", Role::Status),
+    )
 }
 
 /// `?` help sheet: shortcut rows in a modal, with right pad for the scroll rail.
@@ -219,9 +246,10 @@ pub fn help_modal<'a>(
             continue;
         }
         let keys = a
-            .shortcut
-            .as_ref()
-            .map(|s| s.to_string())
+            .tooltip
+            .clone()
+            .filter(|t| !t.is_empty())
+            .or_else(|| a.shortcut.as_ref().map(ToString::to_string))
             .unwrap_or_else(|| "—".into());
         rows = rows.push(row![
             widget::label(
@@ -330,6 +358,17 @@ mod tests {
             }),
             tea,
         );
+        let src = include_str!("kit.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        let body = prod
+            .split("fn status_footer")
+            .nth(1)
+            .expect("status_footer")
+            .split("pub fn help_modal")
+            .next()
+            .expect("body");
+        assert!(body.contains("column![key_row, info]"));
+        assert!(!body.contains("status_bar"));
     }
 
     #[test]
@@ -368,6 +407,7 @@ mod tests {
             .unwrap();
         assert!(help.contains("SCROLL_RAIL_WIDTH"));
         assert!(help.contains("right: 8.0 + rail"));
+        assert!(help.contains("tooltip"));
     }
 
     #[test]

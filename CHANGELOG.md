@@ -10,6 +10,9 @@ is tagged.
   expanders animate height. Motion ticks at display refresh.
 - Overlay summon fades the card in (clear window fill + short rise).
 - HUD launch stays on Recent; a catalog refresh leaves the list unpicked.
+- HUD `?` and the terminal browser footer follow the current pane: Enter
+  and list motion on Overview, Turns, and Timeline; turn step on Timeline.
+- HUD `?` lists Left and Right next to h and l for Timeline turn step.
 - Session walk and `updates.jsonl` keep/skip share one `groket._scan`
   extension (`groket.scan`, setuptools-rust, same install as the HUD
   binary). `GROKET_SCAN=0` uses the Python body. Continuous integration

@@ -111,6 +111,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if pane_id != "tab-timeline" and self._event_reader:
             self._set_event_reader(False)
         super().activate_tab_pane(pane_id, focus_selector=focus_selector)
+        self.refresh_bindings()
+
+    @on(TabbedContent.TabActivated, "#browser-tabs")
+    def _on_browser_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
+        """Recompute footer keys (Enter, h/l, Flag) for the pane that is showing."""
+        self.refresh_bindings()
 
     def action_tab_timeline(self) -> None:
         self.activate_tab_pane("tab-timeline")
@@ -3370,10 +3376,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """True when h/l / arrows should step Timeline turns."""
         if len(self._operator_turn_ids()) < 2:
             return False
-        with suppress(Exception):
-            active = str(self.query_one("#browser-tabs", TabbedContent).active or "")
-            return active in ("", "tab-timeline")
-        return False
+        return self._active_browser_tab() == "tab-timeline"
 
     def _set_turn_filter(self, value: str) -> None:
         """Scope Timeline to *value* (``all`` or a trace turn id)."""

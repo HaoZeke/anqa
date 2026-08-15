@@ -1,7 +1,7 @@
 //! Keyboard shortcut tables for the HUD footer and help cheatsheet.
 //!
-//! icedtea [`pattern::status_bar`] prints [`ActionTable::footer_hints`];
-//! [`pattern::cheatsheet`] lists the full table. One table shape, two views.
+//! The footer prints [`ActionTable::footer_hints`] on one line and status
+//! on the next. [`pattern::cheatsheet`] lists the full table.
 
 use iced::keyboard::Key;
 use icedtea::action::{Action, ActionTable};
@@ -34,6 +34,21 @@ fn scope_tabs(scope: KeyScope) -> &'static [Tab] {
     }
 }
 
+fn shortcut_label(overlay: &KeyOverlay, id: &str, spec: &str) -> String {
+    if let Some(label) = overlay.sequence_display(id, spec) {
+        return label;
+    }
+    overlay
+        .hud_spec(id, spec)
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter_map(Shortcut::parse)
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
 fn push(
     table: &mut ActionTable<Message>,
     overlay: &KeyOverlay,
@@ -42,17 +57,26 @@ fn push(
     spec: &str,
     msg: Message,
 ) {
-    if let Some(label) = overlay.sequence_display(id, spec) {
-        table.insert(Action::new(id, title, msg).with_shortcut(Shortcut::new(
-            iced::keyboard::Modifiers::empty(),
-            Key::Character(label.into()),
-        )));
+    let label = shortcut_label(overlay, id, spec);
+    if let Some(seq) = overlay.sequence_display(id, spec) {
+        table.insert(
+            Action::new(id, title, msg)
+                .with_shortcut(Shortcut::new(
+                    iced::keyboard::Modifiers::empty(),
+                    Key::Character(seq.into()),
+                ))
+                .with_tooltip(label),
+        );
         return;
     }
     let resolved = overlay.hud_spec(id, spec);
     let first = resolved.split(',').next().unwrap_or(resolved.as_str());
     let parsed = Shortcut::parse(first).expect("HUD shortcut spec");
-    table.insert(Action::new(id, title, msg).with_shortcut(parsed));
+    table.insert(
+        Action::new(id, title, msg)
+            .with_shortcut(parsed)
+            .with_tooltip(label),
+    );
 }
 
 fn push_leader(table: &mut ActionTable<Message>, overlay: &KeyOverlay) {
@@ -168,15 +192,55 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
     } else if matches!(scope.tab, Tab::Turns | Tab::Timeline) {
         push(&mut table, overlay, "list.down", "Down", "j", Message::Noop);
     }
-    push(
-        &mut table,
-        overlay,
-        "session.open",
-        "Next",
-        "enter",
-        Message::ActivateSelected,
-    );
+    if matches!(scope.tab, Tab::Overview | Tab::Turns | Tab::Timeline) {
+        push(
+            &mut table,
+            overlay,
+            "session.open",
+            "Next",
+            "enter",
+            Message::ActivateSelected,
+        );
+    }
     push(&mut table, overlay, "edit.copy", "Copy", "y", Message::Yank);
+    if scope.tab == Tab::Turns && !scope.compact_child {
+        push(
+            &mut table,
+            overlay,
+            "turns.timeline",
+            "Timeline",
+            "g",
+            Message::Noop,
+        );
+    }
+    if scope.tab == Tab::Timeline && scope.turn_pick {
+        push(
+            &mut table,
+            overlay,
+            "events.prev_turn",
+            "Previous",
+            "h,left",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "events.next_turn",
+            "Next turn",
+            "l,right",
+            Message::Noop,
+        );
+    }
+    if scope.tab != Tab::Notes {
+        push(
+            &mut table,
+            overlay,
+            "pane.notes",
+            "Notes",
+            "shift+n",
+            Message::SetTab(Tab::Notes),
+        );
+    }
     if scope.awaiting {
         push(
             &mut table,
@@ -225,46 +289,52 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
         "escape",
         Message::Hide,
     );
-    push(
-        &mut table,
-        overlay,
-        "session.open",
-        "Open or next",
-        "enter",
-        Message::ActivateSelected,
-    );
-    push(
-        &mut table,
-        overlay,
-        "list.down",
-        "Move down",
-        "j",
-        Message::Noop,
-    );
-    push(
-        &mut table,
-        overlay,
-        "list.up",
-        "Move up",
-        "k",
-        Message::Noop,
-    );
-    push(
-        &mut table,
-        overlay,
-        "pane.next",
-        "Next pane",
-        "tab",
-        Message::Noop,
-    );
-    push(
-        &mut table,
-        overlay,
-        "pane.prev",
-        "Previous pane",
-        "shift+tab",
-        Message::Noop,
-    );
+    if !scope.browse || matches!(scope.tab, Tab::Overview | Tab::Turns | Tab::Timeline) {
+        push(
+            &mut table,
+            overlay,
+            "session.open",
+            "Open or next",
+            "enter",
+            Message::ActivateSelected,
+        );
+    }
+    if !scope.browse || matches!(scope.tab, Tab::Turns | Tab::Timeline) {
+        push(
+            &mut table,
+            overlay,
+            "list.down",
+            "Move down",
+            "j",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "list.up",
+            "Move up",
+            "k",
+            Message::Noop,
+        );
+    }
+    if scope.browse {
+        push(
+            &mut table,
+            overlay,
+            "pane.next",
+            "Next pane",
+            "tab",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "pane.prev",
+            "Previous pane",
+            "shift+tab",
+            Message::Noop,
+        );
+    }
     for (i, tab) in scope_tabs(scope).iter().enumerate() {
         let n = i + 1;
         push(
@@ -303,7 +373,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::SessionsHome,
         );
     }
-    if scope.awaiting {
+    if scope.browse && scope.awaiting {
         push(
             &mut table,
             overlay,
@@ -321,15 +391,17 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::MarkDone,
         );
     }
-    push(
-        &mut table,
-        overlay,
-        "pane.notes",
-        "Notes",
-        "shift+n",
-        Message::SetTab(Tab::Notes),
-    );
-    if scope.turn_pick {
+    if scope.browse && scope.tab != Tab::Notes {
+        push(
+            &mut table,
+            overlay,
+            "pane.notes",
+            "Notes",
+            "shift+n",
+            Message::SetTab(Tab::Notes),
+        );
+    }
+    if scope.tab == Tab::Timeline && scope.turn_pick {
         push(
             &mut table,
             overlay,
@@ -363,7 +435,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::Noop,
         );
     }
-    if !scope.compact_child {
+    if scope.tab == Tab::Turns && !scope.compact_child {
         push(
             &mut table,
             overlay,
@@ -442,8 +514,17 @@ mod tests {
         assert!(blob.contains("tab panes"));
         assert!(blob.contains("u sessions"));
         assert!(blob.contains("y copy"));
-        assert!(!blob.contains("j "));
-        assert!(!blob.contains("n "));
+        assert!(blob.contains("enter next"));
+        assert!(
+            blob.contains("shift+n notes") || blob.contains("n notes"),
+            "{blob}"
+        );
+        assert!(!blob.contains("j down"), "{blob}");
+        assert!(!blob.contains("g timeline"), "{blob}");
+        assert!(
+            !browse.footer_hints().iter().any(|h| h.starts_with("h ")),
+            "{blob}"
+        );
 
         let turns = footer_table(KeyScope {
             browse: true,
@@ -456,7 +537,28 @@ mod tests {
             tab: Tab::Turns,
             leader_armed: false,
         });
-        assert!(turns.footer_hints().iter().any(|h| h.contains("j down")));
+        let tblob = turns.footer_hints().join("  ·  ");
+        assert!(tblob.contains("j down"), "{tblob}");
+        assert!(tblob.contains("g timeline"), "{tblob}");
+
+        let findings = footer_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: Tab::Findings,
+            leader_armed: false,
+        });
+        let fblob = findings.footer_hints().join("  ·  ");
+        assert!(!fblob.contains("enter next"), "{fblob}");
+        assert!(!fblob.contains("j down"), "{fblob}");
+        assert!(
+            !findings.footer_hints().iter().any(|h| h.starts_with("h ")),
+            "{fblob}"
+        );
 
         let detail = footer_table(KeyScope {
             browse: true,
@@ -472,6 +574,24 @@ mod tests {
         let blob = detail.footer_hints().join("  ·  ");
         assert!(blob.contains("esc timeline"));
         assert!(blob.contains("j step"));
+
+        let scoped = footer_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: Tab::Timeline,
+            leader_armed: false,
+        });
+        let sblob = scoped.footer_hints().join("  ·  ");
+        assert!(
+            scoped.footer_hints().iter().any(|h| h.starts_with("h ")),
+            "{sblob}"
+        );
+        assert!(sblob.contains("l ") || sblob.contains("right"), "{sblob}");
     }
 
     #[test]
@@ -519,7 +639,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
-            tab: Tab::Overview,
+            tab: Tab::Timeline,
             leader_armed: false,
         });
         assert!(sheet.get("session.follow").is_some());
@@ -528,7 +648,98 @@ mod tests {
         assert!(sheet.get("events.next_turn").is_some());
         assert!(sheet.get("events.scope_next").is_some());
         assert!(sheet.get("events.all_turns").is_some());
+        assert!(sheet.get("turns.timeline").is_none());
         assert!(sheet.conflicts().is_empty());
+        let turns_help = help_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: Tab::Turns,
+            leader_armed: false,
+        });
+        assert!(turns_help.get("turns.timeline").is_some());
+        assert!(turns_help.get("events.next_turn").is_none());
+        assert!(help_table(picker()).get("pane.notes").is_none());
+    }
+
+    #[test]
+    fn help_table_lists_arrow_keys_for_turn_step() {
+        let sheet = help_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: Tab::Timeline,
+            leader_armed: false,
+        });
+        let prev = sheet.get("events.prev_turn").expect("prev turn");
+        let prev_keys = prev.tooltip.as_deref().unwrap_or("");
+        assert!(prev_keys.contains("h"), "{prev_keys}");
+        assert!(prev_keys.contains("left"), "{prev_keys}");
+        let next = sheet.get("events.next_turn").expect("next turn");
+        let next_keys = next.tooltip.as_deref().unwrap_or("");
+        assert!(next_keys.contains('l'), "{next_keys}");
+        assert!(next_keys.contains("right"), "{next_keys}");
+    }
+
+    #[test]
+    fn help_table_lists_keys_the_pane_can_run() {
+        let overview = help_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            tab: Tab::Overview,
+            leader_armed: false,
+        });
+        assert!(overview.get("session.open").is_some());
+        assert!(overview.get("list.down").is_none());
+        assert!(overview.get("pane.next").is_some());
+
+        let findings = help_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            tab: Tab::Findings,
+            leader_armed: false,
+        });
+        assert!(findings.get("session.open").is_none());
+        assert!(findings.get("list.down").is_none());
+        assert!(findings.get("list.up").is_none());
+        assert!(findings.get("events.next_turn").is_none());
+        assert!(findings.get("pane.next").is_some());
+
+        let sheet = help_table(picker());
+        assert!(sheet.get("session.open").is_some());
+        assert!(sheet.get("list.down").is_some());
+        assert!(sheet.get("pane.next").is_none());
+        let awaiting_picker = help_table(KeyScope {
+            browse: false,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: true,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            tab: Tab::Overview,
+            leader_armed: false,
+        });
+        assert!(awaiting_picker.get("session.follow").is_none());
+        assert!(awaiting_picker.get("session.done").is_none());
     }
 
     #[test]

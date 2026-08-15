@@ -19,6 +19,7 @@ from groket.session.turn_gate import (
     session_awaits_follow_up,
 )
 from groket.ui.app import TraceEvalApp
+from groket.ui.bindings import focus_primary_list
 from groket.ui.data_table import cursor_row_key
 from groket.ui.screens.browser import BrowserScreen
 from groket.ui.widgets.timeline import TimelineTable
@@ -1029,6 +1030,49 @@ async def test_browser_focus_timeline_filter(tmp_path: Path) -> None:
 
 
 # ── check_action for follow-up ──────────────────────────────────────────
+
+
+def _shown_footer_actions(screen: BrowserScreen) -> set[str]:
+    return {
+        ab.binding.action
+        for ab in screen.active_bindings.values()
+        if ab.binding.show and ab.enabled
+    }
+
+
+@pytest.mark.asyncio
+async def test_browser_footer_hides_timeline_keys_off_timeline(tmp_path: Path) -> None:
+    """Enter / h l / Flag leave the rail when the Timeline pane is not showing."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-timeline")
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        focus_primary_list(tl)
+        if screen._current_event is None and screen.timeline:
+            screen._current_event = screen.timeline[0]
+        screen.refresh_bindings()
+        await pilot.pause()
+        assert screen.check_action("toggle_event_reader", ()) is True
+        shown = _shown_footer_actions(screen)
+        assert "toggle_event_reader" in shown
+
+        await _activate_tab(pilot, screen, "tab-summary")
+        assert screen.check_action("toggle_event_reader", ()) is False
+        assert screen.check_action("prev_turn", ()) is False
+        assert screen.check_action("next_turn", ()) is False
+        assert screen.check_action("flag_event", ()) is False
+        shown = _shown_footer_actions(screen)
+        assert "toggle_event_reader" not in shown
+        assert "prev_turn" not in shown
+        assert "next_turn" not in shown
+        assert "flag_event" not in shown
+        assert "go_back" in shown
+        assert "operator_note" in shown
 
 
 @pytest.mark.asyncio

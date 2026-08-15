@@ -222,6 +222,21 @@ def test_rebuild_turn_select_skips_set_options_when_count_unchanged(tmp_path: Pa
     assert calls == []
 
 
+def test_turn_step_available_only_on_timeline() -> None:
+    """h / l belong on Timeline when there is more than one turn."""
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen._operator_turn_ids = lambda: [0, 4]  # type: ignore[method-assign]
+    screen._active_browser_tab = lambda: "tab-timeline"  # type: ignore[method-assign]
+    assert screen._turn_step_available() is True
+    screen._active_browser_tab = lambda: "tab-summary"  # type: ignore[method-assign]
+    assert screen._turn_step_available() is False
+    screen._active_browser_tab = lambda: ""  # type: ignore[method-assign]
+    assert screen._turn_step_available() is False
+    screen._operator_turn_ids = lambda: [0]  # type: ignore[method-assign]
+    screen._active_browser_tab = lambda: "tab-timeline"  # type: ignore[method-assign]
+    assert screen._turn_step_available() is False
+
+
 def test_next_prev_turn_steps_from_all_and_back() -> None:
     """l scopes the first turn; h from the first turn returns to All."""
     screen = BrowserScreen.__new__(BrowserScreen)

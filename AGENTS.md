@@ -583,16 +583,19 @@ Stable globals: ``?``, ``F5``/``Ctrl+R``, ``J``, ``Esc``, ``Ctrl+P``, ``q``
 2. ``?`` help  
 3. Ctrl+P palette  
 
-Add a key: TUI ``bindings.py`` → ``action_*`` → palette if useful →
-``help.rich.txt`` if major. HUD ``help.rs`` + ``on_key``. A shared action
-(§6.10) updates **both** surfaces in the same change.
+Add a key: catalog row in ``groket/keys/catalog.py`` (and HUD
+``desktop/src/keys.rs`` ``ACTIONS``) → TUI ``bindings.py`` + ``action_*``
+→ HUD ``help.rs`` + ``on_key`` when the HUD does the job → footer and
+``?`` on every screen that can run it → ``help.rich.txt`` if major. A
+shared action (§6.10) updates **both** surfaces in the same change.
 
 ### 6.8 Keyboard checklist
 
 Primary list focus; pane digits; visible filters; ``s``/``space`` multi-select;
 preserving cursor; ``check_action``; Tab-reachable buttons;
 modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
-``SelectableStatic`` + ``y`` (§6.5a). Shared TUI/HUD keys stay aligned (§6.10).
+``SelectableStatic`` + ``y`` (§6.5a). Footer and ``?`` match runnable
+keys on that screen; shared TUI/HUD keys stay aligned (§6.10).
 
 ### 6.9 TUI key reference
 
@@ -633,9 +636,15 @@ changing a shared key updates TUI ``ui/bindings.py`` and HUD ``help.rs`` +
 listed below (and in README). Do not invent a second chord for a shared
 action.
 
-**Footer.** Only keys that apply right now (TUI ``Binding.show`` +
-``check_action``; HUD ``footer_table(KeyScope)``). Jobs, analyze, export,
-follow-up, and Done stay off the rail when they do not apply.
+**Footer.** The rail is the actions this screen can run right now, from
+:mod:`groket.keys.catalog` defaults and the operator ``keys.toml`` overlay.
+TUI: ``Binding.show`` + ``check_action``. HUD: ``footer_table(KeyScope)``
+in ``desktop/src/help.rs``. Same catalog id and default on both surfaces
+for a shared action. Follow-up and Done appear only while awaiting.
+Adding or changing a key updates the catalog row, the TUI binding and/or
+HUD ``on_key``, and the footer / ``?`` tables for every screen that can
+run it. ``tests/keys/test_catalog.py`` checks HUD ``help.rs`` push specs
+against the catalog.
 
 **Shared** (must match)
 

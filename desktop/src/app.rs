@@ -136,6 +136,8 @@ pub enum Message {
         attempt: u8,
     },
     Hide,
+    /// Leave a focused search / follow-up field so list keys work.
+    LeaveInput,
     /// Leave the open session and show Recent + session search.
     SessionsHome,
     WindowFocus(bool),
@@ -829,9 +831,9 @@ impl Hud {
                     Tab::Overview => Task::none(),
                     _ => Task::none(),
                 };
-                // Turns/Timeline keep scroll on VisibleWindow (virtual_column).
-                // Keep in-pane search focused so click and / stay in the field.
-                load
+                // Same as Escape in search: land on the list so j/k work.
+                // `/` focuses this tab's search again.
+                Task::batch([load, Self::blur_text_inputs()])
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
@@ -1377,6 +1379,7 @@ impl Hud {
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
             Message::WindowFocus(on) => self.on_window_focus(on),
             Message::Hide => self.on_escape(),
+            Message::LeaveInput => Self::blur_text_inputs(),
             Message::SessionsHome => self.go_sessions_home(),
             Message::ToggleHelp => {
                 if self.typing_notes {
@@ -4711,7 +4714,19 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
             if is_list_nav_key(kev) {
                 return Some(Message::RawEvent(event));
             }
-            // Captured: Escape + pane chords (chrome_over_input). Enter stays
+            // A focused field captures Escape. Leave the field first so the
+            // next Escape can hide (or close help / detail). Ignored Escape
+            // still goes through chrome → Hide → on_escape.
+            if status == event::Status::Captured {
+                if let keyboard::Event::KeyPressed {
+                    key: Key::Named(Named::Escape),
+                    ..
+                } = kev
+                {
+                    return Some(Message::LeaveInput);
+                }
+            }
+            // Captured: pane chords (chrome_over_input). Enter stays
             // with the focused field's on_submit (or Ignored → RawEvent).
             let ctx = icedtea::key::KeyContext {
                 text_input_focused: true,
@@ -5966,13 +5981,16 @@ mod tests {
     }
 
     #[test]
-    fn captured_escape_still_hides_the_overlay() {
+    fn captured_escape_leaves_the_search_field() {
         let id = window::Id::unique();
         let esc = escape_pressed();
-        assert!(matches!(
-            interesting_hud_event(esc.clone(), event::Status::Captured, id),
-            Some(Message::Hide)
-        ));
+        assert!(
+            matches!(
+                interesting_hud_event(esc.clone(), event::Status::Captured, id),
+                Some(Message::LeaveInput)
+            ),
+            "Escape in search must leave the field, not hide"
+        );
         assert!(matches!(
             interesting_hud_event(esc, event::Status::Ignored, id),
             Some(Message::Hide)
@@ -6138,6 +6156,23 @@ mod tests {
         assert!(src.contains(".open()"));
         assert!(src.contains("retarget"));
         assert!(src.contains("install_platform_faces"));
+    }
+
+    #[test]
+    fn set_tab_leaves_search_so_list_keys_work() {
+        let src = include_str!("app.rs");
+        let body = src
+            .split("Message::SetTab(tab) =>")
+            .nth(1)
+            .expect("SetTab")
+            .split("Message::TimelineQuery")
+            .next()
+            .expect("arm");
+        assert!(
+            body.contains("blur_text_inputs"),
+            "tab change must leave search like Escape"
+        );
+        assert!(!body.contains("Keep in-pane search focused"));
     }
 
     #[test]
