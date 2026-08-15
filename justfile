@@ -122,6 +122,18 @@ test-cov:
 bump version:
     uv run python scripts/bump_version.py {{version}}
 
+# This-platform wheel into dist/ (needs Rust).
+wheel:
+    uv build --wheel
+
+# cibuildwheel for this host (Linux needs Docker).
+wheels:
+    uvx cibuildwheel
+
+# Source distribution into dist/.
+sdist:
+    uv build --sdist
+
 # lint + schema-check + hud-check + examples-check + test.
 ci: lint schema-check hud-check examples-check test
 

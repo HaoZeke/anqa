@@ -87,6 +87,33 @@ path = "groket-hud/Cargo.toml"
 args = ["--locked"]
 debug = false
 
+# Platform wheels: pypa/cibuildwheel on GitHub Actions (every push + PR).
+[tool.cibuildwheel]
+build = "cp313-*"
+skip = [
+    "pp*",
+    "*-win32",
+    "*-manylinux_i686",
+    "*-manylinux_ppc64le",
+    "*-manylinux_s390x",
+    "*-manylinux_armv7l",
+    "*-manylinux_riscv64",
+    "*-musllinux_*",
+]
+test-command = "groket --help && groket-hud --help"
+
+[tool.cibuildwheel.linux]
+before-all = """
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+if command -v dnf >/dev/null 2>&1; then
+  dnf install -y libxkbcommon-devel wayland-devel pkgconf-pkg-config
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y libxkbcommon-devel wayland-devel pkgconfig
+fi
+"""
+environment = { PATH = "$HOME/.cargo/bin:$PATH", CARGO_INCREMENTAL = "0" }
+repair-wheel-command = "bash {package}/scripts/cibw-repair-linux.sh {dest_dir} {wheel}"
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"

@@ -327,11 +327,14 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``just hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
 | ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
+| ``just wheel`` | ``uv build --wheel`` (this platform; needs Rust) |
+| ``just wheels`` | ``uvx cibuildwheel`` (this host; Linux needs Docker) |
+| ``just sdist`` | ``uv build --sdist`` |
 | ``just bump 0.1.1`` | Set the product version in every declaration + promote ``CHANGELOG.md`` |
 | ``just brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
 | ``just clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
 
-GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build).
+GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build), plus **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts on every run. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
 HUD Cargo trees: a passing ``just hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
 ``groket hud`` deletes coverage leftovers under ``target/`` and keeps the

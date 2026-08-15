@@ -21,6 +21,10 @@ analysis plugins.
   palette window and `?` sheet, and `groket-hud --version`.
 - One product version across the Python package, `groket-hud`, and
   `groket-core`.
+- Every Actions run builds Linux, macOS, and Windows wheels plus a
+  source distribution (artifacts on the run).
+- A version tag or manual workflow dispatch uploads those files to
+  TestPyPI.
 
 ### Paths and config
 
