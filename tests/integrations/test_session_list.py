@@ -121,7 +121,7 @@ async def test_control_server_session_list() -> None:
             writer,
             1,
             "initialize",
-            {"protocolVersion": 1, "clientInfo": {"name": "test"}},
+            {"protocolVersion": "1.0.0", "clientInfo": {"name": "test"}},
         )
         assert "session/list" in init["result"]["capabilities"]
 
@@ -165,7 +165,7 @@ async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> Non
             writer,
             1,
             "initialize",
-            {"protocolVersion": 1, "clientInfo": {"name": "test"}},
+            {"protocolVersion": "1.0.0", "clientInfo": {"name": "test"}},
         )
         assert "markdown" in init["result"]["renderFormats"]
         assert "json" in init["result"]["renderFormats"]

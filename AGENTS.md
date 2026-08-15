@@ -196,10 +196,15 @@ owns** the socket: default is detach-start owner if free (``--no-serve``
 skips spawn; ``--no-socket`` runs offline), then attach and listen.
 When a socket is configured, the home catalog is control-only — attach
 failure toasts and does not walk traces on disk. TUI exit does not stop
-the owner. Bump ``PROTOCOL_VERSION`` only after a version has shipped to clients
-that would otherwise keep a stale owner. Unpublished local work stays on
-the current unpublished version. Editor clients may keep an older
-``initialize`` version — the owner still accepts ``MIN_PROTOCOL_VERSION``.
+the owner. Control ``protocolVersion`` is a semver string
+(``MAJOR.MINOR.PATCH``), independent of the product version.
+Same major: additive methods and fields only; a newer client keeps a live
+owner of that major. A major bump is the only backwards-incompatible
+handshake or method change; older clients fail ``initialize`` and must
+update. Bump the major only after that version has shipped to clients
+that would otherwise keep a stale owner. Unpublished work stays on the
+current unpublished protocol version. ``just bump`` updates the product
+version only. Editor clients send this package's protocol string.
 Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
@@ -333,6 +338,9 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just bump 0.1.1`` | Set the product version in every declaration + promote ``CHANGELOG.md`` |
 | ``just brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
 | ``just clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
+
+``CHANGELOG.md`` Unreleased is the shipped-notes list. Open follow-ups
+for those notes live in [TODO.md](TODO.md). Keep the two files in step.
 
 GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build), plus **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts on every run. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 

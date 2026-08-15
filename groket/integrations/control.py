@@ -32,8 +32,44 @@ from .editor import SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
-MIN_PROTOCOL_VERSION = 1
-PROTOCOL_VERSION = 1
+# Control handshake only. Independent of ``groket.__version__``.
+# Same major: additive methods/fields; a live owner of that major stays up.
+# A major bump is the only backwards-incompatible change.
+MIN_PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_VERSION = "1.0.0"
+_PROTOCOL_RE = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
+
+
+def parse_protocol_version(value: object) -> tuple[int, int, int] | None:
+    """Parse a ``MAJOR.MINOR.PATCH`` control protocol version.
+
+    :param value: ``initialize`` ``protocolVersion`` (string).
+    :returns: ``(major, minor, patch)``, or ``None`` when the value is not
+        a three-part numeric version string.
+    """
+    if not isinstance(value, str):
+        return None
+    match = _PROTOCOL_RE.fullmatch(value.strip())
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def protocol_compatible(requested: object, supported: str = PROTOCOL_VERSION) -> bool:
+    """True when *requested* and *supported* share a major version.
+
+    Minor and patch may differ. A different major is incompatible.
+
+    :param requested: Client or owner ``protocolVersion``.
+    :param supported: Version to compare against (this process).
+    """
+    left = parse_protocol_version(requested)
+    right = parse_protocol_version(supported)
+    if left is None or right is None:
+        return False
+    return left[0] == right[0]
+
+
 MAX_MESSAGE_BYTES = 8 * 1024 * 1024
 NOTIFY_TIMEOUT_SECONDS = 2.0
 MAX_HEADER_LINES = 32
@@ -802,8 +838,8 @@ class ControlServer:
         after_send: list[tuple[str, JsonObject]],
     ) -> JsonValue:
         if method == "initialize":
-            requested = json_as_int(params.get("protocolVersion"))
-            if requested < MIN_PROTOCOL_VERSION or requested > PROTOCOL_VERSION:
+            requested = params.get("protocolVersion")
+            if not protocol_compatible(requested):
                 raise ControlError(
                     -32602,
                     "unsupported protocol version",

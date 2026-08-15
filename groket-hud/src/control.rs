@@ -38,7 +38,7 @@ fn ping_notify_wake() {
 }
 
 /// Must match ``groket.integrations.control.PROTOCOL_VERSION``.
-pub const PROTOCOL_VERSION: i64 = 1;
+pub const PROTOCOL_VERSION: &str = "1.0.0";
 
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).
 #[cfg(unix)]

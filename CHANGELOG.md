@@ -72,6 +72,9 @@ analysis plugins.
   attach: terminal app, desktop HUD, Emacs, and Neovim.
 - Bare `groket` and `groket hud` detach-start serve when the socket is
   free. Quitting a client leaves serve running.
+- `protocolVersion` is semver (`1.0.0`), independent of the product
+  version. Same major keeps a live owner; a major bump is the only
+  incompatible handshake change.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.
 
 ### Batch, rules, and examples

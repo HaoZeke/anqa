@@ -988,13 +988,13 @@ class TraceEvalApp(App):
         if client is None:
             return False
         try:
-            from ..integrations.control import PROTOCOL_VERSION
+            from ..integrations.control import PROTOCOL_VERSION, protocol_compatible
 
             result = await client.initialize()
             ver = result.get("protocolVersion")
-            if not isinstance(ver, int) or ver < PROTOCOL_VERSION:
+            if not protocol_compatible(ver):
                 logger.warning(
-                    "Control owner at %s speaks protocol %s (need %s)",
+                    "Control owner at %s speaks protocol %s (need major of %s)",
                     self._control_socket,
                     ver,
                     PROTOCOL_VERSION,

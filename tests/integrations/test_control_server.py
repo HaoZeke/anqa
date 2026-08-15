@@ -114,7 +114,7 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
             writer,
             1,
             "initialize",
-            {"protocolVersion": 1, "clientInfo": {"name": "test-editor"}},
+            {"protocolVersion": "1.0.0", "clientInfo": {"name": "test-editor"}},
         )
         assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         assert "session/render" in initialized["result"]["capabilities"]
@@ -163,7 +163,7 @@ async def test_control_server_supports_emacs_jsonrpc_framing(tmp_path: Path) -> 
             writer,
             1,
             "initialize",
-            {"protocolVersion": 1, "clientInfo": {"name": "Emacs"}},
+            {"protocolVersion": "1.0.0", "clientInfo": {"name": "Emacs"}},
         )
         assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         writer.close()
@@ -173,10 +173,10 @@ async def test_control_server_supports_emacs_jsonrpc_framing(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_initialize_accepts_legacy_editor_version(tmp_path: Path) -> None:
-    """Emacs/Neovim still send protocol 1; the owner must accept it."""
+async def test_initialize_accepts_same_major_newer_minor(tmp_path: Path) -> None:
+    """A 1.x client keeps a 1.0.0 owner (additive only)."""
     control = import_module("groket.integrations.control")
-    server = control.ControlServer(socket_path=_short_sock("legacy-init.sock"))
+    server = control.ControlServer(socket_path=_short_sock("minor-init.sock"))
     await server.start()
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
@@ -185,8 +185,9 @@ async def test_initialize_accepts_legacy_editor_version(tmp_path: Path) -> None:
             writer,
             1,
             "initialize",
-            {"protocolVersion": 1, "clientInfo": {"name": "Emacs"}},
+            {"protocolVersion": "1.2.0", "clientInfo": {"name": "Emacs"}},
         )
+        assert "result" in initialized
         assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         writer.close()
         await writer.wait_closed()
@@ -206,7 +207,7 @@ async def test_initialize_rejects_newer_client_version(tmp_path: Path) -> None:
             writer,
             1,
             "initialize",
-            {"protocolVersion": control.PROTOCOL_VERSION + 1},
+            {"protocolVersion": "2.0.0"},
         )
         assert "error" in response
         assert response["error"]["code"] == -32602
@@ -252,7 +253,7 @@ async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
             writer,
             1,
             "initialize",
-            {"protocolVersion": 1, "clientInfo": {"name": "test-editor"}},
+            {"protocolVersion": "1.0.0", "clientInfo": {"name": "test-editor"}},
         )
         await server.publish_session_changed(session_dir)
         session_message = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
@@ -448,7 +449,12 @@ async def test_control_server_accepts_content_type_first_framing(tmp_path: Path)
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
         payload = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "1.0.0"},
+            }
         ).encode("utf-8")
         writer.write(
             b"Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n"
@@ -481,7 +487,9 @@ async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path
         # must not receive broadcasts it may be unable to parse.
         await asyncio.sleep(0.05)
         await server.publish_session_changed(session_dir)
-        initialized = await _header_request(reader, writer, 1, "initialize", {"protocolVersion": 1})
+        initialized = await _header_request(
+            reader, writer, 1, "initialize", {"protocolVersion": "1.0.0"}
+        )
         assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
         writer.close()
         await writer.wait_closed()
@@ -502,9 +510,9 @@ async def test_control_server_drops_stalled_clients_from_broadcasts(
     await server.start()
     try:
         reader_a, writer_a = await asyncio.open_unix_connection(server.socket_path)
-        await _request(reader_a, writer_a, 1, "initialize", {"protocolVersion": 1})
+        await _request(reader_a, writer_a, 1, "initialize", {"protocolVersion": "1.0.0"})
         reader_b, writer_b = await asyncio.open_unix_connection(server.socket_path)
-        await _header_request(reader_b, writer_b, 1, "initialize", {"protocolVersion": 1})
+        await _header_request(reader_b, writer_b, 1, "initialize", {"protocolVersion": "1.0.0"})
 
         stalled = next(
             peer for peer, framing in server._writer_framing.items() if framing == "headers"
