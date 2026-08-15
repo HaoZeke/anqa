@@ -51,7 +51,6 @@ class TestYieldAppCommands:
             action_open_jobs=MagicMock(),
             action_self_test=MagicMock(),
             action_show_help=MagicMock(),
-            action_toggle_tips=MagicMock(),
             action_quit=MagicMock(),
             action_open_runner=MagicMock(),
             action_open_run_configs=MagicMock(),

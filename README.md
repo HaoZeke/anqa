@@ -73,7 +73,6 @@ Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
 theme = "groket"
 follow_os = false
 show_host_sessions = false
-show_tips = true
 auto_serve = true
 
 [analysis]

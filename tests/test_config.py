@@ -31,7 +31,6 @@ def test_defaults_when_missing() -> None:
     assert cfg.theme == "groket"
     assert cfg.follow_os is False
     assert cfg.show_host_sessions is False
-    assert cfg.show_tips is True
     assert cfg.auto_serve is True
     assert cfg.analysis.plugins == []
     assert cfg.hud.window_mode is False
@@ -110,3 +109,14 @@ def test_schema_has_published_id() -> None:
     assert SCHEMA_ID in text
     assert "show_host_sessions" in text
     assert "global_shortcut" in text
+    assert "show_tips" not in text
+
+
+def test_save_drops_legacy_show_tips(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('theme = "nord"\nshow_tips = true\n', encoding="utf-8")
+    invalidate_config_cache()
+    save_app_config(load_app_config())
+    text = path.read_text(encoding="utf-8")
+    assert "show_tips" not in text
+    assert load_app_config().theme == "nord"

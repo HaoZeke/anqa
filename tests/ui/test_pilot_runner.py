@@ -430,19 +430,6 @@ async def test_run_mcp_display_rows(tmp_path: Path) -> None:
         assert "github" in ids
 
 
-# ── Refresh tip surfaces ────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_refresh_tip_surfaces(tmp_path: Path) -> None:
-    work = _make_work(tmp_path)
-    app = _Harness(work)
-    async with app.run_test(size=(140, 50)) as pilot:
-        scr = await _wait_runner(pilot, app)
-        scr.refresh_tip_surfaces()
-        await pilot.pause()
-
-
 # ── Restore run state ───────────────────────────────────────────────────
 
 

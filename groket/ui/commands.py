@@ -60,7 +60,6 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
             (t("ui-self-test"), "Check Docker, Grok auth, work dir, and related host deps"),
         ),
         ("action_show_help", U.cmd_help()),
-        ("action_toggle_tips", U.cmd_toggle_tips()),
         ("action_quit", U.cmd_quit()),
         ("action_open_runner", U.cmd_open_runner()),
         ("action_open_run_configs", U.cmd_open_configs()),

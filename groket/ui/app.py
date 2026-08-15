@@ -222,9 +222,6 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
                 ),
                 id="as-workers-help",
             )
-            from .prefs import show_tips_enabled
-
-            yield Checkbox(U.show_tips_checkbox(), value=show_tips_enabled(), id="as-show-tips")
             with Horizontal(id="analysis-settings-actions", classes="modal-footer"):
                 yield Button(U.save(), variant="primary", id="as-save")
                 yield Button(U.cancel(), id="as-cancel")
@@ -248,14 +245,8 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
     def _persist(self) -> None:
         from ..analysis import AnalysisPipelineConfig, load_pipeline_config, save_pipeline_config
         from ..analysis.service import AnalysisService, set_analysis_service
-        from .prefs import set_show_tips
 
         auto = self.query_one("#as-auto-analyze", Checkbox).value
-        try:
-            tips = bool(self.query_one("#as-show-tips", Checkbox).value)
-            set_show_tips(tips)
-        except Exception:
-            pass
         app = self.app
         config_path = getattr(app, "_config_path", None)
         prev = load_pipeline_config(self._work_dir, config_path=config_path)
@@ -272,12 +263,6 @@ class AnalysisSettingsModal(QuitActions, ModalScreen[bool]):
             self._work_dir, config=cfg, config_path=config_path, cache_root=analysis_cache_dir()
         )
         set_analysis_service(svc)
-        try:
-            refresh = getattr(app, "_refresh_all_tip_surfaces", None)
-            if callable(refresh):
-                refresh()
-        except Exception:
-            pass
         self.dismiss(True)
 
 
@@ -539,7 +524,6 @@ class TraceEvalApp(App):
                 theme=str(self._config.get("theme") or "groket"),
                 follow_os=self._config.get("follow_os") is True,
                 show_host_sessions=bool(self._config.get("show_host_sessions")),
-                show_tips=self._config.get("show_tips") is not False,
                 auto_serve=self._config.get("auto_serve") is not False,
             )
         except OSError:
@@ -3799,62 +3783,6 @@ class TraceEvalApp(App):
                     self.notify(U.analysis_settings_saved(), severity="information")
 
         self.push_screen(AnalysisSettingsModal(self.work_dir), _done)
-
-    def action_toggle_tips(self) -> None:
-        """Show/hide framed admonitions **app-wide** (``show_tips`` in config.toml).
-
-        Invoked from the command palette (Ctrl+P → Toggle tips / callouts) or
-        Analysis settings — not a Footer key binding.
-        """
-        from .prefs import set_show_tips, show_tips_enabled, toggle_show_tips
-
-        on = toggle_show_tips()
-        self._config["show_tips"] = on
-        set_show_tips(on)
-        assert show_tips_enabled() is on
-        self.notify(
-            t("ui-tips-callouts-on") if on else t("ui-tips-callouts-off-hidden"),
-            severity="information",
-        )
-        self._refresh_all_tip_surfaces()
-
-    def _refresh_all_tip_surfaces(self) -> None:
-        """Re-render every TipSurface by widget class (no hardcoded IDs / screen hooks)."""
-        from .panel_render import TipSurface, refresh_tip_surfaces_in
-
-        screens: list = []
-        try:
-            stack = getattr(self, "screen_stack", None)
-            if stack is not None:
-                screens.extend(list(stack))
-        except Exception:
-            pass
-        try:
-            if self.screen is not None and self.screen not in screens:
-                screens.append(self.screen)
-        except Exception:
-            pass
-        for scr in screens:
-            if scr is None:
-                continue
-            fn = getattr(scr, "refresh_tip_surfaces", None)
-            if callable(fn):
-                try:
-                    fn()
-                except Exception:
-                    logger.debug(t("ui-refresh-tip-surfaces-failed-on-s"), scr, exc_info=True)
-        try:
-            n = 0
-            for tip in self.query(TipSurface):
-                tip.refresh_tip()
-                n += 1
-            if n == 0:
-                refresh_tip_surfaces_in(self)
-        except Exception:
-            try:
-                refresh_tip_surfaces_in(self)
-            except Exception:
-                pass
 
     def action_refresh_context(self) -> None:
         """Refresh whatever screen/context is active (F5 / Ctrl+R globally)."""

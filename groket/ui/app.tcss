@@ -103,30 +103,6 @@ Footer FooterKey.-command-palette {
     margin-right: 1;
 }
 
-/* Standalone tip/admonition widgets (panel_render.TipSurface / .tip-surface).
-   Frame = CSS border (width-adaptive). Do NOT rely on box-drawing Text — that
-   breaks in narrow modals (e.g. configs → w batch launch). */
-.tip-surface,
-TipSurface {
-    height: auto;
-    width: 100%;
-    max-width: 100%;
-    margin: 0 0 1 0;
-    padding: 0 1;
-    border: solid cyan;
-    background: $boost;
-    color: $text;
-}
-
-.tip-surface.tip-surface-empty,
-TipSurface.tip-surface-empty {
-    display: none;
-    height: 0;
-    margin: 0;
-    padding: 0;
-    border: none;
-}
-
 /* ── Trace Browser ────────────────────────────────────────────────────── */
 
 #browser-tabs {

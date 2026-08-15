@@ -68,7 +68,6 @@ from ..panel_render import (
     dim_rule,
     kv_line,
     panel_group,
-    refresh_all_tip_surfaces,
     section_header,
     status_chip,
 )
@@ -2160,17 +2159,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _fmt_dur(seconds: float) -> str:
         return fmt_duration(seconds)
 
-    def refresh_tip_surfaces(self) -> None:
-        """Refresh all TipSurface widgets on this screen (class tip-surface only)."""
-        refresh_all_tip_surfaces(self)
-        try:
-            self._sync_browser_tip_messages()
-            refresh_all_tip_surfaces(self)
-        except Exception:
-            logger.debug(t("ui-sync-browser-tip-messages-failed"), exc_info=True)
-
-    def _sync_browser_tip_messages(self) -> None:
-        """Sync Report empty-states from session data (not framed TipSurface)."""
+    def _sync_report_empty_states(self) -> None:
+        """Sync Report empty-states from session data."""
         try:
             analysis_empty = self.query_one("#report-analysis-empty", EmptyState)
             if not self._report_plugin_ids() and (not self._active_plugin_results()):
@@ -2235,7 +2225,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             pass
         try:
-            self._sync_browser_tip_messages()
+            self._sync_report_empty_states()
         except Exception:
             pass
 
@@ -2581,7 +2571,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             self._set_static_content("report-overview-content", t("ui-report-unavailable"))
         try:
-            self._sync_browser_tip_messages()
+            self._sync_report_empty_states()
         except Exception:
             pass
 
@@ -2600,7 +2590,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     fl_t.append(f"      {fl.created_at}\n", style="dim")
         self._set_static_content("report-flags-content", fl_t)
         try:
-            self._sync_browser_tip_messages()
+            self._sync_report_empty_states()
         except Exception:
             pass
 
@@ -2639,7 +2629,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 )
         self._set_static_content("report-notes-content", nt)
         try:
-            self._sync_browser_tip_messages()
+            self._sync_report_empty_states()
         except Exception:
             pass
 

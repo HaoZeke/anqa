@@ -379,10 +379,6 @@ cmd-toggle-select-config = Toggle select
 
 cmd-toggle-select-config-help = Mark/unmark row for multi-config launch (s/space)
 
-cmd-toggle-tips = Toggle tips / callouts
-
-cmd-toggle-tips-help = Show or hide tip/info/warning frames app-wide
-
 col-activity = Activity
 
 col-category = Category
@@ -811,8 +807,6 @@ setup-commands-label = Setup commands
 share = Share
 
 share-failed = Share failed: { $exc }
-
-show-tips-checkbox = Show tips & callouts (tip / info / note / warning …)
 
 skills-btn = Skills
 
@@ -1383,8 +1377,6 @@ ui-prompt = prompt:
 
 ui-recipes =  recipes).
 
-ui-refresh-tip-surfaces-failed-on-s = refresh_tip_surfaces failed on %s
-
 ui-registry = Registry
 
 ui-registry-2 = [cyan]registry[/cyan]
@@ -1564,8 +1556,6 @@ ui-succeeded =  succeeded[/green], [red]
 
 ui-succeeded-1 =  succeeded[/green]
 
-ui-sync-browser-tip-messages-failed = sync browser tip messages failed
-
 ui-task = Task
 
 ui-task-1 = task:
@@ -1573,10 +1563,6 @@ ui-task-1 = task:
 ui-thinking = Thinking
 
 ui-thought = Thought
-
-ui-tips-callouts-off-hidden = Tips & callouts: off (hidden)
-
-ui-tips-callouts-on = Tips & callouts: on
 
 ui-title = Title
 

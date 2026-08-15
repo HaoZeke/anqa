@@ -94,12 +94,6 @@
       "title": "Show Host Sessions",
       "type": "boolean"
     },
-    "show_tips": {
-      "default": true,
-      "description": "Show framed tip callouts in the terminal app.",
-      "title": "Show Tips",
-      "type": "boolean"
-    },
     "auto_serve": {
       "default": true,
       "description": "Detach-start groket serve when the control socket is free.",

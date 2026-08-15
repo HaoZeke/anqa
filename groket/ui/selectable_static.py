@@ -233,6 +233,6 @@ def is_extractable_static(widget: object) -> bool:
 
     Product rule: use :class:`SelectableStatic` for any operator-facing body
     (detail, summary, diff, report sections, …). Keep chrome as plain
-    :class:`~textual.widgets.Static` so ``y`` does not yank labels/tips.
+    :class:`~textual.widgets.Static` so ``y`` does not yank labels.
     """
     return isinstance(widget, SelectableStatic)

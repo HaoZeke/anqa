@@ -990,12 +990,6 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
     def _run_inline_skills_from_form(self) -> list[tuple[str, str]]:
         return [(n, b) for n, b in (self._run_inline_skills or []) if (n or "").strip()]
 
-    def refresh_tip_surfaces(self) -> None:
-        """Re-apply all ``TipSurface`` widgets after global show_tips toggle."""
-        from ..panel_render import refresh_tip_surfaces_in
-
-        refresh_tip_surfaces_in(self)
-
     def action_open_jobs(self) -> None:
         from .jobs import JobsModal
 

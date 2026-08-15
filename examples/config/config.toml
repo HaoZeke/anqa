@@ -6,7 +6,6 @@
 theme = "groket"
 follow_os = false
 show_host_sessions = false
-show_tips = true
 auto_serve = true
 
 [analysis]

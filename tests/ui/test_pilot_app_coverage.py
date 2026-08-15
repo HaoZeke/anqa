@@ -2,7 +2,7 @@
 
 Exercises compose, mount, session loading, table population, filter cycling,
 multi-select, delete, analyze, rerun, save config, theme cycling, screen pushes,
-analysis settings modal, session search modal, tips toggle, and action methods.
+analysis settings modal, session search modal, and action methods.
 """
 
 from __future__ import annotations
@@ -480,25 +480,6 @@ async def test_follow_desktop_appearance(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_toggle_tips(tmp_path: Path) -> None:
-    """Tips toggle flips show_tips and refreshes surfaces."""
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        from groket.ui.prefs import show_tips_enabled
-
-        before = show_tips_enabled()
-        app.action_toggle_tips()
-        await pilot.pause()
-        after = show_tips_enabled()
-        assert after != before
-        # Toggle back
-        app.action_toggle_tips()
-        await pilot.pause()
-        assert show_tips_enabled() == before
-
-
-@pytest.mark.asyncio
 async def test_open_session_enter_key(tmp_path: Path) -> None:
     """action_open_session pushes BrowserScreen and cleans up safely."""
     from groket.ui.screens.browser import BrowserScreen
@@ -893,7 +874,7 @@ async def test_session_search_filters_as_you_type(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_analysis_settings_modal(tmp_path: Path) -> None:
-    """Analysis settings modal opens, toggles auto-analyze and tips, then saves."""
+    """Analysis settings modal opens, then cancels."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()

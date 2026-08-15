@@ -1013,22 +1013,6 @@ async def test_browser_open_share_no_url(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-# ── Refresh tip surfaces ────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_browser_refresh_tip_surfaces(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        screen.refresh_tip_surfaces()
-        await pilot.pause()
-
-
 # ── Report plugin helpers ────────────────────────────────────────────────
 
 

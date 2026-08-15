@@ -520,16 +520,12 @@ First press arms; second with the **same** target set commits. Shared helper:
 ``style_data_table``, ``preserving_cursor``, ``cursor_row_key``,
 ``set_selection_marker`` / ``update_row_cell`` — do not reimplement.
 
-### 6.5 Guidance chrome (do not mash into one callout)
+### 6.5 Guidance chrome
 
 | Role | Widget / place | Notes |
 |------|----------------|--------|
 | Empty pane | :class:`~groket.ui.panel_render.EmptyState` | Dim one-line, no border; only when section empty |
-| Keys / how-to | Footer, ``?`` help, Ctrl+P | Not permanent in-pane cyan boxes |
-| Rare interrupt | :class:`~groket.ui.panel_render.TipSurface` | Framed callout; ``show_tips`` toggles these only |
-
-Never use ``TipSurface`` for empty states or always-on shortcut lessons.
-``show_tips`` in config / Analysis / Ctrl+P hides TipSurface only.
+| Keys / how-to | Footer, ``?`` help, Ctrl+P | Not in-pane boxes |
 
 ### 6.5a Extractable / copyable body content (mandatory)
 
@@ -542,7 +538,6 @@ mouse — the product path is Textual selection + OSC 52 yank.
 |-----|--------|
 | Body content a human may extract | :class:`~groket.ui.selectable_static.SelectableStatic` |
 | Chrome only (labels, filter bar, empty-state) | plain ``Static`` / :class:`~groket.ui.panel_render.EmptyState` |
-| Rare framed callout | :class:`~groket.ui.panel_render.TipSurface` |
 
 **Rules**
 
@@ -589,7 +584,7 @@ Add a key: TUI ``bindings.py`` → ``action_*`` → palette if useful →
 ### 6.8 Keyboard checklist
 
 Primary list focus; pane digits; visible filters; ``s``/``space`` multi-select;
-preserving cursor; ``TipSurface``; ``check_action``; Tab-reachable buttons;
+preserving cursor; ``check_action``; Tab-reachable buttons;
 modals Esc + Ctrl+S save; no mouse-only features; extractable bodies use
 ``SelectableStatic`` + ``y`` (§6.5a). Shared TUI/HUD keys stay aligned (§6.10).
 
@@ -693,7 +688,6 @@ Prefer Textual design tokens (``$primary``, ``$surface``, ``$text``, …).
 |-------|------|
 | Layout / focus | ``app.tcss`` |
 | Semantic Rich colours | ``ui/styles.py`` (status, severity, timeline) |
-| Callouts | ``TipSurface`` / ``.tip-surface`` |
 
 UI chrome via ``panel_render`` / panel-card; Markdown **content** only through
 ``md_content()`` / ``content_block()``.

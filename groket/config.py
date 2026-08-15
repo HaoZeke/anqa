@@ -129,9 +129,6 @@ class AppConfig(BaseModel):
         default=False,
         description="List native ~/.grok/sessions next to Docker eval traces.",
     )
-    show_tips: bool = Field(
-        default=True, description="Show framed tip callouts in the terminal app."
-    )
     auto_serve: bool = Field(
         default=True,
         description="Detach-start groket serve when the control socket is free.",
@@ -201,7 +198,8 @@ def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     doc["theme"] = cfg.theme
     doc["follow_os"] = cfg.follow_os
     doc["show_host_sessions"] = cfg.show_host_sessions
-    doc["show_tips"] = cfg.show_tips
+    if "show_tips" in doc:
+        del doc["show_tips"]
     doc["auto_serve"] = cfg.auto_serve
     analysis = _ensure_table(doc, "analysis")
     _set_plugins(analysis, list(cfg.analysis.plugins))
@@ -233,7 +231,7 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
         "hud": hud_raw,
         "export": raw.get("export") if isinstance(raw.get("export"), dict) else {},
     }
-    for key in ("theme", "follow_os", "show_host_sessions", "show_tips", "auto_serve"):
+    for key in ("theme", "follow_os", "show_host_sessions", "auto_serve"):
         if key in raw:
             payload[key] = raw[key]
     return AppConfig.model_validate(payload)
