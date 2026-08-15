@@ -1322,8 +1322,16 @@ pub fn event_matches_kind(kind: &str, is_error: bool, mode: KindFilter) -> bool 
     }
 }
 
+pub fn is_unknown_method(err: &str) -> bool {
+    let low = err.to_ascii_lowercase();
+    low.contains("method not found") || low.contains("-32601")
+}
+
 pub fn control_down_message(err: &str) -> String {
     let s = err.trim();
+    if is_unknown_method(s) {
+        return "control owner is older · run: groket serve restart".into();
+    }
     let short = if s.len() > 140 {
         format!("{}…", &s[..137])
     } else {
@@ -1603,6 +1611,14 @@ mod tests {
     fn soft_control_down_copy() {
         assert_eq!(
             control_down_message("connection refused"),
+            "control socket down · run: groket serve -d"
+        );
+        assert_eq!(
+            control_down_message("method not found"),
+            "control owner is older · run: groket serve restart"
+        );
+        assert_ne!(
+            control_down_message("method not found"),
             "control socket down · run: groket serve -d"
         );
     }

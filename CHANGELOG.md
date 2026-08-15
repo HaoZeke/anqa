@@ -13,6 +13,9 @@ is tagged.
 - HUD `?` and the terminal browser footer follow the current pane: Enter
   and list motion on Overview, Turns, and Timeline; turn step on Timeline.
 - HUD `?` lists Left and Right next to h and l for Timeline turn step.
+- An older `groket serve` that lacks a method shows
+  `control owner is older · run: groket serve restart` (terminal and HUD).
+  The raw error goes to the log.
 - Terminal Diff lists rewind snapshots and changed files. The body is the
   highlighted file. Without rewind points it lists approximate
   `search_replace` edits. `/` fuzzy-finds path or hunk text; `h`/`l` step

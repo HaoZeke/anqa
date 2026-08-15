@@ -60,6 +60,7 @@ from ...session.workspace_diff import WorkspaceDiff, load_workspace_diff_doc
 from ...utils import fmt_duration
 from .. import text as U
 from ..bindings import BROWSER, ChromeActions, focus_primary_list
+from ..control_notice import control_operator_text
 from ..panel_render import (
     EmptyState,
     bullet,
@@ -1109,7 +1110,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             call_ui(
                 resolve_ui_app(self),
                 self.notify,
-                t("notify-control-session-failed", err=str(exc)[:180]),
+                control_operator_text(exc, fallback_id="notify-control-session-failed"),
                 severity="error",
             )
 

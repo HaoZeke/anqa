@@ -118,6 +118,18 @@ class ControlError(Exception):
     message: str
     data: JsonObject | None = None
 
+    def __str__(self) -> str:
+        return self.message
+
+
+def is_unknown_method(exc: BaseException | str) -> bool:
+    """True when the owner rejected the call as an unknown method (stale serve)."""
+    if isinstance(exc, ControlError) and exc.code == -32601:
+        return True
+    text = exc if isinstance(exc, str) else str(exc)
+    low = text.casefold()
+    return "method not found" in low or "-32601" in low
+
 
 @dataclass(frozen=True)
 class ControlSocketInUse(Exception):

@@ -914,7 +914,8 @@ impl Hud {
                         }
                     }
                     Err(e) => {
-                        self.toasts.push_danger(e);
+                        crate::log::error(&format!("session/diff: {e}"));
+                        self.toasts.push_danger(control_down_message(&e));
                     }
                 }
                 Task::none()
@@ -1106,7 +1107,8 @@ impl Hud {
                         self.toasts.push_success("Follow-up sent");
                     }
                     Err(e) => {
-                        self.toasts.push_danger(e);
+                        crate::log::error(&format!("session/follow_up: {e}"));
+                        self.toasts.push_danger(control_down_message(&e));
                     }
                 }
                 Task::none()

@@ -1871,6 +1871,8 @@ ui-origin-work = Eval
 ui-origin-host = Host
 
 ui-control-socket-attach-failed = Control owner not reachable
+
+ui-control-owner-stale = control owner is older · run: groket serve restart
 notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)
 notify-host-sessions-off = Host sessions hidden
 

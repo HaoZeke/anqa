@@ -66,6 +66,7 @@ from .bindings import (
     focus_primary_list,
 )
 from .brand_mark import AppChrome, AppFooter, paths_banner
+from .control_notice import control_operator_text
 from .data_table import (
     cursor_row_key,
     preserving_scroll,
@@ -1533,7 +1534,7 @@ class TraceEvalApp(App):
                 call_ui(
                     self,
                     self.notify,
-                    t("notify-control-list-failed", err=str(exc)[:180]),
+                    control_operator_text(exc, fallback_id="notify-control-list-failed"),
                     severity="error",
                 )
         finally:
