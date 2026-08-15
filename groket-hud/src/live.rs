@@ -1606,7 +1606,7 @@ mod tests {
             ..Overview::default()
         };
         let (turns, _) = card_marks_from_overview(&ov);
-        assert!(turns.get(&27).is_none());
+        assert!(!turns.contains_key(&27));
     }
 
     #[test]

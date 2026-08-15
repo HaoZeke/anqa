@@ -98,7 +98,7 @@
         "toolCallCount": 1,
         "toolErrorCount": 0,
         "turnIndex": 0,
-        "turnNumber": null,
+        "turnNumber": 0,
         "userCount": 1,
         "userEventIndex": 0
       }

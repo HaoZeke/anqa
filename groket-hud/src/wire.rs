@@ -211,7 +211,8 @@ pub struct TurnRow {
 }
 
 impl TurnRow {
-    /// Trace ``turn_started.turn_number``. ``None`` when this row has no start.
+    /// Trace ``turn_started.turn_number``, or host-only list position.
+    /// ``None`` when a mixed session omitted a start marker.
     pub fn face_id(&self) -> Option<i64> {
         self.turn_number
     }
