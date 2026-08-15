@@ -120,8 +120,9 @@ returns to that Timeline or Turns place.
 ## Terminal app
 
 `groket` (or `groket tui`) is the full eval client: session list, browser
-panes, runner, recipes, personas, analysis, and export. The footer lists
-the keys that apply now; `?` is the full list.
+panes, runner, recipes, personas, analysis, and export. Diff lists Grok
+rewind snapshots (or approximate `search_replace` edits) as a file list.
+The footer lists the keys that apply now; `?` is the full list.
 
 | Key | Where | Action |
 |-----|-------|--------|
@@ -153,6 +154,7 @@ the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-5 | browser | Timeline, Summary, Diff, Findings, Report |
+| Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); file list; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
 | j / k | browser | Previous / next event on the Timeline (also Up / Down) |
 | v | browser | Timeline filter (Subagents lists spawn/finish) |
@@ -187,7 +189,7 @@ the keys that apply now; `?` is the full list.
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
 / `h` `l` (Timeline turns) / `n` `e` (awaiting) / `N`. HUD panes are Tab
-and Ctrl+1–5; `[` `]` also scope Timeline turns (all / next). `u` or the
+and Ctrl+1–6; `[` `]` also scope Timeline turns (all / next). `u` or the
 logo leaves the open session for the session list.
 
 ### Follow-up, fork, and re-run

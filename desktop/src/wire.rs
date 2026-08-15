@@ -415,6 +415,60 @@ pub struct FindingsBlock {
     pub findings: Vec<FindingRow>,
 }
 
+/// One file in ``session/diff`` ``points[].files[]``.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffFileRow {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub added: i64,
+    #[serde(default)]
+    pub removed: i64,
+    #[serde(default)]
+    pub unified: String,
+}
+
+/// One rewind snapshot or the approximate-edits bag.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffPointRow {
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub prompt_index: Option<i64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub assistant: String,
+    #[serde(default)]
+    pub files_changed: i64,
+    #[serde(default)]
+    pub lines_added: i64,
+    #[serde(default)]
+    pub lines_removed: i64,
+    #[serde(default)]
+    pub files: Vec<DiffFileRow>,
+}
+
+/// ``session/diff`` payload.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffBlock {
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub points: Vec<DiffPointRow>,
+}
+
 /// Notes schema field (overview ``notes.schema.fields[]``).
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

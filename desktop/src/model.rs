@@ -7,27 +7,36 @@ pub enum Tab {
     Overview,
     Turns,
     Timeline,
+    Diff,
     Findings,
     Notes,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [
+    pub const ALL: [Tab; 6] = [
         Tab::Overview,
         Tab::Turns,
         Tab::Timeline,
+        Tab::Diff,
         Tab::Findings,
         Tab::Notes,
     ];
 
     /// Subagent session with one operator turn — no Turns pane.
-    pub const CHILD: &'static [Tab] = &[Tab::Overview, Tab::Timeline, Tab::Findings, Tab::Notes];
+    pub const CHILD: &'static [Tab] = &[
+        Tab::Overview,
+        Tab::Timeline,
+        Tab::Diff,
+        Tab::Findings,
+        Tab::Notes,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Tab::Overview => "Overview",
             Tab::Turns => "Turns",
             Tab::Timeline => "Timeline",
+            Tab::Diff => "Diff",
             Tab::Findings => "Findings",
             Tab::Notes => "Notes",
         }
@@ -173,9 +182,10 @@ mod tests {
         assert_eq!(KindFilter::User.short_label(), "User");
         assert_eq!(KindFilter::Asst.short_label(), "Assistant");
         assert_eq!(KindFilter::Errors.short_label(), "Errors");
+        assert_eq!(Tab::Diff.label(), "Diff");
         assert_eq!(Tab::Findings.label(), "Findings");
         assert_eq!(Tab::Notes.label(), "Notes");
-        assert_eq!(Tab::ALL.len(), 5);
+        assert_eq!(Tab::ALL.len(), 6);
         assert_eq!(KindFilter::Tools.wire_name(), "tools");
         assert_eq!(KindFilter::All.wire_name(), "");
         assert_eq!(KindFilter::All.label(), "All events");

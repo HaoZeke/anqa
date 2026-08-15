@@ -65,6 +65,7 @@ The owner accepts either and replies in the same frame the client used.
 | `session/turns` | Turn segments plus `subagentRuns` (turn-scoped child runs; `openable` + `childPath`). |
 | `session/usage` | Tool / MCP / skill usage |
 | `session/findings` | Cached analysis findings |
+| `session/diff` | Rewind snapshots or approximate `search_replace` edits (files + hunks + prompt/assistant text) |
 | `session/open` | Resolve a session and notify `session/selected` |
 | `session/render` | Project a document (`format`: below) |
 | `session/follow_up` | Stage or queue the next prompt (`session`, `prompt`, optional `final`) |

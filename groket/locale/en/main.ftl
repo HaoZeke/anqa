@@ -415,6 +415,12 @@ col-time = Time
 
 col-title = Title
 
+col-file = File
+
+col-added = +
+
+col-removed = -
+
 config-name-label = Config name
 
 config-name-placeholder = e.g. redis-memory-leak / scratch-python-cli
@@ -972,6 +978,33 @@ ui-diff = diff
 ui-diff-1 =
     Diff
     
+
+diff-filter = Snapshot
+
+diff-point-prompt = Prompt { $n }
+
+diff-point-rewind = Snapshot { $n }
+
+diff-point-edits = Approximate edits
+
+diff-point-counts = { $files } files +{ $added }/-{ $removed }
+
+diff-source-rewind = rewind snapshots
+
+diff-source-edits = search_replace edits
+
+diff-source-none = none
+
+diff-empty-files = No file changes in this snapshot
+
+diff-empty-session = No rewind snapshots or search_replace edits
+
+diff-search-placeholder = Search files and hunks
+
+diff-context-prompt = Prompt
+
+diff-context-assistant = Assistant
+ 
 
 ui-docker-1 = Docker
 

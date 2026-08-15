@@ -162,7 +162,7 @@ BROWSER: tuple[Binding, ...] = (
         _b("N", "operator_note", U.bind_note(), id="pane.notes", show=True),
         _b("O", "edit_operator_note", U.bind_edit_note(), id="session.note_edit", show=False),
         _b("a", "analyze", U.bind_analyze(), id="session.analyze", show=True),
-        _b("slash", "search", U.bind_search(), id="search.focus", show=False),
+        _b("slash", "search", U.bind_search(), id="search.focus", show=True),
         _b("c", "clear_filters", U.bind_clear_view(), id="browser.clear_filters", show=False),
         _b("i", "tab_pane_4", U.bind_findings(), id="browser.findings", show=False),
         _b("x,delete", "delete_session", U.bind_delete(), id="session.delete", show=False),

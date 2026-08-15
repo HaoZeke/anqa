@@ -116,6 +116,62 @@ where
     scored.into_iter().map(|(_, t)| t).collect()
 }
 
+/// Prefix ``> `` on the hit unified line (same mark as the TUI Diff body).
+pub fn mark_unified_hit(unified: &str, hit_line: Option<usize>) -> Vec<String> {
+    unified
+        .lines()
+        .enumerate()
+        .map(|(i, line)| {
+            if Some(i) == hit_line {
+                format!("> {line}")
+            } else {
+                format!("  {line}")
+            }
+        })
+        .collect()
+}
+
+/// Filter Diff files by path, then unified body (same order as ``groket.ui.fuzzy``).
+///
+/// Returns ``(index, line)`` where *line* is the first matching unified line
+/// for a body-only hit.
+pub fn filter_diff_hunks(query: &str, hunks: &[(String, String)]) -> Vec<(usize, Option<usize>)> {
+    let q = query.trim();
+    if q.is_empty() {
+        return (0..hunks.len()).map(|i| (i, None)).collect();
+    }
+    let mut scored: Vec<(i32, usize, Option<usize>)> = Vec::new();
+    for (i, (path, unified)) in hunks.iter().enumerate() {
+        let path_score = fzf_score(q, path);
+        if path_score > 0 {
+            scored.push((path_score, i, None));
+            continue;
+        }
+        let body_score = fzf_score(q, unified);
+        if body_score > 0 {
+            scored.push((body_score, i, first_match_line(q, unified)));
+        }
+    }
+    scored.sort_by_key(|b| std::cmp::Reverse(b.0));
+    scored.into_iter().map(|(_, i, line)| (i, line)).collect()
+}
+
+fn first_match_line(query: &str, text: &str) -> Option<usize> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    for (i, line) in text.lines().enumerate() {
+        if fzf_score(q, line) > 0 {
+            return Some(i);
+        }
+    }
+    if fzf_score(q, text) > 0 {
+        return Some(0);
+    }
+    None
+}
+
 /// Same rank as [`fuzzy_filter`], but returns source indices and does not clone *items*.
 pub fn fuzzy_filter_indices<T, F>(query: &str, items: &[T], mut text_fn: F) -> Vec<usize>
 where
@@ -273,6 +329,31 @@ mod tests {
         assert_eq!(
             fuzzy_filter_indices("", &items, |s| (*s).to_string()),
             vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn filter_diff_hunks_path_body_and_empty() {
+        let hunks = [
+            ("src/app.py".into(), "+alpha unique\n".into()),
+            ("lib/util.py".into(), "+other\n".into()),
+        ];
+        let all = filter_diff_hunks("", &hunks);
+        assert_eq!(all.len(), 2);
+        let path = filter_diff_hunks("app.py", &hunks);
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0].0, 0);
+        assert_eq!(path[0].1, None);
+        let body = filter_diff_hunks("unique", &hunks);
+        assert_eq!(body.len(), 1);
+        assert_eq!(body[0].0, 0);
+        assert!(body[0].1.is_some());
+        let marked = mark_unified_hit(&hunks[0].1, body[0].1);
+        assert!(
+            marked
+                .iter()
+                .any(|line| line.starts_with("> ") && line.contains("unique")),
+            "{marked:?}"
         );
     }
 

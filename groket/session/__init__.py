@@ -40,7 +40,11 @@ from .usage_stats import (
     format_usage_plain,
     format_usage_stats_text,
 )
-from .workspace_diff import format_diff_meta_line, load_workspace_diff
+from .workspace_diff import (
+    format_diff_meta_line,
+    load_workspace_diff,
+    load_workspace_diff_doc,
+)
 
 __all__ = [
     "DEFAULT_PROFILE_ID",
@@ -68,6 +72,7 @@ __all__ = [
     "is_under_host_grok_sessions",
     "list_export_profiles",
     "load_workspace_diff",
+    "load_workspace_diff_doc",
     "run_volume_for_session",
     "session_scan_roots",
     "work_traces_root",

@@ -33,7 +33,6 @@ from textual.widgets import (
 from ... import event_types as et
 from ...analysis.base import AnalysisResult, Finding
 from ...analysis.order import order_report_markdown_by_turn, sort_findings_by_turn
-from ...constants import DIFF_TRUNCATE_HEAD, DIFF_TRUNCATE_TAIL, DIFF_TRUNCATE_THRESHOLD
 from ...flags import load_flags, save_flags
 from ...integrations.control import ControlError
 from ...models import Flag, SessionMeta, ToolInputBag, TraceEvent
@@ -57,7 +56,7 @@ from ...session.subagents import (
     subagent_runs_for_session,
 )
 from ...session.turns import event_display_turn_map, segment_timeline_turns
-from ...session.workspace_diff import format_diff_meta_line, load_workspace_diff
+from ...session.workspace_diff import WorkspaceDiff, load_workspace_diff_doc
 from ...utils import fmt_duration
 from .. import text as U
 from ..bindings import BROWSER, ChromeActions, focus_primary_list
@@ -79,6 +78,7 @@ from ..tab_panes import TabPaneNavigation
 from ..threads import call_ui, resolve_ui_app
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
+from ..widgets.diff_view import DiffView
 from ..widgets.flag_panel import FlagModal
 from ..widgets.notes_modal import NotesModal, NotesPickModal
 from ..widgets.timeline import TimelineTable
@@ -102,15 +102,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     TAB_PANES = (
         ("tab-timeline", "#timeline-list"),
         ("tab-summary", "#summary-scroll"),
-        ("tab-diff", "#diff-scroll"),
+        ("tab-diff", "#diff-file-list"),
         ("tab-findings", "#findings-table"),
         ("tab-reports", "#reports-scroll"),
     )
+    _diff_doc: WorkspaceDiff
 
     def activate_tab_pane(self, pane_id: str, *, focus_selector: str | None = None) -> None:
         if pane_id != "tab-timeline" and self._event_reader:
             self._set_event_reader(False)
         super().activate_tab_pane(pane_id, focus_selector=focus_selector)
+        if pane_id == "tab-diff":
+            with suppress(Exception):
+                self._diff_doc = load_workspace_diff_doc(self.session_dir)
+            self._update_diff_tab()
         self.refresh_bindings()
 
     @on(TabbedContent.TabActivated, "#browser-tabs")
@@ -158,8 +163,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._notes_doc: NotesDoc = NotesDoc()
         self._notes_loaded: bool = False
         self._load_started = False
-        self._diff_md: str = ""
-        self._diff_meta: dict = {}
+        self._diff_doc = WorkspaceDiff(())
         self._timeline_filter: str = "all"
         self._timeline_search: str = ""
         self._requested_prompt_index = prompt_index
@@ -295,9 +299,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         yield Static(U.time_breakdown(), classes="panel-card-title")
                         yield DataTable(id="stats-phases-table")
             with TabPane(U.tab_diff(), id="tab-diff"):
-                with VerticalScroll(id="diff-scroll"):
-                    with Vertical(classes="panel-card"):
-                        yield SelectableStatic(id="diff-content")
+                yield DiffView(id="diff-view")
             with TabPane(U.tab_findings(), id="tab-findings"):
                 with Vertical(id="findings-panel"):
                     with Vertical(classes="panel-card"):
@@ -1389,10 +1391,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._load_notes()
             self._rebuild_indices()
             try:
-                self._diff_md, self._diff_meta = load_workspace_diff(self.session_dir)
+                self._diff_doc = load_workspace_diff_doc(self.session_dir)
             except Exception:
-                self._diff_md = "# Workspace diff\n\n_Failed to load diff._\n"
-                self._diff_meta = {}
+                self._diff_doc = WorkspaceDiff(())
             app = resolve_ui_app(self)
             # User may have left the browser while parse ran — never paint
             # a huge table onto a discarded screen (freezes the UI).
@@ -2239,34 +2240,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             pass
 
     def _update_diff_tab(self) -> None:
-        """Workspace diff: UI chrome structured; body MD when it is MD (usual)."""
-        body = self._diff_md or ""
-        meta = self._diff_meta or {}
-        if len(body) > DIFF_TRUNCATE_THRESHOLD:
-            body = (
-                body[:DIFF_TRUNCATE_HEAD]
-                + t("ui-truncated-see-rewind-points-jsonl-updates")
-                + body[-DIFF_TRUNCATE_TAIL:]
-            )
-        try:
-            widget = self.query_one("#diff-content", Static)
-        except Exception:
-            return
-        head = Text()
-        head.append(t("ui-diff-1"), style="bold")
-        head.append_text(kv_line(t("ui-source"), str(meta.get("source") or "none")))
-        extra = format_diff_meta_line(meta)
-        if extra:
-            head.append(f"  {extra}\n", style="dim")
-        blocks: list = [head, dim_rule(), section_header(t("ui-changes"))]
-        if body.strip():
-            blocks.append(content_block(body, max_chars=DIFF_TRUNCATE_THRESHOLD))
-        else:
-            blocks.append(Text(t("ui-no-diff-data"), style="dim"))
-        try:
-            widget.update(panel_group(*blocks))
-        except Exception:
-            widget.update(body or t("ui-no-diff-data-1"))
+        """Push the loaded rewind / edit doc into the Diff pane."""
+        with suppress(Exception):
+            self.query_one("#diff-view", DiffView).set_doc(self._diff_doc)
 
     def _session_id(self) -> str:
         if self.meta and self.meta.session_id:
@@ -2484,8 +2460,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             text = self._plain_from_widget_id("summary-content")
             return (text, "content" if text else "none")
         if tab == "tab-diff":
-            text = self._plain_from_widget_id("diff-content")
-            return (text, "content" if text else "none")
+            with suppress(Exception):
+                text = self.query_one("#diff-view", DiffView).selected_plain()
+                return (text, "content" if text else "none")
+            return ("", "none")
         if tab == "tab-findings":
             text = self._plain_from_widget_id("findings-header")
             return (text, "content" if text else "none")
@@ -3390,8 +3368,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._apply_timeline_filters()
         self._land_after_turn_step(keep=keep)
 
+    def _diff_view(self) -> DiffView | None:
+        with suppress(Exception):
+            return self.query_one("#diff-view", DiffView)
+        return None
+
     def action_next_turn(self) -> None:
-        """Scope Timeline to the next operator turn (first, from All)."""
+        """Next Timeline turn, or next Diff snapshot when that pane is showing."""
+        if self._active_browser_tab() == "tab-diff":
+            view = self._diff_view()
+            if view is not None:
+                view.step_point(1)
+            return
         ids = self._operator_turn_ids()
         if len(ids) < 2:
             return
@@ -3412,7 +3400,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._set_turn_filter(str(ids[i + 1]))
 
     def action_prev_turn(self) -> None:
-        """Scope Timeline to the previous operator turn (All, from the first)."""
+        """Previous Timeline turn, or previous Diff snapshot when that pane is showing."""
+        if self._active_browser_tab() == "tab-diff":
+            view = self._diff_view()
+            if view is not None:
+                view.step_point(-1)
+            return
         ids = self._operator_turn_ids()
         if len(ids) < 2:
             return
@@ -3469,6 +3462,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.query_one("#timeline-list", TimelineTable).action_cursor_up()
 
     def action_search(self) -> None:
+        if self._active_browser_tab() == "tab-diff":
+            view = self._diff_view()
+            if view is not None:
+                view.focus_search()
+            return
         self._ensure_timeline_tab()
 
         def _focus_search() -> None:
@@ -3545,6 +3543,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             focused = self.focused
             if isinstance(focused, (Input, Select)):
                 return False
+            if self._active_browser_tab() == "tab-diff":
+                view = self._diff_view()
+                return bool(view is not None and view.can_step_point())
             return self._turn_step_available()
         if action == "toggle_event_reader":
             focused = self.focused

@@ -791,6 +791,126 @@ async def test_browser_diff_tab(tmp_path: Path) -> None:
         await _activate_tab(pilot, screen, "tab-diff")
         screen._update_diff_tab()
         await pilot.pause()
+        from groket.ui.widgets.diff_view import DiffView
+        from textual.widgets import DataTable
+
+        view = screen.query_one("#diff-view", DiffView)
+        table = view.query_one("#diff-file-list", DataTable)
+        assert table.row_count == 0
+        assert view.selected_plain() == ""
+
+
+@pytest.mark.asyncio
+async def test_browser_diff_file_list_shows_rewind_files(tmp_path: Path) -> None:
+    """Diff pane lists rewind snapshot files and yanks the highlighted hunk."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    (sess / "rewind_points.jsonl").write_text(
+        json.dumps(
+            {
+                "prompt_index": 1,
+                "file_snapshots": {"app.py": "old", "extra.py": "keep"},
+                "after_snapshots": {"app.py": "new", "extra.py": "keep", "added.py": "fresh"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-diff")
+        from groket.ui.widgets.diff_view import DiffView
+        from textual.widgets import DataTable
+
+        view = screen.query_one("#diff-view", DiffView)
+        table = view.query_one("#diff-file-list", DataTable)
+        await wait_until(
+            pilot,
+            lambda: table.row_count == 2,
+            description="diff file list has two changed paths",
+        )
+        paths = {str(table.get_row_at(i)[0]) for i in range(table.row_count)}
+        assert paths == {"added.py", "app.py"}
+        table.move_cursor(row=0, animate=False)
+        await pilot.pause()
+        first = str(table.get_row_at(0)[0])
+        assert first in view.selected_plain()
+
+
+@pytest.mark.asyncio
+async def test_browser_diff_search_filters_path_and_body(tmp_path: Path) -> None:
+    """Slash search keeps a path hit and a body hit; h/l steps snapshots."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    (sess / "rewind_points.jsonl").write_text(
+        json.dumps(
+            {
+                "prompt_index": 0,
+                "file_snapshots": {"alpha.py": "old"},
+                "after_snapshots": {"alpha.py": "needle-one"},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "prompt_index": 1,
+                "file_snapshots": {"beta.py": "old", "notes.md": "keep"},
+                "after_snapshots": {
+                    "beta.py": "changed",
+                    "notes.md": "keep",
+                    "zeta.py": "needle-two",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-diff")
+        from groket.ui.widgets.diff_view import DiffView
+        from textual.widgets import DataTable, Input
+
+        view = screen.query_one("#diff-view", DiffView)
+        table = view.query_one("#diff-file-list", DataTable)
+        await wait_until(
+            pilot,
+            lambda: view.can_step_point() is True,
+            description="two rewind snapshots",
+        )
+        assert screen.check_action("prev_turn", ()) is True
+        screen.action_search()
+        await pilot.pause()
+        search = view.query_one("#diff-search", Input)
+        search.value = "zeta"
+        await wait_until(
+            pilot,
+            lambda: table.row_count == 1 and str(table.get_row_at(0)[0]) == "zeta.py",
+            description="path query keeps zeta.py",
+        )
+        assert "zeta.py" in view.selected_plain()
+        search.value = "needle-two"
+        await wait_until(
+            pilot,
+            lambda: (
+                (view.painted_hit_line() or "").startswith("> ")
+                and "needle-two" in (view.painted_hit_line() or "")
+            ),
+            description="body query paints the matching unified line",
+        )
+        painted = view.painted_hit_line() or ""
+        raw = view.selected_plain().splitlines()[view.hit_line() or 0]
+        assert painted == f"> {raw}"
+        from groket.ui.selectable_static import SelectableStatic
+
+        body = view.query_one("#diff-content", SelectableStatic).get_plain_text()
+        assert painted in body
 
 
 # ── Summary tab ──────────────────────────────────────────────────────────

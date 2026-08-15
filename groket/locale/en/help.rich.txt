@@ -31,6 +31,10 @@
 
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
+  Diff            Snapshot picker when rewind_points has more than one
+                  record; file list; / searches files and hunks; h/l steps
+                  snapshots; y copies the highlighted file
+
   h / l / Left / Right    Previous / next turn on the Timeline
   j / k                   Previous / next event on the Timeline (also Up / Down)
   v               Timeline filter (Subagents lists spawn/finish)
@@ -74,7 +78,7 @@
 The footer lists primary keys. The palette lists the rest.
 
 Desktop HUD shares ? / Esc / / / y / j k / h l (Timeline turns) / n e
-(awaiting) / N with this TUI. HUD panes are Tab and Ctrl+1-5; [ ] also
+(awaiting) / N with this TUI. HUD panes are Tab and Ctrl+1-6; [ ] also
 scope Timeline turns (all / next).
 A keys.toml remap applies on both surfaces. An overlay may set one
 leader key, then one letter (leader+X). Esc or timeout cancels.

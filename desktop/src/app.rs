@@ -152,6 +152,12 @@ pub enum Message {
     /// Enter: open the selected session (works while search is focused).
     ActivateSelected,
     TimelineSearchApply(u64),
+    DiffLoaded {
+        gen: u64,
+        result: Result<Value, String>,
+    },
+    DiffQuery(String),
+    SelectDiffFile(String),
     FindingExpand {
         id: String,
         open: bool,
@@ -318,6 +324,14 @@ pub struct Hud {
     turns_query: String,
     turns_filter: Vec<usize>,
     turns_search_id: Id,
+    diff: crate::wire::DiffBlock,
+    diff_sid: String,
+    diff_gen: u64,
+    diff_point: String,
+    diff_file: String,
+    diff_query: String,
+    diff_hit_line: Option<usize>,
+    diff_search_id: Id,
     follow_draft: String,
     follow_id: Id,
     timeline_search_gen: u64,
@@ -440,6 +454,14 @@ impl Default for Hud {
             turns_query: String::new(),
             turns_filter: vec![],
             turns_search_id: Id::new("turns-search"),
+            diff: crate::wire::DiffBlock::default(),
+            diff_sid: String::new(),
+            diff_gen: 0,
+            diff_point: String::new(),
+            diff_file: String::new(),
+            diff_query: String::new(),
+            diff_hit_line: None,
+            diff_search_id: Id::new("diff-search"),
             follow_draft: String::new(),
             follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
@@ -829,6 +851,7 @@ impl Hud {
                         }
                     }
                     Tab::Overview => Task::none(),
+                    Tab::Diff => self.load_diff(),
                     _ => Task::none(),
                 };
                 // Same as Escape in search: land on the list so j/k work.
@@ -870,6 +893,40 @@ impl Hud {
                         return self.ensure_timeline(sid, true);
                     }
                 }
+                Task::none()
+            }
+            Message::DiffLoaded { gen, result } => {
+                if gen != self.diff_gen {
+                    return Task::none();
+                }
+                match result {
+                    Ok(v) => {
+                        if let Ok(block) = serde_json::from_value::<crate::wire::DiffBlock>(v) {
+                            self.diff = block;
+                            if let Some(last) = self.diff.points.last() {
+                                if self.diff_point.is_empty()
+                                    || self.diff.points.iter().all(|p| p.key != self.diff_point)
+                                {
+                                    self.diff_point = last.key.clone();
+                                }
+                            }
+                            self.ensure_diff_file();
+                        }
+                    }
+                    Err(e) => {
+                        self.toasts.push_danger(e);
+                    }
+                }
+                Task::none()
+            }
+            Message::DiffQuery(q) => {
+                self.diff_query = q;
+                self.ensure_diff_file();
+                Task::none()
+            }
+            Message::SelectDiffFile(path) => {
+                self.diff_file = path;
+                self.refresh_diff_hit();
                 Task::none()
             }
             Message::TimelineKind(k) => {
@@ -1457,6 +1514,7 @@ impl Hud {
             child_open: !self.parent_stack.is_empty(),
             compact_child: self.compact_child_chrome(),
             turn_pick: !self.hide_events_turn_pick(),
+            diff_pick: self.tab == Tab::Diff && self.diff.points.len() > 1,
             tab: self.tab,
             leader_armed: self.leader_armed,
         }
@@ -1849,6 +1907,7 @@ impl Hud {
                 })
                 .map(|t| extract_turn(&t.label, &t.summary, &t.assistant_summary))
                 .unwrap_or_default(),
+            Tab::Diff => self.selected_diff_unified(),
             Tab::Findings => self
                 .overview
                 .as_ref()
@@ -2142,15 +2201,152 @@ impl Hud {
         self.tl_search_id.clone()
     }
 
+    pub fn diff_search_id(&self) -> Id {
+        self.diff_search_id.clone()
+    }
+
+    pub fn diff(&self) -> &crate::wire::DiffBlock {
+        &self.diff
+    }
+
+    pub fn diff_query(&self) -> &str {
+        &self.diff_query
+    }
+
+    pub fn diff_file(&self) -> &str {
+        &self.diff_file
+    }
+
+    pub fn diff_point_key(&self) -> &str {
+        &self.diff_point
+    }
+
+    pub fn diff_can_step(&self) -> bool {
+        self.diff.points.len() > 1
+    }
+
+    pub fn current_diff_point(&self) -> Option<&crate::wire::DiffPointRow> {
+        if let Some(p) = self.diff.points.iter().find(|p| p.key == self.diff_point) {
+            return Some(p);
+        }
+        self.diff.points.last()
+    }
+
+    pub fn visible_diff_files(&self) -> Vec<&crate::wire::DiffFileRow> {
+        let Some(point) = self.current_diff_point() else {
+            return Vec::new();
+        };
+        let pairs: Vec<(String, String)> = point
+            .files
+            .iter()
+            .map(|f| (f.path.clone(), f.unified.clone()))
+            .collect();
+        crate::fuzzy::filter_diff_hunks(&self.diff_query, &pairs)
+            .into_iter()
+            .filter_map(|(i, _)| point.files.get(i))
+            .collect()
+    }
+
+    pub fn diff_hit_line(&self) -> Option<usize> {
+        self.diff_hit_line
+    }
+
+    pub fn painted_hit_line(&self) -> Option<String> {
+        let unified = self.selected_diff_unified();
+        crate::fuzzy::mark_unified_hit(&unified, self.diff_hit_line)
+            .into_iter()
+            .find(|line| line.starts_with("> "))
+    }
+
     /// Search field `/` should focus: events, turns, or session switcher.
     fn search_focus_id(&self) -> Id {
         if self.browse_mode() && self.tab == Tab::Timeline {
             self.tl_search_id.clone()
         } else if self.browse_mode() && self.tab == Tab::Turns {
             self.turns_search_id.clone()
+        } else if self.browse_mode() && self.tab == Tab::Diff {
+            self.diff_search_id.clone()
         } else {
             self.search_id.clone()
         }
+    }
+
+    fn load_diff(&mut self) -> Task<Message> {
+        let Some(sid) = self.detail_sid() else {
+            return Task::none();
+        };
+        let Some(rpc_ref) = self.detail_rpc_ref() else {
+            return Task::none();
+        };
+        if sid == self.diff_sid && !self.diff.points.is_empty() {
+            self.ensure_diff_file();
+            return Task::none();
+        }
+        self.diff_sid = sid;
+        self.diff_gen = self.diff_gen.wrapping_add(1);
+        let gen = self.diff_gen;
+        Task::perform(
+            rpc(move || crate::control::session_diff(&rpc_ref)),
+            move |result| Message::DiffLoaded { gen, result },
+        )
+    }
+
+    fn ensure_diff_file(&mut self) {
+        let paths: Vec<String> = self
+            .visible_diff_files()
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
+        if !paths.iter().any(|p| p == &self.diff_file) {
+            self.diff_file = paths.first().cloned().unwrap_or_default();
+        }
+        self.refresh_diff_hit();
+    }
+
+    fn refresh_diff_hit(&mut self) {
+        let Some(point) = self.current_diff_point() else {
+            self.diff_hit_line = None;
+            return;
+        };
+        let pairs: Vec<(String, String)> = point
+            .files
+            .iter()
+            .map(|f| (f.path.clone(), f.unified.clone()))
+            .collect();
+        let hits = crate::fuzzy::filter_diff_hunks(&self.diff_query, &pairs);
+        self.diff_hit_line = hits
+            .iter()
+            .find(|(i, _)| {
+                point
+                    .files
+                    .get(*i)
+                    .is_some_and(|f| f.path == self.diff_file)
+            })
+            .and_then(|(_, line)| *line);
+    }
+
+    fn step_diff_point(&mut self, delta: i32) {
+        let keys: Vec<String> = self.diff.points.iter().map(|p| p.key.clone()).collect();
+        if keys.len() < 2 || delta == 0 {
+            return;
+        }
+        let cur = if keys.iter().any(|k| k == &self.diff_point) {
+            self.diff_point.clone()
+        } else {
+            keys.last().cloned().unwrap_or_default()
+        };
+        let i = keys.iter().position(|k| k == &cur).unwrap_or(0);
+        let nxt = (i as i32 + delta).clamp(0, keys.len() as i32 - 1) as usize;
+        self.diff_point = keys[nxt].clone();
+        self.diff_file.clear();
+        self.ensure_diff_file();
+    }
+
+    fn selected_diff_unified(&self) -> String {
+        self.current_diff_point()
+            .and_then(|p| p.files.iter().find(|f| f.path == self.diff_file))
+            .map(|f| f.unified.clone())
+            .unwrap_or_default()
     }
 
     fn focus_context_search(&mut self) -> Task<Message> {
@@ -2687,6 +2883,13 @@ impl Hud {
         self.overview_pending = sid.clone();
         self.turns_focus = None;
         self.turns_query.clear();
+        if sid != self.diff_sid {
+            self.diff = crate::wire::DiffBlock::default();
+            self.diff_sid.clear();
+            self.diff_point.clear();
+            self.diff_file.clear();
+            self.diff_query.clear();
+        }
         self.overview_gen += 1;
         let gen = self.overview_gen;
         Task::perform(
@@ -4120,6 +4323,16 @@ impl Hud {
         }
         // Events turn scope: h / l / Left / Right (shared). HUD `]` is
         // the same next-turn step; `[` clears to all turns.
+        if self.tab == Tab::Diff && self.diff.points.len() > 1 {
+            if self.key_is("events.next_turn", "l,right", &key, modifiers) {
+                self.step_diff_point(1);
+                return Task::none();
+            }
+            if self.key_is("events.prev_turn", "h,left", &key, modifiers) {
+                self.step_diff_point(-1);
+                return Task::none();
+            }
+        }
         if self.tab == Tab::Timeline && !self.hide_events_turn_pick() {
             let next_turn = self.key_is("events.next_turn", "l,right", &key, modifiers)
                 || self.key_is("events.scope_next", "right_square_bracket", &key, modifiers);
@@ -4158,7 +4371,7 @@ impl Hud {
         {
             return self.select_all_text();
         }
-        // Tab / Shift+Tab: cycle browse panes (same as Ctrl+1…5). Not iced widget
+        // Tab / Shift+Tab: cycle browse panes (same as Ctrl+1…6). Not iced widget
         // focus soup — session search is only for Spotlight (type to switch).
         if matches!(key, Key::Named(Named::Tab))
             && !modifiers.alt()
@@ -4224,6 +4437,25 @@ impl Hud {
             Tab::Turns => self.nav_turns_step(delta),
             Tab::Timeline if self.timeline_open.is_none() => self.nav_timeline_step(delta),
             Tab::Timeline => self.nav_timeline_detail_step(delta),
+            Tab::Diff => {
+                let files = self.visible_diff_files();
+                if files.is_empty() {
+                    return Task::none();
+                }
+                let i = files
+                    .iter()
+                    .position(|f| f.path == self.diff_file)
+                    .unwrap_or(0);
+                let n = files.len();
+                let nxt = if delta > 0 {
+                    (i + 1).min(n - 1)
+                } else {
+                    i.saturating_sub(1)
+                };
+                self.diff_file = files[nxt].path.clone();
+                self.refresh_diff_hit();
+                Task::none()
+            }
             _ => Task::none(),
         }
     }
@@ -4509,7 +4741,7 @@ impl Hud {
                 }
                 Task::none()
             }
-            Tab::Findings | Tab::Notes => Task::none(),
+            Tab::Diff | Tab::Findings | Tab::Notes => Task::none(),
         }
     }
 }
@@ -4662,7 +4894,7 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
             .with_shortcut(Shortcut::parse("?").expect("?")),
     );
     let overlay = crate::keys::process_overlay();
-    for n in 1u8..=5 {
+    for n in 1u8..=crate::model::Tab::ALL.len() as u8 {
         let spec = overlay.hud_spec(&format!("pane.{n}"), &format!("ctrl+{n}"));
         let parsed = Shortcut::parse(&spec).expect("pane chord");
         table.insert(
@@ -7292,6 +7524,108 @@ mod tests {
                 ..SessionRow::default()
             }],
             ..Hud::default()
+        }
+    }
+
+    #[test]
+    fn diff_query_filters_visible_files_and_scope_includes_search() {
+        let mut hud = Hud::default();
+        hud.overview_pending = "s1".into();
+        hud.tab = Tab::Diff;
+        hud.diff = crate::wire::DiffBlock {
+            points: vec![crate::wire::DiffPointRow {
+                key: "0".into(),
+                files: vec![
+                    crate::wire::DiffFileRow {
+                        path: "a.py".into(),
+                        unified: "+alpha\n".into(),
+                        ..crate::wire::DiffFileRow::default()
+                    },
+                    crate::wire::DiffFileRow {
+                        path: "b.py".into(),
+                        unified: "+beta unique\n".into(),
+                        ..crate::wire::DiffFileRow::default()
+                    },
+                ],
+                ..crate::wire::DiffPointRow::default()
+            }],
+            ..crate::wire::DiffBlock::default()
+        };
+        hud.diff_point = "0".into();
+        assert_eq!(hud.visible_diff_files().len(), 2);
+        let _ = hud.update(Message::DiffQuery("a.py".into()));
+        let paths: Vec<&str> = hud
+            .visible_diff_files()
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(paths, vec!["a.py"]);
+        let _ = hud.update(Message::DiffQuery("unique".into()));
+        let paths: Vec<&str> = hud
+            .visible_diff_files()
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(paths, vec!["b.py"]);
+        assert!(hud.diff_hit_line().is_some());
+        let painted = hud.painted_hit_line().expect("marked hit line");
+        assert!(painted.starts_with("> "), "{painted}");
+        assert!(painted.contains("unique"), "{painted}");
+        let scope = hud.key_scope();
+        assert_eq!(scope.tab, Tab::Diff);
+        let hints = crate::help::footer_table(scope).footer_hints();
+        let blob = hints.join("  ·  ");
+        assert!(blob.contains("/ search"), "{blob}");
+    }
+
+    #[test]
+    fn diff_nav_step_repaints_hit_on_the_new_file() {
+        let mut hud = Hud::default();
+        hud.overview_pending = "s1".into();
+        hud.tab = Tab::Diff;
+        hud.diff = crate::wire::DiffBlock {
+            points: vec![crate::wire::DiffPointRow {
+                key: "0".into(),
+                files: vec![
+                    crate::wire::DiffFileRow {
+                        path: "a.py".into(),
+                        unified: "@@\n-old\n+common-needle\n".into(),
+                        ..crate::wire::DiffFileRow::default()
+                    },
+                    crate::wire::DiffFileRow {
+                        path: "b.py".into(),
+                        unified: "@@\n-x\n-y\n-z\n+common-needle\n".into(),
+                        ..crate::wire::DiffFileRow::default()
+                    },
+                ],
+                ..crate::wire::DiffPointRow::default()
+            }],
+            ..crate::wire::DiffBlock::default()
+        };
+        hud.diff_point = "0".into();
+        let _ = hud.update(Message::DiffQuery("common-needle".into()));
+        assert_eq!(hud.visible_diff_files().len(), 2);
+        let first = hud.painted_hit_line().expect("hit on first file");
+        assert!(first.contains("common-needle"), "{first}");
+        let first_file = hud.diff_file().to_string();
+        let _ = hud.nav_step(1);
+        assert_ne!(hud.diff_file(), first_file, "j steps to the next file");
+        let second = hud.painted_hit_line().expect("hit on second file");
+        assert!(second.starts_with("> "), "{second}");
+        assert!(
+            second.contains("common-needle"),
+            "stale line would mark -y: {second}"
+        );
+    }
+
+    #[test]
+    fn chrome_key_table_registers_every_pane_digit() {
+        let table = chrome_key_table();
+        for n in 1u8..=crate::model::Tab::ALL.len() as u8 {
+            assert!(
+                table.get(&format!("pane.{n}")).is_some(),
+                "missing pane.{n}"
+            );
         }
     }
 

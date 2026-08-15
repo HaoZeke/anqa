@@ -476,7 +476,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     } else {
         match hud.tab() {
             Tab::Overview => overview_tab(hud),
-            Tab::Turns | Tab::Timeline => column![].into(),
+            Tab::Turns | Tab::Timeline | Tab::Diff => column![].into(),
             Tab::Findings => findings_tab(hud),
             Tab::Notes => notes_tab(hud),
         }
@@ -499,6 +499,16 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
         stack = stack.push(page_body(
             container(turns_tab(hud))
+                .padding([16, 20])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            hud,
+            tea,
+        ));
+    } else if hud.tab() == Tab::Diff && hud.overview().is_some() {
+        stack = stack.push(page_body(
+            container(diff_tab(hud))
                 .padding([16, 20])
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -1669,6 +1679,142 @@ fn neighbor_link(
             .into(),
         &A11y::button(hint),
     )
+}
+
+fn diff_tab(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.body_tokens();
+    let mut col = column![diff_filter(hud)].spacing(10).height(Length::Fill);
+    let files = hud.visible_diff_files();
+    if files.is_empty() {
+        col = col.push(icedtea::pattern::status_page(
+            "No file changes",
+            "Grok rewind snapshots or search_replace edits for this session.",
+            None,
+            tea,
+        ));
+        return col.into();
+    }
+    let mut list = column![].spacing(4).width(Length::Fixed(280.0));
+    for f in &files {
+        let selected = f.path == hud.diff_file();
+        let path = f.path.clone();
+        let meta = format!("+{} / -{}", f.added, f.removed);
+        list = list.push(
+            mouse_area(
+                container(
+                    column![
+                        text(f.path.clone()).size(typo::BODY).color(tea.text),
+                        text(meta).size(typo::META).color(tea.muted),
+                    ]
+                    .spacing(2),
+                )
+                .padding(10)
+                .width(Length::Fill)
+                .style(move |_| icedtea::style::card(tea, selected)),
+            )
+            .on_press(Message::SelectDiffFile(path)),
+        );
+    }
+    let body = diff_body(hud, tea);
+    col.push(
+        row![
+            list,
+            icedtea::widget::themed_scroll(
+                body,
+                tea,
+                A11y::new("Diff body", Role::Group),
+                false,
+                None,
+                None::<fn(_) -> Message>,
+            )
+        ]
+        .spacing(12)
+        .height(Length::Fill),
+    )
+    .into()
+}
+
+fn diff_filter(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.tokens();
+    let mut bar = row![kit::search_field(
+        "Search files and hunks",
+        hud.diff_query(),
+        Message::DiffQuery,
+        None,
+        tea,
+        A11y::new("Search diff", Role::TextBox),
+        Some(hud.diff_search_id()),
+    )]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    if let Some(p) = hud.current_diff_point() {
+        let label = p
+            .prompt_index
+            .map(|n| format!("Prompt {n}"))
+            .unwrap_or_else(|| {
+                if p.source == "search_replace" {
+                    "Approximate edits".into()
+                } else {
+                    format!("Snapshot {}", p.key)
+                }
+            });
+        bar = bar.push(text(label).size(typo::META).color(tea.muted));
+    }
+    container(bar)
+        .width(Length::Fill)
+        .padding(Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: 8.0,
+            left: 0.0,
+        })
+        .into()
+}
+
+fn diff_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
+    let mut col = column![].spacing(8).width(Length::Fill);
+    if let Some(p) = hud.current_diff_point() {
+        if !p.prompt.trim().is_empty() {
+            col = col.push(text("Prompt").size(typo::META).color(tea.muted));
+            col = col.push(text(p.prompt.clone()).size(typo::BODY).color(tea.text));
+        }
+        if !p.assistant.trim().is_empty() {
+            col = col.push(text("Assistant").size(typo::META).color(tea.muted));
+            col = col.push(text(p.assistant.clone()).size(typo::BODY).color(tea.muted));
+        }
+    }
+    let unified = hud
+        .current_diff_point()
+        .and_then(|p| p.files.iter().find(|f| f.path == hud.diff_file()))
+        .map(|f| f.unified.as_str())
+        .unwrap_or("");
+    col = col.push(paint_unified(unified, tea, hud.diff_hit_line()));
+    col.into()
+}
+
+fn paint_unified(
+    unified: &str,
+    tea: icedtea::theme::Tokens,
+    hit: Option<usize>,
+) -> Element<'static, Message> {
+    let mut col = column![].spacing(1);
+    for line in crate::fuzzy::mark_unified_hit(unified, hit) {
+        let hit_row = line.starts_with("> ");
+        let core = line.get(2..).unwrap_or(line.as_str());
+        let color = if hit_row {
+            tea.primary
+        } else if core.starts_with('+') && !core.starts_with("+++") {
+            tea.success
+        } else if core.starts_with('-') && !core.starts_with("---") {
+            tea.danger
+        } else if core.starts_with("@@") || core.starts_with("+++") || core.starts_with("---") {
+            tea.muted
+        } else {
+            tea.text
+        };
+        col = col.push(text(line).size(typo::META).font(typo::MONO).color(color));
+    }
+    col.into()
 }
 
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {

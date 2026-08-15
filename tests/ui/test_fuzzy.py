@@ -5,7 +5,10 @@ from __future__ import annotations
 from groket.ui.fuzzy import (
     _char_bonus,
     _fzf_score,
+    filter_diff_hunks,
+    first_match_line,
     fzf_match,
+    mark_unified_hit,
     split_tokens,
 )
 from rich.text import Text
@@ -92,6 +95,34 @@ class TestFzfMatch:
 
 
 # ── split_tokens ─────────────────────────────────────────────────────────
+
+
+class TestFilterDiffHunks:
+    def test_empty_query_keeps_all(self) -> None:
+        hunks = [("a.py", "+foo"), ("b.py", "+bar")]
+        hits = filter_diff_hunks("", hunks)
+        assert [h[0] for h in hits] == ["a.py", "b.py"]
+        assert all(h[2] is None and h[3] == "path" for h in hits)
+
+    def test_path_query_keeps_matching_file(self) -> None:
+        hunks = [("src/app.py", "+alpha"), ("lib/util.py", "+beta")]
+        hits = filter_diff_hunks("app.py", hunks)
+        assert [h[0] for h in hits] == ["src/app.py"]
+        assert hits[0][3] == "path"
+        assert hits[0][2] is None
+
+    def test_body_query_keeps_hunk_and_line(self) -> None:
+        hunks = [
+            ("a.py", "@@\n-old\n+alpha unique\n"),
+            ("b.py", "@@\n-old\n+other\n"),
+        ]
+        hits = filter_diff_hunks("unique", hunks)
+        assert [h[0] for h in hits] == ["a.py"]
+        assert hits[0][3] == "body"
+        assert hits[0][2] == first_match_line("unique", hunks[0][1])
+        assert hits[0][2] is not None
+        marked = mark_unified_hit(hunks[0][1], hits[0][2])
+        assert any(line.startswith("> ") and "unique" in line for line in marked.splitlines())
 
 
 class TestSplitTokens:

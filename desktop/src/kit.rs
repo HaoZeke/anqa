@@ -338,6 +338,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: crate::model::Tab::Timeline,
             leader_armed: false,
         });
@@ -353,6 +354,7 @@ mod tests {
                 child_open: false,
                 compact_child: false,
                 turn_pick: false,
+                diff_pick: false,
                 tab: crate::model::Tab::Overview,
                 leader_armed: false,
             }),
@@ -382,6 +384,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: crate::model::Tab::Overview,
             leader_armed: false,
         });

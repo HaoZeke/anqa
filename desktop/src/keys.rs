@@ -131,6 +131,12 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
+        id: "pane.6",
+        scope: "browser",
+        default: "ctrl+6",
+        remappable: true,
+    },
+    CatalogRow {
         id: "events.prev_turn",
         scope: "browser",
         default: "h,left",

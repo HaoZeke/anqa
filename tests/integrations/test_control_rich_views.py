@@ -75,6 +75,7 @@ async def test_control_session_get_timeline_turns_usage(tmp_path: Path) -> None:
         assert "session/timeline" in caps
         assert "session/turns" in caps
         assert "session/usage" in caps
+        assert "session/diff" in caps
 
         got = await client.session_get(session_dir.name)
         assert got["sessionId"] == session_dir.name

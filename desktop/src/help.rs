@@ -22,6 +22,8 @@ pub struct KeyScope {
     pub compact_child: bool,
     /// Events turn pick is shown (more than one turn).
     pub turn_pick: bool,
+    /// Diff snapshot pick (more than one rewind record).
+    pub diff_pick: bool,
     pub tab: Tab,
     pub leader_armed: bool,
 }
@@ -189,7 +191,7 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
     );
     if scope.timeline_detail {
         push(&mut table, overlay, "list.down", "Step", "j", Message::Noop);
-    } else if matches!(scope.tab, Tab::Turns | Tab::Timeline) {
+    } else if matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff) {
         push(&mut table, overlay, "list.down", "Down", "j", Message::Noop);
     }
     if matches!(scope.tab, Tab::Overview | Tab::Turns | Tab::Timeline) {
@@ -213,7 +215,9 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             Message::Noop,
         );
     }
-    if scope.tab == Tab::Timeline && scope.turn_pick {
+    if (scope.tab == Tab::Timeline && scope.turn_pick)
+        || (scope.tab == Tab::Diff && scope.diff_pick)
+    {
         push(
             &mut table,
             overlay,
@@ -299,7 +303,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::ActivateSelected,
         );
     }
-    if !scope.browse || matches!(scope.tab, Tab::Turns | Tab::Timeline) {
+    if !scope.browse || matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff) {
         push(
             &mut table,
             overlay,
@@ -401,7 +405,9 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::SetTab(Tab::Notes),
         );
     }
-    if scope.tab == Tab::Timeline && scope.turn_pick {
+    if (scope.tab == Tab::Timeline && scope.turn_pick)
+        || (scope.tab == Tab::Diff && scope.diff_pick)
+    {
         push(
             &mut table,
             overlay,
@@ -461,6 +467,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         }
@@ -476,6 +483,7 @@ mod tests {
         assert!(table.get("list.up").is_some());
         assert!(table.get("pane.1").is_some());
         assert!(table.get("pane.5").is_some());
+        assert!(table.get("pane.6").is_some());
         assert!(table.get("session.done").is_none());
         assert!(table.get("edit.copy").is_some());
         assert!(table.get("search.focus").is_some());
@@ -507,6 +515,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         });
@@ -526,6 +535,26 @@ mod tests {
             "{blob}"
         );
 
+        let diff = footer_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            diff_pick: true,
+            tab: Tab::Diff,
+            leader_armed: false,
+        });
+        let dblob = diff.footer_hints().join("  ·  ");
+        assert!(dblob.contains("/ search"), "{dblob}");
+        assert!(dblob.contains("j down"), "{dblob}");
+        assert!(
+            diff.footer_hints().iter().any(|h| h.starts_with("h ")),
+            "{dblob}"
+        );
+
         let turns = footer_table(KeyScope {
             browse: true,
             help_open: false,
@@ -534,6 +563,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Turns,
             leader_armed: false,
         });
@@ -549,6 +579,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: Tab::Findings,
             leader_armed: false,
         });
@@ -568,6 +599,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
         });
@@ -583,6 +615,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
         });
@@ -604,6 +637,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
         })
@@ -624,6 +658,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         })
@@ -639,6 +674,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
         });
@@ -658,6 +694,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: Tab::Turns,
             leader_armed: false,
         });
@@ -676,6 +713,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
         });
@@ -699,6 +737,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         });
@@ -714,6 +753,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            diff_pick: false,
             tab: Tab::Findings,
             leader_armed: false,
         });
@@ -735,6 +775,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         });
@@ -756,6 +797,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: true,
         };
@@ -788,6 +830,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         };
@@ -826,6 +869,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
         };

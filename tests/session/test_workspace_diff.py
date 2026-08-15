@@ -10,6 +10,7 @@ from groket.session.workspace_diff import (
     _unified_diff,
     format_diff_meta_line,
     load_workspace_diff,
+    load_workspace_diff_doc,
 )
 
 # ── _snap_map ────────────────────────────────────────────────────────────
@@ -89,6 +90,35 @@ class TestFormatDiffMetaLine:
 
 
 class TestLoadWorkspaceDiff:
+    def test_rewind_points_keeps_every_snapshot(self, tmp_path: Path):
+        sd = tmp_path / "session"
+        sd.mkdir()
+        first = {
+            "prompt_index": 0,
+            "file_snapshots": {"a.py": "one"},
+            "after_snapshots": {"a.py": "two"},
+        }
+        second = {
+            "prompt_index": 2,
+            "created_at": "2026-08-15T12:00:00Z",
+            "file_snapshots": {"a.py": "two", "b.py": "old"},
+            "after_snapshots": {"a.py": "two", "b.py": "new"},
+        }
+        (sd / "rewind_points.jsonl").write_text(
+            json.dumps(first) + "\n" + json.dumps(second) + "\n"
+        )
+        doc = load_workspace_diff_doc(sd)
+        assert len(doc.points) == 2
+        assert doc.points[0].prompt_index == 0
+        assert [h.path for h in doc.points[0].files] == ["a.py"]
+        assert doc.points[1].prompt_index == 2
+        assert [h.path for h in doc.points[1].files] == ["b.py"]
+        body, meta = load_workspace_diff(sd)
+        assert meta["source"] == "rewind_points"
+        assert meta["files_changed"] == 1
+        assert "b.py" in body
+        assert "a.py" not in body
+
     def test_rewind_points_file_changes(self, tmp_path: Path):
         sd = tmp_path / "session"
         sd.mkdir()
@@ -145,6 +175,10 @@ class TestLoadWorkspaceDiff:
         assert meta["source"] == "search_replace"
         assert meta["files_changed"] == 1
         assert "main.py" in body
+        doc = load_workspace_diff_doc(sd)
+        assert len(doc.points) == 1
+        assert doc.points[0].source == "search_replace"
+        assert doc.points[0].files[0].path == "main.py"
 
     def test_empty_session(self, tmp_path: Path):
         sd = tmp_path / "session"
@@ -184,6 +218,44 @@ class TestLoadWorkspaceDiff:
         (sd / "updates.jsonl").write_text("not json\n{bad}\n")
         body, meta = load_workspace_diff(sd)
         assert meta["source"] is None
+
+    def test_search_replace_groups_edits_by_path(self, tmp_path: Path):
+        sd = tmp_path / "session"
+        sd.mkdir()
+        updates = [
+            {
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "title": "search_replace",
+                        "rawInput": {
+                            "file_path": "main.py",
+                            "old_string": "a",
+                            "new_string": "b",
+                        },
+                    }
+                }
+            },
+            {
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "title": "search_replace",
+                        "rawInput": {
+                            "file_path": "main.py",
+                            "old_string": "b",
+                            "new_string": "c",
+                        },
+                    }
+                }
+            },
+        ]
+        (sd / "updates.jsonl").write_text("\n".join(json.dumps(u) for u in updates) + "\n")
+        doc = load_workspace_diff_doc(sd)
+        assert len(doc.points) == 1
+        assert len(doc.points[0].files) == 1
+        assert doc.points[0].files[0].path == "main.py"
+        assert doc.points[0].files[0].kind == "edit"
 
     def test_search_replace_target_file_key(self, tmp_path: Path):
         """Fallback rawInput key 'target_file' works."""

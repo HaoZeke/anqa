@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from groket.session.control_views import (
+    build_session_diff,
     build_session_findings,
     build_session_get,
     build_session_overview,
@@ -501,3 +502,25 @@ def test_timeline_query_page_matches_full_fixture_prefix(tmp_path: Path) -> None
     for ev in full["events"]:
         assert ev.get("matchField")
         assert "needle-token" in str(ev.get("matchSnippet") or "").casefold()
+
+
+def test_build_session_diff_lists_rewind_files(tmp_path: Path) -> None:
+    sd = tmp_path / "sess-diff"
+    sd.mkdir()
+    (sd / "rewind_points.jsonl").write_text(
+        json.dumps(
+            {
+                "prompt_index": 1,
+                "file_snapshots": {"app.py": "old"},
+                "after_snapshots": {"app.py": "new"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload = build_session_diff(sd)
+    assert payload["source"] == "rewind_points"
+    assert len(payload["points"]) == 1
+    files = payload["points"][0]["files"]
+    assert files[0]["path"] == "app.py"
+    assert "app.py" in files[0]["unified"]

@@ -670,7 +670,7 @@ does not launch evals, open Jobs, run analysis, export, flag, or delete.
 | ``J`` | Jobs / logs |
 | ``Ctrl+P`` | Command palette |
 | ``F5`` / ``Ctrl+R`` | Refresh |
-| ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–5**) |
+| ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–6**) |
 | ``a`` | Analyze |
 | ``E`` | Export bundle |
 | ``f`` | Flag (browser) / fork (sessions home) |
@@ -681,12 +681,12 @@ does not launch evals, open Jobs, run analysis, export, flag, or delete.
 | ``s`` / ``space`` | Multi-select |
 
 **HUD only** — ``[`` / ``]`` are Timeline turn scope, so they cannot be
-panes. Digits type into search, so pane jump is **Ctrl+1–5**.
+panes. Digits type into search, so pane jump is **Ctrl+1–6**.
 
 | Key | Action |
 |-----|--------|
 | ``Tab`` / ``Shift+Tab`` | Next / previous browse pane |
-| ``Ctrl+1``…``Ctrl+5`` | Jump Overview … Notes |
+| ``Ctrl+1``…``Ctrl+6`` | Jump Overview … Notes (Diff is pane 4) |
 | ``[`` | Timeline: all turns |
 | ``]`` | Timeline: next turn (same as ``l``) |
 | ``g`` | Turns → Timeline for the focused turn |

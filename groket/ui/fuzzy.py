@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 from rich.style import Style
 from rich.text import Text
@@ -85,6 +86,58 @@ def _highlight(text: str, positions: list[int]) -> Text:
 def split_tokens(query: str) -> list[str]:
     """Split a query into tokens on boundary characters."""
     return [t for t in re.split("[_\\-./\\s]+", query) if len(t) >= 2]
+
+
+def mark_unified_hit(unified: str, hit_line: int | None) -> str:
+    """Prefix ``> `` on the hit unified line so the open hunk shows the land."""
+    lines = (unified or "").splitlines()
+    if not lines:
+        return ""
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        mark = "> " if hit_line is not None and i == hit_line else "  "
+        out.append(f"{mark}{line}")
+    return "\n".join(out)
+
+
+def first_match_line(query: str, text: str) -> int | None:
+    """0-based line of the first fuzzy hit in *text*, or ``None``."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    for i, line in enumerate((text or "").splitlines()):
+        score, _ = _fzf_score(q, line)
+        if score > 0:
+            return i
+    score, _ = _fzf_score(q, text or "")
+    return 0 if score > 0 else None
+
+
+def filter_diff_hunks(
+    query: str, hunks: Sequence[tuple[str, str]]
+) -> list[tuple[str, float, int | None, str]]:
+    """Rank Diff files by path, then unified body, with the catalog fzf scorer.
+
+    *hunks* is ``(path, unified)``. Empty *query* keeps every file in order.
+    A path hit has ``line is None`` and ``where == "path"``. A body-only hit
+    sets ``line`` to the first matching unified line and ``where == "body"``.
+
+    :returns: ``(path, score, line, where)`` highest score first.
+    """
+    q = (query or "").strip()
+    if not q:
+        return [(path, 0.0, None, "path") for path, _unified in hunks]
+    hits: list[tuple[str, float, int | None, str]] = []
+    for path, unified in hunks:
+        path_score, _ = _fzf_score(q, path)
+        if path_score > 0:
+            hits.append((path, float(path_score), None, "path"))
+            continue
+        body_score, _ = _fzf_score(q, unified)
+        if body_score > 0:
+            hits.append((path, float(body_score), first_match_line(q, unified), "body"))
+    hits.sort(key=lambda row: -row[1])
+    return hits
 
 
 def fzf_match(query: str, candidate: str) -> tuple[float, Text]:

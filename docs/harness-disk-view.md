@@ -119,7 +119,7 @@ Requires the `grok` binary `--resume` / `--fork-session`.
 
 | Outcome | Artifact | Module |
 |---|---|---|
-| Preferred diff | Last `rewind_points.jsonl` object: `prompt_index`, `created_at`, `file_snapshots`, `after_snapshots` (path → `{path, content}`) | `session/workspace_diff.py` |
+| Preferred diff | Each `rewind_points.jsonl` object: `prompt_index`, `created_at`, `file_snapshots`, `after_snapshots` (path → `{path, content}`) | `session/workspace_diff.py` |
 | Fallback | `updates.jsonl` `tool_call` / `tool_call_update` with Grok `search_replace` | same |
 | Line counts | `signals.json` `agentLinesAdded` / `agentLinesRemoved` | `parser._load_signals` |
 

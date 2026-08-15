@@ -482,6 +482,10 @@ pub fn session_done(session: &str) -> Result<Value, ControlError> {
     request("session/done", json!({ "session": session }))
 }
 
+pub fn session_diff(session: &str) -> Result<Value, ControlError> {
+    request("session/diff", json!({ "session": session }))
+}
+
 pub fn notes_upsert(
     session: &str,
     note: Value,

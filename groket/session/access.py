@@ -29,6 +29,7 @@ from ..session.control_views import (
     DEFAULT_TIMELINE_LIMIT,
     MAX_CONTENT_CHARS,
     MAX_TIMELINE_LIMIT,
+    build_session_diff,
     build_session_findings,
     build_session_get,
     build_session_overview,
@@ -266,6 +267,10 @@ class LocalSessionAccess:
         lim = 80 if limit is None else max(0, min(int(limit), 200))
         return build_session_findings(self.require_session(session), limit=lim)
 
+    def session_diff(self, session: str) -> JsonObject:
+        """Rewind snapshots or approximate ``search_replace`` edits."""
+        return build_session_diff(self.require_session(session))
+
     def session_follow_up(self, session: str, prompt: str, *, final: bool = False) -> JsonObject:
         """Stage or queue a follow-up prompt on the session gate."""
         path = self.require_session(session)
@@ -447,6 +452,9 @@ class RemoteSessionAccess:
 
     async def session_findings(self, session: str, *, limit: int | None = None) -> JsonObject:
         return await self._client.session_findings(session, limit=limit)
+
+    async def session_diff(self, session: str) -> JsonObject:
+        return await self._client.session_diff(session)
 
     async def session_follow_up(
         self, session: str, prompt: str, *, final: bool = False

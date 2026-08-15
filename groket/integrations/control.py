@@ -89,6 +89,7 @@ CAPABILITIES = (
     "session/turns",
     "session/usage",
     "session/findings",
+    "session/diff",
     "session/open",
     "session/render",
     "notes/list",
@@ -905,6 +906,9 @@ class ControlServer:
             ref = self._session_ref(params)
             raw_lim = _optional_int_param(params.get("limit"), name="limit")
             return await self._access_call(ref, access.session_findings, ref, limit=raw_lim)
+        if method == "session/diff":
+            ref = self._session_ref(params)
+            return await self._access_call(ref, access.session_diff, ref)
         if method == "session/render":
             fmt = json_as_str(params.get("format")).strip().lower() or "org"
             if fmt not in SUPPORTED_FORMATS:
