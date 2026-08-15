@@ -1471,12 +1471,11 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     let (_, ev_marks) = hud.card_marks();
     let tea = hud.tokens();
     let source = hud.timeline_events();
-    let cover = hud.timeline_focus_pos();
     let list = icedtea::widget::virtual_column(
         hud.timeline_heights(),
         hud.timeline_window(),
         TIMELINE_OVERSCAN,
-        cover,
+        None,
         Message::TimelineScroll,
         Some(hud.timeline_scroll_id()),
         tea,

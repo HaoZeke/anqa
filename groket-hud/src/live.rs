@@ -181,6 +181,27 @@ pub fn list_scroll_to_top(heights: &[f32], active: usize, view_h: f32) -> f32 {
     clamp_scroll(top, content, view_h)
 }
 
+/// After a wheel scroll, move list highlight to a row still in the viewport.
+///
+/// Returns ``None`` when focus is already on screen (or the list is empty).
+pub fn list_focus_after_scroll(
+    focus_pos: Option<usize>,
+    scroll: f32,
+    viewport: f32,
+    heights: &[f32],
+) -> Option<usize> {
+    let pos = focus_pos?;
+    let vis = icedtea::collection::visible_range_var(scroll, viewport, heights);
+    if vis.is_empty() || vis.contains(&pos) {
+        return None;
+    }
+    Some(if pos < vis.start {
+        vis.start
+    } else {
+        vis.end.saturating_sub(1)
+    })
+}
+
 /// Second line for an icedtea session row (status, model, context).
 pub fn session_row_meta(row: &SessionRow) -> String {
     let status = crate::format::list_status_label(&row.status, &row.outcome);
@@ -1332,6 +1353,25 @@ mod tests {
         assert_eq!(y, (content - view_h).max(0.0));
         let top: f32 = heights.iter().take(n - 1).copied().sum();
         assert!(y + view_h + f32::EPSILON >= top + row);
+    }
+
+    #[test]
+    fn list_focus_after_scroll_snaps_to_first_visible_row() {
+        let heights = vec![92.0; 20];
+        let view_h = 200.0;
+        let scroll = 92.0 * 8.0;
+        assert_eq!(
+            list_focus_after_scroll(Some(0), scroll, view_h, &heights),
+            Some(8)
+        );
+        assert_eq!(
+            list_focus_after_scroll(Some(8), scroll, view_h, &heights),
+            None
+        );
+        assert_eq!(
+            list_focus_after_scroll(Some(19), scroll, view_h, &heights),
+            Some(10)
+        );
     }
 
     #[test]

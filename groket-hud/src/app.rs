@@ -23,12 +23,12 @@ use crate::format::{
 use crate::fuzzy::session_search_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
-    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_scroll_to_cover,
-    list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
-    next_spotlight_limit, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
-    plan_tick, previous_timeline_page, scroll_after_prepend, session_card_height,
-    session_needs_live_poll, session_row_meta, session_rpc_ref, should_fetch_timeline,
-    should_load_previous_timeline, should_page_recent, spotlight_recent,
+    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_focus_after_scroll,
+    list_scroll_to_cover, list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index,
+    next_list_offset, next_spotlight_limit, notes_schema_fields, patch_catalog_delta,
+    patch_list_row_from_meta, plan_tick, previous_timeline_page, scroll_after_prepend,
+    session_card_height, session_needs_live_poll, session_row_meta, session_rpc_ref,
+    should_fetch_timeline, should_load_previous_timeline, should_page_recent, spotlight_recent,
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
     trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, CLOSED_TURN_CARD_H,
     IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
@@ -949,9 +949,16 @@ impl Hud {
             }
             Message::TimelineScroll(win) => {
                 self.tl_window = win;
-                if let Some(pos) = self.timeline_focus_pos() {
-                    if !icedtea::collection::row_is_mounted(self.tl_window, pos) {
-                        self.timeline_focus = None;
+                if let Some(dest) = list_focus_after_scroll(
+                    self.timeline_focus_pos(),
+                    self.tl_window.scroll,
+                    self.tl_window.viewport,
+                    &self.tl_heights,
+                ) {
+                    if let Some(&src) = self.tl_filter.get(dest) {
+                        if let Some(ev) = self.timeline.get(src) {
+                            self.timeline_focus = Some(ev.index);
+                        }
                     }
                 }
                 if should_load_previous_timeline(
@@ -5867,6 +5874,31 @@ mod tests {
         );
         assert!(hud.overview_gen > gen_before || !hud.overview_pending.is_empty());
         assert_eq!(hud.overview_pending, "visible");
+    }
+
+    #[test]
+    fn timeline_scroll_keeps_selection_in_the_viewport() {
+        let mut hud = hud_with_session();
+        let events: Vec<Value> = (0..20).map(|i| ev_json(i, "e")).collect();
+        load_page(&mut hud, 0, false, true, events, 20, 0);
+        hud.timeline_focus = Some(0);
+        hud.tl_window.viewport = 200.0;
+        let mut win = icedtea::collection::VisibleWindow::new(200.0);
+        win.scroll = TIMELINE_ROW_H * 8.0;
+        win.start = 0;
+        win.end = 20;
+        let _ = hud.update(Message::TimelineScroll(win));
+        let pos = hud.timeline_focus_pos().expect("focus");
+        let vis = icedtea::collection::visible_range_var(win.scroll, 200.0, hud.timeline_heights());
+        assert!(
+            vis.contains(&pos),
+            "selected row {pos} must stay in {vis:?}"
+        );
+        assert_ne!(hud.timeline_focus(), Some(0));
+        let kept = hud.timeline_focus();
+        win.scroll += 4.0;
+        let _ = hud.update(Message::TimelineScroll(win));
+        assert_eq!(hud.timeline_focus(), kept);
     }
 
     #[test]
