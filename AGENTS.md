@@ -344,7 +344,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 ``CHANGELOG.md`` Unreleased is the shipped-notes list. Open follow-ups
 for those notes live in [TODO.md](TODO.md). Keep the two files in step.
 
-GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build), plus **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts on every run. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
+GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build). Pushes to ``main``, version tags, and workflow dispatch also run **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
 HUD Cargo trees: a passing ``just hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
 ``groket hud`` deletes coverage leftovers under ``target/`` and keeps the

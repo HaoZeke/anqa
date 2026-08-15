@@ -7,6 +7,8 @@ is tagged.
 
 - Continuous integration uploads Python coverage to Codecov (OIDC).
 - README badges: Actions, Codecov, Python 3.13, MIT license.
+- Platform wheels and the source distribution build on `main`, tags, and
+  workflow dispatch.
 - README / HUD dark mark is cream on a transparent field.
 
 ## 0.1.0

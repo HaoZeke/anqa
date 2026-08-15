@@ -43,11 +43,11 @@ uv tool install groket          # tagged release on the Python package index
 groket --version
 ```
 
-Every push and pull request builds wheels with cibuildwheel: Linux
-(x64, arm64), macOS (arm64, Intel), and Windows (x64, arm64). Download
-them from the run’s **Artifacts**. A version tag or a manual workflow
-dispatch uploads those files to TestPyPI (`testpypi` environment,
-trusted publishing, `skip-existing`).
+Pushes to `main`, version tags, and a manual workflow dispatch build
+wheels with cibuildwheel: Linux (x64, arm64), macOS (arm64, Intel), and
+Windows (x64, arm64). Download them from the run’s **Artifacts**. A
+version tag or a manual workflow dispatch uploads those files to TestPyPI
+(`testpypi` environment, trusted publishing, `skip-existing`).
 
 ## Paths
 
