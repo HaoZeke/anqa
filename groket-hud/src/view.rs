@@ -350,6 +350,24 @@ fn fade_palette<'a>(
     )
 }
 
+fn page_body<'a>(
+    child: Element<'a, Message>,
+    hud: &Hud,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    container(icedtea::motion::overlay(
+        child,
+        hud.page_progress(),
+        hud.page_slide(),
+        tea,
+        A11y::new("page", Role::Group),
+    ))
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .clip(true)
+    .into()
+}
+
 /// Full-width session matches (Spotlight results). No permanent left rail.
 fn session_picker(hud: &Hud) -> Element<'_, Message> {
     responsive(move |size| session_picker_at(hud, size.height.max(1.0))).into()
@@ -455,27 +473,37 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         } else {
             [16, 20]
         };
-        stack = stack.push(
+        stack = stack.push(page_body(
             container(timeline_tab(hud))
                 .padding(pad)
                 .width(Length::Fill)
-                .height(Length::Fill),
-        );
+                .height(Length::Fill)
+                .into(),
+            hud,
+            tea,
+        ));
     } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
-        stack = stack.push(
+        stack = stack.push(page_body(
             container(turns_tab(hud))
                 .padding([16, 20])
                 .width(Length::Fill)
-                .height(Length::Fill),
-        );
-    } else {
-        stack = stack.push(icedtea::widget::themed_scroll(
-            container(body).padding([16, 20]).width(Length::Fill).into(),
+                .height(Length::Fill)
+                .into(),
+            hud,
             tea,
-            A11y::new("Detail", Role::Group),
-            false,
-            None,
-            None::<fn(scrollable::Viewport) -> Message>,
+        ));
+    } else {
+        stack = stack.push(page_body(
+            icedtea::widget::themed_scroll(
+                container(body).padding([16, 20]).width(Length::Fill).into(),
+                tea,
+                A11y::new("Detail", Role::Group),
+                false,
+                None,
+                None::<fn(scrollable::Viewport) -> Message>,
+            ),
+            hud,
+            tea,
         ));
     }
     container(stack)
@@ -2516,6 +2544,7 @@ mod tests {
         assert!(prod.contains("icedtea::widget::markdown_view"));
         assert!(prod.contains("icedtea::motion::overlay"));
         assert!(prod.contains("Slide::None"));
+        assert!(prod.contains("fn page_body"));
         assert!(prod.contains("fn expand_card"));
         assert!(prod.contains("fn card_actions"));
         assert!(prod.contains("fn card_chips"));

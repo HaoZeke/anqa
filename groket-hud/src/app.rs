@@ -51,6 +51,38 @@ const APP_ID: &str = "dev.indynull.groket-hud";
 const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
 const MOTION_TICK_MS: u64 = 32;
 
+fn tab_slide(from: Tab, to: Tab, tabs: &[Tab]) -> icedtea::motion::Slide {
+    let a = tabs.iter().position(|t| *t == from);
+    let b = tabs.iter().position(|t| *t == to);
+    match (a, b) {
+        (Some(i), Some(j)) if j > i => icedtea::motion::Slide::End,
+        (Some(i), Some(j)) if j < i => icedtea::motion::Slide::Start,
+        _ if from != to => icedtea::motion::Slide::End,
+        _ => icedtea::motion::Slide::None,
+    }
+}
+
+fn turn_scope_slide(from: Option<i64>, to: Option<i64>) -> icedtea::motion::Slide {
+    match (from, to) {
+        (a, b) if a == b => icedtea::motion::Slide::None,
+        (None, Some(_)) => icedtea::motion::Slide::End,
+        (Some(_), None) => icedtea::motion::Slide::Start,
+        (Some(a), Some(b)) if b > a => icedtea::motion::Slide::End,
+        (Some(a), Some(b)) if b < a => icedtea::motion::Slide::Start,
+        _ => icedtea::motion::Slide::None,
+    }
+}
+
+fn detail_step_slide(delta: i32) -> icedtea::motion::Slide {
+    if delta > 0 {
+        icedtea::motion::Slide::Up
+    } else if delta < 0 {
+        icedtea::motion::Slide::Down
+    } else {
+        icedtea::motion::Slide::None
+    }
+}
+
 /// Which edge event to open after a turn-scoped pager crosses a turn boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DetailTurnEdge {
@@ -299,6 +331,9 @@ pub struct Hud {
     last_tick: Instant,
     spin_phase: f32,
     overlay: Animation<bool>,
+    page: Animation<bool>,
+    page_slide: icedtea::motion::Slide,
+    page_dir: Option<icedtea::motion::Slide>,
     catalog_busy: bool,
     findings_open: HashSet<String>,
     notes_open: HashSet<String>,
@@ -409,6 +444,9 @@ impl Default for Hud {
             last_tick: Instant::now(),
             spin_phase: 0.0,
             overlay: icedtea::motion::overlay_animation(true, false),
+            page: icedtea::motion::overlay_animation(true, false),
+            page_slide: icedtea::motion::Slide::None,
+            page_dir: None,
             catalog_busy: false,
             findings_open: HashSet::new(),
             notes_open: HashSet::new(),
@@ -755,6 +793,9 @@ impl Hud {
                 // Leaving Timeline drops event detail so Esc/list state stays honest.
                 if tab != Tab::Timeline {
                     self.drop_timeline_detail();
+                }
+                if self.tab != tab {
+                    self.go_page(tab_slide(self.tab, tab, self.visible_tabs()));
                 }
                 self.tab = tab;
                 let load = match tab {
@@ -1847,10 +1888,33 @@ impl Hud {
         self.overlay.interpolate(0.0, 1.0, Instant::now())
     }
 
+    pub fn page_progress(&self) -> f32 {
+        self.page.interpolate(0.0, 1.0, Instant::now())
+    }
+
+    pub fn page_slide(&self) -> icedtea::motion::Slide {
+        self.page_slide
+    }
+
     fn needs_motion_tick(&self) -> bool {
         let now = Instant::now();
         self.overlay.is_animating(now)
+            || self.page.is_animating(now)
             || (!self.visible && self.window_id.is_some() && !self.window_mode)
+    }
+
+    fn go_page(&mut self, slide: icedtea::motion::Slide) {
+        if matches!(slide, icedtea::motion::Slide::None) {
+            return;
+        }
+        let reduced = crate::theme::tokens(&self.theme_name).reduced_motion;
+        self.page_slide = slide;
+        if reduced {
+            self.page = icedtea::motion::overlay_animation(true, true);
+            return;
+        }
+        self.page = icedtea::motion::overlay_animation(false, false);
+        self.page.go_mut(true, Instant::now());
     }
 
     fn go_overlay(&mut self, open: bool) {
@@ -2574,11 +2638,32 @@ impl Hud {
         Task::none()
     }
 
+    fn filter_pos(&self, index: i64) -> Option<usize> {
+        self.tl_filter
+            .iter()
+            .position(|&src| self.timeline.get(src).is_some_and(|e| e.index == index))
+    }
+
+    fn detail_open_slide(&self, index: i64) -> icedtea::motion::Slide {
+        let Some(prev) = self.timeline_open else {
+            return icedtea::motion::Slide::End;
+        };
+        match (self.filter_pos(prev), self.filter_pos(index)) {
+            (Some(a), Some(b)) => detail_step_slide(b as i32 - a as i32),
+            _ => icedtea::motion::Slide::End,
+        }
+    }
+
     /// Open full-pane event detail on Timeline (fetch full content).
     fn open_timeline_detail(&mut self, index: i64) -> Task<Message> {
         if self.timeline_open == Some(index) {
             return Task::none();
         }
+        let slide = self
+            .page_dir
+            .take()
+            .unwrap_or_else(|| self.detail_open_slide(index));
+        self.go_page(slide);
         if let Some(prev) = self.timeline_open {
             self.unbind_event_fields(prev);
         }
@@ -2607,6 +2692,9 @@ impl Hud {
     /// Leave full-pane detail and scroll the list to the event you were on
     /// (after Next/Prev that is the last open index, not the first opened).
     fn close_timeline_detail(&mut self) -> Task<Message> {
+        if self.timeline_open.is_some() {
+            self.go_page(icedtea::motion::Slide::Start);
+        }
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
             self.timeline_focus = Some(ix);
@@ -2704,6 +2792,12 @@ impl Hud {
     }
 
     fn select_events_turn(&mut self, turn_index: Option<i64>) -> Task<Message> {
+        let slide = if self.tab != Tab::Timeline {
+            icedtea::motion::Slide::End
+        } else {
+            turn_scope_slide(self.events_turn_index, turn_index)
+        };
+        self.go_page(slide);
         self.tab = Tab::Timeline;
         self.timeline_query.clear();
         self.timeline_query_draft.clear();
@@ -4072,6 +4166,11 @@ impl Hud {
             // Session boundary — stay on the current edge event.
             return Task::none();
         };
+        self.page_dir = Some(if forward {
+            icedtea::motion::Slide::Up
+        } else {
+            icedtea::motion::Slide::Down
+        });
         self.detail_turn_edge = Some(if forward {
             DetailTurnEdge::First
         } else {
@@ -7110,6 +7209,84 @@ mod tests {
             hud.tokens().text.a,
             crate::theme::tokens(hud.theme_name()).text.a
         );
+    }
+
+    #[test]
+    fn tab_slide_follows_pane_order() {
+        assert_eq!(
+            tab_slide(Tab::Turns, Tab::Timeline, &Tab::ALL),
+            icedtea::motion::Slide::End
+        );
+        assert_eq!(
+            tab_slide(Tab::Timeline, Tab::Turns, &Tab::ALL),
+            icedtea::motion::Slide::Start
+        );
+        assert_eq!(
+            tab_slide(Tab::Turns, Tab::Turns, &Tab::ALL),
+            icedtea::motion::Slide::None
+        );
+    }
+
+    #[test]
+    fn turn_scope_slide_follows_turn_order() {
+        assert_eq!(turn_scope_slide(None, Some(1)), icedtea::motion::Slide::End);
+        assert_eq!(
+            turn_scope_slide(Some(1), None),
+            icedtea::motion::Slide::Start
+        );
+        assert_eq!(
+            turn_scope_slide(Some(0), Some(2)),
+            icedtea::motion::Slide::End
+        );
+        assert_eq!(
+            turn_scope_slide(Some(2), Some(0)),
+            icedtea::motion::Slide::Start
+        );
+    }
+
+    #[test]
+    fn detail_step_slide_follows_list_direction() {
+        assert_eq!(detail_step_slide(1), icedtea::motion::Slide::Up);
+        assert_eq!(detail_step_slide(-1), icedtea::motion::Slide::Down);
+        assert_eq!(detail_step_slide(0), icedtea::motion::Slide::None);
+    }
+
+    #[test]
+    fn page_slide_turns_to_timeline_comes_from_the_end() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            session_id: "s1".into(),
+            ..Overview::default()
+        });
+        hud.tab = Tab::Turns;
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+        let _ = hud.update(Message::SetTab(Tab::Turns));
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Start);
+        let _ = hud.select_events_turn(Some(0));
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+    }
+
+    #[test]
+    fn page_slide_detail_next_and_prev() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(10, "a"), ev_json(11, "b"), ev_json(12, "c")],
+            3,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(10));
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+        let _ = hud.update(Message::TimelineDetailStep(1));
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Up);
+        let _ = hud.update(Message::TimelineDetailStep(-1));
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Down);
+        let _ = hud.update(Message::CloseTimelineDetail);
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Start);
     }
 
     #[test]
