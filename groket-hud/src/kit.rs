@@ -4,7 +4,7 @@
 //! is missing a parameter (per-tab disable, custom search placeholder/submit).
 
 use iced::widget::{column, container, row, text, Space};
-use iced::{Alignment, Element, Length};
+use iced::{Alignment, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
 use icedtea::i18n::Direction;
@@ -198,16 +198,52 @@ pub fn status_footer<'a>(
     icedtea::pattern::status_bar(status.to_string(), tone, None, table, tea, Direction::Ltr)
 }
 
-/// `?` help sheet: icedtea [`pattern::cheatsheet`] in a modal card.
+/// `?` help sheet: shortcut rows in a modal, with right pad for the scroll rail.
+///
+/// icedtea [`pattern::cheatsheet`] paints the rail over the key names.
 pub fn help_modal<'a>(
     backdrop: Element<'a, Message>,
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
     let heading = format!("Keyboard shortcuts · groket {}", crate::VERSION);
+    let rail = icedtea::chrome::SCROLL_RAIL_WIDTH;
+    let mut rows = column![].spacing(4).padding(Padding {
+        top: 8.0,
+        right: 8.0 + rail,
+        bottom: 8.0,
+        left: 8.0,
+    });
+    for a in table.iter() {
+        if !a.enabled {
+            continue;
+        }
+        let keys = a
+            .shortcut
+            .as_ref()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "—".into());
+        rows = rows.push(row![
+            widget::label(
+                a.title.clone(),
+                tea,
+                A11y::new(a.title.clone(), Role::Status),
+            ),
+            Space::new().width(Length::Fill),
+            widget::meta(keys.clone(), tea, A11y::new(keys, Role::Status)),
+        ]);
+    }
+    let list = widget::themed_scroll(
+        rows.into(),
+        tea,
+        A11y::new("cheatsheet", Role::Group),
+        false,
+        None,
+        None::<fn(_) -> Message>,
+    );
     let sheet = widget::group_box(
         heading.clone(),
-        icedtea::pattern::cheatsheet(table, "", tea),
+        list,
         tea,
         widget::CardFace::Elevated,
         A11y::new(heading, Role::Dialog),
@@ -321,6 +357,20 @@ mod tests {
     }
 
     #[test]
+    fn help_sheet_pads_for_the_scroll_rail() {
+        let src = include_str!("kit.rs");
+        let help = src
+            .split("pub fn help_modal")
+            .nth(1)
+            .unwrap()
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(help.contains("SCROLL_RAIL_WIDTH"));
+        assert!(help.contains("right: 8.0 + rail"));
+    }
+
+    #[test]
     fn kit_uses_icedtea_constructors() {
         let src = include_str!("kit.rs");
         assert!(src.contains("widget::value_field"));
@@ -331,7 +381,7 @@ mod tests {
         assert!(src.contains("pattern::status_bar"));
         assert!(src.contains("pattern::status_page"));
         assert!(src.contains("pattern::modal_card"));
-        assert!(src.contains("pattern::cheatsheet"));
+        assert!(src.contains("SCROLL_RAIL_WIDTH"));
         assert!(src.contains("layout::form"));
         assert!(src.contains("style::tab_indicator"));
         assert!(src.contains("style::app_bar"));
