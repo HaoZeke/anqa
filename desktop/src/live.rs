@@ -25,7 +25,7 @@ pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
 /// Vertical gap after each virtual list card (must be inside row height —
 /// ``virtual_column`` clips each row to ``heights[i]``).
 pub const LIST_GAP: f32 = 4.0;
-/// Closed timeline card + gap. Chips sit on the title row so face fits.
+/// Closed timeline card + gap. Type sits on the title row with ``#index``.
 /// pad×2 + title/chip row + face + inner gap + list gap (density 8 grid).
 /// Open event detail uses the full pane (not a taller virtual row).
 pub const TIMELINE_ROW_H: f32 = 92.0;

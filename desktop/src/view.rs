@@ -970,7 +970,7 @@ fn expand_card<'a>(
 /// Chips share the title row so the virtual height only needs title + face
 /// (a third chips row was clipped by ``TIMELINE_ROW_H`` under ``clip(true)``).
 fn closed_list_card<'a>(
-    title: String,
+    title: Element<'a, Message>,
     face: Element<'a, Message>,
     chips: Element<'a, Message>,
     on_open: Message,
@@ -978,10 +978,7 @@ fn closed_list_card<'a>(
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
     let header = row![
-        text(title)
-            .size(typo::BODY)
-            .font(typo::UI_BOLD)
-            .color(tea.text),
+        title,
         Space::new().width(Length::Fill),
         chips,
         text("›").size(typo::META).color(tea.muted),
@@ -1116,19 +1113,53 @@ fn event_card_label(ev: &TimelineEvent) -> String {
     }
 }
 
-fn event_title(ev: &TimelineEvent) -> String {
-    // Expander title is monochrome; put #index · turn · time here and the
-    // colored human type on the face (TUI scan: index + turn + type + summary).
-    let mut out = format!("#{}", ev.index);
+fn event_title_meta(ev: &TimelineEvent) -> String {
+    let mut bits: Vec<String> = Vec::new();
     if let Some(turn) = ev.turn_index {
-        out.push_str(&format!(" · turn {turn}"));
+        bits.push(format!("turn {turn}"));
     }
     let time = ev.time.trim();
     if !time.is_empty() {
-        out.push_str(" · ");
-        out.push_str(time);
+        bits.push(time.to_string());
     }
-    out
+    bits.join(" · ")
+}
+
+/// Brand-colored event type for the heading next to ``#index``.
+fn event_type_paint(ev: &TimelineEvent) -> Option<(String, Color)> {
+    let human = event_type_human(ev);
+    if human.is_empty() {
+        return None;
+    }
+    let color =
+        crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
+    Some((human, color))
+}
+
+/// ``#index`` + type on one row (turn / time muted after).
+fn event_list_heading(
+    ev: &TimelineEvent,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let mut head = row![text(format!("#{}", ev.index))
+        .size(typo::BODY)
+        .font(typo::UI_BOLD)
+        .color(tea.text),]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if let Some((human, color)) = event_type_paint(ev) {
+        head = head.push(
+            text(human)
+                .size(typo::BODY)
+                .font(typo::UI_BOLD)
+                .color(color),
+        );
+    }
+    let meta = event_title_meta(ev);
+    if !meta.is_empty() {
+        head = head.push(text(format!("· {meta}")).size(typo::META).color(tea.muted));
+    }
+    head.into()
 }
 
 fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -1136,7 +1167,7 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
     let identity = if tool_row {
         format_tool_display(&ev.tool_name)
     } else {
-        event_type_human(ev)
+        String::new()
     };
     let (id_color, id_bold) = if ev.is_error {
         (
@@ -1149,10 +1180,7 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
             None => (tea.muted, false),
         }
     } else {
-        (
-            crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error)),
-            true,
-        )
+        (tea.text, false)
     };
     let raw_preview = if ev.preview.is_empty() {
         ev.content.as_str()
@@ -1505,7 +1533,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             let mark = ev_marks.get(&ix).cloned();
             let selected = hud.timeline_focus() == Some(ix);
             let card = closed_list_card(
-                event_title(ev),
+                event_list_heading(ev, tea),
                 event_face(ev, tea),
                 card_chips_inline(hud, mark, Some(event_note(ev)), None),
                 Message::SelectTimeline(ix),
@@ -1580,46 +1608,13 @@ fn event_detail_chrome(
     next: Option<&TimelineEvent>,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let title = ev.map(event_title).unwrap_or_else(|| format!("#{ix}"));
-    let type_line = ev.map(|e| {
-        let tool_row = is_tool_identity(&e.kind, &e.event_type, &e.tool_name);
-        if tool_row {
-            let color = if e.is_error {
-                crate::theme::brand_role_color(crate::format::BrandRole::Failed)
-            } else {
-                match tool_brand_role(&e.tool_name, false) {
-                    Some(role) => crate::theme::brand_role_color(role),
-                    None => tea.muted,
-                }
-            };
-            (format_tool_display(&e.tool_name), color, false)
-        } else {
-            let color = crate::theme::brand_role_color(event_brand_role(
-                &e.event_type,
-                &e.kind,
-                e.is_error,
-            ));
-            (event_type_human(e), color, true)
-        }
+    let head = ev.map(|e| event_list_heading(e, tea)).unwrap_or_else(|| {
+        text(format!("#{ix}"))
+            .size(typo::BODY)
+            .font(typo::UI_BOLD)
+            .color(tea.text)
+            .into()
     });
-    // Title + type on the first row; adjacent cards on the second (pyramid).
-    let mut head = row![text(title)
-        .size(typo::BODY)
-        .font(typo::UI_BOLD)
-        .color(tea.text),]
-    .spacing(10)
-    .align_y(Alignment::Center)
-    .width(Length::Fill);
-    if let Some((human, color, bold)) = type_line {
-        if !human.is_empty() {
-            head = head.push(
-                text(human)
-                    .size(typo::BODY)
-                    .font(if bold { typo::UI_BOLD } else { typo::UI })
-                    .color(color),
-            );
-        }
-    }
     column![head, event_neighbor_bar(prev, next, tea)]
         .spacing(4)
         .width(Length::Fill)
@@ -2352,7 +2347,7 @@ mod tests {
     }
 
     #[test]
-    fn event_title_includes_index_turn_and_time() {
+    fn event_heading_has_type_turn_and_time() {
         let ev = TimelineEvent {
             index: 12,
             event_type: "user_message_chunk".into(),
@@ -2362,25 +2357,28 @@ mod tests {
             turn_index: Some(2),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&ev), "#12 · turn 2 · 10:32");
+        assert_eq!(event_title_meta(&ev), "turn 2 · 10:32");
         let no_turn = TimelineEvent {
             index: 12,
             kind: "user".into(),
             time: "10:32".into(),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&no_turn), "#12 · 10:32");
+        assert_eq!(event_title_meta(&no_turn), "10:32");
         let bare = TimelineEvent {
             index: 3,
             kind: "user".into(),
             ..TimelineEvent::default()
         };
-        assert_eq!(event_title(&bare), "#3");
+        assert_eq!(event_title_meta(&bare), "");
         assert_eq!(
             event_type_human(&ev),
             "user message chunk",
-            "human type lives on the face with brand color"
+            "human type sits on the heading with #index"
         );
+        assert_eq!(event_title_meta(&ev), "turn 2 · 10:32");
+        let painted = event_type_paint(&ev).expect("type");
+        assert_eq!(painted.0, "user message chunk");
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
             .next()
@@ -2643,6 +2641,8 @@ mod tests {
         assert!(prod.contains("fn event_neighbor_bar"));
         assert!(prod.contains("fn neighbor_link"));
         assert!(prod.contains("fn event_card_label"));
+        assert!(prod.contains("fn event_list_heading"));
+        assert!(prod.contains("fn event_type_paint"));
         assert!(!prod.contains("{at} of {n}"));
         assert!(prod.contains("footer_table_for(hud.key_scope(), hud.key_overlay())"));
         assert!(!prod.contains("chip_btn(\"Back\""));
