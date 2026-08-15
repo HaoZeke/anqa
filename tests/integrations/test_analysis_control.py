@@ -81,9 +81,7 @@ async def test_analysis_run_and_status_on_domain_server(tmp_path: Path) -> None:
     await server.start()
     try:
         reader, writer = await asyncio.open_unix_connection(sock)
-        init = await _request(
-            reader, writer, 1, "initialize", {"protocolVersion": "1.0.0"}
-        )
+        init = await _request(reader, writer, 1, "initialize", {"protocolVersion": "1.0.0"})
         caps = init["result"]["capabilities"]
         assert "analysis/run" in caps
         assert "analysis/status" in caps
