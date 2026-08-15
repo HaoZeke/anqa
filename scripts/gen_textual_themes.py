@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write groket-hud/assets/textual-themes.json from Textual built-in themes."""
+"""Write desktop/assets/textual-themes.json from Textual built-in themes."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from textual.theme import BUILTIN_THEMES
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "groket-hud" / "assets" / "textual-themes.json"
+OUT = ROOT / "desktop" / "assets" / "textual-themes.json"
 
 
 def theme_payload() -> dict[str, dict[str, object]]:

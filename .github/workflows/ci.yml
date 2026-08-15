@@ -34,7 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: groket-hud
+          workspaces: .
           key: lint-python
       - name: Linux iced system libraries
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
@@ -51,11 +51,17 @@ jobs:
   # Python: unit suite (Linux only).
   # ---------------------------------------------------------------------------
   test:
-    name: Test Python
+    name: Test Python (scan=${{ matrix.scan }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        scan: ["0", "1"]
+    env:
+      GROKET_SCAN: ${{ matrix.scan }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -67,15 +73,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: groket-hud
-          key: test-python
+          workspaces: .
+          key: test-python-${{ matrix.scan }}
       - name: Linux iced system libraries
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
+      - name: cargo test groket-scan
+        if: matrix.scan == '1'
+        run: cargo test --manifest-path scan/Cargo.toml
       - name: pytest with coverage
         run: uv run pytest tests/ -q --tb=short --cov=groket --cov-report=xml --cov-fail-under=0
       - name: Upload coverage to Codecov
+        if: matrix.scan == '0'
         uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
@@ -117,7 +127,7 @@ jobs:
       - name: Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: groket-hud
+          workspaces: .
           key: hud-${{ matrix.name }}
 
       # Full Linux gate: theme map (needs Python) + fmt/clippy/test + llvm-cov.
@@ -147,7 +157,7 @@ jobs:
         if: matrix.full
         uses: codecov/codecov-action@v5
         with:
-          files: groket-hud/lcov.info
+          files: desktop/lcov.info
           flags: rust
           fail_ci_if_error: true
           use_oidc: true
@@ -155,16 +165,16 @@ jobs:
       # macOS / Windows: compile and test the crate (no theme generator / cov).
       - name: rustfmt
         if: ${{ !matrix.full }}
-        run: cargo fmt --check --manifest-path groket-hud/Cargo.toml
+        run: cargo fmt --check --manifest-path desktop/Cargo.toml
       - name: clippy
         if: ${{ !matrix.full }}
-        run: cargo clippy --manifest-path groket-hud/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path desktop/Cargo.toml --all-targets -- -D warnings
       - name: cargo test
         if: ${{ !matrix.full }}
-        run: cargo test --manifest-path groket-hud/Cargo.toml
+        run: cargo test --manifest-path desktop/Cargo.toml
       - name: release build
         if: ${{ !matrix.full }}
-        run: cargo build --release --manifest-path groket-hud/Cargo.toml
+        run: cargo build --release --manifest-path desktop/Cargo.toml
 
   # ---------------------------------------------------------------------------
   # Platform wheels (cibuildwheel) + sdist. main, tags, and workflow_dispatch.

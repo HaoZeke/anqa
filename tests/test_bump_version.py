@@ -23,16 +23,17 @@ def _seed(root: Path, *, version: str = "0.2.0") -> None:
     (root / "pyproject.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
     (root / "groket").mkdir()
     (root / "groket" / "__init__.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
-    hud = root / "groket-hud"
+    hud = root / "desktop"
     hud.mkdir()
     (hud / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
-    (hud / "Cargo.lock").write_text(
-        f'name = "groket-hud"\nversion = "{version}"\n',
+    scan = root / "scan"
+    scan.mkdir()
+    (scan / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
+    (root / "Cargo.lock").write_text(
+        f'name = "groket-hud"\nversion = "{version}"\n'
+        f'name = "groket-scan"\nversion = "{version}"\n',
         encoding="utf-8",
     )
-    core = root / "native" / "groket-core"
-    core.mkdir(parents=True)
-    (core / "Cargo.toml").write_text(f'version = "{version}"\n', encoding="utf-8")
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n## Unreleased\n\n### Added\n\n- a thing\n",
         encoding="utf-8",
@@ -59,14 +60,11 @@ def test_bump_rewrites_declarations_and_changelog(tmp_path: Path) -> None:
     assert '__version__ = "0.2.1"' in (tmp_path / "groket" / "__init__.py").read_text(
         encoding="utf-8"
     )
-    assert 'version = "0.2.1"' in (tmp_path / "groket-hud" / "Cargo.toml").read_text(
-        encoding="utf-8"
-    )
-    lock = (tmp_path / "groket-hud" / "Cargo.lock").read_text(encoding="utf-8")
+    assert 'version = "0.2.1"' in (tmp_path / "desktop" / "Cargo.toml").read_text(encoding="utf-8")
+    lock = (tmp_path / "Cargo.lock").read_text(encoding="utf-8")
     assert 'name = "groket-hud"\nversion = "0.2.1"' in lock
-    assert 'version = "0.2.1"' in (tmp_path / "native" / "groket-core" / "Cargo.toml").read_text(
-        encoding="utf-8"
-    )
+    assert 'name = "groket-scan"\nversion = "0.2.1"' in lock
+    assert 'version = "0.2.1"' in (tmp_path / "scan" / "Cargo.toml").read_text(encoding="utf-8")
     log = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## 0.2.1 - 2026-08-15" in log
     assert "- a thing" in log

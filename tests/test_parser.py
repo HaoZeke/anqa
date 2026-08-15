@@ -1793,7 +1793,7 @@ def test_prune_session_walk_dirs():
     assert "real-dir" in dirs
 
 
-def test_find_sessions_native_drops_skipped_descendants(
+def test_find_sessions_scan_drops_skipped_descendants(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Native hits under a skipped name are dropped; root path names are not."""
@@ -1804,7 +1804,7 @@ def test_find_sessions_native_drops_skipped_descendants(
     junk = root / "workspace" / "fake"
     junk.mkdir(parents=True)
     (junk / "summary.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr("groket.native.find_sessions", lambda _r: [keep, junk])
+    monkeypatch.setattr("groket.parser.walk_sessions", lambda _r: [keep, junk])
     found = find_sessions(root)
     assert found == [keep]
 
@@ -2568,10 +2568,10 @@ def test_model_from_run_json_resolve_error(tmp_path: Path):
 
 def test_find_sessions_stat_oserror_on_events(tmp_path: Path):
     """find_sessions handles OSError on events.jsonl stat gracefully."""
-    from groket.native import listwalk
+    from groket.scan import using_scan
 
-    if listwalk is not None:
-        pytest.skip("C walker uses libc stat, not Path.stat")
+    if using_scan():
+        pytest.skip("compiled walk does not use Path.stat")
     sd = tmp_path / "sess"
     sd.mkdir()
     ef = sd / "events.jsonl"

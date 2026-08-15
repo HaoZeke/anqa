@@ -226,7 +226,7 @@ then Overview / Turns / Timeline / Findings / Notes. `u` or the logo
 returns to the session list. Follow-up and Done
 when awaiting. It does not launch evals. Desktop notices are for eval
 sessions and analysis; Host Grok chats already notify on their own.
-Details: [`groket-hud/README.md`](groket-hud/README.md).
+Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash
 groket serve -d        # or let the client start serve

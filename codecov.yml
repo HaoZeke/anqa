@@ -5,7 +5,7 @@ flag_management:
         - groket/
     - name: rust
       paths:
-        - groket-hud/
+        - desktop/
 
 component_management:
   individual_components:
@@ -16,4 +16,4 @@ component_management:
     - component_id: rust
       name: rust
       paths:
-        - groket-hud/**
+        - desktop/**

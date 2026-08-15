@@ -24,9 +24,7 @@ class _Proc:
 def test_find_hud_binary_release_or_none() -> None:
     """When the release binary is built, it is discoverable."""
     found = find_hud_binary()
-    release = (
-        Path(__file__).resolve().parents[2] / "groket-hud" / "target" / "release" / "groket-hud"
-    )
+    release = Path(__file__).resolve().parents[2] / "target" / "release" / "groket-hud"
     if release.is_file():
         assert found is not None
         assert found.name == "groket-hud"

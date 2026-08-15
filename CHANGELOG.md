@@ -10,6 +10,10 @@ is tagged.
   expanders animate height. Motion ticks at display refresh.
 - Overlay summon fades the card in (clear window fill + short rise).
 - HUD launch stays on Recent; a catalog refresh leaves the list unpicked.
+- Session walk and `updates.jsonl` keep/skip share one `groket._scan`
+  extension (`groket.scan`, setuptools-rust, same install as the HUD
+  binary). `GROKET_SCAN=0` uses the Python body. Continuous integration
+  runs both.
 - Example analysis READMEs point at `.toml` prefs samples.
 - `groket config validate` rejects missing or invalid TOML. Load uses defaults when the file is absent or unreadable.
 - Continuous integration uploads Python and HUD coverage to Codecov (OIDC).

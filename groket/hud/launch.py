@@ -26,24 +26,41 @@ def _repo_root() -> Path:
 
 
 def hud_checkout_dir() -> Path | None:
-    """Return the ``groket-hud`` crate dir in an editable checkout, if present."""
-    cand = _repo_root() / "groket-hud"
+    """Return the HUD crate dir (``desktop/``) in an editable checkout, if present."""
+    cand = _repo_root() / "desktop"
     if (cand / "Cargo.toml").is_file() and (cand / "src" / "main.rs").is_file():
         return cand
     return None
 
 
+def _cargo_target_dir(checkout: Path) -> Path:
+    """Directory Cargo writes ``debug/`` and ``release/`` into.
+
+    A workspace member uses the workspace-root ``target/``; a standalone
+    crate manifest uses ``checkout/target``.
+    """
+    for parent in checkout.parents:
+        manifest = parent / "Cargo.toml"
+        try:
+            text = manifest.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if "[workspace]" in text:
+            return parent / "target"
+    return checkout / "target"
+
+
 def _debug_binary(checkout: Path) -> Path:
-    return checkout / "target" / "debug" / "groket-hud"
+    return _cargo_target_dir(checkout) / "debug" / "groket-hud"
 
 
 def _release_binary(checkout: Path) -> Path:
-    return checkout / "target" / "release" / "groket-hud"
+    return _cargo_target_dir(checkout) / "release" / "groket-hud"
 
 
 def _prune_target(checkout: Path) -> None:
     """Remove llvm-cov leftovers. Keep debug and release graphs for Cargo reuse."""
-    target = checkout / "target"
+    target = _cargo_target_dir(checkout)
     for name in ("llvm-cov-target", "llvm-cov"):
         path = target / name
         if path.is_dir():

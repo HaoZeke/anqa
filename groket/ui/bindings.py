@@ -2,7 +2,7 @@
 
 Screens import binding tuples from here — do not invent ad-hoc key lists in
 banners, button labels, or one-off help strings. Shared TUI/HUD keys live
-here; HUD tables live in ``groket-hud/src/help.rs``.
+here; HUD tables live in ``desktop/src/help.rs``.
 ``Binding.id`` is the shared catalog id (:mod:`groket.keys.catalog`).
 """
 

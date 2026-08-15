@@ -26,14 +26,11 @@ __pycache__/
 traces/
 .venv/
 *.swp
-# iced HUD crate
-groket-hud/target/
-groket-hud/lcov.info
-# updates.jsonl scan leaf
-native/groket-core/target/
-native/groket-core/Cargo.lock
-groket-hud/node_modules/
-groket-hud/dist/
+# Cargo workspace
+/target/
+desktop/target/
+desktop/lcov.info
+scan/target/
 .superpowers/
 # Local scratch (HUD walk screenshots, ad-hoc probes — never commit)
 /tmp/

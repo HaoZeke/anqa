@@ -1,0 +1,18 @@
+[package]
+name = "groket-scan"
+version = "0.1.0"
+edition = "2021"
+description = "Session walk and updates.jsonl prefilter (groket.scan / groket._scan)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "_scan"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.25", optional = true }
+
+[features]
+default = []
+extension-module = ["dep:pyo3", "pyo3/extension-module"]

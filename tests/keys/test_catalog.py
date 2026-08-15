@@ -27,8 +27,8 @@ from textual.binding import Binding
 from textual.screen import Screen
 
 _REPO = Path(__file__).resolve().parents[2]
-_HELP_RS = _REPO / "groket-hud" / "src" / "help.rs"
-_KEYS_RS = _REPO / "groket-hud" / "src" / "keys.rs"
+_HELP_RS = _REPO / "desktop" / "src" / "help.rs"
+_KEYS_RS = _REPO / "desktop" / "src" / "keys.rs"
 _PUSH = re.compile(
     r'push(?:_mapped)?\(\s*&mut table,\s*(?:overlay,\s*)?"([^"]+)",\s*"[^"]*",\s*"([^"]+)"',
     re.S,

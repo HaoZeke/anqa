@@ -83,8 +83,16 @@ groket = [
 # ``uv tool install --editable .`` builds this binary next to the groket script.
 [[tool.setuptools-rust.bins]]
 target = "groket-hud"
-path = "groket-hud/Cargo.toml"
+path = "desktop/Cargo.toml"
 args = ["--locked"]
+debug = false
+
+# Session walk + updates.jsonl prefilter (``groket.scan`` / ``groket._scan``).
+[[tool.setuptools-rust.ext-modules]]
+target = "groket._scan"
+path = "scan/Cargo.toml"
+binding = "PyO3"
+args = ["--locked", "--features", "extension-module"]
 debug = false
 
 # Platform wheels: pypa/cibuildwheel on GitHub Actions (every push + PR).
@@ -100,7 +108,7 @@ skip = [
     "*-manylinux_riscv64",
     "*-musllinux_*",
 ]
-test-command = "groket --help && groket-hud --help"
+test-command = "groket --help && groket-hud --help && python -c \"from groket import _scan\""
 
 [tool.cibuildwheel.linux]
 before-all = """

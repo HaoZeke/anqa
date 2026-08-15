@@ -67,9 +67,3 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSView",
     "NSWindow",
 ] }
-
-[profile.release]
-lto = "thin"
-codegen-units = 8
-strip = true
-panic = "abort"

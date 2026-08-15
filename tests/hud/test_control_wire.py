@@ -13,7 +13,7 @@ from groket.session.control_views import (
     build_session_turns,
 )
 
-_FIXTURES = Path(__file__).resolve().parents[2] / "groket-hud" / "tests" / "fixtures"
+_FIXTURES = Path(__file__).resolve().parents[2] / "desktop" / "tests" / "fixtures"
 
 
 def _write_session(root: Path, name: str) -> Path:

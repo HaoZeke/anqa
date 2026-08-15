@@ -60,7 +60,7 @@ schema-check:
 examples-check:
     uv run python scripts/check_examples.py
 
-# Regenerate groket-hud/assets/textual-themes.json.
+# Regenerate desktop/assets/textual-themes.json.
 hud-themes:
     uv run python scripts/gen_textual_themes.py
 
@@ -70,8 +70,8 @@ hud-themes-check:
     set -euo pipefail
     tmp=$(mktemp)
     uv run python scripts/gen_textual_themes.py "$tmp"
-    if ! diff -q "$tmp" groket-hud/assets/textual-themes.json >/dev/null; then
-      echo "groket-hud/assets/textual-themes.json is stale — run just hud-themes and commit" >&2
+    if ! diff -q "$tmp" desktop/assets/textual-themes.json >/dev/null; then
+      echo "desktop/assets/textual-themes.json is stale — run just hud-themes and commit" >&2
       rm -f "$tmp"
       exit 1
     fi
@@ -79,9 +79,9 @@ hud-themes-check:
 
 # Theme map + rustfmt + clippy + HUD cargo test (+ cov if installed).
 hud-check: hud-themes-check
-    cargo fmt --check --manifest-path groket-hud/Cargo.toml
-    CARGO_INCREMENTAL=0 cargo clippy --manifest-path groket-hud/Cargo.toml --all-targets -- -D warnings
-    CARGO_INCREMENTAL=0 cargo test --manifest-path groket-hud/Cargo.toml
+    cargo fmt --check --manifest-path desktop/Cargo.toml
+    CARGO_INCREMENTAL=0 cargo clippy --manifest-path desktop/Cargo.toml --all-targets -- -D warnings
+    CARGO_INCREMENTAL=0 cargo test --manifest-path desktop/Cargo.toml
     just hud-cov
 
 # cargo llvm-cov: lcov for Codecov, then fail-under on non-paint HUD logic.
@@ -89,12 +89,12 @@ hud-cov:
     #!/usr/bin/env bash
     set -euo pipefail
     if cargo llvm-cov --version >/dev/null 2>&1; then
-      cleanup() { rm -rf groket-hud/target/llvm-cov-target groket-hud/target/llvm-cov; }
+      cleanup() { rm -rf target/llvm-cov-target target/llvm-cov; }
       trap cleanup EXIT
-      CARGO_INCREMENTAL=0 cargo llvm-cov --manifest-path groket-hud/Cargo.toml --lib --no-report
-      CARGO_INCREMENTAL=0 cargo llvm-cov report --manifest-path groket-hud/Cargo.toml \
-        --lcov --output-path groket-hud/lcov.info
-      CARGO_INCREMENTAL=0 cargo llvm-cov report --manifest-path groket-hud/Cargo.toml \
+      CARGO_INCREMENTAL=0 cargo llvm-cov --manifest-path desktop/Cargo.toml --lib --no-report
+      CARGO_INCREMENTAL=0 cargo llvm-cov report --manifest-path desktop/Cargo.toml \
+        --lcov --output-path desktop/lcov.info
+      CARGO_INCREMENTAL=0 cargo llvm-cov report --manifest-path desktop/Cargo.toml \
         --fail-under-lines 70 \
         --ignore-filename-regex 'src/(app|view|typo|main|x11focus|control)\.rs'
     else
@@ -105,13 +105,9 @@ hud-cov:
 brand:
     uv run --group brand python brand/build.py
 
-# Optional Limited API listwalk (remote builder only).
-ext:
-    GROKET_BUILD_EXT=1 uv run --with setuptools python setup.py build_ext --inplace
-
-# cargo test groket-core (remote builder; not this laptop).
-native-check:
-    cargo test --manifest-path native/groket-core/Cargo.toml
+# cargo test the scan crate (walk + updates filter; no Python link).
+scan-check:
+    cargo test --manifest-path scan/Cargo.toml
 
 # pytest (no coverage flag).
 test:
@@ -140,9 +136,9 @@ sdist:
 # lint + schema-check + hud-check + examples-check + test.
 ci: lint schema-check hud-check examples-check test
 
-# Python caches plus groket-hud cargo target.
+# Python caches plus Cargo workspace target.
 clean:
     rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ \
-        htmlcov/ .coverage coverage.json groket-hud/lcov.info docs/_build/
+        htmlcov/ .coverage coverage.json desktop/lcov.info docs/_build/
     find . -type d -name __pycache__ -not -path './.venv/*' -exec rm -rf {} + 2>/dev/null || true
-    cargo clean --manifest-path groket-hud/Cargo.toml || true
+    cargo clean || true

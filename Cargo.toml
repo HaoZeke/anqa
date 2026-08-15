@@ -1,0 +1,9 @@
+[workspace]
+members = ["desktop", "scan"]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 8
+strip = true
+panic = "abort"

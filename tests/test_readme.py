@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
-HUD_README = ROOT / "groket-hud" / "README.md"
+HUD_README = ROOT / "desktop" / "README.md"
 HELP = ROOT / "groket" / "locale" / "en" / "help.rich.txt"
 CONTROL = ROOT / "docs" / "control.md"
 AGENTS = ROOT / "AGENTS.md"

@@ -72,7 +72,7 @@ Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
 not pass ``--cov``. The Actions **Test Python** job writes ``coverage.xml``
 and uploads it to Codecov (OIDC, ``python`` flag; ``fail_under`` is not
 applied on that upload). The Linux **HUD** job writes
-``groket-hud/lcov.info`` from ``just hud-cov`` and uploads it (``rust``
+``desktop/lcov.info`` from ``just hud-cov`` and uploads it (``rust``
 flag). Prefer closing gaps with domain tests or deleting dead code when
 you touch a module; do not lower ``fail_under`` or omit package source to
 hide debt.
@@ -97,7 +97,7 @@ later.”
 |---------|-------------------------|
 | **Domain / orchestrator** | Shared path under ``runs/``, ``session/``, ``docker/`` — not a TUI-only fork of the logic |
 | **TUI** | Bindings, palette, Fluent, ``help.rich.txt``; keyboard path for every new action |
-| **HUD** | Same key as the TUI when both do the job (§6.10); ``groket-hud/src/help.rs`` footer + cheatsheet and ``on_key`` in the same change |
+| **HUD** | Same key as the TUI when both do the job (§6.10); ``desktop/src/help.rs`` footer + cheatsheet and ``on_key`` in the same change |
 | **Batch / task YAML** | If the feature applies to headless launches: ``task_schema``, ``schemas/tasks.schema.json`` (``just schema``), ``examples/tasks/``, ``batch`` wiring to the **same** domain APIs |
 | **README.md** | Operator-facing: keys, CLI flags, task fields, what TUI vs batch can do |
 | **AGENTS.md** | Only when the *contract* for agents changes (architecture, gates, layouts) |
@@ -148,7 +148,7 @@ groket/
   job_pools.py           # serial analysis + live-refresh worker pools
   session_inflight.py    # per-session inflight locks (analysis, refresh)
   assets_loader.py       # repo assets/ or wheel-embedded templates
-  native.py              # optional listwalk extension
+  scan.py                # session walk + updates.jsonl keep/skip (Python + groket._scan)
   keys/                  # action catalog + keys.toml overlay
   harness/               # Grok disk/harness helpers
   runs/                  # personas, run_configs, run_manager, batch, live_share,
@@ -161,7 +161,7 @@ groket/
                          #   ControlClient, emacs/vim packages
   hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
-# Sibling: groket-hud/     # iced Sol-style palette (not part of Python package)
+# Sibling crates (Cargo workspace): desktop/ (binary groket-hud), scan/ (groket._scan)
   diagnostics/           # host checks (``groket doctor`` + in-app self-test)
   analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
   engine/                # detectors, rules loader, runner, rule_schema
@@ -337,24 +337,25 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just schema-check`` | Fail if schemas drift |
 | ``just examples-check`` | Validate ``examples/`` packs (hard contract) |
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
-| ``just hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
-| ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. ``hud-cov`` writes ``groket-hud/lcov.info`` and deletes ``groket-hud/target/llvm-cov-target``. |
+| ``just hud-themes`` | Regenerate ``desktop/assets/textual-themes.json`` |
+| ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. ``hud-cov`` writes ``desktop/lcov.info`` and deletes ``target/llvm-cov-target``. |
+| ``just scan-check`` | ``cargo test`` the ``groket-scan`` crate (walk + updates filter) |
 | ``just wheel`` | ``uv build --wheel`` (this platform; needs Rust) |
 | ``just wheels`` | ``uvx cibuildwheel`` (this host; Linux needs Docker) |
 | ``just sdist`` | ``uv build --sdist`` |
 | ``just bump 0.1.1`` | Set the product version in every declaration + promote ``CHANGELOG.md`` |
 | ``just brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
-| ``just clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
+| ``just clean`` | Python caches plus ``cargo clean`` on the workspace |
 
 ``CHANGELOG.md`` Unreleased is the shipped-notes list. Open follow-ups
 for those notes live in [TODO.md](TODO.md). Keep the two files in step.
 
 GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build). Pushes to ``main``, version tags, and workflow dispatch also run **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
-HUD Cargo trees: ``just hud-cov`` writes ``groket-hud/lcov.info`` and deletes ``groket-hud/target/llvm-cov-target``.
-``groket hud`` deletes coverage leftovers under ``target/`` and keeps the
-debug and release graphs so iced does not rebuild from scratch.
-``just clean`` runs ``cargo clean``.
+HUD Cargo trees: ``just hud-cov`` writes ``desktop/lcov.info`` and deletes
+``target/llvm-cov-target``. ``groket hud`` deletes coverage leftovers under
+``target/`` and keeps the debug and release graphs so iced does not rebuild
+from scratch. ``just clean`` runs ``cargo clean``.
 
 Published schemas (also under ``schemas/``; GitHub Pages via
 ``.github/workflows/pages.yml``):
@@ -477,8 +478,8 @@ read path: shared actions use the **same key** as the TUI (§6.10).
 | [`ui/keys.py`](groket/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+G``) |
 | [`ui/commands.py`](groket/ui/commands.py) | Ctrl+P palette |
 | Fluent / ``ui/text`` / ``help.rich.txt`` | TUI labels and ``?`` help |
-| [`groket-hud/src/help.rs`](groket-hud/src/help.rs) | HUD footer + ``?`` cheatsheet |
-| [`groket-hud/src/app.rs`](groket-hud/src/app.rs) ``on_key`` | HUD key handling |
+| [`desktop/src/help.rs`](desktop/src/help.rs) | HUD footer + ``?`` cheatsheet |
+| [`desktop/src/app.rs`](desktop/src/app.rs) ``on_key`` | HUD key handling |
 
 No ad-hoc key legends in banners (``"save [ctrl+s]"``). Footer, help, HUD,
 CLI, and README use the same words: ``Ctrl+S``, ``Shift+Tab``, ``Esc`` —

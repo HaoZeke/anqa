@@ -26,6 +26,6 @@ def _manifest_version(path: Path, *keys: str) -> str:
 
 def test_product_versions_match() -> None:
     python = _manifest_version(ROOT / "pyproject.toml", "project", "version")
-    hud = _manifest_version(ROOT / "groket-hud" / "Cargo.toml", "package", "version")
-    core = _manifest_version(ROOT / "native" / "groket-core" / "Cargo.toml", "package", "version")
-    assert python == hud == core == groket.__version__
+    hud = _manifest_version(ROOT / "desktop" / "Cargo.toml", "package", "version")
+    scan = _manifest_version(ROOT / "scan" / "Cargo.toml", "package", "version")
+    assert python == hud == scan == groket.__version__

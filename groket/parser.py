@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 from concurrent.futures import Future
@@ -24,8 +23,6 @@ from .constants import (
     TIMELINE_CACHE_MAX_ENV,
     TIMELINE_CACHE_MAXSIZE,
 )
-from .core_scan import keep_updates_line as keep_updates_line_native
-from .core_scan import keep_updates_line_py
 from .models import (
     ChatMessage,
     JsonObject,
@@ -38,9 +35,9 @@ from .models import (
     as_json_object,
     json_as_str,
 )
-from .native import find_sessions as native_find_sessions
-from .native import skip_dir_name
 from .paths import RUN_PREFIXES, is_run_dir_name, strip_run_prefix
+from .scan import find_sessions as walk_sessions
+from .scan import keep_updates_line, skip_dir_name
 from .tool_display import web_search_from_raw_output
 
 logger = logging.getLogger(__name__)
@@ -971,15 +968,12 @@ def parse_timeline(session_dir: Path) -> list[TraceEvent]:
 
 # Streaming tool_call_update lines often *are* the multi‑100MB file (cumulative
 # shell output). Skip full JSON parse unless the line looks terminal.
-# Needles live in :mod:`groket.core_scan` (Python twin + optional Rust leaf).
+# Needles live in :mod:`groket.scan` (Python twin + optional Rust leaf).
 
 
 def _keep_updates_line(line: bytes) -> bool:
     """True when *line* should be JSON-parsed."""
-    native = keep_updates_line_native(line)
-    if native is not None:
-        return native
-    return keep_updates_line_py(line)
+    return keep_updates_line(line)
 
 
 def _scan_updates_jsonl(session_dir: Path, previous: _UpdatesScanState | None) -> _UpdatesScanState:
@@ -2649,8 +2643,8 @@ def _prune_session_walk_dirs(dirnames: list[str]) -> None:
     dirnames[:] = [d for d in dirnames if not skip_dir_name(d)]
 
 
-def _native_hit_is_listed(root: Path, path: Path) -> bool:
-    """Apply the Python walk policy to one native ``find_sessions`` hit."""
+def _scan_hit_is_listed(root: Path, path: Path) -> bool:
+    """Apply the Python walk policy to one compiled ``find_sessions`` hit."""
     # session/__init__ imports sources, which import find_sessions.
     from .session.resume import is_resume_seed_path
 
@@ -2713,29 +2707,7 @@ def find_sessions(root: Path) -> list[Path]:
     (workspaces under a session are not nested sessions). Descending was the
     dominant cost on large ``~/.grok/sessions`` trees (tens of seconds).
     """
-    sessions: list[Path] = []
     if not root.exists():
-        return sessions
-    native = native_find_sessions(root)
-    if native is not None:
-        sessions = [path for path in native if _native_hit_is_listed(root, path)]
-        return _drop_subagent_mirror_sessions(sessions)
-    # session/__init__ imports sources, which import find_sessions.
-    from .session.resume import is_resume_seed_path
-
-    # followlinks=False avoids symlink cycles into huge trees from host sessions.
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        _prune_session_walk_dirs(dirnames)
-        path = Path(dirpath)
-        if _is_subagent_session_dir(path):
-            dirnames.clear()
-            continue
-        # Resume substrate (.groket-resume-seed/…) or live symlink into it.
-        if is_resume_seed_path(path):
-            dirnames.clear()
-            continue
-        if _looks_like_session_dir(path, set(filenames)):
-            sessions.append(path)
-            # Do not walk workspace / build trees inside a session.
-            dirnames.clear()
+        return []
+    sessions = [path for path in walk_sessions(root) if _scan_hit_is_listed(root, path)]
     return _drop_subagent_mirror_sessions(sessions)

@@ -1,6 +1,9 @@
-include groket-hud/Cargo.toml
-include groket-hud/Cargo.lock
-recursive-include groket-hud/src *
-recursive-include groket-hud/assets *
+include Cargo.toml
+include Cargo.lock
+include desktop/Cargo.toml
+recursive-include desktop/src *
+recursive-include desktop/assets *
+include scan/Cargo.toml
+recursive-include scan/src *
 include scripts/cibw-repair-linux.sh
 include LICENSE

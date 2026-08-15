@@ -35,14 +35,14 @@ def replace_assignment(path: Path, old: str, new: str, *, template: str) -> None
     path.write_text(text.replace(needle, template.format(new), 1), encoding="utf-8")
 
 
-def replace_hud_lock(root: Path, old: str, new: str) -> None:
-    path = root / "groket-hud" / "Cargo.lock"
+def replace_crate_lock(root: Path, name: str, old: str, new: str) -> None:
+    path = root / "Cargo.lock"
     text = path.read_text(encoding="utf-8")
-    needle = f'name = "groket-hud"\nversion = "{old}"'
+    needle = f'name = "{name}"\nversion = "{old}"'
     if needle not in text:
-        raise SystemExit(f"{path}: missing groket-hud version {old}")
+        raise SystemExit(f"{path}: missing {name} version {old}")
     path.write_text(
-        text.replace(needle, f'name = "groket-hud"\nversion = "{new}"', 1),
+        text.replace(needle, f'name = "{name}"\nversion = "{new}"', 1),
         encoding="utf-8",
     )
 
@@ -83,18 +83,19 @@ def bump(root: Path, new: str, date: str) -> None:
         template='__version__ = "{}"',
     )
     replace_assignment(
-        root / "groket-hud" / "Cargo.toml",
+        root / "desktop" / "Cargo.toml",
         old,
         new,
         template='version = "{}"',
     )
     replace_assignment(
-        root / "native" / "groket-core" / "Cargo.toml",
+        root / "scan" / "Cargo.toml",
         old,
         new,
         template='version = "{}"',
     )
-    replace_hud_lock(root, old, new)
+    replace_crate_lock(root, "groket-hud", old, new)
+    replace_crate_lock(root, "groket-scan", old, new)
     log = root / "CHANGELOG.md"
     log.write_text(
         promote_changelog(log.read_text(encoding="utf-8"), new, date),
