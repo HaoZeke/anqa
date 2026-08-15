@@ -31,8 +31,8 @@
 
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
-  h / l           Previous / next turn (also Left / Right)
-  j / k           Previous / next event (also Up / Down)
+  h / l / Left / Right    Previous / next turn on the Timeline
+  j / k                   Previous / next event on the Timeline (also Up / Down)
   v               Timeline filter (Subagents lists spawn/finish)
   Enter           Full-width event (Esc back to the list); or open a child from a spawn/finish row
   i               Jump to Findings
