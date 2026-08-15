@@ -12,10 +12,22 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
+def test_version_prints_product_version() -> None:
+    from groket import __version__
+
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    out = (result.stdout or result.output or "").strip()
+    assert out == f"groket {__version__}"
+    assert runner.invoke(app, ["-V"]).exit_code == 0
+
+
 def test_help_lists_main_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     out = result.stdout or result.output or ""
+    assert "-V" in out
+    assert "product version" in out
     assert "gen" in out
     assert "doctor" in out
     assert "batch" in out

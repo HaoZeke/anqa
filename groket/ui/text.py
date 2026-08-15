@@ -71,9 +71,13 @@ def _positional_keys() -> dict[str, tuple[str, ...]]:
 
 def help_markup() -> str:
     """Long Rich help panel from ``locale/<lang>/help.rich.txt``."""
-    from .i18n import load_text_resource
+    from groket import __version__
 
-    return load_text_resource("help.rich.txt")
+    from .i18n import load_text_resource, t
+
+    heading = t("keyboard-help-title", version=__version__)
+    body = load_text_resource("help.rich.txt")
+    return f"[bold]{heading}[/bold]\n\n{body}"
 
 
 def __getattr__(name: str):

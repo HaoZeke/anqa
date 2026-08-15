@@ -21,10 +21,13 @@ groket hud
 ```
 
 `groket hud` detaches and starts serve when the socket is free. One
-process, one tray tile: a second `groket hud` shows the palette. `--restart`
-replaces a running palette (including `--dev --restart`). `--rebuild`
-forces a cargo rebuild. `--dev` / `--debug` keep a debug binary.
-`--foreground` attaches to this terminal.
+process, one tray tile: a second `groket hud` shows the palette. It runs
+the `groket-hud` on `PATH` from `uv tool install` (or `GROKET_HUD_BIN`).
+`--rebuild` cargo-builds this checkout, then launches that binary.
+`--restart` replaces a running palette (including `--dev --restart`).
+`--dev` / `--debug` keep a debug binary. `--foreground` attaches to this
+terminal. `groket --version` and `groket-hud --version` (`-V`) print the
+product version.
 
 ```bash
 groket hud --toggle    # show or hide
@@ -98,9 +101,9 @@ tray tile; macOS and Windows use the square app icon
 ## Develop
 
 ```bash
-uv run groket hud             # release; rebuilds when sources are newer
+uv run groket hud             # PATH / GROKET_HUD_BIN, else checkout release
 uv run groket hud --restart
-uv run groket hud --rebuild
+uv run groket hud --rebuild   # cargo release of this tree
 just hud-check                # from the repo root
 ```
 

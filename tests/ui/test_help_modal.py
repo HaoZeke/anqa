@@ -11,9 +11,12 @@ from .pilot_helpers import wait_until
 
 
 def test_help_markup_nonempty() -> None:
+    from groket import __version__
+
     text = help_markup()
     assert isinstance(text, str)
     assert len(text) > 10
+    assert f"groket {__version__}" in text
 
 
 class _HelpApp(App):

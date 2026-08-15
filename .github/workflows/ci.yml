@@ -30,6 +30,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: groket-hud
+          key: lint-python
+      - name: Linux iced system libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
       - name: Ruff + mypy + policy scripts
@@ -53,6 +60,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: groket-hud
+          key: test-python
+      - name: Linux iced system libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
       - run: just test

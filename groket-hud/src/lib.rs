@@ -1,5 +1,8 @@
 //! groket-hud library: control decode, domain helpers, and the iced palette.
 
+/// Product version (same string as the Python package).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod app;
 pub mod brand;
 pub mod control;

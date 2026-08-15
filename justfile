@@ -4,10 +4,9 @@
 default:
     @just --list
 
-# Project venv (test+dev) and groket on PATH.
+# Project venv for lint/test. Product install: uv tool install --editable .
 install:
     uv sync --group test --group dev
-    uv tool install --force --editable .
 
 # ruff + format check + mypy + fluent + typing policy.
 lint:
@@ -118,6 +117,10 @@ test:
 # pytest with coverage report (`fail_under` applies).
 test-cov:
     uv run pytest tests/ --cov=groket --cov-report=term-missing --cov-report=html
+
+# Set the product version in pyproject, __init__, and both crates.
+bump version:
+    uv run python scripts/bump_version.py {{version}}
 
 # lint + schema-check + hud-check + examples-check + test.
 ci: lint schema-check hud-check examples-check test

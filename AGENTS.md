@@ -15,8 +15,8 @@ rejected-design narration.
 ## 1. Quick start
 
 ```bash
-just install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
-groket              # interactive TUI (or: uv run groket)
+uv tool install --editable .    # ``groket`` + ``groket-hud`` on PATH (needs Rust)
+just install        # .venv (test+dev) for lint/test
 just test           # pytest (default unit suite; no Docker daemon)
 just lint           # ruff + mypy + fluent/typing policy scripts
 just ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
@@ -315,7 +315,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 
 | Target | Action |
 |--------|--------|
-| ``just install`` | ``uv sync --group test --group dev`` + editable uv tool |
+| ``just install`` | ``uv sync --group test --group dev`` (lint/test venv). Product install: ``uv tool install --editable .`` |
 | ``just lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
 | ``just lint-fix`` | ruff autofix + format + mypy |
 | ``just lint-complexity`` | Size-limit report only (not in ``just ci``); see §4.6 |
@@ -327,10 +327,11 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``just hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
 | ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
-
-GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build).
+| ``just bump 0.1.1`` | Set the product version in every declaration + promote ``CHANGELOG.md`` |
 | ``just brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
 | ``just clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
+
+GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build).
 
 HUD Cargo trees: a passing ``just hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
 ``groket hud`` deletes coverage leftovers under ``target/`` and keeps the

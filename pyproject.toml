@@ -1,6 +1,6 @@
 [project]
 name = "groket"
-version = "0.2.0"
+version = "0.1.0"
 description = "Groket — Grok session trace evaluation TUI"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,7 +16,9 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -57,7 +59,7 @@ test = [
 ]
 
 [build-system]
-requires = ["setuptools>=77.0"]
+requires = ["setuptools>=77.0", "setuptools-rust>=1.11"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -77,6 +79,13 @@ groket = [
     "integrations/vim/plugin/**/*.lua",
     "_embedded_assets/**/*",
 ]
+
+# ``uv tool install --editable .`` builds this binary next to the groket script.
+[[tool.setuptools-rust.bins]]
+target = "groket-hud"
+path = "groket-hud/Cargo.toml"
+args = ["--locked"]
+debug = false
 
 [tool.ruff]
 line-length = 100

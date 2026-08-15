@@ -21,14 +21,21 @@ Four clients, all talking to [`groket serve`](#control):
 ## Install
 
 ```bash
-just install    # clone: .venv + `groket` on PATH (editable)
-groket          # terminal app
+uv tool install --editable .    # clone: groket + groket-hud on PATH (needs Rust)
+groket                          # terminal app
+groket hud                      # desktop palette
 ```
 
 ```bash
 uv tool install git+https://github.com/indynull/groket
 groket
+groket hud
 uv tool upgrade groket
+```
+
+```bash
+uv tool install groket          # tagged release on the Python package index
+groket --version
 ```
 
 ## Paths
@@ -208,10 +215,15 @@ Details: [`groket-hud/README.md`](groket-hud/README.md).
 
 ```bash
 groket serve -d        # or let the client start serve
-groket hud             # one process + tray; second start shows the palette
+groket hud             # PATH binary from uv tool install; one process + tray
 groket hud --toggle    # show or hide (Wayland bind this)
 groket hud --restart   # replace the running palette
+groket hud --rebuild   # cargo-build this checkout, then launch
 ```
+
+`groket hud` runs `groket-hud` from `GROKET_HUD_BIN` or `PATH`. From a
+checkout, `--rebuild` builds this tree; `--debug` is the unoptimized
+binary; `--dev` is `cargo run`.
 
 Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
@@ -310,6 +322,7 @@ just install
 just lint
 just test
 just ci              # lint + schema-check + hud-check + examples-check + test
+just bump 0.1.1      # version strings + CHANGELOG.md
 ```
 
 Also: `groket doctor`, `groket gen …`, `groket rules validate`, `groket keys`.

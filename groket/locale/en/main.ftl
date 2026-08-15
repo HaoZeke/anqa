@@ -717,7 +717,7 @@ jobs = Jobs
 
 jobs-tab = Jobs
 
-keyboard-help-title = Help
+keyboard-help-title = groket {$version}
 
 help-brand-name = groket
 
