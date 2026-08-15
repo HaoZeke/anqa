@@ -5,6 +5,11 @@ is tagged.
 
 ## Unreleased
 
+- HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
+  changes fade; opening and closing a session or event push and pop;
+  expanders animate height. Motion ticks at display refresh.
+- Overlay summon fades the card in (clear window fill + short rise).
+- HUD launch stays on Recent; a catalog refresh leaves the list unpicked.
 - Example analysis READMEs point at `.toml` prefs samples.
 - `groket config validate` rejects missing or invalid TOML. Load uses defaults when the file is absent or unreadable.
 - Continuous integration uploads Python and HUD coverage to Codecov (OIDC).

@@ -32,6 +32,7 @@ use crate::live::{
     TURNS_OVERSCAN,
 };
 use crate::model::{KindFilter, Tab};
+use crate::motion::PageLayer;
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
 
@@ -266,10 +267,23 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let search = search.padding(Padding::from([12, 16]));
 
     // Spotlight: search → pick → full-width browse. Type again to switch.
-    let body: Element<'_, Message> = if hud.browse_mode() {
-        detail_pane(hud)
-    } else {
-        session_picker(hud)
+    let body: Element<'_, Message> = {
+        let inner = if hud.browse_mode() {
+            detail_pane(hud)
+        } else {
+            session_picker(hud)
+        };
+        if hud.page_layer() == PageLayer::Browse && hud.page_moving() {
+            icedtea::motion::overlay(
+                inner,
+                hud.page_progress(),
+                hud.page_slide(),
+                tea,
+                A11y::new("browse", Role::Group),
+            )
+        } else {
+            inner
+        }
     };
 
     let foot = footer(hud, tea);
@@ -338,7 +352,7 @@ fn fade_palette<'a>(
     icedtea::motion::overlay(
         child,
         hud.overlay_progress(),
-        icedtea::motion::Slide::None,
+        icedtea::motion::Slide::Up,
         tea,
         A11y::new("palette", Role::Group),
     )
@@ -349,7 +363,7 @@ fn page_body<'a>(
     hud: &Hud,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
-    if !hud.page_moving() {
+    if hud.page_layer() != PageLayer::Pane || !hud.page_moving() {
         return container(child)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -374,7 +388,7 @@ fn session_picker(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
-    let tea = hud.tokens();
+    let tea = hud.body_tokens();
     let idle = hud.query().trim().is_empty();
     if hud.sessions().is_empty() {
         if idle {
@@ -455,9 +469,9 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     }
     let body: Element<'_, Message> = if hud.overview().is_none() {
         if !hud.overview_pending().is_empty() {
-            loading_session(hud.overview_pending(), hud.tokens())
+            loading_session(hud.overview_pending(), hud.body_tokens())
         } else {
-            select_session(hud.tokens())
+            select_session(hud.body_tokens())
         }
     } else {
         match hud.tab() {
@@ -627,6 +641,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn overview_tab(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.body_tokens();
     let o = hud.overview().unwrap();
     let meta = &o.meta;
     let mut title = meta.title.clone();
@@ -657,8 +672,7 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         origin_label(&meta.origin),
         taken,
     );
-    let tok = hud.tokens();
-    let tea = hud.tokens();
+    let tok = tea;
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
     let mut status_row = row![status_chip(
         if status.is_empty() {
@@ -935,6 +949,7 @@ fn expand_card<'a>(
     title: String,
     child: Element<'a, Message>,
     open: bool,
+    progress: f32,
     on_toggle: impl Fn(bool) -> Message + 'a,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
@@ -943,7 +958,7 @@ fn expand_card<'a>(
         child,
         icedtea::widget::Peek::Lines(2),
         open,
-        if open { 1.0 } else { 0.0 },
+        progress,
         on_toggle,
         tea,
         A11y::new(title, Role::Group),
@@ -1399,7 +1414,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
     let (turn_marks, _) = hud.card_marks();
-    let tea = hud.tokens();
+    let tea = hud.body_tokens();
     if turns.is_empty() {
         return kit::status_empty("No turns", "Nothing segmented yet.", tea);
     }
@@ -1452,11 +1467,11 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         // Should be rare: SetTab/All turns loads immediately. Honest fallback.
         return text("Loading events…")
             .size(typo::BODY)
-            .color(hud.tokens().muted)
+            .color(hud.body_tokens().muted)
             .into();
     }
     if hud.timeline_loading() && hud.filtered_indices().is_empty() {
-        return loading_session("events", hud.tokens());
+        return loading_session("events", hud.body_tokens());
     }
     let idxs = hud.filtered_indices();
     if idxs.is_empty() {
@@ -1523,7 +1538,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
 ///
 /// Chrome (title + adjacent cards) stays **above** the scroll pane.
 fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
-    let tea = hud.tokens();
+    let tea = hud.body_tokens();
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
             event_detail_chrome(ix, None, None, None, tea),
@@ -1664,7 +1679,7 @@ fn neighbor_link(
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let findings: &[FindingRow] = &o.findings.findings;
-    let tea = hud.tokens();
+    let tea = hud.body_tokens();
     if findings.is_empty() {
         return icedtea::pattern::status_page(
             "No findings",
@@ -1696,12 +1711,13 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
         for f in group {
             let id = finding_key(f);
             let open = hud.finding_expanded(&id);
+            let progress = hud.finding_expand_progress(&id);
             let title = if f.title.is_empty() {
                 "Finding".into()
             } else {
                 f.title.clone()
             };
-            let child = if open {
+            let child = if open || progress > 0.0 {
                 finding_body(f, tea)
             } else {
                 column![
@@ -1715,6 +1731,7 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
                 title,
                 child,
                 open,
+                progress,
                 {
                     let id = id.clone();
                     move |next| Message::FindingExpand {
@@ -1874,7 +1891,8 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                 title
             };
             let open = hud.note_expanded(&id);
-            let child = if open {
+            let progress = hud.note_expand_progress(&id);
+            let child = if open || progress > 0.0 {
                 note_body(hud, n, &body, extras)
             } else {
                 prompt_face(&body, hud.tokens())
@@ -1883,6 +1901,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                 heading,
                 child,
                 open,
+                progress,
                 {
                     let id = id.clone();
                     move |next| Message::NoteExpand {
@@ -2565,7 +2584,8 @@ mod tests {
         assert!(prod.contains("icedtea::widget::info_bar"));
         assert!(prod.contains("icedtea::widget::markdown_view"));
         assert!(prod.contains("icedtea::motion::overlay"));
-        assert!(prod.contains("Slide::None"));
+        assert!(prod.contains("Slide::Up"));
+        assert!(prod.contains("page_slide()"));
         assert!(prod.contains("fn page_body"));
         assert!(prod.contains("overlay_moving()"));
         assert!(prod.contains("page_moving()"));
@@ -2614,6 +2634,9 @@ mod tests {
         assert!(prod.contains("brand_role_color"));
         assert!(!prod.contains("accordion_view"));
         assert!(prod.contains("widget::expander"));
+        assert!(prod.contains("finding_expand_progress"));
+        assert!(prod.contains("note_expand_progress"));
+        assert!(!prod.contains("if open { 1.0 } else { 0.0 }"));
         assert!(prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));

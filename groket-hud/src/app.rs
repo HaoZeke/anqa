@@ -1,6 +1,6 @@
 //! iced application: state, RPC, hotkey, live poll.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -10,8 +10,8 @@ use iced::widget::operation;
 use iced::widget::Id;
 use iced::window::{self, Mode};
 use iced::{
-    event, keyboard, time, Animation, Element, Event, Pixels, Point, Size, Subscription, Task,
-    Theme,
+    event, keyboard, time, Animation, Color, Element, Event, Pixels, Point, Size, Subscription,
+    Task, Theme,
 };
 use serde_json::{json, Value};
 
@@ -35,6 +35,7 @@ use crate::live::{
     TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
+use crate::motion::{self, MotionRole, PageLayer};
 use crate::place;
 use crate::prefs;
 use crate::shortcut;
@@ -49,47 +50,6 @@ const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
 const APP_ID: &str = "dev.indynull.groket-hud";
 const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
-const MOTION_TICK_MS: u64 = 32;
-/// HUD show/hide fade. Longer than icedtea's 200 ms overlay token.
-const HUD_FADE: icedtea::m3::DurationStep = icedtea::m3::DurationStep::Long2;
-
-fn hud_fade(open: bool, reduced: bool) -> Animation<bool> {
-    Animation::new(open)
-        .duration(HUD_FADE.duration(reduced))
-        .easing(icedtea::m3::Ease::EmphasizedDecelerate.lilt())
-}
-
-fn tab_slide(from: Tab, to: Tab, tabs: &[Tab]) -> icedtea::motion::Slide {
-    let a = tabs.iter().position(|t| *t == from);
-    let b = tabs.iter().position(|t| *t == to);
-    match (a, b) {
-        (Some(i), Some(j)) if j > i => icedtea::motion::Slide::End,
-        (Some(i), Some(j)) if j < i => icedtea::motion::Slide::Start,
-        _ if from != to => icedtea::motion::Slide::End,
-        _ => icedtea::motion::Slide::None,
-    }
-}
-
-fn turn_scope_slide(from: Option<i64>, to: Option<i64>) -> icedtea::motion::Slide {
-    match (from, to) {
-        (a, b) if a == b => icedtea::motion::Slide::None,
-        (None, Some(_)) => icedtea::motion::Slide::End,
-        (Some(_), None) => icedtea::motion::Slide::Start,
-        (Some(a), Some(b)) if b > a => icedtea::motion::Slide::End,
-        (Some(a), Some(b)) if b < a => icedtea::motion::Slide::Start,
-        _ => icedtea::motion::Slide::None,
-    }
-}
-
-fn detail_step_slide(delta: i32) -> icedtea::motion::Slide {
-    if delta > 0 {
-        icedtea::motion::Slide::Up
-    } else if delta < 0 {
-        icedtea::motion::Slide::Down
-    } else {
-        icedtea::motion::Slide::None
-    }
-}
 
 /// Which edge event to open after a turn-scoped pager crosses a turn boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -342,10 +302,15 @@ pub struct Hud {
     overlay: Animation<bool>,
     page: Animation<bool>,
     page_slide: icedtea::motion::Slide,
+    page_role: MotionRole,
+    page_layer: PageLayer,
     page_dir: Option<icedtea::motion::Slide>,
+    reduced_motion: bool,
     catalog_busy: bool,
     findings_open: HashSet<String>,
     notes_open: HashSet<String>,
+    finding_motion: HashMap<String, Animation<bool>>,
+    note_motion: HashMap<String, Animation<bool>>,
     /// Last Turns card focused (jump / `g` / yank).
     turns_focus: Option<i64>,
     turns_query: String,
@@ -457,13 +422,18 @@ impl Default for Hud {
             toasts: icedtea::toast::ToastQueue::new(),
             last_tick: Instant::now(),
             spin_phase: 0.0,
-            overlay: hud_fade(true, false),
-            page: icedtea::motion::overlay_animation(true, false),
+            overlay: motion::role_animation(MotionRole::Present, true, false),
+            page: motion::role_animation(MotionRole::Sibling, true, false),
             page_slide: icedtea::motion::Slide::None,
+            page_role: MotionRole::None,
+            page_layer: PageLayer::Pane,
             page_dir: None,
+            reduced_motion: motion::detect_reduced_motion(),
             catalog_busy: false,
             findings_open: HashSet::new(),
             notes_open: HashSet::new(),
+            finding_motion: HashMap::new(),
+            note_motion: HashMap::new(),
             turns_focus: None,
             turns_query: String::new(),
             turns_filter: vec![],
@@ -543,11 +513,14 @@ fn overlay_prepared() -> icedtea::app::Prepared {
         .theme(prefs::theme_name());
     let mut prep = icedtea::app::bootstrap_with_catalog(&boot, crate::theme::catalog());
     apply_hud_chrome(&mut prep);
+    // Clear surface so present/dismiss can fade the shell card, not a solid window.
+    prep.window.transparent = true;
     prep
 }
 
 fn desktop_prepared() -> icedtea::app::Prepared {
     let mut prep = overlay_prepared();
+    prep.window.transparent = false;
     prep.window.size = Size::new(980.0, 700.0);
     prep.window.min_size = Some(Size::new(640.0, 440.0));
     prep.window.max_size = None;
@@ -602,6 +575,7 @@ pub fn run() -> iced::Result {
         .title(concat!("groket ", env!("CARGO_PKG_VERSION")))
         .subscription(Hud::subscription)
         .theme(|hud: &Hud, window| Some(hud.theme(window)))
+        .style(|hud: &Hud, theme| hud.window_style(theme))
         .settings(overlay_prepared().iced_settings)
         .run()
 }
@@ -699,7 +673,7 @@ impl Hud {
         if boot_summons_overlay(hud.window_mode, crate::tray::show_on_start()) {
             hud.visible = false;
             hud.palette_live = false;
-            hud.overlay = hud_fade(false, false);
+            hud.overlay = motion::role_animation(MotionRole::Dismiss, false, hud.reduced_motion);
             boot.push(hud.show_palette());
         }
         (hud, Task::batch(boot))
@@ -707,6 +681,22 @@ impl Hud {
 
     fn theme(&self, _window: window::Id) -> Theme {
         theme::iced_theme(&self.theme_name)
+    }
+
+    /// Overlay: clear window fill so [`tokens`][`Self::tokens`] fade the card.
+    /// Decorated window mode keeps an opaque canvas.
+    pub fn window_style(&self, theme: &Theme) -> iced::theme::Style {
+        let palette = theme.palette();
+        if self.window_mode {
+            return iced::theme::Style {
+                background_color: palette.background,
+                text_color: palette.text,
+            };
+        }
+        iced::theme::Style {
+            background_color: Color::TRANSPARENT,
+            text_color: palette.text,
+        }
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -718,7 +708,7 @@ impl Hud {
             icedtea::iced::system::theme_changes().map(Message::OsMode),
         ];
         if self.needs_motion_tick() {
-            subs.push(time::every(Duration::from_millis(MOTION_TICK_MS)).map(|_| Message::Tick));
+            subs.push(window::frames().map(|_| Message::Tick));
         }
         if wants_periodic_poll(self.visible, self.focused, self.window_mode) {
             let any_live = session_needs_live_poll(
@@ -779,6 +769,11 @@ impl Hud {
                 if same {
                     return self.focus_browse();
                 }
+                self.go_page(
+                    motion::session_enter_role(),
+                    PageLayer::Browse,
+                    icedtea::motion::Slide::End,
+                );
                 self.reset_detail_chrome();
                 // Loading placeholder this frame; body fills via OverviewLoaded.
                 // Do not yank keyboard into session search after a pick.
@@ -812,7 +807,11 @@ impl Hud {
                     self.drop_timeline_detail();
                 }
                 if self.tab != tab {
-                    self.go_page(tab_slide(self.tab, tab, self.visible_tabs()));
+                    self.go_page(
+                        motion::tab_role(self.tab, tab),
+                        PageLayer::Pane,
+                        icedtea::motion::Slide::None,
+                    );
                 }
                 self.tab = tab;
                 let load = match tab {
@@ -997,6 +996,11 @@ impl Hud {
                     return Task::none();
                 };
                 // Same as click: clear search so layout leaves the picker.
+                self.go_page(
+                    motion::session_enter_role(),
+                    PageLayer::Browse,
+                    icedtea::motion::Slide::End,
+                );
                 self.query.clear();
                 self.rerank_visible_keeping(sid.clone());
                 if let Some(idx) = self.sessions().iter().position(|r| r.session_id == sid) {
@@ -1005,19 +1009,11 @@ impl Hud {
                 Task::batch([self.load_overview(false), self.focus_browse()])
             }
             Message::FindingExpand { id, open } => {
-                if open {
-                    self.findings_open.insert(id);
-                } else {
-                    self.findings_open.remove(&id);
-                }
+                self.set_expand(true, id, open);
                 Task::none()
             }
             Message::NoteExpand { id, open } => {
-                if open {
-                    self.notes_open.insert(id);
-                } else {
-                    self.notes_open.remove(&id);
-                }
+                self.set_expand(false, id, open);
                 Task::none()
             }
             Message::FollowDraft(s) => {
@@ -1360,6 +1356,10 @@ impl Hud {
                     return Task::none();
                 };
                 self.window_id = Some(id);
+                // Present starts here so map time is not spent on an unseen fade.
+                if self.visible && !self.window_mode {
+                    self.go_overlay(true);
+                }
                 let mut tasks = vec![delayed_focus(0), self.apply_native_chrome(id)];
                 if !self.window_mode {
                     tasks.push(self.place_overlay(id));
@@ -1964,9 +1964,21 @@ impl Hud {
         &self.theme_name
     }
     pub fn tokens(&self) -> icedtea::theme::Tokens {
-        let tok = crate::theme::tokens(&self.theme_name);
+        let tok = crate::theme::tokens(&self.theme_name).with_reduced_motion(self.reduced_motion);
         let t = icedtea::motion::visual(self.overlay_progress(), tok.reduced_motion);
         tok.fade(t)
+    }
+
+    /// Body paint: overlay fade times in-flight page fade.
+    pub fn body_tokens(&self) -> icedtea::theme::Tokens {
+        let tok = self.tokens();
+        if !self.page_moving() {
+            return tok;
+        }
+        tok.fade(icedtea::motion::visual(
+            self.page_progress(),
+            self.reduced_motion,
+        ))
     }
 
     pub fn overlay_progress(&self) -> f32 {
@@ -1989,34 +2001,120 @@ impl Hud {
         self.page_slide
     }
 
+    pub fn page_layer(&self) -> PageLayer {
+        self.page_layer
+    }
+
+    pub fn page_role(&self) -> MotionRole {
+        self.page_role
+    }
+
+    fn expanders_moving(&self) -> bool {
+        let now = Instant::now();
+        self.finding_motion.values().any(|a| a.is_animating(now))
+            || self.note_motion.values().any(|a| a.is_animating(now))
+    }
+
     fn needs_motion_tick(&self) -> bool {
         let now = Instant::now();
         self.overlay.is_animating(now)
             || self.page.is_animating(now)
+            || self.expanders_moving()
             || (!self.visible && self.window_id.is_some() && !self.window_mode)
     }
 
-    fn go_page(&mut self, slide: icedtea::motion::Slide) {
-        if matches!(slide, icedtea::motion::Slide::None) {
+    fn go_page(&mut self, role: MotionRole, layer: PageLayer, slide: icedtea::motion::Slide) {
+        if matches!(role, MotionRole::None) {
             return;
         }
-        let reduced = crate::theme::tokens(&self.theme_name).reduced_motion;
-        self.page_slide = slide;
-        if reduced {
-            self.page = icedtea::motion::overlay_animation(true, true);
-            return;
-        }
-        self.page = icedtea::motion::overlay_animation(false, false);
-        self.page.go_mut(true, Instant::now());
+        let now = Instant::now();
+        let current = self.page.interpolate(0.0, 1.0, now);
+        let animating = self.page.is_animating(now);
+        self.page_role = role;
+        self.page_layer = layer;
+        self.page_slide = motion::visual_slide(role, slide, self.reduced_motion);
+        self.page = motion::continue_or_restart(
+            std::mem::replace(
+                &mut self.page,
+                motion::role_animation(role, true, self.reduced_motion),
+            ),
+            role,
+            current,
+            animating,
+            self.reduced_motion,
+            now,
+        );
     }
 
     fn go_overlay(&mut self, open: bool) {
-        let reduced = crate::theme::tokens(&self.theme_name).reduced_motion;
+        let now = Instant::now();
+        self.overlay = motion::retune_overlay(
+            std::mem::replace(
+                &mut self.overlay,
+                motion::role_animation(
+                    if open {
+                        MotionRole::Present
+                    } else {
+                        MotionRole::Dismiss
+                    },
+                    open,
+                    self.reduced_motion,
+                ),
+            ),
+            open,
+            self.reduced_motion,
+            now,
+        );
+    }
+
+    fn set_expand(&mut self, findings: bool, id: String, open: bool) {
+        let reduced = self.reduced_motion;
+        let (set, store) = if findings {
+            (&mut self.findings_open, &mut self.finding_motion)
+        } else {
+            (&mut self.notes_open, &mut self.note_motion)
+        };
+        if open {
+            set.insert(id.clone());
+        } else {
+            set.remove(&id);
+        }
+        let now = Instant::now();
+        let prev = store
+            .remove(&id)
+            .unwrap_or_else(|| motion::disclose_animation(!open, reduced));
         if reduced {
-            self.overlay = hud_fade(open, true);
+            store.insert(id, motion::disclose_animation(open, true));
             return;
         }
-        self.overlay.go_mut(open, Instant::now());
+        let mut anim = prev
+            .duration(MotionRole::Disclose.duration(false))
+            .easing(MotionRole::Disclose.easing());
+        anim.go_mut(open, now);
+        store.insert(id, anim);
+    }
+
+    fn expand_progress(
+        open_set: &HashSet<String>,
+        store: &HashMap<String, Animation<bool>>,
+        id: &str,
+    ) -> f32 {
+        if let Some(anim) = store.get(id) {
+            return anim.interpolate(0.0, 1.0, Instant::now());
+        }
+        if open_set.contains(id) {
+            1.0
+        } else {
+            0.0
+        }
+    }
+
+    pub fn finding_expand_progress(&self, id: &str) -> f32 {
+        Self::expand_progress(&self.findings_open, &self.finding_motion, id)
+    }
+
+    pub fn note_expand_progress(&self, id: &str) -> f32 {
+        Self::expand_progress(&self.notes_open, &self.note_motion, id)
     }
 
     fn finish_overlay_hide(&mut self) -> Task<Message> {
@@ -2331,6 +2429,8 @@ impl Hud {
         self.turns_filter.clear();
         self.findings_open.clear();
         self.notes_open.clear();
+        self.finding_motion.clear();
+        self.note_motion.clear();
         self.fields = icedtea::field::Selectables::new();
         self.note_draft = NoteDraft::default();
         self.note_compose_lock = false;
@@ -2485,6 +2585,7 @@ impl Hud {
     ///
     /// Prefer the open overview (or in-flight pending load) so clearing search
     /// never maps a filtered `active` index onto a different catalog row.
+    /// `active` alone is not a pick — Spotlight starts with no highlight.
     fn session_keep_id(&self) -> String {
         if !self.overview_sid.is_empty() {
             return self.overview_sid.clone();
@@ -2492,11 +2593,17 @@ impl Hud {
         if !self.overview_pending.is_empty() {
             return self.overview_pending.clone();
         }
-        self.sessions()
-            .get(self.active)
-            .map(|r| r.session_id.clone())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_default()
+        match self.list_selection {
+            icedtea::collection::Selection::Single(i) => self
+                .sessions()
+                .get(i)
+                .map(|r| r.session_id.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_default(),
+            icedtea::collection::Selection::None | icedtea::collection::Selection::Multi(_) => {
+                String::new()
+            }
+        }
     }
 
     fn rerank_visible(&mut self) {
@@ -2743,7 +2850,7 @@ impl Hud {
             return icedtea::motion::Slide::End;
         };
         match (self.filter_pos(prev), self.filter_pos(index)) {
-            (Some(a), Some(b)) => detail_step_slide(b as i32 - a as i32),
+            (Some(a), Some(b)) => motion::event_step_slide(b as i32 - a as i32),
             _ => icedtea::motion::Slide::End,
         }
     }
@@ -2753,11 +2860,20 @@ impl Hud {
         if self.timeline_open == Some(index) {
             return Task::none();
         }
+        let already = self.timeline_open.is_some();
         let slide = self
             .page_dir
             .take()
             .unwrap_or_else(|| self.detail_open_slide(index));
-        self.go_page(slide);
+        let role = if matches!(
+            slide,
+            icedtea::motion::Slide::Up | icedtea::motion::Slide::Down
+        ) {
+            MotionRole::Step
+        } else {
+            motion::event_open_role(already)
+        };
+        self.go_page(role, PageLayer::Pane, slide);
         if let Some(prev) = self.timeline_open {
             self.unbind_event_fields(prev);
         }
@@ -2787,7 +2903,11 @@ impl Hud {
     /// (after Next/Prev that is the last open index, not the first opened).
     fn close_timeline_detail(&mut self) -> Task<Message> {
         if self.timeline_open.is_some() {
-            self.go_page(icedtea::motion::Slide::Start);
+            self.go_page(
+                motion::event_close_role(),
+                PageLayer::Pane,
+                icedtea::motion::Slide::Start,
+            );
         }
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
@@ -2886,12 +3006,11 @@ impl Hud {
     }
 
     fn select_events_turn(&mut self, turn_index: Option<i64>) -> Task<Message> {
-        let slide = if self.tab != Tab::Timeline {
-            icedtea::motion::Slide::End
-        } else {
-            turn_scope_slide(self.events_turn_index, turn_index)
-        };
-        self.go_page(slide);
+        self.go_page(
+            MotionRole::Sibling,
+            PageLayer::Pane,
+            icedtea::motion::Slide::None,
+        );
         self.tab = Tab::Timeline;
         self.timeline_query.clear();
         self.timeline_query_draft.clear();
@@ -3415,6 +3534,11 @@ impl Hud {
 
     /// Leave browse (and any child) for Recent + session search.
     fn go_sessions_home(&mut self) -> Task<Message> {
+        self.go_page(
+            motion::session_leave_role(),
+            PageLayer::Browse,
+            icedtea::motion::Slide::Start,
+        );
         self.return_to_spotlight();
         self.on_focus_search(0)
     }
@@ -3442,7 +3566,17 @@ impl Hud {
         self.focused = true;
         self.palette_live = true;
         self.last_live = Instant::now();
-        self.go_overlay(true);
+        // Fresh map: stay gone until WindowId. A live hide reverse, or a
+        // window we already asked to open, starts present now.
+        let interrupting = self.window_id.is_some() && self.overlay_moving();
+        if interrupting || self.reduced_motion {
+            self.go_overlay(true);
+        } else {
+            self.overlay = motion::role_animation(MotionRole::Present, false, false);
+            if self.window_id.is_some() {
+                self.go_overlay(true);
+            }
+        }
         self.sync_theme();
         // Always open on the session list — pick is explicit (Enter / click).
         self.return_to_spotlight();
@@ -5520,8 +5654,58 @@ mod tests {
         assert!(!w.resizable);
         assert_eq!(w.level, window::Level::AlwaysOnTop);
         assert!(w.icon.is_some());
+        assert!(w.transparent);
+        assert!(!app_window_settings().transparent);
         #[cfg(target_os = "linux")]
         assert!(w.platform_specific.override_redirect);
+    }
+
+    #[test]
+    fn overlay_window_style_is_clear_so_the_card_can_fade() {
+        let overlay = Hud {
+            window_mode: false,
+            ..Hud::default()
+        };
+        let theme = theme::iced_theme(overlay.theme_name());
+        let style = overlay.window_style(&theme);
+        assert_eq!(style.background_color, Color::TRANSPARENT);
+        let desk = Hud {
+            window_mode: true,
+            ..Hud::default()
+        };
+        let filled = desk.window_style(&theme);
+        assert_eq!(filled.background_color.a, 1.0);
+    }
+
+    #[test]
+    fn show_palette_starts_present_from_gone() {
+        let mut hud = Hud {
+            visible: false,
+            window_mode: false,
+            window_id: None,
+            overlay: motion::role_animation(MotionRole::Dismiss, false, false),
+            reduced_motion: false,
+            ..Hud::default()
+        };
+        let _ = hud.show_palette();
+        assert!(
+            !hud.overlay_moving(),
+            "present must wait for the surface, progress={}",
+            hud.overlay_progress()
+        );
+        assert!(
+            hud.overlay_progress() < 0.01,
+            "parked gone, got {}",
+            hud.overlay_progress()
+        );
+        let id = window::Id::unique();
+        let _ = hud.update(Message::WindowId(Some(id)));
+        assert!(hud.overlay_moving());
+        assert!(
+            hud.overlay_progress() < 0.35,
+            "first present frame must be faded out, got {}",
+            hud.overlay_progress()
+        );
     }
 
     #[test]
@@ -5993,6 +6177,45 @@ mod tests {
             ..Hud::default()
         };
         assert!(hud.wants_events());
+    }
+
+    #[test]
+    fn catalog_refresh_does_not_highlight_first_recent_row() {
+        let mut hud = Hud::default();
+        hud.apply_list(
+            json!({
+                "sessions": [
+                    {"sessionId": "new", "title": "New", "sortEpoch": 2.0},
+                    {"sessionId": "old", "title": "Old", "sortEpoch": 1.0},
+                ],
+                "matched": 2,
+                "offset": 0,
+                "limit": 2,
+            }),
+            false,
+        );
+        assert!(
+            matches!(hud.list_selection, icedtea::collection::Selection::None),
+            "first catalog page is idle Spotlight"
+        );
+        hud.apply_list(
+            json!({
+                "sessions": [
+                    {"sessionId": "new", "title": "New", "sortEpoch": 2.0},
+                    {"sessionId": "old", "title": "Old", "sortEpoch": 1.0},
+                ],
+                "matched": 2,
+                "offset": 0,
+                "limit": 2,
+            }),
+            true,
+        );
+        assert!(
+            matches!(hud.list_selection, icedtea::collection::Selection::None),
+            "a later catalog fill must not treat active=0 as a pick"
+        );
+        assert!(hud.selected_sid().is_none());
+        assert!(!hud.browse_mode());
     }
 
     #[test]
@@ -7441,7 +7664,8 @@ mod tests {
             palette_live: true,
             window_mode: false,
             window_id: Some(id),
-            overlay: icedtea::motion::overlay_animation(true, true),
+            overlay: motion::role_animation(MotionRole::Present, true, true),
+            reduced_motion: true,
             ..Hud::default()
         };
         let _ = hud.hide_palette();
@@ -7460,7 +7684,8 @@ mod tests {
             palette_live: true,
             window_mode: false,
             window_id: Some(id),
-            overlay: icedtea::motion::overlay_animation(true, false),
+            overlay: motion::role_animation(MotionRole::Present, true, false),
+            reduced_motion: false,
             ..Hud::default()
         };
         let _ = hud.hide_palette();
@@ -7482,69 +7707,46 @@ mod tests {
     }
 
     #[test]
-    fn hud_fade_is_slower_than_the_overlay_token() {
-        assert!(HUD_FADE.millis() > icedtea::m3::motion::OVERLAY.millis());
-    }
-
-    #[test]
-    fn tab_slide_follows_pane_order() {
+    fn present_dismiss_use_asymmetric_durations() {
+        assert_eq!(motion::PRESENT_MS, 220);
+        assert_eq!(motion::DISMISS_MS, 180);
+        const { assert!(motion::DISMISS_MS < motion::PRESENT_MS) };
+        assert!(motion::PRESENT_MS < icedtea::m3::DurationStep::Long2.millis());
         assert_eq!(
-            tab_slide(Tab::Turns, Tab::Timeline, &Tab::ALL),
-            icedtea::motion::Slide::End
+            motion::MotionRole::Present.ease(),
+            icedtea::m3::Ease::EmphasizedDecelerate
         );
         assert_eq!(
-            tab_slide(Tab::Timeline, Tab::Turns, &Tab::ALL),
-            icedtea::motion::Slide::Start
-        );
-        assert_eq!(
-            tab_slide(Tab::Turns, Tab::Turns, &Tab::ALL),
-            icedtea::motion::Slide::None
+            motion::MotionRole::Dismiss.ease(),
+            icedtea::m3::Ease::EmphasizedAccelerate
         );
     }
 
     #[test]
-    fn turn_scope_slide_follows_turn_order() {
-        assert_eq!(turn_scope_slide(None, Some(1)), icedtea::motion::Slide::End);
-        assert_eq!(
-            turn_scope_slide(Some(1), None),
-            icedtea::motion::Slide::Start
-        );
-        assert_eq!(
-            turn_scope_slide(Some(0), Some(2)),
-            icedtea::motion::Slide::End
-        );
-        assert_eq!(
-            turn_scope_slide(Some(2), Some(0)),
-            icedtea::motion::Slide::Start
-        );
-    }
-
-    #[test]
-    fn detail_step_slide_follows_list_direction() {
-        assert_eq!(detail_step_slide(1), icedtea::motion::Slide::Up);
-        assert_eq!(detail_step_slide(-1), icedtea::motion::Slide::Down);
-        assert_eq!(detail_step_slide(0), icedtea::motion::Slide::None);
-    }
-
-    #[test]
-    fn page_slide_turns_to_timeline_comes_from_the_end() {
+    fn tab_change_is_sibling_fade() {
         let mut hud = hud_with_session();
         hud.overview = Some(Overview {
             session_id: "s1".into(),
             ..Overview::default()
         });
         hud.tab = Tab::Turns;
+        hud.reduced_motion = false;
         let _ = hud.update(Message::SetTab(Tab::Timeline));
-        assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+        assert_eq!(hud.page_role(), MotionRole::Sibling);
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
+        assert_eq!(hud.page_layer(), PageLayer::Pane);
         let _ = hud.update(Message::SetTab(Tab::Turns));
-        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Start);
+        assert_eq!(hud.page_role(), MotionRole::Sibling);
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
         let _ = hud.select_events_turn(Some(0));
-        assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+        assert_eq!(hud.page_role(), MotionRole::Sibling);
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
     }
 
     #[test]
     fn page_slide_detail_next_and_prev() {
         let mut hud = hud_with_session();
+        hud.reduced_motion = false;
         load_page(
             &mut hud,
             0,
@@ -7555,13 +7757,111 @@ mod tests {
             0,
         );
         let _ = hud.update(Message::SelectTimeline(10));
+        assert_eq!(hud.page_role(), MotionRole::Push);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
         let _ = hud.update(Message::TimelineDetailStep(1));
+        assert_eq!(hud.page_role(), MotionRole::Step);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::Up);
         let _ = hud.update(Message::TimelineDetailStep(-1));
+        assert_eq!(hud.page_role(), MotionRole::Step);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::Down);
         let _ = hud.update(Message::CloseTimelineDetail);
+        assert_eq!(hud.page_role(), MotionRole::Pop);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::Start);
+    }
+
+    #[test]
+    fn second_page_motion_does_not_reset_progress() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            session_id: "s1".into(),
+            ..Overview::default()
+        });
+        hud.tab = Tab::Turns;
+        hud.reduced_motion = false;
+        let started = Instant::now() - Duration::from_millis(80);
+        let mut page = motion::role_animation(MotionRole::Sibling, false, false);
+        page.go_mut(true, started);
+        hud.page = page;
+        let mid = hud.page_progress();
+        assert!(mid > 0.1 && mid < 0.95, "mid-flight {mid}");
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        let after = hud.page_progress();
+        assert!(
+            after > 0.1,
+            "tab change reset page progress to {after} (was {mid})"
+        );
+        assert_eq!(hud.page_role(), MotionRole::Sibling);
+    }
+
+    #[test]
+    fn session_pick_is_browse_push() {
+        let mut hud = hud_with_session();
+        hud.reduced_motion = false;
+        hud.query = "s1".into();
+        hud.rerank_visible();
+        let _ = hud.update(Message::SelectSession(0));
+        assert_eq!(hud.page_role(), MotionRole::Push);
+        assert_eq!(hud.page_layer(), PageLayer::Browse);
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+    }
+
+    #[test]
+    fn expander_progress_is_between_ends_while_opening() {
+        let mut hud = Hud {
+            reduced_motion: false,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::FindingExpand {
+            id: "a".into(),
+            open: true,
+        });
+        assert!(hud.finding_expanded("a"));
+        assert!(
+            hud.finding_motion
+                .get("a")
+                .is_some_and(|a| a.is_animating(Instant::now())),
+            "opening must start disclose animation"
+        );
+        assert!(hud.finding_expand_progress("a") < 1.0);
+        let started = Instant::now() - Duration::from_millis(80);
+        let mut anim = motion::disclose_animation(false, false);
+        anim.go_mut(true, started);
+        hud.finding_motion.insert("a".into(), anim);
+        let p = hud.finding_expand_progress("a");
+        assert!(p > 0.0 && p < 1.0, "expander progress {p}");
+        let mut snap = Hud {
+            reduced_motion: true,
+            ..Hud::default()
+        };
+        let _ = snap.update(Message::FindingExpand {
+            id: "b".into(),
+            open: true,
+        });
+        assert!((snap.finding_expand_progress("b") - 1.0).abs() < 0.01);
+        assert!(snap.finding_expanded("b"));
+    }
+
+    #[test]
+    fn reduced_motion_tab_change_snaps() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            session_id: "s1".into(),
+            ..Overview::default()
+        });
+        hud.tab = Tab::Turns;
+        hud.reduced_motion = true;
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        assert!(!hud.page_moving());
+        assert!((hud.page_progress() - 1.0).abs() < 0.01);
+        assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
+    }
+
+    #[test]
+    fn motion_clock_uses_window_frames() {
+        let src = include_str!("app.rs");
+        assert!(src.contains("if self.needs_motion_tick()"));
+        assert!(src.contains("window::frames()"));
     }
 
     #[test]
@@ -7651,7 +7951,8 @@ mod tests {
             palette_live: true,
             window_mode: false,
             window_id: Some(id),
-            overlay: icedtea::motion::overlay_animation(true, true),
+            overlay: motion::role_animation(MotionRole::Present, true, true),
+            reduced_motion: true,
             ..Hud::default()
         };
         let _ = hud.on_tray(crate::tray::TrayAction::Toggle);

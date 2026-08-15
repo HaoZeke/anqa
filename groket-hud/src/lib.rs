@@ -17,6 +17,7 @@ pub mod live;
 pub mod log;
 pub mod macoswin;
 pub mod model;
+pub mod motion;
 pub mod place;
 #[cfg(target_os = "linux")]
 pub mod place_linux;

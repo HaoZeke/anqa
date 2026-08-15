@@ -308,14 +308,14 @@ pub struct TickInput<'a> {
 pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
     let mut plan = TickPlan::default();
     for (method, sid) in input.notifies {
-        let mine = !sid.is_empty() && (sid == input.overview_sid || sid == input.selected_sid);
+        let open = !sid.is_empty() && sid == input.overview_sid;
         if method == "session/changed" || method == "session/selected" {
             plan.fetch_list = true;
-            if mine {
+            if open {
                 plan.load_overview = true;
             }
         }
-        if mine
+        if open
             && (method == "notes/changed" || method == "analysis/changed")
             && !input.notes_locked
         {
@@ -1224,6 +1224,28 @@ mod tests {
         });
         assert!(!plan.fetch_list);
         assert!(!plan.load_overview);
+    }
+
+    #[test]
+    fn tick_plan_notify_does_not_open_from_list_highlight() {
+        let notifies = vec![("session/changed".into(), "a".into())];
+        let plan = plan_tick(TickInput {
+            notifies: &notifies,
+            selected_sid: "a",
+            overview_sid: "",
+            palette_live: true,
+            list_elapsed_ms: 0,
+            selected_live: true,
+            any_live: true,
+            on_timeline: false,
+            notes_locked: false,
+            catch_up: false,
+        });
+        assert!(plan.fetch_list);
+        assert!(
+            !plan.load_overview,
+            "session/changed on a Spotlight highlight must not open browse"
+        );
     }
 
     #[test]
