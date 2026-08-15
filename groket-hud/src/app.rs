@@ -50,6 +50,14 @@ const HUD_H: f32 = 560.0;
 const APP_ID: &str = "dev.indynull.groket-hud";
 const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
 const MOTION_TICK_MS: u64 = 32;
+/// HUD show/hide fade. Longer than icedtea's 200 ms overlay token.
+const HUD_FADE: icedtea::m3::DurationStep = icedtea::m3::DurationStep::Long2;
+
+fn hud_fade(open: bool, reduced: bool) -> Animation<bool> {
+    Animation::new(open)
+        .duration(HUD_FADE.duration(reduced))
+        .easing(icedtea::m3::Ease::EmphasizedDecelerate.lilt())
+}
 
 fn tab_slide(from: Tab, to: Tab, tabs: &[Tab]) -> icedtea::motion::Slide {
     let a = tabs.iter().position(|t| *t == from);
@@ -443,7 +451,7 @@ impl Default for Hud {
             toasts: icedtea::toast::ToastQueue::new(),
             last_tick: Instant::now(),
             spin_phase: 0.0,
-            overlay: icedtea::motion::overlay_animation(true, false),
+            overlay: hud_fade(true, false),
             page: icedtea::motion::overlay_animation(true, false),
             page_slide: icedtea::motion::Slide::None,
             page_dir: None,
@@ -682,7 +690,7 @@ impl Hud {
         if boot_summons_overlay(hud.window_mode, crate::tray::show_on_start()) {
             hud.visible = false;
             hud.palette_live = false;
-            hud.overlay = icedtea::motion::overlay_animation(false, false);
+            hud.overlay = hud_fade(false, false);
             boot.push(hud.show_palette());
         }
         (hud, Task::batch(boot))
@@ -1918,8 +1926,9 @@ impl Hud {
     }
 
     fn go_overlay(&mut self, open: bool) {
-        if self.tokens().reduced_motion {
-            self.overlay = icedtea::motion::overlay_animation(open, true);
+        let reduced = crate::theme::tokens(&self.theme_name).reduced_motion;
+        if reduced {
+            self.overlay = hud_fade(open, true);
             return;
         }
         self.overlay.go_mut(open, Instant::now());
@@ -7209,6 +7218,11 @@ mod tests {
             hud.tokens().text.a,
             crate::theme::tokens(hud.theme_name()).text.a
         );
+    }
+
+    #[test]
+    fn hud_fade_is_slower_than_the_overlay_token() {
+        assert!(HUD_FADE.millis() > icedtea::m3::motion::OVERLAY.millis());
     }
 
     #[test]
