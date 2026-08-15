@@ -1332,6 +1332,10 @@ mod tests {
         assert_eq!(overlay.hud_spec("search.focus", "/"), "/");
         let overlay = KeyOverlay::parse("[browser]\n\"app.pane.next\" = \"]\"\n").unwrap();
         assert_eq!(overlay.hud_spec("app.pane.next", "]"), "]");
+        assert_eq!(
+            KeyOverlay::default().hud_spec("events.all_turns", "left_square_bracket"),
+            "["
+        );
     }
 
     #[test]
