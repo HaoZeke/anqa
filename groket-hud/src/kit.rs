@@ -215,7 +215,7 @@ pub fn help_modal<'a>(
     let card = container(sheet)
         .width(Length::Fixed(520.0))
         .height(Length::Fixed(400.0));
-    icedtea::pattern::modal_card(backdrop, card.into(), tea)
+    icedtea::pattern::modal_card(backdrop, card.into(), 1.0, tea)
 }
 
 #[cfg(test)]

@@ -9,7 +9,10 @@ use iced::keyboard::{key::Named, Key, Modifiers as KeyMods};
 use iced::widget::operation;
 use iced::widget::Id;
 use iced::window::{self, Mode};
-use iced::{event, keyboard, time, Element, Event, Pixels, Point, Size, Subscription, Task, Theme};
+use iced::{
+    event, keyboard, time, Animation, Element, Event, Pixels, Point, Size, Subscription, Task,
+    Theme,
+};
 use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
@@ -46,6 +49,7 @@ const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
 const APP_ID: &str = "dev.indynull.groket-hud";
 const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
+const MOTION_TICK_MS: u64 = 32;
 
 /// Which edge event to open after a turn-scoped pager crosses a turn boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -294,6 +298,7 @@ pub struct Hud {
     toasts: icedtea::toast::ToastQueue,
     last_tick: Instant,
     spin_phase: f32,
+    overlay: Animation<bool>,
     catalog_busy: bool,
     findings_open: HashSet<String>,
     notes_open: HashSet<String>,
@@ -403,6 +408,7 @@ impl Default for Hud {
             toasts: icedtea::toast::ToastQueue::new(),
             last_tick: Instant::now(),
             spin_phase: 0.0,
+            overlay: icedtea::motion::overlay_animation(true, false),
             catalog_busy: false,
             findings_open: HashSet::new(),
             notes_open: HashSet::new(),
@@ -636,6 +642,9 @@ impl Hud {
             fetch_list(false, 0),
         ];
         if boot_summons_overlay(hud.window_mode, crate::tray::show_on_start()) {
+            hud.visible = false;
+            hud.palette_live = false;
+            hud.overlay = icedtea::motion::overlay_animation(false, false);
             boot.push(hud.show_palette());
         }
         (hud, Task::batch(boot))
@@ -653,6 +662,9 @@ impl Hud {
             notify_subscription(),
             icedtea::iced::system::theme_changes().map(Message::OsMode),
         ];
+        if self.needs_motion_tick() {
+            subs.push(time::every(Duration::from_millis(MOTION_TICK_MS)).map(|_| Message::Tick));
+        }
         if wants_periodic_poll(self.visible, self.focused, self.window_mode) {
             let any_live = session_needs_live_poll(
                 &self.selected_status(),
@@ -1826,7 +1838,48 @@ impl Hud {
         &self.theme_name
     }
     pub fn tokens(&self) -> icedtea::theme::Tokens {
-        crate::theme::tokens(&self.theme_name)
+        let tok = crate::theme::tokens(&self.theme_name);
+        let t = icedtea::motion::visual(self.overlay_progress(), tok.reduced_motion);
+        tok.fade(t)
+    }
+
+    pub fn overlay_progress(&self) -> f32 {
+        self.overlay.interpolate(0.0, 1.0, Instant::now())
+    }
+
+    pub fn icon_phase(&self) -> f32 {
+        self.spin_phase
+    }
+
+    fn needs_motion_tick(&self) -> bool {
+        let now = Instant::now();
+        self.overlay.is_animating(now)
+            || (self.visible && !self.tokens().reduced_motion)
+            || (!self.visible && self.window_id.is_some() && !self.window_mode)
+    }
+
+    fn go_overlay(&mut self, open: bool) {
+        if self.tokens().reduced_motion {
+            self.overlay = icedtea::motion::overlay_animation(open, true);
+            return;
+        }
+        self.overlay.go_mut(open, Instant::now());
+    }
+
+    fn finish_overlay_hide(&mut self) -> Task<Message> {
+        if self.visible || self.window_mode {
+            return Task::none();
+        }
+        if self.overlay.is_animating(Instant::now()) {
+            return Task::none();
+        }
+        #[cfg(target_os = "linux")]
+        crate::x11focus::release_keyboard();
+        // Destroy the overlay so Sway rematches for_window on the next show.
+        match self.window_id.take() {
+            Some(id) => window::close(id),
+            None => Task::none(),
+        }
     }
     pub fn search_id(&self) -> Id {
         self.search_id.clone()
@@ -3148,13 +3201,8 @@ impl Hud {
         }
         self.visible = false;
         self.palette_live = false;
-        #[cfg(target_os = "linux")]
-        crate::x11focus::release_keyboard();
-        // Destroy the overlay so Sway rematches for_window on the next show.
-        match self.window_id.take() {
-            Some(id) => window::close(id),
-            None => Task::none(),
-        }
+        self.go_overlay(false);
+        self.finish_overlay_hide()
     }
 
     fn grow_recent(&mut self) -> bool {
@@ -3205,6 +3253,7 @@ impl Hud {
         self.focused = true;
         self.palette_live = true;
         self.last_live = Instant::now();
+        self.go_overlay(true);
         self.sync_theme();
         // Always open on the session list — pick is explicit (Enter / click).
         self.return_to_spotlight();
@@ -3415,7 +3464,8 @@ impl Hud {
         let dt = now.saturating_duration_since(self.last_tick).as_millis() as u64;
         self.last_tick = now;
         self.toasts.tick(dt.max(1));
-        self.spin_phase = (self.spin_phase + 0.05) % 1.0;
+        let motion_step = (dt.max(1) as f32 / 1400.0).min(0.2);
+        self.spin_phase = (self.spin_phase + motion_step) % 1.0;
         self.sync_theme();
         if let Some(until) = self.leader_until {
             if Instant::now() >= until {
@@ -3430,6 +3480,7 @@ impl Hud {
             }
         }
         let mut cmds = Vec::new();
+        cmds.push(self.finish_overlay_hide());
         let notifies: Vec<(String, Value)> = if let Ok(mut g) = self.notify_q.lock() {
             g.drain(..).collect()
         } else {
@@ -7029,12 +7080,53 @@ mod tests {
             palette_live: true,
             window_mode: false,
             window_id: Some(id),
+            overlay: icedtea::motion::overlay_animation(true, true),
             ..Hud::default()
         };
         let _ = hud.hide_palette();
         assert!(!hud.visible);
         assert!(!hud.palette_live);
+        // Reduced-motion hide settles in the same call.
+        let _ = hud.finish_overlay_hide();
         assert!(hud.window_id.is_none());
+    }
+
+    #[test]
+    fn hide_palette_keeps_window_until_exit_motion_settles() {
+        let id = window::Id::unique();
+        let mut hud = Hud {
+            visible: true,
+            palette_live: true,
+            window_mode: false,
+            window_id: Some(id),
+            overlay: icedtea::motion::overlay_animation(true, false),
+            ..Hud::default()
+        };
+        let _ = hud.hide_palette();
+        assert!(!hud.visible);
+        assert_eq!(hud.window_id, Some(id));
+        assert!(hud.overlay.is_animating(Instant::now()));
+    }
+
+    #[test]
+    fn overlay_progress_is_open_at_rest() {
+        let hud = Hud::default();
+        assert!((hud.overlay_progress() - 1.0).abs() < 0.01);
+        assert_eq!(
+            hud.tokens().text.a,
+            crate::theme::tokens(hud.theme_name()).text.a
+        );
+    }
+
+    #[test]
+    fn icon_phase_moves_on_tick() {
+        let mut hud = Hud {
+            last_tick: Instant::now() - Duration::from_millis(200),
+            ..Hud::default()
+        };
+        let before = hud.icon_phase();
+        let _ = hud.on_tick();
+        assert_ne!(hud.icon_phase(), before);
     }
 
     #[test]
@@ -7124,10 +7216,12 @@ mod tests {
             palette_live: true,
             window_mode: false,
             window_id: Some(id),
+            overlay: icedtea::motion::overlay_animation(true, true),
             ..Hud::default()
         };
         let _ = hud.on_tray(crate::tray::TrayAction::Toggle);
         assert!(!hud.visible);
+        let _ = hud.finish_overlay_hide();
         assert!(hud.window_id.is_none());
     }
 
