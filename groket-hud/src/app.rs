@@ -204,6 +204,7 @@ pub enum Message {
     CopyPath,
     CopyText(String),
     Yank,
+    SelectAllText,
     Cursor(icedtea::layout::CursorEvent),
     ContextDismiss,
     WindowSize(Size),
@@ -354,6 +355,11 @@ pub struct Hud {
     follow_id: Id,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
+    /// Last selectable the pointer or keys touched.
+    select_id: Option<String>,
+    /// Selection snapshotted when the context menu opened.
+    context_sel: Option<String>,
+    key_mods: KeyMods,
     pointer: Point,
     context: Option<Point>,
     window_size: Size,
@@ -466,6 +472,9 @@ impl Default for Hud {
             follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
+            select_id: None,
+            context_sel: None,
+            key_mods: KeyMods::empty(),
             pointer: Point::ORIGIN,
             context: None,
             window_size: if crate::prefs::window_mode()
@@ -1014,7 +1023,14 @@ impl Hud {
             Message::CopyPath => self.copy_path(),
             Message::CopyText(s) => self.copy_text(s),
             Message::Select { id, action } => {
+                let action = match action {
+                    iced::widget::text_editor::Action::Click(p) if self.key_mods.shift() => {
+                        iced::widget::text_editor::Action::Drag(p)
+                    }
+                    other => other,
+                };
                 self.fields.perform(&id, action);
+                self.select_id = Some(id);
                 Task::none()
             }
             Message::ToastDismiss(id) => {
@@ -1374,9 +1390,11 @@ impl Hud {
                 Task::none()
             }
             Message::Yank => self.yank_active(),
+            Message::SelectAllText => self.select_all_text(),
             Message::Cursor(ev) => self.on_cursor(ev),
             Message::ContextDismiss => {
                 self.context = None;
+                self.context_sel = None;
                 Task::none()
             }
             Message::WindowSize(size) => {
@@ -1731,6 +1749,7 @@ impl Hud {
 
     fn copy_text(&mut self, text: String) -> Task<Message> {
         self.context = None;
+        self.context_sel = None;
         let text = text.trim().to_string();
         if text.is_empty() {
             self.toasts.push_warning("Nothing to copy");
@@ -1747,7 +1766,38 @@ impl Hud {
         self.copy_text(self.copyable_text())
     }
 
+    fn select_target_id(&self) -> Option<String> {
+        if let Some(id) = &self.select_id {
+            if self.fields.contains(id) {
+                return Some(id.clone());
+            }
+        }
+        let ix = self.timeline_open.or(self.timeline_focus)?;
+        let out = format!("event.{ix}.out");
+        self.fields.contains(&out).then_some(out)
+    }
+
+    fn select_all_text(&mut self) -> Task<Message> {
+        let Some(id) = self.select_target_id() else {
+            return Task::none();
+        };
+        self.fields
+            .perform(&id, iced::widget::text_editor::Action::SelectAll);
+        self.select_id = Some(id);
+        if self.context.is_some() {
+            self.context_sel = self.fields.first_selection();
+        }
+        Task::none()
+    }
+
     pub(crate) fn copyable_text(&self) -> String {
+        if self.context.is_some() {
+            if let Some(sel) = self.context_sel.as_deref() {
+                if !sel.trim().is_empty() {
+                    return sel.to_string();
+                }
+            }
+        }
         if let Some(sel) = self.fields.first_selection() {
             if !sel.trim().is_empty() {
                 return sel;
@@ -1838,9 +1888,15 @@ impl Hud {
     pub fn context_actions(&self) -> Vec<icedtea::action::Action<Message>> {
         let mut copy = icedtea::action::Action::new("edit.copy", "Copy", Message::Yank);
         copy.enabled = !self.copyable_text().trim().is_empty();
+        let mut all =
+            icedtea::action::Action::new("edit.select_all", "Select all", Message::SelectAllText);
+        all.enabled = self.select_target_id().is_some();
+        if let Some(spec) = icedtea::shortcut::Shortcut::parse("ctrl+a") {
+            all = all.with_shortcut(spec);
+        }
         let mut path = icedtea::action::Action::new("session.copy", "Copy path", Message::CopyPath);
         path.enabled = !self.session_path().is_empty();
-        vec![copy, path]
+        vec![copy, all, path]
     }
 
     fn on_cursor(&mut self, ev: icedtea::layout::CursorEvent) -> Task<Message> {
@@ -1849,6 +1905,7 @@ impl Hud {
                 self.pointer = p;
             }
             icedtea::layout::CursorEvent::Context if self.visible => {
+                self.context_sel = self.fields.first_selection();
                 self.context = Some(self.pointer);
             }
             icedtea::layout::CursorEvent::Context => {}
@@ -3734,6 +3791,7 @@ impl Hud {
 
     fn copy_path(&mut self) -> Task<Message> {
         self.context = None;
+        self.context_sel = None;
         let path = self.session_path();
         if path.is_empty() {
             self.toasts.push_warning("No path");
@@ -3749,10 +3807,17 @@ impl Hud {
     fn on_event(&mut self, ev: Event) -> Task<Message> {
         // Do not steal focus to search on every click — expand cards, tabs,
         // and the detail pane must keep focus so shortcuts and expand work.
-        if let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = ev {
-            return self.on_key(key, modifiers);
+        match ev {
+            Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                self.key_mods = modifiers;
+                self.on_key(key, modifiers)
+            }
+            Event::Keyboard(keyboard::Event::KeyReleased { modifiers, .. }) => {
+                self.key_mods = modifiers;
+                Task::none()
+            }
+            _ => Task::none(),
         }
-        Task::none()
     }
 
     fn on_escape(&mut self) -> Task<Message> {
@@ -3761,6 +3826,7 @@ impl Hud {
             return Task::none();
         }
         if self.context.take().is_some() {
+            self.context_sel = None;
             return Task::none();
         }
         // Full-pane event detail → list at the current event before hide.
@@ -3849,6 +3915,7 @@ impl Hud {
     }
 
     fn on_key(&mut self, key: Key, modifiers: KeyMods) -> Task<Message> {
+        self.key_mods = modifiers;
         self.expire_leader();
         if matches!(key, Key::Named(Named::Escape)) {
             if self.leader_armed {
@@ -3923,6 +3990,12 @@ impl Hud {
             || self.key_is("edit.copy_chord", "ctrl+shift+c", &key, modifiers)
         {
             return self.yank_active();
+        }
+        if modifiers.command()
+            && !modifiers.alt()
+            && matches!(&key, Key::Character(c) if c.eq_ignore_ascii_case("a"))
+        {
+            return self.select_all_text();
         }
         // Tab / Shift+Tab: cycle browse panes (same as Ctrl+1…5). Not iced widget
         // focus soup — session search is only for Spotlight (type to switch).
@@ -7098,14 +7171,70 @@ mod tests {
     }
 
     #[test]
-    fn context_actions_are_copy_and_copy_path() {
+    fn context_actions_are_copy_select_all_and_copy_path() {
         let hud = Hud::default();
         let acts = hud.context_actions();
-        assert_eq!(acts.len(), 2);
+        assert_eq!(acts.len(), 3);
         assert_eq!(acts[0].title, "Copy");
         assert!(!acts[0].enabled);
-        assert_eq!(acts[1].title, "Copy path");
+        assert_eq!(acts[1].title, "Select all");
         assert!(!acts[1].enabled);
+        assert_eq!(acts[2].title, "Copy path");
+        assert!(!acts[2].enabled);
+    }
+
+    #[test]
+    fn right_click_keeps_a_text_selection_for_copy() {
+        let mut hud = Hud::default();
+        hud.bind_field("event.3.out", "line one\nline two\nline three");
+        let _ = hud.update(Message::Select {
+            id: "event.3.out".into(),
+            action: iced::widget::text_editor::Action::SelectAll,
+        });
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Move(
+            Point::new(40.0, 80.0),
+        )));
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Context));
+        assert_eq!(hud.context_origin(), Some(Point::new(40.0, 80.0)));
+        assert!(hud.copyable_text().contains("line two"));
+        let copy = hud
+            .context_actions()
+            .into_iter()
+            .find(|a| a.id.as_str() == "edit.copy")
+            .expect("copy");
+        assert!(copy.enabled);
+    }
+
+    #[test]
+    fn select_all_text_selects_the_last_field() {
+        let mut hud = Hud::default();
+        hud.bind_field("event.3.out", "alpha\nbeta");
+        let _ = hud.update(Message::Select {
+            id: "event.3.out".into(),
+            action: iced::widget::text_editor::Action::Click(Point::new(0.0, 0.0)),
+        });
+        let _ = hud.update(Message::SelectAllText);
+        assert_eq!(hud.copyable_text().trim(), "alpha\nbeta");
+    }
+
+    #[test]
+    fn shift_click_extends_instead_of_collapsing() {
+        let mut hud = Hud::default();
+        hud.bind_field("event.3.out", "abcdef");
+        let _ = hud.update(Message::Select {
+            id: "event.3.out".into(),
+            action: iced::widget::text_editor::Action::SelectAll,
+        });
+        assert!(hud.fields.first_selection().is_some());
+        hud.key_mods = KeyMods::SHIFT;
+        let _ = hud.update(Message::Select {
+            id: "event.3.out".into(),
+            action: iced::widget::text_editor::Action::Click(Point::new(12.0, 0.0)),
+        });
+        assert!(
+            hud.fields.first_selection().is_some(),
+            "shift-click must not drop the range"
+        );
     }
 
     #[test]

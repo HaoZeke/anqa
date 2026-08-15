@@ -296,36 +296,24 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Catalog", Role::Progress),
     );
+    // Always stack the shell so opening the context menu does not remount
+    // selectable editors (iced only paints a selection while they stay focused).
+    let mut layers = stack![busy];
     if let Some(origin) = hud.context_origin() {
-        let menu = stack![
-            busy,
-            icedtea::pattern::context_menu(
-                hud.context_actions(),
-                origin,
-                hud.window_size(),
-                Message::ContextDismiss,
-                1.0,
-                tea,
-            ),
-        ]
-        .into();
-        if hud.help_open() {
-            return fade_palette(
-                kit::help_modal(
-                    menu,
-                    &crate::help::help_table_for(hud.key_scope(), hud.key_overlay()),
-                    tea,
-                ),
-                hud,
-                tea,
-            );
-        }
-        return fade_palette(menu, hud, tea);
+        layers = layers.push(icedtea::pattern::context_menu(
+            hud.context_actions(),
+            origin,
+            hud.window_size(),
+            Message::ContextDismiss,
+            1.0,
+            tea,
+        ));
     }
+    let scene = layers.into();
     if hud.help_open() {
         return fade_palette(
             kit::help_modal(
-                busy,
+                scene,
                 &crate::help::help_table_for(hud.key_scope(), hud.key_overlay()),
                 tea,
             ),
@@ -333,7 +321,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             tea,
         );
     }
-    fade_palette(busy, hud, tea)
+    fade_palette(scene, hud, tea)
 }
 
 fn fade_palette<'a>(
@@ -2584,6 +2572,7 @@ mod tests {
         assert!(prod.contains("turns_tab(hud)"));
         assert!(prod.contains("meter: None"));
         assert!(prod.contains("pattern::context_menu"));
+        assert!(prod.contains("stack![busy]"));
         assert!(prod.contains("fn turn_note"));
         assert!(!prod.contains("command_palette_view"));
         assert!(prod.contains("fn event_body"));
