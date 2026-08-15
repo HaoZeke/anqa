@@ -1896,8 +1896,16 @@ impl Hud {
         self.overlay.interpolate(0.0, 1.0, Instant::now())
     }
 
+    pub fn overlay_moving(&self) -> bool {
+        self.overlay.is_animating(Instant::now())
+    }
+
     pub fn page_progress(&self) -> f32 {
         self.page.interpolate(0.0, 1.0, Instant::now())
+    }
+
+    pub fn page_moving(&self) -> bool {
+        self.page.is_animating(Instant::now())
     }
 
     pub fn page_slide(&self) -> icedtea::motion::Slide {
@@ -7214,6 +7222,8 @@ mod tests {
     fn overlay_progress_is_open_at_rest() {
         let hud = Hud::default();
         assert!((hud.overlay_progress() - 1.0).abs() < 0.01);
+        assert!(!hud.overlay_moving());
+        assert!(!hud.page_moving());
         assert_eq!(
             hud.tokens().text.a,
             crate::theme::tokens(hud.theme_name()).text.a

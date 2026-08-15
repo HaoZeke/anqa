@@ -341,6 +341,12 @@ fn fade_palette<'a>(
     hud: &Hud,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
+    // icedtea OverlayLayer does not forward Widget::overlay, so pick lists
+    // never open while this wrapper is mounted. Tokens::fade already paints
+    // the show/hide. Keep the layer only while the fade is running.
+    if !hud.overlay_moving() {
+        return child;
+    }
     icedtea::motion::overlay(
         child,
         hud.overlay_progress(),
@@ -355,6 +361,12 @@ fn page_body<'a>(
     hud: &Hud,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
+    if !hud.page_moving() {
+        return container(child)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
     container(icedtea::motion::overlay(
         child,
         hud.page_progress(),
@@ -2545,6 +2557,8 @@ mod tests {
         assert!(prod.contains("icedtea::motion::overlay"));
         assert!(prod.contains("Slide::None"));
         assert!(prod.contains("fn page_body"));
+        assert!(prod.contains("overlay_moving()"));
+        assert!(prod.contains("page_moving()"));
         assert!(prod.contains("fn expand_card"));
         assert!(prod.contains("fn card_actions"));
         assert!(prod.contains("fn card_chips"));
