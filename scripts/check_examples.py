@@ -301,6 +301,15 @@ def check_readmes() -> None:
     for path in required:
         if not path.is_file() or path.stat().st_size < 40:
             _err(path, "missing or empty README")
+        text = path.read_text(encoding="utf-8")
+        for stale in (
+            "all-plugins.json",
+            "security-only.json",
+            "code-quality.json",
+            "teachx-v2-mf.json",
+        ):
+            if stale in text:
+                _err(path, f"prefs samples are .toml; found {stale}")
         _ok(f"{_repo_rel(path)}")
 
 
@@ -324,7 +333,7 @@ def check_keys_overlay() -> None:
 
 def check_app_config() -> None:
     """Validate examples/config/config.toml against AppConfig."""
-    from groket.config import SCHEMA_ID, load_app_config
+    from groket.config import SCHEMA_ID, validate_config_file
 
     path = EXAMPLES / "config" / "config.toml"
     if not path.is_file():
@@ -332,7 +341,10 @@ def check_app_config() -> None:
     text = path.read_text(encoding="utf-8")
     if SCHEMA_ID not in text:
         _err(path, f"missing schema comment {SCHEMA_ID}")
-    cfg = load_app_config(path)
+    try:
+        cfg = validate_config_file(path)
+    except ValueError as exc:
+        _err(path, str(exc))
     if cfg.theme != "groket":
         _err(path, f"expected default theme groket, got {cfg.theme!r}")
     _ok(f"{_repo_rel(path)}  theme={cfg.theme}")

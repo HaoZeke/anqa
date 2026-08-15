@@ -381,10 +381,30 @@ class TestBatchCommands:
         assert "show_host_sessions" in out
 
     def test_config_validate_default(self) -> None:
+        from groket.config import AppConfig
+
         result = runner.invoke(app, ["config", "validate"])
         assert result.exit_code == 0
         out = result.stdout or result.output or ""
         assert "OK" in out
+        n = len(AppConfig().analysis.plugins)
+        assert f"analysis.plugins={n}" in out
+
+    def test_config_validate_example(self) -> None:
+        example = Path("examples/config/config.toml")
+        result = runner.invoke(app, ["config", "validate", str(example)])
+        assert result.exit_code == 0
+        out = result.stdout or result.output or ""
+        assert "OK" in out
+        assert str(example) in out
+
+    def test_config_validate_bad_toml(self, tmp_path: Path) -> None:
+        bad = tmp_path / "config.toml"
+        bad.write_text("not = [toml", encoding="utf-8")
+        result = runner.invoke(app, ["config", "validate", str(bad)])
+        assert result.exit_code == 2
+        err = result.stderr or result.output or ""
+        assert "error" in err.lower() or "invalid" in err.lower()
 
     def test_batch_not_rewritten_as_path(self) -> None:
         with patch("groket.cli.app") as mock_app:

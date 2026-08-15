@@ -875,16 +875,18 @@ def cmd_config_validate(
     ] = None,
 ) -> None:
     """Validate a prefs TOML file against the published schema."""
-    from .config import load_app_config
+    from .config import AppConfig, validate_config_file
     from .paths import app_config_path
 
     target = path.expanduser() if path is not None else app_config_path()
-    if path is not None and not target.is_file():
-        typer.echo(f"error: {target} is not a file", err=True)
-        raise typer.Exit(2)
+    if path is None and not target.is_file():
+        cfg = AppConfig()
+        n = len(cfg.analysis.plugins)
+        typer.echo(f"OK  {target}  (theme={cfg.theme}, analysis.plugins={n})")
+        return
     try:
-        cfg = load_app_config(target if path is not None else None)
-    except Exception as exc:
+        cfg = validate_config_file(target)
+    except ValueError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
     n = len(cfg.analysis.plugins)

@@ -35,7 +35,7 @@ cp examples/analysis/plugins/session_event_count.py ~/.groket/plugins/
 # enable: analysis.plugins = ["session_event_count:SessionEventCountAnalyzer"]
 
 # Or open TUI with a sample config (plugins dir on path — no copy):
-uv run groket --config examples/analysis/configs/all-plugins.json
+uv run groket --config examples/analysis/configs/all-plugins.toml
 
 # Batch
 uv run groket batch validate examples/tasks/demo_tasks.yaml

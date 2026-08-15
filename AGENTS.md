@@ -148,6 +148,9 @@ groket/
   job_pools.py           # serial analysis + live-refresh worker pools
   session_inflight.py    # per-session inflight locks (analysis, refresh)
   assets_loader.py       # repo assets/ or wheel-embedded templates
+  native.py              # optional listwalk extension
+  keys/                  # action catalog + keys.toml overlay
+  harness/               # Grok disk/harness helpers
   runs/                  # personas, run_configs, run_manager, batch, live_share,
                          #   launch_meta, services, task_schema
   session/               # turns, turn_gate, usage_stats, workspace_diff,
@@ -159,7 +162,7 @@ groket/
   hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
 # Sibling: groket-hud/     # iced Sol-style palette (not part of Python package)
-  diagnostics/           # host self-test
+  diagnostics/           # host checks (``groket doctor`` + in-app self-test)
   analysis/              # Analyzer protocol, service, registry, cache, inflight, llm/
   engine/                # detectors, rules loader, runner, rule_schema
   capabilities/          # MCP / skills / Grok Build marketplace plugins
@@ -181,7 +184,7 @@ assets/                  # non-Python templates (not coverage source)
   config/                # empty rules.yaml / composites.yaml stubs
 
 examples/                # supported reference packs (CI: just examples-check) — not auto-loaded
-schemas/                 # committed JSON Schema (tasks, rules)
+schemas/                 # committed JSON Schema (tasks, rules, config)
 Optional wheel mirror: groket/_embedded_assets/
 ```
 
@@ -224,7 +227,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
   Docker). Optional **Host** catalog = ``~/.grok/sessions`` (``H`` / pref
-  ``show_host_sessions``); real host paths, no import re-home.
+  ``show_host_sessions``); real host paths.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
@@ -712,7 +715,7 @@ Not “every tool is green.” Error is red and wins.
 | write | green | ``search_replace``, ``todo_write``, ``update_goal``, image tools |
 | shell | yellow | ``run_terminal_command``, wait / kill / monitor / scheduler |
 | agent | cream | ``spawn_subagent``, ``ask_user_question``, plan mode |
-| marketplace | gray | ``server__method``, leftover ``use_tool`` / ``call_mcp`` |
+| marketplace | gray | ``server__method``, ``use_tool``, ``call_mcp`` |
 | other | dim | unknown |
 
 Event *type* (``tool call``, ``user message``) still uses the event-type map

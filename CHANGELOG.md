@@ -5,6 +5,8 @@ is tagged.
 
 ## Unreleased
 
+- Example analysis READMEs point at `.toml` prefs samples.
+- `groket config validate` rejects missing or invalid TOML. Load uses defaults when the file is absent or unreadable.
 - Continuous integration uploads Python and HUD coverage to Codecov (OIDC).
 - README badges: Actions, Codecov, Python 3.13, MIT license.
 - Platform wheels and the source distribution build on `main`, tags, and

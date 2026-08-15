@@ -198,8 +198,6 @@ def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     doc["theme"] = cfg.theme
     doc["follow_os"] = cfg.follow_os
     doc["show_host_sessions"] = cfg.show_host_sessions
-    if "show_tips" in doc:
-        del doc["show_tips"]
     doc["auto_serve"] = cfg.auto_serve
     analysis = _ensure_table(doc, "analysis")
     _set_plugins(analysis, list(cfg.analysis.plugins))
@@ -337,11 +335,35 @@ def leftover_json_config_path(toml_path: Path | None = None) -> Path:
     return base.with_name("config.json")
 
 
-# TODO(remove-json-config): Delete this importer, leftover_json_config_path,
-# the doctor warning, and test_imports_json_when_toml_missing once every
-# install has config.toml (after a release or two). Do not add more JSON
-# prefs readers. TOML is the only file after the first successful copy.
+def validate_config_file(path: Path) -> AppConfig:
+    """Parse *path* as prefs TOML. Raises ``ValueError`` if missing or invalid.
+
+    Unlike :func:`load_app_config`, this does not fall back to defaults or
+    import leftover JSON. The CLI ``groket config validate`` uses this path.
+
+    :param path: Prefs file to check.
+    :returns: Canonical config.
+    :raises ValueError: Missing file, unreadable, or invalid TOML.
+    """
+    fp = Path(path).expanduser()
+    if not fp.is_file():
+        raise ValueError(f"{fp} is not a file")
+    try:
+        text = fp.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"could not read {fp}: {exc}") from exc
+    try:
+        doc = tomlkit.parse(text)
+    except tomlkit.exceptions.TOMLKitError as exc:
+        raise ValueError(f"invalid TOML: {exc}") from exc
+    raw = _to_plain(doc)
+    if not isinstance(raw, dict):
+        raise ValueError("config root must be a table")
+    return parse_app_config(as_json_object(raw))
+
+
 def _import_json_if_needed(toml_path: Path) -> None:
+    """If ``config.toml`` is missing, copy a sibling ``config.json`` once."""
     if toml_path.is_file():
         return
     src = leftover_json_config_path(toml_path)

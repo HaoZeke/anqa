@@ -15,6 +15,7 @@ from groket.config import (
     parse_app_config,
     save_app_config,
     update_app_config,
+    validate_config_file,
 )
 
 
@@ -97,6 +98,16 @@ def test_imports_json_when_toml_missing(tmp_path: Path) -> None:
     assert not (tmp_path / "config.json").exists()
 
 
+def test_save_keeps_unknown_key(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('theme = "nord"\nextra_pref = true\n', encoding="utf-8")
+    invalidate_config_cache()
+    save_app_config(load_app_config())
+    text = path.read_text(encoding="utf-8")
+    assert "extra_pref" in text
+    assert load_app_config().theme == "nord"
+
+
 def test_toml_wins_over_sibling_json(tmp_path: Path) -> None:
     (tmp_path / "config.toml").write_text('theme = "gruvbox"\n', encoding="utf-8")
     (tmp_path / "config.json").write_text('{"theme": "nord"}\n', encoding="utf-8")
@@ -107,16 +118,39 @@ def test_toml_wins_over_sibling_json(tmp_path: Path) -> None:
 def test_schema_has_published_id() -> None:
     text = emit_config_schema()
     assert SCHEMA_ID in text
-    assert "show_host_sessions" in text
-    assert "global_shortcut" in text
-    assert "show_tips" not in text
+    for key in (
+        "theme",
+        "follow_os",
+        "show_host_sessions",
+        "auto_serve",
+        "analysis",
+        "hud",
+        "export",
+        "global_shortcut",
+        "default_profile",
+    ):
+        assert key in text
 
 
-def test_save_drops_legacy_show_tips(tmp_path: Path) -> None:
+def test_validate_example_file() -> None:
+    path = Path("examples/config/config.toml")
+    cfg = validate_config_file(path)
+    assert cfg.theme == "groket"
+    assert cfg.follow_os is False
+    assert cfg.show_host_sessions is False
+    assert cfg.auto_serve is True
+    assert cfg.analysis.auto_analyze_when == "session_complete"
+    assert cfg.hud.desktop_notifications is True
+    assert cfg.export.default_profile == ""
+
+
+def test_validate_rejects_invalid_toml(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
-    path.write_text('theme = "nord"\nshow_tips = true\n', encoding="utf-8")
-    invalidate_config_cache()
-    save_app_config(load_app_config())
-    text = path.read_text(encoding="utf-8")
-    assert "show_tips" not in text
-    assert load_app_config().theme == "nord"
+    path.write_text("not = [toml", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid TOML"):
+        validate_config_file(path)
+
+
+def test_validate_rejects_missing(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="is not a file"):
+        validate_config_file(tmp_path / "missing.toml")

@@ -276,8 +276,8 @@ pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
 /// Event pages load whenever the Events pane is active (with a session).
 ///
 /// **All turns** means no turn prompt filter — still paginated full timeline.
-/// Search and Type filters apply on the client/owner over that stream; do not
-/// require a query before the first page (empty All-turns was dishonest).
+/// Search and Type filters apply on the client/owner over that stream.
+/// The first page loads with no query.
 pub fn should_fetch_timeline(on_events_tab: bool, _query: &str, _turn_prompt: Option<i64>) -> bool {
     on_events_tab
 }

@@ -441,10 +441,9 @@ def get_analysis_service(
 ) -> AnalysisService:
     """Return the process-wide analysis service.
 
-    **Does not** recreate the service when *work_dir* is passed — that used to
-    drop ``config_path`` / enabled plugins (e.g. example config) and silently
-    fall back to ``~/.groket`` only. Prefer :func:`set_analysis_service` at app
-    startup; pass *config_path* only when creating the first instance.
+    The first call creates the instance. Later *work_dir* values are ignored.
+    Pass *config_path* on that first call (or use :func:`set_analysis_service`
+    at app startup).
     """
     global _service
     if _service is None:

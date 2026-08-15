@@ -278,7 +278,7 @@ def settle_stale_session_gates(session_dir: Path) -> bool:
     st = read_turn_gate_status(sd)
     state = json_as_str(st.get("state"))
     if state == "done":
-        # Still clear leftover final_turn / next-prompt from dual-gate bugs.
+        # Clear final_turn / next-prompt files that can remain after state=done.
         dirty = False
         for gate in turn_gate_dirs_for_session(sd):
             for name in ("final_turn", "next-prompt.txt", "command", _PENDING_QUEUE):

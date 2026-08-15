@@ -831,8 +831,7 @@ impl Hud {
                     _ => Task::none(),
                 };
                 // Turns/Timeline keep scroll on VisibleWindow (virtual_column).
-                // Do not blur in-pane search — SetTab used to unfocus the
-                // turns/timeline fields so click and / could not stick.
+                // Keep in-pane search focused so click and / stay in the field.
                 load
             }
             Message::TimelineQuery(q) => {
@@ -5147,7 +5146,7 @@ mod tests {
         hud.sessions = hud.all_sessions.clone();
         hud.set_active(0);
         let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
-        assert_eq!(hud.active, 0, "default j no longer moves after remap");
+        assert_eq!(hud.active, 0, "catalog j is list.down; overlay remaps it");
         let _ = hud.on_key(Key::Character("n".into()), Modifiers::empty());
         assert_eq!(hud.active, 1, "remapped list.down = n takes the j nav path");
     }

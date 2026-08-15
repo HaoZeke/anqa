@@ -82,7 +82,7 @@ EVENT_TYPE_STYLE: dict[str, str] = {
     "turn_error": f"bold {FAILED}",
     "fatal_error": f"bold {FAILED}",
     "system": CANCELLED,
-    # legacy pre-taxonomy names (cached / old tests)
+    # Short event-type names stored in traces.
     "user": f"bold {CREAM}",
     "assistant": CREAM,
     "thought": f"dim {CREAM} italic",

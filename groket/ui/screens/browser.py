@@ -1535,7 +1535,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         session_dir = self.session_dir
         force_run = force
         result_key = analysis_session_key(session_dir)
-        legacy_key = str(session_dir)
         use_control = bool(getattr(app, "is_control_client", lambda: False)())
 
         # Bump activity-bar counter on the UI thread so spinner shows immediately.
@@ -1549,7 +1548,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             host_results = getattr(app, "_plugin_results", None)
             if isinstance(host_results, dict):
                 host_results.pop(result_key, None)
-                host_results.pop(legacy_key, None)
         except Exception:
             pass
 
@@ -1570,8 +1568,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     host_results = getattr(app, "_plugin_results", None)
                     if isinstance(host_results, dict):
                         host_results[result_key] = results
-                        if legacy_key != result_key:
-                            host_results[legacy_key] = results
                 except Exception:
                     pass
             finally:

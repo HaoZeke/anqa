@@ -435,6 +435,7 @@ class TraceEvalApp(App):
         self._self_test_summary: str = ""
         self._meta_only: list[tuple[SessionMeta, str]] = []
         self._plugin_results: dict[str, dict[str, AnalysisResult]] = {}
+        # Keys are analysis_session_key(session_dir) (resolved path).
         # Bumps when a sessions catalog load starts; stale workers skip applying.
         self._sessions_load_gen: int = 0
         self._sessions_catalog_busy: bool = False
@@ -1660,8 +1661,7 @@ class TraceEvalApp(App):
 
         _ = label
         sd_key = analysis_session_key(meta.session_dir)
-        legacy_key = str(meta.session_dir)
-        if not force and (sd_key in self._plugin_results or legacy_key in self._plugin_results):
+        if not force and sd_key in self._plugin_results:
             return
         acquired = hold_inflight
         if not acquired and not try_begin_session_analysis(meta.session_dir):
@@ -1670,13 +1670,9 @@ class TraceEvalApp(App):
             self._plugin_results[sd_key] = self._analysis_svc().analyze_all(
                 meta.session_dir, force=force
             )
-            if legacy_key != sd_key:
-                self._plugin_results[legacy_key] = self._plugin_results[sd_key]
         except Exception as exc:
             logger.warning(t("ui-analysis-failed-for-s-s"), sd_key, exc)
             self._plugin_results[sd_key] = {}
-            if legacy_key != sd_key:
-                self._plugin_results[legacy_key] = {}
         finally:
             if not hold_inflight:
                 end_session_analysis(meta.session_dir)
@@ -1710,8 +1706,7 @@ class TraceEvalApp(App):
                 continue
             meta, label = item
             key = analysis_session_key(meta.session_dir)
-            legacy = str(meta.session_dir)
-            if key in self._plugin_results or legacy in self._plugin_results:
+            if key in self._plugin_results:
                 skipped_done += 1
                 continue
             if not try_begin_session_analysis(meta.session_dir):
@@ -1920,6 +1915,8 @@ class TraceEvalApp(App):
     def _filtered_session_rows(
         self,
     ) -> list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]]:
+        from ..analysis.inflight import analysis_session_key
+
         search_q = (self._session_search or "").strip().casefold()
         seen_keys: set[str] = set()
         rows: list[tuple[SessionMeta, str, dict[str, AnalysisResult] | None]] = []
@@ -1928,7 +1925,7 @@ class TraceEvalApp(App):
                 continue
             if search_q and search_q not in _session_search_haystack(meta, label):
                 continue
-            sd_key = str(meta.session_dir)
+            sd_key = analysis_session_key(meta.session_dir)
             if sd_key in seen_keys:
                 continue
             seen_keys.add(sd_key)
@@ -2203,9 +2200,10 @@ class TraceEvalApp(App):
         analyzed_count = 0
         total_findings = 0
         total_high = 0
+        from ..analysis.inflight import analysis_session_key
+
         for meta, _ in self._meta_only:
-            sd_key = str(meta.session_dir)
-            results = self._plugin_results.get(sd_key)
+            results = self._plugin_results.get(analysis_session_key(meta.session_dir))
             if results is None:
                 continue
             analyzed_count += 1
@@ -2831,9 +2829,7 @@ class TraceEvalApp(App):
             for meta, label in targets:
                 self._analyze_one(meta, label)
                 sd_key = analysis_session_key(meta.session_dir)
-                results = self._plugin_results.get(sd_key) or self._plugin_results.get(
-                    str(meta.session_dir), {}
-                )
+                results = self._plugin_results.get(sd_key, {})
                 if results and all(r.ok for r in results.values()):
                     summary["analysis_ok"] += 1
                 else:
@@ -3013,7 +3009,9 @@ class TraceEvalApp(App):
         Analysis runs inside BrowserScreen._load_data on its own worker
         so the screen appears without delay.
         """
-        plugin_results = self._plugin_results.get(row_key)
+        from ..analysis.inflight import analysis_session_key
+
+        plugin_results = self._plugin_results.get(analysis_session_key(row_key))
         session_path = Path(row_key)
         self._push_browser(session_path, plugin_results, prompt_index=prompt_index)
         if notify_control:

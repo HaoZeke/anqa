@@ -114,4 +114,15 @@ mod tests {
         assert_eq!(f.hud.window_mode, Some(true));
         assert_eq!(f.hud.global_shortcut.as_deref(), Some("Ctrl+K"));
     }
+
+    #[test]
+    fn parse_shipped_example() {
+        let text = include_str!("../../examples/config/config.toml");
+        let f: File = toml::from_str(text).expect("example toml");
+        assert_eq!(f.theme.as_deref(), Some("groket"));
+        assert_eq!(f.follow_os, Some(false));
+        assert_eq!(f.hud.window_mode, Some(false));
+        assert_eq!(f.hud.global_shortcut.as_deref(), Some(""));
+        assert_eq!(f.hud.desktop_notifications, Some(true));
+    }
 }

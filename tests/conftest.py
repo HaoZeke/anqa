@@ -445,14 +445,6 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
 
     if hasattr(ui_app, "APP_HOME"):
         monkeypatch.setattr(ui_app, "APP_HOME", app_home)
-    if hasattr(ui_app.TraceEvalApp, "_CONFIG_PATH"):
-        monkeypatch.setattr(ui_app.TraceEvalApp, "_CONFIG_PATH", app_home / "config.toml")
-
-    import groket.ui.prefs as prefs_mod
-
-    for attr in ("_PREFS_PATH", "PREFS_PATH", "_path"):
-        if hasattr(prefs_mod, attr):
-            monkeypatch.setattr(prefs_mod, attr, app_home / "prefs.json")
 
     import groket.runs.batch as batch_mod
 

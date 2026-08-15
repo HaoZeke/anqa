@@ -50,8 +50,8 @@ uv run groket gen plugin session_event_count --register
 `configs/` point at `plugins/` via the config search path:
 
 ```bash
-uv run groket --config examples/analysis/configs/all-plugins.json
-uv run groket --config examples/analysis/configs/security-only.json
+uv run groket --config examples/analysis/configs/all-plugins.toml
+uv run groket --config examples/analysis/configs/security-only.toml
 ```
 
 Then re-analyze (`a` on the sessions list). Contract: `just examples-check`.

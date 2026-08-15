@@ -105,11 +105,7 @@ def preserving_cursor(table: DataTable, *, scroll: bool = True) -> Iterator[str 
 
 @contextmanager
 def preserving_scroll(table: DataTable) -> Iterator[None]:
-    """Keep ``scroll_x`` / ``scroll_y`` across ``clear()`` + ``add_row()``.
-
-    Live home-list paints used to snap the viewport back to the left whenever
-    duration or status ticked.
-    """
+    """Keep ``scroll_x`` / ``scroll_y`` across ``clear()`` + ``add_row()``."""
     x = getattr(table, "scroll_x", 0)
     y = getattr(table, "scroll_y", 0)
 
