@@ -35,27 +35,6 @@ use crate::model::{KindFilter, Tab};
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
 
-fn mark_image(hud: &Hud, tok: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let pulse = if tok.reduced_motion {
-        1.0
-    } else {
-        icedtea::motion::pulse(hud.icon_phase())
-    };
-    let scale = 1.0 + 0.08 * pulse;
-    let w = brand::MARK_W * scale;
-    let h = brand::MARK_H * scale;
-    container(
-        image(brand::chrome_handle(crate::theme::canvas_is_dark(tok)))
-            .width(Length::Fixed(w))
-            .height(Length::Fixed(h)),
-    )
-    .width(Length::Fixed(brand::MARK_W * 1.1))
-    .height(Length::Fixed(brand::MARK_H * 1.1))
-    .align_x(Alignment::Center)
-    .align_y(Alignment::Center)
-    .into()
-}
-
 fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
 }
@@ -257,9 +236,13 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     let mut search = row![
         icedtea::widget::tooltip_wrap(
-            mouse_area(mark_image(hud, tok))
-                .on_press(Message::SessionsHome)
-                .into(),
+            mouse_area(
+                image(brand::chrome_handle(crate::theme::canvas_is_dark(tok)))
+                    .width(brand::chrome_width())
+                    .height(brand::chrome_height()),
+            )
+            .on_press(Message::SessionsHome)
+            .into(),
             "Session list",
             icedtea::widget::TooltipAnchor::Follow,
             tea,
@@ -327,7 +310,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         ]
         .into();
         if hud.help_open() {
-            return slide_palette(
+            return fade_palette(
                 kit::help_modal(
                     menu,
                     &crate::help::help_table_for(hud.key_scope(), hud.key_overlay()),
@@ -337,10 +320,10 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
                 tea,
             );
         }
-        return slide_palette(menu, hud, tea);
+        return fade_palette(menu, hud, tea);
     }
     if hud.help_open() {
-        return slide_palette(
+        return fade_palette(
             kit::help_modal(
                 busy,
                 &crate::help::help_table_for(hud.key_scope(), hud.key_overlay()),
@@ -350,10 +333,10 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             tea,
         );
     }
-    slide_palette(busy, hud, tea)
+    fade_palette(busy, hud, tea)
 }
 
-fn slide_palette<'a>(
+fn fade_palette<'a>(
     child: Element<'a, Message>,
     hud: &Hud,
     tea: icedtea::theme::Tokens,
@@ -361,7 +344,7 @@ fn slide_palette<'a>(
     icedtea::motion::overlay(
         child,
         hud.overlay_progress(),
-        icedtea::motion::Slide::Up,
+        icedtea::motion::Slide::None,
         tea,
         A11y::new("palette", Role::Group),
     )
@@ -2532,7 +2515,7 @@ mod tests {
         assert!(prod.contains("icedtea::widget::info_bar"));
         assert!(prod.contains("icedtea::widget::markdown_view"));
         assert!(prod.contains("icedtea::motion::overlay"));
-        assert!(prod.contains("icedtea::motion::pulse"));
+        assert!(prod.contains("Slide::None"));
         assert!(prod.contains("fn expand_card"));
         assert!(prod.contains("fn card_actions"));
         assert!(prod.contains("fn card_chips"));

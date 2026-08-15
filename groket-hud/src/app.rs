@@ -1847,14 +1847,9 @@ impl Hud {
         self.overlay.interpolate(0.0, 1.0, Instant::now())
     }
 
-    pub fn icon_phase(&self) -> f32 {
-        self.spin_phase
-    }
-
     fn needs_motion_tick(&self) -> bool {
         let now = Instant::now();
         self.overlay.is_animating(now)
-            || (self.visible && !self.tokens().reduced_motion)
             || (!self.visible && self.window_id.is_some() && !self.window_mode)
     }
 
@@ -3464,8 +3459,7 @@ impl Hud {
         let dt = now.saturating_duration_since(self.last_tick).as_millis() as u64;
         self.last_tick = now;
         self.toasts.tick(dt.max(1));
-        let motion_step = (dt.max(1) as f32 / 1400.0).min(0.2);
-        self.spin_phase = (self.spin_phase + motion_step) % 1.0;
+        self.spin_phase = (self.spin_phase + 0.05) % 1.0;
         self.sync_theme();
         if let Some(until) = self.leader_until {
             if Instant::now() >= until {
@@ -7116,17 +7110,6 @@ mod tests {
             hud.tokens().text.a,
             crate::theme::tokens(hud.theme_name()).text.a
         );
-    }
-
-    #[test]
-    fn icon_phase_moves_on_tick() {
-        let mut hud = Hud {
-            last_tick: Instant::now() - Duration::from_millis(200),
-            ..Hud::default()
-        };
-        let before = hud.icon_phase();
-        let _ = hud.on_tick();
-        assert_ne!(hud.icon_phase(), before);
     }
 
     #[test]
