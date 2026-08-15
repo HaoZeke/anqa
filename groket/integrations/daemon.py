@@ -21,13 +21,13 @@ from ..session.catalog import (
 )
 from ..session.sources import session_dir_for_watch_path
 from .control import (
-    PROTOCOL_VERSION,
     ControlError,
     ControlServer,
     ControlSocketInUse,
     NotesChanged,
     OpenSession,
     default_socket_path,
+    protocol_compatible,
 )
 from .control_client import ControlClient, is_transient_unix_connect_error
 
@@ -1101,16 +1101,15 @@ def start_control_daemon_detached(
 def owner_protocol_probe(socket_path: Path, *, timeout: float = 2.0) -> bool | None:
     """Whether the live owner speaks this client's protocol.
 
-    :returns: ``True`` when ``protocolVersion`` is current, ``False`` when
-        initialize succeeded on an older version or rejected this client as
-        unsupported, ``None`` when the probe failed (do not replace).
+    :returns: ``True`` when ``protocolVersion`` shares this client's major,
+        ``False`` when initialize succeeded on another major or rejected this
+        client as unsupported, ``None`` when the probe failed (do not replace).
     """
 
     async def _probe() -> bool:
         client = ControlClient(socket_path, client_name="groket-protocol-probe", timeout=timeout)
         result = await client.initialize()
-        ver = result.get("protocolVersion")
-        return isinstance(ver, int) and ver >= PROTOCOL_VERSION
+        return protocol_compatible(result.get("protocolVersion"))
 
     try:
         return bool(asyncio.run(_probe()))
@@ -1124,7 +1123,7 @@ def owner_protocol_probe(socket_path: Path, *, timeout: float = 2.0) -> bool | N
 
 
 def owner_protocol_current(socket_path: Path, *, timeout: float = 2.0) -> bool:
-    """True when the live owner reports ``protocolVersion`` >= this client."""
+    """True when the live owner shares this client's protocol major."""
     return owner_protocol_probe(socket_path, timeout=timeout) is True
 
 
@@ -1139,10 +1138,9 @@ def ensure_control_daemon(
     """Ensure a live control owner exists (attach if up, else detach-start).
 
     Shared by ``groket serve -d`` and TUI/HUD auto-start. If the socket already
-    accepts but ``initialize`` reports an older protocol (or rejects this
-    client's version), stop that owner and start a current one. A live owner
-    without a daemon pid file is left in place. A failed probe does not stop
-    an accepting owner.
+    accepts but ``initialize`` reports a different protocol major (or rejects
+    this client), stop that owner and start a current one. Same major keeps
+    the live owner. A failed probe does not stop an accepting owner.
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
     if control_socket_accepts(sock):

@@ -18,6 +18,7 @@ from typing import Annotated
 
 import typer
 
+from . import __version__
 from .ui.i18n import setup_i18n
 
 setup_i18n()
@@ -278,10 +279,11 @@ def cmd_hud(
 
     Starts in the background by default (macOS: no Dock, no Cmd+Tab). Summon with
     Cmd+Shift+G on macOS / X11; on Wayland use ``--toggle``, tray Show, or a
-    compositor bind. Launches the iced ``groket-hud`` binary (rebuilds from an
-    editable checkout when missing or stale). ``--debug`` for unoptimized;
-    ``--dev`` cargo run; ``--restart`` replaces a running HUD.
-    ``--install-desktop`` only installs icons/launcher entries for this user.
+    compositor bind. Runs the iced ``groket-hud`` binary from ``GROKET_HUD_BIN``
+    or ``PATH`` (``uv tool install``). From a checkout, ``--rebuild`` cargo-builds
+    this tree; ``--debug`` is unoptimized; ``--dev`` is ``cargo run``.
+    ``--restart`` replaces a running HUD. ``--install-desktop`` only installs
+    icons/launcher entries for this user.
     """
     from .hud.app import run_hud
     from .integrations.control import default_socket_path
@@ -550,6 +552,12 @@ def _tui_options(
     )
 
 
+def _print_version(value: bool) -> None:
+    if value:
+        typer.echo(f"groket {__version__}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
@@ -608,6 +616,16 @@ def main_callback(
             show_default=False,
         ),
     ] = None,
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            help="Print the product version and exit.",
+            callback=_print_version,
+            is_eager=True,
+        ),
+    ] = False,
 ) -> None:
     """Start the TUI when no subcommand is given."""
     if ctx.invoked_subcommand is not None:

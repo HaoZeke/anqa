@@ -1,7 +1,18 @@
-# TODO — repo health (not a product backlog)
+# TODO — repo health and Unreleased follow-ups
 
 Contract for humans and agents. Prefer fixing debt **when editing** the
 module that owns it; do not open a speculative “cleanup epic.”
+
+Keep this file and ``CHANGELOG.md`` in step. A CHANGELOG Unreleased
+bullet that still has open work is listed here; remove the TODO when
+that work ships (or when the changelog line is no longer true).
+
+## Unreleased (see CHANGELOG.md)
+
+- Control protocol: no check that a breaking handshake or method change
+  bumps ``PROTOCOL_VERSION`` major. Runtime accepts the same major only.
+  Add a frozen method/field inventory (or schema) that fails when the
+  surface changes without a major bump.
 
 ## Always on (`just ci` / `just lint`)
 
@@ -30,5 +41,6 @@ unrelated hotspots (browser, orchestrator, parser) “because large.”
 
 ## Out of scope here
 
-Product features, detector catalogs, and operator-facing polish live in issues
-or design docs — not this file.
+New product features, detector catalogs, and operator-facing polish live
+in issues or design docs. Follow-ups for work already in CHANGELOG
+Unreleased belong in the section above.

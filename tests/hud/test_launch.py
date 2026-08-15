@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from groket.hud import launch as launch_mod
 from groket.hud.launch import (
     find_hud_binary,
@@ -32,6 +33,94 @@ def test_find_hud_binary_release_or_none() -> None:
         assert found.is_file()
     else:
         assert found is None or found.is_file()
+
+
+def test_find_hud_binary_prefers_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    exe = bin_dir / "groket-hud"
+    exe.write_text("#!/bin/sh\n", encoding="utf-8")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.delenv("GROKET_HUD_BIN", raising=False)
+    assert find_hud_binary() == exe
+
+
+def test_ensure_hud_binary_rejects_non_executable_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "missing-hud"
+    monkeypatch.setenv("GROKET_HUD_BIN", str(missing))
+    assert launch_mod.ensure_hud_binary() is None
+    assert "GROKET_HUD_BIN not executable" in capsys.readouterr().err
+
+
+def test_find_hud_binary_prefers_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    path_exe = bin_dir / "groket-hud"
+    path_exe.write_text("#!/bin/sh\n", encoding="utf-8")
+    path_exe.chmod(0o755)
+    env_exe = tmp_path / "custom-hud"
+    env_exe.write_text("#!/bin/sh\n", encoding="utf-8")
+    env_exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("GROKET_HUD_BIN", str(env_exe))
+    assert find_hud_binary() == env_exe
+
+
+def test_ensure_hud_binary_prefers_path(tmp_path: Path) -> None:
+    installed = tmp_path / "bin" / "groket-hud"
+    installed.parent.mkdir()
+    installed.write_text("installed", encoding="utf-8")
+    installed.chmod(0o755)
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src"
+    src.mkdir(parents=True)
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (src / "main.rs").write_text("x", encoding="utf-8")
+    with (
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_path_hud_binary", return_value=installed),
+        patch.object(launch_mod, "build_hud") as mock_build,
+        patch.dict(os.environ, {}, clear=False),
+    ):
+        os.environ.pop("GROKET_HUD_BIN", None)
+        out = launch_mod.ensure_hud_binary()
+    assert out == installed
+    mock_build.assert_not_called()
+
+
+def test_ensure_hud_binary_rebuild_uses_checkout(tmp_path: Path) -> None:
+    installed = tmp_path / "bin" / "groket-hud"
+    installed.parent.mkdir()
+    installed.write_text("installed", encoding="utf-8")
+    installed.chmod(0o755)
+    checkout = tmp_path / "groket-hud"
+    src = checkout / "src"
+    src.mkdir(parents=True)
+    (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
+    (src / "main.rs").write_text("x", encoding="utf-8")
+    built = checkout / "target" / "release" / "groket-hud"
+    built.parent.mkdir(parents=True)
+
+    def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
+        del root
+        assert debug is False
+        built.write_text("rebuilt", encoding="utf-8")
+        built.chmod(0o755)
+        return built
+
+    with (
+        patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_path_hud_binary", return_value=installed),
+        patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
+        patch.dict(os.environ, {}, clear=False),
+    ):
+        os.environ.pop("GROKET_HUD_BIN", None)
+        out = launch_mod.ensure_hud_binary(rebuild=True)
+    assert out == built
+    mock_build.assert_called_once()
 
 
 def test_hud_checkout_dir_in_repo() -> None:
@@ -75,6 +164,7 @@ def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
 
     with (
         patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_path_hud_binary", return_value=None),
         patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
@@ -102,6 +192,7 @@ def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
 
     with (
         patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_path_hud_binary", return_value=None),
         patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
@@ -517,6 +608,7 @@ def test_ensure_hud_binary_keeps_debug_when_release_is_fresh(tmp_path: Path) -> 
 
     with (
         patch.object(launch_mod, "hud_checkout_dir", return_value=checkout),
+        patch.object(launch_mod, "_path_hud_binary", return_value=None),
         patch.object(launch_mod, "build_hud") as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):

@@ -173,7 +173,7 @@ A connection whose peer died is dropped so the next command reconnects."
           (groket--request
            groket--connection
            "initialize"
-           `(:protocolVersion 1
+           `(:protocolVersion "1.0.0"
              :clientInfo (:name "Emacs" :version ,emacs-version))))
       (error
        (groket--drop-connection)

@@ -38,8 +38,11 @@ groket -s /path/to/control.sock
 
 ## Framing
 
-JSON-RPC 2.0, protocol version **1** (`initialize` with
-`protocolVersion: 1`). Two frames on the same socket:
+JSON-RPC 2.0, protocol version **1.0.0** (`initialize` with
+`protocolVersion: "1.0.0"`). Same major is compatible: a newer client
+keeps a live owner of that major. A major bump is the only
+backwards-incompatible change; older clients fail `initialize`. Two
+frames on the same socket:
 
 - one JSON object per line
 - LSP-style headers ending in `Content-Length: N` plus a blank line, then
@@ -54,7 +57,7 @@ The owner accepts either and replies in the same frame the client used.
 
 | Method | Role |
 |--------|------|
-| `initialize` | Handshake (owner reports version 1) |
+| `initialize` | Handshake (owner reports `protocolVersion` `1.0.0`) |
 | `session/list` | Catalog page (see below) |
 | `session/get` | Session meta (status, context, counts, notes revision) |
 | `session/overview` | Meta + turns + notes (no embedded event list). Turns include `subagentRuns`. |

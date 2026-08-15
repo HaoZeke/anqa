@@ -15,9 +15,13 @@ fn main() {
         };
         std::process::exit(code);
     }
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("groket {}", groket_hud::VERSION);
+        std::process::exit(0);
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         eprintln!(
-            "groket — session palette (control client)\n\
+            "groket {} — session palette (control client)\n\
              \n\
              Options:\n\
                --install-desktop   Write user-local icons and a launcher entry\n\
@@ -27,10 +31,12 @@ fn main() {
                --hide              Hide the overlay (running groket)\n\
                --toggle            Show or hide (running groket; Sway bind target).
                                    Forwards XDG_ACTIVATION_TOKEN to the palette.\n\
+               -V, --version       Print the product version\n\
                -h, --help          Show this help\n\
              \n\
              With no options, starts groket (tray; X11 summon hotkey when available).\n\
-             Wayland: use --show/--toggle, tray Show, or a compositor bind."
+             Wayland: use --show/--toggle, tray Show, or a compositor bind.",
+            groket_hud::VERSION
         );
         std::process::exit(0);
     }

@@ -217,6 +217,7 @@ pub fn macos_info_plist(has_icns: bool) -> String {
     } else {
         ""
     };
+    let pkg_version = env!("CARGO_PKG_VERSION");
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -237,9 +238,9 @@ pub fn macos_info_plist(has_icns: bool) -> String {
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>{pkg_version}</string>
   <key>CFBundleVersion</key>
-  <string>0.1.0</string>
+  <string>{pkg_version}</string>
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
   <key>NSHighResolutionCapable</key>
@@ -594,6 +595,7 @@ mod tests {
         assert!(with_icon.contains(APP_ID));
         assert!(with_icon.contains("AppIcon"));
         assert!(with_icon.contains(&format!("<string>{APP_NAME}</string>")));
+        assert!(with_icon.contains(&format!("<string>{}</string>", env!("CARGO_PKG_VERSION"))));
         assert!(with_icon.contains("LSUIElement"));
         assert!(with_icon.contains("<true/>"));
         let bare = macos_info_plist(false);

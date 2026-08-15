@@ -1,8 +1,8 @@
 """Optional Limited API extension build (groket._listwalk).
 
-Remote builder only (``just ext``). Set ``GROKET_BUILD_EXT=1`` and run
+Remote builder only (``just ext``). Product install is
+``uv tool install --editable .``. Set ``GROKET_BUILD_EXT=1`` and run
 this file via setuptools to compile ``native/listwalk.c``.
-Without it, setuptools ships the pure-Python package only.
 """
 
 from __future__ import annotations

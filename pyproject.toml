@@ -1,6 +1,6 @@
 [project]
 name = "groket"
-version = "0.2.0"
+version = "0.1.0"
 description = "Groket — Grok session trace evaluation TUI"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,7 +16,9 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -57,7 +59,7 @@ test = [
 ]
 
 [build-system]
-requires = ["setuptools>=77.0"]
+requires = ["setuptools>=77.0", "setuptools-rust>=1.11"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -77,6 +79,40 @@ groket = [
     "integrations/vim/plugin/**/*.lua",
     "_embedded_assets/**/*",
 ]
+
+# ``uv tool install --editable .`` builds this binary next to the groket script.
+[[tool.setuptools-rust.bins]]
+target = "groket-hud"
+path = "groket-hud/Cargo.toml"
+args = ["--locked"]
+debug = false
+
+# Platform wheels: pypa/cibuildwheel on GitHub Actions (every push + PR).
+[tool.cibuildwheel]
+build = "cp313-*"
+skip = [
+    "pp*",
+    "*-win32",
+    "*-manylinux_i686",
+    "*-manylinux_ppc64le",
+    "*-manylinux_s390x",
+    "*-manylinux_armv7l",
+    "*-manylinux_riscv64",
+    "*-musllinux_*",
+]
+test-command = "groket --help && groket-hud --help"
+
+[tool.cibuildwheel.linux]
+before-all = """
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+if command -v dnf >/dev/null 2>&1; then
+  dnf install -y libxkbcommon-devel wayland-devel pkgconf-pkg-config
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y libxkbcommon-devel wayland-devel pkgconfig
+fi
+"""
+environment = { PATH = "$HOME/.cargo/bin:$PATH", CARGO_INCREMENTAL = "0" }
+repair-wheel-command = "bash {package}/scripts/cibw-repair-linux.sh {dest_dir} {wheel}"
 
 [tool.ruff]
 line-length = 100

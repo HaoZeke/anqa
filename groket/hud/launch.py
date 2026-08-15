@@ -50,27 +50,45 @@ def _prune_target(checkout: Path) -> None:
             shutil.rmtree(path, ignore_errors=True)
 
 
+def _executable(path: Path) -> Path | None:
+    if path.is_file() and os.access(path, os.X_OK):
+        return path
+    return None
+
+
+def _env_hud_binary() -> Path | None:
+    env = os.environ.get("GROKET_HUD_BIN", "").strip()
+    if not env:
+        return None
+    return _executable(Path(env).expanduser())
+
+
+def _path_hud_binary() -> Path | None:
+    which = shutil.which("groket-hud")
+    if which is None:
+        return None
+    return _executable(Path(which))
+
+
 def find_hud_binary(*, debug: bool = False) -> Path | None:
     """Return path to a built ``groket-hud`` binary, if any.
 
-    Preference: ``GROKET_HUD_BIN``, then ``PATH``, then the checkout binary for
-    the requested profile (**release** by default; debug only when *debug*).
+    Preference: ``GROKET_HUD_BIN``, then ``PATH`` (``uv tool install``
+    places the release binary next to ``groket``), then the checkout
+    binary for the requested profile (**release** by default; debug only
+    when *debug*).
     """
-    env = os.environ.get("GROKET_HUD_BIN", "").strip()
-    if env:
-        p = Path(env).expanduser()
-        if p.is_file() and os.access(p, os.X_OK):
-            return p
-    which = shutil.which("groket-hud")
-    if which:
-        return Path(which)
+    found = _env_hud_binary()
+    if found is not None:
+        return found
+    path_bin = _path_hud_binary()
+    if path_bin is not None:
+        return path_bin
     checkout = hud_checkout_dir()
     if checkout is None:
         return None
     candidate = _debug_binary(checkout) if debug else _release_binary(checkout)
-    if candidate.is_file() and os.access(candidate, os.X_OK):
-        return candidate
-    return None
+    return _executable(candidate)
 
 
 def _source_mtimes(checkout: Path) -> list[float]:
@@ -145,23 +163,30 @@ def ensure_hud_binary(*, rebuild: bool = False, debug: bool = False) -> Path | N
     """Return a runnable HUD binary for the requested profile.
 
     Default profile is **release**. Pass *debug* for the unoptimized binary.
-    Rebuild when *rebuild* is true, the profile binary is missing, or HUD
-    sources are newer than that binary (editable checkout only).
+    Prefer ``GROKET_HUD_BIN``, then the ``PATH`` binary from ``uv tool install``.
+    Rebuild the checkout when *rebuild* is true, *debug* is requested, the
+    profile binary is missing, or HUD sources are newer than that binary.
     """
     env = os.environ.get("GROKET_HUD_BIN", "").strip()
     if env:
         p = Path(env).expanduser()
-        if p.is_file() and os.access(p, os.X_OK):
-            return p
+        found = _executable(p)
+        if found is not None:
+            return found
         sys.stderr.write(f"error: GROKET_HUD_BIN not executable: {p}\n")
         return None
+
+    if not rebuild and not debug:
+        path_bin = _path_hud_binary()
+        if path_bin is not None:
+            return path_bin
 
     checkout = hud_checkout_dir()
     if checkout is None:
         return find_hud_binary(debug=debug)
 
     expected = _debug_binary(checkout) if debug else _release_binary(checkout)
-    found = expected if expected.is_file() and os.access(expected, os.X_OK) else None
+    found = _executable(expected)
     need_build = rebuild or found is None or hud_binary_is_stale(found, checkout)
     if not need_build:
         _prune_target(checkout)

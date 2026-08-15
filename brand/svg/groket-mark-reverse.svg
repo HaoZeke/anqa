@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" role="img" aria-label="groket">
   <title>groket</title>
-  <rect width="900" height="380" fill="#282828"/>
   <g id="groket-mark" fill="#FBF1C7">
     <polygon points="12,193 318,179 318,207"/>
     <polygon points="570,179 570,207 872,193"/>

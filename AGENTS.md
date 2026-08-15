@@ -15,8 +15,8 @@ rejected-design narration.
 ## 1. Quick start
 
 ```bash
-just install        # .venv (test+dev) + ``groket`` on PATH (uv tool editable)
-groket              # interactive TUI (or: uv run groket)
+uv tool install --editable .    # ``groket`` + ``groket-hud`` on PATH (needs Rust)
+just install        # .venv (test+dev) for lint/test
 just test           # pytest (default unit suite; no Docker daemon)
 just lint           # ruff + mypy + fluent/typing policy scripts
 just ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
@@ -68,10 +68,12 @@ Re-run tests after the final diff for that commit. Prefer
 ``just ci`` before claiming a larger slice done.
 
 Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
-(``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` / CI do
-**not** pass ``--cov``. Prefer closing gaps with domain tests or deleting dead
-code when you touch a module; do not lower ``fail_under`` or omit package
-source to hide debt.
+(``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` does
+not pass ``--cov``. The Actions **Test Python** job writes ``coverage.xml``
+and uploads it to Codecov (OIDC; ``fail_under`` is not applied on that
+upload). Prefer closing gaps with domain tests or deleting dead code when
+you touch a module; do not lower ``fail_under`` or omit package source to
+hide debt.
 
 ### No speculative fallbacks
 
@@ -196,10 +198,15 @@ owns** the socket: default is detach-start owner if free (``--no-serve``
 skips spawn; ``--no-socket`` runs offline), then attach and listen.
 When a socket is configured, the home catalog is control-only — attach
 failure toasts and does not walk traces on disk. TUI exit does not stop
-the owner. Bump ``PROTOCOL_VERSION`` only after a version has shipped to clients
-that would otherwise keep a stale owner. Unpublished local work stays on
-the current unpublished version. Editor clients may keep an older
-``initialize`` version — the owner still accepts ``MIN_PROTOCOL_VERSION``.
+the owner. Control ``protocolVersion`` is a semver string
+(``MAJOR.MINOR.PATCH``), independent of the product version.
+Same major: additive methods and fields only; a newer client keeps a live
+owner of that major. A major bump is the only backwards-incompatible
+handshake or method change; older clients fail ``initialize`` and must
+update. Bump the major only after that version has shipped to clients
+that would otherwise keep a stale owner. Unpublished work stays on the
+current unpublished protocol version. ``just bump`` updates the product
+version only. Editor clients send this package's protocol string.
 Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
@@ -315,7 +322,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 
 | Target | Action |
 |--------|--------|
-| ``just install`` | ``uv sync --group test --group dev`` + editable uv tool |
+| ``just install`` | ``uv sync --group test --group dev`` (lint/test venv). Product install: ``uv tool install --editable .`` |
 | ``just lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
 | ``just lint-fix`` | ruff autofix + format + mypy |
 | ``just lint-complexity`` | Size-limit report only (not in ``just ci``); see §4.6 |
@@ -327,10 +334,17 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``just hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
 | ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
-
-GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, and **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build).
+| ``just wheel`` | ``uv build --wheel`` (this platform; needs Rust) |
+| ``just wheels`` | ``uvx cibuildwheel`` (this host; Linux needs Docker) |
+| ``just sdist`` | ``uv build --sdist`` |
+| ``just bump 0.1.1`` | Set the product version in every declaration + promote ``CHANGELOG.md`` |
 | ``just brand`` | Rebuild ``brand/`` (``uv`` ``brand`` group) |
 | ``just clean`` | Python caches plus ``cargo clean`` on ``groket-hud`` |
+
+``CHANGELOG.md`` Unreleased is the shipped-notes list. Open follow-ups
+for those notes live in [TODO.md](TODO.md). Keep the two files in step.
+
+GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build). Pushes to ``main``, version tags, and workflow dispatch also run **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
 HUD Cargo trees: a passing ``just hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
 ``groket hud`` deletes coverage leftovers under ``target/`` and keeps the

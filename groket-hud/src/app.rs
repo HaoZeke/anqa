@@ -538,7 +538,7 @@ pub fn run() -> iced::Result {
     // via Prepared + iced::daemon. Call the same face remap the macro would.
     icedtea::typo::install_platform_faces();
     iced::daemon(Hud::new, Hud::update, Hud::view)
-        .title("groket")
+        .title(concat!("groket ", env!("CARGO_PKG_VERSION")))
         .subscription(Hud::subscription)
         .theme(|hud: &Hud, window| Some(hud.theme(window)))
         .settings(overlay_prepared().iced_settings)

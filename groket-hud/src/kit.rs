@@ -204,12 +204,13 @@ pub fn help_modal<'a>(
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
+    let heading = format!("Keyboard shortcuts · groket {}", crate::VERSION);
     let sheet = widget::group_box(
-        "Keyboard shortcuts",
+        heading.clone(),
         icedtea::pattern::cheatsheet(table, "", tea),
         tea,
         widget::CardFace::Elevated,
-        A11y::new("Keyboard shortcuts", Role::Dialog),
+        A11y::new(heading, Role::Dialog),
     );
     let card = container(sheet)
         .width(Length::Fixed(520.0))
@@ -311,6 +312,12 @@ mod tests {
         });
         let backdrop = status_empty("HUD", "backdrop", tea);
         let _ = help_modal(backdrop, &table, tea);
+    }
+
+    #[test]
+    fn help_modal_title_includes_product_version() {
+        let src = include_str!("kit.rs");
+        assert!(src.contains("crate::VERSION"));
     }
 
     #[test]

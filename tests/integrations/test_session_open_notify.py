@@ -48,7 +48,7 @@ async def test_session_open_notifies_without_open_callback(tmp_path: Path) -> No
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "initialize",
-                    "params": {"protocolVersion": 1},
+                    "params": {"protocolVersion": "1.0.0"},
                 }
             ).encode()
             + b"\n"

@@ -5,6 +5,7 @@ on:
     branches: ["*"]
     tags: ["*"]
   pull_request:
+  workflow_dispatch:
 
 # One in-flight CI per branch / PR; a new push cancels the previous run.
 concurrency:
@@ -30,6 +31,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: groket-hud
+          key: lint-python
+      - name: Linux iced system libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
       - name: Ruff + mypy + policy scripts
@@ -45,6 +53,9 @@ jobs:
   test:
     name: Test Python
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -53,9 +64,24 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: groket-hud
+          key: test-python
+      - name: Linux iced system libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev pkg-config
       - run: uv python install 3.13
       - run: uv sync --group test --group dev
-      - run: just test
+      - name: pytest with coverage
+        run: uv run pytest tests/ -q --tb=short --cov=groket --cov-report=xml --cov-fail-under=0
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          flags: python
+          fail_ci_if_error: true
+          use_oidc: true
 
   # ---------------------------------------------------------------------------
   # groket-hud (iced): full gate on Linux; clippy/test/release build on
@@ -128,3 +154,93 @@ jobs:
       - name: release build
         if: ${{ !matrix.full }}
         run: cargo build --release --manifest-path groket-hud/Cargo.toml
+
+  # ---------------------------------------------------------------------------
+  # Platform wheels (cibuildwheel) + sdist. main, tags, and workflow_dispatch.
+  # A git tag publishes those files to the Python package index.
+  # ---------------------------------------------------------------------------
+  wheels:
+    name: Wheel (${{ matrix.os }})
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux-intel
+            runs-on: ubuntu-latest
+          - os: linux-arm
+            runs-on: ubuntu-24.04-arm
+          - os: windows-intel
+            runs-on: windows-latest
+          - os: windows-arm
+            runs-on: windows-11-arm
+          - os: macos-intel
+            runs-on: macos-15-intel
+          - os: macos-arm
+            runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pypa/cibuildwheel@v4.2.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 30
+
+  sdist:
+    name: Source distribution
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish TestPyPI
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.event_name == 'workflow_dispatch' ||
+       startsWith(github.ref, 'refs/tags/'))
+    needs: [lint-python, test, hud, wheels, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/groket/
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-*
+          path: dist
+          merge-multiple: true
+      - name: List files to publish
+        run: ls -la dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          skip-existing: true
