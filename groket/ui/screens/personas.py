@@ -49,7 +49,7 @@ from ..data_table import (
 )
 from ..forms import PERSONA_NONE, docker_select_options, docker_select_value_or_default
 from ..i18n import join_ui, t
-from ..panel_render import TipSurface
+from ..panel_render import EmptyState
 from ..quit_actions import QuitActions
 from ..tab_panes import TabPaneNavigation
 from ..widgets.key_value_editor import KeyValueEditor
@@ -289,7 +289,6 @@ class McpPickerModal(QuitActions, ModalScreen[McpPickerResult | None]):
         with Vertical(id="mcp-picker-modal"):
             title = self._heading or t("ui-mcp")
             yield Static(f"[bold]{title}[/bold]", id="mcp-pick-title")
-            yield TipSurface(U.tip_mcp_pick(), id="mcp-pick-keys")
             yield Input(
                 value=self._initial_query,
                 placeholder=U.mcp_search_placeholder(),
@@ -699,7 +698,6 @@ class PluginPickerModal(QuitActions, ModalScreen[list[str] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="plugins-picker-modal"):
             yield Static(f"[bold]{U.plugins_title()}[/bold]", id="plugins-pick-title")
-            yield TipSurface(U.tip_plugins_pick(), id="plugins-pick-keys")
             yield Input(placeholder=U.plugins_search_placeholder(), id="plugins-pick-search")
             yield DataTable(id="plugins-pick-table", cursor_type="row")
             yield Static("", id="plugins-pick-detail")
@@ -838,7 +836,6 @@ class SkillsPickerModal(QuitActions, ModalScreen[list[str] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="skills-picker-modal"):
             yield Static(f"[bold]{U.skills_title()}[/bold]", id="skills-pick-title")
-            yield TipSurface(U.tip_skills_pick(), id="skills-pick-keys")
             yield Input(placeholder=U.skills_search_placeholder(), id="skills-pick-search")
             yield DataTable(id="skills-pick-table", cursor_type="row")
             yield Static("", id="skills-pick-sel")
@@ -983,7 +980,6 @@ class PersonaEditorModal(TabPaneNavigation, QuitActions, ModalScreen[Persona | N
         )
         with Vertical(id="persona-editor-shell"):
             yield Static(f"[bold]{title}[/bold]", id="pe-title")
-            yield TipSurface(U.tip_persona_editor(), id="pe-hint")
             with TabbedContent(id="pe-tabs"):
                 with TabPane(U.pe_tab_identity(), id="pe-tab-identity"):
                     with VerticalScroll(classes="pe-pane"):
@@ -1370,7 +1366,7 @@ class PersonasScreen(ChromeActions):
                 id="pb-banner",
             )
             yield DataTable(id="pb-table")
-            yield TipSurface(U.tip_no_personas(), id="pb-empty-tip")
+            yield EmptyState("", id="pb-empty-tip")
             yield Static("", id="pb-detail")
             with Horizontal(id="pb-actions"):
                 yield Button(U.new_label(), variant="primary", id="pb-new")
@@ -1432,10 +1428,10 @@ class PersonasScreen(ChromeActions):
             self._selected_id = None
             self.query_one("#pb-detail", Static).update("")
             with suppress(Exception):
-                self.query_one("#pb-empty-tip", TipSurface).set_tip(U.tip_no_personas())
+                self.query_one("#pb-empty-tip", EmptyState).set_message(U.tip_no_personas())
         if self._rows:
             with suppress(Exception):
-                self.query_one("#pb-empty-tip", TipSurface).clear_message()
+                self.query_one("#pb-empty-tip", EmptyState).clear_message()
         focus_primary_list(table)
 
     def _persona_at_cursor(self) -> Persona | None:

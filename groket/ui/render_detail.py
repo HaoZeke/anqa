@@ -744,7 +744,6 @@ def render_tool_detail(
     tname = tool_name or "?"
     style = tool_style(tname)
     # Heading uses explicit separators (Fluent strips message edge whitespace).
-    # Full-string Fluent variants exist (tool-detail-heading*) for non-Rich contexts.
     head = Text()
     head.append(f"#{index} ", style="dim")
     head.append("tool ", style="dim")

@@ -52,7 +52,6 @@ from ..forms import (
     selection_list_selected_ids,
 )
 from ..i18n import join_ui, t
-from ..panel_render import TipSurface
 from ..tab_panes import TabPaneNavigation
 
 logger = logging.getLogger(__name__)
@@ -294,10 +293,6 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                                 classes="runner-launch-panel",
                             )
                             yield Label(U.models_heading())
-                            yield TipSurface(
-                                U.tip_runner_models(),
-                                id="runner-models-tip",
-                            )
                             yield SelectionList[str](
                                 *model_selection_items(None), id="models-select"
                             )
@@ -329,7 +324,6 @@ class RunnerScreen(TabPaneNavigation, ChromeActions):
                 with Horizontal(id="runner-toolbar-primary"):
                     yield Button(U.launch(), variant="primary", id="launch-btn")
                     yield Button(U.save_config(), id="save-config-btn")
-                yield TipSurface(U.tip_runner_toolbar(), id="runner-toolbar-hint")
         yield AppFooter()
 
     def on_mount(self) -> None:

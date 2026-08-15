@@ -209,7 +209,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         from ..brand_mark import AppChrome, AppFooter
 
         yield AppChrome()
-        yield Static("", id="analysis-stale-banner", classes="tip-surface")
+        yield Static("", id="analysis-stale-banner")
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
             yield Static("", id="session-pending-queue")

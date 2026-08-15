@@ -825,11 +825,6 @@ SelectOverlay:focus > .option-list--option-highlighted {
     border: solid $primary-lighten-2;
 }
 
-#runner-models-tip {
-    margin: 0;
-    height: auto;
-}
-
 /* Action bar above Footer (not dock:bottom — avoids clipping under Footer). */
 #runner-toolbar {
     height: auto;
@@ -853,15 +848,6 @@ SelectOverlay:focus > .option-list--option-highlighted {
 #runner-toolbar Button {
     margin-right: 1;
     min-width: 8;
-}
-
-#runner-toolbar-hint {
-    width: 1fr;
-    height: auto;
-    margin: 0 0 0 1;
-    padding: 0;
-    color: $text-muted;
-    content-align: left middle;
 }
 
 #runner-status-panel {
@@ -938,15 +924,6 @@ SelectOverlay:focus > .option-list--option-highlighted {
     height: auto;
     margin: 0;
     /* title / tips / search stay compact — never steal space from the footer */
-}
-
-#mcp-picker-modal #mcp-pick-keys,
-#skills-picker-modal #skills-pick-keys,
-#plugins-picker-modal #plugins-pick-keys,
-#persona-editor-shell #pe-hint.tip-surface {
-    margin: 0;
-    max-height: 2;
-    overflow-y: auto;
 }
 
 #mcp-picker-modal #mcp-pick-search,
@@ -1187,13 +1164,6 @@ PersonaEditorModal {
 #pe-title {
     height: auto;
     margin: 0;
-}
-
-#pe-hint {
-    height: auto;
-    margin: 0;
-    color: $text-muted;
-    max-height: 3;
 }
 
 #pe-tabs {
