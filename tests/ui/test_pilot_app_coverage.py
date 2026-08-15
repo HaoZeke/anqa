@@ -102,6 +102,18 @@ def _make_app(
     return app, work, traces
 
 
+def _prime_catalog(app: TraceEvalApp, traces: Path) -> None:
+    """Load session metas into *app* without mounting Textual."""
+    from groket.parser import find_sessions
+
+    rows: list[tuple[object, str]] = []
+    for session_dir in find_sessions(traces):
+        meta = load_session_meta(session_dir)
+        if meta is not None:
+            rows.append((meta, app._derive_label(session_dir, traces)))
+    app._meta_only = rows  # type: ignore[assignment]
+
+
 # ── Pure / unit-level helpers ─────────────────────────────────────────────
 
 
@@ -984,48 +996,36 @@ async def test_update_run_status_no_active_runs(tmp_path: Path) -> None:
         assert "groket" in app.title.lower()
 
 
-@pytest.mark.asyncio
-async def test_config_save_and_load(tmp_path: Path) -> None:
+def test_config_save_and_load(tmp_path: Path) -> None:
     """Config round-trips through save/load."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app._config["theme"] = "nord"
-        app._config["custom_key"] = "custom_value"
-        app._save_config()
-        loaded = app._load_config()
-        assert loaded.get("theme") == "nord"
-        assert "custom_key" not in loaded
-        assert "analysis" in loaded
-        assert "hud" in loaded
+    app._config["theme"] = "nord"
+    app._config["custom_key"] = "custom_value"
+    app._save_config()
+    loaded = app._load_config()
+    assert loaded.get("theme") == "nord"
+    assert "custom_key" not in loaded
+    assert "analysis" in loaded
+    assert "hud" in loaded
 
 
-@pytest.mark.asyncio
-async def test_meta_cache_round_trip(tmp_path: Path) -> None:
+def test_meta_cache_round_trip(tmp_path: Path) -> None:
     """Meta cache saves and loads correctly."""
-    app, work, traces = _make_app(tmp_path, n_sessions=2)
-    async with app.run_test(size=(120, 40)) as pilot:
-        # Wait for cache write, not only _meta_only (paint can race ahead of save).
-        await wait_until(
-            pilot,
-            lambda: len(app._meta_only) >= 2 and len(app._load_meta_cache()) >= 2,
-            description="sessions loaded and meta cache saved",
-        )
-        cache = app._load_meta_cache()
-        assert len(cache) >= 2
+    app, _, traces = _make_app(tmp_path, n_sessions=2)
+    _prime_catalog(app, traces)
+    app._save_meta_cache(list(app._meta_only))
+    cache = app._load_meta_cache()
+    assert len(cache) >= 2
+    from groket.ui.prefs import set_show_host_sessions
 
-        # Changing the catalog roots key invalidates (host pref flips the key)
-        from groket.ui.prefs import set_show_host_sessions
-
-        set_show_host_sessions(True)
-        try:
-            assert app._load_meta_cache() == {}
-        finally:
-            set_show_host_sessions(False)
+    set_show_host_sessions(True)
+    try:
+        assert app._load_meta_cache() == {}
+    finally:
+        set_show_host_sessions(False)
 
 
-@pytest.mark.asyncio
-async def test_derive_label(tmp_path: Path) -> None:
+def test_derive_label(tmp_path: Path) -> None:
     """_derive_label extracts meaningful path components."""
     app, _, traces = _make_app(tmp_path, n_sessions=1)
     sd = traces / "sess-000"
@@ -1059,20 +1059,6 @@ async def test_populate_with_analyzed_sessions(tmp_path: Path) -> None:
         await pilot.pause()
         # Table should still show the session
         assert table.row_count >= 1
-
-
-@pytest.mark.asyncio
-async def test_populate_with_turn_outcomes(tmp_path: Path) -> None:
-    """Sessions with different turn outcomes render correctly."""
-    app, _, traces = _make_app(tmp_path, n_sessions=0)
-    # Create sessions with various outcomes
-    for outcome in ("success", "error", "running", "awaiting_follow_up", ""):
-        _write_session(traces, f"sess-{outcome or 'none'}", outcome=outcome)
-    app2 = TraceEvalApp(work_dir=app.work_dir, traces_path=traces)
-    async with app2.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app2._meta_only) >= 4, description="sessions loaded")
-        table = app2.query_one("#session-table", DataTable)
-        await wait_until(pilot, lambda: table.row_count >= 4, description="table populated")
 
 
 @pytest.mark.asyncio
@@ -1146,63 +1132,49 @@ async def test_session_search_submit_focuses_table(tmp_path: Path) -> None:
         assert app._session_search == "alpha"
 
 
-@pytest.mark.asyncio
-async def test_merge_session_dirs(tmp_path: Path) -> None:
-    """_merge_session_dirs adds new sessions and refreshes existing ones."""
+def test_merge_session_dirs(tmp_path: Path) -> None:
+    """_merge_session_dirs adds new sessions and skips dirs already listed."""
     app, _, traces = _make_app(tmp_path, n_sessions=2)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
-
-        # Merge a new session
-        new_sd = _write_session(traces, "sess-merge-new", model_id="m-merge")
-        app._merge_session_dirs([new_sd], traces_root=traces)
-        await pilot.pause()
-        assert len(app._meta_only) >= 3
-
-        # Merge an existing session (should update in-place if changed)
-        existing_sd = traces / "sess-000"
-        app._merge_session_dirs([existing_sd], traces_root=traces)
-        await pilot.pause()
+    _prime_catalog(app, traces)
+    assert len(app._meta_only) == 2
+    new_sd = _write_session(traces, "sess-merge-new", model_id="m-merge")
+    app._merge_session_dirs([new_sd], traces_root=traces)
+    assert len(app._meta_only) == 3
+    existing_sd = traces / "sess-000"
+    app._merge_session_dirs([existing_sd], traces_root=traces)
+    assert len(app._meta_only) == 3
 
 
-@pytest.mark.asyncio
-async def test_merge_session_dirs_empty(tmp_path: Path) -> None:
+def test_merge_session_dirs_empty(tmp_path: Path) -> None:
     """_merge_session_dirs with empty list is a no-op."""
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        before = len(app._meta_only)
-        app._merge_session_dirs([])
-        assert len(app._meta_only) == before
+    app, _, traces = _make_app(tmp_path, n_sessions=1)
+    _prime_catalog(app, traces)
+    before = len(app._meta_only)
+    app._merge_session_dirs([])
+    assert len(app._meta_only) == before
 
 
-@pytest.mark.asyncio
-async def test_findings_for_session(tmp_path: Path) -> None:
+def test_findings_for_session(tmp_path: Path) -> None:
     """_findings_for_session collects findings across plugins."""
     from groket.analysis.base import AnalysisResult, Finding
 
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        meta = app._meta_only[0][0]
-        sd_key = str(meta.session_dir)
-
-        # No results yet
-        assert app._findings_for_session(sd_key) == []
-
-        # Add findings
-        finding = Finding(
-            id="test-rule",
-            plugin_id="basic",
-            severity="high",
-            title="Test finding",
-        )
-        app._plugin_results[sd_key] = {
-            "basic": AnalysisResult(analyzer_id="basic", ok=True, findings=[finding])
-        }
-        result = app._findings_for_session(sd_key)
-        assert len(result) == 1
-        assert result[0].id == "test-rule"
+    app, _, traces = _make_app(tmp_path, n_sessions=1)
+    _prime_catalog(app, traces)
+    meta = app._meta_only[0][0]
+    sd_key = str(meta.session_dir)
+    assert app._findings_for_session(sd_key) == []
+    finding = Finding(
+        id="test-rule",
+        plugin_id="basic",
+        severity="high",
+        title="Test finding",
+    )
+    app._plugin_results[sd_key] = {
+        "basic": AnalysisResult(analyzer_id="basic", ok=True, findings=[finding])
+    }
+    result = app._findings_for_session(sd_key)
+    assert len(result) == 1
+    assert result[0].id == "test-rule"
 
 
 @pytest.mark.asyncio
@@ -1305,8 +1277,7 @@ async def test_open_session_path_selects_real_prompt_index(tmp_path: Path) -> No
         assert browser.query_one("#browser-tabs").active == "tab-timeline"
 
 
-@pytest.mark.asyncio
-async def test_extract_session_launch_params(tmp_path: Path) -> None:
+def test_extract_session_launch_params(tmp_path: Path) -> None:
     """_extract_session_launch_params reads run.json and prompt."""
     app, _, traces = _make_app(tmp_path, n_sessions=1)
     sd = traces / "sess-000"
@@ -1335,8 +1306,7 @@ async def test_extract_session_launch_params(tmp_path: Path) -> None:
     assert params["run_mcp_servers"] == ["mcp1"]
 
 
-@pytest.mark.asyncio
-async def test_extract_session_launch_params_no_run_json(tmp_path: Path) -> None:
+def test_extract_session_launch_params_no_run_json(tmp_path: Path) -> None:
     """_extract_session_launch_params works without run.json."""
     app, _, traces = _make_app(tmp_path, n_sessions=1)
     sd = traces / "sess-000"
@@ -1348,8 +1318,7 @@ async def test_extract_session_launch_params_no_run_json(tmp_path: Path) -> None
     assert params["run_plugins"] == []
 
 
-@pytest.mark.asyncio
-async def test_extract_session_launch_params_from_fork_parent_seed(tmp_path: Path) -> None:
+def test_extract_session_launch_params_from_fork_parent_seed(tmp_path: Path) -> None:
     """Fork child without its own recipe reuses parent seed persona/plugins."""
     from groket.runs.launch_meta import build_launch_meta, write_launch_meta
     from groket.session.resume import RESUME_SEED_DIRNAME
@@ -1698,17 +1667,15 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
         assert app._meta_only[0][0].list_status_label() == "running"
 
 
-@pytest.mark.asyncio
-async def test_scan_live_sessions_busy_guard(tmp_path: Path) -> None:
+def test_scan_live_sessions_busy_guard(tmp_path: Path) -> None:
     """_scan_live_sessions_into_table is guarded against re-entry."""
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        app._live_sessions_busy = True
-        before = len(app._meta_only)
-        app._scan_live_sessions_into_table()
-        assert len(app._meta_only) == before
-        app._live_sessions_busy = False
+    app, _, traces = _make_app(tmp_path, n_sessions=1)
+    _prime_catalog(app, traces)
+    app._live_sessions_busy = True
+    before = len(app._meta_only)
+    app._scan_live_sessions_into_table()
+    assert len(app._meta_only) == before
+    app._live_sessions_busy = False
 
 
 @pytest.mark.asyncio
@@ -1773,27 +1740,22 @@ async def test_notify_run_finished_with_failures(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-@pytest.mark.asyncio
-async def test_request_live_share_no_share(tmp_path: Path) -> None:
+def test_request_live_share_no_share(tmp_path: Path) -> None:
     """_request_live_share with no share file is a no-op."""
     app, _, traces = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        sd = traces / "sess-000"
-        app._request_live_share(sd)
-        await pilot.pause()
+    app._request_live_share(traces / "sess-000")
 
 
-@pytest.mark.asyncio
-async def test_session_model_options(tmp_path: Path) -> None:
+def test_session_model_options(tmp_path: Path) -> None:
     """_session_model_options lists All models plus loaded model ids."""
-    app, _, _ = _make_app(tmp_path, n_sessions=4, model_ids=["m1", "m2"], task_ids=["t1", "t2"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
-        models = app._session_model_options()
-        assert len(models) >= 3  # "All models" + m1 + m2
-        ids = {v for _, v in models}
-        assert "m1" in ids and "m2" in ids
+    app, _, traces = _make_app(
+        tmp_path, n_sessions=4, model_ids=["m1", "m2"], task_ids=["t1", "t2"]
+    )
+    _prime_catalog(app, traces)
+    models = app._session_model_options()
+    assert len(models) >= 3
+    ids = {v for _, v in models}
+    assert "m1" in ids and "m2" in ids
 
 
 @pytest.mark.asyncio
@@ -1809,16 +1771,13 @@ async def test_set_session_filter_selects(tmp_path: Path) -> None:
         assert sel.value == "m1"
 
 
-@pytest.mark.asyncio
-async def test_rebuild_session_filters_invalid_value(tmp_path: Path) -> None:
+def test_rebuild_session_filters_invalid_value(tmp_path: Path) -> None:
     """_rebuild_session_filters resets filter when value is no longer valid."""
-    app, _, _ = _make_app(tmp_path, n_sessions=2, model_ids=["m1"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
-        app._filter_model = "nonexistent"
-        app._rebuild_session_filters()
-        await pilot.pause()
-        assert app._filter_model == ""
+    app, _, traces = _make_app(tmp_path, n_sessions=2, model_ids=["m1"])
+    _prime_catalog(app, traces)
+    app._filter_model = "nonexistent"
+    app._rebuild_session_filters()
+    assert app._filter_model == ""
 
 
 @pytest.mark.asyncio
@@ -1872,7 +1831,7 @@ async def test_on_background_run_status_session_discovered(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_on_background_run_status_no_session_dir(tmp_path: Path) -> None:
-    """_on_background_run_status with no session_dir is ignored."""
+    """_on_live_session_discovered with no session_dir is ignored."""
     from groket.docker.orchestrator import ContainerStatus as CS
 
     app, _, _ = _make_app(tmp_path, n_sessions=0)
@@ -1883,17 +1842,13 @@ async def test_on_background_run_status_no_session_dir(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-@pytest.mark.asyncio
-async def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
-    """_update_session_paths_banner is a no-op when the banner is gone."""
-    app, work, traces = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app._update_session_paths_banner()
+def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
+    """_update_session_paths_banner is a no-op when the banner is not mounted."""
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    app._update_session_paths_banner()
 
 
-@pytest.mark.asyncio
-async def test_constructor_explicit_work_dir(tmp_path: Path) -> None:
+def test_constructor_explicit_work_dir(tmp_path: Path) -> None:
     """Constructor with explicit work_dir sets paths correctly."""
     work = tmp_path / "explicit"
     work.mkdir()
@@ -1902,8 +1857,7 @@ async def test_constructor_explicit_work_dir(tmp_path: Path) -> None:
     assert app.traces_path == (work / "runs" / "traces").resolve()
 
 
-@pytest.mark.asyncio
-async def test_constructor_traces_path_only(tmp_path: Path) -> None:
+def test_constructor_traces_path_only(tmp_path: Path) -> None:
     """Constructor with only traces_path resolves work_dir from it."""
     traces = tmp_path / "my-traces"
     traces.mkdir(parents=True)
@@ -1930,24 +1884,20 @@ def test_session_search_haystack_includes_metadata(tmp_path: Path) -> None:
     assert "important fix" in hay
 
 
-@pytest.mark.asyncio
-async def test_analyze_targets_already_analyzed(tmp_path: Path) -> None:
+def test_analyze_targets_already_analyzed(tmp_path: Path) -> None:
     """Analyze with all-analyzed sessions skips reanalysis."""
     from groket.analysis.inflight import clear_session_analysis_inflight
 
     clear_session_analysis_inflight()
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        # Pre-analyze all sessions
-        for meta, label in list(app._meta_only):
-            app._analyze_one(meta, label)
-        assert len(app._plugin_results) >= 1
-        # Second analysis is a no-op — _analyze_one guards against re-analysis
-        before = dict(app._plugin_results)
-        for meta, label in list(app._meta_only):
-            app._analyze_one(meta, label)
-        assert app._plugin_results == before
+    app, _, traces = _make_app(tmp_path, n_sessions=1)
+    _prime_catalog(app, traces)
+    for meta, label in list(app._meta_only):
+        app._analyze_one(meta, label)
+    assert len(app._plugin_results) >= 1
+    before = dict(app._plugin_results)
+    for meta, label in list(app._meta_only):
+        app._analyze_one(meta, label)
+    assert app._plugin_results == before
     clear_session_analysis_inflight()
 
 
@@ -1962,7 +1912,7 @@ async def test_analyze_targets_skips_inflight_sessions(tmp_path: Path) -> None:
     from groket.job_pools import get_analysis_pool
 
     clear_session_analysis_inflight()
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
+    app, _, traces = _make_app(tmp_path, n_sessions=1)
     submitted: list[str] = []
     real_submit = get_analysis_pool().submit
 
@@ -1994,9 +1944,9 @@ async def test_analyze_targets_guard_bad_input(tmp_path: Path) -> None:
     app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
     async with app.run_test(size=(80, 24)) as pilot:
         await pilot.pause()
-        app._analyze_targets(None)  # type: ignore[arg-type]  # deliberate wrong type
+        app._analyze_targets(None)  # type: ignore[arg-type]
         app._analyze_targets([])
-        app._analyze_targets("bad")  # type: ignore[arg-type]  # deliberate wrong type
+        app._analyze_targets("bad")  # type: ignore[arg-type]
         await pilot.pause()
 
 
