@@ -5,6 +5,11 @@
 
 # groket
 
+[![CI](https://github.com/indynull/groket/actions/workflows/ci.yml/badge.svg)](https://github.com/indynull/groket/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/indynull/groket/graph/badge.svg)](https://codecov.io/gh/indynull/groket)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **groket** evaluates [Grok Build](https://docs.x.ai/build/overview)
 sessions: timeline, findings, workspace diffs, Docker evals, personas, and
 pluggable detectors / analysis plugins.

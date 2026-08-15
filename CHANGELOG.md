@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- Continuous integration uploads Python coverage to Codecov (OIDC).
+- README badges: Actions, Codecov, Python 3.13, MIT license.
+
 ## 0.1.0
 
 First release. Groket evaluates Grok Build sessions: timeline, findings,

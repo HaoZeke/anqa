@@ -68,10 +68,12 @@ Re-run tests after the final diff for that commit. Prefer
 ``just ci`` before claiming a larger slice done.
 
 Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
-(``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` / CI do
-**not** pass ``--cov``. Prefer closing gaps with domain tests or deleting dead
-code when you touch a module; do not lower ``fail_under`` or omit package
-source to hide debt.
+(``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` does
+not pass ``--cov``. The Actions **Test Python** job writes ``coverage.xml``
+and uploads it to Codecov (OIDC; ``fail_under`` is not applied on that
+upload). Prefer closing gaps with domain tests or deleting dead code when
+you touch a module; do not lower ``fail_under`` or omit package source to
+hide debt.
 
 ### No speculative fallbacks
 
