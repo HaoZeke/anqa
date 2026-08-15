@@ -332,9 +332,17 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
         push(
             &mut table,
             overlay,
+            "events.prev_turn",
+            "Previous turn",
+            "h",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
             "events.next_turn",
             "Next turn",
-            "]",
+            "l",
             Message::Noop,
         );
         push(

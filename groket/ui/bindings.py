@@ -132,6 +132,8 @@ BROWSER: tuple[Binding, ...] = (
     + tab_nav_bindings(5)
     + (
         _b("v", "focus_timeline_filter", U.bind_view(), id="browser.view_filter", show=False),
+        _b("h", "prev_turn", U.bind_prev_turn(), id="events.prev_turn", show=True),
+        _b("l", "next_turn", U.bind_next_turn(), id="events.next_turn", show=True),
         _b("f", "flag_event", U.bind_flag(), id="event.flag", show=True),
         _b("N", "operator_note", U.bind_note(), id="pane.notes", show=True),
         _b("O", "edit_operator_note", U.bind_edit_note(), id="session.note_edit", show=False),

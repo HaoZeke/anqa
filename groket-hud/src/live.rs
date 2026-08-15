@@ -714,20 +714,31 @@ pub struct CardMark {
     pub first_note_id: String,
 }
 
+fn turn_list_keys(turns: &[TurnRow], face: i64) -> Vec<i64> {
+    turns
+        .iter()
+        .filter(|t| t.face_id() == Some(face))
+        .map(|t| t.turn_index)
+        .collect()
+}
+
 pub fn card_marks_from_overview(
     overview: &Overview,
 ) -> (HashMap<i64, CardMark>, HashMap<i64, CardMark>) {
     let mut turns: HashMap<i64, CardMark> = HashMap::new();
     let mut events: HashMap<i64, CardMark> = HashMap::new();
+    let rows = &overview.turns.turns;
 
     for f in &overview.findings.findings {
         let evs = &f.event_indices;
         let primary = f.primary_event_index.or_else(|| evs.first().copied());
-        for ti in &f.turn_indices {
-            let row = turns.entry(*ti).or_default();
-            row.findings += 1;
-            if row.first_finding_event.is_none() {
-                row.first_finding_event = primary;
+        for face in &f.turn_indices {
+            for key in turn_list_keys(rows, *face) {
+                let row = turns.entry(key).or_default();
+                row.findings += 1;
+                if row.first_finding_event.is_none() {
+                    row.first_finding_event = primary;
+                }
             }
         }
         for ei in evs {
@@ -750,11 +761,13 @@ pub fn card_marks_from_overview(
 
     for n in &overview.notes.notes {
         let nid = n.id.clone();
-        if let Some(ti) = n.turn_index {
-            let row = turns.entry(ti).or_default();
-            row.notes += 1;
-            if row.first_note_id.is_empty() {
-                row.first_note_id = nid.clone();
+        if let Some(face) = n.turn_index {
+            for key in turn_list_keys(rows, face) {
+                let row = turns.entry(key).or_default();
+                row.notes += 1;
+                if row.first_note_id.is_empty() {
+                    row.first_note_id = nid.clone();
+                }
             }
         }
         for ei in &n.event_indices {
@@ -1529,6 +1542,71 @@ mod tests {
         let fields = notes_schema_fields(None);
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].id, "summary");
+    }
+
+    #[test]
+    fn card_marks_join_trace_number_to_list_key() {
+        let ov = Overview {
+            turns: TurnsBlock {
+                turns: vec![TurnRow {
+                    turn_index: 13,
+                    turn_number: Some(15),
+                    tool_error_count: 2,
+                    ..TurnRow::default()
+                }],
+                ..TurnsBlock::default()
+            },
+            findings: crate::wire::FindingsBlock {
+                findings: vec![crate::wire::FindingRow {
+                    turn_indices: vec![15],
+                    primary_event_index: Some(100),
+                    ..crate::wire::FindingRow::default()
+                }],
+                ..crate::wire::FindingsBlock::default()
+            },
+            notes: crate::wire::NotesBlock {
+                notes: vec![crate::wire::NoteRow {
+                    id: "n1".into(),
+                    turn_index: Some(15),
+                    ..crate::wire::NoteRow::default()
+                }],
+                ..crate::wire::NotesBlock::default()
+            },
+            ..Overview::default()
+        };
+        let (turns, _) = card_marks_from_overview(&ov);
+        let mark = turns.get(&13).expect("list key 13");
+        assert_eq!(mark.findings, 1);
+        assert_eq!(mark.notes, 1);
+        assert_eq!(mark.errors, 2);
+        assert_eq!(mark.first_finding_event, Some(100));
+        assert_eq!(mark.first_note_id, "n1");
+        assert!(!turns.contains_key(&15));
+    }
+
+    #[test]
+    fn card_marks_skip_unnumbered_list_key() {
+        let ov = Overview {
+            turns: TurnsBlock {
+                turns: vec![TurnRow {
+                    turn_index: 27,
+                    turn_number: None,
+                    ..TurnRow::default()
+                }],
+                ..TurnsBlock::default()
+            },
+            findings: crate::wire::FindingsBlock {
+                findings: vec![crate::wire::FindingRow {
+                    turn_indices: vec![27],
+                    primary_event_index: Some(100),
+                    ..crate::wire::FindingRow::default()
+                }],
+                ..crate::wire::FindingsBlock::default()
+            },
+            ..Overview::default()
+        };
+        let (turns, _) = card_marks_from_overview(&ov);
+        assert!(turns.get(&27).is_none());
     }
 
     #[test]

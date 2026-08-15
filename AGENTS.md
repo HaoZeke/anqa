@@ -643,6 +643,7 @@ follow-up, and Done stay off the rail when they do not apply.
 | ``/`` | Search (TUI sessions + browser; HUD picker + Turns / Timeline) |
 | ``y`` / ``Ctrl+Shift+C`` | Copy body |
 | ``j`` / ``k`` | List down / up |
+| ``h`` / ``l`` (Left / Right) | Timeline: previous / next turn |
 | ``Enter`` | Open / drill |
 | ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
@@ -674,7 +675,8 @@ panes. Digits type into search, so pane jump is **Ctrl+1–5**.
 |-----|--------|
 | ``Tab`` / ``Shift+Tab`` | Next / previous browse pane |
 | ``Ctrl+1``…``Ctrl+5`` | Jump Overview … Notes |
-| ``]`` / ``[`` | Timeline: next turn / all turns |
+| ``[`` | Timeline: all turns |
+| ``]`` | Timeline: next turn (same as ``l``) |
 | ``g`` | Turns → Timeline for the focused turn |
 | ``u`` | Leave the open session for the session list (logo click does the same) |
 

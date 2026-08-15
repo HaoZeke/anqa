@@ -446,7 +446,7 @@ class TestRenderEventDetail:
         assert "run terminal command" in plain or "sleep 5" in plain or "5" in plain
 
     def test_turn_index_in_detail_meta(self):
-        """Selected-event detail shows sequential operator turn in the meta line."""
+        """Selected-event detail shows the trace turn id in the meta line."""
         ev = make_trace_event(
             index=12,
             event_type="user_message_chunk",

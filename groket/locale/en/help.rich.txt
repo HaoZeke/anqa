@@ -31,6 +31,8 @@
 
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
+  h / l           Previous / next turn on the Timeline
+  Left / Right    Same
   v               Timeline filter (Subagents lists spawn/finish)
   Enter           Open a child from a spawn/finish row or the Summary table
   i               Jump to Findings
@@ -71,8 +73,9 @@
 
 The footer lists primary keys. The palette lists the rest.
 
-Desktop HUD shares ? / Esc / / / y / j k / n e (awaiting) / N with this
-TUI. HUD panes are Tab and Ctrl+1-5; [ ] scope Timeline turns.
+Desktop HUD shares ? / Esc / / / y / j k / h l (Timeline turns) / n e
+(awaiting) / N with this TUI. HUD panes are Tab and Ctrl+1-5; [ ] also
+scope Timeline turns (all / next).
 A keys.toml remap applies on both surfaces. An overlay may set one
 leader key, then one letter (leader+X). Esc or timeout cancels.
 Copy examples/keys/colemak.toml to ~/.groket/keys.toml for Colemak

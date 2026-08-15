@@ -19,6 +19,7 @@ from ...notes import NotesDoc, load_notes
 from ...parser import extract_prompt, load_session_meta, parse_timeline
 from ...session.turns import (
     TurnSegment,
+    event_display_turn_map,
     is_harness_user_chrome,
     is_operator_user_event,
     segment_timeline_turns,
@@ -458,9 +459,11 @@ def _order_events(
     turns: list[TurnSegment],
 ) -> tuple[list[TraceEvent], dict[int, str]]:
     event_to_turn: dict[int, str] = {}
+    turn_by = event_display_turn_map(turns)
     for seg in turns:
         for ev in seg.events:
-            event_to_turn[ev.index] = seg.label
+            n = turn_by.get(ev.index)
+            event_to_turn[ev.index] = f"turn {n}" if n is not None else seg.label
     ordered: list[TraceEvent] = []
     seen: set[int] = set()
     if turns:

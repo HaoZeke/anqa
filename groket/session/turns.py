@@ -22,8 +22,8 @@ _OUTCOME_RE = re.compile(r"outcome\s*=\s*(\S+)", re.I)
 class TurnSegment:
     """One agent turn (between turn_started and turn_ended, or open-ended)."""
 
-    turn_index: int  # 0-based index in this session
-    turn_number: int | None  # from harness marker when present
+    turn_index: int  # unique list position (0..n-1); picker / wire identity
+    turn_number: int | None  # events.jsonl turn_started.turn_number; labels and reports
     prompt_index: int | None = None  # source _meta.promptIndex from the operator message
     outcome: str = ""  # last turn_ended outcome for this segment ("" if open)
     open: bool = False  # no turn_ended yet
@@ -67,15 +67,13 @@ class TurnSegment:
 
     @property
     def label(self) -> str:
-        # Operator-facing id is sequential turn_index after renumber (0-based).
-        # Harness turn_number can skip/jump (subagents, background, restamps);
-        # keep it on the wire as turnNumber, not in this label.
-        n = int(self.turn_index)
+        n = display_turn_number(self)
+        head = f"turn {n}" if n is not None else "unnumbered"
         if self.open:
-            return f"turn {n} (open)"
+            return f"{head} (open)"
         if self.outcome:
-            return f"turn {n} ({self.outcome})"
-        return f"turn {n}"
+            return f"{head} ({self.outcome})"
+        return head
 
     def duration_seconds(self, durations: dict[int, float] | None = None) -> float | None:
         """Span from first to last event timestamp (seconds), else sum of durations map."""
@@ -136,14 +134,43 @@ def _outcome_from_event(ev: TraceEvent) -> str:
     return "unknown"
 
 
+def _is_events_jsonl_turn_end(ev: TraceEvent) -> bool:
+    """True for ``events.jsonl`` ``turn_ended`` (not host ``turn_completed``)."""
+    if ev.event_type == et.TURN_ENDED:
+        return True
+    if ev.event_type in ("session", "session_error"):
+        return "turn ended" in (ev.content or "").lower()
+    return False
+
+
 def _append_turn_end(
     ev: TraceEvent,
     current: TurnSegment | None,
     segments: list[TurnSegment],
     display_i: int,
 ) -> tuple[TurnSegment | None, int]:
-    """Close *current*, or fold a second end marker into the previous turn."""
+    """Close *current*, or fold a second end marker into the previous turn.
+
+    A follow-up user message often lands after host ``turn_completed`` and
+    before the matching ``events.jsonl`` ``turn_ended``. That late end belongs
+    on the previous harness turn — do not close the new operator turn.
+    Host-only traces close with ``turn_completed`` and still end *current*.
+    """
     outcome = _outcome_from_event(ev)
+    if (
+        current is not None
+        and current.open
+        and current.events
+        and _is_events_jsonl_turn_end(ev)
+        and not any(_is_turn_started(e) for e in current.events)
+        and segments
+    ):
+        prev = segments[-1]
+        prev.events.append(ev)
+        if outcome:
+            prev.outcome = outcome
+        prev.open = False
+        return current, display_i
     if current is not None:
         current.events.append(ev)
         if outcome:
@@ -162,7 +189,7 @@ def _append_turn_end(
     segments.append(
         TurnSegment(
             turn_index=display_i,
-            turn_number=display_i,
+            turn_number=None,
             open=False,
             outcome=outcome,
             events=[ev],
@@ -202,36 +229,18 @@ def _segment_has_operator_user(seg: TurnSegment) -> bool:
     return any(is_operator_user_event(ev) for ev in seg.events)
 
 
-def _segment_has_harness_chrome_user(seg: TurnSegment) -> bool:
-    return any(
-        (e.event_type in et.USER_TYPES or e.event_type == "user")
-        and is_harness_user_chrome(e.content or "")
-        for e in seg.events
-    )
+def _stamp_trace_turn_ids(segments: list[TurnSegment]) -> list[TurnSegment]:
+    """Unique ``turn_index`` 0..n-1. Keep only trace ``turn_number`` values.
 
-
-def _should_merge_background_tail(seg: TurnSegment, prev: TurnSegment) -> bool:
-    """Merge *seg* into *prev* when it is harness chrome without an operator prompt.
-
-    Covers background-task completions, bare ``<system-reminder>`` turns (rules /
-    skills / MCP status), and empty companion harness turn_started/ended pairs.
+    Host-only sessions (no ``turn_started.turn_number`` on any segment) fill
+    ``turn_number`` from the list position so labels stay 0..n-1. A mixed
+    session that omitted a start marker keeps ``turn_number`` unset — never
+    invent ``prev + 1``.
     """
-    if not _segment_has_operator_user(prev):
-        return False
-    if _segment_has_operator_user(seg):
-        return False
-    if _segment_has_harness_chrome_user(seg):
-        return True
-    # Companion harness turn with no operator user and no tools (e.g. empty
-    # turn_started/ended after a background completion).
-    has_user = any(e.event_type in et.USER_TYPES or e.event_type == "user" for e in seg.events)
-    return not has_user and seg.tool_call_count == 0
-
-
-def _renumber_segments(segments: list[TurnSegment]) -> list[TurnSegment]:
+    has_trace = any(seg.turn_number is not None for seg in segments)
     for i, seg in enumerate(segments):
         seg.turn_index = i
-        if seg.turn_number is None:
+        if not has_trace:
             seg.turn_number = i
     return segments
 
@@ -257,62 +266,70 @@ def _assign_prompt_indexes(segments: list[TurnSegment]) -> list[TurnSegment]:
     return segments
 
 
-def _merge_background_completion_segments(
-    segments: list[TurnSegment],
-) -> list[TurnSegment]:
-    """Fold harness turns that only carry background-task completions into the parent.
+def display_turn_number(seg: TurnSegment) -> int | None:
+    """Trace ``turn_started.turn_number``, or host list position.
 
-    Grok emits extra ``turn_started`` / ``turn_ended`` pairs when backgrounded
-    subagents/tasks finish. Those are not operator interactive turns; attach
-    their events to the previous segment that had a real user prompt.
+    Host-only sessions (no start markers) stamp list position into
+    ``turn_number``. A segment that sits in a numbered session but never
+    received a ``turn_started`` returns ``None`` — do not invent a face id.
+    :attr:`TurnSegment.turn_index` stays the unique list key so a restamp
+    that repeats ``turn_number`` still has two picker rows.
     """
-    if len(segments) < 2:
-        return segments
-    out: list[TurnSegment] = []
+    if seg.turn_number is not None:
+        return int(seg.turn_number)
+    return None
+
+
+def events_on_display_turn(seg: TurnSegment, turn_by_event: dict[int, int]) -> list[TraceEvent]:
+    """Events in *seg* whose enclosing marker is this segment's display id.
+
+    Events whose enclosing ``turn_started`` is a different number (if any
+    were ever grouped here) stay off this filter.
+    """
+    primary = display_turn_number(seg)
+    if primary is None:
+        return [ev for ev in seg.events if int(ev.index) not in turn_by_event]
+    return [ev for ev in seg.events if turn_by_event.get(int(ev.index)) == primary]
+
+
+def event_display_turn_map(segments: list[TurnSegment]) -> dict[int, int]:
+    """Map timeline event index → enclosing ``turn_started.turn_number``.
+
+    A follow-up user row that lands before the next ``turn_started`` inherits
+    that upcoming marker. Events with no enclosing start stay off the map.
+
+    :param segments: Output of :func:`segment_timeline_turns`.
+    :returns: ``event.index`` → trace turn id.
+    """
+    out: dict[int, int] = {}
     for seg in segments:
-        if out and _should_merge_background_tail(seg, out[-1]):
-            prev = out[-1]
-            prev.events.extend(seg.events)
-            # Keep parent interactive outcome; reflect open state from the tail.
-            if seg.open:
-                prev.open = True
-            continue
-        out.append(seg)
+        pending: list[int] = []
+        current: int | None = None
+        for ev in seg.events:
+            if _is_turn_started(ev):
+                tn = _turn_number_from_event(ev)
+                if tn is not None:
+                    current = tn
+                    for idx in pending:
+                        out[idx] = tn
+                    pending.clear()
+            idx = int(ev.index)
+            if current is not None:
+                out[idx] = current
+            else:
+                pending.append(idx)
+        # Host-only fill (no start markers in the session) stamps turn_number
+        # from list position. A start-less segment in a numbered session stays
+        # unmapped — do not invent a face id.
+        if pending and (fallback := seg.turn_number) is not None:
+            for idx in pending:
+                out[idx] = int(fallback)
     return out
 
 
 def turn_index_for_event(segments: list[TurnSegment], event_index: int) -> int | None:
-    """Return the turn_index of the segment that contains *event_index*, if any."""
-    for seg in segments:
-        for ev in seg.events:
-            if ev.index == event_index:
-                return int(seg.turn_index)
-    return None
-
-
-def display_turn_number(seg: TurnSegment) -> int:
-    """Sequential operator-facing turn id (0-based ``turn_index`` after renumber).
-
-    Prefer this for UI labels and event maps. Harness ``turn_number`` is still
-    available on :attr:`TurnSegment.turn_number` / wire ``turnNumber`` for
-    correlation with Grok markers, but must not drive the visible turn list —
-    those values skip and reorder when background/subagent turns are merged.
-    """
-    return int(seg.turn_index)
-
-
-def event_display_turn_map(segments: list[TurnSegment]) -> dict[int, int]:
-    """Map timeline event index → sequential operator turn id.
-
-    :param segments: Output of :func:`segment_timeline_turns`.
-    :returns: ``event.index`` → 0-based ``turn_index``.
-    """
-    out: dict[int, int] = {}
-    for seg in segments:
-        tn = display_turn_number(seg)
-        for ev in seg.events:
-            out[int(ev.index)] = tn
-    return out
+    """Return the trace turn id of the event, if it sits in a segment."""
+    return event_display_turn_map(segments).get(int(event_index))
 
 
 def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
@@ -322,14 +339,12 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     are omitted from segments entirely — they are not a turn and must not
     create an extra segment before the first ``turn started``.
 
-    Remaining events before the first turn_started form turn 0 when present
-    (e.g. user messages). Multiple markers produce multiple segments for
-    interactive multi-turn.
-
-    Grok harness turns with no operator user prompt (background-task
-    completions, bare ``<system-reminder>`` injections) are merged into the
-    preceding interactive segment so Turn lists match host follow-ups, not
-    harness bookkeeping.
+    Remaining events before the first turn_started form an unnumbered
+    segment when present (e.g. user messages). Labels and the event column
+    use the trace ``turn_number`` on ``turn_started``. ``turn_index`` is the
+    unique list position so a restamp can repeat ``turn_number``. A segment
+    with no start marker in a numbered session stays unlabeled. Every
+    ``turn_started`` keeps its own picker row.
     """
     turn_events = [e for e in timeline if not is_session_level_timeline_event(e)]
     if not turn_events:
@@ -338,15 +353,17 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     has_markers = any(_is_turn_started(e) or _is_turn_ended(e) for e in turn_events)
     if not has_markers:
         return _assign_prompt_indexes(
-            [
-                TurnSegment(
-                    turn_index=0,
-                    turn_number=None,
-                    outcome="",
-                    open=True,
-                    events=list(turn_events),
-                )
-            ]
+            _stamp_trace_turn_ids(
+                [
+                    TurnSegment(
+                        turn_index=0,
+                        turn_number=None,
+                        outcome="",
+                        open=True,
+                        events=list(turn_events),
+                    )
+                ]
+            )
         )
 
     segments: list[TurnSegment] = []
@@ -422,8 +439,7 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     if current is not None and current.events:
         segments.append(current)
 
-    segments = _merge_background_completion_segments(segments)
-    return _assign_prompt_indexes(_renumber_segments(segments))
+    return _assign_prompt_indexes(_stamp_trace_turn_ids(segments))
 
 
 def turn_summary_rows(
@@ -452,7 +468,8 @@ def turn_summary_rows(
             ctx = fallback
         rows.append(
             {
-                "turn": seg.turn_index,
+                "turn": display_turn_number(seg),
+                "turn_index": int(seg.turn_index),
                 "label": seg.label,
                 "outcome": seg.outcome or ("open" if seg.open else "—"),
                 "open": seg.open,

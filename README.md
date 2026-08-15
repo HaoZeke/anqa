@@ -155,6 +155,7 @@ the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-5 | browser | Timeline, Summary, Diff, Findings, Report |
+| h / l | browser | Previous / next turn on the Timeline (also Left / Right) |
 | v | browser | Timeline filter (Subagents lists spawn/finish) |
 | Enter | browser | Open a child from a spawn/finish row or the Summary table |
 | i | browser | Jump to Findings |
@@ -186,8 +187,9 @@ the keys that apply now; `?` is the full list.
 | Esc | pickers | Cancel |
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
-/ `n` `e` (awaiting) / `N`. HUD panes are Tab and Ctrl+1–5; `[` `]` scope
-Timeline turns. `u` or the logo leaves the open session for the session list.
+/ `h` `l` (Timeline turns) / `n` `e` (awaiting) / `N`. HUD panes are Tab
+and Ctrl+1–5; `[` `]` also scope Timeline turns (all / next). `u` or the
+logo leaves the open session for the session list.
 
 ### Follow-up, fork, and re-run
 

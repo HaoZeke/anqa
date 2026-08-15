@@ -129,7 +129,7 @@ async def test_timeline_add_row_existing_key_updates_not_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_timeline_turn_index_for_maps_events() -> None:
-    """turn_index_for exposes sequential operator turn ids for the detail pane."""
+    """turn_index_for exposes the enclosing trace turn_number."""
     app = _TimelineApp()
     async with app.run_test():
         tl = app.query_one("#timeline-list", TimelineTable)
@@ -170,7 +170,7 @@ async def test_timeline_turn_index_for_maps_events() -> None:
         assert tl._turn_map_stale is False
         assert tl.turn_index_for(1) == 0
         assert tl.turn_index_for(4) == 1
-        # Turn column (index 1) shows the sequential operator turn id.
+        # Turn column (index 1) shows the trace turn_number.
         cells_t0 = tl._row_cell_values(events[1])
         cells_t1 = tl._row_cell_values(events[4])
         assert cells_t0[0] == "1" and cells_t0[1] == "0"

@@ -170,11 +170,12 @@ ACTIONS: tuple[KeyAction, ...] = (
         overlay_scopes=_NAV,
     ),
     _row("pane.notes", ActionScope.BROWSER, "N", ActionSurface.SHARED),
+    _row("events.prev_turn", ActionScope.BROWSER, "h", ActionSurface.SHARED),
+    _row("events.next_turn", ActionScope.BROWSER, "l", ActionSurface.SHARED),
     # HUD-only (Tab / Shift+Tab / Ctrl+1–5 panes; [ ] turn scope; g).
     _row("pane.next", ActionScope.BROWSER, "tab", ActionSurface.HUD),
     _row("pane.prev", ActionScope.BROWSER, "shift+tab", ActionSurface.HUD),
     *(_row(f"pane.{i}", ActionScope.BROWSER, f"ctrl+{i}", ActionSurface.HUD) for i in range(1, 6)),
-    _row("events.next_turn", ActionScope.BROWSER, "right_square_bracket", ActionSurface.HUD),
     _row("events.all_turns", ActionScope.BROWSER, "left_square_bracket", ActionSurface.HUD),
     _row("turns.timeline", ActionScope.BROWSER, "g", ActionSurface.HUD),
     _row("sessions.home", ActionScope.HOME, "u", ActionSurface.HUD),

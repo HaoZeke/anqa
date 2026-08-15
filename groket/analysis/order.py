@@ -86,8 +86,8 @@ def sort_findings_by_turn(
     """Chronological order: turn → earliest evidence → severity → title.
 
     Prefers free-text turn labels on ``Finding.extras`` (Model Feedback
-    ``turn`` / ``where``), then sequential display turn index from timeline
-    segmentation (segment order after renumber — not raw harness turn_number).
+    ``turn`` / ``where``), then the enclosing ``turn_started.turn_number``
+    from the timeline.
     Findings with no turn anchors sort last.
 
     :param findings: Findings from one or more plugins.

@@ -210,6 +210,24 @@ pub struct TurnRow {
     pub subagent_runs: Vec<SubagentRunRow>,
 }
 
+impl TurnRow {
+    /// Trace ``turn_started.turn_number``. ``None`` when this row has no start.
+    pub fn face_id(&self) -> Option<i64> {
+        self.turn_number
+    }
+
+    /// Title when the control payload has no ``label``.
+    pub fn face_caption(&self) -> String {
+        if !self.label.is_empty() {
+            return self.label.clone();
+        }
+        match self.turn_number {
+            Some(n) => format!("Turn {n}"),
+            None => "Unnumbered".into(),
+        }
+    }
+}
+
 /// One ``subagentRuns`` row from turns / overview.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

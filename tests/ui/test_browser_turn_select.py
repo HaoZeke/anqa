@@ -110,12 +110,12 @@ def test_rebuild_turn_select_discovers_next_turn_when_already_multi(tmp_path: Pa
     values = [v for _, v in calls[-1]]
     assert "0" in values and "1" in values and "2" in values
     labels = [lab for lab, _ in calls[-1]]
-    # Sequential display id (same as the Turn column), not harness turn_number.
+    # Same id as the Turn column: trace turn_number.
     assert any("2" in str(lab) for lab in labels)
 
 
-def test_rebuild_turn_select_labels_sequential_when_harness_repeats(tmp_path: Path) -> None:
-    """Two harness turn_number=23 rows must not both label as Turn 23."""
+def test_rebuild_turn_select_keeps_restamped_turns_distinct(tmp_path: Path) -> None:
+    """Two operator turns with the same turn_number stay two picker rows."""
     sd = tmp_path / "sess"
     sd.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
@@ -145,8 +145,46 @@ def test_rebuild_turn_select_labels_sequential_when_harness_repeats(tmp_path: Pa
     screen.query_one = lambda _q, _t=None: sel  # type: ignore[method-assign]
     screen._rebuild_turn_select()
     assert calls
-    labels = [lab for lab, val in calls[-1] if val != "all"]
-    assert labels == ["Turn 0", "Turn 1"]
+    labeled = [(lab, val) for lab, val in calls[-1] if val != "all"]
+    assert labeled == [("Turn 23", "0"), ("Turn 23", "1")]
+
+
+def test_rebuild_turn_select_labels_startless_unnumbered(tmp_path: Path) -> None:
+    """A follow-up with no turn_started is Unnumbered, not an invented id."""
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen.session_dir = sd
+    screen.timeline = [
+        _ev(0, "turn_started", "turn_number=0"),
+        _ev(1, "user_message_chunk", "first"),
+        _ev(2, "turn_ended", "outcome=completed"),
+        _ev(3, "user_message_chunk", "orphan follow-up"),
+        _ev(4, "agent_message_chunk", "reply"),
+        _ev(5, "turn_completed", "turn_completed  prompt_id=b"),
+        _ev(6, "turn_started", "turn_number=2"),
+        _ev(7, "user_message_chunk", "later"),
+        _ev(8, "turn_ended", "outcome=completed"),
+    ]
+    screen._last_turn_segment_count = -1
+    screen._turn_segments = None
+    screen._turn_rebuild_sig = None
+    screen._turn_filter = "all"
+    calls: list[object] = []
+
+    class _Sel:
+        display = False
+        value = "all"
+
+        def set_options(self, options):
+            calls.append(list(options))
+
+    sel = _Sel()
+    screen.query_one = lambda _q, _t=None: sel  # type: ignore[method-assign]
+    screen._rebuild_turn_select()
+    assert calls
+    labeled = [(lab, val) for lab, val in calls[-1] if val != "all"]
+    assert labeled == [("Turn 0", "0"), ("Unnumbered", "1"), ("Turn 2", "2")]
 
 
 def test_rebuild_turn_select_skips_set_options_when_count_unchanged(tmp_path: Path) -> None:
@@ -182,3 +220,47 @@ def test_rebuild_turn_select_skips_set_options_when_count_unchanged(tmp_path: Pa
     # Same tail again: full no-op (no re-segment needed).
     screen._rebuild_turn_select()
     assert calls == []
+
+
+def test_next_prev_turn_steps_from_all_and_back() -> None:
+    """l scopes the first turn; h from the first turn returns to All."""
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen._turn_segments = [
+        type("S", (), {"turn_index": 0})(),
+        type("S", (), {"turn_index": 4})(),
+    ]
+    screen._turn_filter = "all"
+    applied: list[str] = []
+
+    def _set(value: str) -> None:
+        screen._turn_filter = value
+        applied.append(value)
+
+    screen._set_turn_filter = _set  # type: ignore[method-assign]
+    assert screen._operator_turn_ids() == [0, 4]
+    screen.action_next_turn()
+    assert screen._turn_filter == "0"
+    screen.action_next_turn()
+    assert screen._turn_filter == "4"
+    screen.action_next_turn()
+    assert screen._turn_filter == "4"
+    screen.action_prev_turn()
+    assert screen._turn_filter == "0"
+    screen.action_prev_turn()
+    assert screen._turn_filter == "all"
+    assert applied == ["0", "4", "0", "all"]
+
+
+def test_prev_turn_from_all_opens_last() -> None:
+    screen = BrowserScreen.__new__(BrowserScreen)
+    screen._turn_segments = [
+        type("S", (), {"turn_index": 0})(),
+        type("S", (), {"turn_index": 2})(),
+        type("S", (), {"turn_index": 5})(),
+    ]
+    screen._turn_filter = "all"
+    screen._set_turn_filter = (  # type: ignore[method-assign]
+        lambda value: setattr(screen, "_turn_filter", value)
+    )
+    screen.action_prev_turn()
+    assert screen._turn_filter == "5"

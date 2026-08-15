@@ -33,7 +33,7 @@ class TimelineTable(DataTable):
     _durations: dict[int, float] = {}
     _call_by_id: dict[str, TraceEvent] = {}
     _result_by_id: dict[str, TraceEvent] = {}
-    #: event.index → sequential operator turn id (0-based); empty when unknown
+    #: event.index → trace turn_started.turn_number; empty when unknown
     _turn_by_index: dict[int, int] = {}
     #: When True the turn map is cold; open/rebuild fills it once. Live
     #: same-length ticks keep it warm; append extends or resegments once.
@@ -43,6 +43,24 @@ class TimelineTable(DataTable):
     def durations(self) -> dict[int, float]:
         """Computed per-event durations (event index -> seconds)."""
         return self._durations
+
+    def action_cursor_left(self) -> None:
+        """Left / h: previous Timeline turn when the browser can step turns."""
+        screen = self.screen
+        step = getattr(screen, "action_prev_turn", None)
+        if callable(step) and getattr(screen, "_turn_step_available", lambda: False)():
+            step()
+            return
+        super().action_cursor_left()
+
+    def action_cursor_right(self) -> None:
+        """Right / l: next Timeline turn when the browser can step turns."""
+        screen = self.screen
+        step = getattr(screen, "action_next_turn", None)
+        if callable(step) and getattr(screen, "_turn_step_available", lambda: False)():
+            step()
+            return
+        super().action_cursor_right()
 
     def on_mount(self) -> None:
         style_data_table(self)
@@ -362,7 +380,7 @@ class TimelineTable(DataTable):
         return ""
 
     def _rebuild_turn_map(self) -> None:
-        """Map each loaded event index to its sequential operator turn id."""
+        """Map each loaded event index to its enclosing trace turn id."""
         from ...session.turns import event_display_turn_map, segment_timeline_turns
 
         if not self.events:
@@ -409,7 +427,7 @@ class TimelineTable(DataTable):
             self._turn_by_index[int(ev.index)] = int(cur)
 
     def turn_index_for(self, event_index: int) -> int | None:
-        """Sequential operator turn id for *event_index*, if the event is in a turn.
+        """Trace turn id for *event_index*, if the event is in a turn.
 
         Does **not** re-segment on a cold/stale map during selection — that made
         every live tick + arrow-key pay a full ``segment_timeline_turns``. The

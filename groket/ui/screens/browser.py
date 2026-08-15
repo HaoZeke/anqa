@@ -1025,11 +1025,23 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         tf = getattr(self, "_turn_filter", "all") or "all"
         if tf != "all":
             try:
-                return int(str(tf))
+                key = int(str(tf))
             except (TypeError, ValueError):
-                pass
+                key = None
+            if key is not None:
+                from ...session.turns import display_turn_number
+
+                for seg in segs:
+                    if int(seg.turn_index) == key:
+                        if (n := display_turn_number(seg)) is not None:
+                            return n
+                        break
         if segs:
-            return int(segs[-1].turn_index)
+            from ...session.turns import display_turn_number
+
+            for seg in reversed(segs):
+                if (n := display_turn_number(seg)) is not None:
+                    return n
         return self._current_turn_index()
 
     def _signals_mtime(self) -> float:
@@ -2837,7 +2849,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     dur_s = (
                         self._fmt_dur(float(dur_raw)) if isinstance(dur_raw, (int, float)) else "—"
                     )
-                    turn_i = row.get("turn", i)
+                    turn_i = row.get("turn_index", row.get("turn", i))
                     first = row.get("first_index")
                     if isinstance(turn_i, int) and isinstance(first, int):
                         self._summary_turn_first[turn_i] = first
@@ -3200,16 +3212,26 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             ti = int(tf)
         except (TypeError, ValueError):
             return None
-        from ...session.turns import is_session_level_timeline_event
+        from ...session.turns import (
+            event_display_turn_map,
+            events_on_display_turn,
+            is_session_level_timeline_event,
+        )
 
-        for seg in getattr(self, "_turn_segments", None) or []:
+        segs = getattr(self, "_turn_segments", None) or []
+        turn_by = event_display_turn_map(segs)
+        indices: set[int] = set()
+        found = False
+        for seg in segs:
             if seg.turn_index == ti:
-                indices = {e.index for e in seg.events}
-                for ev in self.timeline:
-                    if is_session_level_timeline_event(ev):
-                        indices.add(ev.index)
-                return indices
-        return None
+                found = True
+                indices.update(e.index for e in events_on_display_turn(seg, turn_by))
+        if not found:
+            return None
+        for ev in self.timeline:
+            if is_session_level_timeline_event(ev):
+                indices.add(ev.index)
+        return indices
 
     def _timeline_filters_active(self) -> bool:
         """True when View / Turn / search would hide some timeline rows."""
@@ -3259,12 +3281,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if n_segs == self._last_turn_segment_count and sel.display:
             self._last_turn_segment_count = n_segs
             return
-        # Chronological (same order as the Summary turns table).
-        # Prefer harness turn_number when present so labels match Grok (turn 42).
+        # Label is the trace turn_number. Value is unique turn_index.
+        from ...session.turns import display_turn_number
+
         options: list[tuple[str, str]] = [(t("turn-filter-all"), "all")]
         for seg in self._turn_segments:
-            label_n = int(seg.turn_number) if seg.turn_number is not None else int(seg.turn_index)
-            options.append((t("turn-filter-n", n=label_n), str(seg.turn_index)))
+            n = display_turn_number(seg)
+            label = t("turn-filter-n", n=n) if n is not None else t("turn-filter-unnumbered")
+            options.append((label, str(seg.turn_index)))
         sel.display = True
         sel.set_options(options)
         if getattr(self, "_turn_filter", "all") not in {v for _, v in options}:
@@ -3335,6 +3359,82 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._apply_timeline_filters()
             return True
         return False
+
+    def _operator_turn_ids(self) -> list[int]:
+        """Chronological unique trace turn ids for the Turn picker."""
+        segs = getattr(self, "_turn_segments", None) or []
+        out: list[int] = []
+        seen: set[int] = set()
+        for seg in segs:
+            n = int(seg.turn_index)
+            if n in seen:
+                continue
+            seen.add(n)
+            out.append(n)
+        return out
+
+    def _turn_step_available(self) -> bool:
+        """True when h/l / arrows should step Timeline turns."""
+        if len(self._operator_turn_ids()) < 2:
+            return False
+        with suppress(Exception):
+            active = str(self.query_one("#browser-tabs", TabbedContent).active or "")
+            return active in ("", "tab-timeline")
+        return False
+
+    def _set_turn_filter(self, value: str) -> None:
+        """Scope Timeline to *value* (``all`` or a trace turn id)."""
+        self._turn_filter = value
+        with suppress(Exception):
+            sel = self.query_one("#timeline-turn-select", Select)
+            if sel.display:
+                sel.value = value
+        self._ensure_timeline_tab()
+        self._apply_timeline_filters()
+
+    def action_next_turn(self) -> None:
+        """Scope Timeline to the next operator turn (first, from All)."""
+        ids = self._operator_turn_ids()
+        if len(ids) < 2:
+            return
+        cur = getattr(self, "_turn_filter", "all") or "all"
+        if cur == "all":
+            self._set_turn_filter(str(ids[0]))
+            return
+        try:
+            ti = int(cur)
+        except (TypeError, ValueError):
+            self._set_turn_filter(str(ids[0]))
+            return
+        if ti not in ids:
+            self._set_turn_filter(str(ids[0]))
+            return
+        i = ids.index(ti)
+        if i + 1 < len(ids):
+            self._set_turn_filter(str(ids[i + 1]))
+
+    def action_prev_turn(self) -> None:
+        """Scope Timeline to the previous operator turn (All, from the first)."""
+        ids = self._operator_turn_ids()
+        if len(ids) < 2:
+            return
+        cur = getattr(self, "_turn_filter", "all") or "all"
+        if cur == "all":
+            self._set_turn_filter(str(ids[-1]))
+            return
+        try:
+            ti = int(cur)
+        except (TypeError, ValueError):
+            self._set_turn_filter(str(ids[-1]))
+            return
+        if ti not in ids:
+            self._set_turn_filter(str(ids[-1]))
+            return
+        i = ids.index(ti)
+        if i == 0:
+            self._set_turn_filter("all")
+            return
+        self._set_turn_filter(str(ids[i - 1]))
 
     def action_search(self) -> None:
         self._ensure_timeline_tab()
@@ -3409,6 +3509,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if not self._pending_cache_valid:
                 self._recompute_session_pending()
             return self._pending_actions_enabled
+        if action in ("prev_turn", "next_turn"):
+            return self._turn_step_available()
         return True
 
     def action_copy_detail(self) -> None:
@@ -3541,12 +3643,23 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         )
 
     def _note_turn_options(self) -> list[tuple[str, str]]:
-        """Turn select options for the notes modal."""
+        """Turn select options for the notes modal (trace turn_number)."""
+        from ...session.turns import display_turn_number
+
         segs = getattr(self, "_turn_segments", None) or []
         if not segs:
             ti = self._current_turn_index()
             return [(t("turn-filter-n", n=ti), str(ti))]
-        return [(t("turn-filter-n", n=seg.turn_index), str(seg.turn_index)) for seg in segs]
+        out: list[tuple[str, str]] = []
+        seen: set[int] = set()
+        for seg in segs:
+            if (n := display_turn_number(seg)) is None:
+                continue
+            if n in seen:
+                continue
+            seen.add(n)
+            out.append((t("turn-filter-n", n=n), str(n)))
+        return out
 
     def _on_note_result(
         self,

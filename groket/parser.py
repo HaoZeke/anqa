@@ -1329,7 +1329,7 @@ def _last_goal_row(events: list[TraceEvent], goal_id: str) -> TraceEvent | None:
 
 def _apply_goal_updated(
     update: JsonObject,
-    ts: float | None,
+    ts: int | None,
     line_no: int,
     state: _UpdatesScanState,
 ) -> None:
@@ -1362,7 +1362,7 @@ def _append_session_update_row(
     state: _UpdatesScanState,
     *,
     event_type: str,
-    ts: float | None,
+    ts: int | None,
     line_no: int,
     content: str,
     raw: JsonObject,

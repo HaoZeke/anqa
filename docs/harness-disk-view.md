@@ -70,9 +70,9 @@ Observed `sessionUpdate` values: `user_message_chunk`, `agent_thought_chunk`,
 
 | Outcome | Grok artifact | Module |
 |---|---|---|
-| Operator turns | Merge `turn_started` / `turn_ended` with timeline; fold chrome-only harness turns | `session/turns.py` `segment_timeline_turns` |
+| Operator turns | One picker row per `turn_started.turn_number` (host-only: list position) | `session/turns.py` `segment_timeline_turns` |
 | Chrome vs operator | Angle-bracket tags (`user_query`, `system-reminder`, …) | `session/tagged_blocks.py` |
-| Display turn id | Sequential `turn_index`, not harness `turn_number` | `turns.display_turn_number` |
+| Display turn id | Trace `turn_started.turn_number` on each event (unlabeled when the harness omitted a start); unique `turn_index` is the list key | `turns.event_display_turn_map` / `TurnSegment.turn_index` |
 
 ### 2.4 Live status
 

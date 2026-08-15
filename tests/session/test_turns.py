@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from groket.models import TraceEvent
 from groket.session.turns import (
+    event_display_turn_map,
     format_turns_plain,
     segment_timeline_turns,
     turn_index_for_event,
@@ -29,6 +30,7 @@ def test_no_markers_single_open_segment():
     assert segs[0].open is True
     assert segs[0].event_count == 2
     assert segs[0].turn_index == 0
+    assert segs[0].turn_number == 0
 
 
 def test_host_turn_completed_splits_turns():
@@ -48,6 +50,10 @@ def test_host_turn_completed_splits_turns():
     assert segs[1].user_count == 1
     assert segs[0].open is False
     assert segs[1].open is False
+    assert [s.turn_number for s in segs] == [0, 1]
+    mapped = event_display_turn_map(segs)
+    assert mapped[0] == 0
+    assert mapped[3] == 1
 
 
 def test_host_turn_completed_leaves_outcome_empty():
@@ -159,8 +165,8 @@ def test_turn_label_with_outcome():
     assert "0" in seg[0].label
 
 
-def test_label_uses_sequential_index_not_harness_turn_number():
-    """Harness turn_number can skip/jump; operator labels stay 0..n-1 in order."""
+def test_label_uses_trace_turn_number():
+    """Visible ids are events.jsonl turn_started.turn_number, not a remade list."""
     tl = [
         _ev(0, "turn_started", "turn started  turn_number=83"),
         _ev(1, "user_message_chunk", "a"),
@@ -175,14 +181,10 @@ def test_label_uses_sequential_index_not_harness_turn_number():
     segs = segment_timeline_turns(tl)
     assert len(segs) == 3
     assert [s.turn_index for s in segs] == [0, 1, 2]
-    # Wire keeps harness numbers for correlation.
-    assert segs[0].turn_number == 83
-    assert segs[1].turn_number == 80
-    assert segs[2].turn_number == 87
-    # Visible labels are sequential, not 83/80/87.
-    assert segs[0].label.startswith("turn 0")
-    assert segs[1].label.startswith("turn 1")
-    assert segs[2].label.startswith("turn 2")
+    assert [s.turn_number for s in segs] == [83, 80, 87]
+    assert segs[0].label.startswith("turn 83")
+    assert segs[1].label.startswith("turn 80")
+    assert segs[2].label.startswith("turn 87")
 
 
 def test_turn_label_plain_number():
@@ -496,15 +498,12 @@ def test_segments_preserve_non_contiguous_prompt_indexes() -> None:
     segments = segment_timeline_turns(events)
 
     assert [segment.turn_index for segment in segments] == [0, 1]
+    assert [segment.turn_number for segment in segments] == [1, 2]
     assert [segment.prompt_index for segment in segments] == [4, 9]
 
 
-def test_background_task_completion_turns_merge_into_parent() -> None:
-    """Grok emits extra turn_started for background-task completions — fold into parent.
-
-    Operator only issued the interactive prompt; synthetic turns with
-    ``Background task "…"`` user chrome (or no operator user) belong under that turn.
-    """
+def test_background_task_completion_turns_keep_trace_numbers() -> None:
+    """Each ``turn_started`` is its own picker row, including completion chrome."""
     from groket.models import TraceEvent
 
     bg_user = (
@@ -516,7 +515,6 @@ def test_background_task_completion_turns_merge_into_parent() -> None:
         TraceEvent(index=1, event_type="user_message_chunk", content="refactor the module"),
         TraceEvent(index=2, event_type="tool_call", tool_name="spawn_subagent"),
         TraceEvent(index=3, event_type="turn_ended", content="Turn ended outcome=completed"),
-        # Synthetic harness turns after background tasks finish
         TraceEvent(index=4, event_type="turn_started", content="Turn started turn_number=1"),
         TraceEvent(index=5, event_type="user_message_chunk", content=bg_user),
         TraceEvent(index=6, event_type="agent_message_chunk", content="task summary"),
@@ -526,15 +524,14 @@ def test_background_task_completion_turns_merge_into_parent() -> None:
         TraceEvent(index=10, event_type="turn_ended", content="Turn ended outcome=completed"),
     ]
     segs = segment_timeline_turns(tl)
-    assert len(segs) == 1
-    assert segs[0].turn_number == 0
+    assert [s.turn_number for s in segs] == [0, 1, 2]
     assert any(e.content == "refactor the module" for e in segs[0].events)
-    assert any(e.content == bg_user for e in segs[0].events)
-    assert any(e.content == "more completion chrome" for e in segs[0].events)
+    assert any(e.content == bg_user for e in segs[1].events)
+    assert any(e.content == "more completion chrome" for e in segs[2].events)
 
 
-def test_task_completed_call_user_is_background_chrome() -> None:
-    """``task-completed-call-…`` user payloads merge into the parent turn."""
+def test_task_completed_call_user_keeps_its_start_number() -> None:
+    """``task-completed-call-…`` chrome still sits on its own ``turn_started``."""
     from groket.models import TraceEvent
 
     tl = [
@@ -548,8 +545,8 @@ def test_task_completed_call_user_is_background_chrome() -> None:
         TraceEvent(index=5, event_type="turn_ended", content="Turn ended outcome=completed"),
     ]
     segs = segment_timeline_turns(tl)
-    assert len(segs) == 1
-    assert any("task-completed-call-" in (e.content or "") for e in segs[0].events)
+    assert [s.turn_number for s in segs] == [0, 1]
+    assert any("task-completed-call-" in (e.content or "") for e in segs[1].events)
 
 
 def test_background_user_between_turns_attaches_to_previous() -> None:
@@ -572,12 +569,11 @@ def test_background_user_between_turns_attaches_to_previous() -> None:
     assert any(e.content == "real follow-up" for e in segs[1].events)
 
 
-def test_system_reminder_turns_do_not_become_operator_turns() -> None:
-    """Generic ``<system-reminder>`` harness chrome must not open a new turn.
+def test_system_reminder_turns_keep_trace_number() -> None:
+    """A chrome-only ``turn_started`` still has its own picker row.
 
     Rules/skills/MCP status injections arrive as user_message_chunk inside their
-    own turn_started/ended pair — fold into the parent interactive turn so TUI /
-    HUD / editors do not list them as operator prompts.
+    own turn_started/ended pair. The Turn card summary stays operator text.
     """
     from groket.models import TraceEvent
     from groket.session.control_views import turn_segment_mapping
@@ -610,20 +606,20 @@ def test_system_reminder_turns_do_not_become_operator_turns() -> None:
         TraceEvent(index=10, event_type="turn_ended", content="Turn ended outcome=completed"),
     ]
     segs = segment_timeline_turns(tl)
-    assert len(segs) == 2
+    assert [s.turn_number for s in segs] == [0, 1, 2]
     assert any(e.content == "fix the flaky test" for e in segs[0].events)
-    assert any(e.content == skills for e in segs[0].events)
-    assert any(e.content == rules for e in segs[0].events)
-    assert any(e.content == "and then push" for e in segs[1].events)
+    assert any(e.content == skills for e in segs[1].events)
+    assert any(e.content == rules for e in segs[1].events)
+    assert any(e.content == "and then push" for e in segs[2].events)
     # Turn card summary must be operator text, not the system-reminder body.
     row0 = turn_segment_mapping(segs[0])
-    row1 = turn_segment_mapping(segs[1])
+    row2 = turn_segment_mapping(segs[2])
     assert row0["summary"] == "fix the flaky test"
     assert row0["assistantSummary"] == "working"
     assert row0["assistantEventIndex"] == 2
-    assert row1["summary"] == "and then push"
+    assert row2["summary"] == "and then push"
     assert "<system-reminder>" not in str(row0["summary"])
-    assert "<system-reminder>" not in str(row1["summary"])
+    assert "<system-reminder>" not in str(row2["summary"])
 
 
 def test_system_reminder_before_operator_in_same_turn_skipped_for_summary() -> None:
@@ -671,8 +667,8 @@ def test_assistant_summary_keeps_long_markdown() -> None:
     assert len(summary) > 800
 
 
-def test_open_background_tail_keeps_parent_open() -> None:
-    """Merging an open background-only segment marks the parent open."""
+def test_open_background_tail_is_its_own_open_turn() -> None:
+    """An open chrome-only ``turn_started`` stays a separate open row."""
     from groket.models import TraceEvent
 
     tl = [
@@ -686,8 +682,9 @@ def test_open_background_tail_keeps_parent_open() -> None:
         # no turn_ended — open completion tail
     ]
     segs = segment_timeline_turns(tl)
-    assert len(segs) == 1
-    assert segs[0].open is True
+    assert [s.turn_number for s in segs] == [0, 1]
+    assert segs[0].open is False
+    assert segs[1].open is True
 
 
 def test_blank_user_event_is_not_operator() -> None:
@@ -702,8 +699,8 @@ def test_blank_user_event_is_not_operator() -> None:
     assert _segment_has_operator_user(seg) is False
 
 
-def test_real_follow_up_after_background_merge_stays_separate() -> None:
-    """A real operator follow-up after a parent turn is still its own segment."""
+def test_real_follow_up_after_background_turn_stays_separate() -> None:
+    """A real operator follow-up after a chrome turn is still its own segment."""
     from groket.models import TraceEvent
 
     bg_user = 'Background task "call-abc" completed.'
@@ -720,10 +717,10 @@ def test_real_follow_up_after_background_merge_stays_separate() -> None:
         TraceEvent(index=9, event_type="turn_ended", content="Turn ended outcome=completed"),
     ]
     segs = segment_timeline_turns(tl)
-    assert len(segs) == 2
+    assert [s.turn_number for s in segs] == [0, 1, 2]
     assert any(e.content == "first prompt" for e in segs[0].events)
-    assert any(e.content == bg_user for e in segs[0].events)
-    assert any(e.content == "real follow-up from host" for e in segs[1].events)
+    assert any(e.content == bg_user for e in segs[1].events)
+    assert any(e.content == "real follow-up from host" for e in segs[2].events)
 
 
 def test_turn_index_for_event_mid_timeline() -> None:
@@ -744,3 +741,278 @@ def test_turn_index_for_event_mid_timeline() -> None:
     assert turn_index_for_event(segs, 2) == 0
     assert turn_index_for_event(segs, 6) == 1
     assert turn_index_for_event(segs, 99) is None
+
+
+def test_late_turn_ended_does_not_split_follow_up() -> None:
+    """Follow-up user then leftover turn_ended stays one operator turn.
+
+    Host ``turn_completed`` already closed the previous harness turn. The
+    matching ``events.jsonl`` ``turn_ended`` can land after the next user
+    message; that end must not create a two-event sliver turn.
+    """
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="first"),
+        TraceEvent(index=2, event_type="agent_message_chunk", content="done"),
+        TraceEvent(index=3, event_type="turn_completed", content="turn_completed  prompt_id=a"),
+        TraceEvent(index=4, event_type="user_message_chunk", content="add abuse examples"),
+        TraceEvent(index=5, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=6, event_type="turn_started", content="turn started  turn_number=1"),
+        TraceEvent(index=7, event_type="agent_message_chunk", content="updated the body"),
+        TraceEvent(index=8, event_type="turn_completed", content="turn_completed  prompt_id=b"),
+        TraceEvent(index=9, event_type="turn_ended", content="turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 2
+    assert [s.turn_index for s in segs] == [0, 1]
+    assert any(e.content == "add abuse examples" for e in segs[1].events)
+    assert any(e.content == "updated the body" for e in segs[1].events)
+    assert turn_index_for_event(segs, 4) == 1
+    assert turn_index_for_event(segs, 7) == 1
+    assert turn_index_for_event(segs, 5) == 0
+
+
+def test_background_watcher_turn_keeps_trace_number() -> None:
+    """A watcher ``turn_started`` is its own picker row with that number."""
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="watch the merge request"),
+        TraceEvent(index=2, event_type="turn_completed", content="turn_completed  prompt_id=a"),
+        TraceEvent(index=3, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=4, event_type="turn_started", content="turn started  turn_number=1"),
+        TraceEvent(
+            index=5,
+            event_type="tool_call",
+            tool_name="get_command_or_subagent_output",
+            timestamp=1_000_050,
+        ),
+        TraceEvent(index=6, event_type="agent_message_chunk", content="No change."),
+        TraceEvent(
+            index=7,
+            event_type="turn_completed",
+            content="turn_completed  prompt_id=subagent-completed-abc",
+        ),
+        TraceEvent(index=8, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=9, event_type="turn_started", content="turn started  turn_number=2"),
+        TraceEvent(index=10, event_type="user_message_chunk", content="next question"),
+        TraceEvent(index=11, event_type="turn_ended", content="turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_number for s in segs] == [0, 1, 2]
+    assert any(e.content == "watch the merge request" for e in segs[0].events)
+    assert any(e.content == "No change." for e in segs[1].events)
+    assert any(e.content == "next question" for e in segs[2].events)
+    assert [s.turn_index for s in segs] == [0, 1, 2]
+
+
+def test_late_end_plus_watcher_keeps_operator_turn_numbers() -> None:
+    """Watcher tail + late turn_ended must not shift later operator ids."""
+    reminder = (
+        '<system-reminder> Background subagent "abc" '
+        "(general-purpose: watch) completed.\n</system-reminder>"
+    )
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="first"),
+        TraceEvent(index=2, event_type="turn_completed", content="turn_completed  prompt_id=a"),
+        TraceEvent(index=3, event_type="user_message_chunk", content=reminder),
+        TraceEvent(index=4, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=5, event_type="turn_started", content="turn started  turn_number=1"),
+        TraceEvent(
+            index=6,
+            event_type="tool_call",
+            tool_name="get_command_or_subagent_output",
+            timestamp=1_000_060,
+        ),
+        TraceEvent(index=7, event_type="agent_message_chunk", content="No change."),
+        TraceEvent(
+            index=8,
+            event_type="turn_completed",
+            content="turn_completed  prompt_id=subagent-completed-abc",
+        ),
+        TraceEvent(index=9, event_type="user_message_chunk", content="add abuse examples"),
+        TraceEvent(index=10, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=11, event_type="turn_started", content="turn started  turn_number=2"),
+        TraceEvent(index=12, event_type="agent_message_chunk", content="updated the body"),
+        TraceEvent(index=13, event_type="turn_completed", content="turn_completed  prompt_id=b"),
+        TraceEvent(index=14, event_type="turn_ended", content="turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_index for s in segs] == [0, 1, 2]
+    assert [s.turn_number for s in segs] == [0, 1, 2]
+    assert turn_index_for_event(segs, 9) == 2
+    assert turn_index_for_event(segs, 12) == 2
+    assert turn_index_for_event(segs, 6) == 1
+    assert any(e.content == "add abuse examples" for e in segs[2].events)
+    assert any(e.content == "updated the body" for e in segs[2].events)
+
+
+def test_event_map_follows_enclosing_turn_started_number() -> None:
+    """Every event's display id is the last turn_started.turn_number."""
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=0"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="watch it"),
+        TraceEvent(index=2, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=3, event_type="turn_started", content="turn started  turn_number=1"),
+        TraceEvent(
+            index=4,
+            event_type="tool_call",
+            tool_name="get_command_or_subagent_output",
+            timestamp=1_000_040,
+        ),
+        TraceEvent(index=5, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=6, event_type="turn_started", content="turn started  turn_number=4"),
+        TraceEvent(index=7, event_type="user_message_chunk", content="next ask"),
+        TraceEvent(index=8, event_type="turn_ended", content="turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_index for s in segs] == [0, 1, 2]
+    assert [s.turn_number for s in segs] == [0, 1, 4]
+    mapped = event_display_turn_map(segs)
+    assert mapped[0] == 0
+    assert mapped[1] == 0
+    assert mapped[3] == 1
+    assert mapped[4] == 1
+    assert mapped[6] == 4
+    assert mapped[7] == 4
+    assert turn_index_for_event(segs, 4) == 1
+    assert turn_index_for_event(segs, 7) == 4
+    assert set(mapped.values()) == {0, 1, 4}
+
+
+def test_restamp_keeps_unique_list_id_and_trace_label() -> None:
+    """Two turn_started turn_number=23 rows stay two segments."""
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=23"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="first"),
+        TraceEvent(index=2, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=3, event_type="turn_started", content="turn started  turn_number=23"),
+        TraceEvent(index=4, event_type="user_message_chunk", content="second"),
+        TraceEvent(index=5, event_type="turn_ended", content="turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_index for s in segs] == [0, 1]
+    assert [s.turn_number for s in segs] == [23, 23]
+    assert segs[0].label.startswith("turn 23")
+    assert segs[1].label.startswith("turn 23")
+    mapped = event_display_turn_map(segs)
+    assert mapped[1] == 23
+    assert mapped[4] == 23
+
+
+def test_display_filter_keeps_each_start_number() -> None:
+    """Each picker row filters to its own ``turn_started`` number."""
+    from groket.session.turns import events_on_display_turn
+
+    tl = [
+        TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=12"),
+        TraceEvent(index=1, event_type="user_message_chunk", content="watch it"),
+        TraceEvent(index=2, event_type="turn_ended", content="turn ended  outcome=completed"),
+        TraceEvent(index=3, event_type="turn_started", content="turn started  turn_number=13"),
+        TraceEvent(
+            index=4,
+            event_type="tool_call",
+            tool_name="get_command_or_subagent_output",
+            timestamp=1_000_040,
+        ),
+        TraceEvent(index=5, event_type="turn_ended", content="turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_number for s in segs] == [12, 13]
+    mapped = event_display_turn_map(segs)
+    assert {e.index for e in events_on_display_turn(segs[0], mapped)} == {0, 1, 2}
+    assert {e.index for e in events_on_display_turn(segs[1], mapped)} == {3, 4, 5}
+    assert mapped[4] == 13
+
+
+def test_host_only_stamps_list_position() -> None:
+    """No turn_started: face ids are 0, 1 from list order."""
+    from groket.session.turns import display_turn_number
+
+    tl = [
+        _ev(0, "user_message_chunk", "first ask"),
+        _ev(1, "agent_message_chunk", "ok"),
+        _ev(2, "turn_completed", "turn_completed  prompt_id=a"),
+        _ev(3, "user_message_chunk", "second ask"),
+        _ev(4, "turn_completed", "turn_completed  prompt_id=b"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_index for s in segs] == [0, 1]
+    assert [s.turn_number for s in segs] == [0, 1]
+    assert [display_turn_number(s) for s in segs] == [0, 1]
+    mapped = event_display_turn_map(segs)
+    assert mapped[0] == 0
+    assert mapped[3] == 1
+    assert set(mapped.values()) == {0, 1}
+
+
+def test_startless_operator_turn_stays_unnumbered() -> None:
+    """A follow-up with no turn_started must not invent prev+1."""
+    from groket.session.turns import display_turn_number, events_on_display_turn
+
+    tl = [
+        _ev(0, "turn_started", "turn started  turn_number=0"),
+        _ev(1, "user_message_chunk", "first ask"),
+        _ev(2, "turn_ended", "turn ended  outcome=completed"),
+        _ev(3, "user_message_chunk", "orphan follow-up"),
+        _ev(4, "agent_message_chunk", "reply without a start"),
+        _ev(5, "turn_completed", "turn_completed  prompt_id=b"),
+        _ev(6, "turn_started", "turn started  turn_number=2"),
+        _ev(7, "user_message_chunk", "later ask"),
+        _ev(8, "turn_ended", "turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert len(segs) == 3
+    assert [s.turn_index for s in segs] == [0, 1, 2]
+    assert [s.turn_number for s in segs] == [0, None, 2]
+    assert display_turn_number(segs[1]) is None
+    assert segs[1].label.startswith("unnumbered")
+    mapped = event_display_turn_map(segs)
+    assert mapped[1] == 0
+    assert mapped[7] == 2
+    assert 3 not in mapped
+    assert 4 not in mapped
+    assert set(mapped.values()) == {0, 2}
+    kept = {e.index for e in events_on_display_turn(segs[1], mapped)}
+    assert kept == {3, 4, 5}
+
+
+def test_fork_late_start_is_its_own_row() -> None:
+    """Host fork: parent replay has no starts; late turn_started is turn 13."""
+    from groket.session.turns import display_turn_number
+
+    tl = [
+        _ev(0, "user_message_chunk", "parent ask"),
+        _ev(1, "agent_message_chunk", "parent reply"),
+        _ev(2, "turn_completed", "turn_completed  prompt_id=a"),
+        _ev(3, "user_message_chunk", "continuation ask"),
+        _ev(4, "agent_message_chunk", "continuation reply"),
+        _ev(5, "turn_completed", "turn_completed  prompt_id=b"),
+        _ev(6, "session_recap", "session recap"),
+        _ev(7, "turn_started", "turn started  turn_number=13"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_number for s in segs] == [None, None, 13]
+    assert display_turn_number(segs[0]) is None
+    assert display_turn_number(segs[1]) is None
+    assert display_turn_number(segs[2]) == 13
+    mapped = event_display_turn_map(segs)
+    assert 0 not in mapped
+    assert 3 not in mapped
+    assert mapped[7] == 13
+    assert set(mapped.values()) == {13}
+
+
+def test_gap_in_start_numbers_is_not_filled() -> None:
+    """Starts 0 then 2: no invented face 1."""
+    tl = [
+        _ev(0, "turn_started", "turn started  turn_number=0"),
+        _ev(1, "user_message_chunk", "first"),
+        _ev(2, "turn_ended", "turn ended  outcome=completed"),
+        _ev(3, "turn_started", "turn started  turn_number=2"),
+        _ev(4, "user_message_chunk", "skipped one"),
+        _ev(5, "turn_ended", "turn ended  outcome=completed"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_number for s in segs] == [0, 2]
+    assert set(event_display_turn_map(segs).values()) == {0, 2}

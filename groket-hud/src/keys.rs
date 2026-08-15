@@ -131,9 +131,15 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
+        id: "events.prev_turn",
+        scope: "browser",
+        default: "h",
+        remappable: true,
+    },
+    CatalogRow {
         id: "events.next_turn",
         scope: "browser",
-        default: "right_square_bracket",
+        default: "l",
         remappable: true,
     },
     CatalogRow {

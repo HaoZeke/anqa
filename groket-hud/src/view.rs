@@ -934,11 +934,7 @@ fn closed_list_card<'a>(
 }
 
 fn turn_title(t: &TurnRow) -> String {
-    let label = if t.label.is_empty() {
-        format!("Turn {}", t.turn_index)
-    } else {
-        t.label.clone()
-    };
+    let label = t.face_caption();
     match t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
         Some(d) => format!("{label}  ·  {d}"),
         None => label,
@@ -1019,7 +1015,7 @@ fn turn_run_chips(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
 
 fn turn_note(t: &TurnRow) -> Message {
     Message::StartNote {
-        turn: t.turn_index.to_string(),
+        turn: t.face_id().map(|n| n.to_string()).unwrap_or_default(),
         event: String::new(),
     }
 }
@@ -1027,11 +1023,7 @@ fn turn_note(t: &TurnRow) -> Message {
 /// Open Timeline with this turn’s events only (list, not a single-event detail).
 fn turn_jump(t: &TurnRow) -> Message {
     use crate::model::EventsTurnPick;
-    let label = if t.label.is_empty() {
-        format!("Turn {}", t.turn_index)
-    } else {
-        t.label.clone()
-    };
+    let label = t.face_caption();
     Message::EventsTurnPicked(EventsTurnPick {
         turn_index: Some(t.turn_index),
         label,

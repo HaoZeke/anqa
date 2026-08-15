@@ -28,11 +28,11 @@ from ..session.tagged_blocks import unwrap_for_display
 from ..session.turns import (
     TurnSegment,
     event_display_turn_map,
+    events_on_display_turn,
     harness_user_chrome_heading,
     is_operator_user_event,
     operator_prompt_text,
     segment_timeline_turns,
-    turn_index_for_event,
 )
 from ..session.usage_stats import SessionUsageStats, collect_session_usage
 from ..tool_display import (
@@ -145,7 +145,7 @@ def timeline_event_mapping(
 
     Includes ``kind`` / ``toolFamily`` so palette clients can color and unpack
     the same way as the TUI without re-implementing taxonomy. Optional
-    *turn_index* is the sequential operator turn id (0-based) for this event.
+    *turn_index* is the trace ``turn_started.turn_number`` for this event.
     """
     cap = max(0, min(int(content_chars), MAX_CONTENT_CHARS))
     content_raw = event.content if isinstance(event.content, str) else str(event.content or "")
@@ -429,11 +429,12 @@ def _finding_turn_indices(
     segs: list[TurnSegment],
     event_indices: list[int],
 ) -> list[int]:
-    """Map finding event indices → sequential operator turn indices (unique, order preserved)."""
+    """Map finding event indices → enclosing trace turn ids (unique, order preserved)."""
+    turn_by = event_display_turn_map(segs)
     out: list[int] = []
     seen: set[int] = set()
     for ei in event_indices:
-        ti = turn_index_for_event(segs, int(ei))
+        ti = turn_by.get(int(ei))
         if ti is None or ti in seen:
             continue
         seen.add(ti)
@@ -853,12 +854,14 @@ def _event_indexes_for_prompt(
 
     Only the operator user row carries ``_meta.promptIndex`` on the wire.
     Tools and assistant rows in the same turn usually have no meta, so a
-    per-event equality filter would drop them. Membership is the segment.
+    per-event equality filter would drop them. Membership is events whose
+    enclosing ``turn_started.turn_number`` matches the segment label.
     """
+    turn_by = event_display_turn_map(segments)
     indexes: set[int] = set()
     for seg in segments:
         if seg.prompt_index == prompt_index:
-            indexes.update(int(e.index) for e in seg.events)
+            indexes.update(int(e.index) for e in events_on_display_turn(seg, turn_by))
     return indexes
 
 
@@ -878,7 +881,7 @@ def build_session_timeline(
     """Paged timeline for ``session/timeline``."""
     sd = Path(session_dir)
     events = parse_timeline(sd)
-    # Sequential operator turn ids for HUD/TUI orientation while scrolling.
+    # Enclosing turn_started.turn_number on each event (HUD/TUI column).
     _segs, turn_by_index = _turn_view_for_session(sd, events)
     prompt_indexes: set[int] | None = None
     if prompt_index is not None:

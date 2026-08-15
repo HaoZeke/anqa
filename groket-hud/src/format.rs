@@ -174,7 +174,7 @@ pub fn overview_fields(
         if let Some(last) = turns.turns.last() {
             let mut value = last.label.clone();
             if value.is_empty() {
-                value = format!("turn {}", last.turn_index);
+                value = last.face_caption();
             }
             match (last.first_index, last.last_index) {
                 (Some(a), Some(b)) => {

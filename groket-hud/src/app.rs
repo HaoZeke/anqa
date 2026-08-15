@@ -2583,7 +2583,7 @@ impl Hud {
             if let Some(t) = self
                 .overview
                 .as_ref()
-                .and_then(|o| o.turns.turns.iter().find(|t| t.turn_index == ti))
+                .and_then(|o| o.turns.turns.iter().find(|t| t.face_id() == Some(ti)))
             {
                 return Some(t);
             }
@@ -2621,11 +2621,7 @@ impl Hud {
         }];
         if let Some(o) = self.overview.as_ref() {
             for t in &o.turns.turns {
-                let label = if t.label.is_empty() {
-                    format!("Turn {}", t.turn_index)
-                } else {
-                    t.label.clone()
-                };
+                let label = t.face_caption();
                 out.push(EventsTurnPick {
                     turn_index: Some(t.turn_index),
                     label,
@@ -2708,6 +2704,26 @@ impl Hud {
             return Task::none();
         };
         self.select_events_turn(Some(next))
+    }
+
+    fn jump_prev_turn(&mut self) -> Task<Message> {
+        let Some(turns) = self.overview.as_ref().map(|o| &o.turns.turns) else {
+            return Task::none();
+        };
+        if turns.is_empty() {
+            return Task::none();
+        }
+        match self.events_turn_index {
+            None => {
+                let last = turns.last().map(|t| t.turn_index);
+                self.select_events_turn(last)
+            }
+            Some(cur) => match turns.iter().position(|t| t.turn_index == cur) {
+                Some(0) => self.select_events_turn(None),
+                Some(i) => self.select_events_turn(Some(turns[i - 1].turn_index)),
+                None => self.select_events_turn(None),
+            },
+        }
     }
 
     fn jump_timeline(&mut self, index: i64) -> Task<Message> {
@@ -3716,10 +3732,13 @@ impl Hud {
         if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();
         }
-        // Events turn scope without the pick-list mouse: `]` picks the first turn
-        // when none is scoped, then advances; `[` clears to all turns.
+        // Events turn scope: h / l / arrows (shared with the TUI). `]` still
+        // advances; `[` still clears to all turns.
         if self.tab == Tab::Timeline && !self.hide_events_turn_pick() {
-            if self.key_is("events.next_turn", "right_square_bracket", &key, modifiers) {
+            let next_turn = self.key_is("events.next_turn", "l", &key, modifiers)
+                || matches!(key, Key::Named(Named::ArrowRight))
+                || matches!(key, Key::Character(ref c) if c.as_str() == "]");
+            if next_turn {
                 if self.events_turn_index.is_none() {
                     let first = self.events_turn_options.iter().find_map(|p| p.turn_index);
                     if first.is_some() {
@@ -3728,6 +3747,11 @@ impl Hud {
                 } else {
                     return self.jump_next_turn();
                 }
+            }
+            let prev_turn = self.key_is("events.prev_turn", "h", &key, modifiers)
+                || matches!(key, Key::Named(Named::ArrowLeft));
+            if prev_turn {
+                return self.jump_prev_turn();
             }
             if self.key_is("events.all_turns", "left_square_bracket", &key, modifiers) {
                 return self.select_events_turn(None);
@@ -6073,6 +6097,64 @@ mod tests {
         assert_eq!(hud.events_turn_index, Some(0));
         let _ = hud.update(Message::RawEvent(press("]")));
         assert_eq!(hud.events_turn_index, Some(1));
+    }
+
+    #[test]
+    fn events_h_l_step_turns_like_the_tui() {
+        let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 2,
+                "turns": [
+                    {
+                        "turnIndex": 0,
+                        "promptIndex": 1,
+                        "label": "first",
+                        "summary": "a",
+                        "userEventIndex": 1,
+                        "eventIndexes": [1, 2]
+                    },
+                    {
+                        "turnIndex": 1,
+                        "promptIndex": 2,
+                        "label": "second",
+                        "summary": "b",
+                        "userEventIndex": 5,
+                        "eventIndexes": [5, 6]
+                    }
+                ]
+            },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        let press = |ch: &str| {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: Key::Character(ch.into()),
+                modified_key: Key::Character(ch.into()),
+                physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyL),
+                location: iced::keyboard::Location::Standard,
+                modifiers: KeyMods::default(),
+                text: None,
+                repeat: false,
+            })
+        };
+        assert!(hud.events_turn_index.is_none());
+        let _ = hud.update(Message::RawEvent(press("l")));
+        assert_eq!(hud.events_turn_index, Some(0));
+        let _ = hud.update(Message::RawEvent(press("l")));
+        assert_eq!(hud.events_turn_index, Some(1));
+        let _ = hud.update(Message::RawEvent(press("h")));
+        assert_eq!(hud.events_turn_index, Some(0));
+        let _ = hud.update(Message::RawEvent(press("h")));
+        assert!(hud.events_turn_index.is_none());
     }
 
     #[test]

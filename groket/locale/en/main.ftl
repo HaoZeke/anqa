@@ -117,6 +117,10 @@ bind-next-pane = Next pane
 
 bind-next-tab = Next tab
 
+bind-next-turn = Next turn
+
+bind-prev-turn = Prev turn
+
 bind-open = Open
 
 bind-personas = Personas
@@ -2680,6 +2684,7 @@ cmd-end-session = End session
 cmd-end-session-help = Mark awaiting sessions done
 turn-filter-all = All turns
 turn-filter-n = Turn { $n }
+turn-filter-unnumbered = Unnumbered
 
 ui-press-again-to-delete-persona = Press [x] again to DELETE persona
 ui-press-again-to-delete-personas = Press [x] again to DELETE { $n } persona(s)
