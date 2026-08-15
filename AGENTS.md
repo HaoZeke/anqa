@@ -475,7 +475,7 @@ read path: shared actions use the **same key** as the TUI (§6.10).
 | [`groket-hud/src/help.rs`](groket-hud/src/help.rs) | HUD footer + ``?`` cheatsheet |
 | [`groket-hud/src/app.rs`](groket-hud/src/app.rs) ``on_key`` | HUD key handling |
 
-No ad-hoc key legends in banners (``"save [ctrl+s]"``). Footer, tips, HUD,
+No ad-hoc key legends in banners (``"save [ctrl+s]"``). Footer, help, HUD,
 CLI, and README use the same words: ``Ctrl+S``, ``Shift+Tab``, ``Esc`` —
 never caret (``^s``) or glyphs (``⌘⇧``).
 
