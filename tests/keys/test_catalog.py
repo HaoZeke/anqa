@@ -239,6 +239,7 @@ def test_hud_named_ids_present() -> None:
         "events.prev_turn",
         "events.next_turn",
         "events.all_turns",
+        "events.scope_next",
         "turns.timeline",
         "sessions.home",
     ):
@@ -253,7 +254,14 @@ def test_list_nav_is_shared_table_binding() -> None:
     up = action_by_id("list.up")
     assert down.surfaces is ActionSurface.SHARED
     assert up.surfaces is ActionSurface.SHARED
-    assert not any(b.id == "list.down" for tup in _BINDING_TUPLES for b in tup)
+    browser_nav = {b.id: b.key for b in B.BROWSER if b.id in {"list.down", "list.up"}}
+    assert browser_nav == {"list.down": "j", "list.up": "k"}
+    assert not any(
+        b.id in {"list.down", "list.up"}
+        for tup in _BINDING_TUPLES
+        if tup is not B.BROWSER
+        for b in tup
+    )
     table = DataTable()
     style_data_table(table)
     ids = {binding.id for _key, binding in table._bindings}

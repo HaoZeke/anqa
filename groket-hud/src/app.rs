@@ -1541,6 +1541,20 @@ impl Hud {
             .position(|&src| self.timeline.get(src).is_some_and(|e| e.index == ix))?;
         Some((pos + 1, n))
     }
+
+    /// Adjacent filtered events (previous, next) for the open detail card.
+    pub fn timeline_detail_adjacent(&self) -> (Option<&TimelineEvent>, Option<&TimelineEvent>) {
+        let Some((at, n)) = self.timeline_detail_pos() else {
+            return (None, None);
+        };
+        let ev_at = |i: usize| {
+            let src = *self.tl_filter.get(i)?;
+            self.timeline.get(src)
+        };
+        let prev = if at > 1 { ev_at(at - 2) } else { None };
+        let next = if at < n { ev_at(at) } else { None };
+        (prev, next)
+    }
     pub fn field(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
         self.fields.get(id)
     }
@@ -2877,8 +2891,14 @@ impl Hud {
         self.timeline_query_draft.clear();
         self.timeline_search_pending = false;
         self.timeline_kind = KindFilter::All;
-        // Stay on the list when stepping turns; Esc/open is per-event detail.
-        self.drop_timeline_detail();
+        // List stays on the list. An open event page stays open on the
+        // first card of the new turn (or the same card when returning to all).
+        let stay = self.timeline_open.is_some();
+        if stay && turn_index.is_some() {
+            self.detail_turn_edge = Some(DetailTurnEdge::First);
+        } else if !stay {
+            self.drop_timeline_detail();
+        }
         self.tl_window = icedtea::collection::VisibleWindow::new(self.tl_window.viewport.max(1.0));
         match turn_index {
             None => {
@@ -3955,12 +3975,11 @@ impl Hud {
         if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();
         }
-        // Events turn scope: h / l / arrows (shared with the TUI). `]` still
-        // advances; `[` still clears to all turns.
+        // Events turn scope: h / l / Left / Right (shared). HUD `]` is
+        // the same next-turn step; `[` clears to all turns.
         if self.tab == Tab::Timeline && !self.hide_events_turn_pick() {
-            let next_turn = self.key_is("events.next_turn", "l", &key, modifiers)
-                || matches!(key, Key::Named(Named::ArrowRight))
-                || matches!(key, Key::Character(ref c) if c.as_str() == "]");
+            let next_turn = self.key_is("events.next_turn", "l,right", &key, modifiers)
+                || self.key_is("events.scope_next", "right_square_bracket", &key, modifiers);
             if next_turn {
                 if self.events_turn_index.is_none() {
                     let first = self.events_turn_options.iter().find_map(|p| p.turn_index);
@@ -3971,8 +3990,7 @@ impl Hud {
                     return self.jump_next_turn();
                 }
             }
-            let prev_turn = self.key_is("events.prev_turn", "h", &key, modifiers)
-                || matches!(key, Key::Named(Named::ArrowLeft));
+            let prev_turn = self.key_is("events.prev_turn", "h,left", &key, modifiers);
             if prev_turn {
                 return self.jump_prev_turn();
             }
@@ -4894,6 +4912,28 @@ mod tests {
         assert!(hud.is_timeline_open(12));
         let _ = hud.update(Message::TimelineDetailStep(-1));
         assert!(hud.is_timeline_open(11));
+    }
+
+    #[test]
+    fn timeline_detail_adjacent_is_the_prev_and_next_card() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(10, "a"), ev_json(11, "b"), ev_json(12, "c")],
+            3,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(11));
+        let (prev, next) = hud.timeline_detail_adjacent();
+        assert_eq!(prev.map(|e| e.index), Some(10));
+        assert_eq!(next.map(|e| e.index), Some(12));
+        let _ = hud.update(Message::SelectTimeline(10));
+        let (prev, next) = hud.timeline_detail_adjacent();
+        assert!(prev.is_none());
+        assert_eq!(next.map(|e| e.index), Some(11));
     }
 
     #[test]
@@ -6389,6 +6429,57 @@ mod tests {
         assert_eq!(hud.events_turn_index, Some(0));
         let _ = hud.update(Message::RawEvent(press("h")));
         assert!(hud.events_turn_index.is_none());
+    }
+
+    #[test]
+    fn turn_step_from_open_event_keeps_the_page() {
+        let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 2,
+                "turns": [
+                    {
+                        "turnIndex": 0,
+                        "promptIndex": 1,
+                        "label": "first",
+                        "userEventIndex": 10,
+                        "eventIndexes": [10]
+                    },
+                    {
+                        "turnIndex": 1,
+                        "promptIndex": 2,
+                        "label": "second",
+                        "userEventIndex": 11,
+                        "eventIndexes": [11]
+                    }
+                ]
+            },
+            "findings": { "count": 0, "findings": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(10, "a"), ev_json(11, "b")],
+            2,
+            0,
+        );
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        let _ = hud.update(Message::SelectTimeline(10));
+        assert_eq!(hud.timeline_open(), Some(10));
+        let _ = hud.select_events_turn(Some(1));
+        assert_eq!(hud.events_turn_index, Some(1));
+        assert_eq!(hud.timeline_open(), Some(10));
+        assert_eq!(hud.detail_turn_edge, Some(DetailTurnEdge::First));
     }
 
     #[test]

@@ -95,7 +95,13 @@ bind-next-turn = Next turn
 
 bind-prev-turn = Prev turn
 
+bind-event-down = Next event
+
+bind-event-up = Prev event
+
 bind-open = Open
+
+bind-event-reader = Event page
 
 bind-personas = Personas
 
@@ -253,6 +259,10 @@ cmd-operator-note-help = Add a note on the current turn
 cmd-edit-operator-note = Edit note
 
 cmd-edit-operator-note-help = Edit or delete a note (O)
+
+cmd-event-reader = Full-width event
+
+cmd-event-reader-help = Hide the Timeline list and read the event; j / k step; Esc returns
 
 cmd-copy-detail = Copy selection, finding, or pane
 cmd-copy-detail-help = Browser: yank selection; Findings row Issue box; focused Report/detail body; else whole pane — y / Ctrl+Shift+C

@@ -264,3 +264,12 @@ def test_prev_turn_from_all_opens_last() -> None:
     )
     screen.action_prev_turn()
     assert screen._turn_filter == "5"
+
+
+def test_timeline_table_does_not_override_column_arrows() -> None:
+    """h / Left step turns via the screen catalog binding, not the table."""
+    from groket.ui.widgets.timeline import TimelineTable
+    from textual.widgets import DataTable
+
+    assert TimelineTable.action_cursor_left is DataTable.action_cursor_left
+    assert TimelineTable.action_cursor_right is DataTable.action_cursor_right

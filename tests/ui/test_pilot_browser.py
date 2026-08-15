@@ -186,6 +186,57 @@ async def test_browser_mounts_timeline_and_pending_bar(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_enter_opens_full_width_event_and_escape_restores_list(
+    tmp_path: Path,
+) -> None:
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        assert tl.row_count > 0
+        if screen._current_event is None:
+            screen._current_event = tl.events[0]
+        layout = screen.query_one("#browser-layout")
+        assert not layout.has_class("event-reader")
+        screen.action_toggle_event_reader()
+        assert layout.has_class("event-reader")
+        screen.action_go_back()
+        assert not layout.has_class("event-reader")
+        assert isinstance(app.screen, BrowserScreen)
+
+
+@pytest.mark.asyncio
+async def test_turn_step_returns_focus_so_jk_still_move(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        if screen._current_event is None and tl.events:
+            screen._current_event = tl.events[0]
+        screen.query_one("#search-input", Input).focus()
+        await wait_until(
+            pilot,
+            lambda: screen.focused is not tl,
+            description="search field took focus",
+        )
+        screen._land_after_turn_step(keep=True)
+
+        def listed() -> bool:
+            focused = screen.focused
+            return focused is tl or getattr(focused, "id", None) == "timeline-list"
+
+        await wait_until(pilot, listed, description="timeline list focused after turn step")
+
+
+@pytest.mark.asyncio
 async def test_browser_tabs_and_stats_turns(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

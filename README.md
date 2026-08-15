@@ -153,9 +153,10 @@ the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-5 | browser | Timeline, Summary, Diff, Findings, Report |
-| h / l | browser | Previous / next turn on the Timeline (also Left / Right) |
+| h / l / Left / Right | browser | Previous / next turn on the Timeline |
+| j / k | browser | Previous / next event on the Timeline (also Up / Down) |
 | v | browser | Timeline filter (Subagents lists spawn/finish) |
-| Enter | browser | Open a child from a spawn/finish row or the Summary table |
+| Enter | browser | Full-width event (Esc back to the list); or open a child from a spawn/finish row |
 | i | browser | Jump to Findings |
 | f | browser | Flag this event |
 | N | browser | New note |

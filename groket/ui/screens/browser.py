@@ -107,6 +107,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         ("tab-reports", "#reports-scroll"),
     )
 
+    def activate_tab_pane(self, pane_id: str, *, focus_selector: str | None = None) -> None:
+        if pane_id != "tab-timeline" and self._event_reader:
+            self._set_event_reader(False)
+        super().activate_tab_pane(pane_id, focus_selector=focus_selector)
+
     def action_tab_timeline(self) -> None:
         self.activate_tab_pane("tab-timeline")
 
@@ -188,6 +193,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._context_samples = ContextSampleStore()
         self._subagent_runs: list[SubagentRun] = []
         self._summary_turn_first: dict[int, int] = {}
+        self._event_reader: bool = False
 
     def _analysis_svc(self):
         """Use the app's analysis service (work_dir / config), not a bare default."""
@@ -259,7 +265,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                                 placeholder=U.search_events_placeholder(), id="search-input"
                             )
                         yield TimelineTable(id="timeline-list")
-                    yield DetailView(id="detail-panel")
+                    with Vertical(id="detail-column"):
+                        yield DetailView(id="detail-panel")
             with TabPane(U.tab_summary(), id="tab-summary"):
                 with VerticalScroll(id="summary-scroll"):
                     with Vertical(classes="panel-card"):
@@ -3374,6 +3381,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _set_turn_filter(self, value: str) -> None:
         """Scope Timeline to *value* (``all`` or a trace turn id)."""
+        keep = value == "all" and (getattr(self, "_turn_filter", "all") or "all") != "all"
         self._turn_filter = value
         with suppress(Exception):
             sel = self.query_one("#timeline-turn-select", Select)
@@ -3381,6 +3389,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 sel.value = value
         self._ensure_timeline_tab()
         self._apply_timeline_filters()
+        self._land_after_turn_step(keep=keep)
 
     def action_next_turn(self) -> None:
         """Scope Timeline to the next operator turn (first, from All)."""
@@ -3425,6 +3434,40 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._set_turn_filter("all")
             return
         self._set_turn_filter(str(ids[i - 1]))
+
+    def _land_after_turn_step(self, *, keep: bool) -> None:
+        """Put the cursor on a real event and give the list focus so j/k work."""
+
+        def _go() -> None:
+            try:
+                tl = self.query_one("#timeline-list", TimelineTable)
+            except Exception:
+                return
+            evs = tl.events
+            target: TraceEvent | None = None
+            if keep and self._current_event is not None:
+                cur = int(self._current_event.index)
+                target = next((e for e in evs if int(e.index) == cur), None)
+            if target is None and evs:
+                target = evs[0]
+            if target is not None:
+                restore_cursor(tl, str(target.index), scroll=True)
+                self._current_event = target
+                self._paint_selected_event_detail()
+            focus_primary_list(tl)
+            self.refresh_bindings()
+
+        self.call_after_refresh(lambda: self.call_after_refresh(_go))
+
+    def action_timeline_down(self) -> None:
+        """j — next event when the list is not the focused widget."""
+        with suppress(Exception):
+            self.query_one("#timeline-list", TimelineTable).action_cursor_down()
+
+    def action_timeline_up(self) -> None:
+        """k — previous event when the list is not the focused widget."""
+        with suppress(Exception):
+            self.query_one("#timeline-list", TimelineTable).action_cursor_up()
 
     def action_search(self) -> None:
         self._ensure_timeline_tab()
@@ -3500,8 +3543,60 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._recompute_session_pending()
             return self._pending_actions_enabled
         if action in ("prev_turn", "next_turn"):
+            focused = self.focused
+            if isinstance(focused, (Input, Select)):
+                return False
             return self._turn_step_available()
+        if action == "toggle_event_reader":
+            focused = self.focused
+            if isinstance(focused, (Input, Select)):
+                return False
+            if self._active_browser_tab() != "tab-timeline":
+                return False
+            return self._current_event is not None
+        if action in ("timeline_down", "timeline_up"):
+            focused = self.focused
+            if isinstance(focused, (Input, Select)):
+                return False
+            if self._active_browser_tab() != "tab-timeline":
+                return False
+            with suppress(Exception):
+                if focused is self.query_one("#timeline-list", TimelineTable):
+                    return False
+            return True
         return True
+
+    def action_go_back(self) -> None:
+        """Esc: leave the event page, then the browser."""
+        from ..bindings import blur_focused_edit
+
+        if blur_focused_edit(self):
+            return
+        if self._event_reader:
+            self._set_event_reader(False)
+            return
+        self._leave_screen()
+
+    def action_toggle_event_reader(self) -> None:
+        """Enter: full-width event page, or open a spawn/finish child."""
+        if self._active_browser_tab() != "tab-timeline":
+            return
+        ev = self._current_event
+        if ev is None:
+            return
+        run = self._run_for_bookend_event(ev)
+        if run is not None:
+            self._open_subagent_run(run)
+            return
+        self._set_event_reader(not self._event_reader)
+
+    def _set_event_reader(self, on: bool) -> None:
+        self._event_reader = on
+        with suppress(Exception):
+            self.query_one("#browser-layout").set_class(on, "event-reader")
+            if on:
+                focus_primary_list(self.query_one("#timeline-list", TimelineTable))
+            self.refresh_bindings()
 
     def action_copy_detail(self) -> None:
         """Copy selection, one finding, focused body, or active-pane content.

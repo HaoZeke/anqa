@@ -126,10 +126,27 @@ TabPane {
     border-right: solid $primary-lighten-2;
 }
 
-#detail-panel {
+#detail-column {
     width: 2fr;
     height: 1fr;
+    layout: vertical;
+}
+
+#detail-panel {
+    width: 1fr;
+    height: 1fr;
     padding: 0 1;
+}
+
+#browser-layout.event-reader #timeline-panel {
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    border: none;
+}
+
+#browser-layout.event-reader #detail-column {
+    width: 1fr;
 }
 
 #timeline-list {

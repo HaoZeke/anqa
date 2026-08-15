@@ -1093,6 +1093,14 @@ fn event_type_human(ev: &TimelineEvent) -> String {
     human_event_type_label(&ev.event_type, &ev.type_label, &ev.kind)
 }
 
+fn event_card_label(ev: &TimelineEvent) -> String {
+    if is_tool_identity(&ev.kind, &ev.event_type, &ev.tool_name) {
+        format_tool_display(&ev.tool_name)
+    } else {
+        event_type_human(ev)
+    }
+}
+
 fn event_title(ev: &TimelineEvent) -> String {
     // Expander title is monochrome; put #index · turn · time here and the
     // colored human type on the face (TUI scan: index + turn + type + summary).
@@ -1514,14 +1522,12 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
 
 /// Full-area event body (click a list row; Esc returns to the list at this event).
 ///
-/// Chrome (title + stepper) stays **above** the scroll pane so the scrollbar
-/// never paints over the ‹ · n · › pager.
+/// Chrome (title + adjacent cards) stays **above** the scroll pane.
 fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let tea = hud.tokens();
-    let pos = hud.timeline_detail_pos();
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
-            event_detail_chrome(ix, None, pos, tea),
+            event_detail_chrome(ix, None, None, None, tea),
             text("Loading event…").size(typo::BODY).color(tea.muted),
         ]
         .spacing(10)
@@ -1546,7 +1552,8 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
         None,
         None::<fn(scrollable::Viewport) -> Message>,
     );
-    column![event_detail_chrome(ix, Some(ev), pos, tea), scroll]
+    let (prev, next) = hud.timeline_detail_adjacent();
+    column![event_detail_chrome(ix, Some(ev), prev, next, tea), scroll]
         .spacing(10)
         .height(Length::Fill)
         .into()
@@ -1555,7 +1562,8 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
 fn event_detail_chrome(
     ix: i64,
     ev: Option<&TimelineEvent>,
-    pos: Option<(usize, usize)>,
+    prev: Option<&TimelineEvent>,
+    next: Option<&TimelineEvent>,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let title = ev.map(event_title).unwrap_or_else(|| format!("#{ix}"));
@@ -1580,7 +1588,7 @@ fn event_detail_chrome(
             (event_type_human(e), color, true)
         }
     });
-    // Title + type/tool left; quiet ‹ · n · › stepper right. Esc → list (footer hint).
+    // Title + type on the first row; adjacent cards on the second (pyramid).
     let mut head = row![text(title)
         .size(typo::BODY)
         .font(typo::UI_BOLD)
@@ -1598,45 +1606,60 @@ fn event_detail_chrome(
             );
         }
     }
-    head = head.push(Space::new().width(Length::Fill));
-    head = head.push(event_detail_stepper(pos, tea));
-    // Trailing pad so the stepper sits clear of any parent edge / rail.
-    container(head)
-        .padding(Padding {
-            top: 0.0,
-            right: 4.0,
-            bottom: 4.0,
-            left: 0.0,
-        })
+    column![head, event_neighbor_bar(prev, next, tea)]
+        .spacing(4)
         .width(Length::Fill)
         .into()
 }
 
-/// Compact prev · position · next cluster for full-pane event detail.
-fn event_detail_stepper(
-    pos: Option<(usize, usize)>,
+/// Named previous / next cards — same face words as the Timeline list.
+fn event_neighbor_bar(
+    prev: Option<&TimelineEvent>,
+    next: Option<&TimelineEvent>,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let count = match pos {
-        Some((at, n)) => format!("{at} · {n}"),
-        None => "—".into(),
+    let mut row = row![]
+        .spacing(12)
+        .align_y(Alignment::Center)
+        .width(Length::Fill);
+    if let Some(ev) = prev {
+        row = row.push(neighbor_link(
+            ev,
+            false,
+            Message::TimelineDetailStep(-1),
+            tea,
+        ));
+    }
+    row = row.push(Space::new().width(Length::Fill));
+    if let Some(ev) = next {
+        row = row.push(neighbor_link(ev, true, Message::TimelineDetailStep(1), tea));
+    }
+    row.into()
+}
+
+fn neighbor_link(
+    ev: &TimelineEvent,
+    ahead: bool,
+    msg: Message,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let name = capped_display(&event_card_label(ev), 28);
+    let face = if ahead {
+        format!("{name} ›")
+    } else {
+        format!("‹ {name}")
     };
-    let cluster = row![
-        chip_btn("‹".into(), Message::TimelineDetailStep(-1), tea),
-        text(count).size(typo::META).font(typo::UI).color(tea.muted),
-        chip_btn("›".into(), Message::TimelineDetailStep(1), tea),
-    ]
-    .spacing(6)
-    .align_y(Alignment::Center);
-    container(cluster)
-        .padding(Padding {
-            top: 2.0,
-            right: 6.0,
-            bottom: 2.0,
-            left: 6.0,
-        })
-        .style(move |_| icedtea::style::card(tea, false))
-        .into()
+    let hint = if ahead {
+        format!("Next {name}")
+    } else {
+        format!("Previous {name}")
+    };
+    icedtea::a11y::attach(
+        mouse_area(text(face).size(typo::META).color(tea.muted))
+            .on_press(msg)
+            .into(),
+        &A11y::button(hint),
+    )
 }
 
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {
@@ -2595,7 +2618,10 @@ mod tests {
         assert!(prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));
-        assert!(prod.contains("fn event_detail_stepper"));
+        assert!(prod.contains("fn event_neighbor_bar"));
+        assert!(prod.contains("fn neighbor_link"));
+        assert!(prod.contains("fn event_card_label"));
+        assert!(!prod.contains("{at} of {n}"));
         assert!(prod.contains("footer_table_for(hud.key_scope(), hud.key_overlay())"));
         assert!(!prod.contains("chip_btn(\"Back\""));
         assert!(!prod.contains("is_timeline_expanded"));

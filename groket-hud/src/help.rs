@@ -50,7 +50,8 @@ fn push(
         return;
     }
     let resolved = overlay.hud_spec(id, spec);
-    let parsed = Shortcut::parse(&resolved).expect("HUD shortcut spec");
+    let first = resolved.split(',').next().unwrap_or(resolved.as_str());
+    let parsed = Shortcut::parse(first).expect("HUD shortcut spec");
     table.insert(Action::new(id, title, msg).with_shortcut(parsed));
 }
 
@@ -334,7 +335,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             overlay,
             "events.prev_turn",
             "Previous turn",
-            "h",
+            "h,left",
             Message::Noop,
         );
         push(
@@ -342,7 +343,15 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             overlay,
             "events.next_turn",
             "Next turn",
-            "l",
+            "l,right",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "events.scope_next",
+            "Next turn",
+            "]",
             Message::Noop,
         );
         push(
@@ -516,6 +525,10 @@ mod tests {
         assert!(sheet.get("session.follow").is_some());
         assert!(sheet.get("session.done").is_some());
         assert!(sheet.get("pane.notes").is_some());
+        assert!(sheet.get("events.next_turn").is_some());
+        assert!(sheet.get("events.scope_next").is_some());
+        assert!(sheet.get("events.all_turns").is_some());
+        assert!(sheet.conflicts().is_empty());
     }
 
     #[test]

@@ -44,24 +44,6 @@ class TimelineTable(DataTable):
         """Computed per-event durations (event index -> seconds)."""
         return self._durations
 
-    def action_cursor_left(self) -> None:
-        """Left / h: previous Timeline turn when the browser can step turns."""
-        screen = self.screen
-        step = getattr(screen, "action_prev_turn", None)
-        if callable(step) and getattr(screen, "_turn_step_available", lambda: False)():
-            step()
-            return
-        super().action_cursor_left()
-
-    def action_cursor_right(self) -> None:
-        """Right / l: next Timeline turn when the browser can step turns."""
-        screen = self.screen
-        step = getattr(screen, "action_next_turn", None)
-        if callable(step) and getattr(screen, "_turn_step_available", lambda: False)():
-            step()
-            return
-        super().action_cursor_right()
-
     def on_mount(self) -> None:
         style_data_table(self)
         self.add_columns(

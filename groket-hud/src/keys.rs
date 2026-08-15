@@ -133,19 +133,25 @@ const ACTIONS: &[CatalogRow] = &[
     CatalogRow {
         id: "events.prev_turn",
         scope: "browser",
-        default: "h",
+        default: "h,left",
         remappable: true,
     },
     CatalogRow {
         id: "events.next_turn",
         scope: "browser",
-        default: "l",
+        default: "l,right",
         remappable: true,
     },
     CatalogRow {
         id: "events.all_turns",
         scope: "browser",
         default: "left_square_bracket",
+        remappable: true,
+    },
+    CatalogRow {
+        id: "events.scope_next",
+        scope: "browser",
+        default: "right_square_bracket",
         remappable: true,
     },
     CatalogRow {
@@ -339,6 +345,12 @@ const ACTIONS: &[CatalogRow] = &[
         scope: "browser",
         default: "v",
         remappable: true,
+    },
+    CatalogRow {
+        id: "browser.event_reader",
+        scope: "browser",
+        default: "enter",
+        remappable: false,
     },
     CatalogRow {
         id: "event.flag",
@@ -1082,6 +1094,10 @@ fn alias_key(raw: &str) -> String {
         ("]", _) | (_, "right_square_bracket") => "right_square_bracket".into(),
         (";", _) | (_, "semicolon") => ";".into(),
         (_, "esc" | "escape") => "escape".into(),
+        (_, "left") => "left".into(),
+        (_, "right") => "right".into(),
+        (_, "up") => "up".into(),
+        (_, "down") => "down".into(),
         _ if raw.chars().all(|c| c.is_ascii_alphabetic()) => low,
         _ => low,
     }
@@ -1162,6 +1178,10 @@ fn parse_spec(part: &str) -> Option<ParsedChord> {
         "tab" => parsed.named = Some(Named::Tab),
         "space" => parsed.named = Some(Named::Space),
         "delete" => parsed.named = Some(Named::Delete),
+        "left" => parsed.named = Some(Named::ArrowLeft),
+        "right" => parsed.named = Some(Named::ArrowRight),
+        "up" => parsed.named = Some(Named::ArrowUp),
+        "down" => parsed.named = Some(Named::ArrowDown),
         "slash" => parsed.ch = Some('/'),
         "left_square_bracket" => parsed.ch = Some('['),
         "right_square_bracket" => parsed.ch = Some(']'),
@@ -1336,6 +1356,24 @@ mod tests {
             KeyOverlay::default().hud_spec("events.all_turns", "left_square_bracket"),
             "["
         );
+        assert!(KeyOverlay::default().matches(
+            "events.prev_turn",
+            "h,left",
+            &Key::Named(Named::ArrowLeft),
+            KeyMods::empty()
+        ));
+        assert!(KeyOverlay::default().matches(
+            "events.next_turn",
+            "l,right",
+            &Key::Named(Named::ArrowRight),
+            KeyMods::empty()
+        ));
+        assert!(KeyOverlay::default().matches(
+            "events.scope_next",
+            "right_square_bracket",
+            &Key::Character("]".into()),
+            KeyMods::empty()
+        ));
     }
 
     #[test]

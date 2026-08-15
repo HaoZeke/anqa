@@ -31,10 +31,10 @@
 
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
-  h / l           Previous / next turn on the Timeline
-  Left / Right    Same
+  h / l           Previous / next turn (also Left / Right)
+  j / k           Previous / next event (also Up / Down)
   v               Timeline filter (Subagents lists spawn/finish)
-  Enter           Open a child from a spawn/finish row or the Summary table
+  Enter           Full-width event (Esc back to the list); or open a child from a spawn/finish row
   i               Jump to Findings
   f               Flag this event
   N               New note

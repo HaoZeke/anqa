@@ -170,13 +170,14 @@ ACTIONS: tuple[KeyAction, ...] = (
         overlay_scopes=_NAV,
     ),
     _row("pane.notes", ActionScope.BROWSER, "N", ActionSurface.SHARED),
-    _row("events.prev_turn", ActionScope.BROWSER, "h", ActionSurface.SHARED),
-    _row("events.next_turn", ActionScope.BROWSER, "l", ActionSurface.SHARED),
+    _row("events.prev_turn", ActionScope.BROWSER, "h,left", ActionSurface.SHARED),
+    _row("events.next_turn", ActionScope.BROWSER, "l,right", ActionSurface.SHARED),
     # HUD-only (Tab / Shift+Tab / Ctrl+1–5 panes; [ ] turn scope; g).
     _row("pane.next", ActionScope.BROWSER, "tab", ActionSurface.HUD),
     _row("pane.prev", ActionScope.BROWSER, "shift+tab", ActionSurface.HUD),
     *(_row(f"pane.{i}", ActionScope.BROWSER, f"ctrl+{i}", ActionSurface.HUD) for i in range(1, 6)),
     _row("events.all_turns", ActionScope.BROWSER, "left_square_bracket", ActionSurface.HUD),
+    _row("events.scope_next", ActionScope.BROWSER, "right_square_bracket", ActionSurface.HUD),
     _row("turns.timeline", ActionScope.BROWSER, "g", ActionSurface.HUD),
     _row("sessions.home", ActionScope.HOME, "u", ActionSurface.HUD),
     # TUI chrome (every screen).
@@ -205,6 +206,7 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("home.host", ActionScope.HOME, "H", ActionSurface.TUI),
     # Session browser.
     _row("browser.view_filter", ActionScope.BROWSER, "v", ActionSurface.TUI),
+    _row("browser.event_reader", ActionScope.BROWSER, "enter", ActionSurface.TUI),
     _row("event.flag", ActionScope.BROWSER, "f", ActionSurface.TUI),
     _row("session.note_edit", ActionScope.BROWSER, "O", ActionSurface.TUI),
     _row("browser.clear_filters", ActionScope.BROWSER, "c", ActionSurface.TUI),
