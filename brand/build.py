@@ -206,12 +206,7 @@ def main() -> None:
 
     mark = write_svg("groket-mark.svg", "groket", colour, MARK_VB)
     write_svg("groket-mark-mono.svg", "groket", mono, MARK_VB)
-    write_svg(
-        "groket-mark-reverse.svg",
-        "groket",
-        f'  <rect width="900" height="380" fill="{INK}"/>\n{reverse}',
-        MARK_VB,
-    )
+    write_svg("groket-mark-reverse.svg", "groket", reverse, MARK_VB)
     write_svg(
         "groket-small.svg",
         "groket",
