@@ -1330,8 +1330,8 @@ mod tests {
     fn hud_spec_converts_textual_aliases() {
         let overlay = KeyOverlay::parse("[home]\n\"search.focus\" = \"slash\"\n").unwrap();
         assert_eq!(overlay.hud_spec("search.focus", "/"), "/");
-        let overlay = KeyOverlay::parse("[browser]\n\"events.next_turn\" = \"]\"\n").unwrap();
-        assert_eq!(overlay.hud_spec("events.next_turn", "]"), "]");
+        let overlay = KeyOverlay::parse("[browser]\n\"app.pane.next\" = \"]\"\n").unwrap();
+        assert_eq!(overlay.hud_spec("app.pane.next", "]"), "]");
     }
 
     #[test]
