@@ -5,7 +5,7 @@ is tagged.
 
 ## Unreleased
 
-- Continuous integration uploads Python coverage to Codecov (OIDC).
+- Continuous integration uploads Python and HUD coverage to Codecov (OIDC).
 - README badges: Actions, Codecov, Python 3.13, MIT license.
 - Platform wheels and the source distribution build on `main`, tags, and
   workflow dispatch.

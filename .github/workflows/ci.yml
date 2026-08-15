@@ -90,6 +90,9 @@ jobs:
   hud:
     name: HUD (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -140,6 +143,14 @@ jobs:
       - name: just hud-check
         if: matrix.full
         run: just hud-check
+      - name: Upload HUD coverage to Codecov
+        if: matrix.full
+        uses: codecov/codecov-action@v5
+        with:
+          files: groket-hud/lcov.info
+          flags: rust
+          fail_ci_if_error: true
+          use_oidc: true
 
       # macOS / Windows: compile and test the crate (no theme generator / cov).
       - name: rustfmt

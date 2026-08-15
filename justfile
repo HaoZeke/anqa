@@ -84,16 +84,19 @@ hud-check: hud-themes-check
     CARGO_INCREMENTAL=0 cargo test --manifest-path groket-hud/Cargo.toml
     just hud-cov
 
-# cargo llvm-cov fail-under on non-paint HUD logic (optional).
+# cargo llvm-cov: lcov for Codecov, then fail-under on non-paint HUD logic.
 hud-cov:
     #!/usr/bin/env bash
     set -euo pipefail
     if cargo llvm-cov --version >/dev/null 2>&1; then
-      CARGO_INCREMENTAL=0 cargo llvm-cov --manifest-path groket-hud/Cargo.toml --lib \
+      cleanup() { rm -rf groket-hud/target/llvm-cov-target groket-hud/target/llvm-cov; }
+      trap cleanup EXIT
+      CARGO_INCREMENTAL=0 cargo llvm-cov --manifest-path groket-hud/Cargo.toml --lib --no-report
+      CARGO_INCREMENTAL=0 cargo llvm-cov report --manifest-path groket-hud/Cargo.toml \
+        --lcov --output-path groket-hud/lcov.info
+      CARGO_INCREMENTAL=0 cargo llvm-cov report --manifest-path groket-hud/Cargo.toml \
         --fail-under-lines 70 \
-        --ignore-filename-regex 'src/(app|view|typo|main|x11focus|control)\.rs' \
-        --summary-only
-      rm -rf groket-hud/target/llvm-cov-target groket-hud/target/llvm-cov
+        --ignore-filename-regex 'src/(app|view|typo|main|x11focus|control)\.rs'
     else
       echo "hud-cov: cargo-llvm-cov not installed; skip fail-under (fmt/clippy/test already ran)"
     fi
@@ -140,6 +143,6 @@ ci: lint schema-check hud-check examples-check test
 # Python caches plus groket-hud cargo target.
 clean:
     rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ \
-        htmlcov/ .coverage coverage.json docs/_build/
+        htmlcov/ .coverage coverage.json groket-hud/lcov.info docs/_build/
     find . -type d -name __pycache__ -not -path './.venv/*' -exec rm -rf {} + 2>/dev/null || true
     cargo clean --manifest-path groket-hud/Cargo.toml || true

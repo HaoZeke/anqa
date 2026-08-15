@@ -28,6 +28,7 @@ traces/
 *.swp
 # iced HUD crate
 groket-hud/target/
+groket-hud/lcov.info
 # updates.jsonl scan leaf
 native/groket-core/target/
 native/groket-core/Cargo.lock

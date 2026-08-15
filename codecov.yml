@@ -1,0 +1,19 @@
+flag_management:
+  individual_flags:
+    - name: python
+      paths:
+        - groket/
+    - name: rust
+      paths:
+        - groket-hud/
+
+component_management:
+  individual_components:
+    - component_id: python
+      name: python
+      paths:
+        - groket/**
+    - component_id: rust
+      name: rust
+      paths:
+        - groket-hud/**

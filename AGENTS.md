@@ -70,8 +70,10 @@ Re-run tests after the final diff for that commit. Prefer
 Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
 (``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` does
 not pass ``--cov``. The Actions **Test Python** job writes ``coverage.xml``
-and uploads it to Codecov (OIDC; ``fail_under`` is not applied on that
-upload). Prefer closing gaps with domain tests or deleting dead code when
+and uploads it to Codecov (OIDC, ``python`` flag; ``fail_under`` is not
+applied on that upload). The Linux **HUD** job writes
+``groket-hud/lcov.info`` from ``just hud-cov`` and uploads it (``rust``
+flag). Prefer closing gaps with domain tests or deleting dead code when
 you touch a module; do not lower ``fail_under`` or omit package source to
 hide debt.
 
@@ -333,7 +335,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just examples-check`` | Validate ``examples/`` packs (hard contract) |
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``just hud-themes`` | Regenerate ``groket-hud/assets/textual-themes.json`` |
-| ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. A passing ``hud-cov`` deletes ``groket-hud/target/llvm-cov-target``. |
+| ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. ``hud-cov`` writes ``groket-hud/lcov.info`` and deletes ``groket-hud/target/llvm-cov-target``. |
 | ``just wheel`` | ``uv build --wheel`` (this platform; needs Rust) |
 | ``just wheels`` | ``uvx cibuildwheel`` (this host; Linux needs Docker) |
 | ``just sdist`` | ``uv build --sdist`` |
@@ -346,7 +348,7 @@ for those notes live in [TODO.md](TODO.md). Keep the two files in step.
 
 GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build). Pushes to ``main``, version tags, and workflow dispatch also run **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
-HUD Cargo trees: a passing ``just hud-cov`` deletes ``groket-hud/target/llvm-cov-target``.
+HUD Cargo trees: ``just hud-cov`` writes ``groket-hud/lcov.info`` and deletes ``groket-hud/target/llvm-cov-target``.
 ``groket hud`` deletes coverage leftovers under ``target/`` and keeps the
 debug and release graphs so iced does not rebuild from scratch.
 ``just clean`` runs ``cargo clean``.
