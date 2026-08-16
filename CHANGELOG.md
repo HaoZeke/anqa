@@ -5,6 +5,10 @@ is tagged.
 
 ## Unreleased
 
+- The control JSON-RPC contract (version, methods, notifications) lives
+  in `groket/integrations/control_contract.py`. `docs/control.md` and
+  `schemas/control.schema.json` are generated from that inventory
+  (`just schema`).
 - Terminal session open paints Timeline first; Summary and Report fill
   when those panes are opened. Attached control loads the first event
   page, then appends the rest. Timeline search applies after a short

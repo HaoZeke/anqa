@@ -158,7 +158,7 @@ groket/
                          #   sources, catalog (domain session list for control)
   notes.py               # configurable operator notes (TOML schema + session store)
   integrations/          # control Unix JSON-RPC, daemon (``groket serve``),
-                         #   ControlClient, emacs/vim packages
+                         #   control_contract, ControlClient, emacs/vim packages
   hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
 # Sibling crates (Cargo workspace): desktop/ (binary groket-hud), scan/ (groket._scan)
@@ -363,6 +363,7 @@ Published schemas (also under ``schemas/``; GitHub Pages via
 - https://indynull.github.io/groket/schemas/tasks.schema.json  
 - https://indynull.github.io/groket/schemas/rules.schema.json  
 - https://indynull.github.io/groket/schemas/config.schema.json  
+- https://indynull.github.io/groket/schemas/control.schema.json  
 
 ### 4.3 Module purity
 

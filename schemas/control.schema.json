@@ -1,0 +1,830 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://indynull.github.io/groket/schemas/control.schema.json",
+  "title": "groket-control",
+  "description": "JSON-RPC 2.0 control protocol for groket serve (protocolVersion 1.0.0).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "minProtocolVersion",
+    "methods",
+    "notifications"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": "1.0.0",
+      "description": "Owner initialize protocolVersion."
+    },
+    "minProtocolVersion": {
+      "const": "1.0.0",
+      "description": "Oldest protocolVersion this owner accepts."
+    },
+    "methods": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initialize",
+        "session/list",
+        "session/get",
+        "session/overview",
+        "session/timeline",
+        "session/turns",
+        "session/usage",
+        "session/findings",
+        "session/diff",
+        "session/open",
+        "session/render",
+        "session/follow_up",
+        "session/done",
+        "notes/list",
+        "notes/upsert",
+        "notes/delete",
+        "analysis/run",
+        "analysis/status"
+      ],
+      "properties": {
+        "initialize": {
+          "description": "Handshake (owner reports `protocolVersion` `1.0.0`)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "initialize params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "protocolVersion": {
+                  "description": "Client protocol version (same major as the owner).",
+                  "type": "string"
+                },
+                "clientInfo": {
+                  "description": "Optional client name and version.",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "protocolVersion"
+              ]
+            },
+            "result": {
+              "title": "initialize result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "protocolVersion": {
+                  "description": "Owner protocol version.",
+                  "type": "string"
+                },
+                "capabilities": {
+                  "description": "Method names the owner implements after handshake.",
+                  "type": "array"
+                },
+                "renderFormats": {
+                  "description": "Values ``session/render`` accepts for ``format``.",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "protocolVersion",
+                "capabilities",
+                "renderFormats"
+              ]
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/list": {
+          "description": "Catalog page (see below)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/list params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "query": {
+                  "description": "Case-insensitive substring over id, title, label, model, status, outcome, and origin (not the filesystem path).",
+                  "type": "string"
+                },
+                "limit": {
+                  "description": "Page size.",
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Page start; omit for the first page.",
+                  "type": "integer"
+                },
+                "sinceRevision": {
+                  "description": "When this matches the owner revision, the page is empty (`unchanged`). A client that is behind may receive a `delta` (upserted rows plus `removed` ids).",
+                  "type": "integer"
+                }
+              }
+            },
+            "result": {
+              "title": "session/list result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessions": {
+                  "description": "Catalog rows.",
+                  "type": "array"
+                },
+                "total": {
+                  "description": "Unfiltered catalog size.",
+                  "type": "integer"
+                },
+                "matched": {
+                  "description": "Rows matching ``query``.",
+                  "type": "integer"
+                },
+                "revision": {
+                  "description": "Catalog revision.",
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/get": {
+          "description": "Session meta (status, context, counts, notes revision)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/get params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/get result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/overview": {
+          "description": "Meta + turns + notes (no embedded event list). Turns include `subagentRuns`.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/overview params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/overview result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/timeline": {
+          "description": "Paged events (`offset`, `limit`, `type`, `kind`, `query`, `promptIndex`, `aroundIndex`, `atIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/timeline params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "offset": {
+                  "description": "Filtered page start.",
+                  "type": "integer"
+                },
+                "limit": {
+                  "description": "Page size.",
+                  "type": "integer"
+                },
+                "type": {
+                  "description": "Event type filter (also accepted as `eventType`).",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Kind filter (tools, user, assistant, \u2026).",
+                  "type": "string"
+                },
+                "query": {
+                  "description": "Substring match over the event body.",
+                  "type": "string"
+                },
+                "promptIndex": {
+                  "description": "Restrict to one turn.",
+                  "type": "integer"
+                },
+                "aroundIndex": {
+                  "description": "Center the page on this event index.",
+                  "type": "integer"
+                },
+                "atIndex": {
+                  "description": "Return the single event at this index.",
+                  "type": "integer"
+                },
+                "contentChars": {
+                  "description": "Body character cap (owner clamps to its ceiling).",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/timeline result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/turns": {
+          "description": "Turn segments plus `subagentRuns` (turn-scoped child runs; `openable` + `childPath`).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/turns params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/turns result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/usage": {
+          "description": "Tool / MCP / skill usage",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/usage params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/usage result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/findings": {
+          "description": "Cached analysis findings",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/findings params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "limit": {
+                  "description": "Max findings to return.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/findings result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/diff": {
+          "description": "Rewind snapshots or approximate `search_replace` edits (files + hunks + prompt/assistant text)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/diff params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/diff result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/open": {
+          "description": "Resolve a session and notify `session/selected`",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/open params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "promptIndex": {
+                  "description": "Turn / prompt index.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/open result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "opened": {
+                  "description": "True when the session resolved.",
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/render": {
+          "description": "Project a document (`format`: below)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/render params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "format": {
+                  "description": "Projection: `org` (default), `markdown`, or `json`.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/render result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/follow_up": {
+          "description": "Stage or queue the next prompt (`session`, `prompt`, optional `final`)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/follow_up params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "prompt": {
+                  "description": "Follow-up text.",
+                  "type": "string"
+                },
+                "final": {
+                  "description": "Mark the turn done after this prompt.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "session",
+                "prompt"
+              ]
+            },
+            "result": {
+              "title": "session/follow_up result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/done": {
+          "description": "Mark a live session done (`session`)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/done params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "session/done result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "notes/list": {
+          "description": "Notes snapshot (`revision`, schema, notes)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "notes/list params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "notes/list result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "notes/upsert": {
+          "description": "Write a note (`expectedRevision`)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "notes/upsert params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "note": {
+                  "description": "Note object to write.",
+                  "type": "object"
+                },
+                "expectedRevision": {
+                  "description": "Notes revision the client last read.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "note"
+              ]
+            },
+            "result": {
+              "title": "notes/upsert result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "notes/delete": {
+          "description": "Delete a note (`expectedRevision`)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "notes/delete params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "noteId": {
+                  "description": "Note id to delete.",
+                  "type": "string"
+                },
+                "expectedRevision": {
+                  "description": "Notes revision the client last read.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "noteId"
+              ]
+            },
+            "result": {
+              "title": "notes/delete result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "analysis/run": {
+          "description": "Start analysis on the owner (`force` optional)",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "analysis/run params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                },
+                "force": {
+                  "description": "Re-run even when a cache hit exists.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "analysis/run result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "analysis/status": {
+          "description": "Job state: `idle` / `running` / `done` / `error`",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "analysis/status params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "analysis/status result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session/selected",
+        "session/changed",
+        "notes/changed",
+        "analysis/changed"
+      ],
+      "properties": {
+        "session/selected": {
+          "description": "After `session/open`",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/selected params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessionId": {
+                  "description": "Session directory name.",
+                  "type": "string"
+                },
+                "promptIndex": {
+                  "description": "Turn / prompt index.",
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/changed": {
+          "description": "Session files or status changed",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/changed params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessionId": {
+                  "description": "Session directory name.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "notes/changed": {
+          "description": "Notes written or deleted",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "notes/changed params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessionId": {
+                  "description": "Session directory name.",
+                  "type": "string"
+                },
+                "revision": {
+                  "description": "Notes document revision.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "analysis/changed": {
+          "description": "Analysis job progressed",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "analysis/changed params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessionId": {
+                  "description": "Session directory name.",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "Job state: idle, running, done, or error.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        }
+      }
+    }
+  }
+}

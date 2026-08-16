@@ -28,16 +28,40 @@ from ..session.access import LocalSessionAccess, notes_snapshot_mapping
 
 # Re-export catalog filter for existing importers (TUI, tests).
 from ..session.access import filter_session_catalog as filter_session_catalog
+from .control_contract import (
+    MIN_PROTOCOL_VERSION,
+    NOTIFY_ANALYSIS_CHANGED,
+    NOTIFY_NOTES_CHANGED,
+    NOTIFY_SESSION_CHANGED,
+    NOTIFY_SESSION_SELECTED,
+    PROTOCOL_VERSION,
+    capability_names,
+)
 from .editor import SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
-# Control handshake only. Independent of ``groket.__version__``.
-# Same major: additive methods/fields; a live owner of that major stays up.
-# A major bump is the only backwards-incompatible change.
-MIN_PROTOCOL_VERSION = "1.0.0"
-PROTOCOL_VERSION = "1.0.0"
+# Re-export handshake constants and the advertised method list so existing
+# ``from groket.integrations.control import PROTOCOL_VERSION`` callers stay.
+CAPABILITIES = capability_names()
 _PROTOCOL_RE = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
+type _RpcFn = Callable[..., Awaitable[JsonValue]]
+_RPC_DISPATCH: dict[str, _RpcFn] = {}
+
+
+def _rpc(name: str) -> Callable[[_RpcFn], _RpcFn]:
+    """Register an owner method. Keys must match the contract inventory."""
+
+    def wrap(fn: _RpcFn) -> _RpcFn:
+        _RPC_DISPATCH[name] = fn
+        return fn
+
+    return wrap
+
+
+def dispatched_method_names() -> frozenset[str]:
+    """Method names ``ControlServer._dispatch`` implements."""
+    return frozenset(_RPC_DISPATCH)
 
 
 def parse_protocol_version(value: object) -> tuple[int, int, int] | None:
@@ -574,7 +598,7 @@ class ControlServer:
         loop = self._loop
         if loop is not None and loop.is_running():
             asyncio.run_coroutine_threadsafe(
-                self.notify("analysis/changed", payload),
+                self.notify(NOTIFY_ANALYSIS_CHANGED, payload),
                 loop,
             )
 
@@ -850,187 +874,250 @@ class ControlServer:
         params: JsonObject,
         after_send: list[tuple[str, JsonObject]],
     ) -> JsonValue:
-        if method == "initialize":
-            requested = params.get("protocolVersion")
-            if not protocol_compatible(requested):
-                raise ControlError(
-                    -32602,
-                    "unsupported protocol version",
-                    {"supported": PROTOCOL_VERSION, "minimum": MIN_PROTOCOL_VERSION},
-                )
-            return {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": list(CAPABILITIES),
-                "renderFormats": list(SUPPORTED_FORMATS),
-            }
-        access = self._access
-        if method == "session/list":
-            # Catalog builds resolve paths; keep syscalls off the event loop.
-            async with self._heavy_sem:
-                return await asyncio.to_thread(
-                    access.list_sessions,
-                    query=json_as_str(params.get("query")),
-                    limit=_optional_int_param(params.get("limit"), name="limit"),
-                    offset=_optional_int_param(params.get("offset"), name="offset") or 0,
-                    since_revision=_optional_int_param(
-                        params.get("sinceRevision"), name="sinceRevision"
-                    ),
-                )
-        if method == "session/get":
-            ref = self._session_ref(params)
-            return await self._access_call(ref, access.session_get, ref)
-        if method == "session/overview":
-            ref = self._session_ref(params)
-            # Lazy overview: no embedded events; clients use session/timeline.
-            return await self._access_call(ref, access.session_overview, ref)
-        if method == "session/timeline":
-            ref = self._session_ref(params)
-            offset = _optional_int_param(params.get("offset"), name="offset") or 0
-            limit = _optional_int_param(params.get("limit"), name="limit")
-            raw_chars = _optional_int_param(params.get("contentChars"), name="contentChars")
-            prompt_index = _optional_int_param(params.get("promptIndex"), name="promptIndex")
-            event_type = json_as_str(params.get("type") or params.get("eventType"))
-            kind = json_as_str(params.get("kind"))
-            query = json_as_str(params.get("query"))
-            around = _optional_int_param(params.get("aroundIndex"), name="aroundIndex")
-            at_index = _optional_int_param(params.get("atIndex"), name="atIndex")
-            return await self._access_call(
-                ref,
-                access.session_timeline,
-                ref,
-                offset=offset,
-                limit=limit,
-                event_type=event_type,
-                kind=kind,
-                query=query,
-                prompt_index=prompt_index,
-                around_index=around,
-                at_index=at_index,
-                content_chars=raw_chars,
+        handler = _RPC_DISPATCH.get(method)
+        if handler is None:
+            raise ControlError(-32601, "method not found", {"method": method})
+        return await handler(self, params, after_send)
+
+    @_rpc("initialize")
+    async def _rpc_initialize(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        requested = params.get("protocolVersion")
+        if not protocol_compatible(requested):
+            raise ControlError(
+                -32602,
+                "unsupported protocol version",
+                {"supported": PROTOCOL_VERSION, "minimum": MIN_PROTOCOL_VERSION},
             )
-        if method == "session/turns":
-            ref = self._session_ref(params)
-            return await self._access_call(ref, access.session_turns, ref)
-        if method == "session/usage":
-            ref = self._session_ref(params)
-            return await self._access_call(ref, access.session_usage, ref)
-        if method == "session/findings":
-            ref = self._session_ref(params)
-            raw_lim = _optional_int_param(params.get("limit"), name="limit")
-            return await self._access_call(ref, access.session_findings, ref, limit=raw_lim)
-        if method == "session/diff":
-            ref = self._session_ref(params)
-            return await self._access_call(ref, access.session_diff, ref)
-        if method == "session/render":
-            fmt = json_as_str(params.get("format")).strip().lower() or "org"
-            if fmt not in SUPPORTED_FORMATS:
+        return {
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": list(capability_names()),
+            "renderFormats": list(SUPPORTED_FORMATS),
+        }
+
+    @_rpc("session/list")
+    async def _rpc_session_list(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        async with self._heavy_sem:
+            return await asyncio.to_thread(
+                self._access.list_sessions,
+                query=json_as_str(params.get("query")),
+                limit=_optional_int_param(params.get("limit"), name="limit"),
+                offset=_optional_int_param(params.get("offset"), name="offset") or 0,
+                since_revision=_optional_int_param(
+                    params.get("sinceRevision"), name="sinceRevision"
+                ),
+            )
+
+    @_rpc("session/get")
+    async def _rpc_session_get(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.session_get, ref)
+
+    @_rpc("session/overview")
+    async def _rpc_session_overview(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.session_overview, ref)
+
+    @_rpc("session/timeline")
+    async def _rpc_session_timeline(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(
+            ref,
+            self._access.session_timeline,
+            ref,
+            offset=_optional_int_param(params.get("offset"), name="offset") or 0,
+            limit=_optional_int_param(params.get("limit"), name="limit"),
+            event_type=json_as_str(params.get("type") or params.get("eventType")),
+            kind=json_as_str(params.get("kind")),
+            query=json_as_str(params.get("query")),
+            prompt_index=_optional_int_param(params.get("promptIndex"), name="promptIndex"),
+            around_index=_optional_int_param(params.get("aroundIndex"), name="aroundIndex"),
+            at_index=_optional_int_param(params.get("atIndex"), name="atIndex"),
+            content_chars=_optional_int_param(params.get("contentChars"), name="contentChars"),
+        )
+
+    @_rpc("session/turns")
+    async def _rpc_session_turns(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.session_turns, ref)
+
+    @_rpc("session/usage")
+    async def _rpc_session_usage(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.session_usage, ref)
+
+    @_rpc("session/findings")
+    async def _rpc_session_findings(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        raw_lim = _optional_int_param(params.get("limit"), name="limit")
+        return await self._access_call(ref, self._access.session_findings, ref, limit=raw_lim)
+
+    @_rpc("session/diff")
+    async def _rpc_session_diff(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.session_diff, ref)
+
+    @_rpc("session/render")
+    async def _rpc_session_render(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        fmt = json_as_str(params.get("format")).strip().lower() or "org"
+        if fmt not in SUPPORTED_FORMATS:
+            raise ControlError(
+                -32602,
+                "unsupported editor format",
+                {"supported": list(SUPPORTED_FORMATS), "format": fmt},
+            )
+        ref = self._session_ref(params)
+
+        def _render() -> JsonObject:
+            try:
+                return self._access.session_render(ref, format=fmt)
+            except FileNotFoundError as exc:
+                raise ControlError(404, "session not found", {"session": ref}) from exc
+            except ValueError as exc:
                 raise ControlError(
                     -32602,
-                    "unsupported editor format",
+                    str(exc),
                     {"supported": list(SUPPORTED_FORMATS), "format": fmt},
-                )
-            ref = self._session_ref(params)
+                ) from exc
 
-            def _render() -> JsonObject:
-                try:
-                    return access.session_render(ref, format=fmt)
-                except FileNotFoundError as exc:
-                    raise ControlError(404, "session not found", {"session": ref}) from exc
-                except ValueError as exc:
-                    raise ControlError(
-                        -32602,
-                        str(exc),
-                        {"supported": list(SUPPORTED_FORMATS), "format": fmt},
-                    ) from exc
+        async with self._heavy_sem:
+            return await asyncio.to_thread(_render)
 
-            async with self._heavy_sem:
-                return await asyncio.to_thread(_render)
-        if method == "session/open":
-            raw_prompt = params.get("promptIndex")
-            prompt_index = None if raw_prompt is None else json_as_int(raw_prompt)
-            session = self._session(params)
-            opened = True
-            if self._open_session is not None:
-                opened = bool(await self._open_session(session, prompt_index))
-            # Always notify attach clients (TUI/HUD/editors) so headless serve
-            # can drive selection without a local open callback.
-            if opened:
-                after_send.append(
-                    (
-                        "session/selected",
-                        {"sessionId": session.name, "promptIndex": prompt_index},
-                    )
-                )
-            return {"opened": bool(opened)}
-        if method == "notes/list":
-            ref = self._session_ref(params)
-            return await self._access_call(ref, access.notes_list, ref)
-        if method == "notes/upsert":
-            note_raw = params.get("note")
-            if not isinstance(note_raw, dict):
-                raise ControlError(-32602, "note is required")
-            ref = self._session_ref(params)
-            session = self._session(params)
-            note = _note_from_params(as_json_object(note_raw))
-            rev = json_as_str(params.get("expectedRevision"))
-            result = await self._access_call(
-                ref,
-                access.notes_upsert,
-                ref,
-                note,
-                expected_revision=rev,
-            )
-            if self._notes_changed is not None:
-                await self._notes_changed(session)
+    @_rpc("session/open")
+    async def _rpc_session_open(
+        self, params: JsonObject, after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        raw_prompt = params.get("promptIndex")
+        prompt_index = None if raw_prompt is None else json_as_int(raw_prompt)
+        session = self._session(params)
+        opened = True
+        if self._open_session is not None:
+            opened = bool(await self._open_session(session, prompt_index))
+        if opened:
             after_send.append(
                 (
-                    "notes/changed",
-                    {
-                        "sessionId": session.name,
-                        "revision": json_as_str(result.get("revision")),
-                    },
+                    NOTIFY_SESSION_SELECTED,
+                    {"sessionId": session.name, "promptIndex": prompt_index},
                 )
             )
-            return result
-        if method == "notes/delete":
-            note_id = json_as_str(params.get("noteId")).strip()
-            if not note_id:
-                raise ControlError(-32602, "noteId is required")
-            ref = self._session_ref(params)
-            session = self._session(params)
-            rev = json_as_str(params.get("expectedRevision"))
-            result = await self._access_call(
-                ref,
-                access.notes_delete,
-                ref,
-                note_id,
-                expected_revision=rev,
+        return {"opened": bool(opened)}
+
+    @_rpc("notes/list")
+    async def _rpc_notes_list(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.notes_list, ref)
+
+    @_rpc("notes/upsert")
+    async def _rpc_notes_upsert(
+        self, params: JsonObject, after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        note_raw = params.get("note")
+        if not isinstance(note_raw, dict):
+            raise ControlError(-32602, "note is required")
+        ref = self._session_ref(params)
+        session = self._session(params)
+        note = _note_from_params(as_json_object(note_raw))
+        rev = json_as_str(params.get("expectedRevision"))
+        result = await self._access_call(
+            ref,
+            self._access.notes_upsert,
+            ref,
+            note,
+            expected_revision=rev,
+        )
+        if self._notes_changed is not None:
+            await self._notes_changed(session)
+        after_send.append(
+            (
+                NOTIFY_NOTES_CHANGED,
+                {
+                    "sessionId": session.name,
+                    "revision": json_as_str(result.get("revision")),
+                },
             )
-            if self._notes_changed is not None:
-                await self._notes_changed(session)
-            after_send.append(
-                (
-                    "notes/changed",
-                    {
-                        "sessionId": session.name,
-                        "revision": json_as_str(result.get("revision")),
-                    },
-                )
+        )
+        return result
+
+    @_rpc("notes/delete")
+    async def _rpc_notes_delete(
+        self, params: JsonObject, after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        note_id = json_as_str(params.get("noteId")).strip()
+        if not note_id:
+            raise ControlError(-32602, "noteId is required")
+        ref = self._session_ref(params)
+        session = self._session(params)
+        rev = json_as_str(params.get("expectedRevision"))
+        result = await self._access_call(
+            ref,
+            self._access.notes_delete,
+            ref,
+            note_id,
+            expected_revision=rev,
+        )
+        if self._notes_changed is not None:
+            await self._notes_changed(session)
+        after_send.append(
+            (
+                NOTIFY_NOTES_CHANGED,
+                {
+                    "sessionId": session.name,
+                    "revision": json_as_str(result.get("revision")),
+                },
             )
-            return result
-        if method == "analysis/run":
-            return await self._analysis_run(params)
-        if method == "analysis/status":
-            return await self._analysis_status(params)
-        if method == "session/follow_up":
-            ref = self._session_ref(params)
-            prompt = json_as_str(params.get("prompt"))
-            final = bool(params.get("final"))
-            return await self._access_call(ref, access.session_follow_up, ref, prompt, final=final)
-        if method == "session/done":
-            ref = self._session_ref(params)
-            return await self._access_call(ref, access.session_done, ref)
-        raise ControlError(-32601, "method not found", {"method": method})
+        )
+        return result
+
+    @_rpc("analysis/run")
+    async def _rpc_analysis_run(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        return await self._analysis_run(params)
+
+    @_rpc("analysis/status")
+    async def _rpc_analysis_status(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        return await self._analysis_status(params)
+
+    @_rpc("session/follow_up")
+    async def _rpc_session_follow_up(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        prompt = json_as_str(params.get("prompt"))
+        final = bool(params.get("final"))
+        return await self._access_call(
+            ref, self._access.session_follow_up, ref, prompt, final=final
+        )
+
+    @_rpc("session/done")
+    async def _rpc_session_done(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.session_done, ref)
 
     async def notify(self, method: str, params: JsonObject) -> None:
         """Publish a notification to connected editor clients.
@@ -1058,7 +1145,7 @@ class ControlServer:
     async def publish_session_changed(self, session_dir: Path) -> None:
         """Notify editor clients that a session projection changed."""
         session = Path(session_dir)
-        await self.notify("session/changed", {"sessionId": session.name})
+        await self.notify(NOTIFY_SESSION_CHANGED, {"sessionId": session.name})
 
     async def publish_session_selected(
         self,
@@ -1068,7 +1155,7 @@ class ControlServer:
         """Notify editor clients about the TUI's active session and prompt."""
         session = Path(session_dir)
         await self.notify(
-            "session/selected",
+            NOTIFY_SESSION_SELECTED,
             {"sessionId": session.name, "promptIndex": prompt_index},
         )
 
@@ -1077,7 +1164,7 @@ class ControlServer:
         session = Path(session_dir)
         snapshot = await asyncio.to_thread(notes_snapshot, session)
         await self.notify(
-            "notes/changed",
+            NOTIFY_NOTES_CHANGED,
             {"sessionId": session.name, "revision": snapshot.revision},
         )
 

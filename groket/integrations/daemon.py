@@ -31,6 +31,7 @@ from .control import (
     protocol_compatible,
 )
 from .control_client import ControlClient, is_transient_unix_connect_error
+from .control_contract import NOTIFY_SESSION_CHANGED
 
 logger = logging.getLogger(__name__)
 
@@ -455,7 +456,7 @@ async def serve_control_forever(
         def _catalog_ready() -> None:
             async def _pub() -> None:
                 try:
-                    await server.notify("session/changed", {"sessionId": ""})
+                    await server.notify(NOTIFY_SESSION_CHANGED, {"sessionId": ""})
                 except Exception:
                     logger.debug("publish catalog ready failed", exc_info=True)
 

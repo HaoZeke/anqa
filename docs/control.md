@@ -5,7 +5,8 @@ app](../README.md#terminal-app), [Desktop HUD](../README.md#desktop-hud),
 [Emacs](../README.md#emacs), and [Neovim](../README.md#neovim-09) — attach
 and talk JSON-RPC 2.0. They never bind the socket.
 
-Implementation: `groket/integrations/control.py` (owner),
+Implementation: `groket/integrations/control_contract.py` (contract),
+`groket/integrations/control.py` (owner),
 `groket/integrations/daemon.py` (`groket serve`),
 `groket/integrations/control_client.py` (Python attach).
 
@@ -39,8 +40,8 @@ groket -s /path/to/control.sock
 ## Framing
 
 JSON-RPC 2.0, protocol version **1.0.0** (`initialize` with
-`protocolVersion: "1.0.0"`). Same major is compatible: a newer client
-keeps a live owner of that major. A major bump is the only
+`protocolVersion: "1.0.0"`). Same major is compatible: a newer
+client keeps a live owner of that major. A major bump is the only
 backwards-incompatible change; older clients fail `initialize`. Two
 frames on the same socket:
 
@@ -61,7 +62,7 @@ The owner accepts either and replies in the same frame the client used.
 | `session/list` | Catalog page (see below) |
 | `session/get` | Session meta (status, context, counts, notes revision) |
 | `session/overview` | Meta + turns + notes (no embedded event list). Turns include `subagentRuns`. |
-| `session/timeline` | Paged events (`offset`, `limit`, `type`, `promptIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats. |
+| `session/timeline` | Paged events (`offset`, `limit`, `type`, `kind`, `query`, `promptIndex`, `aroundIndex`, `atIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats. |
 | `session/turns` | Turn segments plus `subagentRuns` (turn-scoped child runs; `openable` + `childPath`). |
 | `session/usage` | Tool / MCP / skill usage |
 | `session/findings` | Cached analysis findings |
@@ -78,14 +79,15 @@ The owner accepts either and replies in the same frame the client used.
 
 ### `session/list`
 
-`query` is a case-insensitive substring over id, title, label, model,
-status, outcome, and origin (not the filesystem path). Optional `limit`
-and `offset` page the filtered rows; omit `offset` for the first page.
-Optional `sinceRevision` matching the owner’s `revision` returns no rows
-(`unchanged`). When the client is behind, the owner may send a `delta`
-(upserted rows plus `removed` ids). Result includes `sessions`, `total`,
-`matched`, and `revision`. Clients that need the full catalog drain pages
-until `matched` on first paint only.
+`query` is a case-insensitive substring over id, title, label,
+model, status, outcome, and origin (not the filesystem path).
+Optional `limit` and `offset` page the filtered rows; omit
+`offset` for the first page. Optional `sinceRevision` matching
+the owner’s `revision` returns no rows (`unchanged`). When the
+client is behind, the owner may send a `delta` (upserted rows
+plus `removed` ids). Result includes `sessions`, `total`,
+`matched`, and `revision`. Clients that need the full catalog
+drain pages until `matched` on first paint only.
 
 ### `session/render`
 
@@ -97,9 +99,10 @@ until `matched` on first paint only.
 
 ### Notes revision
 
-Every `notes/upsert` and `notes/delete` sends `expectedRevision`. A
-mismatch is a conflict; the client reloads and retries. Canonical store
-is `operator_notes.toml` (host sessions under `~/.groket/notes/`).
+Every `notes/upsert` and `notes/delete` sends `expectedRevision`.
+A mismatch is a conflict; the client reloads and retries.
+Canonical store is `operator_notes.toml` (host sessions under
+`~/.groket/notes/`).
 
 ## Notifications
 

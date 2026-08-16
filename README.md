@@ -159,7 +159,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
 | j / k | browser | Previous / next event on the Timeline (also Up / Down) |
 | v | browser | Timeline filter (Subagents lists spawn/finish) |
-| Tail | browser / HUD | Follow new events to the end while a turn is open. Off keeps the highlight still. |
+| Tail | browser / HUD | Follow new events to the end while a turn is open (terminal and HUD). Off keeps the highlight still. |
 | Enter | browser | Full-width event (Esc back to the list); or open a child from a spawn/finish row |
 | i | browser | Jump to Findings |
 | f | browser | Flag this event |
@@ -316,7 +316,8 @@ groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
 
 Schemas: [tasks](https://indynull.github.io/groket/schemas/tasks.schema.json),
 [rules](https://indynull.github.io/groket/schemas/rules.schema.json),
-[config](https://indynull.github.io/groket/schemas/config.schema.json).
+[config](https://indynull.github.io/groket/schemas/config.schema.json),
+[control](https://indynull.github.io/groket/schemas/control.schema.json).
 
 ## Examples
 
