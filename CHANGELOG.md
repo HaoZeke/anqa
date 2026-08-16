@@ -22,6 +22,8 @@ is tagged.
 - Session waits use the toolkit loading readout (Textual LoadingIndicator
   and widget loading; HUD indeterminate progress) instead of a lone
   sentence.
+- Diff file lists use the toolkit tree (Textual Tree; HUD tree_view),
+  not an indented path dump.
 - Opening a Timeline event (terminal and HUD) asks for the owner’s
   50,000-character ceiling, including the paired tool result.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab

@@ -1,5 +1,10 @@
 //! Collapsed directory tree rows for Diff file lists.
 
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+
+use icedtea::collection::TreeNode;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffTreeRow {
     pub kind: DiffTreeKind,
@@ -114,6 +119,58 @@ fn collapse<'a>(mut node: &'a Node, name: &str) -> (String, &'a Node) {
     (parts.join("/"), node)
 }
 
+pub fn path_id(path: &str) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    h.finish()
+}
+
+/// icedtea [`TreeNode`] for Diff files. Directories start expanded unless
+/// *collapsed* contains their [`path_id`].
+pub fn file_tree(
+    paths: impl IntoIterator<Item = impl AsRef<str>>,
+    collapsed: &HashSet<u64>,
+) -> TreeNode {
+    let rows = tree_rows(paths);
+    let mut root = TreeNode::branch(0, "files", Vec::new());
+    for row in rows {
+        let id = path_id(&row.path);
+        let node = match row.kind {
+            DiffTreeKind::Dir => TreeNode {
+                id,
+                label: row.label,
+                expanded: !collapsed.contains(&id),
+                children: Vec::new(),
+                dir: true,
+            },
+            DiffTreeKind::File => TreeNode::leaf(id, row.label),
+        };
+        insert_at_depth(&mut root, row.depth, node);
+    }
+    root
+}
+
+pub fn file_path_for_id(
+    paths: impl IntoIterator<Item = impl AsRef<str>>,
+    id: u64,
+) -> Option<String> {
+    tree_rows(paths).into_iter().find_map(|row| {
+        (row.kind == DiffTreeKind::File && path_id(&row.path) == id).then_some(row.path)
+    })
+}
+
+fn insert_at_depth(parent: &mut TreeNode, depth: usize, node: TreeNode) {
+    if depth == 0 {
+        parent.children.push(node);
+        return;
+    }
+    let last = parent
+        .children
+        .last_mut()
+        .expect("dir row precedes children");
+    insert_at_depth(last, depth - 1, node);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +208,20 @@ mod tests {
         assert_eq!(
             tree_rows(["src/a.py"]),
             vec![row(DiffTreeKind::File, "src/a.py", 0, "src/a.py")]
+        );
+    }
+
+    #[test]
+    fn file_tree_nests_under_dir() {
+        let root = file_tree(["src/a.py", "src/b.py"], &HashSet::new());
+        assert_eq!(root.children.len(), 1);
+        assert!(root.children[0].dir);
+        assert_eq!(root.children[0].label, "src/");
+        assert_eq!(root.children[0].children.len(), 2);
+        let id = path_id("src/a.py");
+        assert_eq!(
+            file_path_for_id(["src/a.py", "src/b.py"], id).as_deref(),
+            Some("src/a.py")
         );
     }
 

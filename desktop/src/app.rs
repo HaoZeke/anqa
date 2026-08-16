@@ -163,6 +163,8 @@ pub enum Message {
     },
     DiffQuery(String),
     SelectDiffFile(String),
+    DiffTreeToggle(u64),
+    DiffTreeSelect(u64),
     DiffPointPicked(DiffPointPick),
     DiffContext(DiffContext),
     /// Turns card: open Diff on the snapshot for this prompt, if any.
@@ -342,6 +344,7 @@ pub struct Hud {
     diff_gen: u64,
     diff_point: String,
     diff_file: String,
+    diff_tree_collapsed: HashSet<u64>,
     diff_query: String,
     diff_hit_line: Option<usize>,
     diff_search_id: Id,
@@ -487,6 +490,7 @@ impl Default for Hud {
             diff_gen: 0,
             diff_point: String::new(),
             diff_file: String::new(),
+            diff_tree_collapsed: HashSet::new(),
             diff_query: String::new(),
             diff_hit_line: None,
             diff_search_id: Id::new("diff-search"),
@@ -961,6 +965,24 @@ impl Hud {
             Message::SelectDiffFile(path) => {
                 self.diff_file = path;
                 self.refresh_diff_hit();
+                Task::none()
+            }
+            Message::DiffTreeToggle(id) => {
+                if !self.diff_tree_collapsed.remove(&id) {
+                    self.diff_tree_collapsed.insert(id);
+                }
+                Task::none()
+            }
+            Message::DiffTreeSelect(id) => {
+                let paths: Vec<String> = self
+                    .visible_diff_files()
+                    .iter()
+                    .map(|f| f.path.clone())
+                    .collect();
+                if let Some(path) = crate::diff_tree::file_path_for_id(&paths, id) {
+                    self.diff_file = path;
+                    self.refresh_diff_hit();
+                }
                 Task::none()
             }
             Message::DiffPointPicked(pick) => {
@@ -2327,6 +2349,10 @@ impl Hud {
 
     pub fn diff_file(&self) -> &str {
         &self.diff_file
+    }
+
+    pub fn diff_tree_collapsed(&self) -> &HashSet<u64> {
+        &self.diff_tree_collapsed
     }
 
     pub fn diff_point_key(&self) -> &str {

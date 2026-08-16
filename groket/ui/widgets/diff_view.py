@@ -6,18 +6,26 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
+from textual.widgets import Input, Select, Static, TabbedContent, TabPane, Tree
+from textual.widgets.tree import TreeNode
 
 from ...constants import DIFF_TRUNCATE_THRESHOLD
 from ...diff_tree import tree_rows
 from ...session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
-from ..data_table import preserving_cursor, restore_cursor, style_data_table
 from ..fuzzy import filter_diff_hunks, mark_unified_hit
 from ..i18n import t
 from ..panel_render import md_content
 from ..render_detail import set_static_renderable
 from ..selectable_static import SelectableStatic
 from .controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
+
+
+def _tree_nodes(node: TreeNode[tuple[str, str]]) -> list[TreeNode[tuple[str, str]]]:
+    out: list[TreeNode[tuple[str, str]]] = []
+    for child in node.children:
+        out.append(child)
+        out.extend(_tree_nodes(child))
+    return out
 
 
 def _point_label(point: DiffPoint, index: int) -> str:
@@ -63,14 +71,13 @@ class DiffView(Vertical):
             yield Input(placeholder=t("diff-search-placeholder"), id="diff-search")
         with Horizontal(id="diff-layout"):
             with Vertical(id="diff-files"):
-                yield DataTable(id="diff-file-list")
+                tree: Tree[tuple[str, str]] = Tree("Files", id="diff-file-list")
+                tree.show_root = False
+                yield tree
             with VerticalScroll(id="diff-scroll"):
                 yield SelectableStatic(id="diff-content")
 
     def on_mount(self) -> None:
-        table = self.query_one("#diff-file-list", DataTable)
-        style_data_table(table)
-        table.add_columns(t("col-file"))
         self._paint()
 
     def set_doc(self, doc: WorkspaceDiff) -> None:
@@ -179,20 +186,33 @@ class DiffView(Vertical):
         return tuple(ordered)
 
     def _fill_files(self) -> None:
-        table = self.query_one("#diff-file-list", DataTable)
+        tree = self.query_one("#diff-file-list", Tree)
         files = self._visible_files()
-        with preserving_cursor(table):
-            table.clear()
-            for row in tree_rows([h.path for h in files]):
-                face = f"{'  ' * row.depth}{row.label}"
-                if row.kind == "dir":
-                    table.add_row(Text(face, style="dim"), key=f"dir:{row.path}")
-                else:
-                    table.add_row(face, key=row.path)
+        tree.clear()
+        tree.show_root = False
+        stack = [tree.root]
+        select_node = None
+        for row in tree_rows([h.path for h in files]):
+            while len(stack) > row.depth + 1:
+                stack.pop()
+            parent = stack[-1]
+            if row.kind == "dir":
+                node = parent.add(row.label, data=("dir", row.path), expand=True)
+                stack.append(node)
+                continue
+            node = parent.add_leaf(row.label, data=("file", row.path))
+            if self._file_key == row.path:
+                select_node = node
         if files:
             keep = self._file_key if any(h.path == self._file_key for h in files) else files[0].path
             self._file_key = keep
-            restore_cursor(table, keep, scroll=True)
+            if select_node is None or select_node.data != ("file", keep):
+                select_node = next(
+                    (n for n in _tree_nodes(tree.root) if n.data == ("file", keep)),
+                    None,
+                )
+            if select_node is not None:
+                tree.select_node(select_node)
         else:
             self._file_key = None
 
@@ -280,15 +300,14 @@ class DiffView(Vertical):
         self._paint_context()
         self._paint_body()
 
-    @on(DataTable.RowHighlighted, "#diff-file-list")
-    def _on_file_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    @on(Tree.NodeHighlighted, "#diff-file-list")
+    def _on_file_highlighted(self, event: Tree.NodeHighlighted[tuple[str, str]]) -> None:
         if self._syncing:
             return
-        if event.row_key is None or event.row_key.value is None:
+        data = event.node.data
+        if data is None or data[0] != "file":
             return
-        key = str(event.row_key.value)
-        if key.startswith("dir:"):
-            return
+        key = data[1]
         if key == self._file_key:
             return
         self._file_key = key

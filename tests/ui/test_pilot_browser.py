@@ -788,11 +788,11 @@ async def test_browser_diff_tab(tmp_path: Path) -> None:
         screen._update_diff_tab()
         await pilot.pause()
         from groket.ui.widgets.diff_view import DiffView
-        from textual.widgets import DataTable
+        from textual.widgets import Tree
 
         view = screen.query_one("#diff-view", DiffView)
-        table = view.query_one("#diff-file-list", DataTable)
-        assert table.row_count == 0
+        tree = view.query_one("#diff-file-list", Tree)
+        assert len(tree.root.children) == 0
         assert view.selected_plain() == ""
 
 
@@ -819,21 +819,20 @@ async def test_browser_diff_file_list_shows_rewind_files(tmp_path: Path) -> None
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
         from groket.ui.widgets.diff_view import DiffView
-        from textual.widgets import DataTable
+        from textual.widgets import Tree
 
         view = screen.query_one("#diff-view", DiffView)
-        table = view.query_one("#diff-file-list", DataTable)
+        tree = view.query_one("#diff-file-list", Tree)
         await wait_until(
             pilot,
-            lambda: table.row_count == 2,
-            description="diff file list has two changed paths",
+            lambda: len(tree.root.children) == 2,
+            description="diff file tree has two changed paths",
         )
-        paths = {str(table.get_row_at(i)[0]) for i in range(table.row_count)}
-        assert paths == {"added.py", "app.py"}
-        assert len(table.get_row_at(0)) == 1
-        table.move_cursor(row=0, animate=False)
+        labels = {str(n.label) for n in tree.root.children}
+        assert labels == {"added.py", "app.py"}
+        tree.select_node(tree.root.children[0])
         await pilot.pause()
-        first = str(table.get_row_at(0)[0])
+        first = str(tree.root.children[0].label)
         assert first in view.selected_plain()
 
 
@@ -860,18 +859,20 @@ async def test_browser_diff_file_list_groups_nested_paths(tmp_path: Path) -> Non
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
         from groket.ui.widgets.diff_view import DiffView
-        from textual.widgets import DataTable
+        from textual.widgets import Tree
 
         view = screen.query_one("#diff-view", DiffView)
-        table = view.query_one("#diff-file-list", DataTable)
+        tree = view.query_one("#diff-file-list", Tree)
         await wait_until(
             pilot,
-            lambda: table.row_count == 3,
-            description="dir header plus two files",
+            lambda: bool(tree.root.children),
+            description="diff file tree has rows",
         )
-        keys = {str(key.value) for key in table.rows}
-        assert keys == {"dir:src/", "src/app.py", "src/extra.py"}
-        assert "src/" in str(table.get_row_at(0)[0])
+        dir_node = tree.root.children[0]
+        assert str(dir_node.label) == "src/"
+        assert dir_node.data == ("dir", "src/")
+        files = {str(n.label) for n in dir_node.children}
+        assert files == {"app.py", "extra.py"}
 
 
 @pytest.mark.asyncio
@@ -909,10 +910,10 @@ async def test_browser_diff_search_filters_path_and_body(tmp_path: Path) -> None
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
         from groket.ui.widgets.diff_view import DiffView
-        from textual.widgets import DataTable, Input
+        from textual.widgets import Input, Tree
 
         view = screen.query_one("#diff-view", DiffView)
-        table = view.query_one("#diff-file-list", DataTable)
+        tree = view.query_one("#diff-file-list", Tree)
         await wait_until(
             pilot,
             lambda: view.can_step_point() is True,
@@ -925,7 +926,7 @@ async def test_browser_diff_search_filters_path_and_body(tmp_path: Path) -> None
         search.value = "zeta"
         await wait_until(
             pilot,
-            lambda: table.row_count == 1 and str(table.get_row_at(0)[0]) == "zeta.py",
+            lambda: len(tree.root.children) == 1 and str(tree.root.children[0].label) == "zeta.py",
             description="path query keeps zeta.py",
         )
         assert "zeta.py" in view.selected_plain()

@@ -1830,52 +1830,21 @@ fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
         ));
     } else {
         let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
-        for row in crate::diff_tree::tree_rows(paths) {
-            let face = format!("{}{}", "  ".repeat(row.depth), row.label);
-            if row.kind == crate::diff_tree::DiffTreeKind::Dir {
-                list = list.push(
-                    container(
-                        text(face)
-                            .size(typo::META)
-                            .color(tea.muted)
-                            .width(Length::Fill)
-                            .wrapping(iced::widget::text::Wrapping::None),
-                    )
-                    .padding(Padding {
-                        top: 5.0,
-                        right: 8.0,
-                        bottom: 5.0,
-                        left: 8.0,
-                    })
-                    .width(Length::Fill)
-                    .clip(true),
-                );
-                continue;
-            }
-            let selected = row.path == hud.diff_file();
-            let path = row.path.clone();
-            list = list.push(
-                mouse_area(
-                    container(
-                        text(face)
-                            .size(typo::META)
-                            .color(tea.text)
-                            .width(Length::Fill)
-                            .wrapping(iced::widget::text::Wrapping::None),
-                    )
-                    .padding(Padding {
-                        top: 5.0,
-                        right: 8.0,
-                        bottom: 5.0,
-                        left: 8.0,
-                    })
-                    .width(Length::Fill)
-                    .clip(true)
-                    .style(move |_| icedtea::style::list_row(tea, selected)),
-                )
-                .on_press(Message::SelectDiffFile(path)),
-            );
-        }
+        let root = crate::diff_tree::file_tree(paths, hud.diff_tree_collapsed());
+        let selected = if hud.diff_file().is_empty() {
+            None
+        } else {
+            Some(crate::diff_tree::path_id(hud.diff_file()))
+        };
+        list = list.push(icedtea::widget::tree_view(
+            &root,
+            selected,
+            None,
+            Message::DiffTreeToggle,
+            Message::DiffTreeSelect,
+            tea,
+            A11y::new("Diff files", Role::Tree),
+        ));
     }
     let unified = hud
         .current_diff_point()
@@ -3002,7 +2971,7 @@ mod tests {
         assert!(prod.contains("fn diff_chrome"));
         assert!(prod.contains("fn diff_context_body"));
         assert!(prod.contains("fn diff_split"));
-        assert!(prod.contains("icedtea::style::list_row"));
+        assert!(prod.contains("widget::tree_view"));
         assert!(prod.contains("fn diff_search"));
         assert!(prod.contains("Message::DiffPointPicked"));
         assert!(prod.contains("chat_md_body(src, 8000, tea)"));
