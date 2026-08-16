@@ -12,6 +12,7 @@ them. Copy into `~/.groket/` or pass paths explicitly. Nothing under
 | [`tasks/`](tasks/) | Batch task catalogs | `groket batch -t <file>` |
 | [`personas/`](personas/) | Persona JSON (e.g. marketplace plugins) | `~/.groket/personas/` |
 | [`notes/`](notes/) | Operator notes schema TOML (field list) | `~/.groket/notes_schema.toml` |
+| [`keys/`](keys/) | Key overlay (`colemak.toml`) | `~/.groket/keys.toml` |
 
 ## Start here
 
@@ -59,4 +60,5 @@ just examples-check   # or: uv run python scripts/check_examples.py
 
 Validates: rule/task YAML schemas, detector registration vs rule `detector:`
 fields, analysis plugin import/instantiate, sample config plugin entries,
-persona JSON, pack READMEs. Part of `just ci`.
+persona JSON, keys overlays (`groket keys --check`), pack READMEs. Part of
+`just ci`.

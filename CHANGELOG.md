@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- The `examples/keys` pack is listed with the other reference packs.
+  Colemak notes that `y` copy, `/` search, and `h`/`l` plus Left/Right
+  turns stay on catalog defaults.
 - Desktop analysis-failed notices use the analysis job state. A failed
   job is not treated as a session `cancelled` label.
 - HUD Diff hunks are selectable (drag or `y`). Search marks the matching

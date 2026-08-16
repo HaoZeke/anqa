@@ -1,7 +1,11 @@
 # Key overlay examples
 
 Copy a map to `~/.groket/keys.toml` (or point `GROKET_KEYS` at the file).
-The file is diffs only: omitted ids keep catalog defaults.
+The file is diffs only: omitted ids keep catalog defaults, including
+`y` (copy the selection, the finding, or the pane), `/` (search), and
+`h`/`l` plus Left/Right (Timeline turns and Diff snapshots). Left/Right
+are not remapped: they are not letters. Next-turn is not `i` (Colemak
+physical L) because Findings already uses `i` on the browser.
 
 ```bash
 mkdir -p ~/.groket
@@ -10,8 +14,9 @@ uv run groket keys --check
 ```
 
 `colemak.toml` is a home-row nav map plus leader verbs, not a full
-layout emulator. Space stays select. `g` stays HUD Turns to Timeline.
-The recommended leader is `;`. Product default is no leader.
+layout emulator. `n`/`e` move the list; follow-up and Done are `; n`
+and `; e`. Space stays select. `g` stays HUD Turns to Timeline. The
+recommended leader is `;`. Product default is no leader.
 
 A bad overlay is refused in full (`groket keys --check` exits 1) and
 the catalog defaults stay active. The TUI and HUD both apply a valid
