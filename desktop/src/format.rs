@@ -110,6 +110,18 @@ pub fn fmt_duration(secs: f64) -> String {
     format!("{h}h{m:02}m")
 }
 
+/// Duration chip for session chrome. Hidden when the session has no elapsed time.
+pub fn session_duration_chip(seconds: f64, display: &str) -> String {
+    if seconds <= 0.0 {
+        return String::new();
+    }
+    let shown = display.trim();
+    if !shown.is_empty() && shown != "—" {
+        return shown.to_string();
+    }
+    fmt_duration(seconds)
+}
+
 /// ISO-ish created stamp for Overview (TUI Summary style).
 pub fn short_created(iso: &str) -> String {
     let s = iso.trim();
@@ -1605,6 +1617,15 @@ mod tests {
         assert_eq!(fmt_duration(12.0), "12s");
         assert_eq!(fmt_duration(125.0), "2m05s");
         assert_eq!(fmt_duration(3840.0), "1h04m");
+    }
+
+    #[test]
+    fn session_duration_chip_hides_zero_and_prefers_display() {
+        assert_eq!(session_duration_chip(0.0, "<1s"), "");
+        assert_eq!(session_duration_chip(0.0, ""), "");
+        assert_eq!(session_duration_chip(12.0, ""), "12s");
+        assert_eq!(session_duration_chip(12.0, "—"), "12s");
+        assert_eq!(session_duration_chip(125.0, "2m05s"), "2m05s");
     }
 
     #[test]

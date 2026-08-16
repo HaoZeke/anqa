@@ -23,9 +23,9 @@ use crate::format::{
     format_note_time, format_tool_display, human_event_type_label, image_result_path,
     is_chat_message, is_tool_identity, list_event_detail, list_status_label, looks_like_markdown,
     message_markdown_source, note_fields_view, origin_label, overview_fields, path_hint_from_raw,
-    sanitize_console_text, status_tone, syntax_for_tool_field, syntax_for_tool_output,
-    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_brand_role,
-    tool_fields_from_raw, BodyPaint, BrandRole, ToolField,
+    sanitize_console_text, session_duration_chip, status_tone, syntax_for_tool_field,
+    syntax_for_tool_output, timeline_body_text, timeline_count_caption, timeline_query_hit,
+    tool_brand_role, tool_fields_from_raw, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -207,6 +207,36 @@ fn session_state_row(
         chips = chips.push(status_chip(duration.trim().to_string(), "", tea));
     }
     chips.into()
+}
+
+fn session_state_from_row(
+    row: &crate::model::SessionRow,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let taken = session_duration_chip(row.duration_seconds, "");
+    session_state_row(
+        &row.status_label(),
+        &row.model,
+        &row.origin,
+        &taken,
+        false,
+        tea,
+    )
+}
+
+fn session_state_from_meta(
+    meta: &crate::wire::SessionMeta,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let taken = session_duration_chip(meta.duration_seconds, &meta.duration);
+    session_state_row(
+        &meta.status_label(),
+        &meta.model,
+        &meta.origin,
+        &taken,
+        meta.is_subagent(),
+        tea,
+    )
 }
 
 fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -506,23 +536,14 @@ fn session_list_card(
     selected: bool,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let status = row.status_label();
-    let taken = if row.duration_seconds > 0.0 {
-        fmt_duration(row.duration_seconds)
-    } else {
-        String::new()
-    };
     let title = text(row.display_title().to_string())
         .size(typo::BODY)
         .font(if selected { typo::UI_BOLD } else { typo::UI })
         .color(tea.text)
         .width(Length::Fill);
-    let mut body = column![
-        title,
-        session_state_row(&status, &row.model, &row.origin, &taken, false, tea),
-    ]
-    .spacing(4)
-    .width(Length::Fill);
+    let mut body = column![title, session_state_from_row(row, tea),]
+        .spacing(4)
+        .width(Length::Fill);
     let ctx = row.context_usage_compact.trim();
     if !ctx.is_empty() {
         body = body.push(text(ctx.to_string()).size(typo::META).color(tea.muted));
@@ -674,19 +695,7 @@ fn browse_session_bar<'a>(
     .align_y(Alignment::Center)
     .width(Length::Fill);
     if let Some(o) = hud.overview() {
-        let taken = if o.meta.duration.is_empty() {
-            fmt_duration(o.meta.duration_seconds)
-        } else {
-            o.meta.duration.clone()
-        };
-        row = row.push(session_state_row(
-            &status,
-            &o.meta.model,
-            &o.meta.origin,
-            &taken,
-            o.meta.is_subagent(),
-            tea,
-        ));
+        row = row.push(session_state_from_meta(&o.meta, tea));
     } else if !status.is_empty() {
         row = row.push(session_state_row(&status, "", "", "", false, tea));
     }
@@ -789,22 +798,9 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     if summary.is_empty() {
         summary = "No summary text for this session.".into();
     }
-    let status = meta.status_label();
-    let taken = if meta.duration.is_empty() {
-        fmt_duration(meta.duration_seconds)
-    } else {
-        meta.duration.clone()
-    };
     let tok = tea;
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
-    let status_row = session_state_row(
-        &status,
-        &meta.model,
-        &meta.origin,
-        &taken,
-        meta.is_subagent(),
-        tea,
-    );
+    let status_row = session_state_from_meta(meta, tea);
     let mut col = column![
         text(title.clone())
             .size(typo::TITLE)
@@ -2925,6 +2921,8 @@ mod tests {
         assert!(prod.contains("BadgeSize::Small"));
         assert!(prod.contains("fn session_list_card"));
         assert!(prod.contains("fn session_state_row"));
+        assert!(prod.contains("fn session_state_from_row"));
+        assert!(prod.contains("fn session_state_from_meta"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(!prod.contains("RowFace::Card"));
         assert!(!prod.contains("fn tea_two_line"));
@@ -2958,8 +2956,24 @@ mod tests {
             .split("fn intern_md")
             .next()
             .expect("overview body");
-        assert!(overview.contains("session_state_row("));
+        assert!(overview.contains("session_state_from_meta("));
         assert!(!overview.contains("\"{} · {} · {}\""));
+        let cards = prod
+            .split("fn session_list_card")
+            .nth(1)
+            .expect("session_list_card")
+            .split("fn detail_pane")
+            .next()
+            .expect("card body");
+        assert!(cards.contains("session_state_from_row("));
+        let bar = prod
+            .split("fn browse_session_bar")
+            .nth(1)
+            .expect("browse_session_bar")
+            .split("fn timeline_filter")
+            .next()
+            .expect("bar body");
+        assert!(bar.contains("session_state_from_meta("));
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("event.{}.in.{}"));
         assert!(prod.contains("icedtea::widget::image_slot"));

@@ -911,6 +911,12 @@ pub fn patch_list_row_from_meta(rows: &mut [SessionRow], session_id: &str, meta:
     if !meta.model.is_empty() {
         row.model = meta.model.clone();
     }
+    if !meta.origin.is_empty() {
+        row.origin = meta.origin.clone();
+    }
+    if meta.duration_seconds > 0.0 {
+        row.duration_seconds = meta.duration_seconds;
+    }
     if !meta.outcome.is_empty() {
         row.outcome = meta.outcome.clone();
         row.status = crate::format::list_status_label(&row.status, &row.outcome);
@@ -923,7 +929,7 @@ pub fn patch_list_row_from_meta(rows: &mut [SessionRow], session_id: &str, meta:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::{TimelineEvent, TurnRow, TurnsBlock};
+    use crate::wire::{SessionMeta, TimelineEvent, TurnRow, TurnsBlock};
 
     fn ev(index: i64, kind: &str, content: &str) -> TimelineEvent {
         TimelineEvent {
@@ -1734,5 +1740,26 @@ mod tests {
         patch_list_row_from_meta(&mut rows, "sess-wire", &ov.meta);
         assert_eq!(rows[0].status, "running");
         assert_eq!(rows[0].title, "View session");
+        assert_eq!(rows[0].origin, "work");
+    }
+
+    #[test]
+    fn patch_list_row_copies_origin_and_duration() {
+        let mut rows = vec![SessionRow {
+            session_id: "s1".into(),
+            ..SessionRow::default()
+        }];
+        let meta = SessionMeta {
+            origin: "host".into(),
+            duration_seconds: 125.0,
+            model: "grok-4".into(),
+            status: "complete".into(),
+            ..SessionMeta::default()
+        };
+        patch_list_row_from_meta(&mut rows, "s1", &meta);
+        assert_eq!(rows[0].origin, "host");
+        assert_eq!(rows[0].duration_seconds, 125.0);
+        assert_eq!(rows[0].model, "grok-4");
+        assert_eq!(rows[0].status, "complete");
     }
 }
