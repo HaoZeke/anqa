@@ -8,9 +8,11 @@ is tagged.
 - Terminal session open paints Timeline first; Summary and Report fill
   when those panes are opened. Attached control loads the first event
   page, then appends the rest. Timeline search applies after a short
-  idle. Live control refresh fetches only new events. A Tail checkbox
-  on a live Timeline follows the last event; off leaves the highlight
-  still.
+  idle. Live control refresh fetches only new events. A Tail control
+  on a live Timeline (checkbox on both surfaces) follows the last
+  event; off leaves the highlight still. HUD Tail jumps to the last
+  event page so a large session is not stuck on the first window. The
+  “more events” line stays off at that end.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
   changes fade; opening and closing a session or event push and pop;
   expanders animate height. Motion ticks at display refresh.

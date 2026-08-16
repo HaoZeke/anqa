@@ -519,6 +519,26 @@ pub fn timeline_page_next(page_offset: u32, batch_len: u32, prev_next: u32, adva
     prev_next.max(page_offset.saturating_add(batch_len))
 }
 
+/// Caption under the Timeline list when more owner rows exist.
+///
+/// Hidden when the buffer is complete or already on the last page (Tail).
+pub fn timeline_more_caption(complete: bool, at_end: bool, loading: bool) -> Option<&'static str> {
+    if complete || at_end {
+        return None;
+    }
+    Some(if loading {
+        "Loading more events…"
+    } else {
+        "More events available — scroll or wait"
+    })
+}
+
+/// Owner offset of the last page of *total* events (*limit* rows).
+pub fn last_timeline_page_offset(total: u32, limit: u32) -> u32 {
+    let lim = limit.max(1);
+    total.saturating_sub(lim)
+}
+
 pub fn timeline_coverage_complete(buffered: usize, total: u32) -> bool {
     if total == 0 {
         return buffered == 0;
@@ -1517,6 +1537,30 @@ mod tests {
         assert_eq!(top2, top);
         assert_eq!(&grown[win.start..win.end], shown.as_slice());
         assert_eq!(ids[win.start], shown[0]);
+    }
+
+    #[test]
+    fn timeline_more_caption_hides_at_end() {
+        assert_eq!(
+            timeline_more_caption(false, false, false),
+            Some("More events available — scroll or wait")
+        );
+        assert_eq!(
+            timeline_more_caption(false, false, true),
+            Some("Loading more events…")
+        );
+        assert_eq!(timeline_more_caption(true, false, false), None);
+        assert_eq!(timeline_more_caption(false, true, false), None);
+        assert_eq!(timeline_more_caption(false, true, true), None);
+    }
+
+    #[test]
+    fn last_timeline_page_offset_jumps_to_the_end() {
+        assert_eq!(last_timeline_page_offset(3427, 80), 3347);
+        assert_eq!(last_timeline_page_offset(10, 80), 0);
+        assert_eq!(last_timeline_page_offset(0, 80), 0);
+        assert_eq!(last_timeline_page_offset(80, 80), 0);
+        assert_eq!(last_timeline_page_offset(81, 80), 1);
     }
 
     #[test]

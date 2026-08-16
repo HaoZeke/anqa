@@ -23,16 +23,17 @@ use crate::format::{
 use crate::fuzzy::session_search_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
-    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, list_focus_after_scroll,
-    list_scroll_to_cover, list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index,
-    next_list_offset, next_spotlight_limit, notes_schema_fields, patch_catalog_delta,
-    patch_list_row_from_meta, plan_tick, previous_timeline_page, scroll_after_prepend,
-    session_card_height, session_needs_live_poll, session_row_meta, session_rpc_ref,
-    should_fetch_timeline, should_load_previous_timeline, should_page_recent, spotlight_recent,
-    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, CLOSED_TURN_CARD_H,
-    IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
-    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, last_timeline_page_offset,
+    list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top, merge_catalog_rows,
+    merge_timeline_by_index, next_list_offset, next_spotlight_limit, notes_schema_fields,
+    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
+    scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
+    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
+    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
+    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
+    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT,
+    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
+    TIMELINE_ROW_H,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -78,6 +79,8 @@ pub enum Message {
     /// Events pane turn pick list (`None` key = all turns / search).
     EventsTurnPicked(EventsTurnPick),
     SelectTimeline(i64),
+    /// Follow new Timeline events to the end (live turn only).
+    TimelineTail(bool),
     /// Leave full-pane event detail and return to the timeline list.
     CloseTimelineDetail,
     /// Step full-pane detail by *delta* rows in the current filter (−1 / +1).
@@ -258,6 +261,8 @@ pub struct Hud {
     timeline_search_pending: bool,
     timeline_kind: KindFilter,
     timeline_focus: Option<i64>,
+    /// Follow the last Timeline event while a turn is open.
+    timeline_follow_tail: bool,
     /// Full-pane event detail on Timeline (not an in-list expander).
     timeline_open: Option<i64>,
     /// After a turn-boundary step, open first/last event once the page loads.
@@ -404,6 +409,7 @@ impl Default for Hud {
             timeline_search_pending: false,
             timeline_kind: KindFilter::All,
             timeline_focus: None,
+            timeline_follow_tail: false,
             timeline_open: None,
             detail_turn_edge: None,
             timeline_prompt: None,
@@ -997,6 +1003,23 @@ impl Hud {
                 }
                 self.open_timeline_detail(ix)
             }
+            Message::TimelineTail(on) => {
+                if !self.show_timeline_tail() {
+                    self.timeline_follow_tail = false;
+                    return Task::none();
+                }
+                self.timeline_follow_tail = on;
+                if !on {
+                    return Task::none();
+                }
+                if self.window_covers_timeline_end() {
+                    return self.scroll_timeline_to_end();
+                }
+                if let Some(sid) = self.detail_sid() {
+                    return self.fetch_timeline_end(sid);
+                }
+                self.scroll_timeline_to_end()
+            }
             Message::CloseTimelineDetail => self.close_timeline_detail(),
             Message::TimelineDetailStep(delta) => self.nav_timeline_detail_step(delta),
             Message::TurnsQuery(q) => {
@@ -1254,6 +1277,9 @@ impl Hud {
                         self.overview = Some(ov);
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
+                        if !self.show_timeline_tail() {
+                            self.timeline_follow_tail = false;
+                        }
                         if self.tab == Tab::Turns && self.compact_child_chrome() {
                             self.tab = Tab::Timeline;
                         }
@@ -1394,6 +1420,25 @@ impl Hud {
                         if append && advance && added > 0 && page_off < old_offset {
                             self.tl_window.scroll =
                                 scroll_after_prepend(self.tl_window.scroll, added, TIMELINE_ROW_H);
+                        }
+                        if self.timeline_follow_tail {
+                            if self.window_covers_timeline_end() {
+                                tasks.push(self.scroll_timeline_to_end());
+                            } else {
+                                let want = last_timeline_page_offset(
+                                    self.timeline_owner_total(),
+                                    TIMELINE_CHUNK,
+                                );
+                                let asked_end = self
+                                    .last_timeline
+                                    .as_ref()
+                                    .is_some_and(|r| r.offset == want);
+                                if asked_end {
+                                    tasks.push(self.scroll_timeline_to_end());
+                                } else if let Some(next_sid) = self.detail_sid() {
+                                    tasks.push(self.fetch_timeline_end(next_sid));
+                                }
+                            }
                         }
                         if should_load_previous_timeline(
                             self.tl_window.scroll,
@@ -1635,6 +1680,22 @@ impl Hud {
     }
     pub fn timeline_focus(&self) -> Option<i64> {
         self.timeline_focus
+    }
+    pub fn timeline_follow_tail(&self) -> bool {
+        self.timeline_follow_tail
+    }
+    /// True when Tail should show (a turn is still open).
+    pub fn show_timeline_tail(&self) -> bool {
+        let Some(o) = &self.overview else {
+            return false;
+        };
+        o.meta.turn_in_progress
+            || crate::live::session_needs_live_poll(&o.meta.status_label(), Some(&o.turns))
+    }
+
+    /// True when the loaded window already includes the last owner event.
+    pub fn timeline_at_live_end(&self) -> bool {
+        self.window_covers_timeline_end()
     }
     /// Event index for full-pane Timeline detail, if any.
     pub fn timeline_open(&self) -> Option<i64> {
@@ -2978,6 +3039,9 @@ impl Hud {
             return Task::none();
         };
         // Chrome: pending sid + loading placeholder this frame; body fills async.
+        if sid != self.overview_sid {
+            self.timeline_follow_tail = false;
+        }
         self.overview_pending = sid.clone();
         self.turns_focus = None;
         self.turns_query.clear();
@@ -3134,6 +3198,15 @@ impl Hud {
                     .flat_map(|t| t.subagent_runs.iter())
                     .find(|r| r.child_session_id == child)
             })
+    }
+
+    fn scroll_timeline_to_end(&mut self) -> Task<Message> {
+        if let Some(&src) = self.tl_filter.last() {
+            if let Some(ev) = self.timeline.get(src) {
+                self.timeline_focus = Some(ev.index);
+            }
+        }
+        self.scroll_focus_into_view()
     }
 
     fn scroll_focus_into_view(&mut self) -> Task<Message> {
@@ -3436,21 +3509,31 @@ impl Hud {
             self.tl_filter.clear();
             self.tl_heights.clear();
         }
-        let around = self.restore_around.take().or_else(|| {
-            if self.timeline_query.trim().is_empty() && self.timeline_kind == KindFilter::All {
-                self.timeline_focus
-            } else {
-                None
-            }
-        });
+        let (offset, limit, around) = if self.timeline_follow_tail {
+            let limit = TIMELINE_CHUNK;
+            (
+                last_timeline_page_offset(self.timeline_owner_total(), limit),
+                limit,
+                None,
+            )
+        } else {
+            let around = self.restore_around.take().or_else(|| {
+                if self.timeline_query.trim().is_empty() && self.timeline_kind == KindFilter::All {
+                    self.timeline_focus
+                } else {
+                    None
+                }
+            });
+            (0, 40, around)
+        };
         self.start_timeline(TimelineFetch {
             rpc_ref: self.overview_rpc_ref(),
             sid,
-            offset: 0,
+            offset,
             append: false,
             advance: true,
             gen,
-            limit: 40,
+            limit,
             kind: self.timeline_kind.wire_name().to_string(),
             query: self.timeline_query.clone(),
             around,
@@ -3578,6 +3661,9 @@ impl Hud {
         if self.timeline_sid != sid {
             return Task::none();
         }
+        if self.timeline_follow_tail && !self.window_covers_timeline_end() {
+            return self.fetch_timeline_end(sid);
+        }
         let gen = self.timeline_gen;
         self.start_timeline(TimelineFetch {
             rpc_ref: self.overview_rpc_ref(),
@@ -3587,6 +3673,50 @@ impl Hud {
             advance: true,
             gen,
             limit: LIVE_TAIL_LIMIT,
+            kind: self.timeline_kind.wire_name().to_string(),
+            query: self.timeline_query.clone(),
+            around: None,
+            at_index: None,
+            prompt_index: self.timeline_prompt,
+            content_chars: TIMELINE_PREVIEW_CHARS,
+        })
+    }
+
+    fn timeline_owner_total(&self) -> u32 {
+        if self.timeline_total > 0 {
+            return self.timeline_total;
+        }
+        self.overview
+            .as_ref()
+            .map(|o| o.meta.num_events.max(0) as u32)
+            .unwrap_or(0)
+    }
+
+    fn window_covers_timeline_end(&self) -> bool {
+        let total = self.timeline_owner_total();
+        if total == 0 {
+            return self.timeline_complete();
+        }
+        self.timeline_next >= total && !self.timeline.is_empty()
+    }
+
+    fn fetch_timeline_end(&mut self, sid: String) -> Task<Message> {
+        if self.timeline_search_pending {
+            return Task::none();
+        }
+        let limit = TIMELINE_CHUNK;
+        let offset = last_timeline_page_offset(self.timeline_owner_total(), limit);
+        self.timeline_gen = self.timeline_gen.wrapping_add(1);
+        let gen = self.timeline_gen;
+        self.timeline_loading = true;
+        self.start_timeline(TimelineFetch {
+            rpc_ref: self.overview_rpc_ref(),
+            sid,
+            offset,
+            append: false,
+            advance: true,
+            gen,
+            limit,
             kind: self.timeline_kind.wire_name().to_string(),
             query: self.timeline_query.clone(),
             around: None,
@@ -4906,6 +5036,7 @@ fn fetch_list_page(offset: u32) -> Task<Message> {
 pub(crate) struct LastTimelineReq {
     pub prompt_index: Option<i64>,
     pub around_index: Option<i64>,
+    pub offset: u32,
     pub query: String,
     pub kind: String,
 }
@@ -4932,6 +5063,7 @@ impl Hud {
         self.last_timeline = Some(LastTimelineReq {
             prompt_index: req.prompt_index,
             around_index: req.around.or(req.at_index),
+            offset: req.offset,
             query: req.query.clone(),
             kind: req.kind.clone(),
         });
@@ -6775,6 +6907,7 @@ mod tests {
             last_timeline: Some(LastTimelineReq {
                 prompt_index: Some(1),
                 around_index: None,
+                offset: 0,
                 query: "old".into(),
                 kind: String::new(),
             }),
@@ -7600,6 +7733,121 @@ mod tests {
         let _ = hud.update(Message::TimelineSearchApply(0));
         assert_eq!(hud.timeline_query_draft(), "grep");
         assert_eq!(hud.timeline_query(), "");
+    }
+
+    fn live_overview() -> Overview {
+        Overview {
+            session_id: "s1".into(),
+            meta: crate::wire::SessionMeta {
+                session_id: "s1".into(),
+                path: "/tmp/s1".into(),
+                status: "running".into(),
+                ..crate::wire::SessionMeta::default()
+            },
+            ..Overview::default()
+        }
+    }
+
+    #[test]
+    fn timeline_tail_shows_when_turn_in_progress() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            session_id: "s1".into(),
+            meta: crate::wire::SessionMeta {
+                session_id: "s1".into(),
+                turn_in_progress: true,
+                ..crate::wire::SessionMeta::default()
+            },
+            ..Overview::default()
+        });
+        assert!(hud.show_timeline_tail());
+    }
+
+    #[test]
+    fn timeline_tail_toggle_follows_last_only_when_live() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(0, "a"), ev_json(1, "b"), ev_json(2, "c")],
+            3,
+            0,
+        );
+        hud.timeline_focus = Some(0);
+        let _ = hud.update(Message::TimelineTail(true));
+        assert!(!hud.timeline_follow_tail());
+        assert_eq!(hud.timeline_focus(), Some(0));
+        hud.overview = Some(live_overview());
+        let _ = hud.update(Message::TimelineTail(true));
+        assert!(hud.timeline_follow_tail());
+        assert_eq!(hud.timeline_focus(), Some(2));
+        let _ = hud.update(Message::TimelineTail(false));
+        assert!(!hud.timeline_follow_tail());
+        assert_eq!(hud.timeline_focus(), Some(2));
+    }
+
+    #[test]
+    fn timeline_tail_jumps_to_last_page_on_large_session() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            session_id: "s1".into(),
+            meta: crate::wire::SessionMeta {
+                session_id: "s1".into(),
+                path: "/tmp/s1".into(),
+                status: "running".into(),
+                num_events: 3427,
+                ..crate::wire::SessionMeta::default()
+            },
+            ..Overview::default()
+        });
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(0, "a"), ev_json(1, "b")],
+            3427,
+            0,
+        );
+        hud.timeline_focus = Some(0);
+        assert!(hud.timeline_next < 3427);
+        let _ = hud.update(Message::TimelineTail(true));
+        assert!(hud.timeline_follow_tail());
+        let end_off = hud.last_timeline().expect("end fetch").offset;
+        assert_eq!(end_off, last_timeline_page_offset(3427, TIMELINE_CHUNK));
+        load_page(
+            &mut hud,
+            end_off,
+            false,
+            true,
+            vec![ev_json(3425, "late"), ev_json(3426, "last")],
+            3427,
+            end_off,
+        );
+        assert_eq!(hud.timeline_focus(), Some(3426));
+    }
+
+    #[test]
+    fn timeline_append_keeps_focus_unless_tail() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(live_overview());
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(0, "a"), ev_json(1, "b")],
+            4,
+            0,
+        );
+        hud.timeline_focus = Some(0);
+        load_page(&mut hud, 2, true, true, vec![ev_json(2, "c")], 3, 2);
+        assert_eq!(hud.timeline_focus(), Some(0));
+        hud.timeline_follow_tail = true;
+        load_page(&mut hud, 3, true, true, vec![ev_json(3, "d")], 4, 3);
+        assert_eq!(hud.timeline_focus(), Some(3));
     }
 
     fn ev_json(index: i64, content: &str) -> Value {

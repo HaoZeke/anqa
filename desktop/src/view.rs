@@ -621,6 +621,15 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Filter", Role::ComboBox),
     ));
+    if hud.show_timeline_tail() {
+        picks = picks.push(kit::compact_check(
+            "Tail",
+            hud.timeline_follow_tail(),
+            Message::TimelineTail,
+            tea,
+            A11y::new("Tail", Role::Checkbox).with_checked(hud.timeline_follow_tail()),
+        ));
+    }
     picks = picks
         .push(Space::new().width(Length::Fill))
         .width(Length::Fill);
@@ -1607,18 +1616,17 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         },
         A11y::new("Timeline", Role::List),
     );
-    if hud.timeline_complete() {
+    let more = crate::live::timeline_more_caption(
+        hud.timeline_complete(),
+        hud.timeline_at_live_end(),
+        hud.timeline_loading(),
+    );
+    let Some(caption) = more else {
         return list;
-    }
+    };
     column![
         list,
-        text(if hud.timeline_loading() {
-            "Loading more events…"
-        } else {
-            "More events available — scroll or wait"
-        })
-        .size(typo::META)
-        .color(hud.tokens().muted),
+        text(caption).size(typo::META).color(hud.tokens().muted),
     ]
     .spacing(8)
     .height(Length::Fill)
@@ -2797,6 +2805,10 @@ mod tests {
         assert!(
             filter_src.contains("timeline_count_caption"),
             "empty range must not paint a11y name"
+        );
+        assert!(
+            filter_src.contains("kit::compact_check"),
+            "live Tail checkbox sits on the Timeline filter bar"
         );
         assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
     }
