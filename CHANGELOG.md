@@ -15,13 +15,12 @@ is tagged.
 - Terminal session open paints Timeline first; Summary and Report fill
   when those panes are opened. Attached control loads the first event
   page, then appends the rest. Timeline search applies after a short
-  idle. Live control refresh fetches only new events. A Tail control
-  on a live Timeline (checkbox on both surfaces) follows the last
-  event; off leaves the highlight still. HUD Tail jumps to the last
-  event page so a large session is not stuck on the first window. The
-  “more events” line stays off at that end. Opening a Timeline event
-  (terminal and HUD) asks for the owner’s 50,000-character ceiling,
-  including the paired tool result.
+  idle. Live control refresh fetches only new events.
+- A Tail checkbox on a live Timeline follows the last event; off leaves
+  the highlight still. The HUD jumps to the last event page so a large
+  session is not stuck on the first window.
+- Opening a Timeline event (terminal and HUD) asks for the owner’s
+  50,000-character ceiling, including the paired tool result.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
   changes fade; opening and closing a session or event push and pop;
   expanders animate height. Motion ticks at display refresh.
@@ -30,7 +29,7 @@ is tagged.
 - HUD `?` and the terminal browser footer follow the current pane: Enter
   and list motion on Overview, Turns, and Timeline; turn step on Timeline.
   The HUD footer is keys only. Session running/complete labels are
-  icedtea badges.
+  badges.
 - HUD `?` lists Left and Right next to h and l for Timeline turn step.
 - HUD dropdowns (Snapshot, Timeline turn, Filter) use 12px type and
   tighter padding. Diff Prompt/Assistant tabs are compact in-pane
@@ -43,11 +42,11 @@ is tagged.
   The raw error goes to the log.
 - Terminal Diff lists rewind snapshots and changed files. Prompt and
   Assistant tabs sit above a files and hunk split; the assistant is
-  markdown. Nested paths group as a directory tree. Without rewind points it lists approximate `search_replace`
-  edits. `/` fuzzy-finds path or hunk text; `h`/`l` step snapshots. The
-  HUD Diff pane uses the same layout, with a snapshot dropdown. Switching
-  to the terminal Diff tab paints the snapshot already loaded with the
-  session; it does not parse the timeline again.
+  markdown. Nested paths group as a directory tree. Without rewind
+  points it lists approximate `search_replace` edits. `/` fuzzy-finds
+  path or hunk text; `h`/`l` step snapshots. The HUD Diff pane uses
+  the same layout, with a snapshot dropdown. Switching to the terminal
+  Diff tab paints the snapshot already loaded with the session.
 - Session walk and `updates.jsonl` keep/skip share one `groket._scan`
   extension (`groket.scan`, setuptools-rust, same install as the HUD
   binary). `GROKET_SCAN=0` uses the Python body. Continuous integration
