@@ -5,8 +5,6 @@ is tagged.
 
 ## Unreleased
 
-- Terminal brand pictures: `python brand/ascii.py` prints the rocket;
-  `lockup` and `stacked` add the name; `fly` sends it across the screen.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
   changes fade; opening and closing a session or event push and pop;
   expanders animate height. Motion ticks at display refresh.

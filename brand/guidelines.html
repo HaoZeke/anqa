@@ -82,11 +82,11 @@ are six cells plus a cap; the running bar is four plus a cap.</p>
 <pre class="mono" style="background:#fff;border:1px solid var(--line);padding:16px;border-radius:8px;line-height:1.15;font-size:18px">██████<span style="color:#CC241D">█</span>
 ██████<span style="color:#98971A">█</span>
 ████<span style="color:#D79921">█</span></pre>
-<p>Same file as <span class="mono">small.txt</span> / <span class="mono">svg/groket-small.svg</span>.
+<p>Same picture as <span class="mono">svg/groket-small.svg</span>.
 Do not add gaps between rows. Do not use a rocket emoji or a trigram.</p>
 <h3>One-line caps</h3>
 <p>When only one row exists (prompt, tight chrome), use the three caps with a
-one-cell gap. That is <span class="mono">caps.txt</span>:</p>
+one-cell gap. That is <span class="mono">svg/groket-caps.svg</span>:</p>
 <pre class="mono" style="background:#fff;border:1px solid var(--line);padding:12px 16px;border-radius:8px;font-size:18px"><span style="color:#98971A">█</span> <span style="color:#CC241D">█</span> <span style="color:#D79921">█</span></pre>
 <h3>TUI chrome</h3>
 <p>The TUI header draws the 7×3 small mark at full size (three rows). Do not
@@ -157,8 +157,8 @@ small mark or the two-line compression, never a raster of the rocket.</p>
   <tr><td>HUD search bar, light</td><td><span class="mono">png/groket-mark.png</span> (32px tall)</td></tr>
   <tr><td>HUD search bar, dark</td><td><span class="mono">png/groket-mark-reverse.png</span></td></tr>
   <tr><td>Browser tab</td><td><span class="mono">png/groket-favicon-32.png</span></td></tr>
-  <tr><td>TUI / CLI (3 rows)</td><td><span class="mono">small.txt</span> / <span class="mono">svg/groket-small.svg</span></td></tr>
-  <tr><td>One-line CLI / tight chrome</td><td><span class="mono">caps.txt</span></td></tr>
+  <tr><td>Small mark</td><td><span class="mono">svg/groket-small.svg</span></td></tr>
+  <tr><td>Caps row</td><td><span class="mono">svg/groket-caps.svg</span></td></tr>
   <tr><td>One-colour print</td><td><span class="mono">png/groket-mark-mono.png</span></td></tr>
 </table>
 
@@ -171,8 +171,6 @@ small mark or the two-line compression, never a raster of the rocket.</p>
   fonts/                   ← Fira Sans ExtraBold + OFL
   svg/                     ← geometric mark + small + lockup wrappers
   png/                     ← usable rasters
-  small.txt                ← 7×3 Unicode small mark
-  caps.txt                 ← one-line caps
 </p>
 <p>Wordmark font: <span class="mono">fonts/FiraSans-ExtraBold.ttf</span>. Rebuild: <span class="mono">make brand</span> or <span class="mono">uv run --group brand python brand/build.py</span>. Needs the <span class="mono">brand</span> uv group and <span class="mono">rsvg-convert</span>.</p>
 

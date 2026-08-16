@@ -27,8 +27,6 @@ SVG drawn by `build.py` — not a tracing of the still.
 | HUD search bar (dark) | `png/groket-mark-reverse.png` |
 | TUI header | wordmark + folders when wide + activity |
 | TUI help | three equal slats with status tips |
-| CLI (3 rows) | `small.txt` |
-| One-line caps | `caps.txt` |
 | One-colour print | `png/groket-mark-mono.png` |
 
 Wordmark type is **Fira Sans ExtraBold 800**, tracking −0.04 em,

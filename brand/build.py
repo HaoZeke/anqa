@@ -184,14 +184,6 @@ def small_tile(ink: str, green: str, red: str, yellow: str, tile: int) -> str:
     )
 
 
-def write_small_text() -> None:
-    """Canonical Unicode small mark (same 7×3 grid as the SVG)."""
-    long = "█" * SMALL_LONG + "█"
-    short = "█" * SMALL_SHORT + "█"
-    (ROOT / "small.txt").write_text(f"{long}\n{long}\n{short}\n", encoding="utf-8")
-    (ROOT / "caps.txt").write_text("█ █ █\n", encoding="utf-8")
-
-
 def main() -> None:
     if not SOURCE.is_file():
         raise SystemExit(f"missing approved still: {SOURCE}")
@@ -225,7 +217,6 @@ def main() -> None:
         small_tile(INK, GREEN, RED, YELLOW, 32),
         (32, 32),
     )
-    write_small_text()
     write_svg(
         "groket-app-icon.svg",
         "groket",
