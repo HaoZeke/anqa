@@ -12,7 +12,9 @@ is tagged.
   on a live Timeline (checkbox on both surfaces) follows the last
   event; off leaves the highlight still. HUD Tail jumps to the last
   event page so a large session is not stuck on the first window. The
-  “more events” line stays off at that end.
+  “more events” line stays off at that end. Opening a Timeline event
+  (terminal and HUD) asks for the owner’s 50,000-character ceiling,
+  including the paired tool result.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
   changes fade; opening and closing a session or event push and pop;
   expanders animate height. Motion ticks at display refresh.

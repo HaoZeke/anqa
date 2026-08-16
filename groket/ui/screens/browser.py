@@ -201,6 +201,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._turn_rebuild_sig: tuple[int, int | None] | None = None
         self._detail_debounce: Timer | None = None
         self._search_debounce: Timer | None = None
+        self._detail_expanded: set[int] = set()
+        self._detail_expanding: set[int] = set()
         from ...session.context_samples import ContextSampleStore
 
         self._context_samples = ContextSampleStore()
@@ -1467,6 +1469,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._last_light_fp = None
             self._last_trace_mtime = None
             self._last_signals_mtime = None
+            self._detail_expanded.clear()
+            self._detail_expanding.clear()
             store = getattr(self, "_context_samples", None)
             if store is not None:
                 store.clear()
@@ -3123,14 +3127,22 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _paint_selected_event_detail(self) -> None:
         """Flush debounced detail panel for :attr:`_current_event`."""
         self._detail_debounce = None
+        table = self._show_selected_event_detail()
+        ev = self._current_event
+        if ev is None or table is None:
+            return
+        self._request_event_body_expand(ev, table)
+
+    def _show_selected_event_detail(self) -> TimelineTable | None:
+        """Paint the open-event pane from the current row (no owner fetch)."""
         ev = self._current_event
         if ev is None or not self.is_mounted:
-            return
+            return None
         try:
             detail = self.query_one("#detail-panel", DetailView)
             timeline_table = self.query_one("#timeline-list", TimelineTable)
         except Exception:
-            return
+            return None
         finding = self._findings_by_call.get(ev.tool_call_id)
         duration = timeline_table.durations.get(ev.index)
         flag = self._flags.get(ev.index)
@@ -3143,6 +3155,73 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             paired_result=timeline_table.get_paired_result(ev),
             turn_index=timeline_table.turn_index_for(ev.index),
         )
+        return timeline_table
+
+    def _request_event_body_expand(self, ev: TraceEvent, table: TimelineTable) -> None:
+        """Ask the owner for the open-event body ceiling (one row, plus pair)."""
+        if not self._uses_control_data():
+            return
+        want = {int(ev.index)}
+        partner = table.get_paired_result(ev) or table.get_paired_call(ev)
+        if partner is not None:
+            want.add(int(partner.index))
+        for index in want:
+            if index in self._detail_expanded or index in self._detail_expanding:
+                continue
+            self._detail_expanding.add(index)
+            self._expand_event_body(index)
+
+    @work(thread=True)
+    def _expand_event_body(self, index: int) -> None:
+        import asyncio
+
+        from ...session.wire_timeline import fetch_timeline_event
+
+        ev: TraceEvent | None = None
+        try:
+            access = self._control_access()
+            ref = self._session_control_ref()
+            ev = asyncio.run(fetch_timeline_event(access, ref, index))
+        except (TimeoutError, OSError, ConnectionError, ControlError, RuntimeError, TypeError):
+            logger.debug("open-event body expand failed", exc_info=True)
+        finally:
+            self._detail_expanding.discard(index)
+        if ev is None or not self.is_mounted:
+            return
+        call_ui(resolve_ui_app(self), self._apply_expanded_event, ev)
+
+    def _apply_expanded_event(self, ev: TraceEvent) -> None:
+        """Replace one timeline row with the larger open-event body."""
+        if not self.is_mounted:
+            return
+        idx = int(ev.index)
+        self._detail_expanded.add(idx)
+        for i, old in enumerate(self.timeline or []):
+            if int(old.index) == idx:
+                self.timeline[i] = ev
+                break
+        table: TimelineTable | None
+        try:
+            table = self.query_one("#timeline-list", TimelineTable)
+            for i, old in enumerate(table.events):
+                if int(old.index) == idx:
+                    table.events[i] = ev
+                    break
+            table._build_tool_pairs()
+        except Exception:
+            table = None
+        cur = self._current_event
+        if cur is None:
+            return
+        if int(cur.index) == idx:
+            self._current_event = ev
+            self._show_selected_event_detail()
+            return
+        if table is None:
+            return
+        partner = table.get_paired_result(cur) or table.get_paired_call(cur)
+        if partner is not None and int(partner.index) == idx:
+            self._show_selected_event_detail()
 
     def on_descendant_focus(self, _event) -> None:
         self.refresh_bindings()

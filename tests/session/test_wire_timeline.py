@@ -15,6 +15,7 @@ from groket.session.control_views import (
 from groket.session.wire_timeline import (
     TIMELINE_RPC_CHARS,
     TIMELINE_RPC_LIMIT,
+    fetch_timeline_event,
     fetch_timeline_events,
     fetch_timeline_growth,
     fetch_timeline_page,
@@ -109,6 +110,33 @@ async def test_fetch_timeline_events_pages(tmp_path: Path) -> None:
     events = await fetch_timeline_events(_Local(), "w3", page_limit=1)
     assert len(events) >= 2
     assert any("hello" in (e.content or "") for e in events)
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeline_event_uses_at_index_and_ceiling(tmp_path: Path) -> None:
+    sd = _write_session(tmp_path, "w-one")
+    seen: dict[str, object] = {}
+
+    class _Local:
+        async def session_timeline(self, session: str, **kwargs: object) -> object:
+            seen.update(kwargs)
+            return build_session_timeline(
+                sd,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 1),
+                at_index=kwargs.get("at_index")
+                if isinstance(kwargs.get("at_index"), int)
+                else None,
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    page = build_session_timeline(sd, offset=0, limit=1, content_chars=500)
+    target = int(page["events"][0]["index"])
+    ev = await fetch_timeline_event(_Local(), "w-one", target)
+    assert ev is not None
+    assert ev.index == target
+    assert seen.get("at_index") == target
+    assert seen.get("content_chars") == MAX_CONTENT_CHARS
 
 
 @pytest.mark.asyncio

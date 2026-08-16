@@ -1414,14 +1414,14 @@ impl Hud {
                                 tasks.push(self.scroll_focus_into_view());
                             }
                             if let Some(ix) = self.timeline_open {
-                                tasks.push(self.fetch_open_event(ix));
+                                tasks.push(self.fetch_open_detail_bodies(ix));
                             }
                         }
                         if append && advance && added > 0 && page_off < old_offset {
                             self.tl_window.scroll =
                                 scroll_after_prepend(self.tl_window.scroll, added, TIMELINE_ROW_H);
                         }
-                        if self.timeline_follow_tail {
+                        if advance && self.timeline_follow_tail {
                             if self.window_covers_timeline_end() {
                                 tasks.push(self.scroll_timeline_to_end());
                             } else {
@@ -1440,11 +1440,13 @@ impl Hud {
                                 }
                             }
                         }
-                        if should_load_previous_timeline(
-                            self.tl_window.scroll,
-                            self.timeline_offset,
-                            false,
-                        ) {
+                        if advance
+                            && should_load_previous_timeline(
+                                self.tl_window.scroll,
+                                self.timeline_offset,
+                                false,
+                            )
+                        {
                             if let Some(next_sid) = self.detail_sid() {
                                 tasks.push(self.fill_timeline_before(next_sid));
                             }
@@ -3260,7 +3262,7 @@ impl Hud {
         self.timeline_open = Some(index);
         self.timeline_focus = Some(index);
         self.bind_event_extract(index);
-        self.fetch_open_event(index)
+        self.fetch_open_detail_bodies(index)
     }
 
     /// Drop full-pane detail without scrolling (filter / turn pick changes).
@@ -3608,6 +3610,38 @@ impl Hud {
             at_index: None,
             prompt_index: self.timeline_prompt,
             content_chars: TIMELINE_PREVIEW_CHARS,
+        })
+    }
+
+    fn fetch_open_detail_bodies(&mut self, index: i64) -> Task<Message> {
+        let mut idxs = vec![index];
+        if let Some(partner) = self.paired_tool_index(index) {
+            if partner != index {
+                idxs.push(partner);
+            }
+        }
+        let mut tasks = Vec::with_capacity(idxs.len());
+        for i in idxs {
+            tasks.push(self.fetch_open_event(i));
+        }
+        Task::batch(tasks)
+    }
+
+    fn paired_tool_index(&self, index: i64) -> Option<i64> {
+        let ev = self.timeline.iter().find(|e| e.index == index)?;
+        let id = ev.tool_call_id.trim();
+        if id.is_empty() {
+            return None;
+        }
+        self.timeline.iter().find_map(|other| {
+            if other.index == index || other.tool_call_id != ev.tool_call_id {
+                return None;
+            }
+            let tool_side = other.kind == "tool" || other.event_type == "tool_call";
+            let result_side = other.kind == "tool_result"
+                || other.event_type == "tool_call_update"
+                || other.event_type == "tool_result";
+            (tool_side || result_side).then_some(other.index)
         })
     }
 
@@ -5060,13 +5094,15 @@ struct TimelineFetch {
 
 impl Hud {
     fn start_timeline(&mut self, req: TimelineFetch) -> Task<Message> {
-        self.last_timeline = Some(LastTimelineReq {
-            prompt_index: req.prompt_index,
-            around_index: req.around.or(req.at_index),
-            offset: req.offset,
-            query: req.query.clone(),
-            kind: req.kind.clone(),
-        });
+        if req.at_index.is_none() {
+            self.last_timeline = Some(LastTimelineReq {
+                prompt_index: req.prompt_index,
+                around_index: req.around,
+                offset: req.offset,
+                query: req.query.clone(),
+                kind: req.kind.clone(),
+            });
+        }
         fetch_timeline(req)
     }
 }
@@ -8287,12 +8323,25 @@ mod tests {
             0,
         );
         let req = hud.open_event_fetch(3, hud.timeline_gen);
+        assert_eq!(TIMELINE_OPEN_CHARS, 50_000);
         assert_eq!(req.content_chars, TIMELINE_OPEN_CHARS);
         assert_eq!(req.at_index, Some(3));
         assert!(!req.advance);
         assert!(req.append);
+        hud.last_timeline = Some(LastTimelineReq {
+            prompt_index: None,
+            around_index: None,
+            offset: 80,
+            query: String::new(),
+            kind: String::new(),
+        });
         let next_before = hud.timeline_next;
         let _ = hud.update(Message::SelectTimeline(3));
+        assert_eq!(
+            hud.last_timeline().map(|r| r.offset),
+            Some(80),
+            "open-event fetch must keep the last page request"
+        );
         assert!(hud.is_timeline_open(3));
         let full = stub.clone() + "}";
         let gen = hud.timeline_gen;
@@ -8322,6 +8371,43 @@ mod tests {
         assert!(ev.content.ends_with('}'));
         assert_eq!(body_paint(&ev.kind, &ev.content, true), BodyPaint::Json);
         assert!(hud.is_timeline_open(3));
+    }
+
+    #[test]
+    fn open_detail_also_fetches_paired_tool_result() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![
+                json!({
+                    "index": 1,
+                    "type": "tool_call",
+                    "kind": "tool",
+                    "toolCallId": "c1",
+                    "toolName": "read_file",
+                    "content": "",
+                }),
+                json!({
+                    "index": 2,
+                    "type": "tool_call_update",
+                    "kind": "tool_result",
+                    "toolCallId": "c1",
+                    "toolName": "read_file",
+                    "content": "snip",
+                    "contentTruncated": true,
+                }),
+            ],
+            4,
+            0,
+        );
+        assert_eq!(hud.paired_tool_index(1), Some(2));
+        assert_eq!(hud.paired_tool_index(2), Some(1));
+        let partner = hud.open_event_fetch(2, hud.timeline_gen);
+        assert_eq!(partner.at_index, Some(2));
+        assert_eq!(partner.content_chars, TIMELINE_OPEN_CHARS);
     }
 
     #[test]

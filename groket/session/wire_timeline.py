@@ -129,6 +129,36 @@ async def fetch_timeline_page(
     return _events_from_timeline_page(page, offset=pos)
 
 
+async def fetch_timeline_event(
+    access: object,
+    session_ref: str,
+    index: int,
+    *,
+    content_chars: int = MAX_CONTENT_CHARS,
+) -> TraceEvent | None:
+    """One event by index, at the owner's content ceiling.
+
+    :param access: Object with async ``session_timeline``.
+    :param session_ref: Session id or path accepted by control.
+    :param index: Event index in the session timeline.
+    :param content_chars: Body cap (clamped to ``MAX_CONTENT_CHARS``).
+    :returns: The event, or ``None`` when the owner has no such row.
+    """
+    session_timeline = getattr(access, "session_timeline", None)
+    if not callable(session_timeline):
+        raise TypeError("access must provide session_timeline")
+    _, chars = _timeline_page_bounds(1, content_chars)
+    page = await session_timeline(
+        session_ref,
+        offset=0,
+        limit=1,
+        at_index=int(index),
+        content_chars=chars,
+    )
+    events, _total = _events_from_timeline_page(page, offset=0)
+    return events[0] if events else None
+
+
 async def fetch_timeline_events(
     access: object,
     session_ref: str,
@@ -244,6 +274,7 @@ __all__ = [
     "TIMELINE_RPC_CHARS",
     "TIMELINE_RPC_LIMIT",
     "fetch_session_browser_bundle",
+    "fetch_timeline_event",
     "fetch_timeline_events",
     "fetch_timeline_growth",
     "fetch_timeline_page",

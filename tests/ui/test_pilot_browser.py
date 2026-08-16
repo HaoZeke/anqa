@@ -1219,15 +1219,18 @@ async def test_browser_control_paints_first_page_before_remainder(
 
         async def session_timeline(self, _ref: str, **kwargs: object) -> object:
             off = int(kwargs.get("offset") or 0)
+            at = kwargs.get("at_index")
             offsets.append(off)
-            if off > 0:
-                gate.wait(timeout=5)
-            else:
-                saw_first.set()
+            if at is None:
+                if off > 0:
+                    gate.wait(timeout=5)
+                else:
+                    saw_first.set()
             return build_session_timeline(
                 sess,
                 offset=off,
                 limit=int(kwargs.get("limit") or 1),
+                at_index=at if isinstance(at, int) else None,
                 content_chars=int(kwargs.get("content_chars") or 500),
             )
 
@@ -1266,6 +1269,65 @@ async def test_browser_control_paints_first_page_before_remainder(
 
         screen._on_flag_result(None)
         await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_browser_open_event_asks_owner_ceiling(tmp_path: Path) -> None:
+    """Selecting a timeline row refetches that event at the owner body ceiling."""
+    from groket.session.control_views import (
+        MAX_CONTENT_CHARS,
+        build_session_overview,
+        build_session_timeline,
+    )
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    asked: list[dict[str, object]] = []
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            return build_session_overview(sess)
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            asked.append(dict(kwargs))
+            at = kwargs.get("at_index")
+            return build_session_timeline(
+                sess,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 50),
+                at_index=at if isinstance(at, int) else None,
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    access = _Access()
+    app = _host_app(work, traces)
+    app.is_control_client = lambda: True  # type: ignore[method-assign]
+    app.session_access = lambda: access  # type: ignore[method-assign]
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+
+        def _asked_ceiling() -> bool:
+            return any(
+                isinstance(row.get("at_index"), int)
+                and row.get("content_chars") == MAX_CONTENT_CHARS
+                for row in asked
+            )
+
+        if screen._current_event is None:
+            table = screen.query_one("#timeline-list", TimelineTable)
+            ev = next(iter(table.events), None)
+            assert ev is not None
+            screen._current_event = ev
+            screen._paint_selected_event_detail()
+        await wait_until(pilot, _asked_ceiling, description="open-event ceiling fetch")
+        assert any(
+            isinstance(row.get("at_index"), int)
+            and row.get("content_chars") == MAX_CONTENT_CHARS
+            and int(row.get("limit") or 0) == 1
+            for row in asked
+        )
 
 
 # ── Export finding ───────────────────────────────────────────────────────

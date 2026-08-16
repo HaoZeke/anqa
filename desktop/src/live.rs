@@ -21,7 +21,8 @@ pub const TIMELINE_CHUNK: u32 = 80;
 pub const TIMELINE_BUFFER_CAP: usize = 10_000;
 /// Preview bytes per row on a page. Opened cards refetch a larger slice.
 pub const TIMELINE_PREVIEW_CHARS: u32 = 720;
-pub const TIMELINE_OPEN_CHARS: u32 = 6_000;
+/// One open event (`atIndex`). Matches ``MAX_CONTENT_CHARS`` on the owner.
+pub const TIMELINE_OPEN_CHARS: u32 = 50_000;
 /// Vertical gap after each virtual list card (must be inside row height —
 /// ``virtual_column`` clips each row to ``heights[i]``).
 pub const LIST_GAP: f32 = 4.0;
