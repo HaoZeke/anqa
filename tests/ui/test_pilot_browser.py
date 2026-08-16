@@ -26,7 +26,7 @@ from groket.ui.data_table import cursor_row_key
 from groket.ui.screens.browser import BrowserScreen
 from groket.ui.selectable_static import SelectableStatic
 from groket.ui.widgets.timeline import TimelineTable
-from textual.widgets import Checkbox, DataTable, Input, Static, TabbedContent
+from textual.widgets import DataTable, Input, Static, Switch, TabbedContent
 
 from .pilot_helpers import static_plain, wait_until
 
@@ -1104,9 +1104,12 @@ async def test_browser_first_paint_defers_summary_and_report(tmp_path: Path) -> 
         assert turns.row_count == 0
         tl = screen.query_one("#timeline-list", TimelineTable)
         assert tl.row_count > 0
-        tail = screen.query_one("#timeline-tail", Checkbox)
+        tail = screen.query_one("#timeline-tail", Switch)
         assert tail.display
         assert tail.value is False
+        tail.value = True
+        await pilot.pause()
+        assert screen._timeline_follow_tail() is True
 
         await _activate_tab(pilot, screen, "tab-summary")
         await wait_until(

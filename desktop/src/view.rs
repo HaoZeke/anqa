@@ -736,12 +736,12 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         A11y::new("Filter", Role::ComboBox),
     ));
     if hud.show_timeline_tail() {
-        picks = picks.push(kit::compact_check(
+        picks = picks.push(icedtea::widget::themed_switch(
             "Tail",
             hud.timeline_follow_tail(),
             Message::TimelineTail,
             tea,
-            A11y::new("Tail", Role::Checkbox).with_checked(hud.timeline_follow_tail()),
+            A11y::new("Tail", Role::Switch).with_checked(hud.timeline_follow_tail()),
         ));
     }
     picks = picks
@@ -2881,8 +2881,8 @@ mod tests {
             "empty range must not paint a11y name"
         );
         assert!(
-            filter_src.contains("kit::compact_check"),
-            "live Tail checkbox sits on the Timeline filter bar"
+            filter_src.contains("themed_switch"),
+            "live Tail switch sits on the Timeline filter bar"
         );
         assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
     }

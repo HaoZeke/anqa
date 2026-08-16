@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use iced::widget::{checkbox, column, container, mouse_area, pick_list, row, text, Space};
+use iced::widget::{column, container, mouse_area, pick_list, row, text, Space};
 use iced::{Alignment, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
@@ -137,25 +137,6 @@ where
             .into()
     };
     icedtea::a11y::attach(el, &a11y)
-}
-
-/// Checkbox sized to sit on the same row as [`compact_pick`].
-pub fn compact_check<'a>(
-    label: impl Into<String>,
-    on: bool,
-    on_toggle: impl Fn(bool) -> Message + 'a,
-    tea: Tokens,
-    a11y: A11y,
-) -> Element<'a, Message> {
-    let name = a11y.apply_name(label);
-    let face = checkbox(on)
-        .label(name)
-        .size(16)
-        .text_size(typo::META)
-        .spacing(6)
-        .style(icedtea::style::checkbox_style(tea))
-        .on_toggle(on_toggle);
-    icedtea::a11y::attach(face.into(), &a11y.with_checked(on))
 }
 
 /// Browse pane tabs via icedtea [`widget::tab_bar`] when all tabs are enabled.

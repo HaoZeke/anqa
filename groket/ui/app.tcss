@@ -344,6 +344,14 @@ TabPane {
     max-width: 80;
 }
 
+#timeline-tail-label {
+    width: auto;
+    height: auto;
+    min-height: 3;
+    content-align: left middle;
+    padding: 0 1;
+}
+
 #timeline-tail {
     width: auto;
     height: auto;

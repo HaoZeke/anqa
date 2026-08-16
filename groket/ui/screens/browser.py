@@ -26,6 +26,7 @@ from textual.widgets import (
     Input,
     Select,
     Static,
+    Switch,
     TabbedContent,
     TabPane,
 )
@@ -276,11 +277,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             )
                             turn_sel.display = False  # shown only when multi-turn
                             yield turn_sel
-                            tail = Checkbox(
-                                t("ui-timeline-tail"),
-                                id="timeline-tail",
-                                value=False,
-                            )
+                            tail_label = Static(t("ui-timeline-tail"), id="timeline-tail-label")
+                            tail_label.display = False
+                            yield tail_label
+                            tail = Switch(id="timeline-tail", value=False, animate=False)
                             tail.display = False
                             yield tail
                             yield Input(
@@ -2130,9 +2130,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return ""
 
     def _timeline_follow_tail(self) -> bool:
-        """True when the live Tail checkbox is showing and checked."""
+        """True when the live Tail switch is showing and on."""
         with suppress(Exception):
-            box = self.query_one("#timeline-tail", Checkbox)
+            box = self.query_one("#timeline-tail", Switch)
             return bool(box.display and box.value)
         return False
 
@@ -2142,10 +2142,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         with suppress(Exception):
             live = bool(self._session_is_pending() or self._session_needs_live_timeline())
         try:
-            box = self.query_one("#timeline-tail", Checkbox)
+            box = self.query_one("#timeline-tail", Switch)
+            label = self.query_one("#timeline-tail-label", Static)
         except Exception:
             return
         box.display = live
+        label.display = live
         if not live:
             box.value = False
 
@@ -3381,8 +3383,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         tabbed = self.query_one(TabbedContent)
         tabbed.active = "tab-timeline"
 
-    @on(Checkbox.Changed, "#timeline-tail")
-    def _on_timeline_tail_changed(self, event: Checkbox.Changed) -> None:
+    @on(Switch.Changed, "#timeline-tail")
+    def _on_timeline_tail_changed(self, event: Switch.Changed) -> None:
         """Tail on: jump to the last event. Off: leave the highlight where it is."""
         if not event.value:
             return

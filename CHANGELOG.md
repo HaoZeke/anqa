@@ -16,7 +16,7 @@ is tagged.
   when those panes are opened. Attached control loads the first event
   page, then appends the rest. Timeline search applies after a short
   idle. Live control refresh fetches only new events.
-- A Tail checkbox on a live Timeline follows the last event; off leaves
+- A Tail switch on a live Timeline follows the last event; off leaves
   the highlight still. The HUD jumps to the last event page so a large
   session is not stuck on the first window.
 - Opening a Timeline event (terminal and HUD) asks for the owner’s
