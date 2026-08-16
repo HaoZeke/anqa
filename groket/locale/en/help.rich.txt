@@ -31,9 +31,7 @@
 
 [bold]Browser[/bold]
   [ ]  1-5        Timeline, Summary, Diff, Findings, Report
-  Diff            Snapshot picker when rewind_points has more than one
-                  record; file list; / searches files and hunks; h/l steps
-                  snapshots; y copies the highlighted file
+  Diff            Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file
 
   h / l / Left / Right    Previous / next turn on the Timeline
   j / k                   Previous / next event on the Timeline (also Up / Down)

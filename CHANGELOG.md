@@ -5,6 +5,8 @@ is tagged.
 
 ## Unreleased
 
+- Terminal brand pictures: `python brand/ascii.py` prints the rocket;
+  `lockup` and `stacked` add the name; `fly` sends it across the screen.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
   changes fade; opening and closing a session or event push and pop;
   expanders animate height. Motion ticks at display refresh.
@@ -13,14 +15,17 @@ is tagged.
 - HUD `?` and the terminal browser footer follow the current pane: Enter
   and list motion on Overview, Turns, and Timeline; turn step on Timeline.
 - HUD `?` lists Left and Right next to h and l for Timeline turn step.
+- HUD dropdowns (Snapshot, Timeline turn, Filter) use 12px type and
+  tighter padding. Diff Prompt/Assistant tabs are compact in-pane
+  buttons.
 - An older `groket serve` that lacks a method shows
   `control owner is older · run: groket serve restart` (terminal and HUD).
   The raw error goes to the log.
-- Terminal Diff lists rewind snapshots and changed files. The body is the
-  highlighted file. Without rewind points it lists approximate
-  `search_replace` edits. `/` fuzzy-finds path or hunk text; `h`/`l` step
-  snapshots. The HUD Diff pane shows the same facts with a colored hunk
-  and prompt/assistant context.
+- Terminal Diff lists rewind snapshots and changed files. Prompt and
+  Assistant tabs sit above a files and hunk split; the assistant is
+  markdown. Nested paths group as a directory tree. Without rewind points it lists approximate `search_replace`
+  edits. `/` fuzzy-finds path or hunk text; `h`/`l` step snapshots. The
+  HUD Diff pane uses the same layout, with a snapshot dropdown.
 - Session walk and `updates.jsonl` keep/skip share one `groket._scan`
   extension (`groket.scan`, setuptools-rust, same install as the HUD
   binary). `GROKET_SCAN=0` uses the Python body. Continuous integration

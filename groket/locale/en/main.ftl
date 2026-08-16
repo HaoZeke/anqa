@@ -987,14 +987,6 @@ diff-point-rewind = Snapshot { $n }
 
 diff-point-edits = Approximate edits
 
-diff-point-counts = { $files } files +{ $added }/-{ $removed }
-
-diff-source-rewind = rewind snapshots
-
-diff-source-edits = search_replace edits
-
-diff-source-none = none
-
 diff-empty-files = No file changes in this snapshot
 
 diff-empty-session = No rewind snapshots or search_replace edits
@@ -1004,6 +996,8 @@ diff-search-placeholder = Search files and hunks
 diff-context-prompt = Prompt
 
 diff-context-assistant = Assistant
+
+diff-empty-context = (empty)
  
 
 ui-docker-1 = Docker

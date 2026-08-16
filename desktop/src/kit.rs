@@ -1,9 +1,12 @@
 //! HUD chrome built on icedtea constructors.
 //!
 //! Prefer icedtea public APIs directly. Helpers here exist only when icedtea
-//! is missing a parameter (per-tab disable, custom search placeholder/submit).
+//! is missing a parameter (per-tab disable, custom search placeholder/submit,
+//! compact select size).
 
-use iced::widget::{column, container, row, text, Space};
+use std::rc::Rc;
+
+use iced::widget::{column, container, mouse_area, pick_list, row, text, Space};
 use iced::{Alignment, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
@@ -71,6 +74,70 @@ pub fn search_field<'a>(
         a11y,
         input_id,
     )
+}
+
+/// Compact select. icedtea [`widget::themed_pick_list`] is a form field
+/// (body type + density pad) and has no size parameter.
+pub fn compact_pick<'a, T, M: Clone + 'a>(
+    options: impl std::borrow::Borrow<[T]> + 'a,
+    selected: Option<T>,
+    on_select: impl Fn(T) -> M + 'a,
+    tea: Tokens,
+    a11y: A11y,
+) -> Element<'a, M>
+where
+    T: ToString + PartialEq + Clone + 'a,
+{
+    const PAD: Padding = Padding {
+        top: 4.0,
+        right: 8.0,
+        bottom: 4.0,
+        left: 8.0,
+    };
+    if a11y.disabled {
+        let _ = on_select;
+        let shown = selected
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        return icedtea::a11y::attach(
+            container(text(shown).size(typo::META).color(tea.muted))
+                .padding(PAD)
+                .into(),
+            &a11y,
+        );
+    }
+    let opts: Vec<T> = options.borrow().to_vec();
+    let sel = selected.clone();
+    let on_select = Rc::new(on_select);
+    let on_pick = {
+        let on_select = on_select.clone();
+        move |t| on_select(t)
+    };
+    let picker = pick_list(options, selected, on_pick)
+        .style(icedtea::style::picker_style(tea))
+        .text_size(typo::META)
+        .padding(PAD);
+    let el: Element<'a, M> = if opts.is_empty() {
+        picker.into()
+    } else {
+        mouse_area(picker)
+            .on_scroll(move |delta| {
+                let n = opts.len();
+                let i = sel
+                    .as_ref()
+                    .and_then(|s| opts.iter().position(|o| o == s))
+                    .unwrap_or(0);
+                let j = if widget::scroll_wheel_y(delta) < 0.0 {
+                    i.saturating_add(1).min(n - 1)
+                } else {
+                    i.saturating_sub(1)
+                };
+                on_select(opts[j].clone())
+            })
+            .into()
+    };
+    icedtea::a11y::attach(el, &a11y)
 }
 
 /// Browse pane tabs via icedtea [`widget::tab_bar`] when all tabs are enabled.
@@ -311,6 +378,32 @@ mod tests {
         let tea = icedtea::theme::named("dark").tokens;
         let _ = pane_tabs(Tab::Overview, true, &Tab::ALL, tea);
         let _ = pane_tabs(Tab::Timeline, false, &Tab::ALL, tea);
+    }
+
+    #[test]
+    fn compact_pick_builds() {
+        let tea = icedtea::theme::named("dark").tokens;
+        let _ = compact_pick(
+            &["All", "Tools"][..],
+            Some("All"),
+            |_| Message::Noop,
+            tea,
+            A11y::new("Filter", Role::ComboBox),
+        );
+        let _ = compact_pick(
+            &["All"][..],
+            Some("All"),
+            |_| Message::Noop,
+            tea,
+            A11y::new("Filter", Role::ComboBox).with_disabled(true),
+        );
+        let _ = compact_pick(
+            &[] as &[&str],
+            None,
+            |_| Message::Noop,
+            tea,
+            A11y::new("empty", Role::ComboBox),
+        );
     }
 
     #[test]

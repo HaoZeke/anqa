@@ -130,6 +130,35 @@ impl std::fmt::Display for EventsTurnPick {
     }
 }
 
+/// Diff pane snapshot pick list. `key` matches ``DiffPointRow.key``.
+#[derive(Debug, Clone)]
+pub struct DiffPointPick {
+    pub key: String,
+    pub label: String,
+}
+
+impl PartialEq for DiffPointPick {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Eq for DiffPointPick {}
+
+impl std::fmt::Display for DiffPointPick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+/// Prompt vs assistant in the Diff context bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffContext {
+    #[default]
+    Prompt,
+    Assistant,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NoteDraft {
     pub id: String,

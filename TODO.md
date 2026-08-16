@@ -13,6 +13,13 @@ that work ships (or when the changelog line is no longer true).
   bumps ``PROTOCOL_VERSION`` major. Runtime accepts the same major only.
   Add a frozen method/field inventory (or schema) that fails when the
   surface changes without a major bump.
+- HUD dropdowns use ``kit.compact_pick`` (12px type, tighter pad) because
+  icedtea ``themed_pick_list`` has no compact size. When the next icedtea
+  release exposes that size, call it from the HUD and delete the kit
+  wrapper.
+- HUD Diff Prompt/Assistant tabs are local compact buttons because icedtea
+  ``tab_bar`` is a pane strip (12px pad, app-bar wrapper). When icedtea
+  has a compact in-pane tab size, use that and delete ``diff_context_tab``.
 
 ## Always on (`just ci` / `just lint`)
 

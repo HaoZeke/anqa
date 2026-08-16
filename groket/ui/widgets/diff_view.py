@@ -1,18 +1,20 @@
-"""Diff pane: rewind-point picker, file list, one extractable body."""
+"""Diff pane: snapshot picker, Prompt/Assistant bar, files | hunk split."""
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import DataTable, Input, Select, Static
+from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
 
 from ...constants import DIFF_TRUNCATE_THRESHOLD
+from ...diff_tree import tree_rows
 from ...session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
 from ..data_table import preserving_cursor, restore_cursor, style_data_table
 from ..fuzzy import filter_diff_hunks, mark_unified_hit
 from ..i18n import t
-from ..panel_render import dim_rule, kv_line, panel_group, section_header
+from ..panel_render import md_content
 from ..render_detail import set_static_renderable
 from ..selectable_static import SelectableStatic
 from .controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
@@ -24,21 +26,6 @@ def _point_label(point: DiffPoint, index: int) -> str:
     if point.prompt_index is not None:
         return t("diff-point-prompt", n=point.prompt_index)
     return t("diff-point-rewind", n=index + 1)
-
-
-def _clip_context(text: str, limit: int = 400) -> str:
-    one = " ".join((text or "").split())
-    if len(one) <= limit:
-        return one
-    return one[: limit - 1] + "…"
-
-
-def _source_label(source: str | None) -> str:
-    if source == "rewind_points":
-        return t("diff-source-rewind")
-    if source == "search_replace":
-        return t("diff-source-edits")
-    return t("diff-source-none")
 
 
 class DiffView(Vertical):
@@ -54,27 +41,36 @@ class DiffView(Vertical):
         self._syncing = False
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="diff-filter-bar", classes=FILTER_BAR_CLASS):
-            yield Static(t("diff-filter"), id="diff-filter-label", classes=FILTER_LABEL_CLASS)
-            yield Select(
-                [(t("diff-point-edits"), "edits")],
-                value="edits",
-                id="diff-point-select",
-                allow_blank=False,
-                classes="field-select",
-            )
+        with Horizontal(id="diff-chrome"):
+            with Vertical(id="diff-filter-bar", classes=FILTER_BAR_CLASS):
+                yield Static(t("diff-filter"), id="diff-filter-label", classes=FILTER_LABEL_CLASS)
+                yield Select(
+                    [(t("diff-point-edits"), "edits")],
+                    value="edits",
+                    id="diff-point-select",
+                    allow_blank=False,
+                    classes="field-select",
+                )
+            with Vertical(id="diff-context"):
+                with TabbedContent(id="diff-context-tabs"):
+                    with TabPane(t("diff-context-prompt"), id="diff-tab-prompt"):
+                        with VerticalScroll(id="diff-prompt-scroll"):
+                            yield SelectableStatic(id="diff-prompt")
+                    with TabPane(t("diff-context-assistant"), id="diff-tab-assistant"):
+                        with VerticalScroll(id="diff-assistant-scroll"):
+                            yield SelectableStatic(id="diff-assistant")
+        with Horizontal(id="diff-search-bar", classes=FILTER_BAR_CLASS):
             yield Input(placeholder=t("diff-search-placeholder"), id="diff-search")
         with Horizontal(id="diff-layout"):
             with Vertical(id="diff-files"):
                 yield DataTable(id="diff-file-list")
-            with Vertical(id="diff-body-column"):
-                with VerticalScroll(id="diff-scroll"):
-                    yield SelectableStatic(id="diff-content")
+            with VerticalScroll(id="diff-scroll"):
+                yield SelectableStatic(id="diff-content")
 
     def on_mount(self) -> None:
         table = self.query_one("#diff-file-list", DataTable)
         style_data_table(table)
-        table.add_columns(t("col-file"), t("col-added"), t("col-removed"))
+        table.add_columns(t("col-file"))
         self._paint()
 
     def set_doc(self, doc: WorkspaceDiff) -> None:
@@ -135,6 +131,7 @@ class DiffView(Vertical):
         try:
             self._sync_point_select()
             self._fill_files()
+            self._paint_context()
             self._paint_body()
         finally:
             self._syncing = False
@@ -184,8 +181,12 @@ class DiffView(Vertical):
         files = self._visible_files()
         with preserving_cursor(table):
             table.clear()
-            for hunk in files:
-                table.add_row(hunk.path, f"+{hunk.added}", f"-{hunk.removed}", key=hunk.path)
+            for row in tree_rows([h.path for h in files]):
+                face = f"{'  ' * row.depth}{row.label}"
+                if row.kind == "dir":
+                    table.add_row(Text(face, style="dim"), key=f"dir:{row.path}")
+                else:
+                    table.add_row(face, key=row.path)
         if files:
             keep = self._file_key if any(h.path == self._file_key for h in files) else files[0].path
             self._file_key = keep
@@ -202,37 +203,28 @@ class DiffView(Vertical):
                 return hunk
         return None
 
+    def _paint_context(self) -> None:
+        point = self._current_point()
+        prompt = point.prompt_text if point is not None else ""
+        assistant = point.assistant_text if point is not None else ""
+        prompt_w = self.query_one("#diff-prompt", SelectableStatic)
+        asst_w = self.query_one("#diff-assistant", SelectableStatic)
+        if prompt.strip():
+            set_static_renderable(prompt_w, Text(prompt))
+        else:
+            set_static_renderable(prompt_w, Text(t("diff-empty-context"), style="dim"))
+        if assistant.strip():
+            set_static_renderable(asst_w, md_content(assistant, indent=0))
+        else:
+            set_static_renderable(asst_w, Text(t("diff-empty-context"), style="dim"))
+
     def _paint_body(self) -> None:
         widget = self.query_one("#diff-content", SelectableStatic)
         point = self._current_point()
         hunk = self._hunk()
-        from rich.text import Text
-
-        head = Text()
-        head.append(t("ui-diff-1"), style="bold")
-        src = point.source if point is not None else None
-        head.append_text(kv_line(t("ui-source"), _source_label(src)))
-        if point is not None:
-            extra = t(
-                "diff-point-counts",
-                files=point.files_changed,
-                added=point.lines_added,
-                removed=point.lines_removed,
-            )
-            head.append(f"  {extra}\n", style="dim")
-            if point.prompt_text.strip():
-                head.append_text(
-                    kv_line(t("diff-context-prompt"), _clip_context(point.prompt_text))
-                )
-            if point.assistant_text.strip():
-                head.append_text(
-                    kv_line(t("diff-context-assistant"), _clip_context(point.assistant_text))
-                )
-        blocks: list = [head, dim_rule(), section_header(t("ui-changes"))]
         if hunk is None:
             empty = t("diff-empty-session") if point is None else t("diff-empty-files")
-            blocks.append(Text(empty, style="dim"))
-            set_static_renderable(widget, panel_group(*blocks))
+            set_static_renderable(widget, Text(empty, style="dim"))
             return
         marked = mark_unified_hit(hunk.unified, self._hit_line)
         hunk_text = Text()
@@ -245,8 +237,7 @@ class DiffView(Vertical):
             hunk_text.append(raw + "\n", style=style)
         if len(hunk_text.plain) > DIFF_TRUNCATE_THRESHOLD:
             hunk_text = Text(marked[:DIFF_TRUNCATE_THRESHOLD] + "\n")
-        blocks.append(hunk_text)
-        set_static_renderable(widget, panel_group(*blocks))
+        set_static_renderable(widget, hunk_text)
         self._scroll_hit_into_view()
 
     def painted_hit_line(self) -> str | None:
@@ -270,7 +261,7 @@ class DiffView(Vertical):
                 scroll = self.query_one("#diff-scroll", VerticalScroll)
             except Exception:
                 return
-            scroll.scroll_to(y=max(0, 12 + line), animate=False)
+            scroll.scroll_to(y=max(0, line), animate=False)
 
         self.call_after_refresh(_go)
 
@@ -284,6 +275,7 @@ class DiffView(Vertical):
         self._point_key = key
         self._file_key = None
         self._fill_files()
+        self._paint_context()
         self._paint_body()
 
     @on(DataTable.RowHighlighted, "#diff-file-list")
@@ -293,6 +285,8 @@ class DiffView(Vertical):
         if event.row_key is None or event.row_key.value is None:
             return
         key = str(event.row_key.value)
+        if key.startswith("dir:"):
+            return
         if key == self._file_key:
             return
         self._file_key = key

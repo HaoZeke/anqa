@@ -34,7 +34,9 @@ use crate::live::{
     IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
     TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
-use crate::model::{EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab};
+use crate::model::{
+    DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
+};
 use crate::motion::{self, MotionRole, PageLayer};
 use crate::place;
 use crate::prefs;
@@ -158,6 +160,8 @@ pub enum Message {
     },
     DiffQuery(String),
     SelectDiffFile(String),
+    DiffPointPicked(DiffPointPick),
+    DiffContext(DiffContext),
     FindingExpand {
         id: String,
         open: bool,
@@ -332,6 +336,8 @@ pub struct Hud {
     diff_query: String,
     diff_hit_line: Option<usize>,
     diff_search_id: Id,
+    diff_point_options: Vec<DiffPointPick>,
+    diff_context: DiffContext,
     follow_draft: String,
     follow_id: Id,
     timeline_search_gen: u64,
@@ -353,6 +359,16 @@ pub struct Hud {
     /// Leader prefix is waiting for the next key.
     leader_armed: bool,
     leader_until: Option<Instant>,
+}
+
+fn diff_point_label(point: &crate::wire::DiffPointRow, index: usize) -> String {
+    if point.source == "search_replace" {
+        return "Approximate edits".into();
+    }
+    if let Some(n) = point.prompt_index {
+        return format!("Prompt {n}");
+    }
+    format!("Snapshot {}", index + 1)
 }
 
 impl Default for Hud {
@@ -462,6 +478,8 @@ impl Default for Hud {
             diff_query: String::new(),
             diff_hit_line: None,
             diff_search_id: Id::new("diff-search"),
+            diff_point_options: vec![],
+            diff_context: DiffContext::Prompt,
             follow_draft: String::new(),
             follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
@@ -910,6 +928,7 @@ impl Hud {
                                     self.diff_point = last.key.clone();
                                 }
                             }
+                            self.rebuild_diff_point_options();
                             self.ensure_diff_file();
                         }
                     }
@@ -928,6 +947,19 @@ impl Hud {
             Message::SelectDiffFile(path) => {
                 self.diff_file = path;
                 self.refresh_diff_hit();
+                Task::none()
+            }
+            Message::DiffPointPicked(pick) => {
+                if pick.key == self.diff_point {
+                    return Task::none();
+                }
+                self.diff_point = pick.key;
+                self.diff_file.clear();
+                self.ensure_diff_file();
+                Task::none()
+            }
+            Message::DiffContext(tab) => {
+                self.diff_context = tab;
                 Task::none()
             }
             Message::TimelineKind(k) => {
@@ -2234,6 +2266,36 @@ impl Hud {
         self.diff.points.last()
     }
 
+    pub fn diff_point_options(&self) -> &[DiffPointPick] {
+        &self.diff_point_options
+    }
+
+    pub fn diff_point_selected(&self) -> Option<DiffPointPick> {
+        let key = self.diff_point_key();
+        self.diff_point_options
+            .iter()
+            .find(|p| p.key == key)
+            .cloned()
+            .or_else(|| self.diff_point_options.last().cloned())
+    }
+
+    pub fn diff_context(&self) -> DiffContext {
+        self.diff_context
+    }
+
+    fn rebuild_diff_point_options(&mut self) {
+        self.diff_point_options = self
+            .diff
+            .points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| DiffPointPick {
+                key: p.key.clone(),
+                label: diff_point_label(p, i),
+            })
+            .collect();
+    }
+
     pub fn visible_diff_files(&self) -> Vec<&crate::wire::DiffFileRow> {
         let Some(point) = self.current_diff_point() else {
             return Vec::new();
@@ -2891,6 +2953,8 @@ impl Hud {
             self.diff_point.clear();
             self.diff_file.clear();
             self.diff_query.clear();
+            self.diff_point_options.clear();
+            self.diff_context = DiffContext::Prompt;
         }
         self.overview_gen += 1;
         let gen = self.overview_gen;
@@ -7531,29 +7595,31 @@ mod tests {
 
     #[test]
     fn diff_query_filters_visible_files_and_scope_includes_search() {
-        let mut hud = Hud::default();
-        hud.overview_pending = "s1".into();
-        hud.tab = Tab::Diff;
-        hud.diff = crate::wire::DiffBlock {
-            points: vec![crate::wire::DiffPointRow {
-                key: "0".into(),
-                files: vec![
-                    crate::wire::DiffFileRow {
-                        path: "a.py".into(),
-                        unified: "+alpha\n".into(),
-                        ..crate::wire::DiffFileRow::default()
-                    },
-                    crate::wire::DiffFileRow {
-                        path: "b.py".into(),
-                        unified: "+beta unique\n".into(),
-                        ..crate::wire::DiffFileRow::default()
-                    },
-                ],
-                ..crate::wire::DiffPointRow::default()
-            }],
-            ..crate::wire::DiffBlock::default()
+        let mut hud = Hud {
+            overview_pending: "s1".into(),
+            tab: Tab::Diff,
+            diff: crate::wire::DiffBlock {
+                points: vec![crate::wire::DiffPointRow {
+                    key: "0".into(),
+                    files: vec![
+                        crate::wire::DiffFileRow {
+                            path: "a.py".into(),
+                            unified: "+alpha\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                        crate::wire::DiffFileRow {
+                            path: "b.py".into(),
+                            unified: "+beta unique\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                    ],
+                    ..crate::wire::DiffPointRow::default()
+                }],
+                ..crate::wire::DiffBlock::default()
+            },
+            diff_point: "0".into(),
+            ..Hud::default()
         };
-        hud.diff_point = "0".into();
         assert_eq!(hud.visible_diff_files().len(), 2);
         let _ = hud.update(Message::DiffQuery("a.py".into()));
         let paths: Vec<&str> = hud
@@ -7582,29 +7648,31 @@ mod tests {
 
     #[test]
     fn diff_nav_step_repaints_hit_on_the_new_file() {
-        let mut hud = Hud::default();
-        hud.overview_pending = "s1".into();
-        hud.tab = Tab::Diff;
-        hud.diff = crate::wire::DiffBlock {
-            points: vec![crate::wire::DiffPointRow {
-                key: "0".into(),
-                files: vec![
-                    crate::wire::DiffFileRow {
-                        path: "a.py".into(),
-                        unified: "@@\n-old\n+common-needle\n".into(),
-                        ..crate::wire::DiffFileRow::default()
-                    },
-                    crate::wire::DiffFileRow {
-                        path: "b.py".into(),
-                        unified: "@@\n-x\n-y\n-z\n+common-needle\n".into(),
-                        ..crate::wire::DiffFileRow::default()
-                    },
-                ],
-                ..crate::wire::DiffPointRow::default()
-            }],
-            ..crate::wire::DiffBlock::default()
+        let mut hud = Hud {
+            overview_pending: "s1".into(),
+            tab: Tab::Diff,
+            diff: crate::wire::DiffBlock {
+                points: vec![crate::wire::DiffPointRow {
+                    key: "0".into(),
+                    files: vec![
+                        crate::wire::DiffFileRow {
+                            path: "a.py".into(),
+                            unified: "@@\n-old\n+common-needle\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                        crate::wire::DiffFileRow {
+                            path: "b.py".into(),
+                            unified: "@@\n-x\n-y\n-z\n+common-needle\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        },
+                    ],
+                    ..crate::wire::DiffPointRow::default()
+                }],
+                ..crate::wire::DiffBlock::default()
+            },
+            diff_point: "0".into(),
+            ..Hud::default()
         };
-        hud.diff_point = "0".into();
         let _ = hud.update(Message::DiffQuery("common-needle".into()));
         assert_eq!(hud.visible_diff_files().len(), 2);
         let first = hud.painted_hit_line().expect("hit on first file");
@@ -7618,6 +7686,59 @@ mod tests {
             second.contains("common-needle"),
             "stale line would mark -y: {second}"
         );
+    }
+
+    #[test]
+    fn diff_point_pick_selects_snapshot() {
+        let mut hud = Hud {
+            tab: Tab::Diff,
+            diff: crate::wire::DiffBlock {
+                points: vec![
+                    crate::wire::DiffPointRow {
+                        key: "0".into(),
+                        prompt_index: Some(0),
+                        files: vec![crate::wire::DiffFileRow {
+                            path: "a.py".into(),
+                            unified: "+a\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        }],
+                        ..crate::wire::DiffPointRow::default()
+                    },
+                    crate::wire::DiffPointRow {
+                        key: "1".into(),
+                        prompt_index: Some(1),
+                        files: vec![crate::wire::DiffFileRow {
+                            path: "b.py".into(),
+                            unified: "+b\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        }],
+                        ..crate::wire::DiffPointRow::default()
+                    },
+                ],
+                ..crate::wire::DiffBlock::default()
+            },
+            diff_point: "1".into(),
+            ..Hud::default()
+        };
+        hud.rebuild_diff_point_options();
+        assert_eq!(hud.diff_point_options().len(), 2);
+        let pick = hud
+            .diff_point_options()
+            .iter()
+            .find(|p| p.key == "0")
+            .cloned()
+            .expect("first snapshot");
+        let _ = hud.update(Message::DiffPointPicked(pick));
+        assert_eq!(hud.diff_point_key(), "0");
+        assert_eq!(hud.diff_file(), "a.py");
+    }
+
+    #[test]
+    fn diff_context_switches_to_assistant() {
+        let mut hud = Hud::default();
+        assert_eq!(hud.diff_context(), crate::model::DiffContext::Prompt);
+        let _ = hud.update(Message::DiffContext(crate::model::DiffContext::Assistant));
+        assert_eq!(hud.diff_context(), crate::model::DiffContext::Assistant);
     }
 
     #[test]

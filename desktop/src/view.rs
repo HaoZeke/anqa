@@ -8,7 +8,8 @@ use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
 
 use iced::widget::{
-    column, container, image, markdown, mouse_area, responsive, row, scrollable, stack, text, Space,
+    button, column, container, image, markdown, mouse_area, responsive, row, scrollable, stack,
+    text, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -31,7 +32,7 @@ use crate::live::{
     context_fraction, finding_severity_rank, finding_severity_title, CardMark, TIMELINE_OVERSCAN,
     TURNS_OVERSCAN,
 };
-use crate::model::{KindFilter, Tab};
+use crate::model::{DiffContext, KindFilter, Tab};
 use crate::motion::PageLayer;
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
@@ -456,7 +457,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         hud.visible_tabs(),
         tea,
     ))
-    .padding(Padding::from([8, 12]));
+    .padding(Padding::from([4, 12]));
 
     let mut stack = column![].spacing(0).height(Length::Fill);
     if let Some(bar) = browse_session_bar(hud, tea) {
@@ -482,14 +483,9 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         }
     };
     if hud.tab() == Tab::Timeline && hud.overview().is_some() {
-        let pad = if hud.timeline_open().is_some() {
-            [12, 16]
-        } else {
-            [16, 20]
-        };
         stack = stack.push(page_body(
             container(timeline_tab(hud))
-                .padding(pad)
+                .padding([8, 12])
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into(),
@@ -499,7 +495,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
         stack = stack.push(page_body(
             container(turns_tab(hud))
-                .padding([16, 20])
+                .padding([8, 12])
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into(),
@@ -509,7 +505,12 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     } else if hud.tab() == Tab::Diff && hud.overview().is_some() {
         stack = stack.push(page_body(
             container(diff_tab(hud))
-                .padding([16, 20])
+                .padding(Padding {
+                    top: 0.0,
+                    right: 12.0,
+                    bottom: 8.0,
+                    left: 12.0,
+                })
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into(),
@@ -603,7 +604,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::new("Turn", Role::Header),
         ));
-        picks = picks.push(icedtea::widget::themed_pick_list(
+        picks = picks.push(kit::compact_pick(
             hud.events_turn_options(),
             Some(hud.events_turn_selected()),
             Message::EventsTurnPicked,
@@ -616,7 +617,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Filter", Role::Header),
     ));
-    picks = picks.push(icedtea::widget::themed_pick_list(
+    picks = picks.push(kit::compact_pick(
         &KindFilter::ALL[..],
         Some(hud.timeline_kind()),
         Message::TimelineKind,
@@ -1683,104 +1684,72 @@ fn neighbor_link(
 
 fn diff_tab(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.body_tokens();
-    let mut col = column![diff_filter(hud)].spacing(10).height(Length::Fill);
-    let files = hud.visible_diff_files();
-    if files.is_empty() {
-        col = col.push(icedtea::pattern::status_page(
-            "No file changes",
-            "Grok rewind snapshots or search_replace edits for this session.",
-            None,
-            tea,
-        ));
-        return col.into();
-    }
-    let mut list = column![].spacing(4).width(Length::Fixed(280.0));
-    for f in &files {
-        let selected = f.path == hud.diff_file();
-        let path = f.path.clone();
-        let meta = format!("+{} / -{}", f.added, f.removed);
-        list = list.push(
-            mouse_area(
-                container(
-                    column![
-                        text(f.path.clone()).size(typo::BODY).color(tea.text),
-                        text(meta).size(typo::META).color(tea.muted),
-                    ]
-                    .spacing(2),
-                )
-                .padding(10)
-                .width(Length::Fill)
-                .style(move |_| icedtea::style::card(tea, selected)),
-            )
-            .on_press(Message::SelectDiffFile(path)),
-        );
-    }
-    let body = diff_body(hud, tea);
-    col.push(
-        row![
-            list,
-            icedtea::widget::themed_scroll(
-                body,
-                tea,
-                A11y::new("Diff body", Role::Group),
-                false,
-                None,
-                None::<fn(_) -> Message>,
-            )
-        ]
-        .spacing(12)
-        .height(Length::Fill),
-    )
+    column![
+        diff_chrome(hud, tea),
+        diff_search(hud),
+        diff_split(hud, tea),
+    ]
+    .spacing(6)
+    .height(Length::Fill)
     .into()
 }
 
-fn diff_filter(hud: &Hud) -> Element<'_, Message> {
-    let tea = hud.tokens();
-    let mut bar = row![kit::search_field(
-        "Search files and hunks",
-        hud.diff_query(),
-        Message::DiffQuery,
-        None,
-        tea,
-        A11y::new("Search diff", Role::TextBox),
-        Some(hud.diff_search_id()),
-    )]
-    .spacing(10)
-    .align_y(Alignment::Center);
-    if let Some(p) = hud.current_diff_point() {
-        let label = p
-            .prompt_index
-            .map(|n| format!("Prompt {n}"))
-            .unwrap_or_else(|| {
-                if p.source == "search_replace" {
-                    "Approximate edits".into()
-                } else {
-                    format!("Snapshot {}", p.key)
-                }
-            });
-        bar = bar.push(text(label).size(typo::META).color(tea.muted));
-    }
-    container(bar)
-        .width(Length::Fill)
-        .padding(Padding {
-            top: 0.0,
-            right: 0.0,
-            bottom: 8.0,
-            left: 0.0,
-        })
-        .into()
-}
-
-fn diff_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
-    let mut col = column![].spacing(8).width(Length::Fill);
-    if let Some(p) = hud.current_diff_point() {
-        if !p.prompt.trim().is_empty() {
-            col = col.push(text("Prompt").size(typo::META).color(tea.muted));
-            col = col.push(text(p.prompt.clone()).size(typo::BODY).color(tea.text));
-        }
-        if !p.assistant.trim().is_empty() {
-            col = col.push(text("Assistant").size(typo::META).color(tea.muted));
-            col = col.push(text(p.assistant.clone()).size(typo::BODY).color(tea.muted));
+fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
+    let files = hud.visible_diff_files();
+    let mut list = column![].spacing(0).width(Length::Fill);
+    if files.is_empty() {
+        list = list.push(kit::status_empty(
+            "No file changes",
+            "Grok rewind snapshots or search_replace edits for this session.",
+            tea,
+        ));
+    } else {
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        for row in crate::diff_tree::tree_rows(paths) {
+            let face = format!("{}{}", "  ".repeat(row.depth), row.label);
+            if row.kind == crate::diff_tree::DiffTreeKind::Dir {
+                list = list.push(
+                    container(
+                        text(face)
+                            .size(typo::META)
+                            .color(tea.muted)
+                            .width(Length::Fill)
+                            .wrapping(iced::widget::text::Wrapping::None),
+                    )
+                    .padding(Padding {
+                        top: 5.0,
+                        right: 8.0,
+                        bottom: 5.0,
+                        left: 8.0,
+                    })
+                    .width(Length::Fill)
+                    .clip(true),
+                );
+                continue;
+            }
+            let selected = row.path == hud.diff_file();
+            let path = row.path.clone();
+            list = list.push(
+                mouse_area(
+                    container(
+                        text(face)
+                            .size(typo::META)
+                            .color(tea.text)
+                            .width(Length::Fill)
+                            .wrapping(iced::widget::text::Wrapping::None),
+                    )
+                    .padding(Padding {
+                        top: 5.0,
+                        right: 8.0,
+                        bottom: 5.0,
+                        left: 8.0,
+                    })
+                    .width(Length::Fill)
+                    .clip(true)
+                    .style(move |_| icedtea::style::list_row(tea, selected)),
+                )
+                .on_press(Message::SelectDiffFile(path)),
+            );
         }
     }
     let unified = hud
@@ -1788,8 +1757,153 @@ fn diff_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
         .and_then(|p| p.files.iter().find(|f| f.path == hud.diff_file()))
         .map(|f| f.unified.as_str())
         .unwrap_or("");
-    col = col.push(paint_unified(unified, tea, hud.diff_hit_line()));
-    col.into()
+    let files_pane = container(icedtea::widget::themed_scroll(
+        list.into(),
+        tea,
+        A11y::new("Diff files", Role::List),
+        false,
+        None,
+        None::<fn(_) -> Message>,
+    ))
+    .width(Length::Fixed(196.0))
+    .height(Length::Fill)
+    .padding(4)
+    .style(move |_| icedtea::style::card(tea, false));
+    let hunk_pane = container(icedtea::widget::themed_scroll(
+        paint_unified(unified, tea, hud.diff_hit_line()),
+        tea,
+        A11y::new("Diff hunk", Role::Group),
+        false,
+        None,
+        None::<fn(_) -> Message>,
+    ))
+    .padding(8)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(move |_| icedtea::style::card(tea, false));
+    row![files_pane, hunk_pane]
+        .spacing(12)
+        .height(Length::Fill)
+        .into()
+}
+
+fn diff_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
+    let mut header = row![].spacing(8).align_y(Alignment::Center);
+    if !hud.diff_point_options().is_empty() {
+        header = header.push(icedtea::widget::meta(
+            "Snapshot",
+            tea,
+            A11y::new("Snapshot", Role::Header),
+        ));
+        header = header.push(kit::compact_pick(
+            hud.diff_point_options(),
+            hud.diff_point_selected(),
+            Message::DiffPointPicked,
+            tea,
+            A11y::new("Snapshot", Role::ComboBox),
+        ));
+    }
+    header = header.push(diff_context_tabs(hud, tea));
+    container(
+        column![
+            header,
+            icedtea::widget::themed_scroll(
+                diff_context_body(hud, tea),
+                tea,
+                A11y::new("Diff context body", Role::Group),
+                false,
+                None,
+                None::<fn(_) -> Message>,
+            )
+        ]
+        .spacing(4)
+        .height(Length::Fill),
+    )
+    .padding(Padding {
+        top: 2.0,
+        right: 8.0,
+        bottom: 6.0,
+        left: 8.0,
+    })
+    .height(Length::Fixed(112.0))
+    .width(Length::Fill)
+    .style(move |_| icedtea::style::card(tea, false))
+    .into()
+}
+
+fn diff_context_tabs(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
+    row![
+        diff_context_tab(
+            "Prompt",
+            hud.diff_context() == DiffContext::Prompt,
+            Message::DiffContext(DiffContext::Prompt),
+            tea,
+        ),
+        diff_context_tab(
+            "Assistant",
+            hud.diff_context() == DiffContext::Assistant,
+            Message::DiffContext(DiffContext::Assistant),
+            tea,
+        ),
+    ]
+    .spacing(0)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+fn diff_context_tab(
+    title: &'static str,
+    active: bool,
+    msg: Message,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    icedtea::a11y::attach(
+        button(text(title).size(typo::META))
+            .padding([4, 8])
+            .style(icedtea::style::tab_style(tea, active))
+            .on_press(msg)
+            .into(),
+        &A11y::new(title, Role::Tab).with_checked(active),
+    )
+}
+
+fn diff_search(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.tokens();
+    kit::search_field(
+        "Search files and hunks",
+        hud.diff_query(),
+        Message::DiffQuery,
+        None,
+        tea,
+        A11y::new("Search diff", Role::TextBox),
+        Some(hud.diff_search_id()),
+    )
+}
+
+fn diff_context_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
+    match hud.diff_context() {
+        DiffContext::Prompt => {
+            let src = hud
+                .current_diff_point()
+                .map(|p| p.prompt.as_str())
+                .unwrap_or("");
+            if src.trim().is_empty() {
+                text("(empty)").size(typo::META).color(tea.muted).into()
+            } else {
+                text(src.to_string())
+                    .size(typo::BODY)
+                    .color(tea.text)
+                    .into()
+            }
+        }
+        DiffContext::Assistant => {
+            let src = hud
+                .current_diff_point()
+                .map(|p| p.assistant.as_str())
+                .unwrap_or("");
+            chat_md_body(src, 8000, tea)
+        }
+    }
 }
 
 fn paint_unified(
@@ -2702,7 +2816,7 @@ mod tests {
         assert!(!prod.contains("pattern::list_detail"));
         assert!(prod.contains("widget::rule_h"));
         assert!(prod.contains("widget::tooltip_wrap"));
-        assert!(prod.contains("icedtea::widget::themed_pick_list"));
+        assert!(prod.contains("kit::compact_pick"));
         assert!(prod.contains("icedtea::widget::themed_text_input"));
         assert!(
             prod.contains("icedtea::widget::highlighted_code"),
@@ -2727,6 +2841,13 @@ mod tests {
         assert!(prod.contains("icedtea::pattern::status_page"));
         assert!(prod.contains("icedtea::widget::info_bar"));
         assert!(prod.contains("icedtea::widget::markdown_view"));
+        assert!(prod.contains("fn diff_chrome"));
+        assert!(prod.contains("fn diff_context_body"));
+        assert!(prod.contains("fn diff_split"));
+        assert!(prod.contains("icedtea::style::list_row"));
+        assert!(prod.contains("fn diff_search"));
+        assert!(prod.contains("Message::DiffPointPicked"));
+        assert!(prod.contains("chat_md_body(src, 8000, tea)"));
         assert!(prod.contains("icedtea::motion::overlay"));
         assert!(prod.contains("Slide::Up"));
         assert!(prod.contains("page_slide()"));

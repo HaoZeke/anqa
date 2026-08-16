@@ -834,10 +834,48 @@ async def test_browser_diff_file_list_shows_rewind_files(tmp_path: Path) -> None
         )
         paths = {str(table.get_row_at(i)[0]) for i in range(table.row_count)}
         assert paths == {"added.py", "app.py"}
+        assert len(table.get_row_at(0)) == 1
         table.move_cursor(row=0, animate=False)
         await pilot.pause()
         first = str(table.get_row_at(0)[0])
         assert first in view.selected_plain()
+
+
+@pytest.mark.asyncio
+async def test_browser_diff_file_list_groups_nested_paths(tmp_path: Path) -> None:
+    """Nested rewind paths show a directory header and file leaves."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    (sess / "rewind_points.jsonl").write_text(
+        json.dumps(
+            {
+                "prompt_index": 1,
+                "file_snapshots": {"src/app.py": "old", "src/extra.py": "old-extra"},
+                "after_snapshots": {"src/app.py": "new", "src/extra.py": "new-extra"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-diff")
+        from groket.ui.widgets.diff_view import DiffView
+        from textual.widgets import DataTable
+
+        view = screen.query_one("#diff-view", DiffView)
+        table = view.query_one("#diff-file-list", DataTable)
+        await wait_until(
+            pilot,
+            lambda: table.row_count == 3,
+            description="dir header plus two files",
+        )
+        keys = {str(key.value) for key in table.rows}
+        assert keys == {"dir:src/", "src/app.py", "src/extra.py"}
+        assert "src/" in str(table.get_row_at(0)[0])
 
 
 @pytest.mark.asyncio
@@ -911,6 +949,67 @@ async def test_browser_diff_search_filters_path_and_body(tmp_path: Path) -> None
 
         body = view.query_one("#diff-content", SelectableStatic).get_plain_text()
         assert painted in body
+
+
+@pytest.mark.asyncio
+async def test_browser_diff_context_above_files_hunk_split(tmp_path: Path) -> None:
+    """Prompt/Assistant sit above a parent that holds files and hunk side by side."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-diff")
+        from groket.session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
+        from groket.ui.selectable_static import SelectableStatic
+        from groket.ui.widgets.diff_view import DiffView
+
+        view = screen.query_one("#diff-view", DiffView)
+        view.set_doc(
+            WorkspaceDiff(
+                (
+                    DiffPoint(
+                        key="0",
+                        source="rewind_points",
+                        prompt_index=0,
+                        created_at=None,
+                        files=(
+                            DiffHunk(
+                                path="app.py",
+                                kind="modified",
+                                added=1,
+                                removed=1,
+                                unified="--- a/app.py\n+++ b/app.py\n+new\n",
+                            ),
+                        ),
+                        prompt_text="first prompt",
+                        assistant_text="## Heading\n\n**ok**",
+                    ),
+                )
+            )
+        )
+        await pilot.pause()
+        chrome = view.query_one("#diff-chrome")
+        ctx = view.query_one("#diff-context")
+        search = view.query_one("#diff-search-bar")
+        split = view.query_one("#diff-layout")
+        assert view.query_one("#diff-filter-bar").parent is chrome
+        assert ctx.parent is chrome
+        assert search.parent is view
+        assert split.parent is view
+        kids = [child.id for child in view.children]
+        assert kids.index("diff-chrome") < kids.index("diff-search-bar") < kids.index("diff-layout")
+        assert view.query_one("#diff-files").parent is split
+        assert view.query_one("#diff-scroll").parent is split
+        prompt = view.query_one("#diff-prompt", SelectableStatic)
+        assert "first prompt" in prompt.get_plain_text()
+        tabs = view.query_one("#diff-context-tabs", TabbedContent)
+        tabs.active = "diff-tab-assistant"
+        await pilot.pause()
+        assistant = view.query_one("#diff-assistant", SelectableStatic)
+        assert "## Heading" in assistant.get_plain_text()
 
 
 # ── Summary tab ──────────────────────────────────────────────────────────

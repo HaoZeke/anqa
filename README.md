@@ -121,7 +121,8 @@ returns to that Timeline or Turns place.
 
 `groket` (or `groket tui`) is the full eval client: session list, browser
 panes, runner, recipes, personas, analysis, and export. Diff lists Grok
-rewind snapshots (or approximate `search_replace` edits) as a file list.
+rewind snapshots (or approximate `search_replace` edits) with Prompt and
+Assistant tabs above a files and hunk split.
 The footer lists the keys that apply now; `?` is the full list.
 
 | Key | Where | Action |
@@ -154,7 +155,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-5 | browser | Timeline, Summary, Diff, Findings, Report |
-| Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); file list; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file |
+| Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
 | j / k | browser | Previous / next event on the Timeline (also Up / Down) |
 | v | browser | Timeline filter (Subagents lists spawn/finish) |
