@@ -26,7 +26,7 @@ from groket.ui.data_table import cursor_row_key
 from groket.ui.screens.browser import BrowserScreen
 from groket.ui.selectable_static import SelectableStatic
 from groket.ui.widgets.timeline import TimelineTable
-from textual.widgets import DataTable, Input, Static, Switch, TabbedContent
+from textual.widgets import DataTable, Input, LoadingIndicator, Static, Switch, TabbedContent
 
 from .pilot_helpers import static_plain, wait_until
 
@@ -671,8 +671,7 @@ Pattern: skip
 
 @pytest.mark.asyncio
 async def test_browser_analysis_pending_collapses_report_panes(tmp_path: Path) -> None:
-    """Pending analysis paints one spinner per plugin card, not one per pane."""
-    from groket.ui.i18n import t
+    """Pending analysis shows LoadingIndicator and widget.loading on report cards."""
     from groket.ui.selectable_static import SelectableStatic
     from textual.containers import Vertical
 
@@ -739,16 +738,10 @@ body three
         screen._paint_analysis_pending_spinner(full=True)
         await pilot.pause()
 
-        panes = list(section.query(SelectableStatic))
-        assert len(panes) == 1
-        plain = panes[0].get_plain_text()
-        assert "Running analysis" in plain
-        # Overview is a single body, not duplicated under the plugin card.
-        overview = screen.query_one("#report-overview-content", SelectableStatic)
-        assert "Running analysis" in overview.get_plain_text()
-        # Spinner Fluent uses the braille frame; plain cache should not empty.
-        assert plain.strip()
-        assert t("ui-running-analysis-plain") in plain or "Running analysis" in plain
+        assert section.loading is True
+        pending = screen.query_one("#findings-pending-status", LoadingIndicator)
+        assert pending.display
+        assert screen.query_one("#reports-scroll").loading is True
 
 
 # ── Summary stats tables ─────────────────────────────────────────────────

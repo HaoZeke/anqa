@@ -1636,10 +1636,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         && !hud.timeline_loading()
     {
         // Should be rare: SetTab/All turns loads immediately. Honest fallback.
-        return text("Loading events…")
-            .size(typo::META)
-            .color(hud.body_tokens().muted)
-            .into();
+        return loading_session("events", hud.body_tokens());
     }
     if hud.timeline_loading() && hud.filtered_indices().is_empty() {
         return loading_session("events", hud.body_tokens());
@@ -1647,10 +1644,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     let idxs = hud.filtered_indices();
     if idxs.is_empty() {
         if hud.timeline_loading() || !hud.timeline_complete() {
-            return text("Loading matching events…")
-                .size(typo::META)
-                .color(hud.tokens().muted)
-                .into();
+            return loading_session("matching events", hud.tokens());
         }
         return kit::status_empty("No events", "Nothing matches this filter.", hud.tokens());
     }
@@ -1712,7 +1706,7 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
             event_detail_chrome(ix, None, None, None, tea),
-            text("Loading event…").size(typo::META).color(tea.muted),
+            loading_session("event", tea),
         ]
         .spacing(10)
         .height(Length::Fill)
@@ -2850,6 +2844,15 @@ mod tests {
         let _ = select_session(tea());
         let _ = status_copy("control socket down · run: groket serve -d", true, tea());
         let _ = status_copy("12 sessions · ready", false, tea());
+        let prod = include_str!("view.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("prod");
+        assert!(prod.contains("fn loading_session"));
+        assert!(prod.contains("widget::progress("));
+        assert!(!prod.contains("Loading events…"));
+        assert!(!prod.contains("Loading matching events…"));
+        assert!(!prod.contains("Loading event…"));
     }
 
     #[test]

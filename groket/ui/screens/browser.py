@@ -24,6 +24,7 @@ from textual.widgets import (
     Checkbox,
     DataTable,
     Input,
+    LoadingIndicator,
     Select,
     Static,
     Switch,
@@ -318,7 +319,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         yield SelectableStatic("", id="findings-header")
                         # Row→timeline focus is on ``?`` / footer — no permanent tip box.
                     with Vertical(classes=t("ui-panel-card-panel-card-grow")):
-                        yield Static("", id="findings-pending-status")
+                        pending = LoadingIndicator(id="findings-pending-status")
+                        pending.display = False
+                        yield pending
                         yield DataTable(id="findings-table")
             with TabPane(U.tab_report(), id="tab-reports"):
                 with Vertical(id="reports-panel"):
@@ -2186,41 +2189,22 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._paint_visible_secondary_panes()
 
     def _show_analysis_pending(self) -> None:
-        """Show loading placeholders; start a cheap spinner timer (no table rebuilds)."""
+        """Show toolkit loading readouts while analysis is in flight."""
         if not self._analysis_pending:
             return
         self._paint_analysis_pending_spinner(full=True)
-        if self._analysis_spinner_timer is None:
-            from ...constants import ANALYSIS_PENDING_SPINNER_INTERVAL
-
-            self._analysis_spinner_timer = self.set_interval(
-                ANALYSIS_PENDING_SPINNER_INTERVAL,
-                self._tick_analysis_pending,
-            )
 
     def _paint_analysis_pending_spinner(self, *, full: bool = False) -> None:
-        """Update spinner text only (full=True also clears tables once).
-
-        Report plugin cards may hold many extractable panes after a prior run.
-        Pending state collapses each card to **one** spinner body so the Report
-        tab does not stack "Running analysis…" once per markdown chunk.
-        """
-        from ...job_pools import get_activity_log
-
-        spin = get_activity_log().spinner_frame()
-        pending_markup = t("ui-running-analysis-spinner", spin=spin)
+        """Show LoadingIndicator / widget.loading (full=True also clears tables)."""
         try:
-            status = self.query_one("#findings-pending-status", Static)
-            status.update(pending_markup)
+            status = self.query_one("#findings-pending-status", LoadingIndicator)
             status.display = True
         except Exception:
             pass
         if self._active_browser_tab() == "tab-reports":
-            try:
-                self.query_one("#report-overview-content", Static).update(pending_markup)
-            except Exception:
-                pass
-            self._paint_report_plugin_pending_spinners(pending_markup, full=full)
+            with suppress(Exception):
+                self.query_one("#reports-scroll").loading = True
+            self._paint_report_plugin_pending_spinners(full=full)
         if not full:
             return
         try:
@@ -2233,20 +2217,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             pass
 
-    def _paint_report_plugin_pending_spinners(self, pending_markup: str, *, full: bool) -> None:
-        """One spinner per plugin report card (not one per multi-pane body)."""
+    def _paint_report_plugin_pending_spinners(self, *, full: bool = False) -> None:
+        """One loading overlay per plugin report card."""
+        _ = full
         for aid in list(getattr(self, "_report_section_keys", ()) or ()):
             if aid in ("flags", "notes"):
                 continue
             with suppress(Exception):
-                if full:
-                    # Reuse pane sync: update index 0, drop extras without selection.
-                    self._sync_report_plugin_panes(aid, [pending_markup])
-                    continue
                 section = self.query_one(f"#{self._report_section_dom_id(aid)}", Vertical)
-                panes = list(section.query(SelectableStatic))
-                if panes and not self._widget_has_text_selection(panes[0]):
-                    panes[0].update(pending_markup)
+                section.loading = True
 
     def _tick_analysis_pending(self) -> None:
         if not self._analysis_pending or not self.is_mounted:
@@ -2260,11 +2239,17 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if timer is not None:
             timer.stop()
         try:
-            status = self.query_one("#findings-pending-status", Static)
-            status.update("")
+            status = self.query_one("#findings-pending-status", LoadingIndicator)
             status.display = False
         except Exception:
             pass
+        with suppress(Exception):
+            self.query_one("#reports-scroll").loading = False
+        for aid in list(getattr(self, "_report_section_keys", ()) or ()):
+            if aid in ("flags", "notes"):
+                continue
+            with suppress(Exception):
+                self.query_one(f"#{self._report_section_dom_id(aid)}", Vertical).loading = False
 
     def _populate_analysis_ui(self) -> None:
         """Phase 2 UI: findings + reports — after analysis plugins finish."""
