@@ -5,6 +5,8 @@ is tagged.
 
 ## Unreleased
 
+- HUD Timeline event detail steps with Previous / Next buttons and an
+  “n of m” count. Left and Right stay previous / next turn.
 - Stale analysis is a warning toast plus a short Report/Findings note
   (plain copy, yellow style). There is no full-width banner, and Rich
   tags no longer appear as literal ``[bold yellow]`` in Report.

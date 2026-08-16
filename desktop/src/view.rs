@@ -1179,27 +1179,6 @@ fn event_type_human(ev: &TimelineEvent) -> String {
     human_event_type_label(&ev.event_type, &ev.type_label, &ev.kind)
 }
 
-fn event_card_label(ev: &TimelineEvent) -> String {
-    if is_tool_identity(&ev.kind, &ev.event_type, &ev.tool_name) {
-        format_tool_display(&ev.tool_name)
-    } else {
-        event_type_human(ev)
-    }
-}
-
-#[cfg(test)]
-fn event_title_meta(ev: &TimelineEvent) -> String {
-    let mut bits: Vec<String> = Vec::new();
-    if let Some(turn) = ev.turn_index {
-        bits.push(format!("turn {turn}"));
-    }
-    let time = ev.time.trim();
-    if !time.is_empty() {
-        bits.push(time.to_string());
-    }
-    bits.join(" · ")
-}
-
 /// Human type + brand role for the heading badge next to ``#index``.
 fn event_type_paint(ev: &TimelineEvent) -> Option<(String, BrandRole)> {
     let human = event_type_human(ev);
@@ -1639,7 +1618,7 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let tea = hud.body_tokens();
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
-            event_detail_chrome(ix, None, None, None, tea),
+            event_detail_chrome(hud, ix, None, tea),
             loading_session("event", tea),
         ]
         .spacing(10)
@@ -1664,18 +1643,16 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
         None,
         None::<fn(scrollable::Viewport) -> Message>,
     );
-    let (prev, next) = hud.timeline_detail_adjacent();
-    column![event_detail_chrome(ix, Some(ev), prev, next, tea), scroll]
+    column![event_detail_chrome(hud, ix, Some(ev), tea), scroll]
         .spacing(10)
         .height(Length::Fill)
         .into()
 }
 
 fn event_detail_chrome(
+    hud: &Hud,
     ix: i64,
     ev: Option<&TimelineEvent>,
-    prev: Option<&TimelineEvent>,
-    next: Option<&TimelineEvent>,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let head = ev.map(|e| event_list_heading(e, tea)).unwrap_or_else(|| {
@@ -1685,60 +1662,43 @@ fn event_detail_chrome(
             .color(tea.text)
             .into()
     });
-    column![head, event_neighbor_bar(prev, next, tea)]
+    column![head, event_pager(hud, tea)]
         .spacing(4)
         .width(Length::Fill)
         .into()
 }
 
-/// Named previous / next cards — same face words as the Timeline list.
-fn event_neighbor_bar(
-    prev: Option<&TimelineEvent>,
-    next: Option<&TimelineEvent>,
-    tea: icedtea::theme::Tokens,
-) -> Element<'static, Message> {
-    let mut row = row![]
-        .spacing(12)
-        .align_y(Alignment::Center)
-        .width(Length::Fill);
-    if let Some(ev) = prev {
-        row = row.push(neighbor_link(
-            ev,
-            false,
-            Message::TimelineDetailStep(-1),
+/// icedtea pagination face: Previous / position / Next (not Left/Right turn keys).
+fn event_pager(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let (at, n) = hud.timeline_detail_pos().unwrap_or((0, 0));
+    if n == 0 {
+        return Space::new().height(0).into();
+    }
+    let has_prev = at > 1;
+    let has_next = at < n;
+    let status = format!("{at} of {n}");
+    row![
+        icedtea::widget::themed_button(
+            "Previous",
+            has_prev.then_some(Message::TimelineDetailStep(-1)),
             tea,
-        ));
-    }
-    row = row.push(Space::new().width(Length::Fill));
-    if let Some(ev) = next {
-        row = row.push(neighbor_link(ev, true, Message::TimelineDetailStep(1), tea));
-    }
-    row.into()
-}
-
-fn neighbor_link(
-    ev: &TimelineEvent,
-    ahead: bool,
-    msg: Message,
-    tea: icedtea::theme::Tokens,
-) -> Element<'static, Message> {
-    let name = capped_display(&event_card_label(ev), 28);
-    let face = if ahead {
-        format!("{name} ›")
-    } else {
-        format!("‹ {name}")
-    };
-    let hint = if ahead {
-        format!("Next {name}")
-    } else {
-        format!("Previous {name}")
-    };
-    icedtea::a11y::attach(
-        mouse_area(text(face).size(typo::META).color(tea.muted))
-            .on_press(msg)
-            .into(),
-        &A11y::button(hint),
-    )
+            Variant::Quiet,
+            icedtea::icon::Icons::NONE,
+            A11y::button("Previous event").with_disabled(!has_prev),
+        ),
+        icedtea::widget::meta(status.clone(), tea, A11y::new(status, Role::Status)),
+        icedtea::widget::themed_button(
+            "Next",
+            has_next.then_some(Message::TimelineDetailStep(1)),
+            tea,
+            Variant::Quiet,
+            icedtea::icon::Icons::NONE,
+            A11y::button("Next event").with_disabled(!has_next),
+        ),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn diff_tab(hud: &Hud) -> Element<'_, Message> {
@@ -2668,6 +2628,18 @@ mod tests {
         assert!(prod.contains("fn plain_face"));
     }
 
+    fn event_title_meta(ev: &TimelineEvent) -> String {
+        let mut bits: Vec<String> = Vec::new();
+        if let Some(turn) = ev.turn_index {
+            bits.push(format!("turn {turn}"));
+        }
+        let time = ev.time.trim();
+        if !time.is_empty() {
+            bits.push(time.to_string());
+        }
+        bits.join(" · ")
+    }
+
     #[test]
     fn event_heading_has_type_turn_and_time() {
         let ev = TimelineEvent {
@@ -3026,9 +2998,13 @@ mod tests {
         assert!(prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));
-        assert!(prod.contains("fn event_neighbor_bar"));
-        assert!(prod.contains("fn neighbor_link"));
-        assert!(prod.contains("fn event_card_label"));
+        assert!(prod.contains("fn event_pager"));
+        assert!(prod.contains("widget::pagination") || prod.contains("\"Previous\""));
+        assert!(prod.contains("\"Next\""));
+        assert!(prod.contains("{at} of {n}"));
+        assert!(!prod.contains("fn neighbor_link"));
+        assert!(!prod.contains("‹ {name}"));
+        assert!(!prod.contains("{name} ›"));
         assert!(prod.contains("fn event_list_heading"));
         assert!(prod.contains("fn event_type_paint"));
         assert!(prod.contains("fn label_badge"));
@@ -3070,7 +3046,6 @@ mod tests {
             .expect("face body");
         assert!(face.contains("label_badge"));
         assert!(!face.contains("id_font"));
-        assert!(!prod.contains("{at} of {n}"));
         assert!(prod.contains("footer_table_for(hud.key_scope(), hud.key_overlay())"));
         assert!(!prod.contains("chip_btn(\"Back\""));
         assert!(!prod.contains("is_timeline_expanded"));
