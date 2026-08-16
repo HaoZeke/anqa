@@ -231,6 +231,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         from ..brand_mark import AppChrome, AppFooter
 
         yield AppChrome()
+        analysis_wait = LoadingIndicator(id="browser-analysis-loading")
+        analysis_wait.display = False
+        yield analysis_wait
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
             yield Static("", id="session-pending-queue")
@@ -318,9 +321,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         yield SelectableStatic("", id="findings-header")
                         # Row→timeline focus is on ``?`` / footer — no permanent tip box.
                     with Vertical(classes=t("ui-panel-card-panel-card-grow")):
-                        pending = LoadingIndicator(id="findings-pending-status")
-                        pending.display = False
-                        yield pending
                         yield DataTable(id="findings-table")
             with TabPane(U.tab_report(), id="tab-reports"):
                 with Vertical(id="reports-panel"):
@@ -2193,13 +2193,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._paint_analysis_pending_spinner(full=True)
 
     def _paint_analysis_pending_spinner(self, *, full: bool = False) -> None:
-        """Show LoadingIndicator / widget.loading (full=True also clears tables)."""
-        try:
-            status = self.query_one("#findings-pending-status", LoadingIndicator)
-            status.display = True
-        except Exception:
-            pass
-        self._apply_report_loading_overlays()
+        """Show the chrome LoadingIndicator and pane loading overlays."""
+        self._set_analysis_loading(True)
         if not full:
             return
         try:
@@ -2211,6 +2206,23 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
         except Exception:
             pass
+
+    def _set_analysis_loading(self, on: bool) -> None:
+        """Toggle the visible loading control (chrome + Findings + Report)."""
+        with suppress(Exception):
+            self.query_one("#browser-analysis-loading", LoadingIndicator).display = on
+        with suppress(Exception):
+            self.query_one("#findings-table").loading = on
+        if on:
+            self._apply_report_loading_overlays()
+            return
+        with suppress(Exception):
+            self.query_one("#reports-scroll").loading = False
+        for aid in list(getattr(self, "_report_section_keys", ()) or ()):
+            if aid in ("flags", "notes"):
+                continue
+            with suppress(Exception):
+                self.query_one(f"#{self._report_section_dom_id(aid)}", Vertical).loading = False
 
     def _apply_report_loading_overlays(self) -> None:
         """Mark Report scroll and plugin cards loading while analysis is in flight."""
@@ -2241,18 +2253,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._analysis_spinner_timer = None
         if timer is not None:
             timer.stop()
-        try:
-            status = self.query_one("#findings-pending-status", LoadingIndicator)
-            status.display = False
-        except Exception:
-            pass
-        with suppress(Exception):
-            self.query_one("#reports-scroll").loading = False
-        for aid in list(getattr(self, "_report_section_keys", ()) or ()):
-            if aid in ("flags", "notes"):
-                continue
-            with suppress(Exception):
-                self.query_one(f"#{self._report_section_dom_id(aid)}", Vertical).loading = False
+        self._set_analysis_loading(False)
 
     def _populate_analysis_ui(self) -> None:
         """Phase 2 UI: findings + reports — after analysis plugins finish."""

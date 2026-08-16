@@ -739,8 +739,9 @@ body three
         await pilot.pause()
 
         assert section.loading is True
-        pending = screen.query_one("#findings-pending-status", LoadingIndicator)
+        pending = screen.query_one("#browser-analysis-loading", LoadingIndicator)
         assert pending.display
+        assert screen.query_one("#findings-table").loading is True
         assert screen.query_one("#reports-scroll").loading is True
 
 
@@ -784,7 +785,8 @@ async def test_browser_analysis_pending_marks_report_when_opened(tmp_path: Path)
         screen._analysis_pending = True
         screen._show_analysis_pending()
         await pilot.pause()
-        assert screen.query_one("#findings-pending-status", LoadingIndicator).display
+        assert screen.query_one("#browser-analysis-loading", LoadingIndicator).display
+        assert screen.query_one("#findings-table").loading is True
 
         await _activate_tab(pilot, screen, "tab-reports")
         await wait_until(

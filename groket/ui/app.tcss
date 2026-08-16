@@ -1673,7 +1673,7 @@ ContentSwitcher {
     background: $background;
 }
 
-#findings-pending-status {
+#browser-analysis-loading {
     display: none;
     height: 1;
     padding: 0 1;

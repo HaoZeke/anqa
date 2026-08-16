@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- Session analysis wait uses the toolkit LoadingIndicator in the
+  browser chrome (visible on Timeline) and overlays Findings and
+  Report. It is not hidden on a pane the operator has not opened.
 - HUD badges lift status ink off the wash so complete / running /
   cancelled stay readable. Session context, event index, finding
   severity, and note counts use the same chips. ``completed`` displays
