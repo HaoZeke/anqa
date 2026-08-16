@@ -614,14 +614,6 @@ SelectOverlay:focus > .option-list--option-highlighted {
 }
 
 /* Pending interactive / live session controls (browser; hidden when settled) */
-#analysis-stale-banner {
-    display: none;
-    height: auto;
-    padding: 0 1;
-    background: $warning 20%;
-    color: $text;
-}
-
 #session-pending-bar {
     display: none;
     height: auto;

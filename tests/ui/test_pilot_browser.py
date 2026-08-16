@@ -806,6 +806,36 @@ async def test_browser_analysis_pending_marks_report_when_opened(tmp_path: Path)
         )
 
 
+@pytest.mark.asyncio
+async def test_browser_stale_analysis_is_a_note_not_a_banner(tmp_path: Path) -> None:
+    """Stale analysis is a Report note; Rich tags stay off the page."""
+    from textual.css.query import NoMatches
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        screen._stop_live_refresh()
+        with pytest.raises(NoMatches):
+            screen.query_one("#analysis-stale-banner")
+
+        screen._analysis_stale_hints = []
+        screen._note_stale_analysis(["engine cache older than plugin"])
+        await _activate_tab(pilot, screen, "tab-reports")
+        screen._update_reports_tab()
+        await pilot.pause()
+
+        report = screen.query_one("#report-overview-content", SelectableStatic)
+        plain = report.get_plain_text() or ""
+        assert "Stale analysis" in plain
+        assert "engine cache older than plugin" in plain
+        assert "[bold yellow]" not in plain
+        assert "[/]" not in plain
+
+
 # ── Summary stats tables ─────────────────────────────────────────────────
 
 

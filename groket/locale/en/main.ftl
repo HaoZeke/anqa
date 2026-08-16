@@ -32,9 +32,9 @@ ui-analysis-idle = [dim]No analysis yet — Ctrl+P → Analyze this session[/]
 ui-analysis-idle-report = [dim]No report yet — runs after analysis[/]
 ui-running-analysis-spinner = [dim italic]{$spin} Running analysis…[/]
 ui-running-analysis-plain = Running analysis…
-analysis-stale-banner = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session (J → Activity).
-analysis-stale-findings-row = [yellow]Stale[/] — {$detail} · Ctrl+P → Analyze this session
-analysis-stale-report = [bold yellow]Stale analysis[/] — {$detail}. Ctrl+P → Analyze this session.
+analysis-stale-toast = Stale analysis — {$detail}. Ctrl+P → Analyze this session.
+analysis-stale-findings-row = Stale — {$detail} · Ctrl+P → Analyze this session
+analysis-stale-report = Stale analysis — {$detail}. Ctrl+P → Analyze this session.
 
 bind-analyze = Analyze
 

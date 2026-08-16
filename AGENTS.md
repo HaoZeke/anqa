@@ -288,6 +288,11 @@ in FTL. Do not use FTL edge spaces for concatenation (Fluent strips them).
 - No f-string embedding ``t(...)``.
 - No ``re.compile(t(...))`` / regex message ids in FTL.
 - No leading/trailing space on single-line FTL values (except multi-line / placeable-only).
+- No Rich style tags (``[bold yellow]``, ``[dim]``, ``[/]``) in an FTL value
+  that Python feeds to ``Text(...)`` or ``Text.append(..., style=)``. Those
+  APIs treat the string as literal, so the tags show on screen. Keep the
+  Fluent value plain and apply ``style=`` in Python. ``Static.update`` may
+  still parse markup for existing hint strings.
 
 Prefer one Fluent message with ``{$placeholders}``, then ``join_ui``, then
 Python Rich styles on a full ``t(...)`` result.

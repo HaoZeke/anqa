@@ -36,7 +36,7 @@ def test_schedule_analysis_skips_second_enqueue(tmp_path: Path) -> None:
     screen._findings = []
     screen._analysis_stale_hints = []
     screen._show_analysis_pending = lambda: None  # type: ignore[method-assign]
-    screen._set_analysis_stale_banner = lambda _h=None: None  # type: ignore[method-assign]
+    screen._note_stale_analysis = lambda _h=None: None  # type: ignore[method-assign]
     submitted: list[str] = []
     pool = get_analysis_pool()
     real = pool.submit

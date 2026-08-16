@@ -231,7 +231,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         from ..brand_mark import AppChrome, AppFooter
 
         yield AppChrome()
-        yield Static("", id="analysis-stale-banner")
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
             yield Static("", id="session-pending-queue")
@@ -1621,8 +1620,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         self._analysis_pending = True
         self._show_analysis_pending()
-        # Clear stale banner while a fresh run is queued; show progress instead.
-        self._set_analysis_stale_banner([])
+        # Drop stale hints while a fresh run is queued; show progress instead.
+        self._note_stale_analysis([])
         from ...job_pools import get_activity_log, get_analysis_pool
         from ..threads import call_ui
 
@@ -1737,12 +1736,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return asyncio.run(_run())
 
     def _apply_stale_analysis_hints(self, *, repaint: bool = True) -> None:
-        """Load stale hints, update banner, optionally repaint findings/report."""
+        """Load stale hints, toast once, optionally repaint findings/report."""
         try:
             hints = self._analysis_svc().stale_analyzer_hints(self.session_dir)
         except Exception:
             hints = []
-        self._set_analysis_stale_banner(hints)
+        self._note_stale_analysis(hints)
         if repaint and self.is_mounted and not getattr(self, "_analysis_pending", False):
             try:
                 self._populate_analysis_ui()
@@ -1755,18 +1754,17 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             detail += "…"
         return detail
 
-    def _set_analysis_stale_banner(self, hints: list[str]) -> None:
+    def _note_stale_analysis(self, hints: list[str]) -> None:
+        """Remember stale hints and toast the first time they appear."""
+        prev = list(self._analysis_stale_hints)
         self._analysis_stale_hints = list(hints)
-        try:
-            banner = self.query_one("#analysis-stale-banner", Static)
-        except Exception:
+        if not hints or hints == prev or not self.is_mounted:
             return
-        if not hints:
-            banner.update("")
-            banner.display = False
-            return
-        banner.update(t("analysis-stale-banner", detail=self._stale_detail(hints)))
-        banner.display = True
+        self.notify(
+            t("analysis-stale-toast", detail=self._stale_detail(hints)),
+            severity="warning",
+            timeout=6,
+        )
 
     def _show_analysis_idle(self) -> None:
         """Findings/report idle when auto-analyze is off or deferred."""
@@ -2286,7 +2284,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 "!",
                 "stale",
                 "",
-                t("analysis-stale-findings-row", detail=self._stale_detail(stale_hints)),
+                Text(
+                    t("analysis-stale-findings-row", detail=self._stale_detail(stale_hints)),
+                    style="yellow",
+                ),
                 "",
                 key="__analysis_stale__",
             )

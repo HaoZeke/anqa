@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- Stale analysis is a warning toast plus a short Report/Findings note
+  (plain copy, yellow style). There is no full-width banner, and Rich
+  tags no longer appear as literal ``[bold yellow]`` in Report.
 - HUD event type, tool name, turn, time, counts, findings, and notes
   chrome use the same small badges as session status. Open tool detail
   uses a tool-name badge (not colored prose).
