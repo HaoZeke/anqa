@@ -128,22 +128,19 @@ fn tone_variant(tone: &str) -> Variant {
     }
 }
 
-/// Session / turn status pill. Filter chips keep on-surface ink on a tinted wash
-/// (``badge`` paints primary-on-primary for ``Variant::Primary``).
+/// Session / turn / severity status — icedtea ``badge`` (same face everywhere).
 fn status_chip(
     label: impl Into<String>,
     tone: &str,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let label = label.into();
-    icedtea::widget::chip(
+    icedtea::widget::badge(
         label.clone(),
-        None,
         None,
         tea,
         tone_variant(tone),
-        icedtea::widget::ChipKind::Filter,
-        icedtea::icon::Icons::NONE,
+        icedtea::widget::BadgeSize::Small,
         A11y::new(label, Role::Status),
     )
 }
@@ -577,7 +574,7 @@ fn browse_session_bar<'a>(
     .align_y(Alignment::Center)
     .width(Length::Fill);
     if !status.is_empty() {
-        row = row.push(text(status).size(typo::META).color(tea.muted));
+        row = row.push(status_chip(status.clone(), status_tone(&status), tea));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(
@@ -841,8 +838,6 @@ fn kv<'a>(
 
 fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     kit::status_footer(
-        hud.status(),
-        hud.status_err(),
         &crate::help::footer_table_for(hud.key_scope(), hud.key_overlay()),
         tea,
     )
@@ -2014,13 +2009,10 @@ fn finding_key(f: &FindingRow) -> String {
 }
 
 fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let mut card = column![icedtea::widget::badge(
+    let mut card = column![status_chip(
         f.severity.clone(),
-        None,
+        status_tone(&f.severity),
         tea,
-        tone_variant(status_tone(&f.severity)),
-        icedtea::widget::BadgeSize::Large,
-        A11y::new(f.severity.clone(), Role::Status),
     )]
     .spacing(8);
     if !f.detail.is_empty() {
@@ -2806,7 +2798,7 @@ mod tests {
         assert!(prod.contains("fn browse_session_bar"));
         assert!(prod.contains("Message::SessionsHome"));
         assert!(prod.contains("fn status_chip"));
-        assert!(prod.contains("ChipKind::Filter"));
+        assert!(prod.contains("BadgeSize::Small"));
         assert!(prod.contains("widget::list_view("));
         assert!(prod.contains("RowFace::Card"));
         assert!(prod.contains("RowHeights::PerRow"));

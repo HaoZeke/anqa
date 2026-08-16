@@ -14,6 +14,8 @@ is tagged.
 - HUD launch stays on Recent; a catalog refresh leaves the list unpicked.
 - HUD `?` and the terminal browser footer follow the current pane: Enter
   and list motion on Overview, Turns, and Timeline; turn step on Timeline.
+  The HUD footer is keys only. Session running/complete labels are
+  icedtea badges.
 - HUD `?` lists Left and Right next to h and l for Timeline turn step.
 - HUD dropdowns (Snapshot, Timeline turn, Filter) use 12px type and
   tighter padding. Diff Prompt/Assistant tabs are compact in-pane

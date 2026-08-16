@@ -12,7 +12,6 @@ use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
 use icedtea::i18n::Direction;
 use icedtea::theme::Tokens;
-use icedtea::toast::ToastKind;
 use icedtea::typo::FontFace;
 use icedtea::widget;
 
@@ -254,10 +253,8 @@ pub fn labeled_plain<'a>(
     )
 }
 
-/// Footer — shortcut hints on the first line, status on the second.
+/// Footer — shortcut hints that apply right now.
 pub fn status_footer<'a>(
-    status: &str,
-    err: bool,
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
@@ -267,21 +264,9 @@ pub fn status_footer<'a>(
     } else {
         widget::meta(keys.clone(), tea, A11y::new(keys, Role::Status))
     };
-    let status = status.to_string();
-    let info: Element<'a, Message> = if err {
-        widget::info_bar(
-            ToastKind::Danger,
-            status.clone(),
-            tea,
-            A11y::new(status, Role::Status),
-        )
-    } else {
-        widget::meta(status.clone(), tea, A11y::new(status, Role::Status))
-    };
     icedtea::a11y::attach(
         container(
-            column![key_row, info]
-                .spacing(2)
+            column![key_row]
                 .width(Length::Fill)
                 .padding(Padding::from([6, 12])),
         )
@@ -435,10 +420,8 @@ mod tests {
             tab: crate::model::Tab::Timeline,
             leader_armed: false,
         });
-        let _ = status_footer("ready", false, &table, tea);
+        let _ = status_footer(&table, tea);
         let _ = status_footer(
-            "down",
-            true,
             &crate::help::footer_table(crate::help::KeyScope {
                 browse: false,
                 help_open: false,
@@ -462,8 +445,9 @@ mod tests {
             .split("pub fn help_modal")
             .next()
             .expect("body");
-        assert!(body.contains("column![key_row, info]"));
+        assert!(body.contains("column![key_row]"));
         assert!(!body.contains("status_bar"));
+        assert!(!body.contains("info_bar"));
     }
 
     #[test]
