@@ -6,7 +6,9 @@ Synchronisation is condition-based (``wait_until``); see AGENTS.md §4.5c.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -22,8 +24,9 @@ from groket.ui.app import TraceEvalApp
 from groket.ui.bindings import focus_primary_list
 from groket.ui.data_table import cursor_row_key
 from groket.ui.screens.browser import BrowserScreen
+from groket.ui.selectable_static import SelectableStatic
 from groket.ui.widgets.timeline import TimelineTable
-from textual.widgets import Input, Static, TabbedContent
+from textual.widgets import Checkbox, DataTable, Input, Static, TabbedContent
 
 from .pilot_helpers import static_plain, wait_until
 
@@ -1079,6 +1082,187 @@ async def test_browser_flag_result_save_delete(tmp_path: Path) -> None:
         screen._on_flag_result(("delete", 0))
         await pilot.pause()
         assert 0 not in screen._flags
+
+
+@pytest.mark.asyncio
+async def test_browser_first_paint_defers_summary_and_report(tmp_path: Path) -> None:
+    """Opening a session paints Timeline only; Summary and Report fill on visit."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        summary = screen.query_one("#summary-content", SelectableStatic)
+        report = screen.query_one("#report-overview-content", SelectableStatic)
+        turns = screen.query_one("#stats-turns-table", DataTable)
+        from groket.ui.i18n import t
+
+        assert not (summary.get_plain_text() or "").strip()
+        assert t("ui-session-report") not in (report.get_plain_text() or "")
+        assert turns.row_count == 0
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        assert tl.row_count > 0
+        tail = screen.query_one("#timeline-tail", Checkbox)
+        assert tail.display
+        assert tail.value is False
+
+        await _activate_tab(pilot, screen, "tab-summary")
+        await wait_until(
+            pilot,
+            lambda: bool((summary.get_plain_text() or "").strip()),
+            description="Summary body after first visit",
+        )
+        assert "Pilot" in summary.get_plain_text()
+        assert turns.row_count > 0
+
+        await _activate_tab(pilot, screen, "tab-reports")
+        await wait_until(
+            pilot,
+            lambda: t("ui-session-report") in (report.get_plain_text() or ""),
+            description="Report body after first visit",
+        )
+
+
+@pytest.mark.asyncio
+async def test_browser_tab_bar_fills_summary_and_report(tmp_path: Path) -> None:
+    """Setting TabbedContent.active (tab-bar click) fills Summary and Report."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        summary = screen.query_one("#summary-content", SelectableStatic)
+        report = screen.query_one("#report-overview-content", SelectableStatic)
+        turns = screen.query_one("#stats-turns-table", DataTable)
+        from groket.ui.i18n import t
+
+        assert not (summary.get_plain_text() or "").strip()
+        assert t("ui-session-report") not in (report.get_plain_text() or "")
+        assert turns.row_count == 0
+
+        tabs = screen.query_one("#browser-tabs", TabbedContent)
+        tabs.active = "tab-summary"
+        await wait_until(
+            pilot,
+            lambda: bool((summary.get_plain_text() or "").strip()),
+            description="Summary body after tab-bar activate",
+        )
+        assert "Pilot" in summary.get_plain_text()
+        assert turns.row_count > 0
+
+        tabs.active = "tab-reports"
+        await wait_until(
+            pilot,
+            lambda: t("ui-session-report") in (report.get_plain_text() or ""),
+            description="Report body after tab-bar activate",
+        )
+
+
+@pytest.mark.asyncio
+async def test_browser_search_debounce_applies_final_query(tmp_path: Path) -> None:
+    """Rapid search keys rebuild the table once, for the last needle."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        rebuilds = {"n": 0}
+        orig = tl._refresh_rows
+
+        def _count() -> None:
+            rebuilds["n"] += 1
+            orig()
+
+        tl._refresh_rows = _count  # type: ignore[method-assign]
+        inp = screen.query_one("#search-input", Input)
+        for needle in ("e", "ec", "ech"):
+            inp.value = needle
+            screen._on_search_changed(Input.Changed(inp, needle))
+        assert rebuilds["n"] == 0
+        await asyncio.sleep(0.35)
+        await pilot.pause()
+        assert rebuilds["n"] == 1
+        filtered = tl.row_count
+        tl._refresh_rows = orig  # type: ignore[method-assign]
+        screen._timeline_search = "ech"
+        screen._apply_timeline_filters()
+        await pilot.pause()
+        assert tl.row_count == filtered
+
+
+@pytest.mark.asyncio
+async def test_browser_control_paints_first_page_before_remainder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """First control page is on the Timeline before the next page is fetched."""
+    from groket.session import wire_timeline as wt
+    from groket.session.control_views import build_session_overview, build_session_timeline
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    monkeypatch.setattr(wt, "TIMELINE_RPC_LIMIT", 1)
+    gate = threading.Event()
+    saw_first = threading.Event()
+    offsets: list[int] = []
+
+    class _Access:
+        async def session_overview(self, _ref: str) -> object:
+            return build_session_overview(sess)
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            off = int(kwargs.get("offset") or 0)
+            offsets.append(off)
+            if off > 0:
+                gate.wait(timeout=5)
+            else:
+                saw_first.set()
+            return build_session_timeline(
+                sess,
+                offset=off,
+                limit=int(kwargs.get("limit") or 1),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    access = _Access()
+    app = _host_app(work, traces)
+    app.is_control_client = lambda: True  # type: ignore[method-assign]
+    app.session_access = lambda: access  # type: ignore[method-assign]
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        app.push_screen(BrowserScreen(sess, plugin_results={}))
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, BrowserScreen) and saw_first.is_set(),
+            description="control first page returned",
+        )
+        screen = app.screen
+        assert isinstance(screen, BrowserScreen)
+        screen._stop_live_refresh()
+        await wait_until(
+            pilot,
+            lambda: screen.query_one("#timeline-list", TimelineTable).row_count == 1,
+            description="first timeline page painted",
+        )
+        first_n = len(screen.timeline)
+        assert first_n == 1
+        gate.set()
+        await wait_until(
+            pilot,
+            lambda: len(screen.timeline) > first_n,
+            description="remaining timeline pages appended",
+        )
+        assert any(off > 0 for off in offsets)
+        full_indices = [e.index for e in screen.timeline]
+        drained = await wt.fetch_timeline_events(access, str(sess), page_limit=1)
+        assert full_indices == [e.index for e in drained]
 
         screen._on_flag_result(None)
         await pilot.pause()

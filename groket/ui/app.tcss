@@ -344,6 +344,14 @@ TabPane {
     max-width: 80;
 }
 
+#timeline-tail {
+    width: auto;
+    height: auto;
+    min-height: 3;
+    margin: 0 1 0 0;
+    padding: 0 1;
+}
+
 #filter-bar Input,
 #session-filter-bar Input {
     width: 1fr;

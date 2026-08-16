@@ -5,6 +5,12 @@ is tagged.
 
 ## Unreleased
 
+- Terminal session open paints Timeline first; Summary and Report fill
+  when those panes are opened. Attached control loads the first event
+  page, then appends the rest. Timeline search applies after a short
+  idle. Live control refresh fetches only new events. A Tail checkbox
+  on a live Timeline follows the last event; off leaves the highlight
+  still.
 - HUD palette show is a 220 ms ease-out, hide a 180 ms ease-in; tab
   changes fade; opening and closing a session or event push and pop;
   expanders animate height. Motion ticks at display refresh.

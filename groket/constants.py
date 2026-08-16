@@ -51,6 +51,8 @@ LIVE_BROWSER_SNAPSHOT_INTERVAL = 3.0
 LIVE_BROWSER_FS_DEBOUNCE_S = 1.5
 # Live table path: only the last N rows checked for structural continuity.
 LIVE_TIMELINE_TAIL_CHECK = 32
+# Timeline search-as-you-type: apply the last query after this idle gap.
+TIMELINE_SEARCH_DEBOUNCE_S = 0.28
 # Back-compat aliases (older tests / callers).
 LIVE_BROWSER_TIMELINE_MIN_INTERVAL = LIVE_BROWSER_SNAPSHOT_INTERVAL
 LIVE_BROWSER_TIMELINE_MIN_INTERVAL_LARGE = 5.0

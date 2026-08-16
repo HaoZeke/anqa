@@ -74,6 +74,117 @@ def trace_event_from_wire(row: JsonObject) -> TraceEvent:
     )
 
 
+def _timeline_page_bounds(page_limit: int, content_chars: int) -> tuple[int, int]:
+    """Clamp a page request to the owner's accepted range."""
+    lim = max(1, min(int(page_limit), MAX_TIMELINE_LIMIT))
+    chars = max(0, min(int(content_chars), MAX_CONTENT_CHARS))
+    return lim, chars
+
+
+def _events_from_timeline_page(page: object, *, offset: int) -> tuple[list[TraceEvent], int]:
+    """Parse one ``session/timeline`` result into events and the owner total."""
+    if not isinstance(page, dict):
+        return [], 0
+    batch = page.get("events")
+    events: list[TraceEvent] = []
+    if isinstance(batch, list):
+        for item in batch:
+            if isinstance(item, dict):
+                events.append(trace_event_from_wire(as_json_object(item)))
+    total = page.get("total")
+    try:
+        total_n = int(total) if total is not None else (int(offset) + len(events))
+    except (TypeError, ValueError):
+        total_n = int(offset) + len(events)
+    return events, total_n
+
+
+async def fetch_timeline_page(
+    access: object,
+    session_ref: str,
+    *,
+    offset: int = 0,
+    page_limit: int = TIMELINE_RPC_LIMIT,
+    content_chars: int = TIMELINE_RPC_CHARS,
+) -> tuple[list[TraceEvent], int]:
+    """One ``session/timeline`` page and the owner's event total.
+
+    :param access: Object with async ``session_timeline``.
+    :param session_ref: Session id or path accepted by control.
+    :param offset: First event index in the owner's list.
+    :returns: ``(events, total)``. ``total`` is 0 when the response is unusable.
+    :raises TypeError: When *access* has no ``session_timeline``.
+    """
+    session_timeline = getattr(access, "session_timeline", None)
+    if not callable(session_timeline):
+        raise TypeError("access must provide session_timeline")
+    lim, chars = _timeline_page_bounds(page_limit, content_chars)
+    pos = max(0, int(offset))
+    page = await session_timeline(
+        session_ref,
+        offset=pos,
+        limit=lim,
+        content_chars=chars,
+    )
+    return _events_from_timeline_page(page, offset=pos)
+
+
+async def fetch_timeline_events(
+    access: object,
+    session_ref: str,
+    *,
+    content_chars: int = TIMELINE_RPC_CHARS,
+    page_limit: int = TIMELINE_RPC_LIMIT,
+    offset: int = 0,
+) -> list[TraceEvent]:
+    """Page ``session/timeline`` until complete; return domain events.
+
+    :param access: Object with async ``session_timeline`` (RemoteSessionAccess).
+    :param session_ref: Session id or path accepted by control.
+    :param offset: Start at this owner index (live tail after events already held).
+    """
+    out: list[TraceEvent] = []
+    pos = max(0, int(offset))
+    lim, chars = _timeline_page_bounds(page_limit, content_chars)
+    while True:
+        batch, total_n = await fetch_timeline_page(
+            access,
+            session_ref,
+            offset=pos,
+            page_limit=lim,
+            content_chars=chars,
+        )
+        if not batch:
+            break
+        out.extend(batch)
+        pos += len(batch)
+        if pos >= total_n or len(batch) < lim:
+            break
+    return out
+
+
+async def fetch_timeline_growth(
+    access: object,
+    session_ref: str,
+    *,
+    held: list[TraceEvent],
+    new_total: int,
+) -> list[TraceEvent]:
+    """Append events after *held*, or refill when the owner list shrank.
+
+    :param held: Events already in the browser.
+    :param new_total: Owner ``num_events`` from the latest overview.
+    :returns: Full list to store (held + tail, or a complete refill).
+    """
+    prev_n = len(held)
+    want = max(0, int(new_total))
+    if held and want > prev_n:
+        tail = await fetch_timeline_events(access, session_ref, offset=prev_n)
+        if tail:
+            return list(held) + tail
+    return await fetch_timeline_events(access, session_ref)
+
+
 def session_meta_from_overview(overview: JsonObject, *, fallback_dir: Path) -> SessionMeta:
     """Build :class:`SessionMeta` from a ``session/overview`` payload."""
     meta_raw = overview.get("meta")
@@ -106,51 +217,6 @@ def session_meta_from_overview(overview: JsonObject, *, fallback_dir: Path) -> S
     return meta
 
 
-async def fetch_timeline_events(
-    access: object,
-    session_ref: str,
-    *,
-    content_chars: int = TIMELINE_RPC_CHARS,
-    page_limit: int = TIMELINE_RPC_LIMIT,
-) -> list[TraceEvent]:
-    """Page ``session/timeline`` until complete; return domain events.
-
-    :param access: Object with async ``session_timeline`` (RemoteSessionAccess).
-    :param session_ref: Session id or path accepted by control.
-    """
-    session_timeline = getattr(access, "session_timeline", None)
-    if not callable(session_timeline):
-        raise TypeError("access must provide session_timeline")
-    out: list[TraceEvent] = []
-    offset = 0
-    lim = max(1, min(int(page_limit), MAX_TIMELINE_LIMIT))
-    chars = max(0, min(int(content_chars), MAX_CONTENT_CHARS))
-    while True:
-        page = await session_timeline(
-            session_ref,
-            offset=offset,
-            limit=lim,
-            content_chars=chars,
-        )
-        if not isinstance(page, dict):
-            break
-        batch = page.get("events")
-        if not isinstance(batch, list) or not batch:
-            break
-        for item in batch:
-            if isinstance(item, dict):
-                out.append(trace_event_from_wire(as_json_object(item)))
-        total = page.get("total")
-        try:
-            total_n = int(total) if total is not None else len(out)
-        except (TypeError, ValueError):
-            total_n = len(out)
-        offset += len(batch)
-        if offset >= total_n or len(batch) < lim:
-            break
-    return out
-
-
 async def fetch_session_browser_bundle(
     access: object,
     session_ref: str,
@@ -179,6 +245,8 @@ __all__ = [
     "TIMELINE_RPC_LIMIT",
     "fetch_session_browser_bundle",
     "fetch_timeline_events",
+    "fetch_timeline_growth",
+    "fetch_timeline_page",
     "session_meta_from_overview",
     "trace_event_from_wire",
 ]

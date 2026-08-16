@@ -721,3 +721,31 @@ async def test_timeline_row_highlighted_non_digit_key() -> None:
             RowKey("not-a-digit"),
         )
         tl.on_data_table_row_highlighted(event)
+
+
+@pytest.mark.asyncio
+async def test_timeline_append_keeps_highlight_unless_follow_tail() -> None:
+    """Tail off keeps the cursor; Tail on jumps to the last row."""
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = _basic_events()[:3]
+        tl.load_events(events)
+        tl.move_cursor(row=0, animate=False, scroll=False)
+        extra = make_trace_event(
+            index=90,
+            event_type="user_message_chunk",
+            content="later",
+            timestamp=3000,
+        )
+        tl.load_events([*events, extra], follow_tail=False)
+        assert tl.cursor_row == 0
+        assert tl.row_count == 4
+        more = make_trace_event(
+            index=91,
+            event_type="user_message_chunk",
+            content="newest",
+            timestamp=3001,
+        )
+        tl.load_events([*events, extra, more], follow_tail=True)
+        assert tl.cursor_row == tl.row_count - 1

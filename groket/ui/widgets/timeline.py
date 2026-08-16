@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 from rich.markup import escape as rich_escape
 from textual.message import Message
 from textual.widgets import DataTable
@@ -12,7 +14,13 @@ from ...constants import LIVE_TIMELINE_TAIL_CHECK
 from ...models import Flag, ToolInputBag, TraceEvent
 from ...tool_display import list_event_preview
 from ...utils import fmt_duration
-from ..data_table import preserving_cursor, style_data_table, update_row_cell
+from ..data_table import (
+    cursor_row_key,
+    preserving_cursor,
+    restore_cursor,
+    style_data_table,
+    update_row_cell,
+)
 from ..i18n import t
 from ..styles import EVENT_TYPE_LABEL as TYPE_MARKUP
 from ..styles import finding_mark
@@ -61,6 +69,8 @@ class TimelineTable(DataTable):
         events: list[TraceEvent],
         findings: list[Finding] | None = None,
         flags: list[Flag] | None = None,
+        *,
+        follow_tail: bool = False,
     ) -> None:
         """Load timeline rows.
 
@@ -102,6 +112,8 @@ class TimelineTable(DataTable):
             # again per row / per selection (that froze live browse).
             self._rebuild_turn_map()
             self._refresh_rows()
+            if follow_tail:
+                self.scroll_to_end()
             return
 
         # Live growth / stream: only the tail can change. O(tail) not O(n).
@@ -123,7 +135,7 @@ class TimelineTable(DataTable):
                 return
             self._index_new_events(new_events[prev_n:])
             self._extend_turn_map_from(prev_n)
-            self._append_rows(new_events[prev_n:])
+            self._append_live_rows(new_events[prev_n:], follow_tail=follow_tail)
             self._patch_paired_call_durations(new_events[prev_n:])
             return
 
@@ -132,6 +144,8 @@ class TimelineTable(DataTable):
         self._compute_durations()
         self._rebuild_turn_map()
         self._refresh_rows()
+        if follow_tail:
+            self.scroll_to_end()
 
     @staticmethod
     def _live_tail_struct_ok(prev: list[TraceEvent], new: list[TraceEvent]) -> bool:
@@ -211,6 +225,28 @@ class TimelineTable(DataTable):
         if len(prev) != len(new):
             return False
         return TimelineTable._first_visual_mismatch(prev, new, len(prev)) is None
+
+    def scroll_to_end(self) -> None:
+        """Put the cursor on the last row and scroll it into view."""
+        if self.row_count <= 0:
+            return
+        with suppress(Exception):
+            self.move_cursor(row=self.row_count - 1, animate=False, scroll=True)
+
+    def _append_live_rows(self, new_events: list[TraceEvent], *, follow_tail: bool) -> None:
+        """Append rows; keep highlight/scroll still unless Tail is on."""
+        if follow_tail:
+            self._append_rows(new_events)
+            self.scroll_to_end()
+            return
+        key = cursor_row_key(self)
+        x = getattr(self, "scroll_x", 0)
+        y = getattr(self, "scroll_y", 0)
+        self._append_rows(new_events)
+        if key:
+            restore_cursor(self, key, scroll=False)
+        with suppress(Exception):
+            self.scroll_to(x, y, animate=False)
 
     def _append_rows(self, new_events: list[TraceEvent]) -> None:
         """Add only *new_events* (already assigned into ``self.events``)."""

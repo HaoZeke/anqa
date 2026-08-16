@@ -16,6 +16,8 @@ from groket.session.wire_timeline import (
     TIMELINE_RPC_CHARS,
     TIMELINE_RPC_LIMIT,
     fetch_timeline_events,
+    fetch_timeline_growth,
+    fetch_timeline_page,
     session_meta_from_overview,
     trace_event_from_wire,
 )
@@ -107,6 +109,60 @@ async def test_fetch_timeline_events_pages(tmp_path: Path) -> None:
     events = await fetch_timeline_events(_Local(), "w3", page_limit=1)
     assert len(events) >= 2
     assert any("hello" in (e.content or "") for e in events)
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeline_page_then_offset_completes(tmp_path: Path) -> None:
+    sd = _write_session(tmp_path, "w-page")
+    offsets: list[int] = []
+
+    class _Local:
+        async def session_timeline(self, session: str, **kwargs: object) -> object:
+            off = int(kwargs.get("offset") or 0)
+            offsets.append(off)
+            return build_session_timeline(
+                sd,
+                offset=off,
+                limit=int(kwargs.get("limit") or 1),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    first, total = await fetch_timeline_page(_Local(), "w-page", page_limit=1)
+    assert first
+    assert total >= len(first)
+    rest = await fetch_timeline_events(_Local(), "w-page", page_limit=1, offset=len(first))
+    full = first + rest
+    drained = await fetch_timeline_events(_Local(), "w-page", page_limit=1)
+    assert [e.index for e in full] == [e.index for e in drained]
+    assert 0 in offsets
+    assert any(off > 0 for off in offsets)
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeline_growth_requests_only_new_offset(tmp_path: Path) -> None:
+    sd = _write_session(tmp_path, "w-grow")
+    offsets: list[int] = []
+
+    class _Local:
+        async def session_timeline(self, session: str, **kwargs: object) -> object:
+            off = int(kwargs.get("offset") or 0)
+            offsets.append(off)
+            return build_session_timeline(
+                sd,
+                offset=off,
+                limit=int(kwargs.get("limit") or 1),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    held, total = await fetch_timeline_page(_Local(), "w-grow", page_limit=1)
+    offsets.clear()
+    grown = await fetch_timeline_growth(
+        _Local(), "w-grow", held=held, new_total=max(total, len(held) + 1)
+    )
+    assert [e.index for e in grown[: len(held)]] == [e.index for e in held]
+    assert offsets
+    assert offsets[0] == len(held)
+    assert 0 not in offsets
 
 
 def test_timeline_rpc_pages_are_smaller_than_server_max() -> None:

@@ -121,7 +121,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     @on(TabbedContent.TabActivated, "#browser-tabs")
     def _on_browser_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
-        """Recompute footer keys (Enter, h/l, Flag) for the pane that is showing."""
+        """Fill the showing pane (tab bar click or digit key) and refresh footer keys."""
+        self._paint_visible_secondary_panes()
         self.refresh_bindings()
 
     def action_tab_timeline(self) -> None:
@@ -199,6 +200,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         # (timeline_len, last_event_index) — skip re-segment only when tail unchanged.
         self._turn_rebuild_sig: tuple[int, int | None] | None = None
         self._detail_debounce: Timer | None = None
+        self._search_debounce: Timer | None = None
         from ...session.context_samples import ContextSampleStore
 
         self._context_samples = ContextSampleStore()
@@ -272,6 +274,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             )
                             turn_sel.display = False  # shown only when multi-turn
                             yield turn_sel
+                            tail = Checkbox(
+                                t("ui-timeline-tail"),
+                                id="timeline-tail",
+                                value=False,
+                            )
+                            tail.display = False
+                            yield tail
                             yield Input(
                                 placeholder=U.search_events_placeholder(), id="search-input"
                             )
@@ -369,6 +378,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 pass
             self._detail_debounce = None
+        if self._search_debounce is not None:
+            try:
+                self._search_debounce.stop()
+            except Exception:
+                pass
+            self._search_debounce = None
         # Resume home-list FS watch paused while this browser owned the tree.
         pause = getattr(self.app, "_pause_home_traces_watch", None)
         if callable(pause):
@@ -684,6 +699,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.query_one("#session-follow-last-turn", Checkbox).disabled = not can_send
         except Exception:
             pass
+        self._sync_timeline_tail_checkbox()
         try:
             self.refresh_bindings()
         except Exception:
@@ -1079,26 +1095,105 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except OSError:
             return str(self.session_dir)
 
-    def _fetch_browser_bundle_via_control(
-        self,
-    ) -> tuple[SessionMeta, list[TraceEvent], object]:
-        """Blocking: overview + full timeline over control (worker thread)."""
-        import asyncio
-
-        from ...session.wire_timeline import fetch_session_browser_bundle
-
+    def _control_access(self) -> object:
+        """Attached session access, or raise if the owner is missing."""
         app = resolve_ui_app(self)
         access = getattr(app, "session_access", lambda: None)()
         if access is None:
             raise RuntimeError("control session access unavailable")
-        ref = self._session_control_ref()
-        return asyncio.run(
-            fetch_session_browser_bundle(
-                access,
-                ref,
-                fallback_dir=Path(self.session_dir),
-            )
+        return access
+
+    def _load_control_first_page(self) -> int:
+        """Overview + first ``session/timeline`` page. Returns the owner total."""
+        import asyncio
+
+        from ...session.wire_timeline import (
+            TIMELINE_RPC_LIMIT,
+            fetch_timeline_page,
+            session_meta_from_overview,
         )
+
+        access = self._control_access()
+        ref = self._session_control_ref()
+        session_overview = getattr(access, "session_overview", None)
+        if not callable(session_overview):
+            raise RuntimeError("control session access unavailable")
+
+        async def _ov() -> object:
+            return await session_overview(ref)
+
+        overview = asyncio.run(_ov())
+        ov = overview if isinstance(overview, dict) else {}
+        meta = session_meta_from_overview(ov, fallback_dir=Path(self.session_dir))
+        first, total = asyncio.run(fetch_timeline_page(access, ref, page_limit=TIMELINE_RPC_LIMIT))
+        self.meta = meta
+        self.timeline = first
+        if self.meta is not None:
+            self.meta.num_events = int(total or len(first))
+        return int(total or len(first))
+
+    def _load_control_remainder(self, first_len: int, total: int) -> None:
+        """Fetch remaining timeline pages and paint them as an append."""
+        if total <= first_len:
+            return
+        import asyncio
+
+        from ...session.wire_timeline import TIMELINE_RPC_LIMIT, fetch_timeline_events
+
+        access = self._control_access()
+        ref = self._session_control_ref()
+        rest = asyncio.run(
+            fetch_timeline_events(access, ref, offset=first_len, page_limit=TIMELINE_RPC_LIMIT)
+        )
+        if not rest:
+            return
+        self.timeline = list(self.timeline or []) + rest
+        if self.meta is not None:
+            self.meta.num_events = len(self.timeline)
+        self._rebuild_indices()
+        try:
+            self._diff_doc = load_workspace_diff_doc(
+                self.session_dir, timeline=self.timeline or None
+            )
+        except Exception:
+            pass
+        if self.is_mounted:
+            call_ui(resolve_ui_app(self), self._apply_timeline_remainder)
+
+    def _load_offline_session(self) -> None:
+        """Parse the session from disk (``--no-socket``)."""
+        from ...parser import session_timeline_stamp
+
+        self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
+        self.timeline = parse_timeline(self.session_dir)
+        if self.meta is not None:
+            self.meta.num_events = len(self.timeline or [])
+        try:
+            self._last_trace_mtime = session_timeline_stamp(self.session_dir)
+        except Exception:
+            self._last_trace_mtime = None
+        self._last_signals_mtime = self._signals_mtime()
+
+    def _commit_loaded_session(self) -> None:
+        """Flags, notes, Diff, then first Timeline paint."""
+        if self.meta is not None:
+            self.meta.num_events = len(self.timeline or [])
+        self._record_context_sample()
+        self._load_flags()
+        self._load_notes()
+        self._rebuild_indices()
+        try:
+            self._diff_doc = load_workspace_diff_doc(
+                self.session_dir, timeline=self.timeline or None
+            )
+        except Exception:
+            self._diff_doc = WorkspaceDiff(())
+        if not self.is_mounted:
+            return
+        app = resolve_ui_app(self)
+        call_ui(app, self._populate_ui)
+        call_ui(app, self._schedule_live_refresh)
+        call_ui(app, self._schedule_analysis)
 
     def _on_control_browser_error(self, exc: BaseException, *, notify: bool) -> None:
         """Log a failed control hydrate; toast only on the full browser load."""
@@ -1127,8 +1222,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 prev_n = len(self.timeline or [])
                 prev_status = self.meta.list_status_label() if self.meta is not None else ""
                 # Always refresh meta/context via overview (serve-side stamp cache).
-                from ...session.wire_timeline import fetch_timeline_events
-
                 app = resolve_ui_app(self)
                 access = getattr(app, "session_access", lambda: None)()
                 if access is None:
@@ -1152,7 +1245,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 new_status = meta.list_status_label()
                 timeline_updated = False
                 if new_n != prev_n or not self.timeline:
-                    self.timeline = asyncio.run(fetch_timeline_events(access, ref))
+                    from ...session.wire_timeline import fetch_timeline_growth
+
+                    self.timeline = asyncio.run(
+                        fetch_timeline_growth(
+                            access,
+                            ref,
+                            held=list(self.timeline or []),
+                            new_total=new_n,
+                        )
+                    )
                     if self.meta is not None:
                         self.meta.num_events = len(self.timeline or [])
                     self._last_timeline_parse_at = time.monotonic()
@@ -1322,7 +1424,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 try:
                     timeline_table = self.query_one("#timeline-list", TimelineTable)
                     timeline_table.load_events(
-                        self.timeline, self._findings, list(self._flags.values())
+                        self.timeline,
+                        self._findings,
+                        list(self._flags.values()),
+                        follow_tail=self._timeline_follow_tail(),
                     )
                     # load_events paints the full list (and row_count mismatches
                     # after a prior filter force a full rebuild). Always restore
@@ -1351,7 +1456,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     @work(thread=True)
     def _load_data(self) -> None:
-        from ...parser import session_timeline_stamp
         from ...session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
         if not try_begin(KIND_REFRESH, self.session_dir):
@@ -1368,43 +1472,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 store.clear()
             import time
 
+            remainder = (0, 0)
             if self._uses_control_data():
-                # Single path with HUD: serve parses once; we hydrate domain types.
-                self.meta, self.timeline, _ov = self._fetch_browser_bundle_via_control()
+                total = self._load_control_first_page()
+                remainder = (len(self.timeline or []), total)
                 self._last_timeline_parse_at = time.monotonic()
-                self._last_trace_mtime = None  # control path uses event totals
+                self._last_trace_mtime = None
             else:
-                # Offline / --no-serve: local disk only.
-                self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
-                self.timeline = parse_timeline(self.session_dir)
-                if self.meta is not None:
-                    self.meta.num_events = len(self.timeline or [])
-                try:
-                    self._last_trace_mtime = session_timeline_stamp(self.session_dir)
-                except Exception:
-                    self._last_trace_mtime = None
+                self._load_offline_session()
                 self._last_timeline_parse_at = time.monotonic()
-                self._last_signals_mtime = self._signals_mtime()
-            if self.meta is not None:
-                self.meta.num_events = len(self.timeline or [])
-            self._record_context_sample()
-            self._load_flags()
-            self._load_notes()
-            self._rebuild_indices()
-            try:
-                self._diff_doc = load_workspace_diff_doc(
-                    self.session_dir, timeline=self.timeline or None
-                )
-            except Exception:
-                self._diff_doc = WorkspaceDiff(())
-            app = resolve_ui_app(self)
-            # User may have left the browser while parse ran — never paint
-            # a huge table onto a discarded screen (freezes the UI).
-            if self.is_mounted:
-                call_ui(app, self._populate_ui)
-                call_ui(app, self._schedule_live_refresh)
-                # Analysis is async on the fixed analysis pool — never blocks timeline paint.
-                call_ui(app, self._schedule_analysis)
+            self._commit_loaded_session()
+            if remainder[1] > remainder[0]:
+                self._load_control_remainder(remainder[0], remainder[1])
         except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
             self._on_control_browser_error(exc, notify=True)
         finally:
@@ -2011,23 +2090,27 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
 
     def _populate_ui(self) -> None:
-        """Phase 1 UI: title, timeline, diff, summary, stats — file I/O only."""
+        """Phase 1 UI: title and Timeline. Summary / Report wait until visited."""
         if not self.is_mounted:
             return
         self._set_title_from_meta()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
-        timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))
-        # load_events always paints the full list; restore View/Turn/search.
+        timeline_table.load_events(
+            self.timeline,
+            self._findings,
+            list(self._flags.values()),
+            follow_tail=self._timeline_follow_tail(),
+        )
+        # load_events paints the current list; restore View/Turn/search.
         self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
         self._sync_compact_child_chrome()
+        self._sync_timeline_tail_checkbox()
         if self._requested_prompt_index is not None:
             self.select_prompt_index(self._requested_prompt_index)
         self._update_diff_tab()
-        self._update_summary_tab()
-        self._update_stats()
         self._show_analysis_pending()
-        self._update_reports_tab()
+        self._paint_visible_secondary_panes()
         timeline_table.focus()
         if self.meta and self.meta.turn_failed:
             self.notify(
@@ -2035,6 +2118,66 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 severity="warning",
                 timeout=8,
             )
+
+    def _active_browser_tab(self) -> str:
+        """Id of the showing browser pane, or empty."""
+        with suppress(Exception):
+            return str(self.query_one("#browser-tabs", TabbedContent).active or "")
+        return ""
+
+    def _timeline_follow_tail(self) -> bool:
+        """True when the live Tail checkbox is showing and checked."""
+        with suppress(Exception):
+            box = self.query_one("#timeline-tail", Checkbox)
+            return bool(box.display and box.value)
+        return False
+
+    def _sync_timeline_tail_checkbox(self) -> None:
+        """Show Tail only while a turn is still open."""
+        live = False
+        with suppress(Exception):
+            live = bool(self._session_is_pending() or self._session_needs_live_timeline())
+        try:
+            box = self.query_one("#timeline-tail", Checkbox)
+        except Exception:
+            return
+        box.display = live
+        if not live:
+            box.value = False
+
+    def _paint_visible_secondary_panes(self) -> None:
+        """Fill Summary or Report only when that pane is already showing."""
+        active = self._active_browser_tab()
+        if active == "tab-summary":
+            self._update_summary_tab()
+            self._update_stats()
+        elif active == "tab-reports":
+            self._update_reports_tab()
+
+    def _maybe_refresh_reports(self) -> None:
+        """Rebuild Report when the operator is looking at it."""
+        if self._active_browser_tab() == "tab-reports":
+            self._update_reports_tab()
+
+    def _apply_timeline_remainder(self) -> None:
+        """Append later control pages and restore View/Turn/search."""
+        if not self.is_mounted:
+            return
+        try:
+            timeline_table = self.query_one("#timeline-list", TimelineTable)
+            timeline_table.load_events(
+                self.timeline,
+                self._findings,
+                list(self._flags.values()),
+                follow_tail=self._timeline_follow_tail(),
+            )
+            if self._timeline_filters_active():
+                self._reapply_timeline_view_filter()
+        except Exception:
+            pass
+        self._rebuild_turn_select()
+        self._update_diff_tab()
+        self._paint_visible_secondary_panes()
 
     def _show_analysis_pending(self) -> None:
         """Show loading placeholders; start a cheap spinner timer (no table rebuilds)."""
@@ -2066,11 +2209,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             status.display = True
         except Exception:
             pass
-        try:
-            self.query_one("#report-overview-content", Static).update(pending_markup)
-        except Exception:
-            pass
-        self._paint_report_plugin_pending_spinners(pending_markup, full=full)
+        if self._active_browser_tab() == "tab-reports":
+            try:
+                self.query_one("#report-overview-content", Static).update(pending_markup)
+            except Exception:
+                pass
+            self._paint_report_plugin_pending_spinners(pending_markup, full=full)
         if not full:
             return
         try:
@@ -2119,7 +2263,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _populate_analysis_ui(self) -> None:
         """Phase 2 UI: findings + reports — after analysis plugins finish."""
         timeline_table = self.query_one("#timeline-list", TimelineTable)
-        timeline_table.load_events(self.timeline, self._findings, list(self._flags.values()))
+        timeline_table.load_events(
+            self.timeline,
+            self._findings,
+            list(self._flags.values()),
+            follow_tail=self._timeline_follow_tail(),
+        )
         if self._timeline_filters_active():
             self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
@@ -2166,7 +2315,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 key=str(row_idx),
             )
             self._findings_table_entries.append(finding)
-        self._update_reports_tab()
+        self._maybe_refresh_reports()
 
     @staticmethod
     def _fmt_dur(seconds: float) -> str:
@@ -2442,11 +2591,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         with suppress(Exception):
             widget = self.query_one(f"#{widget_id}", SelectableStatic)
             return (widget.get_plain_text() or "").strip()
-        return ""
-
-    def _active_browser_tab(self) -> str:
-        with suppress(Exception):
-            return str(self.query_one("#browser-tabs", TabbedContent).active or "")
         return ""
 
     def _collect_active_tab_plain_text(self) -> tuple[str, str]:
@@ -3010,11 +3154,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Reload timeline/meta for this session and re-run analysis."""
         self.notify(U.refreshing_session_view(), severity="information", timeout=3)
         self._load_data()
-        try:
-            self._update_summary_tab()
-            self._update_stats()
-        except Exception:
-            pass
 
     def action_open_share(self) -> None:
         """Open Grok share URL for this session (from groket-share.json) in the browser."""
@@ -3163,15 +3302,48 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         tabbed = self.query_one(TabbedContent)
         tabbed.active = "tab-timeline"
 
+    @on(Checkbox.Changed, "#timeline-tail")
+    def _on_timeline_tail_changed(self, event: Checkbox.Changed) -> None:
+        """Tail on: jump to the last event. Off: leave the highlight where it is."""
+        if not event.value:
+            return
+        try:
+            tl = self.query_one("#timeline-list", TimelineTable)
+        except Exception:
+            return
+        tl.scroll_to_end()
+
     @on(Input.Changed, "#search-input")
     def _on_search_changed(self, event: Input.Changed) -> None:
-        """Filter timeline as you type (Textual ``Input.Changed`` — no Enter)."""
+        """Filter timeline after a short idle so each key does not rebuild the table."""
         self._timeline_search = event.value or ""
+        if self._search_debounce is not None:
+            try:
+                self._search_debounce.stop()
+            except Exception:
+                pass
+            self._search_debounce = None
+        from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
+
+        self._search_debounce = self.set_timer(
+            TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_timeline_search
+        )
+
+    def _apply_debounced_timeline_search(self) -> None:
+        self._search_debounce = None
+        if not self.is_mounted:
+            return
         self._apply_timeline_filters()
 
     @on(Input.Submitted, "#search-input")
     def _on_search_submitted(self, event: Input.Submitted) -> None:
-        """Enter keeps the filter and moves focus to the timeline list."""
+        """Enter applies the filter now and moves focus to the timeline list."""
+        if self._search_debounce is not None:
+            try:
+                self._search_debounce.stop()
+            except Exception:
+                pass
+            self._search_debounce = None
         self._timeline_search = event.value or ""
         self._apply_timeline_filters()
         try:
@@ -3794,7 +3966,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._notes_doc = load_notes(self.session_dir)
         self._notes_loaded = True
         self.notify(notify)
-        self._update_reports_tab()
+        self._maybe_refresh_reports()
 
     def _persist_note_mutation(
         self,
@@ -3915,7 +4087,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Re-paint timeline Flags column + detail for the current event."""
         try:
             tl = self.query_one("#timeline-list", TimelineTable)
-            tl.load_events(self.timeline, self._findings, list(self._flags.values()))
+            tl.load_events(
+                self.timeline,
+                self._findings,
+                list(self._flags.values()),
+                follow_tail=self._timeline_follow_tail(),
+            )
             if self._timeline_filters_active():
                 self._reapply_timeline_view_filter()
         except Exception:
@@ -3955,7 +4132,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.notify(U.flag_removed(event_index))
         save_flags(self.session_dir, list(self._flags.values()))
         self._refresh_event_chrome()
-        self._update_reports_tab()
+        self._maybe_refresh_reports()
 
     def _format_finding_issue_box(self, finding: Finding) -> str | None:
         """MF form \"Issue (copy into the Issue box)\" when extras support it.

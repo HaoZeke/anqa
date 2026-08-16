@@ -1085,6 +1085,8 @@ ui-field-select-session-filter-select = field-select session-filter-select
 
 ui-filter = Filter
 
+ui-timeline-tail = Tail
+
 ui-finding =
     FINDING
     
