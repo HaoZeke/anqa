@@ -5,6 +5,8 @@ is tagged.
 
 ## Unreleased
 
+- HUD Diff hunks are selectable (drag or `y`). Search marks the matching
+  line with ``> `` and scrolls the hunk pane to it.
 - Session analysis wait uses the toolkit LoadingIndicator in the
   browser chrome (visible on Timeline) and overlays Findings and
   Report. It is not hidden on a pane the operator has not opened.

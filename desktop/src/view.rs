@@ -1771,11 +1771,11 @@ fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     .padding(4)
     .style(move |_| icedtea::style::card(tea, false));
     let hunk_pane = container(icedtea::widget::themed_scroll(
-        paint_unified(unified, tea, hud.diff_hit_line()),
+        paint_unified(hud, unified, tea),
         tea,
         A11y::new("Diff hunk", Role::Group),
         false,
-        None,
+        Some(hud.diff_hunk_scroll_id()),
         None::<fn(_) -> Message>,
     ))
     .padding(8)
@@ -1920,29 +1920,35 @@ fn diff_context_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Mess
     }
 }
 
-fn paint_unified(
+fn paint_unified<'a>(
+    hud: &'a Hud,
     unified: &str,
     tea: icedtea::theme::Tokens,
-    hit: Option<usize>,
-) -> Element<'static, Message> {
-    let mut col = column![].spacing(1);
-    for line in crate::fuzzy::mark_unified_hit(unified, hit) {
-        let hit_row = line.starts_with("> ");
-        let core = line.get(2..).unwrap_or(line.as_str());
-        let color = if hit_row {
-            tea.primary
-        } else if core.starts_with('+') && !core.starts_with("+++") {
-            tea.success
-        } else if core.starts_with('-') && !core.starts_with("---") {
-            tea.danger
-        } else if core.starts_with("@@") || core.starts_with("+++") || core.starts_with("---") {
-            tea.muted
-        } else {
-            tea.text
-        };
-        col = col.push(text(line).size(typo::META).font(typo::MONO).color(color));
+) -> Element<'a, Message> {
+    if unified.trim().is_empty() {
+        return text("(empty)").size(typo::META).color(tea.muted).into();
     }
-    col.into()
+    // No-wrap selectable so source lines match scroll math and a search
+    // hit (`> `) stays on its own line. `highlighted_code` wraps by word
+    // and only paints a selection while focused (the search field has it).
+    let Some(buf) = hud.field("diff.hunk") else {
+        return text(unified.to_string())
+            .size(typo::CODE)
+            .font(typo::MONO)
+            .into();
+    };
+    iced::widget::text_editor(buf)
+        .height(Length::Shrink)
+        .padding(0)
+        .font(typo::MONO)
+        .size(typo::CODE)
+        .wrapping(iced::widget::text::Wrapping::None)
+        .style(icedtea::widget::editor_style(tea))
+        .on_action(|action| Message::Select {
+            id: "diff.hunk".into(),
+            action,
+        })
+        .into()
 }
 
 fn findings_tab(hud: &Hud) -> Element<'_, Message> {

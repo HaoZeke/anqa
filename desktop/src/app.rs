@@ -22,18 +22,18 @@ use crate::format::{
 };
 use crate::fuzzy::session_search_indices;
 use crate::live::{
-    card_marks_from_overview, clamp_scroll, filter_timeline_indices, filter_turn_indices,
-    first_list_fetch, is_partial_list_page, is_soft_notes_save_error, last_timeline_page_offset,
-    list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top, merge_catalog_rows,
-    merge_timeline_by_index, next_list_offset, next_spotlight_limit, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
-    scroll_after_prepend, session_card_height, session_needs_live_poll, session_row_meta,
-    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
-    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
-    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
-    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT,
-    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
-    TIMELINE_ROW_H,
+    card_marks_from_overview, clamp_scroll, diff_hunk_scroll_y, filter_timeline_indices,
+    filter_turn_indices, first_list_fetch, is_partial_list_page, is_soft_notes_save_error,
+    last_timeline_page_offset, list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top,
+    merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
+    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
+    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
+    session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
+    should_page_recent, spotlight_recent, timeline_coverage_complete, timeline_page_next,
+    timeline_range_label, timeline_window_start, trim_timeline_buffer, wants_periodic_poll,
+    CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT,
+    SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
+    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -348,6 +348,7 @@ pub struct Hud {
     diff_query: String,
     diff_hit_line: Option<usize>,
     diff_search_id: Id,
+    diff_hunk_scroll_id: Id,
     diff_point_options: Vec<DiffPointPick>,
     diff_context: DiffContext,
     /// After Diff loads, select the snapshot for this prompt (Turns → Diff).
@@ -494,6 +495,7 @@ impl Default for Hud {
             diff_query: String::new(),
             diff_hit_line: None,
             diff_search_id: Id::new("diff-search"),
+            diff_hunk_scroll_id: Id::new("diff-hunk"),
             diff_point_options: vec![],
             diff_context: DiffContext::Prompt,
             diff_want_prompt: None,
@@ -962,12 +964,14 @@ impl Hud {
             Message::DiffQuery(q) => {
                 self.diff_query = q;
                 self.ensure_diff_file();
-                Task::none()
+                self.bind_diff_bodies();
+                self.reveal_diff_hit()
             }
             Message::SelectDiffFile(path) => {
                 self.diff_file = path;
                 self.refresh_diff_hit();
-                Task::none()
+                self.bind_diff_bodies();
+                self.reveal_diff_hit()
             }
             Message::DiffTreeToggle(id) => {
                 if !self.diff_tree_collapsed.remove(&id) {
@@ -984,6 +988,8 @@ impl Hud {
                 if let Some(path) = crate::diff_tree::file_path_for_id(&paths, id) {
                     self.diff_file = path;
                     self.refresh_diff_hit();
+                    self.bind_diff_bodies();
+                    return self.reveal_diff_hit();
                 }
                 Task::none()
             }
@@ -2018,6 +2024,31 @@ impl Hud {
         if !assistant.is_empty() {
             self.bind_field("diff.assistant", &assistant);
         }
+        let hunk = self.diff_hunk_display();
+        if !hunk.trim().is_empty() {
+            self.bind_field("diff.hunk", &hunk);
+        }
+    }
+
+    /// Unified hunk, with ``> `` on the search hit so the match is visible
+    /// while the search field (not the editor) has focus.
+    fn diff_hunk_display(&self) -> String {
+        let raw = self.selected_diff_unified();
+        if self.diff_hit_line.is_none() {
+            return raw;
+        }
+        crate::fuzzy::mark_unified_hit(&raw, self.diff_hit_line).join("\n")
+    }
+
+    fn reveal_diff_hit(&self) -> Task<Message> {
+        use iced::widget::scrollable::AbsoluteOffset;
+        operation::scroll_to(
+            self.diff_hunk_scroll_id.clone(),
+            AbsoluteOffset {
+                x: 0.0,
+                y: diff_hunk_scroll_y(self.diff_hit_line),
+            },
+        )
     }
 
     fn bind_overview_fields(&mut self) {
@@ -2079,10 +2110,16 @@ impl Hud {
                 }
             }
             Tab::Turns => format!("turn.{}.prompt", self.turns_focus?),
-            Tab::Diff => match self.diff_context {
-                DiffContext::Prompt => "diff.prompt".into(),
-                DiffContext::Assistant => "diff.assistant".into(),
-            },
+            Tab::Diff => {
+                if self.fields.contains("diff.hunk") {
+                    "diff.hunk".into()
+                } else {
+                    match self.diff_context {
+                        DiffContext::Prompt => "diff.prompt".into(),
+                        DiffContext::Assistant => "diff.assistant".into(),
+                    }
+                }
+            }
             Tab::Findings => {
                 let id = self.findings_open.iter().next()?;
                 format!("finding.{id}")
@@ -2443,6 +2480,10 @@ impl Hud {
         self.diff_search_id.clone()
     }
 
+    pub fn diff_hunk_scroll_id(&self) -> Id {
+        self.diff_hunk_scroll_id.clone()
+    }
+
     pub fn diff(&self) -> &crate::wire::DiffBlock {
         &self.diff
     }
@@ -2571,6 +2612,7 @@ impl Hud {
         };
         if sid == self.diff_sid && !self.diff.points.is_empty() {
             self.ensure_diff_file();
+            self.bind_diff_bodies();
             return Task::none();
         }
         self.diff_sid = sid;
@@ -4844,7 +4886,8 @@ impl Hud {
                 };
                 self.diff_file = files[nxt].path.clone();
                 self.refresh_diff_hit();
-                Task::none()
+                self.bind_diff_bodies();
+                self.reveal_diff_hit()
             }
             _ => Task::none(),
         }
@@ -8143,6 +8186,21 @@ mod tests {
         let painted = hud.painted_hit_line().expect("marked hit line");
         assert!(painted.starts_with("> "), "{painted}");
         assert!(painted.contains("unique"), "{painted}");
+        hud.bind_diff_bodies();
+        let hunk = hud
+            .field("diff.hunk")
+            .map(|c| c.text())
+            .expect("hunk body must be selectable");
+        assert!(hunk.contains("unique"), "{hunk}");
+        assert!(
+            hunk.lines()
+                .any(|l| l.starts_with("> ") && l.contains("unique")),
+            "search hit must be marked in the selectable body: {hunk}"
+        );
+        assert_eq!(
+            crate::live::diff_hunk_scroll_y(hud.diff_hit_line()),
+            crate::live::DIFF_HUNK_LINE_H * hud.diff_hit_line().unwrap() as f32
+        );
         let scope = hud.key_scope();
         assert_eq!(scope.tab, Tab::Diff);
         let hints = crate::help::footer_table(scope).footer_hints();
@@ -8189,6 +8247,43 @@ mod tests {
         assert!(
             second.contains("common-needle"),
             "stale line would mark -y: {second}"
+        );
+    }
+
+    #[test]
+    fn diff_search_jumps_to_the_matching_hunk_line() {
+        let mut hud = Hud {
+            tab: Tab::Diff,
+            diff: crate::wire::DiffBlock {
+                points: vec![crate::wire::DiffPointRow {
+                    key: "0".into(),
+                    files: vec![crate::wire::DiffFileRow {
+                        path: "a.py".into(),
+                        unified: "@@\n-one\n-two\n-three\n-four\n+needle here\n".into(),
+                        ..crate::wire::DiffFileRow::default()
+                    }],
+                    ..crate::wire::DiffPointRow::default()
+                }],
+                ..crate::wire::DiffBlock::default()
+            },
+            diff_point: "0".into(),
+            diff_file: "a.py".into(),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::DiffQuery("needle".into()));
+        assert_eq!(hud.diff_hit_line(), Some(5));
+        assert_eq!(
+            crate::live::diff_hunk_scroll_y(hud.diff_hit_line()),
+            5.0 * crate::live::DIFF_HUNK_LINE_H
+        );
+        let hunk = hud
+            .field("diff.hunk")
+            .map(|c| c.text())
+            .expect("hunk bound for copy");
+        assert!(
+            hunk.lines()
+                .any(|l| l == "> +needle here" || l.starts_with("> ") && l.contains("needle here")),
+            "hit line must be marked so the jump is visible: {hunk}"
         );
     }
 

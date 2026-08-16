@@ -178,6 +178,14 @@ pub fn list_scroll_to_cover(heights: &[f32], active: usize, scroll: f32, view_h:
     clamp_scroll(y, content, view_h)
 }
 
+/// Line height of a Diff hunk editor (`typo::CODE` 12 × iced default 1.3).
+pub const DIFF_HUNK_LINE_H: f32 = 15.6;
+
+/// Vertical offset so the Diff hunk scroll puts *hit_line* in view.
+pub fn diff_hunk_scroll_y(hit_line: Option<usize>) -> f32 {
+    hit_line.map(|i| i as f32 * DIFF_HUNK_LINE_H).unwrap_or(0.0)
+}
+
 /// Pin row top to the viewport top (expand / jump).
 pub fn list_scroll_to_top(heights: &[f32], active: usize, view_h: f32) -> f32 {
     let top: f32 = heights.iter().take(active).copied().sum();
@@ -1385,6 +1393,13 @@ mod tests {
             short >= LIST_CARD_GAP,
             "card heights include list_view Card gap"
         );
+    }
+
+    #[test]
+    fn diff_hunk_scroll_y_pins_the_hit_line() {
+        assert_eq!(diff_hunk_scroll_y(None), 0.0);
+        assert_eq!(diff_hunk_scroll_y(Some(0)), 0.0);
+        assert_eq!(diff_hunk_scroll_y(Some(10)), 10.0 * DIFF_HUNK_LINE_H);
     }
 
     #[test]
