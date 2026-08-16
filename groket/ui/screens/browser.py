@@ -2201,10 +2201,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             status.display = True
         except Exception:
             pass
-        if self._active_browser_tab() == "tab-reports":
-            with suppress(Exception):
-                self.query_one("#reports-scroll").loading = True
-            self._paint_report_plugin_pending_spinners(full=full)
+        self._apply_report_loading_overlays()
         if not full:
             return
         try:
@@ -2216,6 +2213,14 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
         except Exception:
             pass
+
+    def _apply_report_loading_overlays(self) -> None:
+        """Mark Report scroll and plugin cards loading while analysis is in flight."""
+        if not self._analysis_pending:
+            return
+        with suppress(Exception):
+            self.query_one("#reports-scroll").loading = True
+        self._paint_report_plugin_pending_spinners()
 
     def _paint_report_plugin_pending_spinners(self, *, full: bool = False) -> None:
         """One loading overlay per plugin report card."""
@@ -2508,6 +2513,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             section_id = self._report_section_dom_id(aid)
             # Empty card; panes mount as direct SelectableStatic children.
             card = Vertical(classes=t("ui-panel-card-report-section"), id=section_id)
+            if self._analysis_pending:
+                card.loading = True
             try:
                 host.mount(card)
                 self._report_section_keys.add(aid)
@@ -2627,6 +2634,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     self._render_report_plugin(aid)
         finally:
             self._report_updating = False
+        self._apply_report_loading_overlays()
 
     def _render_report_overview(self) -> None:
         sid = self._session_id()

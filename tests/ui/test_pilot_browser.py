@@ -744,6 +744,68 @@ body three
         assert screen.query_one("#reports-scroll").loading is True
 
 
+@pytest.mark.asyncio
+async def test_browser_analysis_pending_marks_report_when_opened(tmp_path: Path) -> None:
+    """Opening Report during analysis shows loading on the scroll and plugin cards."""
+    from textual.containers import Vertical
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    results = {
+        "engine": AnalysisResult(
+            session_id=sess.name,
+            session_dir=str(sess),
+            analyzer_id="engine",
+            ok=True,
+            summary="ok",
+            findings=[],
+            artifacts={"report": "# Report\n\n## One\n\nbody\n"},
+        )
+    }
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        app.push_screen(BrowserScreen(sess, plugin_results=results))
+
+        def ready() -> bool:
+            scr = app.screen
+            return isinstance(scr, BrowserScreen) and bool(scr.timeline)
+
+        await wait_until(pilot, ready, description="browser open on Timeline")
+        screen = app.screen
+        assert isinstance(screen, BrowserScreen)
+        screen._stop_live_refresh()
+        screen._collect_findings()
+        screen._populate_analysis_ui()
+        await pilot.pause()
+        assert screen._active_browser_tab() == "tab-timeline"
+
+        screen._analysis_pending = True
+        screen._show_analysis_pending()
+        await pilot.pause()
+        assert screen.query_one("#findings-pending-status", LoadingIndicator).display
+
+        await _activate_tab(pilot, screen, "tab-reports")
+        await wait_until(
+            pilot,
+            lambda: bool(screen.query_one("#reports-scroll").loading),
+            description="Report scroll loading after open during wait",
+        )
+
+        def engine_loading() -> bool:
+            try:
+                return bool(screen.query_one("#report-section-plugin-engine", Vertical).loading)
+            except Exception:
+                return False
+
+        await wait_until(
+            pilot,
+            engine_loading,
+            description="engine report card mounted and loading",
+        )
+
+
 # ── Summary stats tables ─────────────────────────────────────────────────
 
 
