@@ -18,12 +18,13 @@ MAX_RUN_HISTORY = 20
 # so a long-lived owner over a large bucket pins every session it ever parsed
 # unless the cold tail is dropped. Sized by entry weight, heaviest first.
 # Finalized timeline plus incremental scan state: two event lists per session.
-TIMELINE_CACHE_MAXSIZE = 32
+# One host session can be hundreds of MiB; keep live + fork parent only.
+TIMELINE_CACHE_MAXSIZE = 2
 TIMELINE_CACHE_MAX_ENV = "GROKET_TIMELINE_CACHE_MAX"
 # Rendered turn segments per session.
-TURN_VIEW_CACHE_MAXSIZE = 32
+TURN_VIEW_CACHE_MAXSIZE = 2
 # Overview payload per session.
-OVERVIEW_CACHE_MAXSIZE = 64
+OVERVIEW_CACHE_MAXSIZE = 2
 # Marker events per session.
 RUNTIME_MARKERS_CACHE_MAXSIZE = 256
 # One system prompt string per session.
