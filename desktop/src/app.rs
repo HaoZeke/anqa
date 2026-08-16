@@ -162,6 +162,10 @@ pub enum Message {
     SelectDiffFile(String),
     DiffPointPicked(DiffPointPick),
     DiffContext(DiffContext),
+    /// Turns card: open Diff on the snapshot for this prompt, if any.
+    OpenTurnDiff {
+        prompt_index: Option<i64>,
+    },
     FindingExpand {
         id: String,
         open: bool,
@@ -338,6 +342,8 @@ pub struct Hud {
     diff_search_id: Id,
     diff_point_options: Vec<DiffPointPick>,
     diff_context: DiffContext,
+    /// After Diff loads, select the snapshot for this prompt (Turns → Diff).
+    diff_want_prompt: Option<i64>,
     follow_draft: String,
     follow_id: Id,
     timeline_search_gen: u64,
@@ -480,6 +486,7 @@ impl Default for Hud {
             diff_search_id: Id::new("diff-search"),
             diff_point_options: vec![],
             diff_context: DiffContext::Prompt,
+            diff_want_prompt: None,
             follow_draft: String::new(),
             follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
@@ -869,7 +876,7 @@ impl Hud {
                         }
                     }
                     Tab::Overview => Task::none(),
-                    Tab::Diff => self.load_diff(),
+                    Tab::Turns | Tab::Diff => self.load_diff(),
                     _ => Task::none(),
                 };
                 // Same as Escape in search: land on the list so j/k work.
@@ -929,6 +936,7 @@ impl Hud {
                                 }
                             }
                             self.rebuild_diff_point_options();
+                            self.apply_diff_want_prompt();
                             self.ensure_diff_file();
                         }
                     }
@@ -961,6 +969,13 @@ impl Hud {
             Message::DiffContext(tab) => {
                 self.diff_context = tab;
                 Task::none()
+            }
+            Message::OpenTurnDiff { prompt_index } => {
+                self.diff_want_prompt = prompt_index;
+                let load = self.update(Message::SetTab(Tab::Diff));
+                self.apply_diff_want_prompt();
+                self.ensure_diff_file();
+                load
             }
             Message::TimelineKind(k) => {
                 self.timeline_kind = k;
@@ -2283,6 +2298,25 @@ impl Hud {
         self.diff_context
     }
 
+    pub fn turn_has_diff(&self, prompt_index: Option<i64>) -> bool {
+        let Some(n) = prompt_index else {
+            return false;
+        };
+        self.diff.points.iter().any(|p| p.prompt_index == Some(n))
+    }
+
+    fn apply_diff_want_prompt(&mut self) {
+        let Some(n) = self.diff_want_prompt else {
+            return;
+        };
+        let Some(point) = self.diff.points.iter().find(|p| p.prompt_index == Some(n)) else {
+            return;
+        };
+        self.diff_point = point.key.clone();
+        self.diff_file.clear();
+        self.diff_want_prompt = None;
+    }
+
     fn rebuild_diff_point_options(&mut self) {
         self.diff_point_options = self
             .diff
@@ -2955,6 +2989,7 @@ impl Hud {
             self.diff_query.clear();
             self.diff_point_options.clear();
             self.diff_context = DiffContext::Prompt;
+            self.diff_want_prompt = None;
         }
         self.overview_gen += 1;
         let gen = self.overview_gen;
@@ -7731,6 +7766,73 @@ mod tests {
         let _ = hud.update(Message::DiffPointPicked(pick));
         assert_eq!(hud.diff_point_key(), "0");
         assert_eq!(hud.diff_file(), "a.py");
+    }
+
+    #[test]
+    fn open_turn_diff_selects_matching_snapshot() {
+        let mut hud = Hud {
+            tab: Tab::Turns,
+            overview: Some(crate::wire::Overview {
+                meta: crate::wire::SessionMeta {
+                    session_id: "s1".into(),
+                    ..crate::wire::SessionMeta::default()
+                },
+                ..crate::wire::Overview::default()
+            }),
+            overview_sid: "s1".into(),
+            diff_sid: "s1".into(),
+            diff: crate::wire::DiffBlock {
+                points: vec![
+                    crate::wire::DiffPointRow {
+                        key: "0".into(),
+                        prompt_index: Some(0),
+                        files: vec![crate::wire::DiffFileRow {
+                            path: "a.py".into(),
+                            unified: "+a\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        }],
+                        ..crate::wire::DiffPointRow::default()
+                    },
+                    crate::wire::DiffPointRow {
+                        key: "1".into(),
+                        prompt_index: Some(1),
+                        files: vec![crate::wire::DiffFileRow {
+                            path: "b.py".into(),
+                            unified: "+b\n".into(),
+                            ..crate::wire::DiffFileRow::default()
+                        }],
+                        ..crate::wire::DiffPointRow::default()
+                    },
+                ],
+                ..crate::wire::DiffBlock::default()
+            },
+            diff_point: "0".into(),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::OpenTurnDiff {
+            prompt_index: Some(1),
+        });
+        assert_eq!(hud.tab, Tab::Diff);
+        assert_eq!(hud.diff_point_key(), "1");
+        assert_eq!(hud.diff_file(), "b.py");
+    }
+
+    #[test]
+    fn turn_has_diff_only_when_a_snapshot_matches() {
+        let hud = Hud {
+            diff: crate::wire::DiffBlock {
+                points: vec![crate::wire::DiffPointRow {
+                    key: "0".into(),
+                    prompt_index: Some(1),
+                    ..crate::wire::DiffPointRow::default()
+                }],
+                ..crate::wire::DiffBlock::default()
+            },
+            ..Hud::default()
+        };
+        assert!(hud.turn_has_diff(Some(1)));
+        assert!(!hud.turn_has_diff(Some(2)));
+        assert!(!hud.turn_has_diff(None));
     }
 
     #[test]

@@ -24,6 +24,9 @@ that work ships (or when the changelog line is no longer true).
   icedtea ``markdown_view`` paints H1 at PAGE (22) and body at BODY (14).
   When icedtea accepts a compact type scale, call that and delete
   ``hud_md_settings``.
+- HUD Turns uses a Diff text chip because icedtea ``Icon`` is a closed
+  set of seven names. When 0.9 lets an app pass its own SVG bytes, put
+  a Diff icon on that chip.
 
 ## Always on (`just ci` / `just lint`)
 

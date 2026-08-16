@@ -155,7 +155,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-5 | browser | Timeline, Summary, Diff, Findings, Report |
-| Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file |
+| Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file. HUD Turns cards show a Diff chip when that turn has a snapshot. |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
 | j / k | browser | Previous / next event on the Timeline (also Up / Down) |
 | v | browser | Timeline filter (Subagents lists spawn/finish) |

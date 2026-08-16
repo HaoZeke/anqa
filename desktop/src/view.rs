@@ -904,7 +904,7 @@ fn card_chips(
     row![
         card_marks_row(hud, mark),
         Space::new().width(Length::Fill),
-        card_cmds_row(hud, note, jump),
+        card_cmds_row(hud, note, jump, None),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
@@ -918,11 +918,15 @@ fn card_chips_inline(
     mark: Option<CardMark>,
     note: Option<Message>,
     jump: Option<Message>,
+    diff: Option<Message>,
 ) -> Element<'static, Message> {
-    row![card_marks_row(hud, mark), card_cmds_row(hud, note, jump),]
-        .spacing(4)
-        .align_y(Alignment::Center)
-        .into()
+    row![
+        card_marks_row(hud, mark),
+        card_cmds_row(hud, note, jump, diff),
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn card_marks_row(hud: &Hud, mark: Option<CardMark>) -> Element<'static, Message> {
@@ -962,12 +966,22 @@ fn card_cmds_row(
     hud: &Hud,
     note: Option<Message>,
     jump: Option<Message>,
+    diff: Option<Message>,
 ) -> Element<'static, Message> {
     let tea = hud.tokens();
     let tok = hud.tokens();
     let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
         cmds = cmds.push(chip_btn("Add note".into(), msg, tea));
+    }
+    if let Some(msg) = diff {
+        cmds = cmds.push(icedtea::widget::tooltip_wrap(
+            chip_btn("Diff".into(), msg, tea),
+            "Go to Diff",
+            icedtea::widget::TooltipAnchor::Follow,
+            tea,
+            A11y::button("Go to Diff"),
+        ));
     }
     if let Some(msg) = jump {
         cmds = cmds.push(jump_control(msg, tok.muted, tea));
@@ -1122,6 +1136,12 @@ fn turn_note(t: &TurnRow) -> Message {
 }
 
 /// Open Timeline with this turn’s events only (list, not a single-event detail).
+fn turn_diff(t: &TurnRow) -> Message {
+    Message::OpenTurnDiff {
+        prompt_index: t.prompt_index,
+    }
+}
+
 fn turn_jump(t: &TurnRow) -> Message {
     use crate::model::EventsTurnPick;
     let label = t.face_caption();
@@ -1431,7 +1451,13 @@ fn turn_list_card(
     let header = row![
         title,
         Space::new().width(Length::Fill),
-        card_chips_inline(hud, mark, Some(turn_note(t)), Some(jump.clone())),
+        card_chips_inline(
+            hud,
+            mark,
+            Some(turn_note(t)),
+            Some(jump.clone()),
+            hud.turn_has_diff(t.prompt_index).then(|| turn_diff(t)),
+        ),
     ]
     .spacing(6)
     .align_y(Alignment::Center)
@@ -1572,7 +1598,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             let card = closed_list_card(
                 event_list_heading(ev, tea),
                 event_face(ev, tea),
-                card_chips_inline(hud, mark, Some(event_note(ev)), None),
+                card_chips_inline(hud, mark, Some(event_note(ev)), None, None),
                 Message::SelectTimeline(ix),
                 selected,
                 tea,

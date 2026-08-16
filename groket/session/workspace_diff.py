@@ -14,7 +14,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..models import JsonObject, JsonValue, json_as_int
+from ..models import JsonObject, JsonValue, TraceEvent, json_as_int
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +311,9 @@ def _point_markdown(point: DiffPoint) -> str:
     )
 
 
-def _turn_context(session_dir: Path) -> dict[int, tuple[str, str]]:
+def _turn_context(
+    session_dir: Path, timeline: list[TraceEvent] | None = None
+) -> dict[int, tuple[str, str]]:
     """prompt_index → (operator prompt, last assistant body) from the timeline."""
     from .. import event_types as et
     from ..parser import parse_timeline
@@ -320,7 +322,8 @@ def _turn_context(session_dir: Path) -> dict[int, tuple[str, str]]:
 
     out: dict[int, tuple[str, str]] = {}
     try:
-        segs = segment_timeline_turns(parse_timeline(session_dir))
+        events = timeline if timeline is not None else parse_timeline(session_dir)
+        segs = segment_timeline_turns(events)
     except (OSError, ValueError, TypeError):
         return out
     for seg in segs:
@@ -339,8 +342,12 @@ def _turn_context(session_dir: Path) -> dict[int, tuple[str, str]]:
     return out
 
 
-def _with_turn_context(session_dir: Path, points: tuple[DiffPoint, ...]) -> tuple[DiffPoint, ...]:
-    ctx = _turn_context(session_dir)
+def _with_turn_context(
+    session_dir: Path,
+    points: tuple[DiffPoint, ...],
+    timeline: list[TraceEvent] | None = None,
+) -> tuple[DiffPoint, ...]:
+    ctx = _turn_context(session_dir, timeline)
     if not ctx:
         return points
     filled: list[DiffPoint] = []
@@ -363,15 +370,18 @@ def _with_turn_context(session_dir: Path, points: tuple[DiffPoint, ...]) -> tupl
     return tuple(filled)
 
 
-def load_workspace_diff_doc(session_dir: Path) -> WorkspaceDiff:
+def load_workspace_diff_doc(
+    session_dir: Path, timeline: list[TraceEvent] | None = None
+) -> WorkspaceDiff:
     """Load every rewind snapshot, or one approximate-edits point.
 
     :param session_dir: Session directory with ``rewind_points.jsonl`` / ``updates.jsonl``.
+    :param timeline: Already-parsed events. When omitted, the session is parsed again.
     :returns: Structured diff. Empty ``points`` when Grok wrote neither source.
     """
     rewind = _rewind_points(session_dir)
     if rewind:
-        return WorkspaceDiff(_with_turn_context(session_dir, rewind))
+        return WorkspaceDiff(_with_turn_context(session_dir, rewind, timeline))
     edits = _search_replace_point(session_dir)
     if edits is not None:
         return WorkspaceDiff((edits,))

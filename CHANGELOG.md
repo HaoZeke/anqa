@@ -20,6 +20,7 @@ is tagged.
   buttons. Overlay type is 12px for reading, 14px for card titles,
   16px only for the Overview session name. Markdown headings follow
   that scale.
+- HUD Turns cards have a Diff chip when that turn has a snapshot.
 - An older `groket serve` that lacks a method shows
   `control owner is older · run: groket serve restart` (terminal and HUD).
   The raw error goes to the log.
@@ -27,7 +28,9 @@ is tagged.
   Assistant tabs sit above a files and hunk split; the assistant is
   markdown. Nested paths group as a directory tree. Without rewind points it lists approximate `search_replace`
   edits. `/` fuzzy-finds path or hunk text; `h`/`l` step snapshots. The
-  HUD Diff pane uses the same layout, with a snapshot dropdown.
+  HUD Diff pane uses the same layout, with a snapshot dropdown. Switching
+  to the terminal Diff tab paints the snapshot already loaded with the
+  session; it does not parse the timeline again.
 - Session walk and `updates.jsonl` keep/skip share one `groket._scan`
   extension (`groket.scan`, setuptools-rust, same install as the HUD
   binary). `GROKET_SCAN=0` uses the Python body. Continuous integration

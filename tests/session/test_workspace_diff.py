@@ -189,6 +189,30 @@ class TestLoadWorkspaceDiff:
         assert meta["files_changed"] == 0
         assert "No rewind snapshots" in body
 
+    def test_load_workspace_diff_doc_skips_parse_when_timeline_passed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        sd = tmp_path / "session"
+        sd.mkdir()
+        (sd / "rewind_points.jsonl").write_text(
+            json.dumps(
+                {
+                    "prompt_index": 0,
+                    "file_snapshots": {"a.py": "old"},
+                    "after_snapshots": {"a.py": "new"},
+                }
+            )
+            + "\n"
+        )
+
+        def _boom(_path: Path) -> list:
+            raise AssertionError("parse_timeline must not run when timeline is passed")
+
+        monkeypatch.setattr("groket.parser.parse_timeline", _boom)
+        doc = load_workspace_diff_doc(sd, timeline=[])
+        assert len(doc.points) == 1
+        assert doc.points[0].files[0].path == "a.py"
+
     def test_rewind_points_no_differences(self, tmp_path: Path):
         """Rewind snapshots with identical before/after → no content changes."""
         sd = tmp_path / "session"

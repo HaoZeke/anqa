@@ -114,8 +114,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._set_event_reader(False)
         super().activate_tab_pane(pane_id, focus_selector=focus_selector)
         if pane_id == "tab-diff":
-            with suppress(Exception):
-                self._diff_doc = load_workspace_diff_doc(self.session_dir)
+            # Paint the doc loaded on the worker. Do not re-parse the timeline
+            # here — that froze the UI on every Diff tab switch.
             self._update_diff_tab()
         self.refresh_bindings()
 
@@ -1392,7 +1392,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self._load_notes()
             self._rebuild_indices()
             try:
-                self._diff_doc = load_workspace_diff_doc(self.session_dir)
+                self._diff_doc = load_workspace_diff_doc(
+                    self.session_dir, timeline=self.timeline or None
+                )
             except Exception:
                 self._diff_doc = WorkspaceDiff(())
             app = resolve_ui_app(self)

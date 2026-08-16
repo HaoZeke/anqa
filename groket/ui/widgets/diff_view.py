@@ -75,6 +75,8 @@ class DiffView(Vertical):
 
     def set_doc(self, doc: WorkspaceDiff) -> None:
         """Replace the loaded snapshots and keep the current file when it still exists."""
+        if self._doc is doc:
+            return
         self._doc = doc
         if self.is_mounted:
             self._paint()
