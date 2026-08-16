@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- HUD prompts, assistant replies, tool input/output, Diff Prompt/Assistant,
+  Overview summary, findings, and notes are selectable. `y` copies the
+  selection or the open body, up to the 50,000-character open-event ceiling.
 - HUD Timeline event types and tool names use the same small badges as
   session status (color by type family / tool family). Overview, Recent
   session cards, and the browse bar share one status, model, origin, and

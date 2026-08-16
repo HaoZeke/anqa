@@ -6,6 +6,10 @@ Grok Build sessions (Python 3.13+). Similar in spirit to
 [harlequin](https://github.com/tconbeer/harlequin), and
 [toolong](https://github.com/Textualize/toolong).
 
+Operators read traces and paste prompts, replies, and tool output into
+findings. Every body that is useful to quote must be selectable on both
+the terminal and the desktop HUD.
+
 This file is the contract for humans and coding agents working in the repo.
 Describe **current** product behaviour only — no migration history or
 rejected-design narration.
@@ -537,21 +541,27 @@ First press arms; second with the **same** target set commits. Shared helper:
 ### 6.5a Extractable / copyable body content (mandatory)
 
 Operators must be able to copy text from any **body** surface that is useful
-to paste elsewhere (detail, summary, diff, findings header, report sections,
-similar future panes). OS drag-to-copy does not work while Textual owns the
-mouse — the product path is Textual selection + OSC 52 yank.
+to paste elsewhere (prompts, assistant replies, tool input and output,
+detail, summary, diff, findings, notes, report sections). This is how
+evaluators quote evidence. OS drag-to-copy does not work while Textual
+owns the mouse — the product path is Textual selection + OSC 52 yank.
+The HUD uses icedtea selectable / highlighted_code buffers (``y`` and
+drag-select) for the same bodies.
 
 | Use | Widget |
 |-----|--------|
-| Body content a human may extract | :class:`~groket.ui.selectable_static.SelectableStatic` |
-| Chrome only (labels, filter bar, empty-state) | plain ``Static`` / :class:`~groket.ui.panel_render.EmptyState` |
+| Body content a human may extract | TUI :class:`~groket.ui.selectable_static.SelectableStatic`; HUD ``icedtea::widget::selectable`` / ``highlighted_code`` |
+| Chrome only (labels, filter bar, empty-state) | TUI plain ``Static`` / :class:`~groket.ui.panel_render.EmptyState`; HUD ``text`` / ``meta`` |
 
 **Rules**
 
 1. **New extractable bodies** mount :class:`~groket.ui.selectable_static.SelectableStatic`
-   (not plain ``Static``). Display the real Rich renderable via ``update()``;
-   keep plain cache for selection/yank — do **not** pre-bake fixed-width
-   ``Text`` for display (that truncates / mis-wraps).
+   (not plain ``Static``) in the TUI, or bind an icedtea selectable /
+   highlighted_code buffer in the HUD. Display the real Rich renderable via
+   ``update()``; keep plain cache for selection/yank — do **not** pre-bake
+   fixed-width ``Text`` for display (that truncates / mis-wraps). HUD
+   prompts, replies, and tool I/O use ``select_bound`` / ``code_inset``,
+   never iced ``markdown::view`` or dead ``text()``.
 2. **``y`` / Ctrl+Shift+C** (browser ``action_copy_detail``) order:
    mouse selection → **Findings tab selected finding** (prefer MF
    **Issue box** text What/Where/Why/Should/Pattern when ``Finding.extras``

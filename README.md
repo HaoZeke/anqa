@@ -167,7 +167,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | O | browser | Edit or delete note |
 | n | browser | Follow-up while awaiting |
 | e | browser | Done while awaiting |
-| y | browser | Copy the selection, the finding, or the pane |
+| y | browser / HUD | Copy the selection or the open body (prompt, reply, tool output, finding, note) |
 | s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
 | x | browser | Delete (press twice) |

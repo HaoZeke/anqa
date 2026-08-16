@@ -4,6 +4,9 @@ use serde_json::Value;
 
 use crate::model::KindFilter;
 
+/// Open event / copy buffer ceiling. Same number as [`crate::live::TIMELINE_OPEN_CHARS`].
+pub const EXTRACT_CHARS: usize = 50_000;
+
 /// Cut *s* to *max_chars* (Unicode scalar values) and mark truncation.
 pub fn capped_display(s: &str, max_chars: usize) -> String {
     if max_chars == 0 {
@@ -968,7 +971,7 @@ pub fn extract_event(ev: &crate::wire::TimelineEvent) -> String {
         out.push('\n');
     }
     let fields = if ev.tool_fields.is_empty() {
-        tool_fields_from_raw(&ev.tool_name, &ev.raw_input, 8_000)
+        tool_fields_from_raw(&ev.tool_name, &ev.raw_input, EXTRACT_CHARS)
     } else {
         ev.tool_fields
             .iter()
@@ -1610,6 +1613,11 @@ pub fn tool_fields_from_raw(tool_name: &str, raw: &Value, max_chars: usize) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_chars_matches_open_event_ceiling() {
+        assert_eq!(EXTRACT_CHARS, crate::live::TIMELINE_OPEN_CHARS as usize);
+    }
 
     #[test]
     fn duration_matches_tui_thresholds() {

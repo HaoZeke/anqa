@@ -873,6 +873,7 @@ impl Hud {
                     );
                 }
                 self.tab = tab;
+                self.bind_copy_bodies();
                 let load = match tab {
                     Tab::Timeline => {
                         if self.wants_events() {
@@ -948,6 +949,7 @@ impl Hud {
                             self.rebuild_diff_point_options();
                             self.apply_diff_want_prompt();
                             self.ensure_diff_file();
+                            self.bind_diff_bodies();
                         }
                     }
                     Err(e) => {
@@ -992,6 +994,7 @@ impl Hud {
                 self.diff_point = pick.key;
                 self.diff_file.clear();
                 self.ensure_diff_file();
+                self.bind_diff_bodies();
                 Task::none()
             }
             Message::DiffContext(tab) => {
@@ -1162,10 +1165,12 @@ impl Hud {
             }
             Message::FindingExpand { id, open } => {
                 self.set_expand(true, id, open);
+                self.bind_copy_bodies();
                 Task::none()
             }
             Message::NoteExpand { id, open } => {
                 self.set_expand(false, id, open);
+                self.bind_copy_bodies();
                 Task::none()
             }
             Message::FollowDraft(s) => {
@@ -1315,6 +1320,7 @@ impl Hud {
                         // rebinding every open turn when the operator is not on Events.
                         if quiet {
                             self.bind_overview_fields();
+                            self.bind_copy_bodies();
                             self.rebuild_turns_filter();
                             // Timeline filter only matters on Events; skip the O(n)
                             // scan while the operator is on Turns/Overview.
@@ -1833,10 +1839,11 @@ impl Hud {
     }
 
     fn bind_display(src: &str) -> String {
+        let cap = crate::format::EXTRACT_CHARS;
         if crate::format::looks_like_json(src) {
-            crate::format::capped_display(&crate::format::pretty_json(src), 4_000)
+            crate::format::capped_display(&crate::format::pretty_json(src), cap)
         } else {
-            crate::format::capped_display(src, 4_000)
+            crate::format::capped_display(src, cap)
         }
     }
 
@@ -1936,7 +1943,81 @@ impl Hud {
 
     fn bind_turn_extracts(&mut self) {
         self.bind_overview_fields();
+        self.bind_copy_bodies();
         self.rebuild_turns_filter();
+    }
+
+    fn bind_copy_bodies(&mut self) {
+        let Some(o) = self.overview.as_ref() else {
+            self.bind_diff_bodies();
+            return;
+        };
+        let summary = if !o.summary.is_empty() {
+            o.summary.clone()
+        } else {
+            o.meta.summary.clone()
+        };
+        let turns: Vec<(i64, String, String)> = o
+            .turns
+            .turns
+            .iter()
+            .map(|t| (t.turn_index, t.summary.clone(), t.assistant_summary.clone()))
+            .collect();
+        let findings: Vec<(String, String)> = o
+            .findings
+            .findings
+            .iter()
+            .map(|f| {
+                let body = if f.detail.is_empty() {
+                    f.title.clone()
+                } else {
+                    f.detail.clone()
+                };
+                (finding_menu_key(f), body)
+            })
+            .collect();
+        let notes: Vec<(String, String)> = o
+            .notes
+            .notes
+            .iter()
+            .map(|n| (n.id.clone(), crate::format::note_fields_view(&n.fields).1))
+            .collect();
+        if !summary.is_empty() {
+            self.bind_field("overview.summary", &summary);
+        }
+        for (i, prompt, asst) in turns {
+            if !prompt.is_empty() {
+                self.bind_field(format!("turn.{i}.prompt"), &prompt);
+            }
+            if !asst.is_empty() {
+                self.bind_field(format!("turn.{i}.assistant"), &asst);
+            }
+        }
+        for (id, body) in findings {
+            if !body.is_empty() {
+                self.bind_field(format!("finding.{id}"), &body);
+            }
+        }
+        for (id, body) in notes {
+            if !body.is_empty() {
+                self.bind_field(format!("note.{id}"), &body);
+            }
+        }
+        self.bind_diff_bodies();
+    }
+
+    fn bind_diff_bodies(&mut self) {
+        let Some(point) = self.current_diff_point() else {
+            return;
+        };
+        let prompt = point.prompt.clone();
+        let assistant = point.assistant.clone();
+        if !prompt.is_empty() {
+            self.bind_field("diff.prompt", &prompt);
+        }
+        if !assistant.is_empty() {
+            self.bind_field("diff.assistant", &assistant);
+        }
     }
 
     fn bind_overview_fields(&mut self) {
@@ -1987,9 +2068,32 @@ impl Hud {
                 return Some(id.clone());
             }
         }
-        let ix = self.timeline_open.or(self.timeline_focus)?;
-        let out = format!("event.{ix}.out");
-        self.fields.contains(&out).then_some(out)
+        let id = match self.tab {
+            Tab::Timeline => {
+                let ix = self.timeline_open.or(self.timeline_focus)?;
+                let out = format!("event.{ix}.out");
+                if self.fields.contains(&out) {
+                    out
+                } else {
+                    format!("event.{ix}")
+                }
+            }
+            Tab::Turns => format!("turn.{}.prompt", self.turns_focus?),
+            Tab::Diff => match self.diff_context {
+                DiffContext::Prompt => "diff.prompt".into(),
+                DiffContext::Assistant => "diff.assistant".into(),
+            },
+            Tab::Findings => {
+                let id = self.findings_open.iter().next()?;
+                format!("finding.{id}")
+            }
+            Tab::Notes => {
+                let id = self.notes_open.iter().next()?;
+                format!("note.{id}")
+            }
+            Tab::Overview => "overview.summary".into(),
+        };
+        self.fields.contains(&id).then_some(id)
     }
 
     fn select_all_text(&mut self) -> Task<Message> {
@@ -7640,6 +7744,51 @@ mod tests {
     }
 
     #[test]
+    fn finding_turn_and_summary_bodies_bind_for_copy() {
+        use crate::wire::{FindingRow, FindingsBlock, Overview, TurnRow, TurnsBlock};
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            summary: "session blurb".into(),
+            turns: TurnsBlock {
+                turns: vec![TurnRow {
+                    turn_index: 2,
+                    summary: "please fix it".into(),
+                    assistant_summary: "done".into(),
+                    ..TurnRow::default()
+                }],
+                ..TurnsBlock::default()
+            },
+            findings: FindingsBlock {
+                findings: vec![FindingRow {
+                    id: "f1".into(),
+                    title: "Claimed MCP failed".into(),
+                    detail: "What: bad tool\nWhere: call 3".into(),
+                    ..FindingRow::default()
+                }],
+                ..FindingsBlock::default()
+            },
+            ..Overview::default()
+        });
+        let _ = hud.update(Message::SetTab(Tab::Findings));
+        assert_eq!(
+            hud.field("overview.summary").map(|c| c.text()).as_deref(),
+            Some("session blurb")
+        );
+        assert_eq!(
+            hud.field("turn.2.prompt").map(|c| c.text()).as_deref(),
+            Some("please fix it")
+        );
+        assert_eq!(
+            hud.field("turn.2.assistant").map(|c| c.text()).as_deref(),
+            Some("done")
+        );
+        assert_eq!(
+            hud.field("finding.f1").map(|c| c.text()).as_deref(),
+            Some("What: bad tool\nWhere: call 3")
+        );
+    }
+
+    #[test]
     fn expanding_an_event_binds_extract_text() {
         use crate::format::event_body_text;
         let mut hud = hud_with_session();
@@ -7662,6 +7811,21 @@ mod tests {
             hud.extract_src(ExtractKey::Event(3)).as_deref(),
             Some(src.as_str())
         );
+        let _ = hud.update(Message::Select {
+            id: ExtractKey::Event(3).id(),
+            action: iced::widget::text_editor::Action::SelectAll,
+        });
+        assert_eq!(hud.copyable_text().trim(), src.trim());
+    }
+
+    #[test]
+    fn opening_a_long_event_binds_the_full_body() {
+        let body = "x".repeat(8_000);
+        let mut hud = hud_with_session();
+        load_page(&mut hud, 0, false, true, vec![ev_json(3, &body)], 10, 0);
+        let _ = hud.update(Message::SelectTimeline(3));
+        let got = hud.extract_src(ExtractKey::Event(3)).expect("bound");
+        assert_eq!(got.chars().count(), 8_000, "copy bind must not clip at 4k");
     }
 
     #[test]

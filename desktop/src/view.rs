@@ -1,15 +1,10 @@
 //! Palette layout.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-
 use iced::mouse;
 use iced::widget::canvas::{self, Canvas};
 
 use iced::widget::{
-    button, column, container, image, markdown, mouse_area, responsive, row, scrollable, stack,
-    text, Space,
+    button, column, container, image, mouse_area, responsive, row, scrollable, stack, text, Space,
 };
 use iced::{Alignment, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Theme};
 use icedtea::a11y::{A11y, Role};
@@ -21,11 +16,11 @@ use crate::brand;
 use crate::format::{
     body_paint_for, capped_display, display_tool_output, event_brand_role, fmt_duration,
     format_note_time, format_tool_display, human_event_type_label, image_result_path,
-    is_chat_message, is_tool_identity, list_event_detail, list_status_label, looks_like_markdown,
-    message_markdown_source, note_fields_view, origin_label, overview_fields, path_hint_from_raw,
-    sanitize_console_text, session_duration_chip, status_tone, syntax_for_tool_field,
-    syntax_for_tool_output, timeline_body_text, timeline_count_caption, timeline_query_hit,
-    tool_brand_role, tool_fields_from_raw, BodyPaint, BrandRole, ToolField,
+    is_chat_message, is_tool_identity, list_event_detail, list_status_label, note_fields_view,
+    origin_label, overview_fields, path_hint_from_raw, sanitize_console_text,
+    session_duration_chip, status_tone, syntax_for_tool_field, syntax_for_tool_output,
+    timeline_body_text, timeline_count_caption, timeline_query_hit, tool_brand_role,
+    tool_fields_from_raw, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -838,7 +833,13 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         ));
     }
     if summary != title && summary != "No summary text for this session." {
-        col = col.push(md_body(&summary, 4000, hud.tokens()));
+        col = col.push(select_bound(
+            hud,
+            "overview.summary".into(),
+            &summary,
+            hud.tokens(),
+            icedtea::typo::FontFace::Ui,
+        ));
     } else if summary == "No summary text for this session." {
         col = col.push(icedtea::widget::meta(
             summary,
@@ -850,93 +851,6 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         col = col.push(kv(hud, field.key, field.label, field.value, field.copyable));
     }
     col.into()
-}
-
-thread_local! {
-    static MD_ITEMS: RefCell<HashMap<u64, &'static [markdown::Item]>> = RefCell::new(HashMap::new());
-}
-
-fn intern_md(src: &str) -> &'static [markdown::Item] {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    src.hash(&mut hasher);
-    let key = hasher.finish();
-    MD_ITEMS.with(|map| {
-        let mut map = map.borrow_mut();
-        if let Some(items) = map.get(&key) {
-            return *items;
-        }
-        let leaked: &'static [markdown::Item] =
-            Box::leak(icedtea::widget::parse(src).items.into_boxed_slice());
-        map.insert(key, leaked);
-        leaked
-    })
-}
-
-fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let cut: String = src.chars().take(max_chars).collect();
-    if cut.trim().is_empty() {
-        return Space::new().height(0).into();
-    }
-    if !looks_like_markdown(&cut) {
-        return text(cut).size(typo::META).font(typo::UI).into();
-    }
-    markdown_element(&cut, tea)
-}
-
-/// Always markdown (TUI chat messages): hard breaks + icedtea markdown_view.
-fn chat_md_body(
-    src: &str,
-    max_chars: usize,
-    tea: icedtea::theme::Tokens,
-) -> Element<'static, Message> {
-    let prepared = message_markdown_source(src);
-    let cut: String = prepared.chars().take(max_chars).collect();
-    if cut.trim().is_empty() {
-        return text("empty").size(typo::META).color(tea.muted).into();
-    }
-    markdown_element(&cut, tea)
-}
-
-fn markdown_element(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    // icedtea markdown_view uses PAGE for H1 and BODY for copy — too big
-    // on the overlay. Compact settings; TODO.md tracks an icedtea size.
-    iced::widget::markdown::view(intern_md(src), hud_md_settings(tea))
-        .map(|url| Message::MdLink(url.to_string()))
-}
-
-fn hud_md_settings(tea: icedtea::theme::Tokens) -> iced::widget::markdown::Settings {
-    let body = typo::META as f32;
-    iced::widget::markdown::Settings {
-        text_size: body.into(),
-        h1_size: (typo::TITLE as f32).into(),
-        h2_size: (typo::BODY as f32).into(),
-        h3_size: body.into(),
-        h4_size: body.into(),
-        h5_size: body.into(),
-        h6_size: body.into(),
-        code_size: (typo::CODE as f32).into(),
-        spacing: (body * 0.75).into(),
-        style: hud_md_style(tea),
-    }
-}
-
-fn hud_md_style(tea: icedtea::theme::Tokens) -> iced::widget::markdown::Style {
-    let s = tea.scheme();
-    let mut style = iced::widget::markdown::Style::from_palette(iced::theme::Palette {
-        background: s.surface,
-        text: s.on_surface,
-        primary: s.primary,
-        success: s.success,
-        warning: s.warning,
-        danger: s.error,
-    });
-    style.font = typo::UI;
-    style.inline_code_color = s.on_surface;
-    style.inline_code_font = typo::MONO;
-    style.code_block_font = typo::MONO;
-    style.link_color = s.primary;
-    style.inline_code_highlight.background = iced::Background::Color(s.surface_container_high);
-    style
 }
 
 /// One Overview meta row via icedtea value_field / plain labeled readout.
@@ -1428,7 +1342,13 @@ fn note_body<'a>(
     );
     let mut card = column![text(where_when).size(typo::META).color(hud.tokens().muted)].spacing(8);
     if !body.is_empty() {
-        card = card.push(md_body(body, 4000, tea));
+        card = card.push(select_bound(
+            hud,
+            format!("note.{}", n.id),
+            body,
+            tea,
+            icedtea::typo::FontFace::Ui,
+        ));
     }
     for (k, v) in extras.into_iter().take(8) {
         card = card.push(
@@ -1469,7 +1389,7 @@ fn closed_turn_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'stat
 }
 
 /// Closed-card preview only. Markdown parse/layout per visible row was the
-/// Turns/Timeline scroll tax; open bodies use selectable / md_body when needed.
+/// Turns/Timeline scroll tax; open bodies use selectable text when needed.
 fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     plain_face(summary, "—", 280, tea)
 }
@@ -1980,10 +1900,13 @@ fn diff_context_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Mess
             if src.trim().is_empty() {
                 text("(empty)").size(typo::META).color(tea.muted).into()
             } else {
-                text(src.to_string())
-                    .size(typo::META)
-                    .color(tea.text)
-                    .into()
+                select_bound(
+                    hud,
+                    "diff.prompt".into(),
+                    src,
+                    tea,
+                    icedtea::typo::FontFace::Ui,
+                )
             }
         }
         DiffContext::Assistant => {
@@ -1991,7 +1914,17 @@ fn diff_context_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Mess
                 .current_diff_point()
                 .map(|p| p.assistant.as_str())
                 .unwrap_or("");
-            chat_md_body(src, 8000, tea)
+            if src.trim().is_empty() {
+                text("(empty)").size(typo::META).color(tea.muted).into()
+            } else {
+                select_bound(
+                    hud,
+                    "diff.assistant".into(),
+                    src,
+                    tea,
+                    icedtea::typo::FontFace::Ui,
+                )
+            }
         }
     }
 }
@@ -2063,7 +1996,7 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
                 f.title.clone()
             };
             let child = if open || progress > 0.0 {
-                finding_body(f, tea)
+                finding_body(hud, f, tea)
             } else {
                 column![
                     prompt_face(&f.detail, tea),
@@ -2103,7 +2036,11 @@ fn finding_key(f: &FindingRow) -> String {
     )
 }
 
-fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+fn finding_body<'a>(
+    hud: &'a Hud,
+    f: &'a FindingRow,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
     let mut card = column![status_chip(
         f.severity.clone(),
         status_tone(&f.severity),
@@ -2111,7 +2048,13 @@ fn finding_body(f: &FindingRow, tea: icedtea::theme::Tokens) -> Element<'static,
     )]
     .spacing(8);
     if !f.detail.is_empty() {
-        card = card.push(md_body(&f.detail, 1200, tea));
+        card = card.push(select_bound(
+            hud,
+            format!("finding.{}", finding_key(f)),
+            &f.detail,
+            tea,
+            icedtea::typo::FontFace::Ui,
+        ));
     }
     card.push(command_end(jump_control(finding_jump(f), tea.muted, tea)))
         .into()
@@ -2294,7 +2237,11 @@ fn inspect_fields(call: &TimelineEvent) -> Vec<ToolField> {
             })
             .collect();
     }
-    tool_fields_from_raw(&call.tool_name, &call.raw_input, 8_000)
+    tool_fields_from_raw(
+        &call.tool_name,
+        &call.raw_input,
+        crate::format::EXTRACT_CHARS,
+    )
 }
 
 fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Element<'a, Message> {
@@ -2462,7 +2409,11 @@ fn render_payload_text<'a>(
     if paint == BodyPaint::Empty {
         return text("empty").size(typo::META).color(tok.muted).into();
     }
-    let max = if expanded { 12_000 } else { 400 };
+    let max = if expanded {
+        crate::format::EXTRACT_CHARS
+    } else {
+        400
+    };
     let cut = capped_display(body, max);
     if !expanded {
         return text(cut)
@@ -2484,13 +2435,13 @@ fn render_payload_text<'a>(
         }
         BodyPaint::Image => tool_image(trimmed, hud.tokens()),
         BodyPaint::Markdown => {
-            // icedtea markdown_view (TUI uses Rich Markdown). Yank still uses
-            // bound plain text / extract_event via y.
-            let md = if is_chat_message(kind, event_type) {
-                chat_md_body(body, max, hud.tokens())
-            } else {
-                md_body(body, max, hud.tokens())
-            };
+            let md = select_bound(
+                hud,
+                field_id.to_string(),
+                &cut,
+                hud.tokens(),
+                icedtea::typo::FontFace::Ui,
+            );
             if is_chat_message(kind, event_type) || kind == "subagent" {
                 inset_body(md, hud)
             } else {
@@ -2503,11 +2454,13 @@ fn render_payload_text<'a>(
                 return code_inset(hud, field_id, &cut, syntax, hud.tokens());
             }
             let plain = if kind == "thought" {
-                text(cut)
-                    .size(typo::META)
-                    .font(typo::UI)
-                    .color(tok.muted)
-                    .into()
+                select_bound(
+                    hud,
+                    field_id.to_string(),
+                    &cut,
+                    tok,
+                    icedtea::typo::FontFace::Ui,
+                )
             } else if kind == "tool" || kind == "tool_result" {
                 // Shell stdout / non-source tool bodies: monospaced like TUI.
                 select_bound(
@@ -2901,15 +2854,6 @@ mod tests {
     }
 
     #[test]
-    fn hud_markdown_uses_overlay_type_scale() {
-        let s = hud_md_settings(tea());
-        assert_eq!(f32::from(s.text_size), typo::META as f32);
-        assert_eq!(f32::from(s.h1_size), typo::TITLE as f32);
-        assert_eq!(f32::from(s.h2_size), typo::BODY as f32);
-        assert!(f32::from(s.h1_size) < typo::PAGE as f32);
-    }
-
-    #[test]
     fn session_picker_is_spotlight_not_list_detail_rail() {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod source");
@@ -2953,10 +2897,11 @@ mod tests {
             .split("fn overview_tab")
             .nth(1)
             .expect("overview_tab")
-            .split("fn intern_md")
+            .split("fn kv")
             .next()
             .expect("overview body");
         assert!(overview.contains("session_state_from_meta("));
+        assert!(overview.contains("overview.summary"));
         assert!(!overview.contains("\"{} · {} · {}\""));
         let cards = prod
             .split("fn session_list_card")
@@ -2980,15 +2925,17 @@ mod tests {
         assert!(prod.contains("icedtea::widget::progress"));
         assert!(prod.contains("icedtea::pattern::status_page"));
         assert!(prod.contains("icedtea::widget::info_bar"));
-        assert!(prod.contains("fn hud_md_settings"));
-        assert!(prod.contains("iced::widget::markdown::view"));
         assert!(prod.contains("fn diff_chrome"));
         assert!(prod.contains("fn diff_context_body"));
         assert!(prod.contains("fn diff_split"));
         assert!(prod.contains("widget::tree_view"));
         assert!(prod.contains("fn diff_search"));
         assert!(prod.contains("Message::DiffPointPicked"));
-        assert!(prod.contains("chat_md_body(src, 8000, tea)"));
+        assert!(prod.contains("\"diff.prompt\""));
+        assert!(prod.contains("\"diff.assistant\""));
+        assert!(prod.contains("BodyPaint::Markdown =>"));
+        assert!(!prod.contains("chat_md_body"));
+        assert!(!prod.contains("iced::widget::markdown::view"));
         assert!(prod.contains("icedtea::motion::overlay"));
         assert!(prod.contains("Slide::Up"));
         assert!(prod.contains("page_slide()"));
