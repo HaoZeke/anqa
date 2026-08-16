@@ -109,9 +109,8 @@ pub fn analysis_notice(
     error: &str,
 ) -> Option<DesktopNotice> {
     let label = display_name(title, sid);
-    let st = normalize(state);
-    match st.as_str() {
-        "done" | "complete" => Some(DesktopNotice {
+    match analysis_job_state(state) {
+        Some("done") => Some(DesktopNotice {
             summary: "Analysis finished".into(),
             body: if finding_count > 0 {
                 format!("{label} · {finding_count} findings")
@@ -120,7 +119,7 @@ pub fn analysis_notice(
             },
             urgency: UrgencyKind::Low,
         }),
-        "error" | "failed" => Some(DesktopNotice {
+        Some("error") => Some(DesktopNotice {
             summary: "Analysis failed".into(),
             body: if error.is_empty() {
                 label
@@ -187,13 +186,17 @@ fn analysis_seen_id(params: &Value) -> Option<String> {
     Some(sid.to_string())
 }
 
-fn analysis_terminal_state(params: &Value) -> Option<&'static str> {
-    let raw = params.get("state").and_then(Value::as_str).unwrap_or("");
-    match normalize(raw).as_str() {
-        "done" | "complete" => Some("done"),
-        "error" | "failed" => Some("error"),
+fn analysis_job_state(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "done" | "complete" | "completed" => Some("done"),
+        "error" | "failed" | "failure" => Some("error"),
         _ => None,
     }
+}
+
+fn analysis_terminal_state(params: &Value) -> Option<&'static str> {
+    let raw = params.get("state").and_then(Value::as_str).unwrap_or("");
+    analysis_job_state(raw)
 }
 
 /// Seen-map key so host and work copies of the same id do not fight.

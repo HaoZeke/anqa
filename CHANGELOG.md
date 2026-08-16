@@ -5,6 +5,8 @@ is tagged.
 
 ## Unreleased
 
+- Desktop analysis-failed notices use the analysis job state. A failed
+  job is not treated as a session `cancelled` label.
 - HUD Diff hunks are selectable (drag or `y`). Search marks the matching
   line with ``> `` and scrolls the hunk pane to it.
 - Session analysis wait uses the toolkit LoadingIndicator in the
