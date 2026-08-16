@@ -25,7 +25,7 @@ use crate::format::{
     message_markdown_source, note_fields_view, origin_label, overview_fields, path_hint_from_raw,
     sanitize_console_text, status_tone, syntax_for_tool_field, syntax_for_tool_output,
     timeline_body_text, timeline_count_caption, timeline_query_hit, tool_brand_role,
-    tool_fields_from_raw, BodyPaint, ToolField,
+    tool_fields_from_raw, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -128,6 +128,33 @@ fn tone_variant(tone: &str) -> Variant {
     }
 }
 
+fn brand_variant(role: BrandRole) -> Variant {
+    match role {
+        BrandRole::Complete => Variant::Success,
+        BrandRole::Running => Variant::Warning,
+        BrandRole::Failed => Variant::Danger,
+        BrandRole::Cream => Variant::Primary,
+        BrandRole::Cancelled => Variant::Quiet,
+    }
+}
+
+/// Small icedtea badge for a type or tool name (same face as session status).
+fn label_badge(
+    label: impl Into<String>,
+    role: BrandRole,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let label = label.into();
+    icedtea::widget::badge(
+        label.clone(),
+        None,
+        tea,
+        brand_variant(role),
+        icedtea::widget::BadgeSize::Small,
+        A11y::new(label, Role::Status),
+    )
+}
+
 /// Session / turn / severity status — icedtea ``badge`` (same face everywhere).
 fn status_chip(
     label: impl Into<String>,
@@ -143,6 +170,43 @@ fn status_chip(
         icedtea::widget::BadgeSize::Small,
         A11y::new(label, Role::Status),
     )
+}
+
+/// Status plus identity chips — Overview, Recent cards, and the browse bar.
+fn session_state_row(
+    status: &str,
+    model: &str,
+    origin: &str,
+    duration: &str,
+    subagent: bool,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let status_label = if status.trim().is_empty() {
+        "—"
+    } else {
+        status.trim()
+    };
+    let mut chips = row![status_chip(
+        status_label.to_string(),
+        status_tone(status_label),
+        tea,
+    )]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if subagent {
+        chips = chips.push(status_chip(String::from("subagent"), "", tea));
+    }
+    if !model.trim().is_empty() {
+        chips = chips.push(status_chip(model.trim().to_string(), "", tea));
+    }
+    let origin = origin_label(origin);
+    if origin != "—" {
+        chips = chips.push(status_chip(origin.to_string(), "", tea));
+    }
+    if !duration.trim().is_empty() && duration != "—" {
+        chips = chips.push(status_chip(duration.trim().to_string(), "", tea));
+    }
+    chips.into()
 }
 
 fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -401,31 +465,22 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     }
     let mut window = hud.list_window();
     window.viewport = viewport.max(1.0);
-    let hud_tok = hud.tokens();
-    let list = icedtea::widget::list_view(
-        hud,
-        hud.list_selection(),
-        Message::SelectSession,
-        tea,
+    let rows = hud.sessions();
+    let selected = hud.list_selection().primary();
+    let list = icedtea::widget::virtual_column(
+        hud.session_heights(),
         window,
-        icedtea::collection::RowHeights::PerRow(hud.session_heights()),
         1,
+        selected,
         Message::ListScroll,
-        "No sessions",
-        move |i| {
-            let status = hud
-                .sessions()
-                .get(i)
-                .map(|r| crate::format::list_status_label(&r.status, &r.outcome))
-                .unwrap_or_default();
-            tone_color(status_tone(&status), hud_tok)
-        },
         Some(hud.list_scroll_id()),
-        // Context fill lives on Overview only — picker meters were noise.
-        icedtea::collection::RowFace::Card {
-            meter: None::<fn(usize) -> f32>,
+        tea,
+        move |i| {
+            let Some(row) = rows.get(i) else {
+                return Space::new().height(0).into();
+            };
+            session_list_card(row, i, selected == Some(i), tea)
         },
-        |_| Message::Noop,
         A11y::new("Sessions", Role::List),
     );
     if idle {
@@ -443,6 +498,51 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         .padding(Padding::from([8, 12]))
         .height(Length::Fill)
         .into()
+}
+
+fn session_list_card(
+    row: &crate::model::SessionRow,
+    index: usize,
+    selected: bool,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let status = row.status_label();
+    let taken = if row.duration_seconds > 0.0 {
+        fmt_duration(row.duration_seconds)
+    } else {
+        String::new()
+    };
+    let title = text(row.display_title().to_string())
+        .size(typo::BODY)
+        .font(if selected { typo::UI_BOLD } else { typo::UI })
+        .color(tea.text)
+        .width(Length::Fill);
+    let mut body = column![
+        title,
+        session_state_row(&status, &row.model, &row.origin, &taken, false, tea),
+    ]
+    .spacing(4)
+    .width(Length::Fill);
+    let ctx = row.context_usage_compact.trim();
+    if !ctx.is_empty() {
+        body = body.push(text(ctx.to_string()).size(typo::META).color(tea.muted));
+    }
+    column![
+        mouse_area(
+            container(body)
+                .padding(Padding {
+                    top: 8.0,
+                    right: 12.0,
+                    bottom: 8.0,
+                    left: 12.0,
+                })
+                .width(Length::Fill)
+                .style(move |_| icedtea::style::card(tea, selected)),
+        )
+        .on_press(Message::SelectSession(index)),
+        Space::new().height(crate::live::LIST_CARD_GAP),
+    ]
+    .into()
 }
 
 fn detail_pane(hud: &Hud) -> Element<'_, Message> {
@@ -573,8 +673,22 @@ fn browse_session_bar<'a>(
     .spacing(10)
     .align_y(Alignment::Center)
     .width(Length::Fill);
-    if !status.is_empty() {
-        row = row.push(status_chip(status.clone(), status_tone(&status), tea));
+    if let Some(o) = hud.overview() {
+        let taken = if o.meta.duration.is_empty() {
+            fmt_duration(o.meta.duration_seconds)
+        } else {
+            o.meta.duration.clone()
+        };
+        row = row.push(session_state_row(
+            &status,
+            &o.meta.model,
+            &o.meta.origin,
+            &taken,
+            o.meta.is_subagent(),
+            tea,
+        ));
+    } else if !status.is_empty() {
+        row = row.push(session_state_row(&status, "", "", "", false, tea));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(
@@ -676,40 +790,21 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
         summary = "No summary text for this session.".into();
     }
     let status = meta.status_label();
-    let tone = status_tone(&status);
     let taken = if meta.duration.is_empty() {
         fmt_duration(meta.duration_seconds)
     } else {
         meta.duration.clone()
     };
-    // Context % is on the bar below — keep hero to model · origin · duration.
-    let hero = format!(
-        "{} · {} · {}",
-        meta.model,
-        origin_label(&meta.origin),
-        taken,
-    );
     let tok = tea;
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
-    let mut status_row = row![status_chip(
-        if status.is_empty() {
-            "—".to_string()
-        } else {
-            status
-        },
-        tone,
+    let status_row = session_state_row(
+        &status,
+        &meta.model,
+        &meta.origin,
+        &taken,
+        meta.is_subagent(),
         tea,
-    )]
-    .spacing(8)
-    .align_y(Alignment::Center);
-    if meta.is_subagent() {
-        status_row = status_row.push(status_chip(String::from("subagent"), "", tea));
-    }
-    status_row = status_row.push(icedtea::widget::meta(
-        hero,
-        tea,
-        A11y::new("meta", Role::Status),
-    ));
+    );
     let mut col = column![
         text(title.clone())
             .size(typo::TITLE)
@@ -1191,18 +1286,27 @@ fn event_title_meta(ev: &TimelineEvent) -> String {
     bits.join(" · ")
 }
 
-/// Brand-colored event type for the heading next to ``#index``.
-fn event_type_paint(ev: &TimelineEvent) -> Option<(String, Color)> {
+/// Human type + brand role for the heading badge next to ``#index``.
+fn event_type_paint(ev: &TimelineEvent) -> Option<(String, BrandRole)> {
     let human = event_type_human(ev);
     if human.is_empty() {
         return None;
     }
-    let color =
-        crate::theme::brand_role_color(event_brand_role(&ev.event_type, &ev.kind, ev.is_error));
-    Some((human, color))
+    Some((
+        human,
+        event_brand_role(&ev.event_type, &ev.kind, ev.is_error),
+    ))
 }
 
-/// ``#index`` + type on one row (turn / time muted after).
+fn event_tool_role(ev: &TimelineEvent) -> BrandRole {
+    if ev.is_error {
+        BrandRole::Failed
+    } else {
+        tool_brand_role(&ev.tool_name, false).unwrap_or(BrandRole::Cancelled)
+    }
+}
+
+/// ``#index`` + type badge on one row (turn / time muted after).
 fn event_list_heading(
     ev: &TimelineEvent,
     tea: icedtea::theme::Tokens,
@@ -1213,13 +1317,8 @@ fn event_list_heading(
         .color(tea.text),]
     .spacing(8)
     .align_y(Alignment::Center);
-    if let Some((human, color)) = event_type_paint(ev) {
-        head = head.push(
-            text(human)
-                .size(typo::META)
-                .font(typo::UI_BOLD)
-                .color(color),
-        );
+    if let Some((human, role)) = event_type_paint(ev) {
+        head = head.push(label_badge(human, role, tea));
     }
     let meta = event_title_meta(ev);
     if !meta.is_empty() {
@@ -1230,24 +1329,6 @@ fn event_list_heading(
 
 fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let tool_row = is_tool_identity(&ev.kind, &ev.event_type, &ev.tool_name);
-    let identity = if tool_row {
-        format_tool_display(&ev.tool_name)
-    } else {
-        String::new()
-    };
-    let (id_color, id_bold) = if ev.is_error {
-        (
-            crate::theme::brand_role_color(crate::format::BrandRole::Failed),
-            true,
-        )
-    } else if tool_row {
-        match tool_brand_role(&ev.tool_name, false) {
-            Some(role) => (crate::theme::brand_role_color(role), false),
-            None => (tea.muted, false),
-        }
-    } else {
-        (tea.text, false)
-    };
     let raw_preview = if ev.preview.is_empty() {
         ev.content.as_str()
     } else {
@@ -1265,30 +1346,20 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
     };
     // One scannable line (TUI type + summary columns), not a markdown stack.
     let preview = capped_display(&plain_card_text(&preview), 160);
-    let id_font = if id_bold { typo::UI_BOLD } else { typo::UI };
-    if identity.is_empty() && preview.is_empty() {
-        return text("—").size(typo::META).color(tea.muted).into();
-    }
-    if identity.is_empty() {
+    if !tool_row {
+        if preview.is_empty() {
+            return text("—").size(typo::META).color(tea.muted).into();
+        }
         return text(preview).size(typo::META).color(tea.text).into();
     }
+    let name = label_badge(format_tool_display(&ev.tool_name), event_tool_role(ev), tea);
     if preview.is_empty() {
-        return text(identity)
-            .size(typo::META)
-            .font(id_font)
-            .color(id_color)
-            .into();
+        return name;
     }
-    row![
-        text(identity)
-            .size(typo::META)
-            .font(id_font)
-            .color(id_color),
-        text(preview).size(typo::META).color(tea.text),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center)
-    .into()
+    row![name, text(preview).size(typo::META).color(tea.text)]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 fn event_body<'a>(
@@ -2228,16 +2299,6 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     col.into()
 }
 
-fn tone_color(tone: &str, tok: icedtea::theme::Tokens) -> Color {
-    let raw = match tone {
-        "running" => tok.warning,
-        "complete" => tok.success,
-        "cancelled" => tok.danger,
-        _ => tok.muted,
-    };
-    crate::theme::ink_on(raw, tok.surface)
-}
-
 fn paired_tool<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> (&'a TimelineEvent, &'a TimelineEvent) {
     let id = ev.tool_call_id.trim();
     if id.is_empty() {
@@ -2696,6 +2757,19 @@ mod tests {
         assert_eq!(event_title_meta(&ev), "turn 2 · 10:32");
         let painted = event_type_paint(&ev).expect("type");
         assert_eq!(painted.0, "user message chunk");
+        assert_eq!(painted.1, BrandRole::Cream);
+        let _ = event_list_heading(&ev, tea());
+        let tool = TimelineEvent {
+            index: 4,
+            event_type: "tool_call".into(),
+            type_label: "tool call".into(),
+            kind: "tool".into(),
+            tool_name: "read_file".into(),
+            preview: "src/app.rs".into(),
+            ..TimelineEvent::default()
+        };
+        assert_eq!(event_tool_role(&tool), BrandRole::Cream);
+        let _ = event_face(&tool, tea());
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
             .next()
@@ -2842,8 +2916,8 @@ mod tests {
         assert_eq!(tone_variant("cancelled"), Variant::Danger);
         for name in ["dark", "light"] {
             let tok = icedtea::theme::named(name).tokens;
-            let run = tone_color("running", tok);
-            let done = tone_color("complete", tok);
+            let run = crate::theme::ink_on(tok.warning, tok.surface);
+            let done = crate::theme::ink_on(tok.success, tok.surface);
             assert_ne!(run, done, "{name} running vs complete");
             assert!(
                 crate::theme::contrast_ratio(run, tok.surface) >= 4.5,
@@ -2877,9 +2951,10 @@ mod tests {
         assert!(prod.contains("Message::SessionsHome"));
         assert!(prod.contains("fn status_chip"));
         assert!(prod.contains("BadgeSize::Small"));
-        assert!(prod.contains("widget::list_view("));
-        assert!(prod.contains("RowFace::Card"));
-        assert!(prod.contains("RowHeights::PerRow"));
+        assert!(prod.contains("fn session_list_card"));
+        assert!(prod.contains("fn session_state_row"));
+        assert!(prod.contains("widget::virtual_column"));
+        assert!(!prod.contains("RowFace::Card"));
         assert!(!prod.contains("fn tea_two_line"));
         assert!(!prod.contains("fn tea_list_view"));
         assert!(!prod.contains("SESSION_LIST_W"));
@@ -2904,6 +2979,15 @@ mod tests {
         assert!(prod.contains("kit::status_empty"));
         assert!(prod.contains("help_open()"));
         assert!(prod.contains("overview_fields"));
+        let overview = prod
+            .split("fn overview_tab")
+            .nth(1)
+            .expect("overview_tab")
+            .split("fn intern_md")
+            .next()
+            .expect("overview body");
+        assert!(overview.contains("session_state_row("));
+        assert!(!overview.contains("\"{} · {} · {}\""));
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("event.{}.in.{}"));
         assert!(prod.contains("icedtea::widget::image_slot"));
@@ -2948,7 +3032,8 @@ mod tests {
         assert!(prod.contains("TURNS_OVERSCAN"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(prod.contains("turns_tab(hud)"));
-        assert!(prod.contains("meter: None"));
+        assert!(prod.contains("fn session_list_card"));
+        assert!(!prod.contains("context_progress") || prod.contains("kit::context_progress"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("stack![busy]"));
         assert!(prod.contains("fn turn_note"));
@@ -2981,6 +3066,25 @@ mod tests {
         assert!(prod.contains("fn event_card_label"));
         assert!(prod.contains("fn event_list_heading"));
         assert!(prod.contains("fn event_type_paint"));
+        assert!(prod.contains("fn label_badge"));
+        assert!(prod.contains("fn brand_variant"));
+        let heading = prod
+            .split("fn event_list_heading")
+            .nth(1)
+            .expect("heading")
+            .split("fn event_face")
+            .next()
+            .expect("heading body");
+        assert!(heading.contains("label_badge"));
+        let face = prod
+            .split("fn event_face")
+            .nth(1)
+            .expect("face")
+            .split("fn event_body")
+            .next()
+            .expect("face body");
+        assert!(face.contains("label_badge"));
+        assert!(!face.contains("id_font"));
         assert!(!prod.contains("{at} of {n}"));
         assert!(prod.contains("footer_table_for(hud.key_scope(), hud.key_overlay())"));
         assert!(!prod.contains("chip_btn(\"Back\""));

@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- HUD Timeline event types and tool names use the same small badges as
+  session status (color by type family / tool family). Overview, Recent
+  session cards, and the browse bar share one status/model/origin row.
 - The control JSON-RPC contract (version, methods, notifications) lives
   in `groket/integrations/control_contract.py`. `docs/control.md` and
   `schemas/control.schema.json` are generated from that inventory

@@ -137,18 +137,21 @@ fn wrap_line_count(s: &str, cols: usize) -> usize {
     n.max(1)
 }
 
-/// Gap icedtea `RowFace::Card` inserts between mounted rows (not in face paint).
+/// Gap under each Recent session card (included in row height).
 pub const LIST_CARD_GAP: f32 = 2.0;
 
 /// Pixel height of one session tile in the full-width picker.
 ///
-/// Includes [`LIST_CARD_GAP`] so `RowHeights` totals match list_view Card
-/// spacing (otherwise the last cards cannot scroll fully into view).
+/// Includes [`LIST_CARD_GAP`] so `RowHeights` totals match the painted
+/// gap under each card (otherwise the last cards cannot scroll fully
+/// into view). Status / model sit on a badge row; *meta* is leftover
+/// context text.
 pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     // Full-width picker (~780 shell − pad); ~7px at 14px body → ~90 cols.
     let cols = 72usize;
     let mut h = 20.0;
     h += wrap_line_count(title, cols) as f32 * 18.0;
+    h += 4.0 + 18.0;
     if !meta.is_empty() {
         h += 2.0 + wrap_line_count(meta, cols) as f32 * 16.0;
     }
@@ -203,15 +206,9 @@ pub fn list_focus_after_scroll(
     })
 }
 
-/// Second line for an icedtea session row (status, model, context).
+/// Leftover line under the status badges (context compact only).
 pub fn session_row_meta(row: &SessionRow) -> String {
-    let status = crate::format::list_status_label(&row.status, &row.outcome);
-    let mut line = format!("{} · {}", status, row.model);
-    if !row.context_usage_compact.is_empty() {
-        line.push_str(" · ");
-        line.push_str(&row.context_usage_compact);
-    }
-    line
+    row.context_usage_compact.trim().to_string()
 }
 
 /// icedtea [`ListModel`] over catalog rows (owned meta lines for tests).
@@ -1320,12 +1317,12 @@ mod tests {
             context_usage_compact: "12%".into(),
             ..SessionRow::default()
         };
-        assert_eq!(session_row_meta(&row), "running · grok-4 · 12%");
+        assert_eq!(session_row_meta(&row), "12%");
         row.context_usage_compact.clear();
         let list = SessionList::from_rows(std::slice::from_ref(&row));
         assert_eq!(list.len(), 1);
         assert_eq!(list.title(0), "Fix the rail");
-        assert_eq!(list.meta(0), Some("running · grok-4"));
+        assert_eq!(list.meta(0), None);
         assert_eq!(list.title(9), "");
         assert_eq!(list.meta(9), None);
         assert_eq!(
@@ -1371,11 +1368,11 @@ mod tests {
 
     #[test]
     fn session_card_grows_when_the_title_wraps() {
-        let short = session_card_height("Fix the rail", "running · grok-4", false);
+        let short = session_card_height("Fix the rail", "", false);
         // Full-width picker uses ~72 columns — need a long line to wrap.
         let long_title =
             "Rewrite the session catalog filter and keep the host path readable ".repeat(3);
-        let long = session_card_height(&long_title, "running · grok-4 · 12%", true);
+        let long = session_card_height(&long_title, "12%", true);
         assert!(short >= 50.0, "{short}");
         assert!(long > short + 10.0, "short={short} long={long}");
         assert!(
