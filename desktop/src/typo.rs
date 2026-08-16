@@ -2,8 +2,12 @@
 //!
 //! icedtea maps sans and mono to installed platform families (including a
 //! real bold so headings do not fall through to Menlo on macOS).
+//!
+//! HUD overlay (~780×560): ``META`` (12) for chrome and reading, ``BODY``
+//! (14) bold for card titles, ``TITLE`` (16) only for the Overview session
+//! name. Do not use ``PAGE`` (22).
 
-pub use icedtea::typo::{BODY, META, MONO, PAGE, TITLE, UI, UI_BOLD, UI_ITALIC};
+pub use icedtea::typo::{BODY, CODE, META, MONO, PAGE, TITLE, UI, UI_BOLD, UI_ITALIC};
 
 #[cfg(test)]
 mod tests {

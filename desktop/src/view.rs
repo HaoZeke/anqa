@@ -206,10 +206,10 @@ fn code_inset<'a>(
     // bind (e.g. first paint before extract) does not paint an empty Code pane.
     let Some(buf) = hud.field(id) else {
         if fallback.is_empty() {
-            return text(String::new()).size(typo::BODY).font(typo::MONO).into();
+            return text(String::new()).size(typo::META).font(typo::MONO).into();
         }
         return text(fallback.to_string())
-            .size(typo::BODY)
+            .size(typo::META)
             .font(typo::MONO)
             .into();
     };
@@ -703,7 +703,7 @@ fn overview_tab(hud: &Hud) -> Element<'_, Message> {
     ));
     let mut col = column![
         text(title.clone())
-            .size(typo::PAGE)
+            .size(typo::TITLE)
             .font(typo::UI_BOLD)
             .color(tok.text),
         status_row,
@@ -778,7 +778,7 @@ fn md_body(src: &str, max_chars: usize, tea: icedtea::theme::Tokens) -> Element<
         return Space::new().height(0).into();
     }
     if !looks_like_markdown(&cut) {
-        return text(cut).size(typo::BODY).font(typo::UI).into();
+        return text(cut).size(typo::META).font(typo::UI).into();
     }
     markdown_element(&cut, tea)
 }
@@ -798,14 +798,45 @@ fn chat_md_body(
 }
 
 fn markdown_element(src: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    icedtea::widget::markdown_view(
-        intern_md(src),
-        None,
-        |_| Message::Noop,
-        tea,
-        |url| Message::MdLink(url.to_string()),
-        A11y::new("markdown", Role::Group),
-    )
+    // icedtea markdown_view uses PAGE for H1 and BODY for copy — too big
+    // on the overlay. Compact settings; TODO.md tracks an icedtea size.
+    iced::widget::markdown::view(intern_md(src), hud_md_settings(tea))
+        .map(|url| Message::MdLink(url.to_string()))
+}
+
+fn hud_md_settings(tea: icedtea::theme::Tokens) -> iced::widget::markdown::Settings {
+    let body = typo::META as f32;
+    iced::widget::markdown::Settings {
+        text_size: body.into(),
+        h1_size: (typo::TITLE as f32).into(),
+        h2_size: (typo::BODY as f32).into(),
+        h3_size: body.into(),
+        h4_size: body.into(),
+        h5_size: body.into(),
+        h6_size: body.into(),
+        code_size: (typo::CODE as f32).into(),
+        spacing: (body * 0.75).into(),
+        style: hud_md_style(tea),
+    }
+}
+
+fn hud_md_style(tea: icedtea::theme::Tokens) -> iced::widget::markdown::Style {
+    let s = tea.scheme();
+    let mut style = iced::widget::markdown::Style::from_palette(iced::theme::Palette {
+        background: s.surface,
+        text: s.on_surface,
+        primary: s.primary,
+        success: s.success,
+        warning: s.warning,
+        danger: s.error,
+    });
+    style.font = typo::UI;
+    style.inline_code_color = s.on_surface;
+    style.inline_code_font = typo::MONO;
+    style.code_block_font = typo::MONO;
+    style.link_color = s.primary;
+    style.inline_code_highlight.background = iced::Background::Color(s.surface_container_high);
+    style
 }
 
 /// One Overview meta row via icedtea value_field / plain labeled readout.
@@ -1148,7 +1179,7 @@ fn event_list_heading(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let mut head = row![text(format!("#{}", ev.index))
-        .size(typo::BODY)
+        .size(typo::META)
         .font(typo::UI_BOLD)
         .color(tea.text),]
     .spacing(8)
@@ -1156,7 +1187,7 @@ fn event_list_heading(
     if let Some((human, color)) = event_type_paint(ev) {
         head = head.push(
             text(human)
-                .size(typo::BODY)
+                .size(typo::META)
                 .font(typo::UI_BOLD)
                 .color(color),
         );
@@ -1210,21 +1241,21 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
         return text("—").size(typo::META).color(tea.muted).into();
     }
     if identity.is_empty() {
-        return text(preview).size(typo::BODY).color(tea.text).into();
+        return text(preview).size(typo::META).color(tea.text).into();
     }
     if preview.is_empty() {
         return text(identity)
-            .size(typo::BODY)
+            .size(typo::META)
             .font(id_font)
             .color(id_color)
             .into();
     }
     row![
         text(identity)
-            .size(typo::BODY)
+            .size(typo::META)
             .font(id_font)
             .color(id_color),
-        text(preview).size(typo::BODY).color(tea.text),
+        text(preview).size(typo::META).color(tea.text),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
@@ -1372,10 +1403,10 @@ fn plain_face(
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     if summary.is_empty() {
-        return text(empty).size(typo::BODY).color(tea.muted).into();
+        return text(empty).size(typo::META).color(tea.muted).into();
     }
     text(capped_display(&plain_card_text(summary), max_chars))
-        .size(typo::BODY)
+        .size(typo::META)
         .font(typo::UI)
         .color(tea.text)
         .into()
@@ -1500,7 +1531,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     {
         // Should be rare: SetTab/All turns loads immediately. Honest fallback.
         return text("Loading events…")
-            .size(typo::BODY)
+            .size(typo::META)
             .color(hud.body_tokens().muted)
             .into();
     }
@@ -1511,7 +1542,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     if idxs.is_empty() {
         if hud.timeline_loading() || !hud.timeline_complete() {
             return text("Loading matching events…")
-                .size(typo::BODY)
+                .size(typo::META)
                 .color(hud.tokens().muted)
                 .into();
         }
@@ -1576,7 +1607,7 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![
             event_detail_chrome(ix, None, None, None, tea),
-            text("Loading event…").size(typo::BODY).color(tea.muted),
+            text("Loading event…").size(typo::META).color(tea.muted),
         ]
         .spacing(10)
         .height(Length::Fill)
@@ -1616,7 +1647,7 @@ fn event_detail_chrome(
 ) -> Element<'static, Message> {
     let head = ev.map(|e| event_list_heading(e, tea)).unwrap_or_else(|| {
         text(format!("#{ix}"))
-            .size(typo::BODY)
+            .size(typo::META)
             .font(typo::UI_BOLD)
             .color(tea.text)
             .into()
@@ -1886,7 +1917,7 @@ fn diff_context_body(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Mess
                 text("(empty)").size(typo::META).color(tea.muted).into()
             } else {
                 text(src.to_string())
-                    .size(typo::BODY)
+                    .size(typo::META)
                     .color(tea.text)
                     .into()
             }
@@ -2029,7 +2060,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let specs = hud.notes_schema();
     let editing = !hud.note_draft().id.is_empty();
     let mut form = column![text(if editing { "Edit note" } else { "Add note" })
-        .size(typo::TITLE)
+        .size(typo::BODY)
         .font(typo::UI_BOLD)
         .color(hud.tokens().text)]
     .spacing(8);
@@ -2125,7 +2156,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     if notes.is_empty() {
         col = col.push(
             text("No notes yet.")
-                .size(typo::BODY)
+                .size(typo::META)
                 .color(hud.tokens().muted),
         );
     } else {
@@ -2238,7 +2269,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
         };
         col = col.push(
             text(format_tool_display(&tool))
-                .size(typo::BODY)
+                .size(typo::META)
                 .font(typo::UI)
                 .color(name_color),
         );
@@ -2381,7 +2412,7 @@ fn render_payload_text<'a>(
     let cut = capped_display(body, max);
     if !expanded {
         return text(cut)
-            .size(typo::BODY)
+            .size(typo::META)
             .font(typo::UI)
             .color(tok.muted)
             .into();
@@ -2419,7 +2450,7 @@ fn render_payload_text<'a>(
             }
             let plain = if kind == "thought" {
                 text(cut)
-                    .size(typo::BODY)
+                    .size(typo::META)
                     .font(typo::UI)
                     .color(tok.muted)
                     .into()
@@ -2790,6 +2821,15 @@ mod tests {
     }
 
     #[test]
+    fn hud_markdown_uses_overlay_type_scale() {
+        let s = hud_md_settings(tea());
+        assert_eq!(f32::from(s.text_size), typo::META as f32);
+        assert_eq!(f32::from(s.h1_size), typo::TITLE as f32);
+        assert_eq!(f32::from(s.h2_size), typo::BODY as f32);
+        assert!(f32::from(s.h1_size) < typo::PAGE as f32);
+    }
+
+    #[test]
     fn session_picker_is_spotlight_not_list_detail_rail() {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod source");
@@ -2832,7 +2872,8 @@ mod tests {
         assert!(prod.contains("icedtea::widget::progress"));
         assert!(prod.contains("icedtea::pattern::status_page"));
         assert!(prod.contains("icedtea::widget::info_bar"));
-        assert!(prod.contains("icedtea::widget::markdown_view"));
+        assert!(prod.contains("fn hud_md_settings"));
+        assert!(prod.contains("iced::widget::markdown::view"));
         assert!(prod.contains("fn diff_chrome"));
         assert!(prod.contains("fn diff_context_body"));
         assert!(prod.contains("fn diff_split"));

@@ -17,7 +17,9 @@ is tagged.
 - HUD `?` lists Left and Right next to h and l for Timeline turn step.
 - HUD dropdowns (Snapshot, Timeline turn, Filter) use 12px type and
   tighter padding. Diff Prompt/Assistant tabs are compact in-pane
-  buttons.
+  buttons. Overlay type is 12px for reading, 14px for card titles,
+  16px only for the Overview session name. Markdown headings follow
+  that scale.
 - An older `groket serve` that lacks a method shows
   `control owner is older · run: groket serve restart` (terminal and HUD).
   The raw error goes to the log.

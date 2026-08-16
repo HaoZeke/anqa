@@ -246,7 +246,7 @@ pub fn labeled_plain<'a>(
     icedtea::layout::form(
         [(
             widget::meta(title.to_string(), tea, A11y::new(title, Role::Status)),
-            text(value).size(typo::BODY).color(tea.text).into(),
+            text(value).size(typo::META).color(tea.text).into(),
         )],
         8,
         Direction::Ltr,
