@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- HUD event type, tool name, turn, time, counts, findings, and notes
+  chrome use the same small badges as session status. Open tool detail
+  uses a tool-name badge (not colored prose).
 - HUD prompts, assistant replies, tool input/output, Diff Prompt/Assistant,
   Overview summary, findings, and notes are selectable. `y` copies the
   selection or the open body, up to the 50,000-character open-event ceiling.

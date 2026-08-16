@@ -971,7 +971,7 @@ fn card_marks_row(hud: &Hud, mark: Option<CardMark>) -> Element<'static, Message
                 tea,
             ));
         }
-        // Tool errors are already in turn_stats_row ("N tools · M tool errors").
+        // Tool-error counts live on the turn stats badge row.
     }
     marks.into()
 }
@@ -1063,14 +1063,10 @@ fn closed_list_card<'a>(
 }
 
 fn turn_title(t: &TurnRow) -> String {
-    let label = t.face_caption();
-    match t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
-        Some(d) => format!("{label}  ·  {d}"),
-        None => label,
-    }
+    t.face_caption()
 }
 
-/// Outcome badge + duration / counts for an open turn card (overview-style).
+/// Outcome plus duration / counts as the same small badges as session chrome.
 fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let status = if t.open {
         "open".to_string()
@@ -1082,41 +1078,36 @@ fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
     } else {
         status_tone(&status)
     };
-    let taken = t
-        .duration_seconds
-        .filter(|s| *s > 0.0)
-        .map(fmt_duration)
-        .unwrap_or_else(|| "—".into());
-    let tools = if t.tool_error_count > 0 {
-        format!(
-            "{} tools · {} tool errors",
-            t.tool_call_count, t.tool_error_count
-        )
-    } else {
-        format!("{} tools", t.tool_call_count)
-    };
-    let prompt = t
-        .prompt_index
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "—".into());
-    let hero = format!(
-        "{taken} · {} events · {tools} · prompt {prompt}",
-        t.event_count,
-    );
-    row![
-        status_chip(status, tone, tea),
-        icedtea::widget::meta(hero.clone(), tea, A11y::new(hero, Role::Status)),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center)
-    .into()
+    let mut chips = row![status_chip(status, tone, tea)]
+        .spacing(8)
+        .align_y(Alignment::Center);
+    if let Some(taken) = t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
+        chips = chips.push(status_chip(taken, "", tea));
+    }
+    if t.event_count > 0 {
+        chips = chips.push(status_chip(format!("{} events", t.event_count), "", tea));
+    }
+    if t.tool_call_count > 0 {
+        chips = chips.push(status_chip(format!("{} tools", t.tool_call_count), "", tea));
+    }
+    if t.tool_error_count > 0 {
+        chips = chips.push(status_chip(
+            format!("{} tool errors", t.tool_error_count),
+            "error",
+            tea,
+        ));
+    }
+    if let Some(n) = t.prompt_index {
+        chips = chips.push(status_chip(format!("prompt {n}"), "", tea));
+    }
+    chips.into()
 }
 
 fn turn_run_chips(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     if t.subagent_runs.is_empty() {
         return Space::new().height(0).into();
     }
-    let mut col = column![].spacing(2);
+    let mut col = column![].spacing(4);
     for run in &t.subagent_runs {
         let kind = if run.subagent_type.is_empty() {
             "subagent".to_string()
@@ -1128,15 +1119,27 @@ fn turn_run_chips(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
         } else {
             run.description.clone()
         };
-        let label = format!("{kind} · {desc} · {}", run.status);
-        let chip = text(label).size(typo::META).color(tea.muted);
+        let mut chips = row![
+            status_chip(kind, "", tea),
+            status_chip(run.status.clone(), status_tone(&run.status), tea),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if !desc.is_empty() {
+            chips = chips.push(icedtea::widget::meta(
+                desc.clone(),
+                tea,
+                A11y::new(desc, Role::Status),
+            ));
+        }
+        let row: Element<'static, Message> = chips.into();
         if run.openable {
-            col = col.push(mouse_area(chip).on_press(Message::OpenChild {
+            col = col.push(mouse_area(row).on_press(Message::OpenChild {
                 path: run.child_path.clone(),
                 sid: run.child_session_id.clone(),
             }));
         } else {
-            col = col.push(chip);
+            col = col.push(row);
         }
     }
     col.into()
@@ -1184,6 +1187,7 @@ fn event_card_label(ev: &TimelineEvent) -> String {
     }
 }
 
+#[cfg(test)]
 fn event_title_meta(ev: &TimelineEvent) -> String {
     let mut bits: Vec<String> = Vec::new();
     if let Some(turn) = ev.turn_index {
@@ -1230,9 +1234,12 @@ fn event_list_heading(
     if let Some((human, role)) = event_type_paint(ev) {
         head = head.push(label_badge(human, role, tea));
     }
-    let meta = event_title_meta(ev);
-    if !meta.is_empty() {
-        head = head.push(text(format!("· {meta}")).size(typo::META).color(tea.muted));
+    if let Some(turn) = ev.turn_index {
+        head = head.push(status_chip(format!("turn {turn}"), "", tea));
+    }
+    let time = ev.time.trim();
+    if !time.is_empty() {
+        head = head.push(status_chip(time.to_string(), "", tea));
     }
     head.into()
 }
@@ -1280,29 +1287,41 @@ fn event_body<'a>(
     let tok = hud.tokens();
     let mut col = column![].spacing(6);
     if !ev.child_session_id.is_empty() {
-        let mut line = ev.child_session_id.clone();
+        let mut chips = row![status_chip(String::from("subagent"), "", tok)]
+            .spacing(8)
+            .align_y(Alignment::Center);
         if !ev.subagent_status.is_empty() {
-            line = format!("{line} · {}", ev.subagent_status);
+            chips = chips.push(status_chip(
+                ev.subagent_status.clone(),
+                status_tone(&ev.subagent_status),
+                tok,
+            ));
         }
         if let Some(ms) = ev.duration_ms {
-            line = format!("{line} · {ms} ms");
+            chips = chips.push(status_chip(format!("{ms} ms"), "", tok));
         }
-        col = col.push(text(line).size(typo::META).color(tok.muted));
+        chips = chips.push(icedtea::widget::meta(
+            ev.child_session_id.clone(),
+            tok,
+            A11y::new(ev.child_session_id.clone(), Role::Status),
+        ));
+        col = col.push(chips);
     }
     if let Some(hit) = timeline_query_hit(ev, hud.timeline_query()) {
-        col = col.push(
-            text(format!("matched in {}: {}", hit.field, hit.snippet))
-                .size(typo::META)
-                .color(tok.muted),
-        );
+        col = col.push(icedtea::widget::meta(
+            format!("matched in {}: {}", hit.field, hit.snippet),
+            tok,
+            A11y::new("search hit", Role::Status),
+        ));
     }
     col = col.push(event_payload(ev, true, hud));
     if ev.content_truncated {
-        col = col.push(
-            text("Content truncated by control")
-                .size(typo::META)
-                .color(tok.muted),
-        );
+        col = col.push(icedtea::widget::info_bar(
+            ToastKind::Warning,
+            "Content truncated by control",
+            tok,
+            A11y::new("Content truncated by control", Role::Status),
+        ));
     }
     col.push(card_chips(hud, mark, Some(event_note(ev)), None))
         .into()
@@ -1331,16 +1350,19 @@ fn note_body<'a>(
 ) -> Element<'a, Message> {
     let tea = hud.tokens();
     let turn = n.turn_index.map(|i| i.to_string()).unwrap_or_default();
-    let where_when = format!(
-        "{} · {}",
-        if turn.is_empty() || turn == "null" {
-            "Session".into()
-        } else {
-            format!("Turn {turn}")
-        },
-        note_when(n),
-    );
-    let mut card = column![text(where_when).size(typo::META).color(hud.tokens().muted)].spacing(8);
+    let place = if turn.is_empty() || turn == "null" {
+        "Session".to_string()
+    } else {
+        format!("Turn {turn}")
+    };
+    let mut chips = row![status_chip(place, "", tea)]
+        .spacing(8)
+        .align_y(Alignment::Center);
+    let when = note_when(n);
+    if !when.is_empty() {
+        chips = chips.push(status_chip(when, "", tea));
+    }
+    let mut card = column![chips].spacing(8);
     if !body.is_empty() {
         card = card.push(select_bound(
             hud,
@@ -1351,11 +1373,7 @@ fn note_body<'a>(
         ));
     }
     for (k, v) in extras.into_iter().take(8) {
-        card = card.push(
-            text(format!("{k}: {v}"))
-                .size(typo::META)
-                .color(hud.tokens().muted),
-        );
+        card = card.push(kit::labeled_plain(&k, v, tea));
     }
     card.push(
         row![
@@ -2041,12 +2059,20 @@ fn finding_body<'a>(
     f: &'a FindingRow,
     tea: icedtea::theme::Tokens,
 ) -> Element<'a, Message> {
-    let mut card = column![status_chip(
+    let mut chips = row![status_chip(
         f.severity.clone(),
         status_tone(&f.severity),
         tea,
     )]
-    .spacing(8);
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if !f.plugin_id.is_empty() {
+        chips = chips.push(status_chip(f.plugin_id.clone(), "", tea));
+    }
+    if !f.category.is_empty() {
+        chips = chips.push(status_chip(f.category.clone(), "", tea));
+    }
+    let mut card = column![chips].spacing(8);
     if !f.detail.is_empty() {
         card = card.push(select_bound(
             hud,
@@ -2259,29 +2285,23 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     }
     let mut col = column![].spacing(8);
     let call_id = ev.tool_call_id.clone();
-    if !tool.is_empty() {
-        let name_color = if ev.is_error {
-            crate::theme::brand_role_color(crate::format::BrandRole::Failed)
-        } else {
-            match tool_brand_role(&tool, false) {
-                Some(role) => crate::theme::brand_role_color(role),
-                None => tok.muted,
-            }
-        };
-        col = col.push(
-            text(format_tool_display(&tool))
-                .size(typo::META)
-                .font(typo::UI)
-                .color(name_color),
-        );
-    }
-    if !call_id.is_empty() {
-        col = col.push(
-            text(call_id)
-                .size(typo::META)
-                .color(tok.muted)
-                .font(typo::MONO),
-        );
+    if !tool.is_empty() || !call_id.is_empty() {
+        let mut chips = row![].spacing(8).align_y(Alignment::Center);
+        if !tool.is_empty() {
+            chips = chips.push(label_badge(
+                format_tool_display(&tool),
+                event_tool_role(ev),
+                tok,
+            ));
+        }
+        if !call_id.is_empty() {
+            chips = chips.push(icedtea::widget::meta(
+                call_id,
+                tok,
+                A11y::new("tool call id", Role::Status),
+            ));
+        }
+        col = col.push(chips);
     }
     if kind == "tool" || kind == "tool_result" {
         let (call, result) = paired_tool(hud, ev);
@@ -2297,13 +2317,17 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
         };
         let fields = inspect_fields(call);
         if !fields.is_empty() {
-            col = col.push(text("Input").size(typo::META).color(tok.muted));
+            col = col.push(icedtea::widget::meta(
+                "Input",
+                tok,
+                A11y::new("Input", Role::Header),
+            ));
             for field in fields {
-                col = col.push(
-                    text(format!("{}:", field.label))
-                        .size(typo::META)
-                        .color(tok.muted),
-                );
+                col = col.push(icedtea::widget::meta(
+                    field.label.clone(),
+                    tok,
+                    A11y::new(field.label.clone(), Role::Header),
+                ));
                 col = col.push(field_body(
                     hud,
                     &format!("event.{}.in.{}", ev.index, field.id),
@@ -2325,7 +2349,11 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             image_result_path(&result.content)
         };
         if !img.is_empty() {
-            col = col.push(text("Output").size(typo::META).color(tok.muted));
+            col = col.push(icedtea::widget::meta(
+                "Output",
+                tok,
+                A11y::new("Output", Role::Header),
+            ));
             col = col.push(icedtea::widget::meta(
                 img.clone(),
                 hud.tokens(),
@@ -2334,7 +2362,11 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             col = col.push(tool_image(&img, hud.tokens()));
         } else if !out_body.trim().is_empty() {
             let out_syn = syntax_for_tool_output(out_tool, &path_hint, &out_body);
-            col = col.push(text("Output").size(typo::META).color(tok.muted));
+            col = col.push(icedtea::widget::meta(
+                "Output",
+                tok,
+                A11y::new("Output", Role::Header),
+            ));
             col = col.push(render_payload_text(
                 &out_body,
                 &result.kind,
@@ -2985,7 +3017,7 @@ mod tests {
         assert!(!prod.contains("visual_lines("));
         assert!(!prod.contains(".height(height)"));
         assert!(prod.contains("matched in {}:"));
-        assert!(prod.contains("brand_role_color"));
+        assert!(prod.contains("fn brand_variant"));
         assert!(!prod.contains("accordion_view"));
         assert!(prod.contains("widget::expander"));
         assert!(prod.contains("finding_expand_progress"));
@@ -3009,6 +3041,26 @@ mod tests {
             .next()
             .expect("heading body");
         assert!(heading.contains("label_badge"));
+        assert!(heading.contains("status_chip(format!(\"turn {turn}\")"));
+        let payload = prod
+            .split("fn event_payload")
+            .nth(1)
+            .expect("event_payload")
+            .split("fn field_body")
+            .next()
+            .expect("payload body");
+        assert!(payload.contains("label_badge("));
+        assert!(payload.contains("\"Input\""));
+        assert!(!payload.contains("text(format_tool_display"));
+        let stats = prod
+            .split("fn turn_stats_row")
+            .nth(1)
+            .expect("turn_stats_row")
+            .split("fn turn_run_chips")
+            .next()
+            .expect("stats body");
+        assert!(stats.contains("status_chip("));
+        assert!(!stats.contains("tools ·"));
         let face = prod
             .split("fn event_face")
             .nth(1)

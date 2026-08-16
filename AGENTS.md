@@ -741,7 +741,8 @@ Not “every tool is green.” Error is red and wins.
 
 Event *type* (``tool call``, ``user message``) still uses the event-type map
 (all tools green). The **name** uses the family map. Name face is regular
-weight; type labels stay bold.
+weight; type labels stay bold. The HUD paints type, tool name, turn, time,
+and similar chrome as small icedtea badges (same face as session status).
 
 **Summary.** The list preview is the same ``summary_line`` on both surfaces
 (humanized tool id + args). The HUD face shows the name, then the remainder
