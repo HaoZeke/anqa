@@ -5,6 +5,10 @@ is tagged.
 
 ## Unreleased
 
+- HUD badges lift status ink off the wash so complete / running /
+  cancelled stay readable. Session context, event index, finding
+  severity, and note counts use the same chips. ``completed`` displays
+  as ``complete``.
 - HUD Timeline event detail steps with Previous / Next buttons and an
   “n of m” count. Left and Right stay previous / next turn.
 - Stale analysis is a warning toast plus a short Report/Findings note

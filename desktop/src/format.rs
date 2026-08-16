@@ -55,22 +55,37 @@ pub fn is_terminal_status(status: &str) -> bool {
 
 /// Same short labels as :meth:`SessionMeta.list_status_label`.
 pub fn list_status_label(status: &str, outcome: &str) -> String {
-    if !is_blank_status(status) {
-        return status.trim().to_string();
-    }
-    let oc = outcome
-        .trim()
+    let raw = if !is_blank_status(status) {
+        status.trim().to_string()
+    } else {
+        let oc = outcome
+            .trim()
+            .to_ascii_lowercase()
+            .replace(char::is_whitespace, "_");
+        return match oc.as_str() {
+            "ending" | "finishing" => "ending".into(),
+            "awaiting_follow_up" | "awaiting" => "awaiting".into(),
+            "running" | "in_progress" | "pending" => "running".into(),
+            "cancelled" | "canceled" | "interrupted" | "aborted" => "cancelled".into(),
+            "success" | "ok" | "completed" | "complete" | "done" => "complete".into(),
+            "error" | "failed" | "failure" | "timeout" => "cancelled".into(),
+            "" => "—".into(),
+            _ => "complete".into(),
+        };
+    };
+    match raw
         .to_ascii_lowercase()
-        .replace(char::is_whitespace, "_");
-    match oc.as_str() {
-        "ending" | "finishing" => "ending".into(),
-        "awaiting_follow_up" | "awaiting" => "awaiting".into(),
-        "running" | "in_progress" | "pending" => "running".into(),
-        "cancelled" | "canceled" | "interrupted" | "aborted" => "cancelled".into(),
-        "success" | "ok" | "completed" | "complete" | "done" => "complete".into(),
-        "error" | "failed" | "failure" | "timeout" => "cancelled".into(),
-        "" => "—".into(),
-        _ => "complete".into(),
+        .replace(char::is_whitespace, "_")
+        .as_str()
+    {
+        "completed" | "success" | "ok" | "done" => "complete".into(),
+        "canceled" | "interrupted" | "aborted" | "failed" | "error" | "failure" | "timeout" => {
+            "cancelled".into()
+        }
+        "in_progress" | "pending" => "running".into(),
+        "finishing" => "ending".into(),
+        "awaiting_follow_up" => "awaiting".into(),
+        _ => raw,
     }
 }
 
@@ -1655,6 +1670,7 @@ mod tests {
     #[test]
     fn list_status_prefers_status_then_outcome() {
         assert_eq!(list_status_label("complete", ""), "complete");
+        assert_eq!(list_status_label("completed", ""), "complete");
         assert_eq!(list_status_label("—", "completed"), "complete");
         assert_eq!(list_status_label("", "awaiting_follow_up"), "awaiting");
         assert_eq!(list_status_label("", "cancelled"), "cancelled");

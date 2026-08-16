@@ -139,32 +139,46 @@ fn label_badge(
     role: BrandRole,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let label = label.into();
-    icedtea::widget::badge(
-        label.clone(),
-        None,
-        tea,
-        brand_variant(role),
-        icedtea::widget::BadgeSize::Small,
-        A11y::new(label, Role::Status),
-    )
+    paint_badge(label.into(), brand_variant(role), tea)
 }
 
-/// Session / turn / severity status — icedtea ``badge`` (same face everywhere).
+/// Session / turn / severity status — same readable badge face everywhere.
 fn status_chip(
     label: impl Into<String>,
     tone: &str,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let label = label.into();
-    icedtea::widget::badge(
-        label.clone(),
-        None,
-        tea,
-        tone_variant(tone),
-        icedtea::widget::BadgeSize::Small,
-        A11y::new(label, Role::Status),
+    paint_badge(label.into(), tone_variant(tone), tea)
+}
+
+fn paint_badge(
+    label: String,
+    variant: Variant,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let (wash, ink, border) = crate::theme::badge_face(tea, variant);
+    let a11y = A11y::new(label.clone(), Role::Status);
+    let mark = container(
+        text(label)
+            .size(typo::META.saturating_sub(2).max(10))
+            .color(ink),
     )
+    .padding([2, 5])
+    .style(move |_| {
+        let mut s = icedtea::style::fill(wash, ink);
+        s.border = border;
+        s
+    });
+    icedtea::a11y::attach(mark.into(), &a11y)
+}
+
+fn severity_tone(sev: &str) -> &'static str {
+    match finding_severity_rank(sev) {
+        0 => "cancelled",
+        1 => "running",
+        2 => "complete",
+        _ => "",
+    }
 }
 
 /// Status plus identity chips — Overview, Recent cards, and the browse bar.
@@ -175,15 +189,12 @@ fn session_state_row(
     duration: &str,
     subagent: bool,
     tea: icedtea::theme::Tokens,
+    context: &str,
 ) -> Element<'static, Message> {
-    let status_label = if status.trim().is_empty() {
-        "—"
-    } else {
-        status.trim()
-    };
+    let status_label = list_status_label(status, "");
     let mut chips = row![status_chip(
-        status_label.to_string(),
-        status_tone(status_label),
+        status_label.clone(),
+        status_tone(&status_label),
         tea,
     )]
     .spacing(8)
@@ -201,6 +212,9 @@ fn session_state_row(
     if !duration.trim().is_empty() && duration != "—" {
         chips = chips.push(status_chip(duration.trim().to_string(), "", tea));
     }
+    if !context.trim().is_empty() {
+        chips = chips.push(status_chip(context.trim().to_string(), "", tea));
+    }
     chips.into()
 }
 
@@ -216,6 +230,7 @@ fn session_state_from_row(
         &taken,
         false,
         tea,
+        &row.context_usage_compact,
     )
 }
 
@@ -231,6 +246,7 @@ fn session_state_from_meta(
         &taken,
         meta.is_subagent(),
         tea,
+        "",
     )
 }
 
@@ -536,13 +552,9 @@ fn session_list_card(
         .font(if selected { typo::UI_BOLD } else { typo::UI })
         .color(tea.text)
         .width(Length::Fill);
-    let mut body = column![title, session_state_from_row(row, tea),]
+    let body = column![title, session_state_from_row(row, tea),]
         .spacing(4)
         .width(Length::Fill);
-    let ctx = row.context_usage_compact.trim();
-    if !ctx.is_empty() {
-        body = body.push(text(ctx.to_string()).size(typo::META).color(tea.muted));
-    }
     column![
         mouse_area(
             container(body)
@@ -692,7 +704,7 @@ fn browse_session_bar<'a>(
     if let Some(o) = hud.overview() {
         row = row.push(session_state_from_meta(&o.meta, tea));
     } else if !status.is_empty() {
-        row = row.push(session_state_row(&status, "", "", "", false, tea));
+        row = row.push(session_state_row(&status, "", "", "", false, tea, ""));
     }
     row = row.push(Space::new().width(Length::Fill));
     row = row.push(
@@ -1071,7 +1083,7 @@ fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
     let status = if t.open {
         "open".to_string()
     } else {
-        list_status_label("", &t.outcome)
+        list_status_label(&t.outcome, &t.outcome)
     };
     let tone = if t.open {
         "running"
@@ -1121,7 +1133,11 @@ fn turn_run_chips(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, 
         };
         let mut chips = row![
             status_chip(kind, "", tea),
-            status_chip(run.status.clone(), status_tone(&run.status), tea),
+            status_chip(
+                list_status_label(&run.status, &run.status),
+                status_tone(&run.status),
+                tea,
+            ),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -1204,12 +1220,9 @@ fn event_list_heading(
     ev: &TimelineEvent,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let mut head = row![text(format!("#{}", ev.index))
-        .size(typo::META)
-        .font(typo::UI_BOLD)
-        .color(tea.text),]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    let mut head = row![status_chip(format!("#{}", ev.index), "", tea),]
+        .spacing(8)
+        .align_y(Alignment::Center);
     if let Some((human, role)) = event_type_paint(ev) {
         head = head.push(label_badge(human, role, tea));
     }
@@ -1271,7 +1284,7 @@ fn event_body<'a>(
             .align_y(Alignment::Center);
         if !ev.subagent_status.is_empty() {
             chips = chips.push(status_chip(
-                ev.subagent_status.clone(),
+                list_status_label(&ev.subagent_status, &ev.subagent_status),
                 status_tone(&ev.subagent_status),
                 tok,
             ));
@@ -1949,21 +1962,20 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
         let r = finding_severity_rank(&f.severity) as usize;
         buckets[r.min(3)].push(f);
     }
-    let mut col = column![icedtea::widget::meta(
-        format!("{} findings", findings.len()),
-        tea,
-        A11y::new("findings-count", Role::Status),
-    )]
-    .spacing(8);
+    let mut col = column![status_chip(format!("{} findings", findings.len()), "", tea,)].spacing(8);
     for (rank, group) in buckets.iter().enumerate() {
         if group.is_empty() {
             continue;
         }
-        col = col.push(icedtea::widget::meta(
-            format!("{}  ({})", finding_severity_title(rank as u8), group.len()),
-            tea,
-            A11y::new(finding_severity_title(rank as u8), Role::Header),
-        ));
+        let title = finding_severity_title(rank as u8);
+        col = col.push(
+            row![
+                status_chip(title, severity_tone(title), tea),
+                status_chip(format!("{}", group.len()), "", tea),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
         for f in group {
             let id = finding_key(f);
             let open = hud.finding_expanded(&id);
@@ -2021,7 +2033,7 @@ fn finding_body<'a>(
 ) -> Element<'a, Message> {
     let mut chips = row![status_chip(
         f.severity.clone(),
-        status_tone(&f.severity),
+        severity_tone(&f.severity),
         tea,
     )]
     .spacing(8)
@@ -2130,22 +2142,23 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     }
 
     let rev = o.notes.revision.clone();
-    let mut col = column![
-        form,
-        text(format!(
-            "{} note{}{}",
-            notes.len(),
-            if notes.len() == 1 { "" } else { "s" },
-            if rev.is_empty() {
-                String::new()
-            } else {
-                format!(" · rev {}", rev.chars().take(12).collect::<String>())
-            }
-        ))
-        .size(typo::META)
-        .color(hud.tokens().muted)
-    ]
-    .spacing(12);
+    let n_notes = notes.len();
+    let notes_label = if n_notes == 1 {
+        "1 note".to_string()
+    } else {
+        format!("{n_notes} notes")
+    };
+    let mut note_chrome = row![status_chip(notes_label, "", hud.tokens())]
+        .spacing(8)
+        .align_y(Alignment::Center);
+    if !rev.is_empty() {
+        note_chrome = note_chrome.push(status_chip(
+            format!("rev {}", rev.chars().take(12).collect::<String>()),
+            "",
+            hud.tokens(),
+        ));
+    }
+    let mut col = column![form, note_chrome].spacing(12);
     if notes.is_empty() {
         col = col.push(
             text("No notes yet.")
@@ -2841,17 +2854,14 @@ mod tests {
         assert_eq!(tone_variant("cancelled"), Variant::Danger);
         for name in ["dark", "light"] {
             let tok = icedtea::theme::named(name).tokens;
-            let run = crate::theme::ink_on(tok.warning, tok.surface);
-            let done = crate::theme::ink_on(tok.success, tok.surface);
-            assert_ne!(run, done, "{name} running vs complete");
-            assert!(
-                crate::theme::contrast_ratio(run, tok.surface) >= 4.5,
-                "{name} running"
-            );
-            assert!(
-                crate::theme::contrast_ratio(done, tok.surface) >= 4.5,
-                "{name} complete"
-            );
+            for variant in [Variant::Success, Variant::Warning, Variant::Danger] {
+                let (wash, ink, _) = crate::theme::badge_face(tok, variant);
+                let canvas = if wash.a < 0.08 { tok.surface } else { wash };
+                assert!(
+                    crate::theme::contrast_ratio(ink, canvas) >= 4.5,
+                    "{name} {variant:?}"
+                );
+            }
         }
         let _ = status_chip("complete", "complete", tea());
         let _ = status_chip("running", "running", tea());
@@ -2866,7 +2876,7 @@ mod tests {
         assert!(prod.contains("fn browse_session_bar"));
         assert!(prod.contains("Message::SessionsHome"));
         assert!(prod.contains("fn status_chip"));
-        assert!(prod.contains("BadgeSize::Small"));
+        assert!(prod.contains("fn paint_badge"));
         assert!(prod.contains("fn session_list_card"));
         assert!(prod.contains("fn session_state_row"));
         assert!(prod.contains("fn session_state_from_row"));

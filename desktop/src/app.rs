@@ -2838,13 +2838,8 @@ impl Hud {
             .get(index)
             .map(SessionRow::display_title)
             .unwrap_or("");
-        let meta = self
-            .session_metas
-            .get(index)
-            .map(String::as_str)
-            .unwrap_or("");
-        // Rail has no context meter; compact % is text-only in the meta line.
-        session_card_height(title, meta, false)
+        // Context compact is a badge on the status row, not a third text line.
+        session_card_height(title, "", false)
     }
 
     fn refresh_session_rows(&mut self) {

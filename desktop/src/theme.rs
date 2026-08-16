@@ -9,6 +9,7 @@ use serde_json::Value;
 use crate::format::BrandRole;
 
 pub use icedtea::theme::{mix, relative_luma, Tokens};
+use icedtea::variant::Variant;
 
 /// TUI brand hex (``COMPLETE`` / ``FAILED`` / ``RUNNING`` / ``CANCELLED`` / ``CREAM``).
 pub const BRAND_CREAM: Color = Color::from_rgb8(0xFB, 0xF1, 0xC7);
@@ -78,6 +79,30 @@ pub fn ink_on(ink: Color, canvas: Color) -> Color {
         }
     }
     best
+}
+
+fn wash_canvas(wash: Color, tok: Tokens) -> Color {
+    if wash.a < 0.08 {
+        tok.surface
+    } else {
+        wash
+    }
+}
+
+/// Wash + readable ink + outline for a HUD badge.
+///
+/// icedtea ``badge`` paints ``success``/``warning`` ink on a tinted wash of
+/// the same hue, which fails 4.5:1 (complete looks empty). Lift the ink.
+pub fn badge_face(tok: Tokens, variant: Variant) -> (Color, Color, iced::Border) {
+    let (wash, chip_ink, border) = icedtea::widget::chip_face(tok, variant);
+    let canvas = wash_canvas(wash, tok);
+    let ink = match variant {
+        Variant::Success => ink_on(tok.success, canvas),
+        Variant::Warning => ink_on(tok.warning, canvas),
+        Variant::Danger => ink_on(tok.danger, canvas),
+        _ => chip_ink,
+    };
+    (wash, ink, border)
 }
 
 fn parse_hex(s: &str) -> Option<Color> {
@@ -363,5 +388,21 @@ mod tests {
         assert!(contrast_ratio(ink_on(gold, cream), cream) >= 4.5);
         assert_eq!(ink_on(olive, ink), olive);
         assert!(contrast_ratio(ink_on(olive, ink), ink) >= 4.5);
+    }
+
+    #[test]
+    fn badge_face_holds_contrast_on_its_wash() {
+        use icedtea::variant::Variant;
+        for name in ["dark", "light", "gruvbox", "solarized-light"] {
+            let tok = tokens(name);
+            for variant in [Variant::Success, Variant::Warning, Variant::Danger] {
+                let (wash, ink, _) = badge_face(tok, variant);
+                let canvas = if wash.a < 0.08 { tok.surface } else { wash };
+                assert!(
+                    contrast_ratio(ink, canvas) >= 4.5,
+                    "{name} {variant:?} ink on wash"
+                );
+            }
+        }
     }
 }
