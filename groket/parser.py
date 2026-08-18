@@ -2063,11 +2063,12 @@ def _load_summary(meta: SessionMeta, session_dir: Path, *, infer_title: bool = T
 
 
 def load_host_list_meta(session_dir: Path) -> SessionMeta:
-    """Host home-list meta: ``summary.json`` and ``signals.json`` only.
+    """Host home-list meta from summary, signals, and the updates tail.
 
-    Does not read ``events.jsonl`` or infer a title from the trace.
-    Live status uses the 64 KiB ``updates.jsonl`` tail plus freshness.
-    Opening a session still uses :func:`load_session_meta`.
+    Reads ``summary.json``, ``signals.json``, and the 64 KiB
+    ``updates.jsonl`` tail for live status. Does not read ``events.jsonl``
+    or infer a title from the trace. Opening a session still uses
+    :func:`load_session_meta`.
     """
     meta = SessionMeta(
         session_id=session_dir.name,

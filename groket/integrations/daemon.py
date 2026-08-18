@@ -376,6 +376,9 @@ def apply_fs_catalog_events(
                 cache.get(force=True)
             except Exception:
                 logger.debug("catalog force refresh after FS event failed", exc_info=True)
+            # Fingerprint unknown after a failed incremental patch: clients
+            # must treat every dirty session as a list change.
+            list_changed = {session.name: True for session in sessions}
     return sessions, notes_sessions, list_changed
 
 
@@ -491,9 +494,12 @@ async def serve_control_forever(
                         continue
                     seen.add(key)
                     try:
+                        # Only False when refresh_rows proved painted fields
+                        # unchanged. Missing keys (force rebuild, parent of a
+                        # child watch, non-cache path) default to True.
                         await server.publish_session_changed(
                             target,
-                            list_changed=bool(list_changed.get(target.name, False)),
+                            list_changed=bool(list_changed.get(target.name, True)),
                         )
                     except Exception:
                         logger.debug("publish session/changed failed", exc_info=True)

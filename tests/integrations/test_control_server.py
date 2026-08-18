@@ -258,7 +258,18 @@ async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
         await server.publish_session_changed(session_dir)
         session_message = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
         assert session_message["method"] == "session/changed"
-        assert session_message["params"] == {"sessionId": session_dir.name}
+        assert session_message["params"] == {
+            "sessionId": session_dir.name,
+            "listChanged": True,
+        }
+
+        await server.publish_session_changed(session_dir, list_changed=False)
+        append_message = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))
+        assert append_message["method"] == "session/changed"
+        assert append_message["params"] == {
+            "sessionId": session_dir.name,
+            "listChanged": False,
+        }
 
         await server.publish_notes_changed(session_dir)
         notes_message = json.loads(await asyncio.wait_for(reader.readline(), timeout=2))

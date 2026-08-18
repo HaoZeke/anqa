@@ -163,13 +163,54 @@ def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    sessions, notes, _changed = apply_fs_catalog_events(
-        cache, [str(one / "events.jsonl")], [traces]
-    )
+    sessions, notes, changed = apply_fs_catalog_events(cache, [str(one / "events.jsonl")], [traces])
     assert one.resolve() in [p.resolve() for p in sessions]
     assert notes == []
+    assert changed.get("one") is True
     by_id = {str(r["sessionId"]): r for r in cache.get()}
     assert by_id["one"]["status"] == "complete"
+
+
+def test_apply_fs_catalog_events_append_marks_list_unchanged(tmp_path: Path) -> None:
+    """An updates.jsonl append that leaves painted fields sets listChanged false."""
+    from groket.integrations.daemon import apply_fs_catalog_events
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    (one / "updates.jsonl").write_text("{}\n{}\n", encoding="utf-8")
+    _sessions, _notes, changed = apply_fs_catalog_events(
+        cache, [str(one / "updates.jsonl")], [traces]
+    )
+    assert changed.get("one") is False
+
+
+def test_apply_fs_catalog_events_force_rebuild_marks_list_changed(
+    tmp_path: Path,
+) -> None:
+    """When incremental refresh fails, force rebuild still reports list changes."""
+    from unittest.mock import patch
+
+    from groket.integrations.daemon import apply_fs_catalog_events
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    (one / "summary.json").write_text(
+        json.dumps({"info": {"id": "one"}, "generated_title": "One live"}),
+        encoding="utf-8",
+    )
+    with patch.object(cache, "refresh_rows", side_effect=RuntimeError("boom")):
+        _sessions, _notes, changed = apply_fs_catalog_events(
+            cache, [str(one / "summary.json")], [traces]
+        )
+    assert changed == {"one": True}
+    by_id = {str(r["sessionId"]): r for r in cache.get()}
+    assert by_id["one"]["title"] == "One live"
 
 
 def test_event_paths_skip_encoded_cwd_bucket(tmp_path: Path) -> None:
