@@ -114,6 +114,8 @@ class SessionUsageStats:
     skills_configured: list[str] = field(default_factory=list)
     skills_disabled: list[str] = field(default_factory=list)
     skills_referenced: list[str] = field(default_factory=list)  # engaged ids
+    plugins_configured: list[str] = field(default_factory=list)
+    plugins_used: list[str] = field(default_factory=list)
     persona_id: str = ""
     source_notes: list[str] = field(default_factory=list)
 
@@ -170,6 +172,70 @@ def _skills_from_skills_dir(session_dir: Path) -> list[str]:
     except OSError:
         pass
     return names
+
+
+def _plugin_id_from_skill(skill_id: str) -> str:
+    """``nest:nest-start`` → ``nest``; bare skill ids have no plugin prefix."""
+    sid = (skill_id or "").strip()
+    if ":" not in sid:
+        return ""
+    left = sid.split(":", 1)[0].strip()
+    return left
+
+
+def _append_unique(dst: list[str], value: str) -> None:
+    s = (value or "").strip()
+    if s and s not in dst:
+        dst.append(s)
+
+
+def _caps_from_announcement(session_dir: Path) -> tuple[list[str], list[str], list[str]]:
+    """MCP / skills / plugin ids from host ``announcement_state.json``."""
+    data = _load_json(session_dir / "announcement_state.json")
+    mcp: list[str] = []
+    skills: list[str] = []
+    plugins: list[str] = []
+    fps = data.get("mcp_server_fingerprints")
+    if isinstance(fps, dict):
+        for sid in fps:
+            _append_unique(mcp, str(sid))
+    names = data.get("announced_skill_names")
+    if isinstance(names, list):
+        for raw in names:
+            sk = str(raw).strip()
+            _append_unique(skills, sk)
+            _append_unique(plugins, _plugin_id_from_skill(sk))
+    return mcp, skills, plugins
+
+
+def _plugins_from_toml(session_dir: Path) -> list[str]:
+    """``[plugins] enabled = [...]`` from run/session groket config."""
+    plugins: list[str] = []
+    candidates: list[Path] = []
+    parent = _find_run_parent(session_dir)
+    if parent:
+        candidates.append(parent / CONFIG_FILENAME)
+        candidates.append(parent / "groket-config.toml")
+    candidates.append(session_dir / CONFIG_FILENAME)
+    for cfg_path in candidates:
+        if not cfg_path.is_file():
+            continue
+        try:
+            text = cfg_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        m = re.search(
+            r"\[plugins\][^\[]*?enabled\s*=\s*\[(.*?)\]",
+            text,
+            re.S | re.I,
+        )
+        if not m:
+            continue
+        for name in re.findall(r'"([^"]+)"', m.group(1)):
+            _append_unique(plugins, name)
+        if plugins:
+            break
+    return plugins
 
 
 def _parse_config_toml_caps(session_dir: Path) -> tuple[list[str], list[str]]:
@@ -363,6 +429,9 @@ def collect_session_usage(
             ss = json_as_str(s).strip()
             if ss and ss not in stats.mcp_configured:
                 stats.mcp_configured.append(ss)
+    for key in ("run_plugins", "plugins"):
+        for s in json_as_list(manifest.get(key)):
+            _append_unique(stats.plugins_configured, json_as_str(s))
 
     for sk in _skills_from_skills_dir(sd):
         if sk not in stats.skills_configured:
@@ -377,6 +446,18 @@ def collect_session_usage(
     for s in toml_sk_dis:
         if s not in stats.skills_disabled:
             stats.skills_disabled.append(s)
+    for p in _plugins_from_toml(sd):
+        _append_unique(stats.plugins_configured, p)
+
+    ann_mcp, ann_skills, ann_plugins = _caps_from_announcement(sd)
+    for m in ann_mcp:
+        _append_unique(stats.mcp_configured, m)
+    for s in ann_skills:
+        _append_unique(stats.skills_configured, s)
+    for p in ann_plugins:
+        _append_unique(stats.plugins_configured, p)
+    if ann_mcp or ann_skills or ann_plugins:
+        stats.source_notes.append("capabilities from announcement_state.json")
 
     if stats.skills_configured or stats.mcp_configured:
         if (
@@ -576,6 +657,12 @@ def collect_session_usage(
     skill_rows.sort(key=lambda r: (-(r.skill_md_reads), -int(r.configured), r.skill_id))
     stats.skills = skill_rows
     stats.skills_referenced = [r.skill_id for r in skill_rows if r.engaged or r.skill_md_reads]
+    used_plugins: list[str] = []
+    for sk_row in skill_rows:
+        if not (sk_row.engaged or sk_row.skill_md_reads):
+            continue
+        _append_unique(used_plugins, _plugin_id_from_skill(sk_row.skill_id))
+    stats.plugins_used = used_plugins
 
     return stats
 

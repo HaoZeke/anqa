@@ -165,3 +165,74 @@ def test_load_runtime_inferred_permission(tmp_path: Path) -> None:
     meta = SessionMeta(session_id="s", session_dir=tmp_path, model_id="m")
     pol = load_runtime_policy(tmp_path, meta)
     assert "always-approve" in pol.permission_mode
+
+
+def test_pack_names_available_and_unused_capabilities(tmp_path: Path) -> None:
+    from groket.analysis.llm.context import runtime_with_usage
+    from groket.models import ToolInputBag
+    from groket.session.usage_stats import collect_session_usage
+
+    (tmp_path / "summary.json").write_text(
+        '{"info":{"id":"sid","cwd":"/workspace"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "announcement_state.json").write_text(
+        '{"mcp_server_fingerprints":{"slack":{"tool_count":2},"voice":{"tool_count":1}},'
+        '"announced_skill_names":["nest:nest","review"]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "run.json").write_text(
+        '{"run_plugins":["nest","slack"]}',
+        encoding="utf-8",
+    )
+    pack = build_session_context_pack(tmp_path)
+    runtime = pack.runtime
+    assert "slack" in runtime.mcp_available
+    assert "voice" in runtime.mcp_available
+    assert "nest:nest" in runtime.skills_available
+    assert "review" in runtime.skills_available
+    assert "nest" in runtime.plugins_enabled
+    body = pack.format_runtime()
+    assert "mcp_available:" in body
+    assert "skills_available:" in body
+    assert "review" in body
+    cons = pack.format_constraints()
+    assert "unused-MCP" in cons
+    assert "Do not file 'failed to use X'" in cons
+
+    used = collect_session_usage(
+        tmp_path,
+        timeline=[
+            TraceEvent(
+                index=1,
+                event_type="tool_call",
+                tool_name="use_tool",
+                tool_call_id="c1",
+                raw_input=ToolInputBag({"tool_name": "voice__speak"}),
+            )
+        ],
+    )
+    merged = runtime_with_usage(runtime, used)
+    assert "voice" in merged.mcp_used
+    assert "slack" not in merged.mcp_used
+    assert "mcp_unused: slack" in "\n".join(merged.as_bullet_lines())
+
+
+def test_pack_absent_capabilities_does_not_invent_list(tmp_path: Path) -> None:
+    (tmp_path / "summary.json").write_text(
+        '{"info":{"id":"sid"}}',
+        encoding="utf-8",
+    )
+    # Local empty config so parent-walk cannot pick up another test's toml.
+    (tmp_path / "config.toml").write_text("# no capabilities\n", encoding="utf-8")
+    pack = build_session_context_pack(tmp_path)
+    assert pack.runtime.mcp_available == ()
+    assert pack.runtime.skills_available == ()
+    assert pack.runtime.plugins_enabled == ()
+    body = pack.format_runtime()
+    assert "mcp_available" not in body
+    assert "skills_available" not in body
+    assert "plugins_available" not in body
+    cons = pack.format_constraints()
+    assert "Do not invent unused-capability findings" in cons
+    assert "unused-MCP" not in cons

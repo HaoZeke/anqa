@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ... import event_types as et
@@ -24,6 +24,7 @@ from ...session.turns import (
     is_operator_user_event,
     segment_timeline_turns,
 )
+from ...session.usage_stats import SessionUsageStats, collect_session_usage
 from ...utils import fmt_duration
 from ..base import Finding
 from ..order import sort_findings_by_turn
@@ -66,6 +67,11 @@ class RuntimePolicy:
     reasoning_effort: str = ""
     agent_name: str = ""
     plugins_enabled: tuple[str, ...] = ()
+    plugins_used: tuple[str, ...] = ()
+    mcp_available: tuple[str, ...] = ()
+    mcp_used: tuple[str, ...] = ()
+    skills_available: tuple[str, ...] = ()
+    skills_used: tuple[str, ...] = ()
     bash_background: bool | None = None
     plan_mode_used: bool | None = None
     working_directory: str = ""
@@ -100,7 +106,23 @@ class RuntimePolicy:
         if self.compact_mode is not None:
             lines.append(f"compact_mode: {str(self.compact_mode).lower()}")
         if self.plugins_enabled:
-            lines.append(f"plugins_enabled: {', '.join(self.plugins_enabled)}")
+            lines.append(f"plugins_available: {', '.join(self.plugins_enabled)}")
+            lines.append(f"plugins_used: {', '.join(self.plugins_used) or '(none)'}")
+            unused_p = [p for p in self.plugins_enabled if p not in self.plugins_used]
+            if unused_p:
+                lines.append(f"plugins_unused: {', '.join(unused_p)}")
+        if self.mcp_available or self.mcp_used:
+            lines.append(f"mcp_available: {', '.join(self.mcp_available) or '(none)'}")
+            lines.append(f"mcp_used: {', '.join(self.mcp_used) or '(none)'}")
+            unused_m = [s for s in self.mcp_available if s not in self.mcp_used]
+            if unused_m:
+                lines.append(f"mcp_unused: {', '.join(unused_m)}")
+        if self.skills_available or self.skills_used:
+            lines.append(f"skills_available: {', '.join(self.skills_available) or '(none)'}")
+            lines.append(f"skills_used: {', '.join(self.skills_used) or '(none)'}")
+            unused_s = [s for s in self.skills_available if s not in self.skills_used]
+            if unused_s:
+                lines.append(f"skills_unused: {', '.join(unused_s)}")
         if self.bash_background is not None:
             lines.append(f"bash_background: {str(self.bash_background).lower()}")
         if self.plan_mode_used is not None:
@@ -142,10 +164,24 @@ class RuntimePolicy:
             )
         if self.memory_enabled is False:
             constraints.append("memory_enabled=false: no cross-session memory expectations.")
-        if self.plugins_enabled:
+        if self.plugins_enabled or self.mcp_available or self.skills_available:
             constraints.append(
-                "Enabled plugins alone do not obligate using every plugin; "
-                "only flag missing tool use when operator instructions required it."
+                "Available marketplace plugins, MCP servers, and skills are listed "
+                "in runtime_context. File unused-MCP, unused-skill, or unused-plugin "
+                "when that id was available and the timeline shows the model used a "
+                "weaker host substitute (or skipped it) for work that capability "
+                "covers. Minor is allowed when the product outcome did not change. "
+                "Do not file 'failed to use X' when X is not in the available lists."
+            )
+            constraints.append(
+                "Wrong host tool (shell or search_replace instead of an available "
+                "MCP method or skill) is in-scope. Bad git/GitHub (unsigned push, "
+                "unsolicited revert, sloppy MR create/update) is in-scope even as Minor."
+            )
+        else:
+            constraints.append(
+                "No session capability list (plugins/MCP/skills) was found. "
+                "Do not invent unused-capability findings."
             )
         if self.bash_background is True:
             constraints.append(
@@ -743,6 +779,48 @@ def load_runtime_policy(session_dir: Path, meta: SessionMeta) -> RuntimePolicy:
     )
 
 
+_PSEUDO_MCP = frozenset({"?", "(search)"})
+
+
+def _uniq_keep(values: list[str]) -> tuple[str, ...]:
+    out: list[str] = []
+    for v in values:
+        s = (v or "").strip()
+        if s and s not in out:
+            out.append(s)
+    return tuple(out)
+
+
+def runtime_with_usage(runtime: RuntimePolicy, usage: SessionUsageStats) -> RuntimePolicy:
+    """Merge collected MCP / skill / plugin used-vs-available into *runtime*."""
+    mcp_used = [
+        s.server_id
+        for s in usage.mcp_servers
+        if s.server_id not in _PSEUDO_MCP and (s.methods or s.use_tool_calls or s.search_queries)
+    ]
+    mcp_avail = [s for s in usage.mcp_configured if s not in _PSEUDO_MCP]
+    for sid in mcp_used:
+        if sid not in mcp_avail:
+            mcp_avail.append(sid)
+    skills_avail = list(usage.skills_configured)
+    for sid in usage.skills_referenced:
+        if sid not in skills_avail:
+            skills_avail.append(sid)
+    plugins = list(runtime.plugins_enabled)
+    for p in usage.plugins_configured:
+        if p not in plugins:
+            plugins.append(p)
+    return replace(
+        runtime,
+        plugins_enabled=_uniq_keep(plugins),
+        plugins_used=_uniq_keep(list(usage.plugins_used)),
+        mcp_available=_uniq_keep(mcp_avail),
+        mcp_used=_uniq_keep(mcp_used),
+        skills_available=_uniq_keep(skills_avail),
+        skills_used=_uniq_keep(list(usage.skills_referenced)),
+    )
+
+
 def build_session_context_pack(
     session_dir: Path,
     *,
@@ -778,7 +856,10 @@ def build_session_context_pack(
             error_count += 1
 
     digest, truncated = build_timeline_digest(timeline, turns, max_chars=digest_chars)
-    runtime = load_runtime_policy(sd, meta)
+    runtime = runtime_with_usage(
+        load_runtime_policy(sd, meta),
+        collect_session_usage(sd, timeline=timeline),
+    )
     notes = load_notes(sd)
     return SessionContextPack(
         session_dir=sd,

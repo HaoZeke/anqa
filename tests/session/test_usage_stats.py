@@ -660,6 +660,44 @@ class TestLoadJson:
 
 
 class TestCollectSessionUsageExtended:
+    def test_capabilities_from_announcement_state(self, tmp_path: Path):
+        from groket.models import ToolInputBag
+
+        sd = tmp_path / "sess"
+        sd.mkdir()
+        (sd / "announcement_state.json").write_text(
+            json.dumps(
+                {
+                    "mcp_server_fingerprints": {
+                        "slack": {"tool_count": 3},
+                        "voice": {"tool_count": 1},
+                    },
+                    "announced_skill_names": ["nest:nest", "review"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        timeline = [
+            TraceEvent(
+                index=1,
+                event_type="tool_call",
+                tool_name="use_tool",
+                tool_call_id="c1",
+                raw_input=ToolInputBag({"tool_name": "voice__speak"}),
+            )
+        ]
+        stats = collect_session_usage(sd, timeline=timeline)
+        assert "slack" in stats.mcp_configured
+        assert "voice" in stats.mcp_configured
+        assert "nest:nest" in stats.skills_configured
+        assert "review" in stats.skills_configured
+        assert "nest" in stats.plugins_configured
+        voice = next(s for s in stats.mcp_servers if s.server_id == "voice")
+        assert voice.methods or voice.use_tool_calls
+        slack = next(s for s in stats.mcp_servers if s.server_id == "slack")
+        assert not slack.methods and not slack.use_tool_calls
+        assert "capabilities from announcement_state.json" in stats.source_notes
+
     def test_configured_capabilities_from_run_json(self, tmp_path: Path):
         sd = tmp_path / "sess"
         sd.mkdir()
