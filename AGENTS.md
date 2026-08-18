@@ -581,12 +581,15 @@ drag-select) for the same bodies.
    mouse selection → **Findings tab selected finding** (prefer MF
    **Issue box** text What/Where/Why/Should/Pattern when ``Finding.extras``
    has those fields; else export-style markdown) → focused
-   ``SelectableStatic`` → whole active pane (all visible Report sub-panes
-   joined). Report mounts **one extractable pane per logical unit**:
-   overview, flags, notes, plugin header/findings, each markdown ``##``
-   chunk, and MF **Form fields** / **Issue box** fence bodies (paste-ready).
-   Tab focuses a pane; ``y`` yanks that pane only. Findings-tab ``y`` is
-   still the one-key Issue-box path without opening Report.
+   ``SelectableStatic`` body only → tab primary body when there is no
+   focused extractable (Timeline detail, Summary, Diff hunk, Findings
+   header). **Report** with no focused pane yields nothing to copy — never
+   a silent join of every visible Report sub-pane. Report mounts **one
+   extractable pane per logical unit**: overview, flags, notes, plugin
+   header/findings, each markdown ``##`` chunk, and MF **Form fields** /
+   **Issue box** fence bodies (paste-ready). Tab focuses a pane; ``y``
+   yanks that pane only. Findings-tab ``y`` is still the one-key Issue-box
+   path without opening Report.
 3. **Live refresh** must not clear a widget that has an active text
    selection (``_widget_has_text_selection`` / ``set_static_renderable``).
 4. **Tests** for new extractable surfaces: plain-text cache + yank path

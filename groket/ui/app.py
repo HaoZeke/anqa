@@ -306,6 +306,9 @@ class TraceEvalApp(App):
     COMMAND_PALETTE_DISPLAY = "Ctrl+P"
     # Textual text selection (drag) + OSC 52 copy; default is True but be explicit.
     ALLOW_SELECT = True
+    # Debounce for copy toasts (see notify_copied).
+    _copy_notify_at: float = 0.0
+    _copy_notify_msg: str = ""
 
     def get_key_display(self, binding: Binding) -> str:
         """Footer / key panel: Ctrl+S, not caret ^s or unicode glyphs."""
@@ -333,21 +336,68 @@ class TraceEvalApp(App):
         for title, help_text, callback in yield_app_commands(self, screen):
             yield SystemCommand(title, help_text, callback)
 
-    def action_help_quit(self) -> None:
-        """Ctrl+C: copy selection when present, else Textual's quit hint.
+    def notify_copied(self, message: str) -> None:
+        """Show a copy toast, suppressing rapid repeats of the same message.
 
-        Textual binds Ctrl+C on the app to ``help_quit`` (system). That shadows
-        the screen's ``copy_text`` binding, so selected detail text never
-        copied. Prefer clipboard when :meth:`Screen.get_selected_text` is set.
+        Drag-end auto-copy and ``y`` can fire often; stacked toasts are noise.
+        """
+        now = time.monotonic()
+        last_at = float(getattr(self, "_copy_notify_at", 0.0) or 0.0)
+        last_msg = str(getattr(self, "_copy_notify_msg", "") or "")
+        if message == last_msg and (now - last_at) < 1.5:
+            return
+        self._copy_notify_at = now
+        self._copy_notify_msg = message
+        self.notify(message, severity="information", timeout=2.0)
+
+    def _copy_live_selection(self) -> bool:
+        """Copy screen text selection when non-empty.
+
+        :returns: True when text was placed on the clipboard.
         """
         try:
             selected = self.screen.get_selected_text()
         except Exception:
-            selected = None
-        if selected:
-            self.copy_to_clipboard(selected)
-            self.notify(t("ui-copied-selection"), severity="information")
+            return False
+        if selected is None or selected == "":
+            return False
+        self.copy_to_clipboard(selected)
+        self.notify_copied(t("ui-copied-selection"))
+        return True
+
+    def on_text_selected(self, event: events.TextSelected) -> None:
+        """Auto-copy when a mouse drag selection ends (Textual posts on mouse-up).
+
+        Pure clicks clear the selection before this event, so they no-op.
+        Extract uses unwrapped Content plain (soft-wrap spans stay complete).
+        """
+        self._copy_live_selection()
+
+    def action_help_quit(self) -> None:
+        """Ctrl+C: copy live selection when present, else Textual's quit hint.
+
+        Textual binds Ctrl+C on the app to ``help_quit`` (system). That shadows
+        the screen's ``copy_text`` binding. With a drag selection, copy that
+        plain text (same as ``y`` / Ctrl+Shift+C for selections). Without a
+        selection, show the quit hint — full-pane yank stays on ``y``.
+        """
+        if self._copy_live_selection():
             return
+        # Prefer screen copy_detail when the focused browser can yank a body
+        # via the same path as ``y`` (no selection). Keeps Ctrl+C aligned with
+        # multipane polish without always fighting the quit chord.
+        screen = self.screen
+        copy_detail = getattr(screen, "action_copy_detail", None)
+        if callable(copy_detail):
+            try:
+                focused = getattr(screen, "focused", None)
+                from .selectable_static import is_extractable_static
+
+                if is_extractable_static(focused):
+                    copy_detail()
+                    return
+            except Exception:
+                logger.debug("Ctrl+C focused-body copy failed", exc_info=True)
         for key, active_binding in self.active_bindings.items():
             if active_binding.binding.action in ("quit", "app.quit"):
                 self.notify(
@@ -434,6 +484,8 @@ class TraceEvalApp(App):
         self._initial_prompt_index = initial_prompt_index
         self._analysis_jobs_active: int = 0
         self._self_test_summary: str = ""
+        self._copy_notify_at = 0.0
+        self._copy_notify_msg = ""
         self._meta_only: list[tuple[SessionMeta, str]] = []
         self._plugin_results: dict[str, dict[str, AnalysisResult]] = {}
         # Keys are analysis_session_key(session_dir) (resolved path).

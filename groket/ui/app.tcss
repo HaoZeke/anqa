@@ -423,11 +423,7 @@ TabPane {
     color: $text;
 }
 
-.report-pane:focus {
-    background: $primary-background 20%;
-    border-left: wide $primary;
-    padding-left: 1;
-}
+/* Report panes stay focusable for Tab + y; no raise chrome on click/focus. */
 
 /* ── Selects — natural height, light chrome (no height:1 clipping) ───── */
 
@@ -1546,19 +1542,7 @@ ContentSwitcher {
     border: none;
 }
 
-#report-overview-content:focus,
-#report-flags-content:focus,
-#report-notes-content:focus,
-#summary-content:focus,
-#diff-content:focus,
-#diff-prompt:focus,
-#diff-assistant:focus,
-#findings-header:focus,
-#detail-body:focus {
-    background: $primary-background 20%;
-    border-left: wide $primary;
-    padding-left: 1;
-}
+/* Extractable bodies stay focusable for Tab + y; no raise chrome on click. */
 
 /* Scroll hosts: page background; cards provide the frames */
 #summary-scroll,

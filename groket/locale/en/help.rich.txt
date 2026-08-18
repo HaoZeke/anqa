@@ -44,7 +44,10 @@
   O               Edit or delete note
   n               Follow-up while awaiting
   e               Done while awaiting
-  y               Copy the selection, the finding, or the pane
+  y               Copy the selection, the finding, or the focused / primary pane body
+  Ctrl+Shift+C    Same as y
+  Ctrl+C          Copy the selection or focused body; quit hint when neither applies
+  mouse drag      Select text; release copies the selection (multi-line OK); y still works
   s               Open the share link when the session has one
   E               Export a session bundle
   x               Delete (press twice)

@@ -2565,35 +2565,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             logger.debug(t("ui-report-static-s-missing"), widget_id, exc_info=True)
 
-    def _iter_visible_report_statics(self) -> list[SelectableStatic]:
-        """All extractable Report bodies in view order (respects filter)."""
-        out: list[SelectableStatic] = []
-        with suppress(Exception):
-            out.append(self.query_one("#report-overview-content", SelectableStatic))
-        section_order: list[str] = ["flags", "notes"]
-        section_order.extend(
-            sorted(k for k in self._report_section_keys if k not in ("flags", "notes"))
-        )
-        for key in section_order:
-            if not self._section_visible(key):
-                continue
-            section_id = self._report_section_dom_id(key)
-            with suppress(Exception):
-                section = self.query_one(f"#{section_id}")
-                for widget in section.query(SelectableStatic):
-                    out.append(widget)
-        return out
-
-    def _collect_report_plain_text(self) -> str:
-        """Plain text of visible Report panes for clipboard yank."""
-        parts: list[str] = []
-        for widget in self._iter_visible_report_statics():
-            with suppress(Exception):
-                plain = (widget.get_plain_text() or "").strip()
-                if plain:
-                    parts.append(plain)
-        return "\n\n".join(parts)
-
     def _plain_from_widget_id(self, widget_id: str) -> str:
         with suppress(Exception):
             widget = self.query_one(f"#{widget_id}", SelectableStatic)
@@ -2601,15 +2572,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return ""
 
     def _collect_active_tab_plain_text(self) -> tuple[str, str]:
-        """Plain text for the active browser pane (no selection / no focus).
+        """Primary body for the active browser tab (no selection / no focus).
 
-        :returns: ``(text, kind)`` where *kind* is ``report`` / ``detail`` /
-            ``content`` / ``none``.
+        Report has many sibling panes — without focus there is no single
+        primary body (operator Tabs to a pane, then ``y``). Timeline,
+        Summary, Diff, and Findings each have one obvious body.
+
+        :returns: ``(text, kind)`` where *kind* is ``detail`` / ``content`` /
+            ``none``.
         """
         tab = self._active_browser_tab()
         if tab == "tab-reports":
-            text = self._collect_report_plain_text()
-            return (text, "report" if text else "none")
+            # Multipane: require focused SelectableStatic (handled earlier).
+            return ("", "none")
         if tab == "tab-summary":
             text = self._plain_from_widget_id("summary-content")
             return (text, "content" if text else "none")
@@ -3866,40 +3841,44 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.refresh_bindings()
 
     def action_copy_detail(self) -> None:
-        """Copy selection, one finding, focused body, or active-pane content.
+        """Copy selection, one finding, focused body, or the tab primary body.
 
         Textual owns the mouse, so OS drag-to-select does not work. Operators
-        drag to select, then ``y`` / Ctrl+Shift+C / Ctrl+C. With no selection:
+        drag to select, then ``y`` / Ctrl+Shift+C (and Ctrl+C for a live
+        selection). Priority:
 
-        1. **Findings tab** + highlighted finding → Issue box when extras
+        1. **Live selection** — exact selected plain (not stripped)
+        2. **Findings tab** + highlighted finding → Issue box when extras
            support it, else export-style markdown for that finding
-        2. focused :class:`SelectableStatic` body (detail, Report sub-pane, …)
-        3. whole active browser pane (all visible Report panes, Summary, Diff,
-           Findings header, or Timeline detail)
+        3. focused :class:`SelectableStatic` body only (detail, one Report
+           sub-pane, summary, …)
+        4. tab primary body (Timeline detail, Summary, Diff hunk, Findings
+           header) — never a silent join of every Report sibling pane
 
-        On Report, Tab moves between sub-panes (overview, flags, notes, each
-        plugin H2 / Form fields / Issue box). Focus a pane then ``y`` to yank
-        only that body; MF Issue paste also works from Findings ``y``.
+        On Report, Tab to a sub-pane then ``y`` yanks that body only.
         """
         text = ""
         kind = "none"
+        selection_payload = False
         with suppress(Exception):
             selected = self.get_selected_text()
-            if selected:
+            if selected is not None and selected != "":
                 text = selected
                 kind = "selection"
+                selection_payload = True
         # One finding: Findings table selection → Issue box (MF form) when present.
-        if not text.strip() and self._active_browser_tab() == "tab-findings":
+        if not selection_payload and self._active_browser_tab() == "tab-findings":
             finding = getattr(self, "_selected_finding", None)
             if isinstance(finding, Finding):
                 text = self._finding_clipboard_text(finding).strip()
                 if text:
                     kind = "finding"
-        if not text.strip():
+        if not text and not selection_payload:
             with suppress(Exception):
                 focused = self.focused
                 if is_extractable_static(focused):
-                    plain = (focused.get_plain_text() or "").strip()  # type: ignore[union-attr]
+                    plain = focused.get_plain_text() or ""  # type: ignore[union-attr]
+                    plain = plain.strip()
                     if plain:
                         text = plain
                         fid = str(getattr(focused, "id", "") or "")
@@ -3909,23 +3888,28 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             kind = "detail"
                         else:
                             kind = "content"
-        if not text.strip():
+        if not text and not selection_payload:
             text, kind = self._collect_active_tab_plain_text()
-        text = (text or "").strip()
+            text = (text or "").strip()
         if not text:
             self.notify(t("ui-nothing-to-copy"), severity="warning")
             return
         self.app.copy_to_clipboard(text)
         if kind == "selection":
-            self.notify(t("ui-copied-selection"), severity="information")
+            msg = t("ui-copied-selection")
         elif kind == "finding":
-            self.notify(t("ui-copied-finding"), severity="information")
+            msg = t("ui-copied-finding")
         elif kind == "report":
-            self.notify(t("ui-copied-report"), severity="information")
+            msg = t("ui-copied-report")
         elif kind == "detail":
-            self.notify(t("ui-copied-detail"), severity="information")
+            msg = t("ui-copied-detail")
         else:
-            self.notify(t("ui-copied-content"), severity="information")
+            msg = t("ui-copied-content")
+        notify_copied = getattr(self.app, "notify_copied", None)
+        if callable(notify_copied):
+            notify_copied(msg)
+        else:
+            self.notify(msg, severity="information", timeout=2.0)
 
     def action_flag_event(self) -> None:
         """Open the flag modal for the currently selected timeline event."""

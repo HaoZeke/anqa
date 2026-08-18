@@ -265,7 +265,7 @@ cmd-event-reader = Full-width event
 cmd-event-reader-help = Hide the Timeline list and read the event; j / k step; Esc returns
 
 cmd-copy-detail = Copy selection, finding, or pane
-cmd-copy-detail-help = Browser: yank selection; Findings row Issue box; focused Report/detail body; else whole pane — y / Ctrl+Shift+C
+cmd-copy-detail-help = Browser: yank selection (drag release also copies); Findings row Issue box; focused body; else tab primary — y / Ctrl+Shift+C; Ctrl+C selection or focused body
 
 cmd-focus-timeline-view = Focus timeline view
 
