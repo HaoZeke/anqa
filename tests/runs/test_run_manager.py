@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from unittest.mock import Mock, patch
 
 import pytest
+from async_wait import wait_until_sync
 from groket.docker.orchestrator import ContainerStatus
 from groket.models import EvalRun
 
@@ -1450,12 +1451,7 @@ def test_worker_status_callback(rm: RunManager, tmp_path: Path):
     rm.orchestrator.run_parallel_evaluations = Mock(return_value=[])
     with _mock_validate():
         bg = rm.start_run(prompt="test", models=["m1"], **_run_kw(tmp_path))
-    import time
-
-    for _ in range(50):
-        if not bg.is_running:
-            break
-        time.sleep(0.05)
+    wait_until_sync(lambda: not bg.is_running, description="background run finished")
     assert bg.eval_run.status in ("completed", "failed")
 
 
@@ -1472,12 +1468,7 @@ def test_worker_saves_run_manifest(rm: RunManager, tmp_path: Path):
     rm.orchestrator.run_parallel_evaluations = Mock(return_value=[status])
     with _mock_validate():
         bg = rm.start_run(prompt="manifest test", models=["m1"], **_run_kw(tmp_path))
-    import time
-
-    for _ in range(50):
-        if not bg.is_running:
-            break
-        time.sleep(0.05)
+    wait_until_sync(lambda: not bg.is_running, description="background run finished")
     assert (sd / "run.json").is_file()
 
 
@@ -1486,12 +1477,7 @@ def test_worker_error_sets_failed(rm: RunManager, tmp_path: Path):
     rm.orchestrator.run_parallel_evaluations = Mock(side_effect=RuntimeError("docker died"))
     with _mock_validate():
         bg = rm.start_run(prompt="fail test", models=["m1"], **_run_kw(tmp_path))
-    import time
-
-    for _ in range(50):
-        if not bg.is_running:
-            break
-        time.sleep(0.05)
+    wait_until_sync(lambda: not bg.is_running, description="background run finished")
     assert bg.eval_run.status == "failed"
     assert bg.error
 

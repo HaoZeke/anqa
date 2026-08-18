@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import pytest
+from async_wait import wait_until
 from groket.integrations import daemon as daemon_mod
 from groket.integrations.control_client import ControlClient
 from groket.session.access import filter_session_catalog
@@ -193,19 +194,27 @@ async def test_warm_loop_refreshes_after_start(tmp_path: Path) -> None:
         daemon_mod.serve_control_forever(server, write_pid=False, warm_interval=0.4)
     )
     try:
-        for _ in range(50):
-            if sock.exists():
-                break
-            await asyncio.sleep(0.05)
+        await wait_until(sock.exists, description="control socket accepts")
         client = ControlClient(sock, client_name="loop", timeout=15)
         await client.initialize()
-        # Allow first warm to finish
-        await asyncio.sleep(0.25)
+
+        async def _matched_at_least(n: int) -> bool:
+            listed = await client.session_list()
+            return int(listed.get("matched") or 0) >= n
+
+        await wait_until(
+            lambda: _matched_at_least(1),
+            description="first warm list shows session a",
+        )
         first = await client.session_list()
         assert first["matched"] == 1
         _write_sess(traces, "b", "B")
-        # New session dirs land through the FS watch (CONTROL_FS_DEBOUNCE_S).
-        await asyncio.sleep(daemon_mod.CONTROL_FS_DEBOUNCE_S + 0.6)
+        # FS watch + warm loop both publish catalog growth; wait on matched.
+        await wait_until(
+            lambda: _matched_at_least(2),
+            timeout=20.0,
+            description="catalog lists session b after disk write",
+        )
         second = await client.session_list()
         assert second["matched"] == 2
     finally:

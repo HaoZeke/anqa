@@ -495,8 +495,9 @@ async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
         # Connected but silent: no frame yet, so its framing is unknown and it
-        # must not receive broadcasts it may be unable to parse.
-        await asyncio.sleep(0.05)
+        # must not receive broadcasts it may be unable to parse. Writers join
+        # the broadcast set only after the first full request completes.
+        assert writer not in server._writers
         await server.publish_session_changed(session_dir)
         initialized = await _header_request(
             reader, writer, 1, "initialize", {"protocolVersion": "1.0.0"}

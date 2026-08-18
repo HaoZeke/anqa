@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
+from async_wait import wait_until_sync
 from groket.fs_watch import TraceTreeWatch, _path_looks_relevant
 
 
@@ -24,10 +24,8 @@ def test_watch_start_stop(tmp_path: Path) -> None:
     w = TraceTreeWatch(tmp_path, on_change, debounce_s=0.05)
     assert w.start() is True
     (tmp_path / "updates.jsonl").write_text("{}\n", encoding="utf-8")
-    # Wait for debounce + inotify
-    for _ in range(40):
-        if hits:
-            break
-        time.sleep(0.05)
-    w.stop()
+    try:
+        wait_until_sync(lambda: bool(hits), description="FS watch callback after write")
+    finally:
+        w.stop()
     assert hits, "expected FS callback after writing updates.jsonl"

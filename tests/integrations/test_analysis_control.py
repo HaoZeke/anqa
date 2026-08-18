@@ -9,6 +9,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from async_wait import wait_until
 
 
 def _short_sock(name: str) -> Path:
@@ -101,14 +102,18 @@ async def test_analysis_run_and_status_on_domain_server(tmp_path: Path) -> None:
 
         # Wait for completion (basic analyzer is quick).
         final: dict | None = None
-        for _ in range(80):
+        req_id = 10
+
+        async def _terminal() -> bool:
+            nonlocal final, req_id
             status = await _request(
-                reader, writer, 10 + _, "analysis/status", {"session": session.name}
+                reader, writer, req_id, "analysis/status", {"session": session.name}
             )
+            req_id += 1
             final = status["result"]
-            if final["state"] in {"done", "error"}:
-                break
-            await asyncio.sleep(0.05)
+            return bool(final and final["state"] in {"done", "error"})
+
+        await wait_until(_terminal, description="analysis job reaches done or error")
         assert final is not None
         assert final["state"] == "done"
         assert final["sessionId"] == session.name

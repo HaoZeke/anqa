@@ -9,11 +9,11 @@ import signal
 import subprocess
 import sys
 import tempfile
-import time
 from importlib import import_module
 from pathlib import Path
 
 import pytest
+from async_wait import wait_until, wait_until_sync
 
 
 def _short_sock(name: str) -> Path:
@@ -128,10 +128,10 @@ async def test_serve_control_forever_writes_and_clears_pid(tmp_path: Path) -> No
     server = daemon.build_domain_control_server(socket_path=sock, work_dir=work)
     task = asyncio.create_task(daemon.serve_control_forever(server, write_pid=True))
     try:
-        for _ in range(50):
-            if sock.exists() and daemon.control_pid_path(sock).exists():
-                break
-            await asyncio.sleep(0.02)
+        await wait_until(
+            lambda: sock.exists() and daemon.control_pid_path(sock).exists(),
+            description="serve wrote socket and pid file",
+        )
         assert sock.exists()
         pid = daemon.read_control_pid(sock)
         assert pid == os.getpid()
@@ -140,8 +140,10 @@ async def test_serve_control_forever_writes_and_clears_pid(tmp_path: Path) -> No
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        # close happens in serve_control_forever finally
-        await asyncio.sleep(0.05)
+        await wait_until(
+            lambda: not sock.exists() and not daemon.control_pid_path(sock).exists(),
+            description="serve teardown removed socket and pid",
+        )
     assert not sock.exists()
     assert not daemon.control_pid_path(sock).exists()
 
@@ -163,7 +165,6 @@ async def test_stop_kills_zombie_lock_holder_without_pid_or_socket() -> None:
     """serve stop must clear a process that holds the lock after the socket died."""
     import subprocess
     import sys
-    import time
 
     daemon = import_module("groket.integrations.daemon")
     control = import_module("groket.integrations.control")
@@ -191,11 +192,10 @@ time.sleep(30)
         stderr=subprocess.DEVNULL,
     )
     try:
-        # Wait until lock file has the child pid.
-        for _ in range(50):
-            if daemon.read_control_lock_pid(sock) == proc.pid:
-                break
-            time.sleep(0.05)
+        wait_until_sync(
+            lambda: daemon.read_control_lock_pid(sock) == proc.pid,
+            description="stale lock child pid recorded",
+        )
         assert daemon.read_control_lock_pid(sock) == proc.pid
         assert daemon.control_socket_accepts(sock) is False
         st = daemon.control_daemon_status(sock)
@@ -331,14 +331,11 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
             env=_cli_env(),
         )
     try:
-        # Wait until socket exists
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:
-            if sock.exists():
-                break
-            if proc1.poll() is not None:
-                break
-            time.sleep(0.05)
+        wait_until_sync(
+            lambda: sock.exists() or proc1.poll() is not None,
+            timeout=8.0,
+            description="cli serve socket or early exit",
+        )
         assert sock.exists(), log1.read_text(encoding="utf-8")
         assert proc1.poll() is None
 
@@ -351,16 +348,21 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
             client = client_mod.ControlClient(sock, client_name="verify")
             init = await client.initialize()
             transcript.append({"initialize": init})
-            listed = await client.session_list()
-            list_deadline = time.monotonic() + 8
-            while time.monotonic() < list_deadline:
-                rows = listed.get("sessions")
-                if isinstance(rows, list) and any(
-                    isinstance(r, dict) and r.get("sessionId") == "session-cli-serve" for r in rows
-                ):
-                    break
-                await asyncio.sleep(0.05)
+            listed: dict = {}
+
+            async def _has_session() -> bool:
+                nonlocal listed
                 listed = await client.session_list()
+                rows = listed.get("sessions")
+                return isinstance(rows, list) and any(
+                    isinstance(r, dict) and r.get("sessionId") == "session-cli-serve" for r in rows
+                )
+
+            await wait_until(
+                _has_session,
+                timeout=8.0,
+                description="session-cli-serve in session/list",
+            )
             transcript.append({"session/list": listed})
             rendered = await client.session_render(session_dir.name, format="org")
             transcript.append(
@@ -508,11 +510,11 @@ def test_stop_terminates_foreground_pid_file_owner(tmp_path: Path) -> None:
         code = daemon.stop_control_daemon(sock, timeout=8.0)
         lines.append(f"stop_code={code}")
         assert code == 0, "stop must succeed for foreground pid-file owner"
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline and (
-            daemon.pid_is_alive(proc.pid) or daemon.control_socket_accepts(sock)
-        ):
-            time.sleep(0.05)
+        wait_until_sync(
+            lambda: not daemon.pid_is_alive(proc.pid) and not daemon.control_socket_accepts(sock),
+            timeout=8.0,
+            description="foreground owner stopped",
+        )
         lines.append(
             f"alive_after={daemon.pid_is_alive(proc.pid)} "
             f"accepts_after={daemon.control_socket_accepts(sock)}"
@@ -587,9 +589,11 @@ def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
         code = daemon.stop_control_daemon(sock, timeout=5.0)
         lines.append(f"stop_code={code}")
         assert code == 0
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and daemon.control_socket_accepts(sock):
-            time.sleep(0.05)
+        wait_until_sync(
+            lambda: not daemon.control_socket_accepts(sock),
+            timeout=5.0,
+            description="socket closed after stop",
+        )
         status2 = daemon.control_daemon_status(sock)
         lines.append(f"status_after_stop={status2.as_mapping()}")
         assert not status2.live

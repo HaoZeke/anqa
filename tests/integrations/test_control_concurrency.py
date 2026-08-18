@@ -11,6 +11,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from async_wait import wait_until
 
 
 def _short_sock(name: str) -> Path:
@@ -127,7 +128,13 @@ async def test_notes_upsert_notifies_second_client(tmp_path: Path) -> None:
                 client_name="reader-listen",
             )
         )
-        await asyncio.sleep(0.05)
+        # One-shot ControlClient RPCs do not stay in _writers. The long-lived
+        # notify listener joins after its initialize request completes.
+        await wait_until(
+            lambda: len(server._writers) >= 1,
+            timeout=5.0,
+            description="notes listener finished initialize",
+        )
 
         listed = await writer.notes_list(session_dir.name)
         rev = listed["revision"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,13 @@ from groket.models import (
     ToolCall,
     TraceEvent,
 )
+
+# Allow ``from async_wait import …`` without making ``tests`` a package
+# (that would break ``from conftest import …`` under pytest importlib).
+_SUPPORT = Path(__file__).resolve().parent / "support"
+if str(_SUPPORT) not in sys.path:
+    sys.path.insert(0, str(_SUPPORT))
+
 
 # ── Atomic model factories ────────────────────────────────────────────────
 
