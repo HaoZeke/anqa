@@ -754,7 +754,7 @@
           ]
         },
         "session/changed": {
-          "description": "Session files or status changed",
+          "description": "Session files or status changed. `listChanged` is false when only the trace grew.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -766,6 +766,10 @@
                 "sessionId": {
                   "description": "Session directory name.",
                   "type": "string"
+                },
+                "listChanged": {
+                  "description": "False when only the trace grew; catalog row fields are unchanged.",
+                  "type": "boolean"
                 }
               }
             }

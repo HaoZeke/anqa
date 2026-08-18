@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -162,7 +163,9 @@ def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    sessions, notes = apply_fs_catalog_events(cache, [str(one / "events.jsonl")], [traces])
+    sessions, notes, _changed = apply_fs_catalog_events(
+        cache, [str(one / "events.jsonl")], [traces]
+    )
     assert one.resolve() in [p.resolve() for p in sessions]
     assert notes == []
     by_id = {str(r["sessionId"]): r for r in cache.get()}
@@ -200,7 +203,7 @@ def test_catalog_cache_refresh_rows_updates_one_status(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    updated = cache.refresh_rows([one])
+    updated, _changed = cache.refresh_rows([one])
     by_id = {str(r["sessionId"]): r for r in updated}
     assert by_id["one"]["status"] == "complete"
     assert by_id["two"]["sessionId"] == "two"
@@ -218,7 +221,7 @@ def test_refresh_rows_does_not_list_subagent_sibling(tmp_path: Path) -> None:
     assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent"}
     child = _write_sess(traces, "child", "Adversarial verifier Grok Build harness", kind="subagent")
     (parent / "subagents" / "child").mkdir(parents=True)
-    updated = cache.refresh_rows([child])
+    updated, _changed = cache.refresh_rows([child])
     assert {str(r["sessionId"]) for r in updated} == {"parent"}
 
 
@@ -231,7 +234,7 @@ def test_refresh_rows_does_not_list_child_id_mirror(tmp_path: Path) -> None:
     cache.get(force=True)
     (parent / "subagents" / "child").mkdir(parents=True)
     child = _write_sess(traces, "child", "Adversarial verifier")
-    updated = cache.refresh_rows([child])
+    updated, _changed = cache.refresh_rows([child])
     assert {str(r["sessionId"]) for r in updated} == {"parent"}
 
 
@@ -253,7 +256,7 @@ def test_refresh_rows_drops_cached_row_after_subagent_kind(tmp_path: Path) -> No
         ),
         encoding="utf-8",
     )
-    updated = cache.refresh_rows([child])
+    updated, _changed = cache.refresh_rows([child])
     assert {str(r["sessionId"]) for r in updated} == {"parent"}
 
 
@@ -277,6 +280,159 @@ def test_drop_subagent_rows_clears_cached_children(tmp_path: Path) -> None:
     )
     updated = cache.drop_subagent_rows()
     assert {str(r["sessionId"]) for r in updated} == {"parent"}
+
+
+def test_refresh_rows_host_does_not_read_events_jsonl(tmp_path: Path) -> None:
+    """Host watch refresh must not open events.jsonl."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    host = tmp_path / "host"
+    bucket = host / "%2Fproj" / "live-host"
+    bucket.mkdir(parents=True)
+    (bucket / "summary.json").write_text(
+        json.dumps({"info": {"id": "live-host"}, "generated_title": "Live"}),
+        encoding="utf-8",
+    )
+    (bucket / "signals.json").write_text("{}", encoding="utf-8")
+    (bucket / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    events = bucket / "events.jsonl"
+    events.write_text(
+        json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0}) + "\n",
+        encoding="utf-8",
+    )
+    cache = SessionCatalogCache(
+        work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
+    )
+    cache.get(force=True)
+    events.write_text(
+        json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    opened: list[str] = []
+    real_open = Path.open
+
+    def tracking_open(self: Path, *args: object, **kwargs: object) -> object:
+        opened.append(str(self))
+        return real_open(self, *args, **kwargs)
+
+    from unittest.mock import patch
+
+    with patch.object(Path, "open", tracking_open):
+        _rows, changed = cache.refresh_rows([bucket])
+    assert not any(p.endswith("events.jsonl") for p in opened)
+    assert changed.get("live-host") is False
+
+
+def _age_host_traces(session_dir: Path, *, seconds: float = 9 * 60) -> None:
+    """Push host stamp files behind ``HOST_INCOMPLETE_STALE_SECONDS``."""
+    stamp = time.time() - seconds
+    names = (
+        "events.jsonl",
+        "updates.jsonl",
+        "summary.json",
+        "signals.json",
+        "chat_history.jsonl",
+    )
+    for name in names:
+        path = session_dir / name
+        if path.is_file():
+            os.utime(path, (stamp, stamp))
+    os.utime(session_dir, (stamp, stamp))
+
+
+def test_refresh_rows_host_running_clears_when_stale(tmp_path: Path) -> None:
+    """A finished host session must not stay ``running`` after traces go stale."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    host = tmp_path / "host"
+    bucket = host / "%2Fproj" / "was-live"
+    bucket.mkdir(parents=True)
+    (bucket / "summary.json").write_text(
+        json.dumps({"info": {"id": "was-live"}, "generated_title": "Live"}),
+        encoding="utf-8",
+    )
+    (bucket / "signals.json").write_text("{}", encoding="utf-8")
+    (bucket / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    cache = SessionCatalogCache(
+        work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
+    )
+    first = cache.get(force=True)
+    by_id = {str(r["sessionId"]): r for r in first}
+    assert by_id["was-live"]["status"] == "running"
+    _age_host_traces(bucket)
+    rows, changed = cache.refresh_rows([bucket])
+    by_id = {str(r["sessionId"]): r for r in rows}
+    assert by_id["was-live"]["status"] == "—"
+    assert changed.get("was-live") is True
+
+
+def test_refresh_rows_host_keeps_complete_when_tail_loses_outcome(tmp_path: Path) -> None:
+    """``complete`` survives a stale tail that is no longer ``turn_completed``."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    host = tmp_path / "host"
+    bucket = host / "%2Fproj" / "done-host"
+    bucket.mkdir(parents=True)
+    (bucket / "summary.json").write_text(
+        json.dumps({"info": {"id": "done-host"}, "generated_title": "Done"}),
+        encoding="utf-8",
+    )
+    (bucket / "signals.json").write_text("{}", encoding="utf-8")
+    (bucket / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "params": {
+                    "update": {"sessionUpdate": "turn_completed"},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cache = SessionCatalogCache(
+        work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
+    )
+    first = cache.get(force=True)
+    by_id = {str(r["sessionId"]): r for r in first}
+    assert by_id["done-host"]["status"] == "complete"
+    (bucket / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "params": {
+                    "update": {"sessionUpdate": "tool_call_update", "content": "x"},
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _age_host_traces(bucket)
+    rows, changed = cache.refresh_rows([bucket])
+    by_id = {str(r["sessionId"]): r for r in rows}
+    assert by_id["done-host"]["status"] == "complete"
+    assert changed.get("done-host") is False
+
+
+def test_refresh_rows_append_does_not_bump_revision(tmp_path: Path) -> None:
+    """An updates.jsonl append that leaves list fields unchanged keeps sinceRevision."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    rev = cache.revision
+    (one / "updates.jsonl").write_text("{}\n{}\n", encoding="utf-8")
+    _rows, changed = cache.refresh_rows([one])
+    assert cache.revision == rev
+    assert changed.get("one") is False
+    poll = cache.list_for_rpc(since_revision=rev)
+    assert poll["unchanged"] is True
 
 
 def test_session_meta_from_catalog_row_status() -> None:

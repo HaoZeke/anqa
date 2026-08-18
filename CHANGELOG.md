@@ -5,6 +5,37 @@ is tagged.
 
 ## Unreleased
 
+- Host catalog list uses a stamp-gated snapshot (summary, signals, and
+  updates-tail status). ``groket export-host -o FILE`` writes that
+  snapshot without starting serve.
+- Live host appends no longer rebuild catalog revision or session
+  overview. `session/changed` carries `listChanged`; the HUD tails the
+  open timeline instead of calling `session/overview`. Host list rows
+  use `summary.json`, `signals.json`, and the updates tail for status.
+- HUD search uses icedtea `search_input`. Diff Prompt/Assistant are
+  inner tabs (same bar as the pane strip). Diff hunks pass
+  `highlighted_code` wrap `false`. Pane tabs freeze with
+  `Tabs::with_disabled` until a session is loaded.
+- HUD default density is Default (gap 8, inset 12). Status tags use
+  the small badge face; actions stay filled chips. Compact remains in
+  the F12 Look drawer.
+- HUD footer is keys and transient notices. Session id and run state
+  stay on the session chrome.
+- HUD assistant, user chat, Diff Prompt/Assistant, and markdown
+  findings paint through icedtea `markdown_view`. Tool bodies stay
+  code or plain.
+- HUD context Copy snapshots the live editor range. Copy path is the
+  session folder, on the session list and Overview only.
+- HUD pins icedtea 0.11 from the crate index (full-row tree selection,
+  drag-select outside the pane, badge shape family, expander title trail).
+- HUD badges, pane tabs, Diff hunks, help, and the Turns Diff chip use
+  icedtea constructors (`badge`, `tab_bar`, `highlighted_code`,
+  `cheatsheet`, `Glyph::Bytes`).
+- HUD type scale is 100% (Material body). F12 Look type 110% is iced 16.
+- F12 opens a hidden Look drawer with the icedtea gallery knobs
+  (density, type, shape, elevation). Esc closes it. Not persisted.
+- Timeline and Turns card previews use body type. Pane tabs use
+  icedtea `tab_bar` meta (caption step).
 - The `examples/keys` pack is listed with the other reference packs.
   Colemak notes that `y` copy, `/` search, and `h`/`l` plus Left/Right
   turns stay on catalog defaults.
@@ -19,8 +50,8 @@ is tagged.
   cancelled stay readable. Session context, event index, finding
   severity, and note counts use the same chips. ``completed`` displays
   as ``complete``.
-- HUD Timeline event detail steps with Previous / Next buttons and an
-  “n of m” count. Left and Right stay previous / next turn.
+- HUD Timeline event detail steps with Previous on the start edge and
+  Next on the end. Left and Right stay previous / next turn.
 - Stale analysis is a warning toast plus a short Report/Findings note
   (plain copy, yellow style). There is no full-width banner, and Rich
   tags no longer appear as literal ``[bold yellow]`` in Report.
@@ -44,8 +75,8 @@ is tagged.
   page, then appends the rest. Timeline search applies after a short
   idle. Live control refresh fetches only new events.
 - A Tail switch on a live Timeline follows the last event; off leaves
-  the highlight still. The HUD jumps to the last event page so a large
-  session is not stuck on the first window.
+  the highlight still. The word Tail toggles it. The HUD jumps to the
+  last event page so a large session is not stuck on the first window.
 - Session waits use the toolkit loading readout (Textual LoadingIndicator
   and widget loading; HUD indeterminate progress) instead of a lone
   sentence.

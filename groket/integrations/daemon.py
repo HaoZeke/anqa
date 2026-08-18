@@ -351,13 +351,13 @@ def apply_fs_catalog_events(
     cache: SessionCatalogCache,
     paths: list[str],
     roots: list[Path],
-) -> tuple[list[Path], list[Path]]:
+) -> tuple[list[Path], list[Path], dict[str, bool]]:
     """Patch dirty catalog rows after a coalesced filesystem watch fire.
 
     :param cache: Warm session catalog.
     :param paths: Absolute paths from the watch callback.
     :param roots: Catalog roots being watched.
-    :returns: ``(changed_sessions, notes_sessions)``.
+    :returns: ``(changed_sessions, notes_sessions, list_changed)``.
     """
     sessions = _session_dirs_from_event_paths(paths, roots=roots)
     notes_sessions = [
@@ -366,16 +366,17 @@ def apply_fs_catalog_events(
         if any(Path(p).name == "operator_notes.toml" for p in paths)
         or any("operator_notes.toml" in p for p in paths)
     ]
+    list_changed: dict[str, bool] = {}
     if sessions:
         try:
-            cache.refresh_rows(sessions)
+            _rows, list_changed = cache.refresh_rows(sessions)
         except Exception:
             logger.debug("catalog row refresh after FS event failed", exc_info=True)
             try:
                 cache.get(force=True)
             except Exception:
                 logger.debug("catalog force refresh after FS event failed", exc_info=True)
-    return sessions, notes_sessions
+    return sessions, notes_sessions, list_changed
 
 
 def _session_dirs_from_event_paths(
@@ -467,8 +468,11 @@ async def serve_control_forever(
     def _on_paths(paths: list[str]) -> None:
         sessions: list[Path] = []
         notes_sessions: list[Path] = []
+        list_changed: dict[str, bool] = {}
         if isinstance(cache, SessionCatalogCache):
-            sessions, notes_sessions = apply_fs_catalog_events(cache, paths, uniq_roots)
+            sessions, notes_sessions, list_changed = apply_fs_catalog_events(
+                cache, paths, uniq_roots
+            )
         else:
             sessions = _session_dirs_from_event_paths(paths, roots=uniq_roots)
             notes_sessions = [
@@ -487,7 +491,10 @@ async def serve_control_forever(
                         continue
                     seen.add(key)
                     try:
-                        await server.publish_session_changed(target)
+                        await server.publish_session_changed(
+                            target,
+                            list_changed=bool(list_changed.get(target.name, False)),
+                        )
                     except Exception:
                         logger.debug("publish session/changed failed", exc_info=True)
             for session in notes_sessions:

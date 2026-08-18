@@ -146,7 +146,7 @@ def test_catalog_list_for_rpc_delta_after_refresh(tmp_path: Path) -> None:
         json.dumps({"info": {"id": "one"}, "generated_title": "One updated"}),
         encoding="utf-8",
     )
-    cache.refresh_rows([one])
+    cache.refresh_rows([one])  # work row; status change expected
     delta = cache.list_for_rpc(since_revision=rev)
     assert delta["delta"] is True
     assert delta["unchanged"] is False

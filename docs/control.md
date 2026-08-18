@@ -109,7 +109,7 @@ Canonical store is `operator_notes.toml` (host sessions under
 | Method | When |
 |--------|------|
 | `session/selected` | After `session/open` |
-| `session/changed` | Session files or status changed |
+| `session/changed` | Session files or status changed. `listChanged` is false when only the trace grew. |
 | `notes/changed` | Notes written or deleted |
 | `analysis/changed` | Analysis job progressed |
 

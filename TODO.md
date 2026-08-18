@@ -13,21 +13,16 @@ that work ships (or when the changelog line is no longer true).
   bumps ``PROTOCOL_VERSION`` major. Runtime accepts the same major only.
   Add a frozen method/field inventory (or schema) that fails when the
   surface changes without a major bump.
-- HUD dropdowns use ``kit.compact_pick`` (12px type, tighter pad) because
-  icedtea ``themed_pick_list`` has no compact size. When the next icedtea
-  release exposes that size, call it from the HUD and delete the kit
-  wrapper.
-- HUD Diff Prompt/Assistant tabs are local compact buttons because icedtea
-  ``tab_bar`` is a pane strip (12px pad, app-bar wrapper). When icedtea
-  has a compact in-pane tab size, use that and delete ``diff_context_tab``.
-- HUD markdown uses iced ``markdown::view`` with META/TITLE sizes because
-  icedtea ``markdown_view`` paints H1 at PAGE (22) and body at BODY (14).
-  When icedtea accepts a compact type scale, call that and delete
-  ``hud_md_settings``.
-- HUD Turns uses a Diff text chip because icedtea ``Icon`` is a closed
-  set of seven names. When 0.9 lets an app pass its own SVG bytes, put
-  a Diff icon on that chip.
-
+- HUD Findings: when a session has no findings, paint an empty-state
+  line (the pane is a blank body).
+- HUD Overview footer: keep the shortcut hint row on one line (``notes``
+  wraps onto a second line).
+- HUD walkthrough: the turn-open click must expand the first Turns card
+  (it currently activates Timeline).
+- TUI extractable bodies: select text inside one pane with the mouse
+  (drag or select-all) and with the keyboard in sections, then copy.
+  Selection must stay in that pane. `y` after a click-the-whole-body
+  is not enough.
 ## Always on (`just ci` / `just lint`)
 
 - Keep **`just lint`** and **`just test`** green before commit.

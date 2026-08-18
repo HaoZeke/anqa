@@ -1142,10 +1142,20 @@ class ControlServer:
                 self._writer_framing.pop(writer, None)
                 writer.close()
 
-    async def publish_session_changed(self, session_dir: Path) -> None:
-        """Notify editor clients that a session projection changed."""
+    async def publish_session_changed(
+        self, session_dir: Path, *, list_changed: bool = True
+    ) -> None:
+        """Notify editor clients that a session projection changed.
+
+        :param list_changed: When false, catalog list fields are unchanged
+            (an ``updates.jsonl`` append). Clients tail the open timeline
+            and skip ``session/list`` / ``session/overview``.
+        """
         session = Path(session_dir)
-        await self.notify(NOTIFY_SESSION_CHANGED, {"sessionId": session.name})
+        await self.notify(
+            NOTIFY_SESSION_CHANGED,
+            {"sessionId": session.name, "listChanged": bool(list_changed)},
+        )
 
     async def publish_session_selected(
         self,

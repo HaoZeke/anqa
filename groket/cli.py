@@ -4,7 +4,7 @@ Default: interactive TUI. Optional path (``-P`` or leading argument) selects
 work root, traces tree, or session (default ``~/.groket/work``).
 
 Commands: ``serve`` (control owner), ``hud``, ``batch``, ``rules``, ``gen``,
-``doctor``, ``editor``, ``keys``.
+``doctor``, ``editor``, ``keys``, ``export-host``.
 
 Shell completion: ``uv run groket --install-completion``
 """
@@ -120,6 +120,7 @@ TOOL_COMMANDS = frozenset(
         "editor",
         "keys",
         "config",
+        "export-host",
     }
 )
 
@@ -912,6 +913,32 @@ def cmd_config_schema(
         typer.echo(text, nl=False)
     else:
         typer.echo(f"Wrote {out}")
+
+
+@app.command("export-host")
+def cmd_export_host(
+    out: Annotated[
+        Path,
+        typer.Option(
+            "-o",
+            "--out",
+            help="JSON path for the host catalog snapshot (summary + signals + tail status).",
+        ),
+    ],
+    host_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--host-root",
+            help="Override ~/.grok/sessions.",
+            show_default=False,
+        ),
+    ] = None,
+) -> None:
+    """Write the host catalog snapshot serve uses. Does not start serve."""
+    from .session.mtime_export import write_host_catalog_export
+
+    path = write_host_catalog_export(out, host_root=host_root)
+    typer.echo(str(path))
 
 
 @app.command("keys")

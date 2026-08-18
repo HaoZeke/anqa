@@ -3343,6 +3343,25 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
     )
 
 
+def test_load_host_list_meta_skips_events_and_title_infer(tmp_path: Path) -> None:
+    """Host catalog rows read summary + signals, not events.jsonl."""
+    from groket.parser import load_host_list_meta
+
+    sd = tmp_path / "host-sess"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"info":{"id":"host-sess"},"generated_title":"Hello","num_messages":4}',
+        encoding="utf-8",
+    )
+    (sd / "signals.json").write_text('{"toolCallCount":2}', encoding="utf-8")
+    (sd / "events.jsonl").write_text('{"type":"turn_started"}\n' * 4000, encoding="utf-8")
+    meta = load_host_list_meta(sd)
+    assert meta.origin == "host"
+    assert meta.title == "Hello"
+    assert meta.tool_call_count == 2
+    assert meta.num_events == 4
+
+
 def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     """Host list meta must not require events.jsonl (catalog speed)."""
     from groket.parser import load_session_meta_list

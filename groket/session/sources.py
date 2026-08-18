@@ -233,10 +233,11 @@ def _immediate_session_children(path: Path) -> list[Path]:
     return out
 
 
-def collect_host_session_dirs(root: Path) -> list[Path]:
-    """Host sessions: shallow children, or one level under encoded-cwd buckets.
+def list_host_session_dirs(root: Path) -> list[Path]:
+    """Host session dirs by tree shape: children or one encoded-cwd level.
 
-    Does not walk ``workspace`` / staging junk or recurse into a session.
+    Uses directory entries only (no ``summary.json`` read). Does not walk
+    ``workspace`` / staging junk or recurse into a session.
     """
     path = Path(root).expanduser()
     if not path.is_dir():
@@ -259,7 +260,12 @@ def collect_host_session_dirs(root: Path) -> list[Path]:
             continue
         if is_encoded_cwd_name(name):
             found.extend(_immediate_session_children(child))
-    return drop_subagent_sessions(found)
+    return found
+
+
+def collect_host_session_dirs(root: Path) -> list[Path]:
+    """Host sessions for the operator catalog (tree shape, then drop children)."""
+    return drop_subagent_sessions(list_host_session_dirs(root))
 
 
 def collect_session_dirs(
@@ -297,6 +303,7 @@ __all__ = [
     "classify_session_origin",
     "collect_host_session_dirs",
     "collect_session_dirs",
+    "list_host_session_dirs",
     "host_grok_sessions_root",
     "is_encoded_cwd_name",
     "session_dir_for_watch_path",

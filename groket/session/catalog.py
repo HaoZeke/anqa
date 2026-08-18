@@ -15,7 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..models import JsonObject, JsonValue, SessionMeta
-from ..parser import load_session_meta_list, session_trace_mtime
+from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
+from .mtime_export import default_host_catalog_cache, load_or_rebuild_host_catalog
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
@@ -142,7 +143,10 @@ def session_catalog_row(
     :returns: Wire row mapping, or None when meta cannot be loaded.
     """
     try:
-        meta = load_session_meta_list(session_dir, origin=origin)
+        if origin == ORIGIN_HOST:
+            meta = load_host_list_meta(session_dir)
+        else:
+            meta = load_session_meta_list(session_dir, origin=origin)
     except Exception:
         logger.debug("catalog meta failed for %s", session_dir, exc_info=True)
         return None
@@ -168,7 +172,7 @@ def session_catalog_row(
     return {
         "sessionId": session_id,
         "path": path_str,
-        "title": meta.title or "",
+        "title": (meta.title or "").strip(),
         "label": label if label is not None else meta.label,
         "model": meta.model_display,
         "status": meta.list_status_label(),
@@ -199,16 +203,19 @@ def list_session_catalog(
     traces_path: Path | None = None,
     include_host: bool | None = None,
     host_root: Path | None = None,
+    host_catalog_cache: Path | None = None,
 ) -> list[JsonObject]:
     """Scan catalog roots and return wire-shaped rows for ``session/list``.
 
-    Row meta loads are independent and I/O-bound; build them in a small
-    thread pool so hundreds of sessions stay under the HUD control timeout.
+    Work/eval rows load list-meta in a small thread pool. Host rows use
+    :func:`load_host_list_meta` (summary, signals, updates tail) and a
+    stamp-gated snapshot so a second list does not reopen those files.
 
     :param work_dir: Work root owning eval traces.
     :param traces_path: Optional traces path override.
     :param include_host: Host inclusion (True/False force; None = config pref).
     :param host_root: Optional host root override (tests).
+    :param host_catalog_cache: Optional host snapshot path (tests).
     :returns: Catalog rows sorted newest activity first (``sortEpoch`` desc).
     """
     roots = catalog_scan_roots(
@@ -217,20 +224,38 @@ def list_session_catalog(
         include_host=include_host,
         host_root=host_root,
     )
-    dirs = list(collect_session_dirs(roots))
-    if not dirs:
-        return []
-    # Cap workers: list meta is mostly sequential file reads; extra threads
-    # only fight the GIL and the disk on a large host catalog.
-    workers = min(4, max(1, len(dirs)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        built = list(
-            pool.map(
-                lambda item: session_catalog_row(item[0], origin=item[1]),
-                dirs,
+    work_roots = [root for root in roots if root.origin != ORIGIN_HOST]
+    host_paths = [root.path for root in roots if root.origin == ORIGIN_HOST]
+    work_dirs = list(collect_session_dirs(work_roots)) if work_roots else []
+    rows: list[JsonObject] = []
+    if work_dirs:
+        workers = min(4, max(1, len(work_dirs)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            built = list(
+                pool.map(
+                    lambda item: session_catalog_row(item[0], origin=item[1]),
+                    work_dirs,
+                )
+            )
+        rows.extend(row for row in built if row is not None)
+    seen_host: set[str] = set()
+    for hroot in host_paths:
+        key = str(hroot)
+        if key in seen_host:
+            continue
+        seen_host.add(key)
+        dest = (
+            host_catalog_cache
+            if host_catalog_cache is not None
+            else default_host_catalog_cache(hroot)
+        )
+        rows.extend(
+            load_or_rebuild_host_catalog(
+                hroot,
+                dest=dest,
+                build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_HOST),
             )
         )
-    rows = [row for row in built if row is not None]
     rows.sort(
         key=lambda r: (
             -catalog_row_sort_epoch(r),
@@ -238,6 +263,90 @@ def list_session_catalog(
         )
     )
     return rows
+
+
+# List-visible fields. Exclude ``sortEpoch`` / ``path`` so an ``updates.jsonl``
+# append that only moves mtime does not bump the catalog revision.
+_LIST_ROW_SIG_KEYS: tuple[str, ...] = (
+    "sessionId",
+    "title",
+    "label",
+    "model",
+    "status",
+    "outcome",
+    "origin",
+    "taskId",
+    "durationSeconds",
+    "numEvents",
+    "contextUsageCompact",
+    "contextWindowUsagePct",
+    "contextTokensUsed",
+    "contextWindowTokens",
+    "toolCallCount",
+    "turnCount",
+    "errorCount",
+    "createdAt",
+    "updatedAt",
+)
+
+
+def list_row_fingerprint(row: JsonObject) -> tuple[JsonValue, ...]:
+    """Stable identity of the fields a catalog client paints."""
+    return tuple(row.get(key) for key in _LIST_ROW_SIG_KEYS)
+
+
+def _keep_list_status(old: JsonObject, new: JsonObject) -> JsonObject:
+    """Keep ``complete`` when cheap host meta only has ``—``.
+
+    ``running`` must be allowed to become ``—`` after the stale window so
+    the HUD drops ``LIVE_POLL_MS``.
+    """
+    old_st = str(old.get("status") or "")
+    new_st = str(new.get("status") or "")
+    if new_st != "—" or old_st != "complete":
+        return new
+    kept = dict(new)
+    kept["status"] = "complete"
+    if old.get("outcome") not in (None, ""):
+        kept["outcome"] = old.get("outcome")
+    return kept
+
+
+def list_refresh_delta(
+    current: list[JsonObject],
+    replacements: dict[str, JsonObject],
+    appended: list[JsonObject],
+    drop: set[str],
+) -> tuple[list[JsonObject], list[str], dict[str, bool]]:
+    """Compare painted fields. Return upserts, removed ids, and per-id change flags."""
+    old_by_path = {str(row.get("path") or "").strip(): row for row in current}
+    upserts: list[JsonObject] = []
+    list_changed: dict[str, bool] = {}
+    for path, new in replacements.items():
+        old = old_by_path.get(path)
+        if old is not None:
+            new = _keep_list_status(old, new)
+            replacements[path] = new
+        sid = str(new.get("sessionId") or "").strip()
+        moved = old is None or list_row_fingerprint(old) != list_row_fingerprint(new)
+        if sid:
+            list_changed[sid] = moved
+        if moved:
+            upserts.append(new)
+    for new in appended:
+        sid = str(new.get("sessionId") or "").strip()
+        if sid:
+            list_changed[sid] = True
+        upserts.append(new)
+    removed_ids = [
+        str(row.get("sessionId") or "").strip()
+        for row in current
+        if str(row.get("path") or "").strip() in drop
+    ]
+    for sid in removed_ids:
+        if sid:
+            list_changed[sid] = True
+    return upserts, removed_ids, list_changed
 
 
 def _watch_session_hidden(session_dir: Path, child_ids: set[str]) -> bool:
@@ -536,7 +645,7 @@ class SessionCatalogCache:
                     return path
         return None
 
-    def refresh_rows(self, session_dirs: list[Path]) -> list[JsonObject]:
+    def refresh_rows(self, session_dirs: list[Path]) -> tuple[list[JsonObject], dict[str, bool]]:
         """Rebuild catalog rows for *session_dirs* without a full tree scan.
 
         Used on filesystem watches so a live ``updates.jsonl`` write updates
@@ -544,11 +653,12 @@ class SessionCatalogCache:
         are appended. Falls back to a full :meth:`get` when the cache is empty.
 
         :param session_dirs: Session directories that changed.
-        :returns: Updated catalog snapshot (newest-first).
+        :returns: Updated catalog snapshot (newest-first) and a map of
+            session id → whether painted list fields changed.
         """
         dirs = [Path(p).expanduser() for p in session_dirs if str(p).strip()]
         if not dirs:
-            return self.get()
+            return self.get(), {}
         with self._lock:
             if self._building or self._rows is None:
                 current = None
@@ -557,7 +667,7 @@ class SessionCatalogCache:
                 current = list(self._rows)
                 snap_rev = self._revision
         if current is None:
-            return self.get(force=True)
+            return self.get(force=True), {}
         work = (
             Path(self._traces_path).expanduser()
             if self._traces_path is not None
@@ -591,6 +701,9 @@ class SessionCatalogCache:
             else:
                 appended.append(row)
                 known_paths.add(resolved)
+        upserts, removed_ids, list_changed = list_refresh_delta(
+            current, replacements, appended, drop
+        )
         rows = [
             replacements.get(str(row.get("path") or "").strip(), row)
             for row in current
@@ -603,19 +716,14 @@ class SessionCatalogCache:
                 str(r.get("sessionId") or ""),
             )
         )
-        upserted = list(replacements.values()) + appended
-        removed_ids = [
-            str(row.get("sessionId") or "").strip()
-            for row in current
-            if str(row.get("path") or "").strip() in drop
-        ]
         with self._lock:
             if self._building or self._revision != snap_rev:
-                return list(self._rows or rows)
+                return list(self._rows or rows), list_changed
             self._rows = rows
             self._mono = self._time.monotonic()
-            self._bump_locked(upserted=upserted, removed=removed_ids)
-        return list(rows)
+            if upserts or removed_ids:
+                self._bump_locked(upserted=upserts, removed=removed_ids)
+        return list(rows), list_changed
 
     def drop_subagent_rows(self) -> list[JsonObject]:
         """Remove harness child sessions from the warm snapshot.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,6 +38,7 @@ def test_help_lists_main_commands() -> None:
     assert "editor" in out
     assert "config" in out
     assert "keys" in out
+    assert "export-host" in out
     assert "self-test" not in out
     assert "emacs-path" not in out or "editor" in out
     assert "generator" not in out
@@ -61,8 +63,32 @@ def test_tool_commands() -> None:
             "editor",
             "keys",
             "config",
+            "export-host",
         }
     )
+
+
+def test_export_host_writes_snapshot_without_serve(tmp_path: Path) -> None:
+    host = tmp_path / "host"
+    sess = host / "export-sess"
+    sess.mkdir(parents=True)
+    (sess / "summary.json").write_text(
+        '{"info":{"id":"export-sess"},"generated_title":"Exported","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sess / "signals.json").write_text("{}", encoding="utf-8")
+    (sess / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    dest = tmp_path / "out" / "host.json"
+    result = runner.invoke(
+        app,
+        ["export-host", "-o", str(dest), "--host-root", str(host)],
+    )
+    assert result.exit_code == 0, result.output
+    assert dest.is_file()
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    assert payload["sessions"][0]["sessionId"] == "export-sess"
+    assert payload["sessions"][0]["title"] == "Exported"
+    assert "serve" not in (result.output or "").lower()
 
 
 def test_serve_help_has_lifecycle_not_start() -> None:

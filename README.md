@@ -269,7 +269,11 @@ palette only. [Emacs](#emacs) and
 groket serve -d
 groket serve status
 groket serve stop
+groket export-host -o host-catalog.json
 ```
+
+`export-host` writes the host catalog snapshot serve uses (summary,
+signals, and list status from the updates tail). It does not start serve.
 
 Bare `groket` and `groket hud` detach-start serve when the socket is
 free (`--no-serve` attaches only). Quitting a client leaves serve

@@ -289,8 +289,15 @@ NOTIFICATIONS: tuple[NotificationSpec, ...] = (
     ),
     NotificationSpec(
         name=NOTIFY_SESSION_CHANGED,
-        when="Session files or status changed",
-        params=(_SESSION_ID,),
+        when="Session files or status changed. `listChanged` is false when only the trace grew.",
+        params=(
+            _SESSION_ID,
+            FieldSpec(
+                "listChanged",
+                "False when only the trace grew; catalog row fields are unchanged.",
+                json_type="boolean",
+            ),
+        ),
     ),
     NotificationSpec(
         name=NOTIFY_NOTES_CHANGED,
