@@ -1192,12 +1192,30 @@ async def test_browser_first_paint_defers_summary_and_report(tmp_path: Path) -> 
         assert turns.row_count == 0
         tl = screen.query_one("#timeline-list", TimelineTable)
         assert tl.row_count > 0
+        bar = screen.query_one("#filter-bar")
+        slot = screen.query_one("#timeline-tail-slot")
         tail = screen.query_one("#timeline-tail", Switch)
-        assert tail.display
+        label = screen.query_one("#timeline-tail-label", Static)
+        filt = screen.query_one("#filter-view-label", Static)
+        search = screen.query_one("#search-input", Input)
+        assert slot.display
+        assert label.display
+        assert "Tail" in static_plain(label)
         assert tail.value is False
-        tail.value = True
-        await pilot.pause()
-        assert screen._timeline_follow_tail() is True
+        shown = [c for c in bar.children if c.display]
+        assert shown[-2] is label
+        assert shown[-1] is slot
+        assert label.region.x > search.region.x
+        assert slot.region.x > label.region.x
+        assert label.region.y == filt.region.y
+        assert slot.region.y == filt.region.y
+        assert tail.region.center[1] == label.region.center[1]
+        await pilot.click("#timeline-tail-label")
+        await wait_until(
+            pilot,
+            lambda: screen._timeline_follow_tail() is True,
+            description="Tail label click turns the switch on",
+        )
 
         await _activate_tab(pilot, screen, "tab-summary")
         await wait_until(

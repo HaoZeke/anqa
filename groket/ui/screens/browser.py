@@ -18,6 +18,7 @@ from collections import Counter, defaultdict
 
 from rich.text import Text
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import Click
 from textual.timer import Timer
 from textual.widgets import (
     Button,
@@ -280,15 +281,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             )
                             turn_sel.display = False  # shown only when multi-turn
                             yield turn_sel
-                            tail_label = Static(t("ui-timeline-tail"), id="timeline-tail-label")
-                            tail_label.display = False
-                            yield tail_label
-                            tail = Switch(id="timeline-tail", value=False, animate=False)
-                            tail.display = False
-                            yield tail
                             yield Input(
                                 placeholder=U.search_events_placeholder(), id="search-input"
                             )
+                            tail_label = Static(t("ui-timeline-tail"), id="timeline-tail-label")
+                            tail_label.display = False
+                            yield tail_label
+                            with Vertical(id="timeline-tail-slot") as tail_slot:
+                                tail_slot.display = False
+                                yield Switch(
+                                    id="timeline-tail",
+                                    value=False,
+                                    animate=False,
+                                )
                         yield TimelineTable(id="timeline-list")
                     with Vertical(id="detail-column"):
                         yield DetailView(id="detail-panel")
@@ -2133,8 +2138,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _timeline_follow_tail(self) -> bool:
         """True when the live Tail switch is showing and on."""
         with suppress(Exception):
+            slot = self.query_one("#timeline-tail-slot", Vertical)
             box = self.query_one("#timeline-tail", Switch)
-            return bool(box.display and box.value)
+            return bool(slot.display and box.value)
         return False
 
     def _sync_timeline_tail_checkbox(self) -> None:
@@ -2143,12 +2149,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         with suppress(Exception):
             live = bool(self._session_is_pending() or self._session_needs_live_timeline())
         try:
-            box = self.query_one("#timeline-tail", Switch)
             label = self.query_one("#timeline-tail-label", Static)
+            slot = self.query_one("#timeline-tail-slot", Vertical)
+            box = self.query_one("#timeline-tail", Switch)
         except Exception:
             return
-        box.display = live
         label.display = live
+        slot.display = live
         if not live:
             box.value = False
 
@@ -3388,6 +3395,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             return
         tl.scroll_to_end()
+
+    @on(Click, "#timeline-tail-label")
+    def _on_timeline_tail_label_clicked(self, event: Click) -> None:
+        """The Tail word toggles the switch (same as clicking the slider)."""
+        event.stop()
+        try:
+            self.query_one("#timeline-tail", Switch).toggle()
+        except Exception:
+            return
 
     @on(Input.Changed, "#search-input")
     def _on_search_changed(self, event: Input.Changed) -> None:
