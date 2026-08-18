@@ -270,17 +270,7 @@ fn textual_tokens(name: &str) -> Tokens {
     );
     let panel = color_of(&colors, "panel", mix(text, canvas, 0.10));
     Tokens::from_aliases(
-        canvas,
-        canvas,
-        panel,
-        text,
-        muted,
-        primary,
-        accent,
-        success,
-        warning,
-        danger,
-        highlight,
+        canvas, canvas, panel, text, muted, primary, accent, success, warning, danger, highlight,
     )
 }
 
