@@ -9,6 +9,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from async_wait import wait_until
 
 
 def _short_sock(name: str) -> Path:
@@ -487,22 +488,42 @@ async def test_control_server_accepts_content_type_first_framing(tmp_path: Path)
 
 @pytest.mark.asyncio
 async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path) -> None:
+    """Accepted client with no first request must not receive session/changed."""
     control = import_module("groket.integrations.control")
     session_dir = tmp_path / "session-quiet"
     _write_session(session_dir)
     server = control.ControlServer(socket_path=_short_sock("quiet.sock"))
+    handler_entered = asyncio.Event()
+    orig_handle = server._handle_client
+
+    async def _track_handle(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        handler_entered.set()
+        await orig_handle(reader, writer)
+
+    server._handle_client = _track_handle  # type: ignore[method-assign]
     await server.start()
     try:
         reader, writer = await asyncio.open_unix_connection(server.socket_path)
-        # Connected but silent: no frame yet, so its framing is unknown and it
-        # must not receive broadcasts it may be unable to parse. Writers join
-        # the broadcast set only after the first full request completes.
-        assert writer not in server._writers
+        # Server-side handler is running and blocked on the first line; the
+        # peer is not in the broadcast set until a full request completes.
+        await wait_until(handler_entered.is_set, description="server accepted silent client")
+        assert len(server._writers) == 0
         await server.publish_session_changed(session_dir)
+        # No notify bytes on the silent stream before initialize.
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(reader.read(1), timeout=0.2)
         initialized = await _header_request(
             reader, writer, 1, "initialize", {"protocolVersion": "1.0.0"}
         )
         assert initialized["result"]["protocolVersion"] == control.PROTOCOL_VERSION
+        # After the first frame, the peer is eligible for later notifies.
+        await wait_until(
+            lambda: len(server._writers) == 1,
+            description="client joins broadcast set after initialize",
+        )
         writer.close()
         await writer.wait_closed()
     finally:
