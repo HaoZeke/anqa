@@ -117,3 +117,53 @@ Pattern: x
     panes = split_report_markdown_panes(md)
     assert any(p.startswith("What: only issue") for p in panes)
     assert any(p.startswith("## Issue 1:") for p in panes)
+
+
+def test_issue_box_keeps_nested_where_fences() -> None:
+    md = """## Issue 1: Pushed after keep-local
+
+### Form fields (copy line-by-line)
+
+```
+Model Name: grok-test
+Session ID: sess
+Severity: Major
+```
+
+### Issue (copy into the Issue box)
+
+````
+What did the model do?
+The model committed and pushed.
+
+Where do you see it?
+Turn 3. The model committed then pushed
+
+```bash
+git commit  # Fix dashboard auto-refresh
+```
+
+```bash
+git push origin feat/pack-reload
+```
+
+Why do you think the model did it?
+I think it treated show-me as publish.
+
+What should the model have done instead?
+Stay local and show the diff.
+
+What is the pattern you see?
+show-me becomes push
+````
+"""
+    panes = split_report_markdown_panes(md)
+    form = next(p for p in panes if p.startswith("Model Name:"))
+    box = next(p for p in panes if p.startswith("What did the model do?"))
+    assert "Severity: Major" in form
+    assert "Where do you see it?" in box
+    assert "```bash" in box
+    assert "git commit  # Fix dashboard auto-refresh" in box
+    assert "git push origin feat/pack-reload" in box
+    assert box.count("```") == 4
+    assert "Model Name:" not in box

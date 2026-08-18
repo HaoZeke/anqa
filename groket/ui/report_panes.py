@@ -12,16 +12,16 @@ import re
 # MF form drafts use fixed ### labels + fenced bodies (see mf_form_feedback).
 _FORM_FIELDS_FENCE = re.compile(
     r"^###\s+Form fields[^\n]*\n+"
-    r"```[^\n]*\n"
-    r"(.*?)"
-    r"\n```",
+    r"(?P<ticks>`{3,})[^\n]*\n"
+    r"(?P<body>.*?)"
+    r"\n(?P=ticks)[ \t]*$",
     re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
 _ISSUE_BOX_FENCE = re.compile(
     r"^###\s+Issue\s*\(copy[^\n]*\n+"
-    r"```[^\n]*\n"
-    r"(.*?)"
-    r"\n```",
+    r"(?P<ticks>`{3,})[^\n]*\n"
+    r"(?P<body>.*?)"
+    r"\n(?P=ticks)[ \t]*$",
     re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
 _H2_SPLIT = re.compile(r"(?=^## )", re.MULTILINE)
@@ -56,7 +56,7 @@ def _split_section_special_fences(section: str) -> list[str]:
     specials: list[tuple[int, int, str]] = []
     for pattern in (_FORM_FIELDS_FENCE, _ISSUE_BOX_FENCE):
         for m in pattern.finditer(section):
-            fence_body = (m.group(1) or "").strip()
+            fence_body = (m.group("body") or "").strip()
             if fence_body:
                 specials.append((m.start(), m.end(), fence_body))
     if not specials:
