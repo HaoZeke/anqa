@@ -429,7 +429,12 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(paths, "user_rules_dir", _subdir("rules"))
     monkeypatch.setattr(paths, "user_analysis_plugins_dir", _subdir("plugins"))
     monkeypatch.setattr(paths, "user_tasks_dir", _subdir("tasks"))
-    monkeypatch.setattr(paths, "analysis_cache_dir", _subdir("cache"))
+    cache_dir = _subdir("cache")
+    monkeypatch.setattr(paths, "analysis_cache_dir", cache_dir)
+    # mtime_export binds analysis_cache_dir at import; patch that name too.
+    import groket.session.mtime_export as mtime_export
+
+    monkeypatch.setattr(mtime_export, "analysis_cache_dir", cache_dir)
 
     def _mcp_registry_cache() -> _Path:
         d = app_home / "cache" / "mcp-registry"
