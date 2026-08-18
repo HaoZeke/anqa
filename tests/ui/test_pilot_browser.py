@@ -6,7 +6,6 @@ Synchronisation is condition-based (``wait_until``); see AGENTS.md §4.5c.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import threading
 from pathlib import Path
@@ -1295,8 +1294,11 @@ async def test_browser_search_debounce_applies_final_query(tmp_path: Path) -> No
             inp.value = needle
             screen._on_search_changed(Input.Changed(inp, needle))
         assert rebuilds["n"] == 0
-        await asyncio.sleep(0.35)
-        await pilot.pause()
+        await wait_until(
+            pilot,
+            lambda: rebuilds["n"] >= 1,
+            description="debounced timeline search rebuild",
+        )
         assert rebuilds["n"] == 1
         filtered = tl.row_count
         tl._refresh_rows = orig  # type: ignore[method-assign]

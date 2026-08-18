@@ -51,7 +51,7 @@ jobs:
   # Python: unit suite (Linux only).
   # ---------------------------------------------------------------------------
   test:
-    name: Test Python (scan=${{ matrix.scan }})
+    name: Test Python (${{ matrix.label }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -59,7 +59,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scan: ["0", "1"]
+        include:
+          - scan: "0"
+            label: pure Python
+          - scan: "1"
+            label: with native scan
     env:
       GROKET_SCAN: ${{ matrix.scan }}
     steps:
