@@ -215,6 +215,18 @@ mod tests {
         assert_eq!(Tab::Findings.label(), "Findings");
         assert_eq!(Tab::Notes.label(), "Notes");
         assert_eq!(Tab::ALL.len(), 6);
+        assert_eq!(Tab::ALL[3], Tab::Diff);
+        assert_eq!(Tab::ALL[4], Tab::Findings);
+        assert_eq!(Tab::ALL[5], Tab::Notes);
+        let walk =
+            include_str!("../../.grok/skills/hud-visual-walkthrough/scripts/hud_walkthrough.py");
+        assert!(
+            walk.contains("walk.key(\"ctrl+5\")"),
+            "Findings is pane 5 (Diff is 4)"
+        );
+        assert!(walk.contains("walk.key(\"ctrl+6\")"), "Notes is pane 6");
+        assert!(walk.contains("bracketleft"), "Timeline All turns is [");
+        assert!(!walk.contains("walk.key(\"ctrl+4\")"));
         assert_eq!(KindFilter::Tools.wire_name(), "tools");
         assert_eq!(KindFilter::All.wire_name(), "");
         assert_eq!(KindFilter::All.label(), "All events");

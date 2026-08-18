@@ -9,7 +9,103 @@ use serde_json::Value;
 use crate::format::BrandRole;
 
 pub use icedtea::theme::{mix, relative_luma, Tokens};
-use icedtea::variant::Variant;
+
+use icedtea::density::DensityName;
+use icedtea::m3::{ElevationPolicy, ShapePolicy};
+
+/// Live look knobs (same set as the icedtea gallery strip).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Look {
+    pub density: DensityName,
+    pub font_scale: f32,
+    pub shape: ShapePolicy,
+    pub elevation: ElevationPolicy,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Self {
+            density: DensityName::Default,
+            font_scale: 1.0,
+            shape: ShapePolicy::Desktop,
+            elevation: ElevationPolicy::Desktop,
+        }
+    }
+}
+
+impl Look {
+    pub fn density_label(self) -> &'static str {
+        match self.density {
+            DensityName::Compact => "Compact",
+            DensityName::Default => "Default",
+            DensityName::Comfortable => "Comfortable",
+        }
+    }
+
+    pub fn scale_label(self) -> &'static str {
+        match self.font_scale {
+            x if (x - 0.875).abs() < 0.01 => "90%",
+            x if (x - 1.125).abs() < 0.01 => "110%",
+            x if (x - 1.25).abs() < 0.01 => "125%",
+            _ => "100%",
+        }
+    }
+
+    pub fn shape_label(self) -> &'static str {
+        match self.shape {
+            ShapePolicy::Tight => "Tight",
+            ShapePolicy::Soft => "Soft",
+            ShapePolicy::Pill => "Pill",
+            ShapePolicy::Material => "Material",
+            ShapePolicy::Desktop => "Desktop",
+        }
+    }
+
+    pub fn elevation_label(self) -> &'static str {
+        match self.elevation {
+            ElevationPolicy::Flat => "Flat",
+            ElevationPolicy::Desktop => "Desktop",
+        }
+    }
+
+    pub fn with_density_label(mut self, name: &str) -> Self {
+        self.density = match name {
+            "Compact" => DensityName::Compact,
+            "Comfortable" => DensityName::Comfortable,
+            _ => DensityName::Default,
+        };
+        self
+    }
+
+    pub fn with_scale_label(mut self, name: &str) -> Self {
+        self.font_scale = match name {
+            "90%" => 0.875,
+            "110%" => 1.125,
+            "125%" => 1.25,
+            _ => 1.0,
+        };
+        self
+    }
+
+    pub fn with_shape_label(mut self, name: &str) -> Self {
+        self.shape = match name {
+            "Tight" => ShapePolicy::Tight,
+            "Soft" => ShapePolicy::Soft,
+            "Pill" => ShapePolicy::Pill,
+            "Material" => ShapePolicy::Material,
+            _ => ShapePolicy::Desktop,
+        };
+        self
+    }
+
+    pub fn with_elevation_label(mut self, name: &str) -> Self {
+        self.elevation = match name {
+            "Flat" => ElevationPolicy::Flat,
+            _ => ElevationPolicy::Desktop,
+        };
+        self
+    }
+}
 
 /// TUI brand hex (``COMPLETE`` / ``FAILED`` / ``RUNNING`` / ``CANCELLED`` / ``CREAM``).
 pub const BRAND_CREAM: Color = Color::from_rgb8(0xFB, 0xF1, 0xC7);
@@ -81,30 +177,6 @@ pub fn ink_on(ink: Color, canvas: Color) -> Color {
     best
 }
 
-fn wash_canvas(wash: Color, tok: Tokens) -> Color {
-    if wash.a < 0.08 {
-        tok.surface
-    } else {
-        wash
-    }
-}
-
-/// Wash + readable ink + outline for a HUD badge.
-///
-/// icedtea ``badge`` paints ``success``/``warning`` ink on a tinted wash of
-/// the same hue, which fails 4.5:1 (complete looks empty). Lift the ink.
-pub fn badge_face(tok: Tokens, variant: Variant) -> (Color, Color, iced::Border) {
-    let (wash, chip_ink, border) = icedtea::widget::chip_face(tok, variant);
-    let canvas = wash_canvas(wash, tok);
-    let ink = match variant {
-        Variant::Success => ink_on(tok.success, canvas),
-        Variant::Warning => ink_on(tok.warning, canvas),
-        Variant::Danger => ink_on(tok.danger, canvas),
-        _ => chip_ink,
-    };
-    (wash, ink, border)
-}
-
 fn parse_hex(s: &str) -> Option<Color> {
     let t = s.trim().trim_start_matches('#');
     if t.len() < 6 || !t.as_bytes()[..6].iter().all(|c| c.is_ascii_hexdigit()) {
@@ -145,15 +217,27 @@ pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: 
 }
 
 /// Tokens for ``theme`` in ``~/.groket/config.toml``.
+///
+/// Default density is pad and control height. Type scale is 1.0
+/// (Material body). The F12 Look drawer changes scale live.
 pub fn tokens(name: &str) -> Tokens {
+    tokens_with(name, Look::default())
+}
+
+/// Theme colors with live look knobs (density, type scale, shape, elevation).
+pub fn tokens_with(name: &str, look: Look) -> Tokens {
     let key = name.trim();
-    if catalog_colors(key).is_some() {
-        return textual_tokens(key);
-    }
-    if key.is_empty() {
-        return textual_tokens("textual-dark");
-    }
-    icedtea::theme::named(key).tokens
+    let tok = if catalog_colors(key).is_some() {
+        textual_tokens(key)
+    } else if key.is_empty() {
+        textual_tokens("textual-dark")
+    } else {
+        icedtea::theme::named(key).tokens
+    };
+    tok.with_density(icedtea::m3::Density::named(look.density))
+        .with_font_scale(look.font_scale)
+        .with_shape(look.shape)
+        .with_elevation(look.elevation)
 }
 
 fn textual_tokens(name: &str) -> Tokens {
@@ -185,29 +269,18 @@ fn textual_tokens(name: &str) -> Tokens {
         color_of(&colors, "error", Color::from_rgb8(185, 60, 91)),
     );
     let panel = color_of(&colors, "panel", mix(text, canvas, 0.10));
-    // 0.6 keeps `full` private. Start from the desktop pair, set catalog
-    // aliases, then `apply_os_chrome` rebuilds `scheme()` from those fields.
-    let mut tok = if relative_luma(canvas) < 0.45 {
-        icedtea::theme::named("dark").tokens
-    } else {
-        icedtea::theme::named("light").tokens
-    };
-    tok.accent = accent;
-    tok.success = success;
-    tok.warning = warning;
-    tok.danger = danger;
-    icedtea::theme::apply_os_chrome(
-        tok,
-        true,
-        icedtea::theme::OsChrome {
-            primary: Some(primary),
-            canvas: Some(canvas),
-            surface: Some(canvas),
-            panel: Some(panel),
-            text: Some(text),
-            muted: Some(muted),
-            border: Some(highlight),
-        },
+    Tokens::from_aliases(
+        canvas,
+        canvas,
+        panel,
+        text,
+        muted,
+        primary,
+        accent,
+        success,
+        warning,
+        danger,
+        highlight,
     )
 }
 
@@ -391,18 +464,64 @@ mod tests {
     }
 
     #[test]
-    fn badge_face_holds_contrast_on_its_wash() {
-        use icedtea::variant::Variant;
-        for name in ["dark", "light", "gruvbox", "solarized-light"] {
-            let tok = tokens(name);
-            for variant in [Variant::Success, Variant::Warning, Variant::Danger] {
-                let (wash, ink, _) = badge_face(tok, variant);
-                let canvas = if wash.a < 0.08 { tok.surface } else { wash };
-                assert!(
-                    contrast_ratio(ink, canvas) >= 4.5,
-                    "{name} {variant:?} ink on wash"
-                );
-            }
+    fn hud_tokens_use_default_density_and_type_steps_match_roles() {
+        let t = tokens("textual-dark");
+        assert_eq!(t.density.name, icedtea::m3::DensityName::Default);
+        assert!((t.font_scale - 1.0).abs() < f32::EPSILON);
+        let scale = t.font_scale;
+        let step = |role: icedtea::typo::TypeRole| (role.size() as f32 * scale).round();
+        assert_eq!(t.meta(), step(icedtea::typo::TypeRole::Meta));
+        assert_eq!(t.body(), step(icedtea::typo::TypeRole::Body));
+        assert_eq!(t.title(), step(icedtea::typo::TypeRole::Title));
+        assert_eq!(t.code(), step(icedtea::typo::TypeRole::Code));
+        assert_eq!(crate::live::diff_hunk_line_h(), t.code() * 1.3);
+    }
+
+    #[test]
+    fn painted_faces_use_token_type_steps() {
+        let view = include_str!("view.rs");
+        let kit = include_str!("kit.rs");
+        let app = include_str!("app.rs");
+        let prod_view = view.split("#[cfg(test)]").next().expect("view");
+        let prod_kit = kit.split("#[cfg(test)]").next().expect("kit");
+        let prod_app = app.split("#[cfg(test)]").next().expect("app");
+        for src in [prod_view, prod_kit] {
+            assert!(
+                !src.contains("typo::META")
+                    && !src.contains("typo::BODY")
+                    && !src.contains("typo::TITLE")
+                    && !src.contains("typo::CODE"),
+                "paint sizes must be Tokens type steps"
+            );
         }
+        assert!(prod_view.contains(".size(tea.meta())") || prod_view.contains(".size(tok.meta())"));
+        assert!(prod_view.contains(".size(tea.body())"));
+        assert!(prod_view.contains(".size(tea.title())"));
+        assert!(prod_app.contains("tokens(\"textual-dark\").body()"));
+    }
+
+    #[test]
+    fn look_knobs_match_gallery_steps() {
+        let d = Look::default();
+        assert_eq!(d.density_label(), "Default");
+        assert_eq!(d.scale_label(), "100%");
+        assert_eq!(d.shape_label(), "Desktop");
+        assert_eq!(d.elevation_label(), "Desktop");
+        assert_eq!(
+            tokens_with("textual-dark", d.with_density_label("Comfortable"))
+                .density
+                .name,
+            DensityName::Comfortable
+        );
+        let scaled = tokens_with("textual-dark", d.with_scale_label("100%"));
+        assert!((scaled.font_scale - 1.0).abs() < f32::EPSILON);
+        assert_eq!(
+            tokens_with("textual-dark", d.with_shape_label("Pill")).shape,
+            ShapePolicy::Pill
+        );
+        assert_eq!(
+            tokens_with("textual-dark", d.with_elevation_label("Flat")).elevation,
+            ElevationPolicy::Flat
+        );
     }
 }

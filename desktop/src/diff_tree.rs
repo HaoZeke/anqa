@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use icedtea::collection::TreeNode;
+use icedtea::collection::{RowSlot, TreeNode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffTreeRow {
@@ -142,6 +142,7 @@ pub fn file_tree(
                 expanded: !collapsed.contains(&id),
                 children: Vec::new(),
                 dir: true,
+                trailing: RowSlot::Empty,
             },
             DiffTreeKind::File => TreeNode::leaf(id, row.label),
         };

@@ -64,7 +64,7 @@ From the **groket** repo root:
 
 ```bash
 # Prefer a release HUD for less UI thrash under nested X:
-#   (cd groket-hud && cargo build --release)
+#   cargo build --release -p groket-hud
 
 python3 .grok/skills/hud-visual-walkthrough/scripts/hud_walkthrough.py \
   --session '<session-id-or-title-substring>' \
@@ -182,11 +182,11 @@ Paste a short summary into chat. Keep the full report on disk.
 | 03 | Select session (Enter) → Overview | `03-overview` | **A.6** field columns, F Overview |
 | 04 | Ctrl+2 Turns | `04-turns` | F Turns |
 | 05 | Expand first turn (click) | `05-turn-open` | E open density |
-| 06 | Ctrl+3 Events (**All turns**, before `]`) | `06-events` | **A B D F** filter + All turns honesty |
+| 06 | Ctrl+3 Timeline + `[` (**All turns**, before `]`) | `06-events` | **A B D F** filter + All turns honesty |
 | 06b | `]` first Events turn pick | `06b-events-turn-pick` | D type color/labels, G |
 | 06c | `]` next turn (if ≥2 turns) | `06c-next-turn` | G list updates |
-| 07 | Ctrl+4 Findings | `07-findings` | F |
-| 08 | Ctrl+5 Notes | `08-notes` | F |
+| 07 | Ctrl+5 Findings | `07-findings` | F |
+| 08 | Ctrl+6 Notes | `08-notes` | F |
 | 09 | Ctrl+1 Overview | `09-overview-return` | G |
 
 Step **06** is the primary Timeline honesty gate: do not treat it as a
@@ -205,4 +205,4 @@ frame must support that claim.
 
 - Rubric: `references/rubric.md`
 - Harness: `scripts/hud_walkthrough.py`
-- Product keys: `groket-hud/README.md`
+- Product keys: `desktop/README.md`

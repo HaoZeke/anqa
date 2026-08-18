@@ -25,15 +25,15 @@ pub const TIMELINE_PREVIEW_CHARS: u32 = 720;
 pub const TIMELINE_OPEN_CHARS: u32 = 50_000;
 /// Vertical gap after each virtual list card (must be inside row height —
 /// ``virtual_column`` clips each row to ``heights[i]``).
-pub const LIST_GAP: f32 = 4.0;
+pub const LIST_GAP: f32 = 8.0;
 /// Closed timeline card + gap. Type sits on the title row with ``#index``.
 /// pad×2 + title/chip row + face + inner gap + list gap (density 8 grid).
 /// Open event detail uses the full pane (not a taller virtual row).
-pub const TIMELINE_ROW_H: f32 = 92.0;
+pub const TIMELINE_ROW_H: f32 = 100.0;
 /// Extra mounted timeline cards beyond the viewport.
 pub const TIMELINE_OVERSCAN: usize = 1;
 /// Fixed Turns card + gap: title+chips, stats, 2-line prompt.
-pub const CLOSED_TURN_CARD_H: f32 = 136.0;
+pub const CLOSED_TURN_CARD_H: f32 = 144.0;
 /// Extra mounted turn cards beyond the viewport.
 pub const TURNS_OVERSCAN: usize = 1;
 /// Spotlight idle list: latest sessions by ``sort_epoch`` (not the full catalog).
@@ -138,7 +138,7 @@ fn wrap_line_count(s: &str, cols: usize) -> usize {
 }
 
 /// Gap under each Recent session card (included in row height).
-pub const LIST_CARD_GAP: f32 = 2.0;
+pub const LIST_CARD_GAP: f32 = 8.0;
 
 /// Pixel height of one session tile in the full-width picker.
 ///
@@ -149,9 +149,9 @@ pub const LIST_CARD_GAP: f32 = 2.0;
 pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     // Full-width picker (~780 shell − pad); ~7px at 14px body → ~90 cols.
     let cols = 72usize;
-    let mut h = 20.0;
+    let mut h = 24.0;
     h += wrap_line_count(title, cols) as f32 * 18.0;
-    h += 4.0 + 18.0;
+    h += 4.0 + 16.0;
     if !meta.is_empty() {
         h += 2.0 + wrap_line_count(meta, cols) as f32 * 16.0;
     }
@@ -178,12 +178,16 @@ pub fn list_scroll_to_cover(heights: &[f32], active: usize, scroll: f32, view_h:
     clamp_scroll(y, content, view_h)
 }
 
-/// Line height of a Diff hunk editor (`typo::CODE` 12 × iced default 1.3).
-pub const DIFF_HUNK_LINE_H: f32 = 15.6;
+/// Line height of a Diff hunk editor (token code size × iced default 1.3).
+pub fn diff_hunk_line_h() -> f32 {
+    crate::theme::tokens("textual-dark").code() * 1.3
+}
 
 /// Vertical offset so the Diff hunk scroll puts *hit_line* in view.
 pub fn diff_hunk_scroll_y(hit_line: Option<usize>) -> f32 {
-    hit_line.map(|i| i as f32 * DIFF_HUNK_LINE_H).unwrap_or(0.0)
+    hit_line
+        .map(|i| i as f32 * diff_hunk_line_h())
+        .unwrap_or(0.0)
 }
 
 /// Pin row top to the viewport top (expand / jump).
@@ -295,9 +299,28 @@ pub struct TickPlan {
     pub refresh_timeline: bool,
 }
 
+/// One drained control notify for [`plan_tick`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TickNotify {
+    pub method: String,
+    pub session_id: String,
+    /// ``session/changed.listChanged``; true when omitted (older owner).
+    pub list_changed: bool,
+}
+
+impl TickNotify {
+    pub fn new(method: impl Into<String>, session_id: impl Into<String>) -> Self {
+        Self {
+            method: method.into(),
+            session_id: session_id.into(),
+            list_changed: true,
+        }
+    }
+}
+
 /// Inputs for [`plan_tick`] (notify drain + live poll).
 pub struct TickInput<'a> {
-    pub notifies: &'a [(String, String)],
+    pub notifies: &'a [TickNotify],
     pub selected_sid: &'a str,
     pub overview_sid: &'a str,
     pub palette_live: bool,
@@ -313,16 +336,22 @@ pub struct TickInput<'a> {
 /// Coalesce notify + poll into at most one list fetch and one overview load.
 pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
     let mut plan = TickPlan::default();
-    for (method, sid) in input.notifies {
+    for note in input.notifies {
+        let sid = note.session_id.as_str();
         let open = !sid.is_empty() && sid == input.overview_sid;
-        if method == "session/changed" || method == "session/selected" {
-            plan.fetch_list = true;
+        if note.method == "session/changed" {
+            if sid.is_empty() || note.list_changed {
+                plan.fetch_list = true;
+            }
             if open {
-                plan.load_overview = true;
+                plan.refresh_timeline = true;
             }
         }
+        if note.method == "session/selected" {
+            plan.fetch_list = true;
+        }
         if open
-            && (method == "notes/changed" || method == "analysis/changed")
+            && (note.method == "notes/changed" || note.method == "analysis/changed")
             && !input.notes_locked
         {
             plan.load_overview = true;
@@ -339,11 +368,8 @@ pub fn plan_tick(input: TickInput<'_>) -> TickPlan {
     if input.catch_up || input.list_elapsed_ms >= interval {
         plan.fetch_list = true;
         // Only refresh an *open* session — never open one from a list highlight alone.
-        if input.selected_live && !input.overview_sid.is_empty() {
-            plan.load_overview = true;
-            if input.on_timeline {
-                plan.refresh_timeline = true;
-            }
+        if input.selected_live && !input.overview_sid.is_empty() && input.on_timeline {
+            plan.refresh_timeline = true;
         }
     }
     plan
@@ -1184,9 +1210,9 @@ mod tests {
     #[test]
     fn tick_plan_coalesces_session_changed_into_one_list_fetch() {
         let notifies = vec![
-            ("session/changed".into(), "a".into()),
-            ("session/changed".into(), "b".into()),
-            ("session/changed".into(), "a".into()),
+            TickNotify::new("session/changed", "a"),
+            TickNotify::new("session/changed", "b"),
+            TickNotify::new("session/changed", "a"),
         ];
         let plan = plan_tick(TickInput {
             notifies: &notifies,
@@ -1201,8 +1227,8 @@ mod tests {
             catch_up: false,
         });
         assert!(plan.fetch_list);
-        assert!(plan.load_overview);
-        assert!(!plan.refresh_timeline);
+        assert!(!plan.load_overview);
+        assert!(plan.refresh_timeline);
     }
 
     #[test]
@@ -1222,7 +1248,7 @@ mod tests {
 
     #[test]
     fn tick_plan_unfocused_still_fetches_on_session_changed() {
-        let notifies = vec![("session/changed".into(), "a".into())];
+        let notifies = vec![TickNotify::new("session/changed", "a")];
         let plan = plan_tick(TickInput {
             notifies: &notifies,
             selected_sid: "a",
@@ -1236,8 +1262,8 @@ mod tests {
             catch_up: false,
         });
         assert!(plan.fetch_list);
-        assert!(plan.load_overview);
-        assert!(!plan.refresh_timeline);
+        assert!(!plan.load_overview);
+        assert!(plan.refresh_timeline);
     }
 
     #[test]
@@ -1260,7 +1286,7 @@ mod tests {
 
     #[test]
     fn tick_plan_notify_does_not_open_from_list_highlight() {
-        let notifies = vec![("session/changed".into(), "a".into())];
+        let notifies = vec![TickNotify::new("session/changed", "a")];
         let plan = plan_tick(TickInput {
             notifies: &notifies,
             selected_sid: "a",
@@ -1278,6 +1304,7 @@ mod tests {
             !plan.load_overview,
             "session/changed on a Spotlight highlight must not open browse"
         );
+        assert!(!plan.refresh_timeline);
     }
 
     #[test]
@@ -1389,17 +1416,14 @@ mod tests {
         let long = session_card_height(&long_title, "12%", true);
         assert!(short >= 50.0, "{short}");
         assert!(long > short + 10.0, "short={short} long={long}");
-        assert!(
-            short >= LIST_CARD_GAP,
-            "card heights include list_view Card gap"
-        );
+        assert!(short >= LIST_CARD_GAP, "card heights include LIST_CARD_GAP");
     }
 
     #[test]
     fn diff_hunk_scroll_y_pins_the_hit_line() {
         assert_eq!(diff_hunk_scroll_y(None), 0.0);
         assert_eq!(diff_hunk_scroll_y(Some(0)), 0.0);
-        assert_eq!(diff_hunk_scroll_y(Some(10)), 10.0 * DIFF_HUNK_LINE_H);
+        assert_eq!(diff_hunk_scroll_y(Some(10)), 10.0 * diff_hunk_line_h());
     }
 
     #[test]
@@ -1619,8 +1643,51 @@ mod tests {
             catch_up: true,
         });
         assert!(plan.fetch_list);
-        assert!(plan.load_overview);
+        assert!(!plan.load_overview);
         assert!(!plan.refresh_timeline);
+    }
+
+    #[test]
+    fn tick_plan_append_without_list_change_tails_only() {
+        let notifies = vec![TickNotify {
+            method: "session/changed".into(),
+            session_id: "a".into(),
+            list_changed: false,
+        }];
+        let plan = plan_tick(TickInput {
+            notifies: &notifies,
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: true,
+            list_elapsed_ms: 0,
+            selected_live: true,
+            any_live: true,
+            on_timeline: true,
+            notes_locked: false,
+            catch_up: false,
+        });
+        assert!(!plan.fetch_list);
+        assert!(!plan.load_overview);
+        assert!(plan.refresh_timeline);
+    }
+
+    #[test]
+    fn tick_plan_live_poll_does_not_reload_overview() {
+        let plan = plan_tick(TickInput {
+            notifies: &[],
+            selected_sid: "a",
+            overview_sid: "a",
+            palette_live: true,
+            list_elapsed_ms: LIVE_POLL_MS,
+            selected_live: true,
+            any_live: true,
+            on_timeline: true,
+            notes_locked: false,
+            catch_up: false,
+        });
+        assert!(plan.fetch_list);
+        assert!(!plan.load_overview);
+        assert!(plan.refresh_timeline);
     }
 
     #[test]

@@ -17,8 +17,9 @@ use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
 use crate::format::{
-    control_down_message, event_body_text, extract_event, extract_turn, list_status_label,
-    new_note_id, tool_fields_from_raw,
+    control_down_message, event_body_text, extract_event, extract_turn, is_chat_message,
+    list_status_label, looks_like_markdown, message_markdown_source, new_note_id,
+    tool_fields_from_raw,
 };
 use crate::fuzzy::session_search_indices;
 use crate::live::{
@@ -28,12 +29,12 @@ use crate::live::{
     merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
     notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
     previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
-    session_row_meta, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
-    should_page_recent, spotlight_recent, timeline_coverage_complete, timeline_page_next,
-    timeline_range_label, timeline_window_start, trim_timeline_buffer, wants_periodic_poll,
-    CardMark, TickInput, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT,
-    SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
-    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
+    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
+    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
+    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
+    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT,
+    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
+    TIMELINE_ROW_H,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -167,6 +168,10 @@ pub enum Message {
     DiffTreeSelect(u64),
     DiffPointPicked(DiffPointPick),
     DiffContext(DiffContext),
+    MdPointer {
+        slot: usize,
+        ev: icedtea::select::MarkdownPointer,
+    },
     /// Turns card: open Diff on the snapshot for this prompt, if any.
     OpenTurnDiff {
         prompt_index: Option<i64>,
@@ -197,6 +202,12 @@ pub enum Message {
     FollowDone(Result<Value, String>),
     /// Toggle the keyboard-shortcut cheatsheet (`?`).
     ToggleHelp,
+    /// Hidden look drawer (F12). Gallery density / type / shape / elevation.
+    ToggleLook,
+    LookDensity(String),
+    LookScale(String),
+    LookShape(String),
+    LookElevation(String),
     /// Discard — close handlers and contribution-shaped tab chrome.
     Noop,
 }
@@ -305,7 +316,6 @@ pub struct Hud {
     list_window: icedtea::collection::VisibleWindow,
     list_scroll_id: Id,
     list_selection: icedtea::collection::Selection,
-    session_metas: Vec<String>,
     session_heights: Vec<f32>,
     tl_window: icedtea::collection::VisibleWindow,
     tl_heights: Vec<f32>,
@@ -357,6 +367,9 @@ pub struct Hud {
     follow_id: Id,
     timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
+    md_docs: HashMap<String, icedtea::widget::MarkdownDoc>,
+    md_sel: HashMap<String, icedtea::select::MarkdownSelect>,
+    md_ids: Vec<String>,
     /// Last selectable the pointer or keys touched.
     select_id: Option<String>,
     /// Selection snapshotted when the context menu opened.
@@ -369,6 +382,9 @@ pub struct Hud {
     pending_activation_token: Option<String>,
     /// `?` keyboard-shortcut cheatsheet is open.
     help_open: bool,
+    /// Hidden F12 look drawer (debug).
+    look_open: bool,
+    look: crate::theme::Look,
     /// Resolved keys.toml overlay (defaults when missing or refused).
     keys: crate::keys::KeyOverlay,
     /// Leader prefix is waiting for the next key.
@@ -453,7 +469,6 @@ impl Default for Hud {
             list_window: icedtea::collection::VisibleWindow::new(400.0),
             list_scroll_id: Id::new("hud-sessions"),
             list_selection: icedtea::collection::Selection::None,
-            session_metas: vec![],
             session_heights: vec![],
             tl_window: icedtea::collection::VisibleWindow::new(400.0),
             tl_heights: vec![],
@@ -503,6 +518,9 @@ impl Default for Hud {
             follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
+            md_docs: HashMap::new(),
+            md_sel: HashMap::new(),
+            md_ids: Vec::new(),
             select_id: None,
             context_sel: None,
             key_mods: KeyMods::empty(),
@@ -517,6 +535,8 @@ impl Default for Hud {
             },
             pending_activation_token: None,
             help_open: false,
+            look_open: false,
+            look: crate::theme::Look::default(),
             keys: crate::keys::KeyOverlay::default(),
             leader_armed: false,
             leader_until: None,
@@ -562,7 +582,8 @@ fn write_os_clipboard(text: &str) {
 fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
     prep.window.icon = crate::brand::window_icon();
     prep.iced_settings.default_font = icedtea::typo::UI;
-    prep.iced_settings.default_text_size = Pixels::from(icedtea::typo::BODY);
+    prep.iced_settings.default_text_size =
+        Pixels::from(crate::theme::tokens("textual-dark").body());
 }
 
 fn overlay_prepared() -> icedtea::app::Prepared {
@@ -1198,6 +1219,10 @@ impl Hud {
                 self.select_id = Some(id);
                 Task::none()
             }
+            Message::MdPointer { slot, ev } => {
+                self.apply_md_pointer(slot, ev);
+                Task::none()
+            }
             Message::ToastDismiss(id) => {
                 self.toasts.dismiss(id);
                 Task::none()
@@ -1299,14 +1324,7 @@ impl Hud {
                         };
                         patch_list_row_from_meta(&mut self.all_sessions, &sid, &ov.meta);
                         patch_list_row_from_meta(&mut self.sessions, &sid, &ov.meta);
-                        // Always paint footer identity (quiet ticks must not leave a
-                        // stale session id while body shows another overview).
-                        let st = ov.meta.status_label();
-                        self.status = if st.is_empty() {
-                            sid.clone()
-                        } else {
-                            format!("{sid} · {st}")
-                        };
+                        self.clear_footer_identity();
                         self.overview = Some(ov);
                         self.overview_sid = sid.clone();
                         self.overview_pending.clear();
@@ -1576,6 +1594,27 @@ impl Hud {
                 self.context = None;
                 Task::none()
             }
+            Message::ToggleLook => {
+                self.look_open = !self.look_open;
+                self.context = None;
+                Task::none()
+            }
+            Message::LookDensity(name) => {
+                self.look = self.look.with_density_label(&name);
+                Task::none()
+            }
+            Message::LookScale(name) => {
+                self.look = self.look.with_scale_label(&name);
+                Task::none()
+            }
+            Message::LookShape(name) => {
+                self.look = self.look.with_shape_label(&name);
+                Task::none()
+            }
+            Message::LookElevation(name) => {
+                self.look = self.look.with_elevation_label(&name);
+                Task::none()
+            }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
             Message::Summon(req) => self.on_summon(req),
@@ -1786,15 +1825,73 @@ impl Hud {
         self.fields.ensure(id, src);
     }
 
+    fn bind_markdown(&mut self, id: impl Into<String>, src: &str) {
+        if src.trim().is_empty() {
+            return;
+        }
+        let id = id.into();
+        let painted = message_markdown_source(src);
+        self.bind_field(&id, &painted);
+        let doc = icedtea::widget::parse(&painted);
+        if self
+            .md_docs
+            .get(&id)
+            .is_some_and(|old| old.hash == doc.hash)
+        {
+            return;
+        }
+        self.md_docs.insert(id.clone(), doc);
+        self.md_sel.remove(&id);
+        if !self.md_ids.iter().any(|s| s == &id) {
+            self.md_ids.push(id);
+        }
+    }
+
+    pub fn markdown(&self, id: &str) -> Option<&icedtea::widget::MarkdownDoc> {
+        self.md_docs.get(id)
+    }
+
+    pub fn markdown_span(&self, id: &str) -> Option<&icedtea::select::MarkdownSpan> {
+        self.md_sel.get(id).map(|s| &s.span)
+    }
+
+    pub fn markdown_slot(&self, id: &str) -> Option<usize> {
+        self.md_ids.iter().position(|s| s == id)
+    }
+
+    fn apply_md_pointer(&mut self, slot: usize, ev: icedtea::select::MarkdownPointer) {
+        let Some(id) = self.md_ids.get(slot).cloned() else {
+            return;
+        };
+        let Some(doc) = self.md_docs.get(&id) else {
+            return;
+        };
+        let prev = self.md_sel.get(&id).copied().unwrap_or_default();
+        let next = icedtea::select::markdown_select(&doc.items, prev, ev, self.tokens());
+        self.md_sel.insert(id.clone(), next);
+        self.select_id = Some(id);
+    }
+
+    fn clear_footer_identity(&mut self) {
+        let s = self.status.trim();
+        if s.is_empty() {
+            return;
+        }
+        if self
+            .all_sessions
+            .iter()
+            .any(|r| s == r.session_id.as_str() || s.starts_with(&format!("{} · ", r.session_id)))
+        {
+            self.status.clear();
+        }
+    }
+
     fn unbind_event_fields(&mut self, index: i64) {
         let prefix = format!("event.{index}");
-        self.fields.retain(|id| {
-            if id == prefix.as_str() {
-                return false;
-            }
-            let dot = format!("{prefix}.");
-            !id.starts_with(&dot)
-        });
+        let drop = |id: &str| id == prefix.as_str() || id.starts_with(&format!("{prefix}."));
+        self.fields.retain(|id| !drop(id));
+        self.md_docs.retain(|id, _| !drop(id));
+        self.md_sel.retain(|id, _| !drop(id));
     }
 
     fn rebuild_turns_filter(&mut self) {
@@ -1862,7 +1959,12 @@ impl Hud {
         let src = event_body_text(&self.timeline[pos]);
         if !src.is_empty() {
             keep.insert(body_id.clone());
-            self.bind_extract_text(ExtractKey::Event(index), &Self::bind_display(&src));
+            let ev = &self.timeline[pos];
+            if is_chat_message(&ev.kind, &ev.event_type) {
+                self.bind_markdown(&body_id, &src);
+            } else {
+                self.bind_extract_text(ExtractKey::Event(index), &Self::bind_display(&src));
+            }
         }
         let call_pos = {
             let ev = &self.timeline[pos];
@@ -1945,6 +2047,14 @@ impl Hud {
                 true
             }
         });
+        self.md_docs.retain(|id, _| {
+            if id == prefix.as_str() || id.starts_with(&prefix_dot) {
+                keep.contains(id)
+            } else {
+                true
+            }
+        });
+        self.md_sel.retain(|id, _| self.md_docs.contains_key(id));
     }
 
     fn bind_turn_extracts(&mut self) {
@@ -1989,19 +2099,27 @@ impl Hud {
             .map(|n| (n.id.clone(), crate::format::note_fields_view(&n.fields).1))
             .collect();
         if !summary.is_empty() {
-            self.bind_field("overview.summary", &summary);
+            if looks_like_markdown(&summary) {
+                self.bind_markdown("overview.summary", &summary);
+            } else {
+                self.bind_field("overview.summary", &summary);
+            }
         }
         for (i, prompt, asst) in turns {
             if !prompt.is_empty() {
-                self.bind_field(format!("turn.{i}.prompt"), &prompt);
+                self.bind_markdown(format!("turn.{i}.prompt"), &prompt);
             }
             if !asst.is_empty() {
-                self.bind_field(format!("turn.{i}.assistant"), &asst);
+                self.bind_markdown(format!("turn.{i}.assistant"), &asst);
             }
         }
         for (id, body) in findings {
             if !body.is_empty() {
-                self.bind_field(format!("finding.{id}"), &body);
+                if looks_like_markdown(&body) {
+                    self.bind_markdown(format!("finding.{id}"), &body);
+                } else {
+                    self.bind_field(format!("finding.{id}"), &body);
+                }
             }
         }
         for (id, body) in notes {
@@ -2019,10 +2137,10 @@ impl Hud {
         let prompt = point.prompt.clone();
         let assistant = point.assistant.clone();
         if !prompt.is_empty() {
-            self.bind_field("diff.prompt", &prompt);
+            self.bind_markdown("diff.prompt", &prompt);
         }
         if !assistant.is_empty() {
-            self.bind_field("diff.assistant", &assistant);
+            self.bind_markdown("diff.assistant", &assistant);
         }
         let hunk = self.diff_hunk_display();
         if !hunk.trim().is_empty() {
@@ -2137,6 +2255,12 @@ impl Hud {
         let Some(id) = self.select_target_id() else {
             return Task::none();
         };
+        if let Some(doc) = self.md_docs.get(&id) {
+            self.md_sel
+                .insert(id.clone(), icedtea::select::markdown_select_all(&doc.items));
+            self.select_id = Some(id);
+            return Task::none();
+        }
         self.fields
             .perform(&id, iced::widget::text_editor::Action::SelectAll);
         self.select_id = Some(id);
@@ -2154,19 +2278,34 @@ impl Hud {
                 }
             }
         }
+        if let Some(id) = self.select_id.as_deref() {
+            if let (Some(doc), Some(sel)) = (self.md_docs.get(id), self.md_sel.get(id)) {
+                let span = sel.span.text(&doc.items);
+                if !span.trim().is_empty() {
+                    return span;
+                }
+            }
+        }
         if let Some(sel) = self.fields.first_selection() {
             if !sel.trim().is_empty() {
                 return sel;
             }
         }
+        if let Some(id) = self.select_target_id() {
+            let body = self.fields.copy(&id);
+            if !body.trim().is_empty() {
+                return body;
+            }
+        }
         match self.tab {
             Tab::Timeline => self
-                .timeline_focus
+                .timeline_open
+                .or(self.timeline_focus)
                 .and_then(|ix| self.timeline.iter().find(|e| e.index == ix))
                 .map(extract_event)
                 .filter(|s| !s.trim().is_empty())
                 .or_else(|| {
-                    self.timeline_focus.and_then(|ix| {
+                    self.timeline_open.or(self.timeline_focus).and_then(|ix| {
                         self.field(&format!("event.{ix}.out"))
                             .map(|c| c.text())
                             .filter(|s| !s.trim().is_empty())
@@ -2251,9 +2390,19 @@ impl Hud {
         if let Some(spec) = icedtea::shortcut::Shortcut::parse("ctrl+a") {
             all = all.with_shortcut(spec);
         }
-        let mut path = icedtea::action::Action::new("session.copy", "Copy path", Message::CopyPath);
-        path.enabled = !self.session_path().is_empty();
-        vec![copy, all, path]
+        let mut acts = vec![copy, all];
+        if self.show_copy_path() {
+            let mut path =
+                icedtea::action::Action::new("session.copy", "Copy path", Message::CopyPath);
+            path.enabled = !self.session_path().is_empty();
+            acts.push(path);
+        }
+        acts
+    }
+
+    /// Session folder path — picker and Overview only, not event bodies.
+    fn show_copy_path(&self) -> bool {
+        self.in_session_picker() || (self.browse_mode() && self.tab == Tab::Overview)
     }
 
     fn on_cursor(&mut self, ev: icedtea::layout::CursorEvent) -> Task<Message> {
@@ -2300,8 +2449,17 @@ impl Hud {
     pub fn theme_name(&self) -> &str {
         &self.theme_name
     }
+    pub fn look_open(&self) -> bool {
+        self.look_open
+    }
+
+    pub fn look(&self) -> crate::theme::Look {
+        self.look
+    }
+
     pub fn tokens(&self) -> icedtea::theme::Tokens {
-        let tok = crate::theme::tokens(&self.theme_name).with_reduced_motion(self.reduced_motion);
+        let tok = crate::theme::tokens_with(&self.theme_name, self.look)
+            .with_reduced_motion(self.reduced_motion);
         let t = icedtea::motion::visual(self.overlay_progress(), tok.reduced_motion);
         tok.fade(t)
     }
@@ -2885,7 +3043,6 @@ impl Hud {
     }
 
     fn refresh_session_rows(&mut self) {
-        self.session_metas = self.sessions().iter().map(session_row_meta).collect();
         self.session_heights = (0..self.sessions().len())
             .map(|i| self.compute_session_height(i))
             .collect();
@@ -2899,7 +3056,7 @@ impl Hud {
             self.list_window.scroll,
             view_h,
         );
-        // list_view virtual_clip reads VisibleWindow.scroll; no iced scrollable.
+        // virtual_column reads VisibleWindow.scroll; no iced scrollable.
         self.list_window.scroll = y;
         Task::none()
     }
@@ -4446,7 +4603,7 @@ impl Hud {
         } else {
             vec![]
         };
-        let notify_pairs: Vec<(String, String)> = notifies
+        let notify_pairs: Vec<crate::live::TickNotify> = notifies
             .iter()
             .map(|(method, params)| {
                 let sid = params
@@ -4454,7 +4611,15 @@ impl Hud {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                (method.clone(), sid)
+                let list_changed = params
+                    .get("listChanged")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                crate::live::TickNotify {
+                    method: method.clone(),
+                    session_id: sid,
+                    list_changed,
+                }
             })
             .collect();
         for (method, params) in &notifies {
@@ -4623,6 +4788,10 @@ impl Hud {
             self.help_open = false;
             return Task::none();
         }
+        if self.look_open {
+            self.look_open = false;
+            return Task::none();
+        }
         if self.context.take().is_some() {
             self.context_sel = None;
             return Task::none();
@@ -4721,6 +4890,9 @@ impl Hud {
                 return Task::none();
             }
             return self.on_escape();
+        }
+        if matches!(key, Key::Named(Named::F12)) {
+            return self.update(Message::ToggleLook);
         }
         if self.help_open {
             return Task::none();
@@ -5176,37 +5348,6 @@ impl Hud {
             }
             Tab::Diff | Tab::Findings | Tab::Notes => Task::none(),
         }
-    }
-}
-
-impl icedtea::collection::ListModel for Hud {
-    fn len(&self) -> usize {
-        self.sessions().len()
-    }
-
-    fn id(&self, index: usize) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.sessions()
-            .get(index)
-            .map(|r| r.session_id.as_str())
-            .unwrap_or("")
-            .hash(&mut h);
-        h.finish()
-    }
-
-    fn title(&self, index: usize) -> &str {
-        self.sessions()
-            .get(index)
-            .map(SessionRow::display_title)
-            .unwrap_or("")
-    }
-
-    fn meta(&self, index: usize) -> Option<&str> {
-        self.session_metas
-            .get(index)
-            .map(String::as_str)
-            .filter(|s| !s.is_empty())
     }
 }
 
@@ -5909,6 +6050,36 @@ mod tests {
     }
 
     #[test]
+    fn f12_toggles_the_look_drawer() {
+        let mut hud = Hud::default();
+        assert!(!hud.look_open());
+        let _ = hud.on_key(Key::Named(Named::F12), KeyMods::empty());
+        assert!(hud.look_open());
+        let _ = hud.on_key(Key::Named(Named::Escape), KeyMods::empty());
+        assert!(!hud.look_open());
+    }
+
+    #[test]
+    fn look_picks_change_live_tokens() {
+        let mut hud = Hud::default();
+        assert_eq!(
+            hud.tokens().density.name,
+            icedtea::density::DensityName::Default
+        );
+        let _ = hud.update(Message::LookDensity("Comfortable".into()));
+        assert_eq!(
+            hud.tokens().density.name,
+            icedtea::density::DensityName::Comfortable
+        );
+        let _ = hud.update(Message::LookScale("110%".into()));
+        assert_eq!(hud.tokens().body(), 16.0);
+        let _ = hud.update(Message::LookShape("Pill".into()));
+        assert_eq!(hud.tokens().shape, icedtea::m3::ShapePolicy::Pill);
+        let _ = hud.update(Message::LookElevation("Flat".into()));
+        assert_eq!(hud.tokens().elevation, icedtea::m3::ElevationPolicy::Flat);
+    }
+
+    #[test]
     fn on_key_question_opens_help_and_blocks_nav() {
         use iced::keyboard::{key::Named, Key, Modifiers};
         let mut hud = Hud {
@@ -6206,9 +6377,7 @@ mod tests {
         assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT);
         // Newest first.
         assert_eq!(hud.sessions()[0].session_id, "s19");
-        use icedtea::collection::ListModel;
-        assert_eq!(hud.len(), SPOTLIGHT_RECENT);
-        assert_eq!(hud.title(0), "Session 19");
+        assert_eq!(hud.sessions()[0].title, "Session 19");
     }
 
     #[test]
@@ -6281,7 +6450,7 @@ mod tests {
     }
 
     #[test]
-    fn ranking_fills_card_heights_for_list_view() {
+    fn ranking_fills_card_heights() {
         let mut hud = Hud {
             all_sessions: vec![SessionRow {
                 session_id: "a".into(),
@@ -6568,6 +6737,16 @@ mod tests {
         assert!(
             interesting_hud_event(slash, event::Status::Ignored, window::Id::unique()).is_some(),
             "unfocused / still focuses the pane search"
+        );
+    }
+
+    #[test]
+    fn overlay_tokens_use_theme_density() {
+        let hud = Hud::default();
+        assert_eq!(hud.tokens().density.name, icedtea::m3::DensityName::Default);
+        assert_eq!(
+            hud.tokens().density.name,
+            crate::theme::tokens(hud.theme_name()).density.name
         );
     }
 
@@ -7087,8 +7266,8 @@ mod tests {
         });
         assert_eq!(hud.overview_sid, "disk");
         assert!(
-            hud.status.starts_with("disk"),
-            "quiet load must still set footer status: {}",
+            !hud.status.starts_with("disk"),
+            "footer must not show session id or state: {}",
             hud.status
         );
         assert_eq!(hud.selected_sid().as_deref(), Some("disk"));
@@ -8199,7 +8378,7 @@ mod tests {
         );
         assert_eq!(
             crate::live::diff_hunk_scroll_y(hud.diff_hit_line()),
-            crate::live::DIFF_HUNK_LINE_H * hud.diff_hit_line().unwrap() as f32
+            crate::live::diff_hunk_line_h() * hud.diff_hit_line().unwrap() as f32
         );
         let scope = hud.key_scope();
         assert_eq!(scope.tab, Tab::Diff);
@@ -8274,7 +8453,7 @@ mod tests {
         assert_eq!(hud.diff_hit_line(), Some(5));
         assert_eq!(
             crate::live::diff_hunk_scroll_y(hud.diff_hit_line()),
-            5.0 * crate::live::DIFF_HUNK_LINE_H
+            5.0 * crate::live::diff_hunk_line_h()
         );
         let hunk = hud
             .field("diff.hunk")
@@ -8405,6 +8584,15 @@ mod tests {
         assert_eq!(hud.diff_context(), crate::model::DiffContext::Prompt);
         let _ = hud.update(Message::DiffContext(crate::model::DiffContext::Assistant));
         assert_eq!(hud.diff_context(), crate::model::DiffContext::Assistant);
+    }
+
+    #[test]
+    fn diff_assistant_binds_as_markdown() {
+        let mut hud = Hud::default();
+        hud.bind_markdown("diff.assistant", "# Done\n\n**bold** list:\n\n- a\n- b");
+        assert!(hud.markdown("diff.assistant").is_some());
+        assert!(hud.markdown_slot("diff.assistant").is_some());
+        assert!(!hud.markdown("diff.assistant").unwrap().items.is_empty());
     }
 
     #[test]
@@ -8756,6 +8944,41 @@ mod tests {
             .find(|a| a.id.as_str() == "edit.copy")
             .expect("copy");
         assert!(copy.enabled);
+    }
+
+    #[test]
+    fn left_click_clears_the_range_before_context_copy() {
+        let mut hud = Hud::default();
+        hud.bind_field("event.3.out", "alpha beta gamma");
+        let _ = hud.update(Message::Select {
+            id: "event.3.out".into(),
+            action: iced::widget::text_editor::Action::SelectAll,
+        });
+        assert!(hud.fields.first_selection().is_some());
+        let _ = hud.update(Message::Select {
+            id: "event.3.out".into(),
+            action: iced::widget::text_editor::Action::Click(Point::new(4.0, 0.0)),
+        });
+        assert!(
+            hud.fields.first_selection().is_none(),
+            "left Click is a caret; iced never sends Click for a right press"
+        );
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Context));
+        // No live range: Copy uses the bound field (full text).
+        assert_eq!(hud.copyable_text().trim(), "alpha beta gamma");
+    }
+
+    #[test]
+    fn timeline_detail_context_omits_copy_path() {
+        let mut hud = Hud {
+            overview: Some(Overview::default()),
+            tab: Tab::Timeline,
+            timeline_open: Some(3),
+            ..Hud::default()
+        };
+        hud.bind_field("event.3.out", "body");
+        let titles: Vec<String> = hud.context_actions().into_iter().map(|a| a.title).collect();
+        assert_eq!(titles, ["Copy", "Select all"]);
     }
 
     #[test]

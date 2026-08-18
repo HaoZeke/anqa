@@ -414,6 +414,10 @@ class WalkEnv:
             self.env["GROKET_HUD_WINDOW"] = "1"
         else:
             self.env.pop("GROKET_HUD_WINDOW", None)
+        # Do not steal the host HUD's summon socket (bare start exits 0).
+        runtime = Path(self.env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+        self.env["GROKET_HUD_SUMMON_SOCKET"] = str(runtime / "groket" / "hud-walk-summon.sock")
+        self.env["GROKET_CONTROL_SOCKET"] = str(resolve_socket())
         self.hud_proc: subprocess.Popen[bytes] | None = None
         self._cached_wid: str | None = None
         self._cached_geom: tuple[int, int, int, int] | None = None
@@ -676,7 +680,7 @@ class WalkEnv:
     def start_hud(self, *, rebuild: bool) -> None:
         """Always start a fresh HUD on this DISPLAY — never reuse the host HUD."""
         # Prefer release for latency walks; fall back to debug, then groket hud.
-        root = _repo_root() / "groket-hud" / "target"
+        root = _repo_root() / "target"
         release = root / "release" / "groket-hud"
         debug = root / "debug" / "groket-hud"
         if release.is_file():
@@ -997,12 +1001,18 @@ def main() -> int:
         walk.xdotool("click", "1", timeout=2.0)
 
     def expand_first_turn() -> None:
-        # First closed card header in the turns scroll (~right of rail, below tabs).
-        click_win(420, 150)
+        # First closed card body, below the tab strip + search (not the tab labels).
+        click_win(420, 210)
 
     step("04-turns", "Ctrl+2 Turns", lambda: walk.key("ctrl+2"))
     step("05-turn-open", "click first closed turn expander", expand_first_turn)
-    step("06-events", "Ctrl+3 Events", lambda: walk.key("ctrl+3"))
+
+    def events_all_turns() -> None:
+        walk.key("ctrl+3")
+        # Timeline `[` is All turns (HUD pane 3; `]` is next turn).
+        walk.key("bracketleft")
+
+    step("06-events", "Ctrl+3 Timeline + [ All turns", events_all_turns)
     step(
         "06b-events-turn-pick",
         "Events turn pick first (])",
@@ -1027,8 +1037,8 @@ def main() -> int:
                 "skipped": True,
             }
         )
-    step("07-findings", "Ctrl+4 Findings", lambda: walk.key("ctrl+4"))
-    step("08-notes", "Ctrl+5 Notes", lambda: walk.key("ctrl+5"))
+    step("07-findings", "Ctrl+5 Findings", lambda: walk.key("ctrl+5"))
+    step("08-notes", "Ctrl+6 Notes", lambda: walk.key("ctrl+6"))
     step("09-overview-return", "Ctrl+1 Overview", lambda: walk.key("ctrl+1"))
 
     # Pane shots should not all be bit-identical (keys landed).
@@ -1063,9 +1073,7 @@ def main() -> int:
         "list_ms": round(t_list["ms"], 2),
         "branch": _run(["git", "-C", str(root), "branch", "--show-current"]).stdout.strip(),
         "identical_pane_frames": identical_panes,
-        "binary": "release"
-        if (root / "groket-hud" / "target" / "release" / "groket-hud").is_file()
-        else "debug",
+        "binary": "release" if (root / "target" / "release" / "groket-hud").is_file() else "debug",
     }
     (out / "timings.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     with (out / "steps.jsonl").open("w", encoding="utf-8") as fh:
