@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- Review runtime no longer treats a ``search_tool`` query as proof an
+  MCP server was available. A catalog search for ``gitlab …`` plus
+  ``glab`` is not unused-MCP.
 - Host catalog list uses a stamp-gated snapshot (summary, signals, and
   updates-tail status). ``groket export-host -o FILE`` writes that
   snapshot without starting serve.

@@ -332,10 +332,9 @@ def _mcp_target_from_input(tool_name: str, raw_input: ToolInput) -> tuple[str, s
     if key in ("search_tool", "search_mcp"):
         qs = (ri.as_str("query") or ri.as_str("q")).strip()
         if qs:
-            # First token is often the server id the agent is searching for.
-            first = qs.split()[0].strip(".,;:") if qs.split() else ""
-            server = first if first and re.match(r"^[a-z0-9][\w.-]*$", first, re.I) else "?"
-            return server, qs[:80], "search"
+            # Catalog search. The query is words, not a server id — "gitlab
+            # merge request notes" does not mean a gitlab MCP was available.
+            return "?", qs[:80], "search"
     return "", "", "unknown"
 
 

@@ -236,3 +236,46 @@ def test_pack_absent_capabilities_does_not_invent_list(tmp_path: Path) -> None:
     cons = pack.format_constraints()
     assert "Do not invent unused-capability findings" in cons
     assert "unused-MCP" not in cons
+
+
+def test_search_tool_query_does_not_mint_mcp_available(tmp_path: Path) -> None:
+    """A catalog search for gitlab is not proof a gitlab MCP existed."""
+    from groket.analysis.llm.context import runtime_with_usage
+    from groket.models import ToolInputBag
+    from groket.session.usage_stats import collect_session_usage
+
+    (tmp_path / "summary.json").write_text(
+        '{"info":{"id":"sid"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "announcement_state.json").write_text(
+        '{"mcp_server_fingerprints":{"voice":{"tool_count":1},"tasks":{"tool_count":9}},'
+        '"announced_skill_names":[]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.toml").write_text("# no extra mcp\n", encoding="utf-8")
+    used = collect_session_usage(
+        tmp_path,
+        timeline=[
+            TraceEvent(
+                index=1,
+                event_type="tool_call",
+                tool_name="search_tool",
+                raw_input=ToolInputBag({"query": "gitlab merge request discussions notes"}),
+            ),
+            TraceEvent(
+                index=2,
+                event_type="tool_call",
+                tool_name="run_terminal_command",
+                raw_input=ToolInputBag({"command": "glab mr view 58"}),
+            ),
+        ],
+    )
+    assert "gitlab" not in used.mcp_configured
+    assert all(s.server_id != "gitlab" for s in used.mcp_servers)
+    meta = SessionMeta(session_id="sid", session_dir=tmp_path)
+    merged = runtime_with_usage(load_runtime_policy(tmp_path, meta), used)
+    assert "gitlab" not in merged.mcp_available
+    assert "gitlab" not in merged.mcp_used
+    assert "voice" in merged.mcp_available
+    assert "tasks" in merged.mcp_available

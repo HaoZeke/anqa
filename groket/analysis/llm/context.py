@@ -793,10 +793,12 @@ def _uniq_keep(values: list[str]) -> tuple[str, ...]:
 
 def runtime_with_usage(runtime: RuntimePolicy, usage: SessionUsageStats) -> RuntimePolicy:
     """Merge collected MCP / skill / plugin used-vs-available into *runtime*."""
+    # Invocations only. A search_tool query is not use, and must not mint
+    # a server into mcp_available (that is how unused-MCP false positives start).
     mcp_used = [
         s.server_id
         for s in usage.mcp_servers
-        if s.server_id not in _PSEUDO_MCP and (s.methods or s.use_tool_calls or s.search_queries)
+        if s.server_id not in _PSEUDO_MCP and (s.methods or s.use_tool_calls)
     ]
     mcp_avail = [s for s in usage.mcp_configured if s not in _PSEUDO_MCP]
     for sid in mcp_used:

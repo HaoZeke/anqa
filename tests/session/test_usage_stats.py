@@ -545,12 +545,16 @@ class TestMcpTargetFromInput:
     def test_search_tool_with_query(self):
         server, method, kind = _mcp_target_from_input("search_tool", {"query": "ascii find art"})
         assert kind == "search"
+        assert server == "?"
         assert "ascii" in method or "find" in method
 
-    def test_search_tool_server_guess(self):
-        server, method, kind = _mcp_target_from_input("search_tool", {"query": "slack send"})
+    def test_search_tool_query_is_not_a_server(self):
+        server, method, kind = _mcp_target_from_input(
+            "search_tool", {"query": "gitlab merge request discussions notes"}
+        )
         assert kind == "search"
-        assert server == "slack"
+        assert server == "?"
+        assert "gitlab" in method
 
     def test_search_tool_no_query(self):
         server, method, kind = _mcp_target_from_input("search_tool", {})
