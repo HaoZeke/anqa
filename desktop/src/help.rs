@@ -22,6 +22,8 @@ pub struct KeyScope {
     pub compact_child: bool,
     /// Events turn pick is shown (more than one turn).
     pub turn_pick: bool,
+    /// A specific Timeline turn is selected; h/l/] do not change it.
+    pub turn_locked: bool,
     /// Diff snapshot pick (more than one rewind record).
     pub diff_pick: bool,
     pub tab: Tab,
@@ -417,14 +419,48 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::SetTab(Tab::Notes),
         );
     }
-    if (scope.tab == Tab::Timeline && scope.turn_pick)
-        || (scope.tab == Tab::Diff && scope.diff_pick)
-    {
+    if scope.tab == Tab::Timeline && scope.turn_pick {
+        if !scope.turn_locked {
+            push(
+                &mut table,
+                overlay,
+                "events.prev_turn",
+                "Previous turn",
+                "h,left",
+                Message::Noop,
+            );
+            push(
+                &mut table,
+                overlay,
+                "events.next_turn",
+                "Next turn",
+                "l,right",
+                Message::Noop,
+            );
+            push(
+                &mut table,
+                overlay,
+                "events.scope_next",
+                "Next turn",
+                "]",
+                Message::Noop,
+            );
+        }
+        push(
+            &mut table,
+            overlay,
+            "events.all_turns",
+            "All turns",
+            "[",
+            Message::Noop,
+        );
+    }
+    if scope.tab == Tab::Diff && scope.diff_pick {
         push(
             &mut table,
             overlay,
             "events.prev_turn",
-            "Previous turn",
+            "Previous snapshot",
             "h,left",
             Message::Noop,
         );
@@ -432,24 +468,8 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "events.next_turn",
-            "Next turn",
+            "Next snapshot",
             "l,right",
-            Message::Noop,
-        );
-        push(
-            &mut table,
-            overlay,
-            "events.scope_next",
-            "Next turn",
-            "]",
-            Message::Noop,
-        );
-        push(
-            &mut table,
-            overlay,
-            "events.all_turns",
-            "All turns",
-            "[",
             Message::Noop,
         );
     }
@@ -479,6 +499,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
@@ -527,6 +548,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
@@ -570,6 +592,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: true,
             tab: Tab::Diff,
             leader_armed: false,
@@ -590,6 +613,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Turns,
             leader_armed: false,
@@ -606,6 +630,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Findings,
             leader_armed: false,
@@ -626,6 +651,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
@@ -642,6 +668,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
@@ -664,6 +691,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
@@ -685,6 +713,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
@@ -701,6 +730,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
@@ -721,6 +751,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Turns,
             leader_armed: false,
@@ -740,6 +771,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
@@ -752,6 +784,21 @@ mod tests {
         let next_keys = next.tooltip.as_deref().unwrap_or("");
         assert!(next_keys.contains('l'), "{next_keys}");
         assert!(next_keys.contains("right"), "{next_keys}");
+        let locked = help_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: true,
+            turn_locked: true,
+            diff_pick: false,
+            tab: Tab::Timeline,
+            leader_armed: false,
+        });
+        assert!(locked.get("events.next_turn").is_none());
+        assert!(locked.get("events.all_turns").is_some());
     }
 
     #[test]
@@ -764,6 +811,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
@@ -780,6 +828,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: true,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Findings,
             leader_armed: false,
@@ -802,6 +851,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
@@ -824,6 +874,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: true,
@@ -857,6 +908,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
@@ -896,6 +948,7 @@ mod tests {
             child_open: false,
             compact_child: false,
             turn_pick: false,
+            turn_locked: false,
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,

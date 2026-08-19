@@ -202,11 +202,12 @@ The footer lists the keys that apply now; `?` is the full list.
 | Esc | pickers | Cancel |
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
-/ `h` `l` (Timeline turns) / `n` `e` (awaiting) / `N`. HUD panes are Tab
-and Ctrl+1–6 except on Notes, where Tab walks the note fields and
-Ctrl+Tab or Ctrl+1–6 change panes. `[` `]` also scope Timeline turns
-(all / next). `u` or the logo leaves the open session for the session
-list.
+/ `h` `l` (Timeline turns while All turns is selected) / `n` `e` (awaiting) / `N`.
+HUD panes are Tab and Ctrl+1–6 except on Notes, where Tab walks the note
+fields and Ctrl+Tab or Ctrl+1–6 change panes. On Timeline, `[` is All
+turns (Filter stays). `]` / `h` `l` jump to the next or previous turn
+that still matches Filter, only while All turns is selected.
+`u` or the logo leaves the open session for the session list.
 
 ### Follow-up, fork, and re-run
 
