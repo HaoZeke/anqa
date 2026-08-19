@@ -19,10 +19,11 @@ use crate::format::{
 };
 use crate::kit;
 use crate::live::{
-    context_fraction, finding_severity_rank, finding_severity_title, CardMark, TIMELINE_OVERSCAN,
+    context_fraction, decode_many_choices, finding_severity_rank, finding_severity_title,
+    note_field_input_key, toggle_many_choice, CardMark, NOTE_TURN_INPUT, TIMELINE_OVERSCAN,
     TURNS_OVERSCAN,
 };
-use crate::model::{DiffContext, KindFilter, Tab};
+use crate::model::{DiffContext, KindFilter, SchemaField, Tab};
 use crate::motion::PageLayer;
 use crate::typo;
 use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
@@ -2112,6 +2113,99 @@ fn finding_body<'a>(
         .into()
 }
 
+fn note_one_choice<'a>(
+    id: String,
+    label: String,
+    mut choices: Vec<String>,
+    val: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    if !val.is_empty() && !choices.iter().any(|c| c == val) {
+        choices.insert(0, val.to_string());
+    }
+    let selected = if val.is_empty() {
+        None
+    } else {
+        Some(val.to_string())
+    };
+    icedtea::widget::themed_pick_list(
+        choices,
+        selected,
+        move |v| Message::NoteField {
+            id: id.clone(),
+            value: v,
+        },
+        tea,
+        icedtea::widget::ControlSize::Default,
+        A11y::new(label, Role::ComboBox),
+    )
+}
+
+fn note_many_choices<'a>(
+    id: String,
+    choices: Vec<String>,
+    val: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    let selected = decode_many_choices(val);
+    let mut labels = choices.clone();
+    for extra in &selected {
+        if !labels.iter().any(|c| c == extra) {
+            labels.push(extra.clone());
+        }
+    }
+    let mut chips = row![].spacing(8).align_y(Alignment::Center);
+    for choice in labels {
+        let on = selected.iter().any(|s| s == &choice);
+        let next = toggle_many_choice(val, &choice, &choices);
+        chips = chips.push(icedtea::widget::chip(
+            choice.clone(),
+            Some(Message::NoteField {
+                id: id.clone(),
+                value: next,
+            }),
+            None,
+            tea,
+            if on { Variant::Primary } else { Variant::Quiet },
+            icedtea::widget::ChipKind::Filter,
+            icedtea::icon::Icons::NONE,
+            A11y::button(choice).with_checked(on),
+        ));
+    }
+    chips.into()
+}
+
+fn note_schema_field<'a>(hud: &'a Hud, spec: SchemaField) -> Element<'a, Message> {
+    let tea = hud.tokens();
+    let id = spec.id.clone();
+    let label = spec.label.clone();
+    let val = hud.note_draft().field(&id);
+    let heading = icedtea::widget::meta(label.clone(), tea, A11y::new(label.clone(), Role::Status));
+    let control = if spec.pick_many() {
+        note_many_choices(id, spec.choices, val, tea)
+    } else if spec.constrained() {
+        note_one_choice(id, label, spec.choices, val, tea)
+    } else {
+        icedtea::widget::themed_text_input(
+            label.as_str(),
+            val,
+            {
+                let id = id.clone();
+                move |v| Message::NoteField {
+                    id: id.clone(),
+                    value: v,
+                }
+            },
+            Some(Message::SaveNote),
+            icedtea::widget::FieldOpts::NONE,
+            tea,
+            A11y::new(label.clone(), Role::TextBox),
+            Some(iced::widget::Id::from(note_field_input_key(&id))),
+        )
+    };
+    column![heading, control].spacing(4).into()
+}
+
 fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     let o = hud.overview().unwrap();
@@ -2126,27 +2220,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     )]
     .spacing(8);
     for spec in specs {
-        let id = spec.id;
-        let label = spec.label;
-        let val = hud.note_draft().field(&id);
-        form = form.push(icedtea::widget::meta(
-            label.clone(),
-            tea,
-            A11y::new(label.clone(), Role::Status),
-        ));
-        form = form.push(icedtea::widget::themed_text_input(
-            label.as_str(),
-            val,
-            move |v| Message::NoteField {
-                id: id.clone(),
-                value: v,
-            },
-            Some(Message::SaveNote),
-            icedtea::widget::FieldOpts::NONE,
-            hud.tokens(),
-            A11y::new(label.clone(), Role::TextBox),
-            None,
-        ));
+        form = form.push(note_schema_field(hud, spec));
     }
     form = form.push(icedtea::widget::meta(
         "Turn",
@@ -2162,7 +2236,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             icedtea::widget::FieldOpts::NONE,
             hud.tokens(),
             A11y::new("Turn", Role::TextBox),
-            None,
+            Some(iced::widget::Id::new(NOTE_TURN_INPUT)),
         ))
         .width(Length::Fixed(120.0)),
     );
@@ -2950,6 +3024,11 @@ mod tests {
         assert!(prod.contains("fn card_chips"));
         assert!(prod.contains("fn command_end"));
         assert!(prod.contains("Add note"));
+        assert!(prod.contains("fn note_one_choice"));
+        assert!(prod.contains("fn note_many_choices"));
+        assert!(prod.contains("ChipKind::Filter"));
+        assert!(prod.contains("note_field_input_key"));
+        assert!(prod.contains("NOTE_TURN_INPUT"));
         // Overview path is selectable; no in-pane Copy path button.
         assert!(!prod.contains("fn overview_commands"));
         assert!(prod.contains("format!(\"f{}\""));

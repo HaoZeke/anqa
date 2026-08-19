@@ -5,6 +5,9 @@ is tagged.
 
 ## Unreleased
 
+- HUD notes form uses a pick list for one-of schema fields (severity)
+  and filter chips for many-select. Tab / Shift+Tab walk the text
+  fields while composing; Ctrl+Tab or Ctrl+1–6 still change panes.
 - Review runtime no longer treats a ``search_tool`` query as proof an
   MCP server was available. A catalog search for ``gitlab …`` plus
   ``glab`` is not unused-MCP.

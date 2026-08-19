@@ -778,6 +778,76 @@ pub fn notes_schema_fields(overview: Option<&Overview>) -> Vec<SchemaField> {
     }
 }
 
+/// Iced id for a free-text notes schema field.
+pub fn note_field_input_key(field_id: &str) -> String {
+    format!("note-field-{field_id}")
+}
+
+/// Iced id for the notes turn field.
+pub const NOTE_TURN_INPUT: &str = "note-turn";
+
+/// Tab order for notes text fields (schema free-text, then turn).
+pub fn note_text_input_keys(fields: &[SchemaField]) -> Vec<String> {
+    let mut keys: Vec<String> = fields
+        .iter()
+        .filter(|spec| !spec.constrained())
+        .map(|spec| note_field_input_key(&spec.id))
+        .collect();
+    keys.push(NOTE_TURN_INPUT.to_string());
+    keys
+}
+
+/// Split a stored multi-select value into tokens (newline-separated).
+pub fn decode_many_choices(stored: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for line in stored.replace('\r', "\n").split('\n') {
+        let tok = line.trim();
+        if !tok.is_empty() && seen.insert(tok.to_string()) {
+            out.push(tok.to_string());
+        }
+    }
+    out
+}
+
+/// Join selected tokens: schema order first, then extras.
+pub fn encode_many_choices(selected: &[String], choices: &[String]) -> String {
+    let mut seen = HashSet::new();
+    let mut sel = Vec::new();
+    for item in selected {
+        let s = item.trim();
+        if !s.is_empty() && seen.insert(s.to_string()) {
+            sel.push(s.to_string());
+        }
+    }
+    if sel.is_empty() {
+        return String::new();
+    }
+    let allowed: HashSet<&str> = choices.iter().map(String::as_str).collect();
+    let mut ordered: Vec<String> = choices
+        .iter()
+        .filter(|c| seen.contains(c.as_str()))
+        .cloned()
+        .collect();
+    for extra in sel {
+        if !allowed.contains(extra.as_str()) {
+            ordered.push(extra);
+        }
+    }
+    ordered.join("\n")
+}
+
+/// Toggle one token in a stored multi-select value.
+pub fn toggle_many_choice(stored: &str, choice: &str, choices: &[String]) -> String {
+    let mut selected = decode_many_choices(stored);
+    if let Some(i) = selected.iter().position(|c| c == choice) {
+        selected.remove(i);
+    } else {
+        selected.push(choice.to_string());
+    }
+    encode_many_choices(&selected, choices)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CardMark {
     pub findings: u32,
@@ -1734,6 +1804,75 @@ mod tests {
         let fields = notes_schema_fields(None);
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].id, "summary");
+        assert!(!fields[0].constrained());
+        assert_eq!(
+            note_text_input_keys(&fields),
+            vec![
+                note_field_input_key("summary"),
+                note_field_input_key("detail"),
+                NOTE_TURN_INPUT.to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn notes_schema_keeps_choice_fields() {
+        let ov = Overview {
+            notes: crate::wire::NotesBlock {
+                schema: crate::wire::NotesSchema {
+                    fields: vec![
+                        crate::wire::NoteSchemaField {
+                            id: "severity".into(),
+                            label: "Severity".into(),
+                            choices: vec!["low".into(), "medium".into(), "high".into()],
+                            pick: "one-of".into(),
+                        },
+                        crate::wire::NoteSchemaField {
+                            id: "tags".into(),
+                            label: "Tags".into(),
+                            choices: vec!["ux".into(), "tooling".into()],
+                            pick: "many".into(),
+                        },
+                    ],
+                    ..crate::wire::NotesSchema::default()
+                },
+                ..crate::wire::NotesBlock::default()
+            },
+            ..Overview::default()
+        };
+        let fields = notes_schema_fields(Some(&ov));
+        assert_eq!(fields.len(), 2);
+        assert!(fields[0].constrained());
+        assert!(!fields[0].pick_many());
+        assert!(fields[1].pick_many());
+        assert_eq!(
+            note_text_input_keys(&fields),
+            vec![NOTE_TURN_INPUT.to_string()]
+        );
+    }
+
+    #[test]
+    fn many_choices_round_trip_and_toggle() {
+        let choices = ["regression".into(), "ux".into(), "tooling".into()];
+        assert_eq!(
+            encode_many_choices(
+                &["tooling".into(), "regression".into(), "tooling".into()],
+                &choices
+            ),
+            "regression\ntooling"
+        );
+        assert_eq!(encode_many_choices(&[], &choices), "");
+        assert_eq!(
+            decode_many_choices("ux\ntooling\nux"),
+            vec!["ux", "tooling"]
+        );
+        assert_eq!(
+            encode_many_choices(&["custom".into(), "ux".into()], &choices),
+            "ux\ncustom"
+        );
+        let on = toggle_many_choice("", "ux", &choices);
+        assert_eq!(on, "ux");
+        assert_eq!(toggle_many_choice(&on, "ux", &choices), "");
     }
 
     #[test]

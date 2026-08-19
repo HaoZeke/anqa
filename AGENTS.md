@@ -714,7 +714,7 @@ panes. Digits type into search, so pane jump is **Ctrl+1–6**.
 
 | Key | Action |
 |-----|--------|
-| ``Tab`` / ``Shift+Tab`` | Next / previous browse pane |
+| ``Tab`` / ``Shift+Tab`` | Next / previous browse pane (on Notes: next / previous note field; ``Ctrl+Tab`` still changes panes) |
 | ``Ctrl+1``…``Ctrl+6`` | Jump Overview … Notes (Diff is pane 4) |
 | ``[`` | Timeline: all turns |
 | ``]`` | Timeline: next turn (same as ``l``) |

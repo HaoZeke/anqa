@@ -193,10 +193,20 @@ impl NoteDraft {
 pub struct SchemaField {
     pub id: String,
     pub label: String,
-    #[allow(dead_code)]
     pub choices: Vec<String>,
-    #[allow(dead_code)]
     pub pick: String,
+}
+
+impl SchemaField {
+    /// True when the schema lists allowed values (dropdown or multi-select).
+    pub fn constrained(&self) -> bool {
+        !self.choices.is_empty()
+    }
+
+    /// True when the field is multi-select among *choices*.
+    pub fn pick_many(&self) -> bool {
+        self.constrained() && self.pick == "many"
+    }
 }
 
 #[cfg(test)]

@@ -27,14 +27,14 @@ use crate::live::{
     filter_turn_indices, first_list_fetch, is_partial_list_page, is_soft_notes_save_error,
     last_timeline_page_offset, list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top,
     merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
-    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
-    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
-    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
-    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
-    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
-    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT,
-    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
-    TIMELINE_ROW_H,
+    note_field_input_key, note_text_input_keys, notes_schema_fields, patch_catalog_delta,
+    patch_list_row_from_meta, plan_tick, previous_timeline_page, scroll_after_prepend,
+    session_card_height, session_needs_live_poll, session_rpc_ref, should_fetch_timeline,
+    should_load_previous_timeline, should_page_recent, spotlight_recent,
+    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
+    trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, CLOSED_TURN_CARD_H,
+    IDLE_POLL_MS, LIVE_POLL_MS, LIVE_TAIL_LIMIT, SPOTLIGHT_RECENT, TIMELINE_BUFFER_CAP,
+    TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -288,6 +288,7 @@ pub struct Hud {
     events_turn_options: Vec<EventsTurnPick>,
     last_timeline: Option<LastTimelineReq>,
     note_draft: NoteDraft,
+    note_form_ix: Option<usize>,
     note_compose_lock: bool,
     note_saving: bool,
     note_delete_armed: String,
@@ -440,6 +441,7 @@ impl Default for Hud {
             }],
             last_timeline: None,
             note_draft: NoteDraft::default(),
+            note_form_ix: None,
             note_compose_lock: false,
             note_saving: false,
             note_delete_armed: String::new(),
@@ -1090,28 +1092,33 @@ impl Hud {
                 self.note_compose_lock = true;
                 self.typing_notes = true;
                 self.tab = Tab::Notes;
-                Task::none()
+                self.focus_first_note_field()
             }
             Message::OpenNote(nid) => {
                 self.open_note(&nid);
-                Task::none()
+                self.focus_first_note_field()
             }
             Message::ResetDraft => {
                 self.note_draft = NoteDraft::default();
+                self.note_form_ix = None;
                 self.note_compose_lock = false;
                 self.typing_notes = false;
                 self.note_saving = false;
-                Task::none()
+                self.focus_first_note_field()
             }
             Message::NoteField { id, value } => {
                 self.note_draft.set_field(&id, value);
                 self.note_compose_lock = true;
                 self.typing_notes = true;
+                self.remember_note_field(&id);
                 Task::none()
             }
             Message::NoteTurn(v) => {
                 self.note_draft.turn_index = v;
                 self.note_compose_lock = true;
+                if let Some(last) = self.note_form_ids().len().checked_sub(1) {
+                    self.note_form_ix = Some(last);
+                }
                 Task::none()
             }
             Message::SaveNote => self.save_note(),
@@ -1517,6 +1524,7 @@ impl Hud {
                     Ok(snap) => {
                         self.apply_notes_snapshot(&snap);
                         self.note_draft = NoteDraft::default();
+                        self.note_form_ix = None;
                         self.note_compose_lock = false;
                         self.typing_notes = false;
                         self.toasts.push_success("Note saved");
@@ -1541,6 +1549,7 @@ impl Hud {
                         self.apply_notes_snapshot(&snap);
                         if self.note_draft.id == id {
                             self.note_draft = NoteDraft::default();
+                            self.note_form_ix = None;
                             self.note_compose_lock = false;
                         }
                         self.mark_up();
@@ -2850,6 +2859,73 @@ impl Hud {
     pub fn notes_schema(&self) -> Vec<SchemaField> {
         notes_schema_fields(self.overview.as_ref())
     }
+
+    fn note_form_ids(&self) -> Vec<Id> {
+        note_text_input_keys(&self.notes_schema())
+            .into_iter()
+            .map(Id::from)
+            .collect()
+    }
+
+    fn remember_note_field(&mut self, field_id: &str) {
+        let key = note_field_input_key(field_id);
+        if let Some(i) = note_text_input_keys(&self.notes_schema())
+            .iter()
+            .position(|k| k == &key)
+        {
+            self.note_form_ix = Some(i);
+        }
+    }
+
+    fn focus_first_note_field(&mut self) -> Task<Message> {
+        let ids = self.note_form_ids();
+        let Some(id) = ids.into_iter().next() else {
+            return Task::none();
+        };
+        self.note_form_ix = Some(0);
+        operation::focus(id)
+    }
+
+    fn focus_note_form(&mut self, reverse: bool) -> Task<Message> {
+        let ids = self.note_form_ids();
+        let n = ids.len();
+        if n == 0 {
+            return Task::none();
+        }
+        let next = match self.note_form_ix {
+            None => {
+                if reverse {
+                    n - 1
+                } else {
+                    0
+                }
+            }
+            Some(i) => {
+                let i = i.min(n - 1);
+                if reverse {
+                    (i + n - 1) % n
+                } else {
+                    (i + 1) % n
+                }
+            }
+        };
+        self.note_form_ix = Some(next);
+        operation::focus(ids[next].clone())
+    }
+
+    fn cycle_browse_pane(&mut self, reverse: bool) -> Task<Message> {
+        let tabs = self.visible_tabs();
+        let i = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
+        let next = if reverse {
+            (i + tabs.len() - 1) % tabs.len()
+        } else {
+            (i + 1) % tabs.len()
+        };
+        Task::batch([
+            Self::blur_text_inputs(),
+            self.update(Message::SetTab(tabs[next])),
+        ])
+    }
     pub fn filtered_indices(&self) -> &[usize] {
         &self.tl_filter
     }
@@ -3117,6 +3193,7 @@ impl Hud {
         self.note_motion.clear();
         self.fields = icedtea::field::Selectables::new();
         self.note_draft = NoteDraft::default();
+        self.note_form_ix = None;
         self.note_compose_lock = false;
         self.typing_notes = false;
         self.overview = None;
@@ -4905,6 +4982,19 @@ impl Hud {
                 return self.update(Message::PaneDigit(n));
             }
         }
+        if matches!(key, Key::Named(Named::Tab)) && !modifiers.alt() && !modifiers.logo() {
+            if self.browse_mode()
+                && self.tab == Tab::Notes
+                && !self.look_open
+                && !modifiers.control()
+                && !modifiers.command()
+            {
+                return self.focus_note_form(modifiers.shift());
+            }
+            if self.browse_mode() {
+                return self.cycle_browse_pane(modifiers.shift());
+            }
+        }
         if self.typing_notes {
             return Task::none();
         }
@@ -4974,35 +5064,6 @@ impl Hud {
             && matches!(&key, Key::Character(c) if c.eq_ignore_ascii_case("a"))
         {
             return self.select_all_text();
-        }
-        // Tab / Shift+Tab: cycle browse panes (same as Ctrl+1…6). Not iced widget
-        // focus soup — session search is only for Spotlight (type to switch).
-        if matches!(key, Key::Named(Named::Tab))
-            && !modifiers.alt()
-            && !modifiers.logo()
-            && self.browse_mode()
-        {
-            let tabs = self.visible_tabs();
-            let i = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
-            let next = if modifiers.shift() {
-                (i + tabs.len() - 1) % tabs.len()
-            } else {
-                (i + 1) % tabs.len()
-            };
-            return self.update(Message::SetTab(tabs[next]));
-        }
-        if matches!(key, Key::Named(Named::Tab))
-            && (modifiers.control() || modifiers.command())
-            && self.browse_mode()
-        {
-            let tabs = self.visible_tabs();
-            let i = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
-            let next = if modifiers.shift() {
-                (i + tabs.len() - 1) % tabs.len()
-            } else {
-                (i + 1) % tabs.len()
-            };
-            return self.update(Message::SetTab(tabs[next]));
         }
         if self.key_is("list.down", "j", &key, modifiers) {
             return self.nav_step(1);
@@ -5510,6 +5571,16 @@ fn is_list_nav_key(kev: &keyboard::Event) -> bool {
         || overlay.matches("list.up", "k", key, *modifiers)
 }
 
+fn is_tab_key(kev: &keyboard::Event) -> bool {
+    matches!(
+        kev,
+        keyboard::Event::KeyPressed {
+            key: Key::Named(Named::Tab),
+            ..
+        }
+    )
+}
+
 fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
     match event {
         Event::Window(window::Event::CloseRequested) => Some(Message::CloseRequested(id)),
@@ -5519,9 +5590,10 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
         Event::Keyboard(ref kev) => {
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
-            // j/k and arrows while Spotlight search is focused. Tab and /
-            // stay with a focused field (turns / timeline / notes).
-            if is_list_nav_key(kev) {
+            // j/k and arrows while Spotlight search is focused. / stays
+            // with a focused field. Tab reaches the HUD so Notes can walk
+            // form fields and other panes can still cycle.
+            if is_list_nav_key(kev) || is_tab_key(kev) {
                 return Some(Message::RawEvent(event));
             }
             // A focused field captures Escape. Leave the field first so the
@@ -6717,8 +6789,8 @@ mod tests {
             repeat: false,
         });
         assert!(
-            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_none(),
-            "focused search keeps Tab"
+            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_some(),
+            "Tab reaches the HUD so Notes can walk form fields"
         );
         let slash = Event::Keyboard(keyboard::Event::KeyPressed {
             key: Key::Character("/".into()),
@@ -6738,6 +6810,42 @@ mod tests {
             interesting_hud_event(slash, event::Status::Ignored, window::Id::unique()).is_some(),
             "unfocused / still focuses the pane search"
         );
+    }
+
+    #[test]
+    fn notes_tab_walks_form_fields_while_composing() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview::default()),
+            tab: Tab::Notes,
+            typing_notes: true,
+            ..Hud::default()
+        };
+        assert!(hud.browse_mode());
+        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
+        assert_eq!(hud.note_form_ix, Some(0));
+        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
+        assert_eq!(hud.note_form_ix, Some(1));
+        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::SHIFT);
+        assert_eq!(hud.note_form_ix, Some(0));
+        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::CTRL);
+        assert_eq!(hud.tab, Tab::Overview);
+    }
+
+    #[test]
+    fn start_note_focuses_the_first_field() {
+        let mut hud = Hud {
+            overview: Some(Overview::default()),
+            tab: Tab::Overview,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::StartNote {
+            turn: "2".into(),
+            event: String::new(),
+        });
+        assert_eq!(hud.tab, Tab::Notes);
+        assert_eq!(hud.note_form_ix, Some(0));
+        assert!(hud.typing_notes);
     }
 
     #[test]

@@ -185,7 +185,11 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
         &mut table,
         overlay,
         "pane.next",
-        "Panes",
+        if scope.tab == Tab::Notes {
+            "Field"
+        } else {
+            "Panes"
+        },
         "tab",
         Message::Noop,
     );
@@ -326,7 +330,11 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "pane.next",
-            "Next pane",
+            if scope.tab == Tab::Notes {
+                "Next field"
+            } else {
+                "Next pane"
+            },
             "tab",
             Message::Noop,
         );
@@ -334,7 +342,11 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "pane.prev",
-            "Previous pane",
+            if scope.tab == Tab::Notes {
+                "Previous field"
+            } else {
+                "Previous pane"
+            },
             "shift+tab",
             Message::Noop,
         );
@@ -521,6 +533,21 @@ mod tests {
         });
         let blob = browse.footer_hints().join("  ·  ");
         assert!(blob.contains("tab panes"));
+        let notes = footer_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            diff_pick: false,
+            tab: Tab::Notes,
+            leader_armed: false,
+        });
+        let notes_blob = notes.footer_hints().join("  ·  ");
+        assert!(notes_blob.contains("tab field"), "{notes_blob}");
+        assert!(!notes_blob.contains("tab panes"), "{notes_blob}");
         assert!(blob.contains("u sessions"));
         assert!(blob.contains("y copy"));
         assert!(blob.contains("enter next"));
