@@ -10,9 +10,12 @@ under the watched tree (coalesced by *debounce_s*).
 from __future__ import annotations
 
 import logging
+import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import ModuleType
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +32,9 @@ _TRACE_NAME_HINTS = (
     # Operator notes (TUI may write disk-local; clients need a change signal).
     "operator_notes.toml",
 )
-
-
-def _path_looks_relevant(path: str) -> bool:
-    name = Path(path).name
-    if name in _TRACE_NAME_HINTS:
-        return True
-    # New session dirs often appear before files land.
-    if name.startswith("019") or name.startswith("groket-"):
-        return True
-    # Gate / turn dirs under sessions
-    if ".groket-turn" in path or "prompt_history" in name:
-        return True
-    return False
+_NOISE_DIR_NAMES = frozenset({"workspace", "images", "compaction"})
+# Read-only open/close must not count as a catalog change (that retriggers apply).
+_IGNORE_EVENT_TYPES = frozenset({"opened", "closed_no_write"})
 
 
 class TraceTreeWatch:
@@ -76,6 +69,91 @@ class TraceTreeWatch:
     def root(self) -> Path:
         return self._root
 
+    @staticmethod
+    def path_relevant(path: str) -> bool:
+        """True when *path* can change the session list or timeline."""
+        p = Path(path)
+        if any(part.casefold() in _NOISE_DIR_NAMES for part in p.parts):
+            return False
+        name = p.name
+        if name in _TRACE_NAME_HINTS:
+            return True
+        if name.startswith("019") or name.startswith("groket-"):
+            return True
+        if ".groket-turn" in path or "prompt_history" in name:
+            return True
+        return False
+
+    @staticmethod
+    def noise_name(name: str | bytes) -> bool:
+        """True for a workspace / images / compaction directory name."""
+        text = os.fsdecode(name) if isinstance(name, (bytes, bytearray)) else name
+        return text.casefold() in _NOISE_DIR_NAMES
+
+    @staticmethod
+    def noise_path(path: str | bytes) -> bool:
+        """True when any path part is a noise directory."""
+        text = os.fsdecode(path) if isinstance(path, (bytes, bytearray)) else path
+        return any(part.casefold() in _NOISE_DIR_NAMES for part in Path(text).parts)
+
+    @classmethod
+    def walk_without_noise(
+        cls,
+        top: str | bytes,
+        topdown: bool = True,
+        onerror: Callable[[OSError], object] | None = None,
+        followlinks: bool = False,
+    ) -> Iterator[tuple[bytes, list[bytes], list[bytes]]]:
+        """``os.walk`` that does not enter workspace / images / compaction."""
+        raw = top if isinstance(top, bytes) else os.fsencode(top)
+        if cls.noise_path(raw):
+            return
+        for root, dirnames, filenames in os.walk(
+            raw, topdown=topdown, onerror=onerror, followlinks=followlinks
+        ):
+            dirnames[:] = [name for name in dirnames if not cls.noise_name(name)]
+            yield root, dirnames, filenames
+
+    _noise_skip = False
+
+    @classmethod
+    def install_noise_skip(cls) -> None:
+        """Prune watchdog inotify so noise trees never get a watch descriptor.
+
+        watchdog's Linux walker uses ``os.walk`` on its own ``os`` binding.
+        Replacing that module name (not process-global ``os.walk``) is the
+        one hook that stops it descending ``workspace/``.
+        """
+        try:
+            from watchdog.observers import inotify_c
+        except ImportError:
+            return
+        if cls._noise_skip:
+            return
+
+        class _InotifyOs:
+            path = os.path
+            sep = os.sep
+            pipe = staticmethod(os.pipe)
+            write = staticmethod(os.write)
+            read = staticmethod(os.read)
+            close = staticmethod(os.close)
+            strerror = staticmethod(os.strerror)
+            fsdecode = staticmethod(os.fsdecode)
+            walk = staticmethod(cls.walk_without_noise)
+
+        orig_add_watch = inotify_c.Inotify._add_watch
+
+        def _add_watch(self: object, path: bytes | str, mask: int) -> int:
+            if cls.noise_path(path):
+                return -1
+            raw = path if isinstance(path, bytes) else os.fsencode(path)
+            return int(orig_add_watch(cast(inotify_c.Inotify, self), raw, mask))
+
+        inotify_c.os = cast(ModuleType, _InotifyOs())
+        setattr(inotify_c.Inotify, "_add_watch", _add_watch)
+        cls._noise_skip = True
+
     def start(self) -> bool:
         """Start watching. Returns False if *root* is missing or observer fails."""
         if not self._root.is_dir():
@@ -87,21 +165,24 @@ class TraceTreeWatch:
             logger.warning("watchdog not installed; live FS watch disabled")
             return False
 
+        TraceTreeWatch.install_noise_skip()
         watch = self
 
         class _Handler(FileSystemEventHandler):
             def on_any_event(self, event: FileSystemEvent) -> None:
-                if getattr(event, "is_directory", False) and event.event_type == "modified":
+                if event.event_type in _IGNORE_EVENT_TYPES:
                     return
-                src = getattr(event, "src_path", "") or ""
-                dest = getattr(event, "dest_path", "") or ""
-                if not (_path_looks_relevant(str(src)) or _path_looks_relevant(str(dest))):
+                if event.is_directory and event.event_type == "modified":
+                    return
+                src = str(event.src_path or "")
+                dest = str(event.dest_path or "")
+                if not (TraceTreeWatch.path_relevant(src) or TraceTreeWatch.path_relevant(dest)):
                     return
                 paths: list[str] = []
                 if src:
-                    paths.append(str(src))
+                    paths.append(src)
                 if dest:
-                    paths.append(str(dest))
+                    paths.append(dest)
                 watch._schedule_fire(paths)
 
         try:
