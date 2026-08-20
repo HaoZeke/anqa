@@ -180,14 +180,6 @@ pub fn overview_fields(
             copyable: true,
         });
     }
-    if let Some(ctx) = overview_context_value(meta) {
-        out.push(OverviewField {
-            key: "context",
-            label: "context",
-            value: ctx,
-            copyable: false,
-        });
-    }
     if meta.tool_call_count > 0 || meta.error_count > 0 || meta.tool_failure_count > 0 {
         let value = if meta.error_count > 0 || meta.tool_failure_count > 0 {
             let errs = meta.error_count.max(meta.tool_failure_count);
@@ -199,7 +191,7 @@ pub fn overview_fields(
             key: "tools",
             label: "tools",
             value,
-            copyable: false,
+            copyable: true,
         });
     }
     if turns.turns.len() > 1 {
@@ -221,7 +213,7 @@ pub fn overview_fields(
                 key: "last_turn",
                 label: "last turn",
                 value,
-                copyable: false,
+                copyable: true,
             });
         }
     }
@@ -230,7 +222,7 @@ pub fn overview_fields(
             key: "messages",
             label: "messages",
             value: meta.num_messages.to_string(),
-            copyable: false,
+            copyable: true,
         });
     }
     if meta.loop_count > 0 {
@@ -238,7 +230,7 @@ pub fn overview_fields(
             key: "loops",
             label: "loops",
             value: meta.loop_count.to_string(),
-            copyable: false,
+            copyable: true,
         });
     }
     if !meta.run_id.is_empty() {
@@ -262,7 +254,7 @@ pub fn overview_fields(
             key: "repo",
             label: "repo",
             value: meta.git_repo.clone(),
-            copyable: false,
+            copyable: true,
         });
     }
     if !meta.git_branch.is_empty() {
@@ -270,7 +262,7 @@ pub fn overview_fields(
             key: "branch",
             label: "branch",
             value: meta.git_branch.clone(),
-            copyable: false,
+            copyable: true,
         });
     }
     let created = short_created(&meta.created_at);
@@ -279,7 +271,7 @@ pub fn overview_fields(
             key: "created",
             label: "created",
             value: created,
-            copyable: false,
+            copyable: true,
         });
     }
     if !meta.path.is_empty() {
@@ -291,6 +283,69 @@ pub fn overview_fields(
         });
     }
     out
+}
+
+/// One Stats-tab count row (human label, table cell value).
+pub struct OverviewStatRow {
+    pub section: &'static str,
+    pub label: String,
+    pub value: String,
+}
+
+/// Event-type and tool counts with the same labels as Timeline.
+pub fn overview_stat_rows(events: &[crate::wire::TimelineEvent]) -> Vec<OverviewStatRow> {
+    let mut types: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut tools: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for ev in events {
+        let key = if ev.event_type.is_empty() {
+            ev.kind.clone()
+        } else {
+            ev.event_type.clone()
+        };
+        if !key.is_empty() {
+            *types.entry(key).or_insert(0) += 1;
+        }
+        if ev.event_type == "tool_call" && !ev.tool_name.is_empty() {
+            *tools.entry(ev.tool_name.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut out = Vec::new();
+    for (raw, n) in types {
+        let label = human_event_type_label(&raw, "", "", false);
+        out.push(OverviewStatRow {
+            section: "Event types",
+            label,
+            value: n.to_string(),
+        });
+    }
+    for (raw, n) in tools {
+        out.push(OverviewStatRow {
+            section: "Tools",
+            label: format_tool_display(&raw),
+            value: n.to_string(),
+        });
+    }
+    out
+}
+
+/// Sort Stats rows. Column 0 is Kind, 1 is Name, 2 is Count (numeric).
+pub fn sort_stat_rows(rows: &mut [OverviewStatRow], col: usize, asc: bool) {
+    rows.sort_by(|a, b| {
+        let cmp = match col {
+            0 => a.section.cmp(b.section),
+            2 => {
+                let an: usize = a.value.parse().unwrap_or(0);
+                let bn: usize = b.value.parse().unwrap_or(0);
+                an.cmp(&bn)
+            }
+            _ => a.label.cmp(&b.label),
+        };
+        if asc {
+            cmp
+        } else {
+            cmp.reverse()
+        }
+    });
 }
 
 /// Glance counts for Overview — not the job list or log tails.
@@ -363,6 +418,100 @@ pub fn overview_job_fields(
         });
     }
     out
+}
+
+/// One Tasks-tab row: kind, status, short label, optional Timeline bookend.
+pub struct OverviewTaskRow {
+    pub kind: String,
+    pub status: String,
+    pub label: String,
+    pub event_index: Option<i64>,
+}
+
+/// Jobs, then schedules — Workflows have their own tab.
+pub fn overview_task_rows(
+    jobs: &[crate::wire::BackgroundJobRow],
+    schedules: &[crate::wire::ScheduleRow],
+) -> Vec<OverviewTaskRow> {
+    let mut out = Vec::new();
+    for job in jobs {
+        let label = if !job.description.is_empty() {
+            job.description.clone()
+        } else if !job.command.is_empty() {
+            job.command.clone()
+        } else {
+            job.id.clone()
+        };
+        let kind = if job.kind.is_empty() {
+            "background".into()
+        } else {
+            job.kind.clone()
+        };
+        out.push(OverviewTaskRow {
+            kind,
+            status: job.status.clone(),
+            label,
+            event_index: job.event_index,
+        });
+    }
+    for sch in schedules {
+        let label = if !sch.prompt_preview.is_empty() {
+            sch.prompt_preview.clone()
+        } else if !sch.human_schedule.is_empty() {
+            sch.human_schedule.clone()
+        } else {
+            sch.id.clone()
+        };
+        out.push(OverviewTaskRow {
+            kind: "schedule".into(),
+            status: "scheduled".into(),
+            label,
+            event_index: None,
+        });
+    }
+    out
+}
+
+/// Workflow list rows for the Overview Workflows tab.
+pub fn overview_workflow_rows(workflows: &[crate::wire::WorkflowRow]) -> Vec<OverviewTaskRow> {
+    workflows
+        .iter()
+        .map(|run| OverviewTaskRow {
+            kind: "workflow".into(),
+            status: run.status.clone(),
+            label: if run.name.is_empty() {
+                run.id.clone()
+            } else {
+                run.name.clone()
+            },
+            event_index: run.event_index,
+        })
+        .collect()
+}
+
+/// Subagent list rows for the Overview Subagents tab.
+pub fn overview_subagent_rows(runs: &[crate::wire::SubagentRunRow]) -> Vec<OverviewTaskRow> {
+    runs.iter()
+        .map(|run| {
+            let label = if !run.description.is_empty() {
+                run.description.clone()
+            } else if !run.subagent_type.is_empty() {
+                run.subagent_type.clone()
+            } else {
+                run.child_session_id.clone()
+            };
+            OverviewTaskRow {
+                kind: if run.subagent_type.is_empty() {
+                    "subagent".into()
+                } else {
+                    run.subagent_type.clone()
+                },
+                status: run.status.clone(),
+                label,
+                event_index: run.spawn_event_index,
+            }
+        })
+        .collect()
 }
 
 /// One labeled inspect section: heading immediately above a non-empty body.
@@ -530,37 +679,6 @@ fn overview_job_count_value(total: usize, running: usize, done: usize, failed: u
         parts.push(total.to_string());
     }
     parts.join(" · ")
-}
-
-fn overview_context_value(meta: &crate::wire::SessionMeta) -> Option<String> {
-    let compact = meta.context_compact().trim();
-    let usage = meta.context_usage.trim();
-    let mut parts: Vec<String> = Vec::new();
-    if !compact.is_empty() {
-        parts.push(compact.to_string());
-    } else if !usage.is_empty() {
-        parts.push(usage.to_string());
-    }
-    match (meta.context_tokens_used, meta.context_window_tokens) {
-        (Some(used), Some(win)) if win > 0 => {
-            parts.push(format!("{used} / {win} tokens"));
-        }
-        (Some(used), _) => {
-            parts.push(format!("{used} tokens"));
-        }
-        (_, Some(win)) if win > 0 => {
-            parts.push(format!("{win} window"));
-        }
-        _ => {}
-    }
-    if meta.compaction_count > 0 {
-        parts.push(format!("{} compactions", meta.compaction_count));
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" · "))
-    }
 }
 
 pub fn format_note_time(iso: &str) -> String {
@@ -2459,7 +2577,6 @@ mod tests {
             keys,
             [
                 "session",
-                "context",
                 "tools",
                 "last_turn",
                 "messages",
@@ -2471,8 +2588,10 @@ mod tests {
             ]
         );
         assert!(!keys.contains(&"events"));
+        assert!(!keys.contains(&"context"));
         assert!(!keys.contains(&"findings"));
         assert!(!keys.contains(&"notes"));
+        assert!(rows.iter().all(|r| r.copyable));
         assert_eq!(
             rows.iter()
                 .find(|r| r.key == "last_turn")
@@ -2555,6 +2674,77 @@ mod tests {
             ),
             "Investigate the bug"
         );
+    }
+
+    #[test]
+    fn overview_stat_rows_use_timeline_labels() {
+        use crate::wire::TimelineEvent;
+
+        let rows = overview_stat_rows(&[
+            TimelineEvent {
+                event_type: "tool_call".into(),
+                tool_name: "read_file".into(),
+                ..TimelineEvent::default()
+            },
+            TimelineEvent {
+                event_type: "tool_call".into(),
+                tool_name: "read_file".into(),
+                ..TimelineEvent::default()
+            },
+            TimelineEvent {
+                event_type: "task_backgrounded".into(),
+                ..TimelineEvent::default()
+            },
+        ]);
+        let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert!(labels.contains(&"tool call"));
+        assert!(labels.contains(&"read file"));
+        assert!(labels
+            .iter()
+            .any(|l| *l == "background start" || *l == "monitor"));
+        assert!(!labels.iter().any(|l| l.contains('_')));
+        let mut sorted = rows;
+        sort_stat_rows(&mut sorted, 2, false);
+        assert_eq!(sorted[0].label, "tool call");
+        assert_eq!(sorted[0].value, "2");
+    }
+
+    #[test]
+    fn overview_task_rows_are_named_not_prompt_dump() {
+        use crate::wire::{BackgroundJobRow, ScheduleRow, WorkflowRow};
+
+        let rows = overview_task_rows(
+            &[BackgroundJobRow {
+                id: "job-1".into(),
+                kind: "monitor".into(),
+                status: "done".into(),
+                description: "Watch board".into(),
+                event_index: Some(4),
+                ..BackgroundJobRow::default()
+            }],
+            &[ScheduleRow {
+                id: "sch-1".into(),
+                human_schedule: "every 1 hour".into(),
+                prompt_preview: "hourly ping".into(),
+                ..ScheduleRow::default()
+            }],
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind, "monitor");
+        assert_eq!(rows[0].label, "Watch board");
+        let wfs = overview_workflow_rows(&[WorkflowRow {
+            id: "wf_sprint8".into(),
+            name: "sprint-8".into(),
+            status: "complete".into(),
+            event_index: Some(12),
+            ..WorkflowRow::default()
+        }]);
+        assert_eq!(wfs.len(), 1);
+        assert_eq!(wfs[0].kind, "workflow");
+        assert_eq!(wfs[0].label, "sprint-8");
+        assert_eq!(wfs[0].event_index, Some(12));
+        assert_eq!(rows[1].kind, "schedule");
+        assert_eq!(rows[1].label, "hourly ping");
     }
 
     #[test]

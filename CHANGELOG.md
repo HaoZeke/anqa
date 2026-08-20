@@ -10,12 +10,14 @@ is tagged.
 - HUD notes form uses a pick list for one-of schema fields (severity)
   and filter chips for many-select. Tab / Shift+Tab walk the text
   fields while composing; Ctrl+Tab or Ctrl+1–6 still change panes.
-- Session Overview lists background shells, monitors, and schedules.
-  Timeline filter Background. Summary rows jump to that bookend.
-  Enter on a job bookend shows the host ``terminal/`` log (up to
-  50,000 characters).
-- Session Overview lists workflow runs. Timeline filter Workflows. A
-  workflow child opens that session.
+- Session Overview and Summary share Session, Tasks, Workflows,
+  Subagents, and Stats tabs (click the strip). Session is the glance.
+  Tasks is shells, monitors, and schedules. Timeline filter Background
+  / Workflows. Summary and HUD rows jump to that bookend. Enter on a
+  job bookend shows the host ``terminal/`` log (up to 50,000
+  characters). A workflow child or subagent opens that session.
+  HUD Tasks, Workflows, and Subagents scroll as a virtual list.
+  Stats is an icedtea table (Kind, Name, Count).
 - Failed workflows and background jobs become Findings with
   paste-ready What/Where/Why/Should extras.
 - Timeline Filter and Turn stack. Flags and findings paint on the row.
