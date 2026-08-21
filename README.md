@@ -167,7 +167,10 @@ The footer lists the keys that apply now; `?` is the full list.
 | O | browser | Edit or delete note |
 | n | browser | Follow-up while awaiting |
 | e | browser | Done while awaiting |
-| y | browser / HUD | Copy the selection, the finding, or the pane |
+| y | browser / HUD | Copy the selection, the finding, or the focused / primary pane body |
+| Ctrl+Shift+C | browser | Same as y |
+| Ctrl+C | browser | Copy the selection or focused body; quit hint when neither applies |
+| mouse drag | browser | Select text; release copies the selection (multi-line OK); y still works |
 | s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
 | x | browser | Delete (press twice) |
