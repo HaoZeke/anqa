@@ -1076,7 +1076,7 @@ def render_workflow_detail(run: WorkflowRun | None, *, ev: TraceEvent | None = N
             obj.append("\n")
         parts.append(obj)
         parts.append(Text("\n"))
-    happened = _subagent_status_word(run.status)
+    happened = _subagent_status_word(run.status_word())
     if run.phase:
         happened = f"{happened}  ·  {run.phase}"
     if run.elapsed_ms is not None and run.elapsed_ms > 0:
@@ -1088,7 +1088,7 @@ def render_workflow_detail(run: WorkflowRun | None, *, ev: TraceEvent | None = N
         "failed": f"bold {FAILED}",
         "cancelled": "dim",
         "interrupted": "dim",
-    }.get(run.status, "")
+    }.get(run.status_word(), "")
     parts.append(_line(happened, style=st_style or None))
     if run.agents_used is not None or run.agent_budget is not None:
         used = "—" if run.agents_used is None else str(run.agents_used)
@@ -1104,17 +1104,6 @@ def render_workflow_detail(run: WorkflowRun | None, *, ev: TraceEvent | None = N
         parts.append(_section(t("ui-inspect-failed")))
         pause_style = f"bold {FAILED}" if run.status == "failed" else "dim"
         parts.append(Text(run.pause_message.rstrip() + "\n", style=pause_style))
-    if run.children:
-        parts.append(Text("\n"))
-        parts.append(_section(t("ui-agents")))
-        kids = Text()
-        for child in run.children:
-            if child.success:
-                kids.append("ok", style=COMPLETE)
-            else:
-                kids.append("fail", style=f"bold {FAILED}")
-            kids.append(f"  {child.label}\n")
-        parts.append(kids)
     return Group(*parts)
 
 

@@ -324,3 +324,78 @@ def test_merge_output_ids_ignores_non_mapping_output() -> None:
     bag = ToolInputBag()
     assert WorkflowRun.merge_output_ids(bag, "not-a-map") is bag
     assert WorkflowRun.merge_output_ids(bag, None) is bag
+
+
+def test_workflow_status_word_and_child_session_path(tmp_path: Path) -> None:
+    from groket.session.workflows import WorkflowChild, workflow_status_word
+    from groket.ui.render_detail import render_workflow_detail
+    from groket.ui.selectable_static import plain_from_renderable
+
+    assert workflow_status_word("failed") == "failed"
+    assert workflow_status_word("completed") == "complete"
+    assert workflow_status_word("interrupted") == "cancelled"
+    interrupted = WorkflowRun(
+        run_id="wf_int",
+        name="between",
+        status="interrupted",
+        phase="",
+        objective="scan",
+        agents_used=None,
+        agent_budget=None,
+        elapsed_ms=None,
+        pause_message="",
+        children=[],
+    )
+    int_plain = plain_from_renderable(render_workflow_detail(interrupted), full=True)
+    assert "cancelled" in int_plain
+    assert "interrupted" not in int_plain
+    run = WorkflowRun(
+        run_id="wf_x",
+        name="sprint",
+        status="failed",
+        phase="Kickoff",
+        objective="do it",
+        agents_used=1,
+        agent_budget=8,
+        elapsed_ms=10,
+        pause_message="boom",
+        children=[WorkflowChild("ag-1", "aik", True)],
+    )
+    assert run.status_word() == "failed"
+    assert run.children[0].status_word() == "complete"
+    parent = tmp_path / "sess"
+    parent.mkdir()
+    assert run.children[0].session_path(parent) is None
+    sibling = tmp_path / "ag-1"
+    sibling.mkdir()
+    (sibling / "summary.json").write_text("{}", encoding="utf-8")
+    assert run.children[0].session_path(parent) == sibling
+    plain = plain_from_renderable(render_workflow_detail(run), full=True)
+    assert "Asked" in plain
+    assert "Happened" in plain
+    assert "failed" in plain
+    assert "ok  " not in plain
+    assert "fail  " not in plain
+
+
+def test_overview_rows_include_child_session_path(tmp_path: Path) -> None:
+    from groket.session.jobs import SessionJobs
+
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    _write_run(
+        sd,
+        "wf_sprint",
+        name="sprint",
+        status="complete",
+        agents=[{"agent_id": "ag-1", "label": "aik", "state": "done"}],
+    )
+    child = tmp_path / "ag-1"
+    child.mkdir()
+    (child / "summary.json").write_text("{}", encoding="utf-8")
+    _jobs, _schedules, workflows = SessionJobs.overview_rows(sd, [], "wf-kids")
+    assert workflows
+    kids = workflows[0]["children"]
+    assert isinstance(kids, list)
+    assert kids[0]["id"] == "ag-1"
+    assert kids[0]["path"] == str(child)

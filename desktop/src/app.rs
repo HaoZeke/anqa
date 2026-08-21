@@ -234,6 +234,7 @@ struct ParentFrame {
     timeline_query: String,
     timeline_query_draft: String,
     timeline_focus: Option<i64>,
+    timeline_open: Option<i64>,
     timeline_prompt: Option<i64>,
     events_turn_index: Option<i64>,
     turns_focus: Option<i64>,
@@ -1619,6 +1620,7 @@ impl Hud {
                             self.timeline_next = self.timeline_next.min(self.timeline_total);
                         }
                         self.rebuild_tl_filter();
+                        self.rebuild_wf_child_heights();
                         self.bind_overview_fields();
                         self.mark_up();
                         // Turn-boundary pager: open first/last of the newly loaded filter.
@@ -3978,6 +3980,7 @@ impl Hud {
             timeline_query: self.timeline_query.clone(),
             timeline_query_draft: self.timeline_query_draft.clone(),
             timeline_focus: self.timeline_focus,
+            timeline_open: self.timeline_open,
             timeline_prompt: self.timeline_prompt,
             events_turn_index: self.events_turn_index,
             turns_focus: self.turns_focus,
@@ -3992,14 +3995,14 @@ impl Hud {
         self.timeline_query = frame.timeline_query.clone();
         self.timeline_query_draft = frame.timeline_query_draft.clone();
         self.timeline_focus = frame.timeline_focus;
-        self.timeline_open = None;
+        self.timeline_open = frame.timeline_open;
         self.timeline_prompt = frame.timeline_prompt;
         self.events_turn_index = frame.events_turn_index;
         self.turns_focus = frame.turns_focus;
         self.turns_query = frame.turns_query.clone();
         self.turn_window.scroll = frame.turn_scroll;
         self.restore_around = if frame.tab == Tab::Timeline {
-            frame.timeline_focus
+            frame.timeline_open.or(frame.timeline_focus)
         } else {
             None
         };
@@ -9591,6 +9594,75 @@ mod tests {
     }
 
     #[test]
+    fn timeline_load_rebuilds_workflow_agent_heights() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(crate::wire::Overview {
+            workflows: vec![crate::wire::WorkflowRow {
+                id: "wf1".into(),
+                name: "sprint".into(),
+                children: vec![
+                    crate::wire::WorkflowChildRow {
+                        id: "ag-1".into(),
+                        label: "aik".into(),
+                        success: true,
+                        session_id: "ag-1".into(),
+                        path: "/tmp/ag-1".into(),
+                    },
+                    crate::wire::WorkflowChildRow {
+                        id: "ag-2".into(),
+                        label: "ghost".into(),
+                        success: false,
+                        ..crate::wire::WorkflowChildRow::default()
+                    },
+                ],
+                ..crate::wire::WorkflowRow::default()
+            }],
+            ..crate::wire::Overview::default()
+        });
+        hud.timeline_open = Some(7);
+        hud.timeline.clear();
+        hud.rebuild_wf_child_heights();
+        assert!(hud.open_workflow_children().is_empty());
+        assert!(hud.wf_child_heights().is_empty());
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![json!({
+                "index": 7,
+                "type": "tool_call",
+                "toolName": "workflow",
+                "rawInput": {"run_id": "wf1"},
+            })],
+            1,
+            0,
+        );
+        assert_eq!(hud.open_workflow_children().len(), 2);
+        assert_eq!(hud.wf_child_heights().len(), 2);
+        assert!(!hud.open_workflow_children()[0].path.is_empty());
+        assert!(hud.open_workflow_children()[1].path.is_empty());
+    }
+
+    #[test]
+    fn workflow_child_open_child_loads_that_session() {
+        let mut hud = hud_with_session();
+        let parent = hud.overview_sid.clone();
+        let _ = hud.update(Message::OpenChild {
+            path: "/tmp/ag-1".into(),
+            sid: "ag-1".into(),
+        });
+        assert_eq!(hud.overview_pending, "ag-1");
+        assert_ne!(hud.overview_pending, parent);
+        hud.overview_pending.clear();
+        let _ = hud.update(Message::OpenChild {
+            path: String::new(),
+            sid: String::new(),
+        });
+        assert!(hud.overview_pending.is_empty());
+    }
+
+    #[test]
     fn diff_query_filters_visible_files_and_scope_includes_search() {
         let mut hud = Hud {
             overview_pending: "s1".into(),
@@ -10780,6 +10852,58 @@ mod tests {
         assert!(hud.timeline_open.is_none());
         assert_eq!(hud.overview_pending, "parent-1");
         assert_eq!(hud.restore_around, Some(7));
+    }
+
+    #[test]
+    fn return_from_workflow_child_restores_inspect() {
+        let mut hud = parent_with_openable_child();
+        hud.timeline_open = Some(12);
+        hud.timeline_focus = Some(12);
+        let _ = hud.update(Message::OpenChild {
+            path: "/tmp/child-1".into(),
+            sid: "child-1".into(),
+        });
+        assert_eq!(hud.parent_stack.len(), 1);
+        assert_eq!(hud.parent_stack[0].timeline_open, Some(12));
+        let _ = hud.return_to_parent();
+        assert!(hud.parent_stack.is_empty());
+        assert_eq!(hud.timeline_open, Some(12));
+        assert_eq!(hud.restore_around, Some(12));
+        assert_eq!(hud.overview_pending, "parent-1");
+    }
+
+    #[test]
+    fn nested_child_esc_pops_one_parent() {
+        let mut hud = parent_with_openable_child();
+        let _ = hud.update(Message::OpenChild {
+            path: "/tmp/child-1".into(),
+            sid: "child-1".into(),
+        });
+        hud.overview = Some(Overview {
+            session_id: "child-1".into(),
+            meta: crate::wire::SessionMeta {
+                session_id: "child-1".into(),
+                path: "/tmp/child-1".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        hud.overview_sid = "child-1".into();
+        hud.overview_pending.clear();
+        let _ = hud.update(Message::OpenChild {
+            path: "/tmp/grand-1".into(),
+            sid: "grand-1".into(),
+        });
+        assert_eq!(hud.parent_stack.len(), 2);
+        assert_eq!(hud.parent_stack[0].sid, "parent-1");
+        assert_eq!(hud.parent_stack[1].sid, "child-1");
+        let _ = hud.return_to_parent();
+        assert_eq!(hud.parent_stack.len(), 1);
+        assert_eq!(hud.parent_stack[0].sid, "parent-1");
+        assert_eq!(hud.overview_pending, "child-1");
+        let _ = hud.return_to_parent();
+        assert!(hud.parent_stack.is_empty());
+        assert_eq!(hud.overview_pending, "parent-1");
     }
 
     #[test]
