@@ -132,6 +132,15 @@ def is_unknown_method(exc: BaseException | str) -> bool:
     return "method not found" in low or "-32601" in low
 
 
+def _peer_gone(exc: BaseException) -> bool:
+    """True when the Unix client reset or closed the socket."""
+    if isinstance(exc, BrokenPipeError | ConnectionResetError | ConnectionError | OSError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return bool(exc.exceptions) and all(_peer_gone(item) for item in exc.exceptions)
+    return False
+
+
 @dataclass(frozen=True)
 class ControlSocketInUse(Exception):
     """Another live process already owns the control socket (singleton)."""
@@ -453,34 +462,11 @@ class ControlServer:
         peer = id(writer)
         logger.debug("control client connect id=%s", peer)
         try:
-            while not reader.at_eof():
-                try:
-                    first_line = await reader.readline()
-                except (ValueError, asyncio.LimitOverrunError):
-                    await self._send_error(writer, None, -32600, "message exceeds size limit")
-                    break
-                if not first_line:
-                    break
-                if _HEADER_LINE_RE.match(first_line):
-                    self._writer_framing[writer] = "headers"
-                    length = await self._read_header_length(reader, writer, first_line)
-                    if length is None:
-                        break
-                    try:
-                        message = await reader.readexactly(length)
-                    except asyncio.IncompleteReadError:
-                        break
-                else:
-                    self._writer_framing.setdefault(writer, "newline")
-                    message = first_line
-                if len(message) > MAX_MESSAGE_BYTES:
-                    await self._send_error(writer, None, -32600, "message exceeds size limit")
-                    break
-                # Framing is known. Add to the broadcast set only after this
-                # request finishes so a slow one-shot (HUD session/timeline)
-                # does not read session/changed as its JSON-RPC result.
-                await self._handle_line(message, writer)
-                self._writers.add(writer)
+            await self._read_client(reader, writer)
+        except BaseException as exc:
+            if not _peer_gone(exc):
+                raise
+            logger.debug("control client reset id=%s", peer)
         finally:
             self._writers.discard(writer)
             self._writer_framing.pop(writer, None)
@@ -492,9 +478,44 @@ class ControlServer:
             writer.close()
             try:
                 await writer.wait_closed()
-            except (BrokenPipeError, ConnectionResetError, ConnectionError, OSError):
-                # Peer already gone; not an ownership fault.
-                pass
+            except BaseException as exc:
+                if not _peer_gone(exc):
+                    raise
+
+    async def _read_client(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Read framed requests until the peer closes or a size limit trips."""
+        while not reader.at_eof():
+            try:
+                first_line = await reader.readline()
+            except (ValueError, asyncio.LimitOverrunError):
+                await self._send_error(writer, None, -32600, "message exceeds size limit")
+                return
+            if not first_line:
+                return
+            if _HEADER_LINE_RE.match(first_line):
+                self._writer_framing[writer] = "headers"
+                length = await self._read_header_length(reader, writer, first_line)
+                if length is None:
+                    return
+                try:
+                    message = await reader.readexactly(length)
+                except asyncio.IncompleteReadError:
+                    return
+            else:
+                self._writer_framing.setdefault(writer, "newline")
+                message = first_line
+            if len(message) > MAX_MESSAGE_BYTES:
+                await self._send_error(writer, None, -32600, "message exceeds size limit")
+                return
+            # Framing is known. Add to the broadcast set only after this
+            # request finishes so a slow one-shot (HUD session/timeline)
+            # does not read session/changed as its JSON-RPC result.
+            await self._handle_line(message, writer)
+            self._writers.add(writer)
 
     async def _read_header_length(
         self,

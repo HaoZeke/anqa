@@ -96,6 +96,8 @@ is tagged.
 
 - The session list summary is the session count. It does not say
   pending analysis or findings totals.
+- A client that resets the control socket no longer logs an unhandled
+  exception in groket serve.
 - Summary and HUD Tasks open a schedule the same way as a job: Enter
   or a second click jumps to the Timeline bookend. A row with no
   bookend is dim and stays put.

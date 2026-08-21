@@ -589,3 +589,35 @@ async def test_control_server_returns_jsonrpc_errors(tmp_path: Path) -> None:
         await writer.wait_closed()
     finally:
         await server.close()
+
+
+def test_peer_gone_treats_reset_and_groups_as_disconnect() -> None:
+    """RST and exception groups of RST are a gone peer, not a server fault."""
+    from groket.integrations.control import _peer_gone
+
+    assert _peer_gone(ConnectionResetError(104, "Connection reset by peer"))
+    assert _peer_gone(BrokenPipeError())
+    assert _peer_gone(ExceptionGroup("closed", [ConnectionResetError()]))
+    assert not _peer_gone(ValueError("parse"))
+    assert not _peer_gone(ExceptionGroup("mixed", [ConnectionResetError(), ValueError("x")]))
+
+
+@pytest.mark.asyncio
+async def test_control_server_peer_reset_stays_up() -> None:
+    """A client that resets the socket must not take down the owner."""
+    control = import_module("groket.integrations.control")
+    server = control.ControlServer(socket_path=_short_sock("rst.sock"))
+    await server.start()
+    try:
+        _reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        await _request(_reader, writer, 1, "initialize", {"protocolVersion": "1.0.0"})
+        transport = writer.transport
+        assert transport is not None
+        transport.abort()
+        reader2, writer2 = await asyncio.open_unix_connection(server.socket_path)
+        again = await _request(reader2, writer2, 1, "initialize", {"protocolVersion": "1.0.0"})
+        assert again["result"]["protocolVersion"] == control.PROTOCOL_VERSION
+        writer2.close()
+        await writer2.wait_closed()
+    finally:
+        await server.close()
