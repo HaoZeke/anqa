@@ -29,6 +29,8 @@ pub struct SessionListItem {
     #[serde(default)]
     pub task_id: String,
     #[serde(default)]
+    pub git_repo: String,
+    #[serde(default)]
     pub duration_seconds: f64,
     #[serde(default)]
     pub num_events: i64,

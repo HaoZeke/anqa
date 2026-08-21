@@ -204,7 +204,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("session.resume", ActionScope.HOME, "f", ActionSurface.TUI),
     _row("session.save_config", ActionScope.HOME, "ctrl+s", ActionSurface.TUI),
     _row("session.delete", ActionScope.HOME, "x,delete", ActionSurface.TUI),
-    _row("home.model_filter", ActionScope.HOME, "m", ActionSurface.TUI),
     _row(
         "session.export",
         ActionScope.HOME,

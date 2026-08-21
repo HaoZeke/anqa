@@ -9,9 +9,116 @@
     "protocolVersion",
     "minProtocolVersion",
     "methods",
-    "notifications"
+    "notifications",
+    "catalogQuery"
   ],
   "properties": {
+    "catalogQuery": {
+      "description": "session/list query language (tokens, values, operators).",
+      "const": {
+        "bareWords": "title, sessionId, and label",
+        "implicitAnd": true,
+        "operators": [
+          "AND",
+          "OR",
+          "NOT",
+          "-"
+        ],
+        "compare": [
+          ">=",
+          "<=",
+          ">",
+          "<",
+          "="
+        ],
+        "tokens": [
+          {
+            "name": "is",
+            "role": "Status or origin.",
+            "values": [
+              "running",
+              "awaiting",
+              "ending",
+              "complete",
+              "cancelled",
+              "host",
+              "eval"
+            ],
+            "compare": false
+          },
+          {
+            "name": "has",
+            "role": "Presence on the list row.",
+            "values": [
+              "workflows",
+              "notes",
+              "errors"
+            ],
+            "compare": false
+          },
+          {
+            "name": "in",
+            "role": "Where the session started (git repo / workspace).",
+            "values": [],
+            "compare": false
+          },
+          {
+            "name": "model",
+            "role": "Model id substring.",
+            "values": [],
+            "compare": false
+          },
+          {
+            "name": "task",
+            "role": "Task id substring.",
+            "values": [],
+            "compare": false
+          },
+          {
+            "name": "errors",
+            "role": "errorCount.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "turns",
+            "role": "turnCount.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "tools",
+            "role": "toolCallCount.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "events",
+            "role": "numEvents.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "duration",
+            "role": "Session length (1h, 2d, 30m).",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "after",
+            "role": "updatedAt on or after this time (ISO, yesterday, 2d, 2 days ago).",
+            "values": [],
+            "compare": false
+          },
+          {
+            "name": "before",
+            "role": "updatedAt on or before this time (ISO, yesterday, 2d, 2 days ago).",
+            "values": [],
+            "compare": false
+          }
+        ]
+      }
+    },
     "protocolVersion": {
       "const": "1.0.0",
       "description": "Owner initialize protocolVersion."
@@ -104,7 +211,7 @@
               "additionalProperties": true,
               "properties": {
                 "query": {
-                  "description": "Catalog query: bare words (title / id / label) plus is: / has: / errors:>N / in: / model: / after: (AND / OR).",
+                  "description": "Catalog query language (see catalogQuery in this schema).",
                   "type": "string"
                 },
                 "limit": {

@@ -5,7 +5,7 @@ Standard pattern (sessions list, Timeline **Filter**, Report **Filter**):
 - Horizontal bar with classes ``filter-bar`` + bold ``filter-view-label``
 - One or more **Select** widgets for exclusive modes (All / …) — shared styling
   in ``app.tcss`` (``#timeline-view-select``, ``#report-view-select``,
-  ``#session-model-select``, ``.field-select``)
+  ``.field-select``)
 - Optional trailing ``Input`` (timeline search only)
 
 Form field booleans still use full-width ``Checkbox`` (persona editor, analysis

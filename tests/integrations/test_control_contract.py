@@ -182,6 +182,8 @@ def test_emit_writes_paths(tmp_path: Path) -> None:
     assert PROTOCOL_VERSION in body
     assert "session/timeline" in body
     assert "session/selected" in body
+    assert "catalogQuery" in body
+    assert "has" in body
 
 
 def test_justfile_and_pages_list_control_schema() -> None:

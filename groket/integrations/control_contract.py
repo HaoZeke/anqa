@@ -24,6 +24,118 @@ PROTOCOL_VERSION = "1.0.0"
 
 SCHEMA_TITLE = "groket-control"
 SCHEMA_ID = "https://indynull.github.io/groket/schemas/control.schema.json"
+CATALOG_QUERY_ASSET = Path("desktop/assets/catalog-query.json")
+
+
+@dataclass(frozen=True)
+class CatalogQueryToken:
+    """One ``session/list`` ``query`` token (``is:``, ``has:``, …)."""
+
+    name: str
+    role: str
+    values: tuple[str, ...] = ()
+    compare: bool = False
+
+
+CATALOG_QUERY_BARE = "title, sessionId, and label"
+CATALOG_QUERY_OPERATORS: tuple[str, ...] = ("AND", "OR", "NOT", "-")
+CATALOG_QUERY_COMPARE: tuple[str, ...] = (">=", "<=", ">", "<", "=")
+CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
+    CatalogQueryToken(
+        "is",
+        "Status or origin.",
+        ("running", "awaiting", "ending", "complete", "cancelled", "host", "eval"),
+    ),
+    CatalogQueryToken(
+        "has",
+        "Presence on the list row.",
+        ("workflows", "notes", "errors"),
+    ),
+    CatalogQueryToken("in", "Where the session started (git repo / workspace)."),
+    CatalogQueryToken("model", "Model id substring."),
+    CatalogQueryToken("task", "Task id substring."),
+    CatalogQueryToken("errors", "errorCount.", compare=True),
+    CatalogQueryToken("turns", "turnCount.", compare=True),
+    CatalogQueryToken("tools", "toolCallCount.", compare=True),
+    CatalogQueryToken("events", "numEvents.", compare=True),
+    CatalogQueryToken("duration", "Session length (1h, 2d, 30m).", compare=True),
+    CatalogQueryToken(
+        "after",
+        "updatedAt on or after this time (ISO, yesterday, 2d, 2 days ago).",
+    ),
+    CatalogQueryToken(
+        "before",
+        "updatedAt on or before this time (ISO, yesterday, 2d, 2 days ago).",
+    ),
+)
+
+
+def catalog_query_compare_fields() -> tuple[str, ...]:
+    """Token names that take ``>`` / ``>=`` / ``<`` / ``<=`` / ``=``."""
+    return tuple(token.name for token in CATALOG_QUERY_TOKENS if token.compare)
+
+
+def catalog_query_field_names() -> tuple[str, ...]:
+    """Token names last-token completion offers."""
+    return tuple(token.name for token in CATALOG_QUERY_TOKENS)
+
+
+def catalog_query_values(name: str) -> tuple[str, ...]:
+    """Closed values for *name*, or empty when the catalog supplies them."""
+    for token in CATALOG_QUERY_TOKENS:
+        if token.name == name:
+            return token.values
+    return ()
+
+
+def catalog_query_mapping() -> JsonObject:
+    """JSON for the published schema and the HUD token file."""
+    return {
+        "bareWords": CATALOG_QUERY_BARE,
+        "implicitAnd": True,
+        "operators": list(CATALOG_QUERY_OPERATORS),
+        "compare": list(CATALOG_QUERY_COMPARE),
+        "tokens": [
+            {
+                "name": token.name,
+                "role": token.role,
+                "values": list(token.values),
+                "compare": token.compare,
+            }
+            for token in CATALOG_QUERY_TOKENS
+        ],
+    }
+
+
+def _session_list_query_md() -> str:
+    """Operator markdown for ``session/list`` ``query``."""
+    rows = [
+        "`query` is the catalog language. Bare words match title, id, and label.",
+        "Space is AND. Full token list: this schema's `catalogQuery`.",
+        "",
+        "| Token | Matches |",
+        "|-------|---------|",
+    ]
+    for token in CATALOG_QUERY_TOKENS:
+        if token.values:
+            names = " ".join(f"`{token.name}:{value}`" for value in token.values)
+            rows.append(f"| {names} | {token.role} |")
+        elif token.compare:
+            rows.append(f"| `{token.name}:` with `>` `>=` `<` `<=` `=` | {token.role} |")
+        else:
+            rows.append(f"| `{token.name}:` | {token.role} |")
+    rows += [
+        "",
+        "Optional `limit` and `offset` page the filtered rows; omit",
+        "`offset` for the first page. Optional `sinceRevision` matching",
+        "the owner’s `revision` returns no rows (`unchanged`). When the",
+        "client is behind, the owner may send a `delta` (upserted rows",
+        "plus `removed` ids). Result includes `sessions`, `total`,",
+        "`matched`, and `revision`. Clients that need the full catalog",
+        "drain pages until `matched` on first paint only.",
+    ]
+    return "\n".join(rows)
+
 
 NOTIFY_SESSION_SELECTED = "session/selected"
 NOTIFY_SESSION_CHANGED = "session/changed"
@@ -107,8 +219,7 @@ METHODS: tuple[MethodSpec, ...] = (
         params=(
             FieldSpec(
                 "query",
-                "Catalog query: bare words (title / id / label) plus "
-                "is: / has: / errors:>N / in: / model: / after: (AND / OR).",
+                "Catalog query language (see catalogQuery in this schema).",
             ),
             FieldSpec("limit", "Page size.", json_type="integer"),
             FieldSpec(
@@ -130,18 +241,7 @@ METHODS: tuple[MethodSpec, ...] = (
             FieldSpec("matched", "Rows matching ``query``.", json_type="integer"),
             FieldSpec("revision", "Catalog revision.", json_type="integer"),
         ),
-        extra_md=(
-            "`query` is the catalog language: bare words match title, id,\n"
-            "and label; `is:`, `has:`, `errors:>N`, `in:`, `model:`, `task:`,\n"
-            "`after:`, and `before:` match list columns. Spaces are AND.\n"
-            "Optional `limit` and `offset` page the filtered rows; omit\n"
-            "`offset` for the first page. Optional `sinceRevision` matching\n"
-            "the owner’s `revision` returns no rows (`unchanged`). When the\n"
-            "client is behind, the owner may send a `delta` (upserted rows\n"
-            "plus `removed` ids). Result includes `sessions`, `total`,\n"
-            "`matched`, and `revision`. Clients that need the full catalog\n"
-            "drain pages until `matched` on first paint only."
-        ),
+        extra_md=_session_list_query_md(),
     ),
     MethodSpec(
         name="session/get",
@@ -398,8 +498,13 @@ def control_json_schema() -> JsonObject:
                 "minProtocolVersion",
                 "methods",
                 "notifications",
+                "catalogQuery",
             ],
             "properties": {
+                "catalogQuery": {
+                    "description": "session/list query language (tokens, values, operators).",
+                    "const": catalog_query_mapping(),
+                },
                 "protocolVersion": {
                     "const": PROTOCOL_VERSION,
                     "description": "Owner initialize protocolVersion.",
@@ -432,6 +537,15 @@ def emit_control_schema(out: Path | None = None) -> str:
         dest = Path(out)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
+    return text
+
+
+def emit_catalog_query_asset(out: Path | None = None) -> str:
+    """Write the HUD token file (same mapping as ``catalogQuery``)."""
+    text = json.dumps(catalog_query_mapping(), indent=2) + "\n"
+    dest = Path(out) if out is not None else CATALOG_QUERY_ASSET
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text, encoding="utf-8")
     return text
 
 
@@ -595,6 +709,15 @@ __all__ = (
     "NOTIFY_SESSION_SELECTED",
     "PROTOCOL_VERSION",
     "SCHEMA_ID",
+    "CATALOG_QUERY_ASSET",
+    "CATALOG_QUERY_COMPARE",
+    "CATALOG_QUERY_TOKENS",
+    "CatalogQueryToken",
+    "catalog_query_compare_fields",
+    "catalog_query_field_names",
+    "catalog_query_mapping",
+    "catalog_query_values",
+    "emit_catalog_query_asset",
     "FieldSpec",
     "InventorySnapshot",
     "MethodSpec",

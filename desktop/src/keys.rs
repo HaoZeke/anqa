@@ -311,12 +311,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "home.model_filter",
-        scope: "home",
-        default: "m",
-        remappable: true,
-    },
-    CatalogRow {
         id: "session.export",
         scope: "home",
         default: "E",

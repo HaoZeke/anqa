@@ -17,7 +17,7 @@ from pathlib import Path
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
 from .mtime_export import default_host_catalog_cache, load_or_rebuild_host_catalog
-from .query import catalog_has_findings, catalog_has_notes, catalog_has_workflows
+from .query import catalog_has_notes, catalog_has_workflows
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
@@ -101,7 +101,7 @@ def show_host_sessions_from_config() -> bool:
 def effective_include_host(include_host: bool | None) -> bool:
     """Resolve catalog host inclusion: explicit flag, else always include.
 
-    Host sessions stay in the catalog; ``is:host`` / ``H`` filter the list.
+    Host sessions stay in the catalog; ``is:host`` filters the list.
     """
     if include_host is not None:
         return bool(include_host)
@@ -183,6 +183,7 @@ def session_catalog_row(
         "origin": meta.origin or origin,
         # Home-list columns for attach-mode TUI (and any rich client).
         "taskId": meta.task_id or "",
+        "gitRepo": meta.git_repo or "",
         "durationSeconds": float(meta.duration_seconds or 0),
         "numEvents": int(meta.num_events or 0),
         "contextUsageCompact": meta.context_usage_compact or "",
@@ -195,7 +196,6 @@ def session_catalog_row(
         "errorCount": int(meta.error_count or 0),
         "hasWorkflows": catalog_has_workflows(session_dir),
         "hasNotes": catalog_has_notes(session_dir),
-        "hasFindings": catalog_has_findings(session_id),
         # Newest-first list ordering for all control clients.
         "createdAt": created,
         "updatedAt": updated,
@@ -282,6 +282,7 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "outcome",
     "origin",
     "taskId",
+    "gitRepo",
     "durationSeconds",
     "numEvents",
     "contextUsageCompact",
@@ -293,7 +294,6 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "errorCount",
     "hasWorkflows",
     "hasNotes",
-    "hasFindings",
     "createdAt",
     "updatedAt",
 )
@@ -952,6 +952,9 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     meta.has_workflows = bool(row.get("hasWorkflows"))
     meta.has_notes = bool(row.get("hasNotes"))
     meta.has_findings = bool(row.get("hasFindings"))
+    git_repo = str(row.get("gitRepo") or "").strip()
+    if git_repo:
+        meta.git_repo = git_repo
 
     pct = _opt_int("contextWindowUsagePct")
     if pct is not None:

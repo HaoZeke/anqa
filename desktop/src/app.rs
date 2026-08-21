@@ -43,7 +43,7 @@ use crate::model::{
 use crate::motion::{self, MotionRole, PageLayer};
 use crate::place;
 use crate::prefs;
-use crate::query::{query_has_tokens, row_matches, suggest_last_token, toggle_is_host};
+use crate::query::{needs_control_when, query_has_tokens, row_matches, suggest_last_token};
 use crate::shortcut;
 use crate::theme;
 use crate::view;
@@ -122,6 +122,10 @@ pub enum Message {
         offset: u32,
         result: Result<Value, String>,
     },
+    CatalogQueryLoaded {
+        gen: u64,
+        result: Result<Value, String>,
+    },
     OverviewLoaded {
         gen: u64,
         sid: String,
@@ -152,8 +156,6 @@ pub enum Message {
     LeaveInput,
     /// Leave the open session and show Recent + session search.
     SessionsHome,
-    /// Toggle ``is:host`` in the catalog query.
-    ToggleHostQuery,
     WindowFocus(bool),
     CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
@@ -343,6 +345,7 @@ pub struct Hud {
     notify_q: Arc<Mutex<VecDeque<(String, Value)>>>,
     window_id: Option<window::Id>,
     catalog_revision: i64,
+    catalog_query_gen: u64,
     list_window: icedtea::collection::VisibleWindow,
     list_scroll_id: Id,
     list_selection: icedtea::collection::Selection,
@@ -510,6 +513,7 @@ impl Default for Hud {
             _summon: None,
             notify_q: Arc::new(Mutex::new(VecDeque::new())),
             catalog_revision: 0,
+            catalog_query_gen: 0,
             window_id: None,
             list_window: icedtea::collection::VisibleWindow::new(400.0),
             list_scroll_id: Id::new("hud-sessions"),
@@ -866,7 +870,7 @@ impl Hud {
                 let keep = self.session_keep_id();
                 self.query = q;
                 self.rerank_visible_keeping(keep);
-                Task::none()
+                self.fetch_catalog_when()
             }
             Message::OpenChild { path, sid } => self.open_child_session(path, sid),
             Message::SelectSession(i) => {
@@ -1421,6 +1425,34 @@ impl Hud {
                     Task::none()
                 }
             },
+            Message::CatalogQueryLoaded { gen, result } => {
+                if gen != self.catalog_query_gen || !needs_control_when(&self.query) {
+                    return Task::none();
+                }
+                match result {
+                    Ok(v) => {
+                        if let Ok(page) = decode_session_list_response(&v) {
+                            let keep = self.session_keep_id();
+                            self.sessions = page.sessions;
+                            self.refresh_session_rows();
+                            let n = self.sessions().len();
+                            let keep_at = if keep.is_empty() {
+                                None
+                            } else {
+                                self.sessions().iter().position(|r| r.session_id == keep)
+                            };
+                            if let Some(idx) = keep_at {
+                                self.set_active(idx);
+                            } else if n == 0 {
+                                self.active = 0;
+                                self.list_selection = icedtea::collection::Selection::None;
+                            }
+                        }
+                        Task::none()
+                    }
+                    Err(_) => Task::none(),
+                }
+            }
             Message::OverviewLoaded {
                 gen,
                 sid,
@@ -1708,12 +1740,6 @@ impl Hud {
             Message::Hide => self.on_escape(),
             Message::LeaveInput => Self::blur_text_inputs(),
             Message::SessionsHome => self.go_sessions_home(),
-            Message::ToggleHostQuery => {
-                let keep = self.session_keep_id();
-                self.query = toggle_is_host(&self.query);
-                self.rerank_visible_keeping(keep);
-                Task::none()
-            }
             Message::ToggleHelp => {
                 if self.typing_notes {
                     return Task::none();
@@ -1801,12 +1827,7 @@ impl Hud {
         let paths: Vec<String> = self
             .all_sessions
             .iter()
-            .map(|r| {
-                std::path::Path::new(&r.path)
-                    .parent()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            })
+            .map(|r| r.git_repo.clone())
             .filter(|p| !p.is_empty())
             .collect();
         suggest_last_token(&self.query, &models, &paths)
@@ -3672,6 +3693,19 @@ impl Hud {
         self.rerank_visible_keeping(keep);
     }
 
+    fn fetch_catalog_when(&mut self) -> Task<Message> {
+        self.catalog_query_gen = self.catalog_query_gen.saturating_add(1);
+        if !needs_control_when(&self.query) {
+            return Task::none();
+        }
+        let gen = self.catalog_query_gen;
+        let query = crate::query::finished_prefix(&self.query);
+        Task::perform(
+            rpc(move || control::session_list(&query, 10_000, 0, 0)),
+            move |result| Message::CatalogQueryLoaded { gen, result },
+        )
+    }
+
     fn rerank_visible_keeping(&mut self, keep: String) {
         if self.query.trim().is_empty() {
             self.sessions = spotlight_recent(&self.all_sessions, self.spotlight_limit, &keep);
@@ -5290,7 +5324,6 @@ impl Hud {
             "list.up" => self.nav_step(-1),
             "edit.copy" | "edit.copy_chord" => self.yank_active(),
             "search.focus" => self.focus_context_search(),
-            "home.host" if !self.browse_mode() => self.update(Message::ToggleHostQuery),
             "pane.notes" if self.browse_mode() => self.update(Message::SetTab(Tab::Notes)),
             _ => Task::none(),
         }
@@ -5378,9 +5411,6 @@ impl Hud {
         }
         if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();
-        }
-        if !self.browse_mode() && self.key_is("home.host", "H", &key, modifiers) {
-            return self.update(Message::ToggleHostQuery);
         }
         if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();

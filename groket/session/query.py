@@ -12,8 +12,10 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 
+import dateparser
 from luqum.parser import parser as luqum_parser
 from luqum.tree import (
     AndOperation,
@@ -31,42 +33,38 @@ from luqum.tree import (
     Word,
 )
 from luqum.utils import UnknownOperationResolver
+from pytimeparse import parse as parse_span
 
+from ..integrations.control_contract import (
+    CATALOG_QUERY_COMPARE,
+    catalog_query_compare_fields,
+    catalog_query_field_names,
+    catalog_query_values,
+)
 from ..models import JsonObject, SessionMeta, json_as_str
 
-# Tokens the last-token helper offers. Values for ``in:`` / ``model:`` come
-# from the loaded catalog, not this table.
-FIELD_NAMES: tuple[str, ...] = (
-    "is",
-    "has",
-    "in",
-    "model",
-    "task",
-    "errors",
-    "turns",
-    "tools",
-    "events",
-    "after",
-    "before",
+# Language comes from the published control contract. Row attributes for
+# ``has:`` stay here (implementation, not the token list).
+FIELD_NAMES: tuple[str, ...] = catalog_query_field_names()
+IS_VALUES: tuple[str, ...] = catalog_query_values("is")
+HAS_VALUES: tuple[str, ...] = catalog_query_values("has")
+COMPARE_PREFIXES: tuple[str, ...] = CATALOG_QUERY_COMPARE
+COMPARE_FIELDS: tuple[str, ...] = catalog_query_compare_fields()
+HAS_FLAGS: tuple[tuple[str, str], ...] = (
+    ("workflows", "has_workflows"),
+    ("notes", "has_notes"),
 )
-IS_VALUES: tuple[str, ...] = (
-    "running",
-    "awaiting",
-    "ending",
-    "complete",
-    "cancelled",
-    "host",
-    "eval",
-)
-HAS_VALUES: tuple[str, ...] = ("workflows", "notes", "findings", "errors")
-COMPARE_PREFIXES: tuple[str, ...] = (">=", "<=", ">", "<", "=")
 
 _INCOMPLETE_FIELD = re.compile(
     rf"(?i)(?:^|\s)(?:{'|'.join(FIELD_NAMES)}):$",
 )
 _TRAILING_BOOL = re.compile(r"(?i)(?:^|\s)(?:AND|OR|NOT)$")
 _IN_UNQUOTED = re.compile(r'(?i)(?<![A-Za-z0-9_])(in:)(?!")(\S+)')
-_IS_HOST = re.compile(r"(?i)(?<![A-Za-z0-9_])is:host\b")
+_WHEN_UNQUOTED = re.compile(
+    r'(?i)(?<![A-Za-z0-9_])((?:after|before):)(?!")(.+?)(?=\s+(?:AND|OR|NOT)\b|\s*\)|$)'
+)
+_COMPACT_SPAN = re.compile(r"(?i)^(\d+(?:\.\d+)?)([smhdw])$")
+_SPAN_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _WORD_SPLIT = re.compile(r"\s+")
 _SKIP_WORDS = frozenset({"and", "or", "not", "(", ")", "((", "))"})
 
@@ -85,11 +83,13 @@ class CatalogQueryRow:
     outcome: str = ""
     origin: str = ""
     path: str = ""
+    git_repo: str = ""
     task_id: str = ""
     error_count: int = 0
     turn_count: int = 0
     tool_count: int = 0
     event_count: int = 0
+    duration_seconds: int = 0
     updated_at: str = ""
     has_workflows: bool = False
     has_notes: bool = False
@@ -107,11 +107,13 @@ class CatalogQueryRow:
             outcome=json_as_str(row.get("outcome")),
             origin=json_as_str(row.get("origin")),
             path=json_as_str(row.get("path")),
+            git_repo=json_as_str(row.get("gitRepo")),
             task_id=json_as_str(row.get("taskId")),
             error_count=_as_int(row.get("errorCount")),
             turn_count=_as_int(row.get("turnCount")),
             tool_count=_as_int(row.get("toolCallCount")),
             event_count=_as_int(row.get("numEvents")),
+            duration_seconds=_as_int(row.get("durationSeconds")),
             updated_at=json_as_str(row.get("updatedAt") or row.get("updated_at")),
             has_workflows=bool(row.get("hasWorkflows")),
             has_notes=bool(row.get("hasNotes")),
@@ -134,11 +136,13 @@ class CatalogQueryRow:
             outcome=meta.turn_outcome or "",
             origin=meta.origin or "",
             path=path,
+            git_repo=meta.git_repo or "",
             task_id=meta.task_id or "",
             error_count=int(meta.error_count or 0),
             turn_count=int(meta.turn_count or 0),
             tool_count=int(meta.tool_call_count or 0),
             event_count=int(meta.num_events or 0),
+            duration_seconds=int(meta.duration_seconds or 0),
             updated_at=str(meta.updated_at or ""),
             has_workflows=bool(meta.has_workflows),
             has_notes=bool(meta.has_notes),
@@ -157,8 +161,9 @@ def finished_prefix(query: str) -> str:
 
 
 def prepare_query(query: str) -> str:
-    """Quote ``in:`` paths so luqum does not treat ``~`` / ``/…/`` as Lucene."""
-    return _IN_UNQUOTED.sub(lambda match: f'{match.group(1)}"{match.group(2)}"', query)
+    """Quote ``in:`` paths and ``after:`` / ``before:`` phrases for luqum."""
+    text = _IN_UNQUOTED.sub(lambda match: f'{match.group(1)}"{match.group(2)}"', query)
+    return _WHEN_UNQUOTED.sub(lambda match: f'{match.group(1)}"{match.group(2).strip()}"', text)
 
 
 def row_matches_query(row: CatalogQueryRow, query: str) -> bool:
@@ -166,12 +171,19 @@ def row_matches_query(row: CatalogQueryRow, query: str) -> bool:
     text = finished_prefix(query).strip()
     if not text:
         return True
-    try:
-        tree = _RESOLVE_AND(luqum_parser.parse(prepare_query(text)))
-    except Exception:
+    tree = _parsed_tree(text)
+    if tree is None:
         words = _bare_words(text)
         return True if not words else _match_words(row, words)
     return _eval(tree, row)
+
+
+@lru_cache(maxsize=64)
+def _parsed_tree(text: str) -> Item | None:
+    try:
+        return _RESOLVE_AND(luqum_parser.parse(prepare_query(text)))
+    except Exception:
+        return None
 
 
 def suggest_last_token(
@@ -204,16 +216,6 @@ def apply_suggestion(query: str, suggestion: str) -> str:
     return f"{head} {suggestion} "
 
 
-def toggle_is_host(query: str) -> str:
-    """Add or remove ``is:host`` (``H`` on the home list)."""
-    text = (query or "").strip()
-    if _IS_HOST.search(text):
-        return _WORD_SPLIT.sub(" ", _IS_HOST.sub(" ", text)).strip()
-    if not text:
-        return "is:host"
-    return f"{text} is:host"
-
-
 def query_has_tokens(query: str) -> bool:
     """True when the finished prefix contains a typed ``field:`` token."""
     text = finished_prefix(query)
@@ -230,7 +232,7 @@ def _values_for_field(
         return IS_VALUES
     if field == "has":
         return HAS_VALUES
-    if field in {"errors", "turns", "tools", "events"}:
+    if field in COMPARE_FIELDS:
         return COMPARE_PREFIXES
     if field == "model":
         return tuple(dict.fromkeys(m for m in models if m.strip()))
@@ -297,7 +299,7 @@ def _eval_field(field: str, expr: Item, row: CatalogQueryRow) -> bool:
     if field == "has":
         return _match_has(_term_text(expr).casefold(), row)
     if field == "in":
-        return _match_in(_term_text(expr), row.path)
+        return _match_in(_term_text(expr), row)
     if field == "model":
         return _term_text(expr).casefold() in row.model.casefold()
     if field == "task":
@@ -322,23 +324,24 @@ def _match_is(value: str, row: CatalogQueryRow) -> bool:
 
 
 def _match_has(value: str, row: CatalogQueryRow) -> bool:
-    if value == "workflows":
-        return row.has_workflows
-    if value == "notes":
-        return row.has_notes
-    if value == "findings":
-        return row.has_findings
     if value == "errors":
         return row.error_count > 0
+    for name, attr in HAS_FLAGS:
+        if name == value:
+            return bool(getattr(row, attr))
     return False
 
 
-def _match_in(needle: str, path: str) -> bool:
+def _match_in(needle: str, row: CatalogQueryRow) -> bool:
+    """Prefix or substring on the start repo / workspace, not the store path."""
     want = _expand_path(needle)
-    have = _expand_path(path)
-    if not want:
-        return False
-    return have == want or have.startswith(want.rstrip("/") + "/")
+    started = _expand_path(row.git_repo)
+    if not want or not started:
+        raw = (row.git_repo or "").casefold()
+        return bool(raw) and needle.strip().strip('"').casefold() in raw
+    if want.casefold() in started.casefold():
+        return True
+    return started == want or started.startswith(want.rstrip("/") + "/")
 
 
 def _expand_path(raw: str) -> str:
@@ -353,10 +356,46 @@ def _expand_path(raw: str) -> str:
 
 def _match_date(updated: str, raw: str, *, after: bool) -> bool:
     stamp = _parse_epoch(updated)
-    bound = _parse_epoch(raw)
-    if stamp <= 0 or bound <= 0:
+    bound = _parse_when(raw)
+    if bound <= 0:
+        return True
+    if stamp <= 0:
         return False
     return stamp >= bound if after else stamp <= bound
+
+
+def _parse_when(raw: str) -> float:
+    """ISO date, compact span (``2d``), or a dateparser phrase (``yesterday``)."""
+    text = (raw or "").strip().strip('"').strip("'")
+    if not text:
+        return 0.0
+    return _parse_when_cached(text)
+
+
+@lru_cache(maxsize=256)
+def _parse_when_cached(text: str) -> float:
+    iso = _parse_epoch(text)
+    if iso > 0:
+        return iso
+    span = _parse_duration_seconds(text)
+    if span > 0:
+        return datetime.now(tz=UTC).timestamp() - span
+    if not any(ch.isalpha() for ch in text):
+        return 0.0
+    parsed = dateparser.parse(
+        text,
+        languages=["en"],
+        settings={
+            "TO_TIMEZONE": "UTC",
+            "RETURN_AS_TIMEZONE_AWARE": True,
+            "PARSERS": ["relative-time"],
+        },
+    )
+    if parsed is None:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
 
 
 def _parse_epoch(raw: str) -> float:
@@ -370,6 +409,31 @@ def _parse_epoch(raw: str) -> float:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.timestamp()
+
+
+def _parse_duration_seconds(raw: str) -> int:
+    """``90``, ``1h``, ``2d``, ``30m``, or a pytimeparse phrase."""
+    text = (raw or "").strip().strip('"').strip("'")
+    if not text:
+        return 0
+    if text.isdigit():
+        return int(text)
+    compact = _COMPACT_SPAN.fullmatch(text)
+    if compact:
+        return int(float(compact.group(1)) * _SPAN_SECONDS[compact.group(2).lower()])
+    parsed = parse_span(_expand_compact_span(text))
+    if parsed is None:
+        return 0
+    return int(parsed)
+
+
+def _expand_compact_span(raw: str) -> str:
+    compact = _COMPACT_SPAN.fullmatch(raw.strip())
+    if compact is None:
+        return raw
+    amount, unit = compact.group(1), compact.group(2).lower()
+    names = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
+    return f"{amount} {names[unit]} ago"
 
 
 def _match_number(field: str, expr: Item, row: CatalogQueryRow) -> bool:
@@ -400,11 +464,16 @@ def _number_column(field: str, row: CatalogQueryRow) -> int:
         return row.turn_count
     if field == "tools":
         return row.tool_count
+    if field == "duration":
+        return row.duration_seconds
     return row.event_count
 
 
 def _expr_number(expr: Item) -> int:
     text = _term_text(expr)
+    span = _parse_duration_seconds(text)
+    if span > 0:
+        return span
     try:
         return int(text)
     except ValueError:
@@ -448,25 +517,14 @@ def catalog_has_notes(session_dir: Path) -> bool:
     return notes_mtime(session_dir) > 0
 
 
-def catalog_has_findings(session_id: str) -> bool:
-    """True when any analysis cache JSON exists for *session_id*."""
-    from ..paths import APP_HOME
-
-    root = APP_HOME / "cache" / "analysis" / session_id
-    try:
-        return any(root.glob("*.json"))
-    except OSError:
-        return False
-
-
 __all__ = [
     "COMPARE_PREFIXES",
     "FIELD_NAMES",
+    "HAS_FLAGS",
     "HAS_VALUES",
     "IS_VALUES",
     "CatalogQueryRow",
     "apply_suggestion",
-    "catalog_has_findings",
     "catalog_has_notes",
     "catalog_has_workflows",
     "finished_prefix",
@@ -474,5 +532,4 @@ __all__ = [
     "query_has_tokens",
     "row_matches_query",
     "suggest_last_token",
-    "toggle_is_host",
 ]

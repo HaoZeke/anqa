@@ -12,7 +12,15 @@
   q               Quit when no field is focused
 
 [bold]Sessions[/bold]
-  /               Search (title, or is:host  has:workflows  errors:>20  in:~/path)
+  /               Search the catalog (Tab completes the last token)
+  Search          Bare words match title, id, and label. Space is AND.
+                  - is:running is:awaiting is:ending is:complete
+                  - is:cancelled is:host is:eval
+                  - has:workflows has:notes has:errors
+                  - errors: turns: tools: events: duration: with > >= < <= =
+                  - in: repo or workspace the session started in
+                  - model: task: after: before: (ISO, yesterday, 2d)
+                  - OR NOT - ( )
   r               New run
   C               Recipes
   P               Personas
@@ -22,7 +30,6 @@
   f               Fork an ended session into a new multi-turn
   Ctrl+S          Save the row as a recipe
   E               Export a session bundle
-  H               Toggle is:host in the catalog query
   n               Follow-up while awaiting
   e               Done while awaiting
   x               Delete (press twice)

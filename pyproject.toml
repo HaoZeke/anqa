@@ -29,12 +29,14 @@ classifiers = [
 # Prefer capable libraries over bespoke minimalism (TUI + CLI DX is the product).
 dependencies = [
     "click>=8.1",              # CLI foundation (Typer builds on Click)
+    "dateparser>=1.4.2",     # after:yesterday / 2 days ago
     "fluent.runtime>=0.4",     # localization (Project Fluent .ftl)
     "jinja2>=3.1",
     "luqum>=1.0.0",            # Lucene query parser for catalog search
     "orjson>=3.10",            # fast JSON for multi-MB updates.jsonl timelines
     "pydantic>=2.0",           # serialized models (Flag, configs, …)
     "python-on-whales>=0.70",  # Docker
+    "pytimeparse>=1.1.8",      # duration:>1h / 2d
     "pyyaml>=6.0",
     "rich>=15.0.0",            # terminal formatting (also used by Typer/Textual)
     "shellingham>=1.5",        # shell detection for Typer completion
@@ -245,6 +247,8 @@ module = [
     "python_on_whales.*",
     "rich.*",
     "luqum.*",
+    "dateparser.*",
+    "pytimeparse.*",
 ]
 ignore_missing_imports = true
 

@@ -203,7 +203,6 @@ class SessionQuerySuggester(Suggester):
         return apply_suggestion(value, hits[0]).rstrip()
 
 
-
 def first_home_list_fetch() -> dict[str, int | bool]:
     """First attach ``session/list``: one page, no matched drain."""
     return {
@@ -1576,18 +1575,14 @@ class TraceEvalApp(App):
         )
 
     def query_path_values(self) -> list[str]:
-        """Session paths on the loaded catalog (last-token ``in:`` hints)."""
+        """Start repos on the loaded catalog (last-token ``in:`` hints)."""
         out: list[str] = []
         seen: set[str] = set()
         for meta, _label in self._meta_only:
-            try:
-                path = str(Path(meta.session_dir).expanduser())
-            except OSError:
-                path = str(meta.session_dir)
-            parent = str(Path(path).parent)
-            if parent and parent not in seen:
-                seen.add(parent)
-                out.append(parent)
+            repo = (meta.git_repo or "").strip()
+            if repo and repo not in seen:
+                seen.add(repo)
+                out.append(repo)
         return out
 
     def _rebuild_session_filters(self) -> None:
@@ -2315,8 +2310,6 @@ class TraceEvalApp(App):
             return False
         if action in ("follow_up_sessions", "mark_sessions_done"):
             return bool(self._awaiting_session_targets())
-        if action == "toggle_host_query":
-            return True
         return True
 
     def action_launch_from_runner(self) -> None:

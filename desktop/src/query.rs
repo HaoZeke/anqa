@@ -1,23 +1,56 @@
-//! Catalog query language (same tokens as ``groket.session.query``).
+//! Catalog query language. Tokens come from the published control contract
+//! (`desktop/assets/catalog-query.json`, same `catalogQuery` as the schema).
 
 use std::path::Path;
+use std::sync::OnceLock;
+
+use serde::Deserialize;
 
 use crate::wire::SessionListItem;
 
-pub const FIELD_NAMES: &[&str] = &[
-    "is", "has", "in", "model", "task", "errors", "turns", "tools", "events", "after", "before",
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueryScheme {
+    compare: Vec<String>,
+    tokens: Vec<QueryTokenSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+struct QueryTokenSpec {
+    name: String,
+    #[serde(default)]
+    values: Vec<String>,
+    #[serde(default)]
+    compare: bool,
+}
+
+fn scheme() -> &'static QueryScheme {
+    static CELL: OnceLock<QueryScheme> = OnceLock::new();
+    CELL.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/catalog-query.json"))
+            .expect("catalog-query.json")
+    })
+}
+
+fn field_names() -> impl Iterator<Item = &'static str> {
+    scheme().tokens.iter().map(|t| t.name.as_str())
+}
+
+fn token_values(name: &str) -> &[String] {
+    scheme()
+        .tokens
+        .iter()
+        .find(|t| t.name == name)
+        .map(|t| t.values.as_slice())
+        .unwrap_or(&[])
+}
+
+/// Presence flags for ``has:`` (row attributes, not the token list).
+type HasFlag = fn(&SessionListItem) -> bool;
+const HAS_FLAGS: &[(&str, HasFlag)] = &[
+    ("workflows", |r| r.has_workflows),
+    ("notes", |r| r.has_notes),
 ];
-pub const IS_VALUES: &[&str] = &[
-    "running",
-    "awaiting",
-    "ending",
-    "complete",
-    "cancelled",
-    "host",
-    "eval",
-];
-pub const HAS_VALUES: &[&str] = &["workflows", "notes", "findings", "errors"];
-pub const COMPARE_PREFIXES: &[&str] = &[">=", "<=", ">", "<", "="];
 
 const SKIP_WORDS: &[&str] = &["and", "or", "not", "(", ")", "((", "))"];
 
@@ -33,7 +66,7 @@ enum Node {
 pub fn finished_prefix(query: &str) -> String {
     let mut text = query.trim_end().to_string();
     let lower = text.to_ascii_lowercase();
-    for field in FIELD_NAMES {
+    for field in field_names() {
         let needle = format!("{field}:");
         if lower.ends_with(&needle)
             && (lower.len() == needle.len()
@@ -65,34 +98,17 @@ pub fn finished_prefix(query: &str) -> String {
 
 pub fn query_has_tokens(query: &str) -> bool {
     let text = finished_prefix(query).to_ascii_lowercase();
-    FIELD_NAMES.iter().any(|f| {
+    field_names().any(|f| {
         text.split(|c: char| c.is_ascii_whitespace() || c == '(' || c == ')')
             .any(|tok| tok.starts_with(&format!("{f}:")))
     })
-}
-
-pub fn toggle_is_host(query: &str) -> String {
-    let text = query.trim();
-    if text.is_empty() {
-        return "is:host".into();
-    }
-    let parts: Vec<&str> = text.split_whitespace().collect();
-    if parts.iter().any(|p| p.eq_ignore_ascii_case("is:host")) {
-        return parts
-            .into_iter()
-            .filter(|p| !p.eq_ignore_ascii_case("is:host"))
-            .collect::<Vec<_>>()
-            .join(" ");
-    }
-    format!("{text} is:host")
 }
 
 pub fn suggest_last_token(query: &str, models: &[String], paths: &[String]) -> Vec<String> {
     let token = last_token(query);
     if !token.contains(':') {
         let prefix = token.to_ascii_lowercase();
-        return FIELD_NAMES
-            .iter()
+        return field_names()
             .filter(|n| n.starts_with(&prefix))
             .map(|n| format!("{n}:"))
             .collect();
@@ -119,7 +135,7 @@ pub fn apply_suggestion(query: &str, suggestion: &str) -> String {
 }
 
 pub fn row_matches(row: &SessionListItem, query: &str) -> bool {
-    let text = finished_prefix(query);
+    let text = prepare_query(&finished_prefix(query));
     if text.trim().is_empty() {
         return true;
     }
@@ -143,24 +159,33 @@ fn last_token(query: &str) -> String {
 }
 
 fn values_for_field(field: &str, models: &[String], paths: &[String]) -> Vec<String> {
+    let closed = token_values(field);
+    if !closed.is_empty() {
+        return closed.to_vec();
+    }
+    if scheme().tokens.iter().any(|t| t.name == field && t.compare) {
+        return scheme().compare.clone();
+    }
     match field {
-        "is" => IS_VALUES.iter().map(|s| (*s).to_string()).collect(),
-        "has" => HAS_VALUES.iter().map(|s| (*s).to_string()).collect(),
-        "errors" | "turns" | "tools" | "events" => {
-            COMPARE_PREFIXES.iter().map(|s| (*s).to_string()).collect()
-        }
-        "model" => models
-            .iter()
-            .filter(|m| !m.trim().is_empty())
-            .cloned()
-            .collect(),
-        "in" => paths
-            .iter()
-            .filter(|p| !p.trim().is_empty())
-            .map(|p| short_path(p))
+        "model" => unique_nonempty(models),
+        "in" => unique_nonempty(paths)
+            .into_iter()
+            .map(|p| short_path(&p))
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn unique_nonempty(items: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        let t = item.trim();
+        if t.is_empty() || out.iter().any(|have: &String| have == t) {
+            continue;
+        }
+        out.push(t.to_string());
+    }
+    out
 }
 
 fn short_path(path: &str) -> String {
@@ -252,6 +277,15 @@ fn next_word(s: &str) -> (String, usize) {
             return (rest[..end].to_string(), end + 2);
         }
     }
+    if let Some(colon) = s.find(':') {
+        let after = &s[colon + 1..];
+        if let Some(inner) = after.strip_prefix('"') {
+            if let Some(end) = inner.find('"') {
+                let n = colon + 1 + 1 + end + 1;
+                return (s[..n].to_string(), n);
+            }
+        }
+    }
     let mut n = 0;
     for (i, c) in s.char_indices() {
         if c.is_ascii_whitespace() || c == '(' || c == ')' {
@@ -260,6 +294,68 @@ fn next_word(s: &str) -> (String, usize) {
         n = i + c.len_utf8();
     }
     (s[..n].to_string(), n)
+}
+
+fn prepare_query(query: &str) -> String {
+    let mut out = String::new();
+    let mut rest = query;
+    while !rest.is_empty() {
+        let prev_ok = out
+            .chars()
+            .last()
+            .is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+        let low = rest.to_ascii_lowercase();
+        let field = ["after:", "before:"]
+            .into_iter()
+            .find(|name| low.starts_with(name));
+        if prev_ok {
+            if let Some(name) = field {
+                let after = &rest[name.len()..];
+                if !after.starts_with('"') {
+                    let end = when_value_len(after);
+                    out.push_str(name);
+                    out.push('"');
+                    out.push_str(after[..end].trim_end());
+                    out.push('"');
+                    rest = &after[end..];
+                    continue;
+                }
+            }
+        }
+        let ch = rest.chars().next().unwrap();
+        out.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
+}
+
+fn when_value_len(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b')' {
+            return i;
+        }
+        if bytes[i].is_ascii_whitespace() {
+            let tail = s[i..].trim_start().to_ascii_lowercase();
+            if keyword_at(&tail, "and") || keyword_at(&tail, "or") || keyword_at(&tail, "not") {
+                return i;
+            }
+            if tail.starts_with(')') {
+                return i;
+            }
+        }
+        i += 1;
+    }
+    s.len()
+}
+
+fn keyword_at(low: &str, word: &str) -> bool {
+    low.starts_with(word)
+        && low
+            .as_bytes()
+            .get(word.len())
+            .is_none_or(|b| !b.is_ascii_alphanumeric())
 }
 
 fn parse_or(tokens: &[Tok], i: &mut usize) -> Result<Node, ()> {
@@ -316,7 +412,7 @@ fn parse_primary(tokens: &[Tok], i: &mut usize) -> Result<Node, ()> {
         Some(Tok::Word(w)) => {
             *i += 1;
             if let Some((field, value)) = w.split_once(':') {
-                if FIELD_NAMES.contains(&field.to_ascii_lowercase().as_str()) {
+                if field_names().any(|n| n == field.to_ascii_lowercase()) {
                     return Ok(Node::Pred {
                         field: field.to_ascii_lowercase(),
                         value: value.trim_matches('"').to_string(),
@@ -339,6 +435,17 @@ fn eval(node: &Node, row: &SessionListItem) -> bool {
     }
 }
 
+fn match_has(value: &str, row: &SessionListItem) -> bool {
+    let key = value.to_ascii_lowercase();
+    if key == "errors" {
+        return row.error_count > 0;
+    }
+    HAS_FLAGS
+        .iter()
+        .find(|(name, _)| *name == key)
+        .is_some_and(|(_, flag)| flag(row))
+}
+
 fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
     match field {
         "is" => match value.to_ascii_lowercase().as_str() {
@@ -350,14 +457,8 @@ fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
             }
             other => row.status.eq_ignore_ascii_case(other),
         },
-        "has" => match value.to_ascii_lowercase().as_str() {
-            "workflows" => row.has_workflows,
-            "notes" => row.has_notes,
-            "findings" => row.has_findings,
-            "errors" => row.error_count > 0,
-            _ => false,
-        },
-        "in" => path_prefix(value, &row.path),
+        "has" => match_has(value, row),
+        "in" => path_prefix(value, &row.git_repo),
         "model" => row
             .model
             .to_ascii_lowercase()
@@ -372,6 +473,7 @@ fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
         "turns" => num_cmp(row.turn_count, value),
         "tools" => num_cmp(row.tool_call_count, value),
         "events" => num_cmp(row.num_events, value),
+        "duration" => num_cmp(row.duration_seconds as i64, value),
         _ => text_hay(row).contains(&format!("{field}:{value}").to_ascii_lowercase()),
     }
 }
@@ -403,10 +505,30 @@ fn expand_path(raw: &str) -> String {
     Path::new(&p).to_string_lossy().into_owned()
 }
 
+/// True when ``after:`` / ``before:`` needs ``groket serve`` (human phrases).
+pub fn needs_control_when(query: &str) -> bool {
+    let text = finished_prefix(query).to_ascii_lowercase();
+    for tok in text.split(|c: char| c.is_ascii_whitespace() || c == '(' || c == ')') {
+        let (field, value) = match tok.split_once(':') {
+            Some(parts) => parts,
+            None => continue,
+        };
+        if field != "after" && field != "before" {
+            continue;
+        }
+        let value = value.trim_matches('"');
+        if value.is_empty() {
+            continue;
+        }
+        if parse_day(value).is_none() {
+            return true;
+        }
+    }
+    false
+}
+
 fn date_cmp(updated: &str, raw: &str, after: bool) -> bool {
-    let stamp = parse_day(updated);
-    let bound = parse_day(raw);
-    match (stamp, bound) {
+    match (parse_day(updated), parse_day(raw)) {
         (Some(s), Some(b)) => {
             if after {
                 s >= b
@@ -414,13 +536,14 @@ fn date_cmp(updated: &str, raw: &str, after: bool) -> bool {
                 s <= b
             }
         }
-        _ => false,
+        // ``yesterday`` / ``2d`` / ``2 days ago`` are resolved by groket serve.
+        _ => true,
     }
 }
 
 fn parse_day(raw: &str) -> Option<String> {
     let t = raw.trim().trim_matches('"');
-    if t.len() >= 10 {
+    if t.len() >= 10 && t.as_bytes()[4] == b'-' && t.as_bytes()[7] == b'-' {
         Some(t[..10].to_string())
     } else {
         None
@@ -430,25 +553,44 @@ fn parse_day(raw: &str) -> Option<String> {
 fn num_cmp(actual: i64, raw: &str) -> bool {
     let v = raw.trim();
     if let Some(n) = v.strip_prefix(">=") {
-        return actual >= parse_i64(n);
+        return actual >= parse_seconds(n);
     }
     if let Some(n) = v.strip_prefix("<=") {
-        return actual <= parse_i64(n);
+        return actual <= parse_seconds(n);
     }
     if let Some(n) = v.strip_prefix('>') {
-        return actual > parse_i64(n);
+        return actual > parse_seconds(n);
     }
     if let Some(n) = v.strip_prefix('<') {
-        return actual < parse_i64(n);
+        return actual < parse_seconds(n);
     }
     if let Some(n) = v.strip_prefix('=') {
-        return actual == parse_i64(n);
+        return actual == parse_seconds(n);
     }
-    actual == parse_i64(v)
+    actual == parse_seconds(v)
 }
 
-fn parse_i64(raw: &str) -> i64 {
-    raw.trim().parse().unwrap_or(0)
+fn parse_seconds(raw: &str) -> i64 {
+    let text = raw.trim().trim_matches('"');
+    if let Ok(n) = text.parse::<i64>() {
+        return n;
+    }
+    parse_compact_span(text).unwrap_or(0)
+}
+
+fn parse_compact_span(text: &str) -> Option<i64> {
+    let t = text.trim();
+    let (digits, unit) = t.split_at(t.len().checked_sub(1)?);
+    let amount: f64 = digits.parse().ok()?;
+    let mul = match unit.to_ascii_lowercase().as_str() {
+        "s" => 1.0,
+        "m" => 60.0,
+        "h" => 3600.0,
+        "d" => 86_400.0,
+        "w" => 604_800.0,
+        _ => return None,
+    };
+    Some((amount * mul) as i64)
 }
 
 #[cfg(test)]
@@ -463,11 +605,13 @@ mod tests {
             status: "complete".into(),
             origin: "work".into(),
             path: "/mnt/dev/_git/fubar/sess-1".into(),
+            git_repo: "/mnt/dev/_git/fubar".into(),
             task_id: "eval-a".into(),
             error_count: 3,
             turn_count: 8,
             tool_call_count: 12,
             num_events: 40,
+            duration_seconds: 4000.0,
             updated_at: "2026-08-10T12:00:00+00:00".into(),
             has_workflows: true,
             has_findings: true,
@@ -487,11 +631,24 @@ mod tests {
         assert!(row_matches(&r, "NOT is:host"));
         assert!(row_matches(&r, "in:/mnt/dev/_git/fubar"));
         assert!(row_matches(&r, "model:grok"));
-        assert_eq!(toggle_is_host(""), "is:host");
-        assert_eq!(toggle_is_host("is:host"), "");
         assert_eq!(
             suggest_last_token("has:", &[], &[]),
-            vec!["has:workflows", "has:notes", "has:findings", "has:errors",]
+            vec!["has:workflows", "has:notes", "has:errors",]
         );
+    }
+
+    #[test]
+    fn duration_and_human_when() {
+        let r = row();
+        assert!(row_matches(&r, "duration:>1h"));
+        assert!(row_matches(&r, "duration:>30m"));
+        assert!(!row_matches(&r, "duration:>2h"));
+        assert!(row_matches(&r, "after:2026-08-01"));
+        assert!(!row_matches(&r, "before:2026-08-01"));
+        assert!(needs_control_when("after:yesterday"));
+        assert!(needs_control_when("before:2 days ago"));
+        assert!(!needs_control_when("after:2026-08-01"));
+        // Human phrases stay visible until serve applies them.
+        assert!(row_matches(&r, "after:yesterday"));
     }
 }

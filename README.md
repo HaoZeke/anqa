@@ -141,7 +141,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | F5 | everywhere | Refresh (also Ctrl+R) |
 | J | everywhere | Jobs and logs (Docker runs, TUI pool activity, serve log tail, container logs) |
 | q | everywhere | Quit when no field is focused |
-| / | sessions | Search (title, or ``is:host`` ``has:workflows`` ``errors:>20`` ``in:~/path``) |
+| / | sessions | Search the catalog (Tab completes the last token) |
 | r | sessions | New run |
 | C | sessions | Recipes |
 | P | sessions | Personas |
@@ -151,7 +151,6 @@ The footer lists the keys that apply now; `?` is the full list.
 | f | sessions | Fork an ended session into a new multi-turn |
 | Ctrl+S | sessions | Save the row as a recipe |
 | E | sessions | Export a session bundle |
-| H | sessions / HUD | Toggle ``is:host`` in the catalog query |
 | n | sessions | Follow-up while awaiting |
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
@@ -230,6 +229,22 @@ A parent bundle includes `children/<id>/grok-trace.tar.gz` for each
 openable child. Exporting an opened child is that child only.
 `T` on the runner or recipes writes a batch task YAML under
 `~/.groket/tasks/`.
+
+### Catalog search
+
+`/` on the session list. `?` lists the same tokens. Bare words match title, id, and label. Space is AND.
+
+| Token | Matches |
+|-------|---------|
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
+| `is:host` `is:eval` | Origin |
+| `has:workflows` `has:notes` `has:errors` | Presence flags on the list row |
+| `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
+| `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
+| `in:~/path` | Where the session started (git repo / workspace) |
+| `model:` `task:` | Substring |
+| `after:` `before:` | `updatedAt` (ISO, `yesterday`, `2d`, `2 days ago`) |
+| `OR` `NOT` `-` `( )` | Compose |
 
 ## Desktop HUD
 

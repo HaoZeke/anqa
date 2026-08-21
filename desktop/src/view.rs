@@ -367,21 +367,14 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         search = search.push(pop_out_control(tok, tea));
     }
     let hints = hud.query_hints();
-    let search: Element<'_, Message> = if hints.is_empty() {
-        search
+    let hint_line = hints.into_iter().take(8).collect::<Vec<_>>().join("   ");
+    // Keep this column always so the search field is not remounted when
+    // hints appear (that drop of focus eats the next keystrokes).
+    let search: Element<'_, Message> =
+        column![search, text(hint_line).size(tea.meta()).color(tea.muted),]
+            .spacing(tea.density.gap() / 2.0)
             .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
-            .into()
-    } else {
-        column![
-            search,
-            text(hints.into_iter().take(8).collect::<Vec<_>>().join("   "))
-                .size(tea.meta())
-                .color(tea.muted),
-        ]
-        .spacing(tea.density.gap() / 2.0)
-        .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
-        .into()
-    };
+            .into();
 
     // Spotlight: search → pick → full-width browse. Type again to switch.
     let body: Element<'_, Message> = {

@@ -41,7 +41,7 @@ def test_missing_file_keeps_defaults(tmp_path: Path, monkeypatch) -> None:
     assert keymap.ok
     assert keymap.loaded_overlay is False
     assert _follow_chord(keymap) == action_by_id("session.follow").default
-    assert keymap.binding("home.host").chord == "H"
+    assert keymap.binding("session.analyze").chord == "a"
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 
@@ -173,12 +173,12 @@ def test_overlay_clash_refuses_and_keeps_defaults(tmp_path: Path, monkeypatch) -
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
 
 
-def test_third_occupant_on_dual_home_h_clashes(tmp_path: Path, monkeypatch) -> None:
+def test_third_occupant_on_list_down_clashes(tmp_path: Path, monkeypatch) -> None:
     path = _write(
         tmp_path / "keys.toml",
         """
 [home]
-"session.follow" = "H"
+"session.follow" = "j"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
@@ -186,7 +186,7 @@ def test_third_occupant_on_dual_home_h_clashes(tmp_path: Path, monkeypatch) -> N
     assert not keymap.ok
     assert keymap.loaded_overlay is False
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
-    assert keymap.binding("home.host").chord == "H"
+    assert keymap.binding("list.down").chord == "j"
     assert _follow_chord(keymap) == "n"
 
 
@@ -208,7 +208,7 @@ def test_slash_and_slash_name_are_the_same_key(tmp_path: Path, monkeypatch) -> N
 def test_default_shared_chords_are_not_clashes() -> None:
     keymap = load_keymap()
     assert keymap.ok
-    assert keymap.binding("home.host").chord == "H"
+    assert keymap.binding("session.analyze").chord == "a"
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 

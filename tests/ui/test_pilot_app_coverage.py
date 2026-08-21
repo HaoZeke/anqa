@@ -296,36 +296,6 @@ async def test_model_token_filters_sessions(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cycle_model_filter_empty(tmp_path: Path) -> None:
-    """Cycling model filter when sessions have only one model does nothing harmful."""
-    app, _, _ = _make_app(tmp_path, n_sessions=2, model_ids=["only-model"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
-        app.action_cycle_model_filter()
-        await pilot.pause()
-        # Should cycle to the only model and back
-        app.action_cycle_model_filter()
-        await pilot.pause()
-        assert app._filter_model == ""
-
-
-@pytest.mark.asyncio
-async def test_model_filter_select_changed(tmp_path: Path) -> None:
-    """Changing model Select widget directly triggers filter update."""
-    app, _, _ = _make_app(tmp_path, n_sessions=4, model_ids=["alpha", "beta"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
-        table = app.query_one("#session-table", DataTable)
-        await wait_until(pilot, lambda: table.row_count >= 4, description="table populated")
-
-        sel = app.query_one("#session-model-select", Select)
-        sel.value = "alpha"
-        await pilot.pause()
-        assert app._filter_model == "alpha"
-        assert table.row_count == 2
-
-
-@pytest.mark.asyncio
 async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
     """Setting ``App.theme`` (e.g. Ctrl+P Change theme) writes config.toml."""
     import tomlkit

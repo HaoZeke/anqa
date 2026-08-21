@@ -76,9 +76,24 @@ The owner accepts either and replies in the same frame the client used.
 
 ### `session/list`
 
-`query` is the catalog language: bare words match title, id,
-and label; `is:`, `has:`, `errors:>N`, `in:`, `model:`, `task:`,
-`after:`, and `before:` match list columns. Spaces are AND.
+`query` is the catalog language. Bare words match title, id, and label.
+Space is AND. Full token list: this schema's `catalogQuery`.
+
+| Token | Matches |
+|-------|---------|
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin. |
+| `has:workflows` `has:notes` `has:errors` | Presence on the list row. |
+| `in:` | Where the session started (git repo / workspace). |
+| `model:` | Model id substring. |
+| `task:` | Task id substring. |
+| `errors:` with `>` `>=` `<` `<=` `=` | errorCount. |
+| `turns:` with `>` `>=` `<` `<=` `=` | turnCount. |
+| `tools:` with `>` `>=` `<` `<=` `=` | toolCallCount. |
+| `events:` with `>` `>=` `<` `<=` `=` | numEvents. |
+| `duration:` with `>` `>=` `<` `<=` `=` | Session length (1h, 2d, 30m). |
+| `after:` | updatedAt on or after this time (ISO, yesterday, 2d, 2 days ago). |
+| `before:` | updatedAt on or before this time (ISO, yesterday, 2d, 2 days ago). |
+
 Optional `limit` and `offset` page the filtered rows; omit
 `offset` for the first page. Optional `sinceRevision` matching
 the owner’s `revision` returns no rows (`unchanged`). When the

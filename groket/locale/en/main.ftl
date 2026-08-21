@@ -1811,11 +1811,6 @@ export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 path-input-empty = Enter a file path
 
-bind-host-query = Host
-
-cmd-host-query = Host sessions
-cmd-host-query-help = Toggle is:host in the catalog query
-
 ui-origin = Origin
 ui-origin-work = Eval
 ui-origin-host = Host

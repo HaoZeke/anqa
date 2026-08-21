@@ -165,14 +165,6 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             "/",
             Message::Noop,
         );
-        push(
-            &mut table,
-            overlay,
-            "home.host",
-            "Host",
-            "H",
-            Message::ToggleHostQuery,
-        );
         return table;
     }
     push(

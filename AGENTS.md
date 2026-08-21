@@ -231,7 +231,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
   Docker). **Host** catalog = ``~/.grok/sessions`` (always loaded; ``is:host``
-  / ``H`` filters the list); real host paths.
+  filters the list); real host paths.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
@@ -634,7 +634,7 @@ next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend;
 ``n``/``e`` follow-up/Done
 when awaiting; ``x`` delete (double-press); ``f`` flag; ``N``/``O`` notes;
-``E`` export; ``H`` toggle ``is:host`` in the catalog query (sessions home).
+``E`` export. Host sessions filter with ``is:host`` in catalog search.
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
 (double-press); ``r``/``C``/``P`` runner/configs/personas;
@@ -675,7 +675,6 @@ against the catalog.
 | ``Enter`` | Open / drill |
 | ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
-| ``H`` | Toggle ``is:host`` in the catalog query |
 
 
 **TUI only** — the HUD is a session palette (follow-up, Done, notes). It

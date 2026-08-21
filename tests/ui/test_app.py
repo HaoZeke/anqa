@@ -321,28 +321,6 @@ def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
     assert app._meta_only == []
 
 
-@pytest.mark.asyncio
-async def test_h_toggles_is_host_query(tmp_path: Path) -> None:
-    """H adds or removes is:host in the catalog search box."""
-    from groket.ui.app import TraceEvalApp
-    from groket.ui.i18n import t
-
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    traces.mkdir(parents=True)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
-
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        assert t("bind-host-query")
-        await pilot.press("H")
-        await pilot.pause()
-        assert app._session_search == "is:host"
-        await pilot.press("H")
-        await pilot.pause()
-        assert app._session_search == ""
-
-
 def test_tui_control_client_uses_heavy_rpc_timeout(tmp_path: Path) -> None:
     from groket.integrations.control_client import HEAVY_RPC_TIMEOUT
     from groket.ui.app import TraceEvalApp
