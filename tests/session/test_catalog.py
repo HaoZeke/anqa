@@ -73,10 +73,10 @@ def test_resolve_session_reference_by_path_and_id(tmp_path: Path) -> None:
     assert resolve_session_reference("", work) is None
 
 
-def test_list_session_catalog_follows_show_host_config(
+def test_list_session_catalog_includes_host_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Headless catalog includes host when config show_host_sessions is true."""
+    """Headless catalog includes host sessions; ``include_host=False`` drops them."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     host = tmp_path / "host-sessions"

@@ -337,9 +337,7 @@ _ServeHost = Annotated[
     bool | None,
     typer.Option(
         "--host/--no-host",
-        help=(
-            "Include ~/.grok/sessions in session/list. Default: show_host_sessions in config.toml."
-        ),
+        help=("Include ~/.grok/sessions in session/list. Default: include host."),
     ),
 ]
 _ServeDaemon = Annotated[

@@ -740,7 +740,7 @@ search = Search
 
 search-events-placeholder = Search events…  (/)
 
-search-sessions-placeholder = Search sessions…  (/)
+search-sessions-placeholder = Search…  is:host  has:workflows  errors:>20
 
 search-mcp-placeholder = search MCP…
 
@@ -1811,13 +1811,10 @@ export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
 path-input-empty = Enter a file path
 
-bind-show-host = Show host
-bind-hide-host = Hide host
+bind-host-query = Host
 
-cmd-show-host-sessions = Show host sessions
-cmd-show-host-sessions-help = Include native ~/.grok/sessions on the sessions list
-cmd-hide-host-sessions = Hide host sessions
-cmd-hide-host-sessions-help = Hide native ~/.grok/sessions from the sessions list
+cmd-host-query = Host sessions
+cmd-host-query-help = Toggle is:host in the catalog query
 
 ui-origin = Origin
 ui-origin-work = Eval

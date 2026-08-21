@@ -85,7 +85,6 @@ def test_populate_session_table_adds_row(tmp_path: Path):
     app = TraceEvalApp(work_dir=work, traces_path=traces)
     app._meta_only = [(meta, "lab")]
     app._selected = set()
-    app._filter_model = ""
     app._populate_busy = False
 
     # Drive populate without full Textual run: install a minimal DataTable host.
@@ -118,7 +117,6 @@ def test_populate_session_table_adds_row(tmp_path: Path):
     host = _FakeApp(work_dir=work, traces_path=traces)
     host._meta_only = [(meta, "lab")]
     host._selected = set()
-    host._filter_model = ""
     host._populate_busy = False
     # Avoid focus side-effects on a non-mounted widget tree.
     host._populate_session_table = (  # type: ignore[method-assign]  # test stub
@@ -324,43 +322,25 @@ def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_host_footer_label_flips_with_h(tmp_path: Path) -> None:
-    """H shows Show host or Hide host via check_action (not a stuck static label)."""
+async def test_h_toggles_is_host_query(tmp_path: Path) -> None:
+    """H adds or removes is:host in the catalog search box."""
     from groket.ui.app import TraceEvalApp
     from groket.ui.i18n import t
-    from groket.ui.prefs import set_show_host_sessions, show_host_sessions_enabled
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    set_show_host_sessions(False)
     app = TraceEvalApp(work_dir=work, traces_path=traces)
-
-    def _host_desc() -> str | None:
-        for _key, ab in app.active_bindings.items():
-            act = ab.binding.action
-            if act in (
-                "show_host_sessions",
-                "hide_host_sessions",
-                "app.show_host_sessions",
-                "app.hide_host_sessions",
-            ):
-                if getattr(ab, "enabled", True) is False:
-                    continue
-                return ab.binding.description
-        return None
 
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        assert _host_desc() == t("bind-show-host")
+        assert t("bind-host-query")
         await pilot.press("H")
         await pilot.pause()
-        assert show_host_sessions_enabled() is True
-        assert _host_desc() == t("bind-hide-host")
+        assert app._session_search == "is:host"
         await pilot.press("H")
         await pilot.pause()
-        assert show_host_sessions_enabled() is False
-        assert _host_desc() == t("bind-show-host")
+        assert app._session_search == ""
 
 
 def test_tui_control_client_uses_heavy_rpc_timeout(tmp_path: Path) -> None:

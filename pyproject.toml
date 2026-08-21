@@ -31,6 +31,7 @@ dependencies = [
     "click>=8.1",              # CLI foundation (Typer builds on Click)
     "fluent.runtime>=0.4",     # localization (Project Fluent .ftl)
     "jinja2>=3.1",
+    "luqum>=1.0.0",            # Lucene query parser for catalog search
     "orjson>=3.10",            # fast JSON for multi-MB updates.jsonl timelines
     "pydantic>=2.0",           # serialized models (Flag, configs, …)
     "python-on-whales>=0.70",  # Docker
@@ -243,6 +244,7 @@ module = [
     "fluent.*",
     "python_on_whales.*",
     "rich.*",
+    "luqum.*",
 ]
 ignore_missing_imports = true
 

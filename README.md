@@ -141,7 +141,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | F5 | everywhere | Refresh (also Ctrl+R) |
 | J | everywhere | Jobs and logs (Docker runs, TUI pool activity, serve log tail, container logs) |
 | q | everywhere | Quit when no field is focused |
-| / | sessions | Search |
+| / | sessions | Search (title, or ``is:host`` ``has:workflows`` ``errors:>20`` ``in:~/path``) |
 | r | sessions | New run |
 | C | sessions | Recipes |
 | P | sessions | Personas |
@@ -151,7 +151,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | f | sessions | Fork an ended session into a new multi-turn |
 | Ctrl+S | sessions | Save the row as a recipe |
 | E | sessions | Export a session bundle |
-| H | sessions | Show native Host sessions beside Eval |
+| H | sessions / HUD | Toggle ``is:host`` in the catalog query |
 | n | sessions | Follow-up while awaiting |
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
@@ -233,8 +233,9 @@ openable child. Exporting an opened child is that child only.
 
 ## Desktop HUD
 
-Summonable palette: Recent sessions (scroll or `j` for more), search,
-then Overview / Turns / Timeline / Diff / Notes. `u` or the logo
+Summonable palette: Recent sessions (scroll or `j` for more), catalog
+search (same query language as the terminal list), then Overview /
+Turns / Timeline / Diff / Notes. `u` or the logo
 returns to the session list. Follow-up and Done
 when awaiting. It does not launch evals. Desktop notices are for eval
 sessions; Host Grok chats already notify on their own.

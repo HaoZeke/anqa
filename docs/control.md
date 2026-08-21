@@ -76,8 +76,9 @@ The owner accepts either and replies in the same frame the client used.
 
 ### `session/list`
 
-`query` is a case-insensitive substring over id, title, label,
-model, status, outcome, and origin (not the filesystem path).
+`query` is the catalog language: bare words match title, id,
+and label; `is:`, `has:`, `errors:>N`, `in:`, `model:`, `task:`,
+`after:`, and `before:` match list columns. Spaces are AND.
 Optional `limit` and `offset` page the filtered rows; omit
 `offset` for the first page. Optional `sinceRevision` matching
 the owner’s `revision` returns no rows (`unchanged`). When the

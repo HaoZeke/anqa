@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..integrations.editor import SUPPORTED_FORMATS, render_editor_document
-from ..models import JsonObject, JsonValue, json_as_str
+from ..models import JsonObject, JsonValue
 from ..notes import (
     NoteEntry,
     NotesSnapshot,
@@ -70,19 +70,6 @@ def catalog_list_next_offset(
     return nxt
 
 
-def _session_list_haystack(entry: JsonObject) -> str:
-    parts = (
-        json_as_str(entry.get("sessionId")),
-        json_as_str(entry.get("title")),
-        json_as_str(entry.get("label")),
-        json_as_str(entry.get("model")),
-        json_as_str(entry.get("status")),
-        json_as_str(entry.get("outcome")),
-        json_as_str(entry.get("origin")),
-    )
-    return " ".join(part for part in parts if part).casefold()
-
-
 def filter_session_catalog(
     sessions: list[JsonObject],
     *,
@@ -92,19 +79,23 @@ def filter_session_catalog(
 ) -> JsonObject:
     """Filter and page a catalog snapshot for ``session/list``.
 
-    Casefold substring over session id/title/label/model/status/outcome/origin.
-    HUD client fuzzy ranking is presentation-only on the returned page.
+    ``query`` is the catalog language (bare words plus ``is:`` / ``has:`` /
+    ``errors:>N`` / ``in:``). See :mod:`groket.session.query`.
 
     :param sessions: Full catalog rows (already shaped for the wire).
-    :param query: Case-insensitive substring across list haystack fields.
+    :param query: Catalog query string.
     :param limit: Page size after filtering; ``None`` means default cap.
     :param offset: Rows to skip after filtering (default 0). Unknown to
         older clients; omitting it keeps the first page.
     :returns: Mapping with ``sessions``, ``total``, and ``matched``.
     """
-    needle = (query or "").strip().casefold()
+    from .query import CatalogQueryRow, row_matches_query
+
+    needle = (query or "").strip()
     if needle:
-        matched = [row for row in sessions if needle in _session_list_haystack(row)]
+        matched = [
+            row for row in sessions if row_matches_query(CatalogQueryRow.from_wire(row), needle)
+        ]
     else:
         matched = list(sessions)
     # Preserve catalog newest-first order (do not re-rank by path/id here).

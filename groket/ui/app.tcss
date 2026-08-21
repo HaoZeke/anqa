@@ -392,6 +392,12 @@ TabPane {
     background: $surface;
 }
 
+.session-query-hints {
+    color: $text-muted;
+    height: auto;
+    padding: 0 1 0 2;
+}
+
 /* Report — one scroll, inline panels; Filter = Select (same as Timeline). */
 #reports-panel {
     height: 1fr;

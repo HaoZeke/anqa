@@ -12,7 +12,7 @@
   q               Quit when no field is focused
 
 [bold]Sessions[/bold]
-  /               Search
+  /               Search (title, or is:host  has:workflows  errors:>20  in:~/path)
   r               New run
   C               Recipes
   P               Personas
@@ -22,7 +22,7 @@
   f               Fork an ended session into a new multi-turn
   Ctrl+S          Save the row as a recipe
   E               Export a session bundle
-  H               Show native Host sessions beside Eval
+  H               Toggle is:host in the catalog query
   n               Follow-up while awaiting
   e               Done while awaiting
   x               Delete (press twice)

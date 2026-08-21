@@ -104,7 +104,7 @@
               "additionalProperties": true,
               "properties": {
                 "query": {
-                  "description": "Case-insensitive substring over id, title, label, model, status, outcome, and origin (not the filesystem path).",
+                  "description": "Catalog query: bare words (title / id / label) plus is: / has: / errors:>N / in: / model: / after: (AND / OR).",
                   "type": "string"
                 },
                 "limit": {

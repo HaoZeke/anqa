@@ -486,6 +486,10 @@ class SessionMeta:
     loop_count: int = 0
     # From signals.json ``turnCount`` (host/live aggregates; timeline may be a tail).
     turn_count: int = 0
+    # Cheap catalog flags for ``has:`` (no timeline parse).
+    has_workflows: bool = False
+    has_notes: bool = False
+    has_findings: bool = False
 
     @property
     def model_display(self) -> str:

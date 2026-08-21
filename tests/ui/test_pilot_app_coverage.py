@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 from groket.parser import load_session_meta
+from groket.session.query import CatalogQueryRow, row_matches_query
 from groket.ui.app import (
     TraceEvalApp,
     _coerce_select_value,
-    _session_search_haystack,
 )
 from groket.ui.commands import yield_app_commands
 from textual.widgets import DataTable, Input, Select
@@ -192,32 +192,6 @@ class TestExtractTaskAndModel:
         assert TraceEvalApp._extract_task_and_model("standalone") == ("standalone", "unknown")
 
 
-class TestSelectValueToFilter:
-    """Cover :meth:`TraceEvalApp._select_value_to_filter`."""
-
-    def test_all_returns_empty(self) -> None:
-        assert TraceEvalApp._select_value_to_filter("all") == ""
-
-    def test_blank_returns_empty(self) -> None:
-        assert TraceEvalApp._select_value_to_filter(Select.BLANK) == ""
-
-    def test_none_returns_empty(self) -> None:
-        assert TraceEvalApp._select_value_to_filter(None) == ""
-
-    def test_model_id_passthrough(self) -> None:
-        assert TraceEvalApp._select_value_to_filter("model-4") == "model-4"
-
-
-class TestFilterToSelectValue:
-    """Cover :meth:`TraceEvalApp._filter_to_select_value`."""
-
-    def test_empty_returns_all(self) -> None:
-        assert TraceEvalApp._filter_to_select_value("") == "all"
-
-    def test_nonempty_passthrough(self) -> None:
-        assert TraceEvalApp._filter_to_select_value("m1") == "m1"
-
-
 class TestSessionSortTs:
     """Cover :meth:`TraceEvalApp._session_sort_ts` branches."""
 
@@ -256,8 +230,7 @@ async def test_compose_and_mount_widgets(tmp_path: Path) -> None:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 1, description="table populated")
 
-        # Filter bar selects exist
-        app.query_one("#session-model-select", Select)
+        app.query_one("#session-search-input", Input)
         assert app.query_one("#session-paths")
         assert not any(getattr(w, "id", None) == "traces-path-input" for w in app.query(Input))
         assert (
@@ -307,30 +280,18 @@ async def test_toggle_select_and_select_all(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cycle_model_filter(tmp_path: Path) -> None:
-    """Cycling model filter narrows displayed sessions."""
+async def test_model_token_filters_sessions(tmp_path: Path) -> None:
+    """``model:`` in the home search narrows the table."""
     app, _, _ = _make_app(tmp_path, n_sessions=4, model_ids=["alpha", "beta"])
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 4, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 4, description="table populated")
-
-        # Cycle to first model
-        app.action_cycle_model_filter()
+        app._set_session_query("model:alpha")
         await pilot.pause()
-        assert app._filter_model != ""
         assert table.row_count == 2
-
-        # Cycle to second model
-        app.action_cycle_model_filter()
+        app._set_session_query("")
         await pilot.pause()
-        filtered_2 = table.row_count
-        assert filtered_2 == 2
-
-        # Cycle wraps back to "all"
-        app.action_cycle_model_filter()
-        await pilot.pause()
-        assert app._filter_model == ""
         assert table.row_count == 4
 
 
@@ -802,8 +763,8 @@ async def test_session_search_filters_as_you_type(tmp_path: Path) -> None:
         await wait_until(pilot, lambda: table.row_count >= 3, description="table populated")
 
         inp = app.query_one("#session-search-input", Input)
-        inp.value = "alpha"
-        app._on_session_search_changed(Input.Changed(inp, "alpha"))
+        inp.value = "model:alpha"
+        app._on_session_search_changed(Input.Changed(inp, "model:alpha"))
         await pilot.pause()
         assert table.row_count == 1
 
@@ -859,13 +820,6 @@ def test_meta_cache_round_trip(tmp_path: Path) -> None:
     app._save_meta_cache(list(app._meta_only))
     cache = app._load_meta_cache()
     assert len(cache) >= 2
-    from groket.ui.prefs import set_show_host_sessions
-
-    set_show_host_sessions(True)
-    try:
-        assert app._load_meta_cache() == {}
-    finally:
-        set_show_host_sessions(False)
 
 
 def test_derive_label(tmp_path: Path) -> None:
@@ -961,11 +915,11 @@ async def test_session_search_submit_focuses_table(tmp_path: Path) -> None:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="table populated")
         inp = app.query_one("#session-search-input", Input)
-        inp.value = "alpha"
-        app._on_session_search_submitted(Input.Submitted(inp, "alpha"))
+        inp.value = "model:alpha"
+        app._on_session_search_submitted(Input.Submitted(inp, "model:alpha"))
         await pilot.pause()
         assert table.row_count == 1
-        assert app._session_search == "alpha"
+        assert app._session_search == "model:alpha"
 
 
 def test_merge_session_dirs(tmp_path: Path) -> None:
@@ -1567,38 +1521,14 @@ def test_request_live_share_no_share(tmp_path: Path) -> None:
     app._request_live_share(traces / "sess-000")
 
 
-def test_session_model_options(tmp_path: Path) -> None:
-    """_session_model_options lists All models plus loaded model ids."""
+def test_query_model_values(tmp_path: Path) -> None:
+    """query_model_values lists loaded model ids."""
     app, _, traces = _make_app(
         tmp_path, n_sessions=4, model_ids=["m1", "m2"], task_ids=["t1", "t2"]
     )
     _prime_catalog(app, traces)
-    models = app._session_model_options()
-    assert len(models) >= 3
-    ids = {v for _, v in models}
-    assert "m1" in ids and "m2" in ids
-
-
-@pytest.mark.asyncio
-async def test_set_session_filter_selects(tmp_path: Path) -> None:
-    """_set_session_filter_selects pushes filter state into widgets."""
-    app, _, _ = _make_app(tmp_path, n_sessions=2, model_ids=["m1"])
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
-        app._filter_model = "m1"
-        app._set_session_filter_selects()
-        await pilot.pause()
-        sel = app.query_one("#session-model-select", Select)
-        assert sel.value == "m1"
-
-
-def test_rebuild_session_filters_invalid_value(tmp_path: Path) -> None:
-    """_rebuild_session_filters resets filter when value is no longer valid."""
-    app, _, traces = _make_app(tmp_path, n_sessions=2, model_ids=["m1"])
-    _prime_catalog(app, traces)
-    app._filter_model = "nonexistent"
-    app._rebuild_session_filters()
-    assert app._filter_model == ""
+    models = app.query_model_values()
+    assert "m1" in models and "m2" in models
 
 
 @pytest.mark.asyncio
@@ -1687,8 +1617,8 @@ def test_constructor_traces_path_only(tmp_path: Path) -> None:
     assert app.traces_path is not None
 
 
-def test_session_search_haystack_includes_metadata(tmp_path: Path) -> None:
-    """``_session_search_haystack`` includes model, task, repo, summary."""
+def test_session_query_model_and_task_tokens(tmp_path: Path) -> None:
+    """Typed tokens match model and task; bare words do not search the path."""
     sd = _write_session(
         tmp_path / "traces",
         "s1",
@@ -1698,11 +1628,10 @@ def test_session_search_haystack_includes_metadata(tmp_path: Path) -> None:
         summary_text="Important fix",
     )
     meta = load_session_meta(sd)
-    hay = _session_search_haystack(meta, "lab")
-    assert "alpha" in hay
-    assert "task-fix" in hay
-    assert "repo" in hay
-    assert "important fix" in hay
+    row = CatalogQueryRow.from_meta(meta, "lab")
+    assert row_matches_query(row, "model:alpha")
+    assert row_matches_query(row, "task:task-fix")
+    assert not row_matches_query(row, str(sd))
 
 
 @pytest.mark.asyncio

@@ -107,8 +107,8 @@ METHODS: tuple[MethodSpec, ...] = (
         params=(
             FieldSpec(
                 "query",
-                "Case-insensitive substring over id, title, label, model, "
-                "status, outcome, and origin (not the filesystem path).",
+                "Catalog query: bare words (title / id / label) plus "
+                "is: / has: / errors:>N / in: / model: / after: (AND / OR).",
             ),
             FieldSpec("limit", "Page size.", json_type="integer"),
             FieldSpec(
@@ -131,8 +131,9 @@ METHODS: tuple[MethodSpec, ...] = (
             FieldSpec("revision", "Catalog revision.", json_type="integer"),
         ),
         extra_md=(
-            "`query` is a case-insensitive substring over id, title, label,\n"
-            "model, status, outcome, and origin (not the filesystem path).\n"
+            "`query` is the catalog language: bare words match title, id,\n"
+            "and label; `is:`, `has:`, `errors:>N`, `in:`, `model:`, `task:`,\n"
+            "`after:`, and `before:` match list columns. Spaces are AND.\n"
             "Optional `limit` and `offset` page the filtered rows; omit\n"
             "`offset` for the first page. Optional `sinceRevision` matching\n"
             "the owner’s `revision` returns no rows (`unchanged`). When the\n"

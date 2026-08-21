@@ -23,6 +23,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen, Screen
+from textual.suggester import Suggester
 from textual.theme import Theme
 from textual.timer import Timer
 from textual.widgets import (
@@ -31,7 +32,6 @@ from textual.widgets import (
     DataTable,
     Input,
     Label,
-    Select,
     Static,
     TextArea,
 )
@@ -53,6 +53,14 @@ from ..session.access import (
     DEFAULT_SESSION_LIST_LIMIT,
     RemoteSessionAccess,
     catalog_list_next_offset,
+)
+from ..session.query import (
+    CatalogQueryRow,
+    apply_suggestion,
+    catalog_has_notes,
+    catalog_has_workflows,
+    row_matches_query,
+    suggest_last_token,
 )
 from . import text as U
 from .appearance import Appearance, appearance
@@ -84,7 +92,6 @@ from .threads import call_ui
 from .widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 
 logger = logging.getLogger(__name__)
-_SESSION_FILTER_ALL = "all"
 
 
 def _coerce_select_value(value, *, default=None):
@@ -172,23 +179,29 @@ class InteractiveSessionsModal(QuitActions, ModalScreen[tuple[str, bool] | None]
         self.dismiss((text, final))
 
 
-def _session_search_haystack(meta: SessionMeta, label: str) -> str:
-    """Plain text used for as-you-type session list filtering (case-insensitive)."""
-    parts = [
-        meta.session_id or "",
-        meta.model_display or "",
-        (meta.label or "")[:80],
-        label or "",
-        meta.origin or "",
-        meta.task_id or "",
-        meta.git_repo or "",
-        (meta.summary_text or "")[:120],
-        meta.turn_outcome or "",
-        meta.list_status_label() or "",
-    ]
-    if meta.git_repo:
-        parts.append(meta.git_repo.rstrip("/").rsplit("/", 1)[-1])
-    return " ".join(parts).casefold()
+def _attach_catalog_flags(meta: SessionMeta) -> None:
+    """Set cheap ``has:`` flags from disk (offline home list)."""
+    meta.has_workflows = catalog_has_workflows(meta.session_dir)
+    meta.has_notes = catalog_has_notes(meta.session_dir)
+
+
+class SessionQuerySuggester(Suggester):
+    """Last-token completion for the home catalog query."""
+
+    def __init__(self, app: TraceEvalApp) -> None:
+        super().__init__(use_cache=False, case_sensitive=True)
+        self._app = app
+
+    async def get_suggestion(self, value: str) -> str | None:
+        hits = suggest_last_token(
+            value,
+            models=self._app.query_model_values(),
+            paths=self._app.query_path_values(),
+        )
+        if not hits:
+            return None
+        return apply_suggestion(value, hits[0]).rstrip()
+
 
 
 def first_home_list_fetch() -> dict[str, int | bool]:
@@ -401,7 +414,6 @@ class TraceEvalApp(App):
         self._pending_include_host: bool | None = None
         self._pending_sessions_reload_quiet: bool = False
         self._selected: set[str] = set()
-        self._filter_model: str = ""
         self._session_search: str = ""
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
@@ -427,17 +439,12 @@ class TraceEvalApp(App):
             yield Static("", id="session-summary")
             with Horizontal(id="session-filter-bar", classes=FILTER_BAR_CLASS):
                 yield Static(U.filter_label(), classes=FILTER_LABEL_CLASS)
-                yield Select(
-                    [(U.all_models(), _SESSION_FILTER_ALL)],
-                    value=_SESSION_FILTER_ALL,
-                    id="session-model-select",
-                    allow_blank=False,
-                    classes=t("ui-field-select-session-filter-select"),
-                )
                 yield Input(
                     placeholder=U.search_sessions_placeholder(),
                     id="session-search-input",
+                    suggester=SessionQuerySuggester(self),
                 )
+            yield Static("", id="session-query-hints", classes="session-query-hints")
             yield DataTable(id="session-table")
         yield AppFooter()
 
@@ -448,21 +455,15 @@ class TraceEvalApp(App):
         return Path(self.work_dir).expanduser() / "runs" / "traces"
 
     def _update_session_paths_banner(self) -> None:
-        """Work traces always; host Grok sessions when the pref is on."""
+        """Work traces and host Grok sessions (``is:host`` filters the list)."""
         try:
             banner = self.query_one("#session-paths", Static)
         except Exception:
             return
-        from .prefs import show_host_sessions_enabled
+        from ..session.sources import host_grok_sessions_root
 
         work = self._runner_traces_root()
-        # Rich markup stays in Python (Fluent treats [...] as variants).
-        if show_host_sessions_enabled():
-            from ..session.sources import host_grok_sessions_root
-
-            banner.update(paths_banner(work, host_grok_sessions_root()))
-        else:
-            banner.update(paths_banner(work))
+        banner.update(paths_banner(work, host_grok_sessions_root()))
 
     def _load_config(self) -> JsonObject:
         """Load the canonical app config (defaults when the file is missing)."""
@@ -1055,9 +1056,7 @@ class TraceEvalApp(App):
             self._sessions_reload_timer = None
             pending_quiet = bool(self._pending_sessions_reload_quiet)
         self._pending_sessions_reload_quiet = bool(quiet and pending_quiet)
-        from .prefs import show_host_sessions_enabled
-
-        self._pending_include_host = show_host_sessions_enabled()
+        self._pending_include_host = True
         self._sessions_reload_timer = self.set_timer(delay, self._fire_sessions_reload)
 
     def _fire_sessions_reload(self) -> None:
@@ -1066,12 +1065,7 @@ class TraceEvalApp(App):
             return
         quiet = bool(self._pending_sessions_reload_quiet)
         self._pending_sessions_reload_quiet = False
-        include_host = self._pending_include_host
-        if include_host is None:
-            from .prefs import show_host_sessions_enabled
-
-            include_host = show_host_sessions_enabled()
-        self._load_sessions(include_host=bool(include_host), quiet=quiet)
+        self._load_sessions(include_host=True, quiet=quiet)
 
     def _drop_host_session_rows(self) -> None:
         """Drop host-origin rows without waiting for a full rescan."""
@@ -1138,6 +1132,7 @@ class TraceEvalApp(App):
                 logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
                 continue
             meta.origin = origin
+            _attach_catalog_flags(meta)
             label = self._label_for_session(sd, origin)
             rows.append((meta, label))
             if need_count:
@@ -1209,12 +1204,11 @@ class TraceEvalApp(App):
             self._finish_sessions_load(gen)
 
     def _catalog_roots_for_load(self, *, include_host: bool | None = None):
-        """Build scan roots; *include_host* overrides the pref when set (toggle path)."""
+        """Build scan roots. Host is included unless *include_host* is false."""
         from ..session.sources import is_host_grok_sessions_root, session_scan_roots
-        from .prefs import show_host_sessions_enabled
 
         if include_host is None:
-            include_host = show_host_sessions_enabled()
+            include_host = True
         traces = self.traces_path
         if traces is not None and is_host_grok_sessions_root(Path(traces)):
             include_host = True
@@ -1571,58 +1565,34 @@ class TraceEvalApp(App):
             pass
         return session_dir.name[:20]
 
-    def _session_model_options(self) -> list[tuple[str, str]]:
-        models = sorted(
+    def query_model_values(self) -> list[str]:
+        """Models on the loaded catalog (last-token ``model:`` hints)."""
+        return sorted(
             {
                 meta.model_display
                 for meta, _ in self._meta_only
                 if meta.model_id and meta.model_id != "unknown"
             }
         )
-        return [(U.all_models(), _SESSION_FILTER_ALL), *[(m, m) for m in models]]
 
-    @staticmethod
-    def _select_value_to_filter(value: object) -> str:
-        """Map Select value to internal filter (``all`` / blank → no filter)."""
-        if value is Select.BLANK or value is None:
-            return ""
-        s = str(value)
-        return "" if s == _SESSION_FILTER_ALL else s
-
-    @staticmethod
-    def _filter_to_select_value(filt: str) -> str:
-        return filt if filt else _SESSION_FILTER_ALL
+    def query_path_values(self) -> list[str]:
+        """Session paths on the loaded catalog (last-token ``in:`` hints)."""
+        out: list[str] = []
+        seen: set[str] = set()
+        for meta, _label in self._meta_only:
+            try:
+                path = str(Path(meta.session_dir).expanduser())
+            except OSError:
+                path = str(meta.session_dir)
+            parent = str(Path(path).parent)
+            if parent and parent not in seen:
+                seen.add(parent)
+                out.append(parent)
+        return out
 
     def _rebuild_session_filters(self) -> None:
-        """Refresh Model Select options from loaded session metadata."""
-        model_opts = self._session_model_options()
-        model_vals = {v for _, v in model_opts}
-        model_sel_val = self._filter_to_select_value(self._filter_model)
-        if model_sel_val not in model_vals:
-            self._filter_model = ""
-            model_sel_val = _SESSION_FILTER_ALL
-        try:
-            model_sel = self.query_one("#session-model-select", Select)
-            model_sel.set_options(model_opts)
-            model_sel.value = model_sel_val
-        except Exception:
-            logger.debug(t("ui-session-model-select-update-failed"), exc_info=True)
-
-    def _set_session_filter_selects(self) -> None:
-        """Push ``_filter_model`` into the Model Select (keyboard cycle)."""
-        try:
-            self.query_one("#session-model-select", Select).value = self._filter_to_select_value(
-                self._filter_model
-            )
-        except Exception:
-            pass
-
-    @on(Select.Changed, "#session-model-select")
-    def _on_session_model_filter(self, event: Select.Changed) -> None:
-        if event.value is Select.BLANK:
-            return
-        self._filter_model = self._select_value_to_filter(event.value)
-        self._populate_session_table(force=True)
+        """Refresh last-token hints from the loaded catalog."""
+        self._refresh_query_hints()
 
     @staticmethod
     def _cursor_key_after_deletes(
@@ -1704,13 +1674,11 @@ class TraceEvalApp(App):
     def _filtered_session_rows(self) -> list[tuple[SessionMeta, str]]:
         from ..session_inflight import session_dir_key
 
-        search_q = (self._session_search or "").strip().casefold()
+        search_q = (self._session_search or "").strip()
         seen_keys: set[str] = set()
         rows: list[tuple[SessionMeta, str]] = []
         for meta, label in self._meta_only:
-            if self._filter_model and meta.model_display != self._filter_model:
-                continue
-            if search_q and search_q not in _session_search_haystack(meta, label):
+            if search_q and not row_matches_query(CatalogQueryRow.from_meta(meta, label), search_q):
                 continue
             sd_key = session_dir_key(meta.session_dir)
             if sd_key in seen_keys:
@@ -1890,20 +1858,6 @@ class TraceEvalApp(App):
             key = str(rk.value)
             self._set_session_sel_cell(table, key, key in self._selected)
 
-    def action_cycle_model_filter(self) -> None:
-        """Cycle model Select: all -> model1 -> … -> all (``m`` / command palette)."""
-        models = [v for _, v in self._session_model_options() if v != _SESSION_FILTER_ALL]
-        if not models:
-            return
-        if self._filter_model and self._filter_model in models:
-            idx = models.index(self._filter_model)
-            self._filter_model = models[idx + 1] if idx + 1 < len(models) else ""
-        else:
-            self._filter_model = models[0]
-        self._set_session_filter_selects()
-        self.notify(t("notify-model-filter", label=self._filter_model or "all"))
-        self._populate_session_table(force=True)
-
     def action_toggle_select(self) -> None:
         """Toggle selection on the current row (in-place; cursor stays put)."""
         table = self.query_one("#session-table", DataTable)
@@ -1957,15 +1911,38 @@ class TraceEvalApp(App):
     def _on_session_search_changed(self, event: Input.Changed) -> None:
         """Filter the sessions table as you type (no Enter required)."""
         self._session_search = event.value or ""
+        self._refresh_query_hints()
         self._populate_session_table(force=True)
 
     @on(Input.Submitted, "#session-search-input")
     def _on_session_search_submitted(self, event: Input.Submitted) -> None:
         """Keep filter on Enter; move focus back to the session list."""
         self._session_search = event.value or ""
+        self._refresh_query_hints()
         self._populate_session_table(force=True)
         with suppress(Exception):
             focus_primary_list(self.query_one("#session-table", DataTable))
+
+    def _refresh_query_hints(self) -> None:
+        """Paint last-token completions under the search box."""
+        try:
+            hint = self.query_one("#session-query-hints", Static)
+        except NoMatches:
+            return
+        hits = suggest_last_token(
+            self._session_search,
+            models=self.query_model_values(),
+            paths=self.query_path_values(),
+        )
+        hint.update("  ".join(hits[:8]))
+
+    def _set_session_query(self, query: str) -> None:
+        """Write the search box and refresh the list."""
+        self._session_search = query
+        with suppress(Exception):
+            self.query_one("#session-search-input", Input).value = query
+        self._refresh_query_hints()
+        self._populate_session_table(force=True)
 
     def _cursor_session_meta(self) -> SessionMeta | None:
         """SessionMeta for the sessions-home table cursor, or None."""
@@ -2338,14 +2315,8 @@ class TraceEvalApp(App):
             return False
         if action in ("follow_up_sessions", "mark_sessions_done"):
             return bool(self._awaiting_session_targets())
-        if action == "show_host_sessions":
-            from .prefs import show_host_sessions_enabled
-
-            return not show_host_sessions_enabled()
-        if action == "hide_host_sessions":
-            from .prefs import show_host_sessions_enabled
-
-            return show_host_sessions_enabled()
+        if action == "toggle_host_query":
+            return True
         return True
 
     def action_launch_from_runner(self) -> None:
@@ -2606,35 +2577,6 @@ class TraceEvalApp(App):
         from .export_session import start_export_with_profile_picker
 
         start_export_with_profile_picker(self, meta.session_dir, remember_as_default=False)
-
-    def _set_host_sessions_visible(self, on: bool) -> None:
-        """Turn host catalog on or off; update footer via check_action + refresh_bindings."""
-        from .prefs import set_show_host_sessions, show_host_sessions_enabled
-
-        on = bool(on)
-        if show_host_sessions_enabled() is on:
-            self.refresh_bindings()
-            return
-        set_show_host_sessions(on)
-        self._config["show_host_sessions"] = on
-        self._update_session_paths_banner()
-        self.refresh_bindings()
-        self.notify(
-            t("notify-host-sessions-on") if on else t("notify-host-sessions-off"),
-            severity="information",
-            timeout=4,
-        )
-        if not on:
-            self._drop_host_session_rows()
-        self._schedule_sessions_reload()
-
-    def action_show_host_sessions(self) -> None:
-        """``H`` when host is hidden — include ``~/.grok/sessions`` on the list."""
-        self._set_host_sessions_visible(True)
-
-    def action_hide_host_sessions(self) -> None:
-        """``H`` when host is shown — drop host rows from the list."""
-        self._set_host_sessions_visible(False)
 
     @staticmethod
     def _extract_task_and_model(trace_dir_name: str) -> tuple[str, str]:

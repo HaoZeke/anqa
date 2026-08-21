@@ -12,13 +12,14 @@ is tagged.
   and the Rules screen are gone. Session export writes the trace, notes,
   and flags. Leftover analysis-cache export units and unused findings
   copy are gone too.
+- Catalog search understands a query language (`is:host`,
+  `has:workflows`, `errors:>20`, `in:~/path`, `AND` / `OR`). Last-token
+  hints complete tokens in the terminal list and HUD picker.
 
 ### Chore
 
 - Desktop palette uses icedtea 0.13. Stats table passes a scroll id so
   clip jumps stay on the body.
-
-### Feature
 
 - HUD notes form uses a pick list for one-of schema fields (severity)
   and filter chips for many-select. Tab / Shift+Tab walk the text

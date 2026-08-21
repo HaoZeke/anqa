@@ -47,6 +47,12 @@ pub struct SessionListItem {
     #[serde(default)]
     pub error_count: i64,
     #[serde(default)]
+    pub has_workflows: bool,
+    #[serde(default)]
+    pub has_notes: bool,
+    #[serde(default)]
+    pub has_findings: bool,
+    #[serde(default)]
     pub created_at: String,
     #[serde(default)]
     pub updated_at: String,

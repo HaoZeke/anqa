@@ -366,7 +366,22 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     if !hud.window_mode() {
         search = search.push(pop_out_control(tok, tea));
     }
-    let search = search.padding(Padding::from([tea.density.gap(), tea.density.inset()]));
+    let hints = hud.query_hints();
+    let search: Element<'_, Message> = if hints.is_empty() {
+        search
+            .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
+            .into()
+    } else {
+        column![
+            search,
+            text(hints.into_iter().take(8).collect::<Vec<_>>().join("   "))
+                .size(tea.meta())
+                .color(tea.muted),
+        ]
+        .spacing(tea.density.gap() / 2.0)
+        .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
+        .into()
+    };
 
     // Spotlight: search → pick → full-width browse. Type again to switch.
     let body: Element<'_, Message> = {

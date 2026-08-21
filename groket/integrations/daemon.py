@@ -248,9 +248,8 @@ def build_domain_control_server(
     :param socket_path: Unix socket path to own.
     :param work_dir: Work root for session discovery.
     :param traces_path: Optional traces path override.
-    :param include_host: Host inclusion for ``session/list`` (True/False force;
-        None = re-read ``show_host_sessions`` from config on each call so
-        editor clients match the TUI ``H`` pref without restarting serve).
+    :param include_host: Host inclusion for ``session/list`` (True/None include
+        host; False is work-only). ``is:host`` filters the loaded list.
     :param host_root: Host root override for tests.
     :param open_session: Optional async open callback (TUI only).
     :param notes_changed: Optional notes-changed callback.
@@ -1037,7 +1036,7 @@ def _detached_child_argv(
         parts.append(f"tr = Path({str(Path(traces_path).expanduser())!r})")
     else:
         parts.append("tr = None")
-    # None → follow show_host_sessions in config on each session/list.
+    # None → include host sessions.
     host_lit = "None" if include_host is None else repr(bool(include_host))
     parts.append(
         f"raise SystemExit(run_control_daemon("

@@ -230,8 +230,8 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
-  Docker). Optional **Host** catalog = ``~/.grok/sessions`` (``H`` / pref
-  ``show_host_sessions``); real host paths.
+  Docker). **Host** catalog = ``~/.grok/sessions`` (always loaded; ``is:host``
+  / ``H`` filters the list); real host paths.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
@@ -634,7 +634,7 @@ next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend;
 ``n``/``e`` follow-up/Done
 when awaiting; ``x`` delete (double-press); ``f`` flag; ``N``/``O`` notes;
-``E`` export; ``H`` show/hide host sessions (sessions home).
+``E`` export; ``H`` toggle ``is:host`` in the catalog query (sessions home).
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
 (double-press); ``r``/``C``/``P`` runner/configs/personas;
@@ -675,6 +675,7 @@ against the catalog.
 | ``Enter`` | Open / drill |
 | ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
+| ``H`` | Toggle ``is:host`` in the catalog query |
 
 
 **TUI only** — the HUD is a session palette (follow-up, Done, notes). It
@@ -691,7 +692,6 @@ does not launch evals, open Jobs, export, flag, or delete.
 | ``f`` | Flag (browser) / fork (sessions home) |
 | ``O`` | Edit note |
 | ``x`` | Delete (double-press) |
-| ``H`` | Show / hide host catalog |
 | ``r`` / ``C`` / ``P`` | Runner / recipes / personas |
 | ``s`` / ``space`` | Multi-select |
 

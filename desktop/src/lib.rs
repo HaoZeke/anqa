@@ -23,6 +23,7 @@ pub mod place;
 #[cfg(target_os = "linux")]
 pub mod place_linux;
 pub mod prefs;
+pub mod query;
 pub mod shortcut;
 pub mod summon;
 pub mod theme;

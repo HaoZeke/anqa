@@ -43,6 +43,7 @@ use crate::model::{
 use crate::motion::{self, MotionRole, PageLayer};
 use crate::place;
 use crate::prefs;
+use crate::query::{query_has_tokens, row_matches, suggest_last_token, toggle_is_host};
 use crate::shortcut;
 use crate::theme;
 use crate::view;
@@ -151,6 +152,8 @@ pub enum Message {
     LeaveInput,
     /// Leave the open session and show Recent + session search.
     SessionsHome,
+    /// Toggle ``is:host`` in the catalog query.
+    ToggleHostQuery,
     WindowFocus(bool),
     CloseRequested(window::Id),
     Tray(crate::tray::TrayAction),
@@ -1705,6 +1708,12 @@ impl Hud {
             Message::Hide => self.on_escape(),
             Message::LeaveInput => Self::blur_text_inputs(),
             Message::SessionsHome => self.go_sessions_home(),
+            Message::ToggleHostQuery => {
+                let keep = self.session_keep_id();
+                self.query = toggle_is_host(&self.query);
+                self.rerank_visible_keeping(keep);
+                Task::none()
+            }
             Message::ToggleHelp => {
                 if self.typing_notes {
                     return Task::none();
@@ -1780,6 +1789,27 @@ impl Hud {
 impl Hud {
     pub fn query(&self) -> &str {
         &self.query
+    }
+
+    pub fn query_hints(&self) -> Vec<String> {
+        let models: Vec<String> = self
+            .all_sessions
+            .iter()
+            .map(|r| r.model.clone())
+            .filter(|m| !m.is_empty())
+            .collect();
+        let paths: Vec<String> = self
+            .all_sessions
+            .iter()
+            .map(|r| {
+                std::path::Path::new(&r.path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            })
+            .filter(|p| !p.is_empty())
+            .collect();
+        suggest_last_token(&self.query, &models, &paths)
     }
 
     /// Full-width session browse (tabs + detail). False while the search field
@@ -3645,13 +3675,24 @@ impl Hud {
     fn rerank_visible_keeping(&mut self, keep: String) {
         if self.query.trim().is_empty() {
             self.sessions = spotlight_recent(&self.all_sessions, self.spotlight_limit, &keep);
+        } else if query_has_tokens(&self.query) {
+            self.sessions = self
+                .all_sessions
+                .iter()
+                .filter(|row| row_matches(row, &self.query))
+                .cloned()
+                .collect();
         } else {
-            // Title-first scores (not flat haystack); keep score order — do not
-            // re-sort by recency or a weak id match jumps above a title hit.
-            let idxs = session_search_indices(self.query.trim(), &self.all_sessions);
+            let matched: Vec<SessionRow> = self
+                .all_sessions
+                .iter()
+                .filter(|row| row_matches(row, &self.query))
+                .cloned()
+                .collect();
+            let idxs = session_search_indices(self.query.trim(), &matched);
             self.sessions = idxs
                 .into_iter()
-                .filter_map(|i| self.all_sessions.get(i).cloned())
+                .filter_map(|i| matched.get(i).cloned())
                 .collect();
         }
         self.refresh_session_rows();
@@ -5249,6 +5290,7 @@ impl Hud {
             "list.up" => self.nav_step(-1),
             "edit.copy" | "edit.copy_chord" => self.yank_active(),
             "search.focus" => self.focus_context_search(),
+            "home.host" if !self.browse_mode() => self.update(Message::ToggleHostQuery),
             "pane.notes" if self.browse_mode() => self.update(Message::SetTab(Tab::Notes)),
             _ => Task::none(),
         }
@@ -5336,6 +5378,9 @@ impl Hud {
         }
         if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();
+        }
+        if !self.browse_mode() && self.key_is("home.host", "H", &key, modifiers) {
+            return self.update(Message::ToggleHostQuery);
         }
         if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();

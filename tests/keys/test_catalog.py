@@ -328,7 +328,7 @@ def test_host_sessions_is_one_remappable_id() -> None:
     assert row.default == "H"
     assert row.remappable is True
     host = [b for tup in _BINDING_TUPLES for b in tup if b.id == "home.host"]
-    assert {b.action for b in host} == {"show_host_sessions", "hide_host_sessions"}
+    assert {b.action for b in host} == {"toggle_host_query"}
     assert {b.key for b in host} == {"H"}
 
 

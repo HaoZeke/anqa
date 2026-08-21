@@ -17,6 +17,7 @@ from pathlib import Path
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
 from .mtime_export import default_host_catalog_cache, load_or_rebuild_host_catalog
+from .query import catalog_has_findings, catalog_has_notes, catalog_has_workflows
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
@@ -85,9 +86,8 @@ def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) 
 def show_host_sessions_from_config() -> bool:
     """Whether operator config includes host Grok sessions in the catalog.
 
-    Reads ``show_host_sessions`` from ``~/.groket/config.toml`` (same key as
-    the TUI ``H`` toggle). Used by the headless control owner so editor
-    ``session/list`` matches the TUI home list without importing the UI package.
+    Reads ``show_host_sessions`` from ``~/.groket/config.toml``.
+    Catalog membership no longer follows this pref (host is always loaded).
     """
     from ..config import load_app_config
 
@@ -99,10 +99,13 @@ def show_host_sessions_from_config() -> bool:
 
 
 def effective_include_host(include_host: bool | None) -> bool:
-    """Resolve catalog host inclusion: explicit flag, else config pref."""
+    """Resolve catalog host inclusion: explicit flag, else always include.
+
+    Host sessions stay in the catalog; ``is:host`` / ``H`` filter the list.
+    """
     if include_host is not None:
         return bool(include_host)
-    return show_host_sessions_from_config()
+    return True
 
 
 def catalog_scan_roots(
@@ -117,7 +120,7 @@ def catalog_scan_roots(
     :param work_dir: Work root (``runs/traces`` lives under this).
     :param traces_path: Optional extra traces path (CLI ``-P`` override).
     :param include_host: When true, include host Grok sessions; when false,
-        work only; when None, follow ``show_host_sessions`` in config.
+        work only; when None, include host.
     :param host_root: Override for the host sessions root (tests).
     :returns: Ordered scan roots (work first).
     """
@@ -190,6 +193,9 @@ def session_catalog_row(
         "toolCallCount": int(meta.tool_call_count or 0),
         "turnCount": int(meta.turn_count or 0),
         "errorCount": int(meta.error_count or 0),
+        "hasWorkflows": catalog_has_workflows(session_dir),
+        "hasNotes": catalog_has_notes(session_dir),
+        "hasFindings": catalog_has_findings(session_id),
         # Newest-first list ordering for all control clients.
         "createdAt": created,
         "updatedAt": updated,
@@ -285,6 +291,9 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "toolCallCount",
     "turnCount",
     "errorCount",
+    "hasWorkflows",
+    "hasNotes",
+    "hasFindings",
     "createdAt",
     "updatedAt",
 )
@@ -940,6 +949,9 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     meta.tool_call_count = _as_int(row.get("toolCallCount"), 0)
     meta.turn_count = _as_int(row.get("turnCount"), 0)
     meta.error_count = _as_int(row.get("errorCount"), 0)
+    meta.has_workflows = bool(row.get("hasWorkflows"))
+    meta.has_notes = bool(row.get("hasNotes"))
+    meta.has_findings = bool(row.get("hasFindings"))
 
     pct = _opt_int("contextWindowUsagePct")
     if pct is not None:
