@@ -18,22 +18,23 @@ use serde_json::{json, Value};
 use crate::control::{self, ControlError};
 use crate::format::{
     control_down_message, event_body_text, extract_event, extract_turn, is_chat_message,
-    list_status_label, looks_like_markdown, message_markdown_source, new_note_id,
-    tool_fields_from_raw,
+    list_status_label, looks_like_markdown, message_markdown_source, new_note_id, note_fields_view,
+    tool_fields_from_raw, workflow_for_event,
 };
 use crate::fuzzy::session_search_indices;
 use crate::live::{
     card_marks_from_overview, clamp_scroll, diff_hunk_scroll_y, filter_timeline_indices,
-    filter_turn_indices, first_list_fetch, is_partial_list_page, is_soft_notes_save_error,
-    last_timeline_page_offset, list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
-    note_field_input_key, note_text_input_keys, notes_schema_fields, patch_catalog_delta,
+    filter_turn_indices, finding_card_height, first_list_fetch, is_partial_list_page,
+    is_soft_notes_save_error, last_timeline_page_offset, list_focus_after_scroll,
+    list_scroll_to_cover, list_scroll_to_top, merge_catalog_rows, merge_timeline_by_index,
+    next_list_offset, next_spotlight_limit, note_card_height, note_field_input_key,
+    note_text_input_keys, notes_schema_fields, ordered_finding_indices, patch_catalog_delta,
     patch_list_row_from_meta, plan_tick, previous_timeline_page, scroll_after_prepend,
     session_card_height, session_needs_live_poll, session_rpc_ref, should_fetch_timeline,
     should_load_previous_timeline, should_page_recent, spotlight_recent,
     timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, CLOSED_TURN_CARD_H,
-    IDLE_POLL_MS, LIVE_TAIL_LIMIT, OVERVIEW_LIST_ROW_H, SPOTLIGHT_RECENT,
+    trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, AGENT_ROW_H,
+    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_TAIL_LIMIT, OVERVIEW_LIST_ROW_H, SPOTLIGHT_RECENT,
     STATS_ROW_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
     TIMELINE_ROW_H,
 };
@@ -82,7 +83,7 @@ pub enum Message {
     JumpTimeline(i64),
     /// Events pane turn pick list (`None` key = all turns / search).
     EventsTurnPicked(EventsTurnPick),
-    /// Turns card click: focus that turn (Timeline stays on `g` / the chip).
+    /// Turns card click: focus that turn.
     FocusTurn(i64),
     SelectTimeline(i64),
     /// Follow new Timeline events to the end (live turn only).
@@ -163,6 +164,9 @@ pub enum Message {
     OverviewScroll(icedtea::collection::VisibleWindow),
     /// Highlight a Tasks / Workflows / Subagents row (second press opens).
     FocusOverviewRow(usize),
+    WorkflowChildScroll(icedtea::collection::VisibleWindow),
+    FindingScroll(icedtea::collection::VisibleWindow),
+    NoteScroll(icedtea::collection::VisibleWindow),
     StatsScroll(icedtea::collection::VisibleWindow),
     StatsHScroll(f32),
     StatsSort(usize),
@@ -183,10 +187,6 @@ pub enum Message {
     MdPointer {
         slot: usize,
         ev: icedtea::select::MarkdownPointer,
-    },
-    /// Turns card: open Diff on the snapshot for this prompt, if any.
-    OpenTurnDiff {
-        prompt_index: Option<i64>,
     },
     FindingExpand {
         id: String,
@@ -273,6 +273,15 @@ pub struct Hud {
     overview_window: icedtea::collection::VisibleWindow,
     overview_heights: Vec<f32>,
     overview_scroll_id: Id,
+    wf_child_window: icedtea::collection::VisibleWindow,
+    wf_child_heights: Vec<f32>,
+    wf_child_scroll_id: Id,
+    finding_window: icedtea::collection::VisibleWindow,
+    finding_heights: Vec<f32>,
+    finding_scroll_id: Id,
+    note_window: icedtea::collection::VisibleWindow,
+    note_heights: Vec<f32>,
+    note_scroll_id: Id,
     stats_table: icedtea::collection::TableModel,
     stats_cols: icedtea::collection::ColumnLayout,
     stats_window: icedtea::collection::VisibleWindow,
@@ -369,7 +378,7 @@ pub struct Hud {
     notes_open: HashSet<String>,
     finding_motion: HashMap<String, Animation<bool>>,
     note_motion: HashMap<String, Animation<bool>>,
-    /// Last Turns card focused (jump / `g` / yank).
+    /// Last focused Turns row (`turns.timeline`, `edit.copy`).
     turns_focus: Option<i64>,
     turns_query: String,
     turns_filter: Vec<usize>,
@@ -386,8 +395,6 @@ pub struct Hud {
     diff_hunk_scroll_id: Id,
     diff_point_options: Vec<DiffPointPick>,
     diff_context: DiffContext,
-    /// After Diff loads, select the snapshot for this prompt (Turns → Diff).
-    diff_want_prompt: Option<i64>,
     follow_draft: String,
     follow_id: Id,
     timeline_search_gen: u64,
@@ -442,6 +449,15 @@ impl Default for Hud {
             overview_window: icedtea::collection::VisibleWindow::new(400.0),
             overview_heights: vec![],
             overview_scroll_id: Id::new("hud-overview-list"),
+            wf_child_window: icedtea::collection::VisibleWindow::new(400.0),
+            wf_child_heights: vec![],
+            wf_child_scroll_id: Id::new("hud-wf-children"),
+            finding_window: icedtea::collection::VisibleWindow::new(400.0),
+            finding_heights: vec![],
+            finding_scroll_id: Id::new("hud-findings"),
+            note_window: icedtea::collection::VisibleWindow::new(400.0),
+            note_heights: vec![],
+            note_scroll_id: Id::new("hud-notes"),
             stats_table: icedtea::collection::TableModel::default(),
             stats_cols: icedtea::collection::ColumnLayout::new(vec![110.0, 280.0, 80.0])
                 .with_frozen(1),
@@ -551,7 +567,6 @@ impl Default for Hud {
             diff_hunk_scroll_id: Id::new("diff-hunk"),
             diff_point_options: vec![],
             diff_context: DiffContext::Prompt,
-            diff_want_prompt: None,
             follow_draft: String::new(),
             follow_id: Id::new("follow-up"),
             timeline_search_gen: 0,
@@ -669,6 +684,9 @@ pub fn app_window_settings() -> window::Settings {
     desktop_prepared().window
 }
 
+/// True when the clip published the same window (no range or offset move).
+/// After icedtea 0.12.2 a parked-at-edge wheel does not publish; this
+/// identity check is the only fetch stand-in.
 fn scroll_window_unchanged(
     prev: icedtea::collection::VisibleWindow,
     next: icedtea::collection::VisibleWindow,
@@ -1042,7 +1060,6 @@ impl Hud {
                                 }
                             }
                             self.rebuild_diff_point_options();
-                            self.apply_diff_want_prompt();
                             self.ensure_diff_file();
                             self.bind_diff_bodies();
                         }
@@ -1099,13 +1116,6 @@ impl Hud {
             Message::DiffContext(tab) => {
                 self.diff_context = tab;
                 Task::none()
-            }
-            Message::OpenTurnDiff { prompt_index } => {
-                self.diff_want_prompt = prompt_index;
-                let load = self.update(Message::SetTab(Tab::Diff));
-                self.apply_diff_want_prompt();
-                self.ensure_diff_file();
-                load
             }
             Message::TimelineKind(k) => {
                 self.timeline_kind = k;
@@ -1265,6 +1275,39 @@ impl Hud {
                     return Task::none();
                 }
                 self.overview_window = if self.overview_list_count() == 0 {
+                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
+                } else {
+                    win
+                };
+                Task::none()
+            }
+            Message::WorkflowChildScroll(win) => {
+                if scroll_window_unchanged(self.wf_child_window, win) {
+                    return Task::none();
+                }
+                self.wf_child_window = if self.wf_child_heights.is_empty() {
+                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
+                } else {
+                    win
+                };
+                Task::none()
+            }
+            Message::FindingScroll(win) => {
+                if scroll_window_unchanged(self.finding_window, win) {
+                    return Task::none();
+                }
+                self.finding_window = if self.finding_heights.is_empty() {
+                    icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
+                } else {
+                    win
+                };
+                Task::none()
+            }
+            Message::NoteScroll(win) => {
+                if scroll_window_unchanged(self.note_window, win) {
+                    return Task::none();
+                }
+                self.note_window = if self.note_heights.is_empty() {
                     icedtea::collection::VisibleWindow::new(win.viewport.max(1.0))
                 } else {
                     win
@@ -1475,6 +1518,7 @@ impl Hud {
                         let rail = self.ensure_active_visible();
                         self.rebuild_events_turn_options();
                         self.rebuild_marks();
+                        self.rebuild_clip_lists();
                         // Quiet live ticks: avoid re-filtering the whole timeline and
                         // rebinding every open turn when the operator is not on Events.
                         if quiet {
@@ -1895,6 +1939,47 @@ impl Hud {
     pub fn overview_scroll_id(&self) -> Id {
         self.overview_scroll_id.clone()
     }
+    pub fn wf_child_window(&self) -> icedtea::collection::VisibleWindow {
+        self.wf_child_window
+    }
+    pub fn wf_child_heights(&self) -> &[f32] {
+        &self.wf_child_heights
+    }
+    pub fn wf_child_scroll_id(&self) -> Id {
+        self.wf_child_scroll_id.clone()
+    }
+    pub fn open_workflow_children(&self) -> &[crate::wire::WorkflowChildRow] {
+        let Some(ix) = self.timeline_open else {
+            return &[];
+        };
+        let Some(ev) = self.timeline.iter().find(|e| e.index == ix) else {
+            return &[];
+        };
+        let Some(ov) = self.overview.as_ref() else {
+            return &[];
+        };
+        workflow_for_event(&ov.workflows, &ev.raw_input)
+            .map(|r| r.children.as_slice())
+            .unwrap_or(&[])
+    }
+    pub fn finding_window(&self) -> icedtea::collection::VisibleWindow {
+        self.finding_window
+    }
+    pub fn finding_heights(&self) -> &[f32] {
+        &self.finding_heights
+    }
+    pub fn finding_scroll_id(&self) -> Id {
+        self.finding_scroll_id.clone()
+    }
+    pub fn note_window(&self) -> icedtea::collection::VisibleWindow {
+        self.note_window
+    }
+    pub fn note_heights(&self) -> &[f32] {
+        &self.note_heights
+    }
+    pub fn note_scroll_id(&self) -> Id {
+        self.note_scroll_id.clone()
+    }
     pub fn stats_table(&self) -> &icedtea::collection::TableModel {
         &self.stats_table
     }
@@ -2074,24 +2159,7 @@ impl Hud {
     }
 
     fn rebuild_turn_heights(&mut self) {
-        let ov = self.overview.as_ref();
-        self.turn_heights = self
-            .turns_filter
-            .iter()
-            .map(|&src| {
-                let extra = ov
-                    .and_then(|o| o.turns.turns.get(src))
-                    .map(|t| {
-                        if t.subagent_runs.is_empty() {
-                            0.0
-                        } else {
-                            22.0 * (t.subagent_runs.len().min(4) as f32)
-                        }
-                    })
-                    .unwrap_or(0.0);
-                CLOSED_TURN_CARD_H + extra
-            })
-            .collect();
+        self.turn_heights = vec![CLOSED_TURN_CARD_H; self.turns_filter.len()];
         let view_h = self.turn_window.viewport.max(1.0);
         let content: f32 = self.turn_heights.iter().copied().sum();
         self.turn_window.scroll = clamp_scroll(self.turn_window.scroll, content, view_h);
@@ -2112,6 +2180,61 @@ impl Hud {
         let view_h = self.overview_window.viewport.max(1.0);
         let content: f32 = self.overview_heights.iter().copied().sum();
         self.overview_window.scroll = clamp_scroll(self.overview_window.scroll, content, view_h);
+    }
+
+    fn rebuild_wf_child_heights(&mut self) {
+        let n = self.open_workflow_children().len();
+        self.wf_child_heights = vec![AGENT_ROW_H; n];
+        let view_h = self.wf_child_window.viewport.max(1.0);
+        let content: f32 = self.wf_child_heights.iter().copied().sum();
+        self.wf_child_window.scroll = clamp_scroll(self.wf_child_window.scroll, content, view_h);
+    }
+
+    fn rebuild_finding_heights(&mut self) {
+        let ov = self.overview.as_ref();
+        self.finding_heights = ov
+            .map(|o| {
+                let findings = &o.findings.findings;
+                ordered_finding_indices(findings)
+                    .into_iter()
+                    .filter_map(|i| findings.get(i))
+                    .map(|f| {
+                        finding_card_height(
+                            &f.detail,
+                            self.findings_open.contains(&finding_menu_key(f)),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let view_h = self.finding_window.viewport.max(1.0);
+        let content: f32 = self.finding_heights.iter().copied().sum();
+        self.finding_window.scroll = clamp_scroll(self.finding_window.scroll, content, view_h);
+    }
+
+    fn rebuild_note_heights(&mut self) {
+        let ov = self.overview.as_ref();
+        let mut notes: Vec<&crate::wire::NoteRow> = ov
+            .map(|o| o.notes.notes.iter().collect())
+            .unwrap_or_default();
+        notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        self.note_heights = notes
+            .iter()
+            .map(|n| {
+                let (_, body, _) = note_fields_view(&n.fields);
+                note_card_height(&body, self.notes_open.contains(&n.id))
+            })
+            .collect();
+        let view_h = self.note_window.viewport.max(1.0);
+        let content: f32 = self.note_heights.iter().copied().sum();
+        self.note_window.scroll = clamp_scroll(self.note_window.scroll, content, view_h);
+    }
+
+    fn rebuild_clip_lists(&mut self) {
+        self.rebuild_overview_heights();
+        self.rebuild_wf_child_heights();
+        self.rebuild_finding_heights();
+        self.rebuild_note_heights();
     }
 
     fn rebuild_stats_table(&mut self) {
@@ -2889,13 +3012,18 @@ impl Hud {
             .unwrap_or_else(|| motion::disclose_animation(!open, reduced));
         if reduced {
             store.insert(id, motion::disclose_animation(open, true));
-            return;
+        } else {
+            let mut anim = prev
+                .duration(MotionRole::Disclose.duration(false))
+                .easing(MotionRole::Disclose.easing());
+            anim.go_mut(open, now);
+            store.insert(id, anim);
         }
-        let mut anim = prev
-            .duration(MotionRole::Disclose.duration(false))
-            .easing(MotionRole::Disclose.easing());
-        anim.go_mut(open, now);
-        store.insert(id, anim);
+        if findings {
+            self.rebuild_finding_heights();
+        } else {
+            self.rebuild_note_heights();
+        }
     }
 
     fn expand_progress(
@@ -2997,25 +3125,6 @@ impl Hud {
 
     pub fn diff_context(&self) -> DiffContext {
         self.diff_context
-    }
-
-    pub fn turn_has_diff(&self, prompt_index: Option<i64>) -> bool {
-        let Some(n) = prompt_index else {
-            return false;
-        };
-        self.diff.points.iter().any(|p| p.prompt_index == Some(n))
-    }
-
-    fn apply_diff_want_prompt(&mut self) {
-        let Some(n) = self.diff_want_prompt else {
-            return;
-        };
-        let Some(point) = self.diff.points.iter().find(|p| p.prompt_index == Some(n)) else {
-            return;
-        };
-        self.diff_point = point.key.clone();
-        self.diff_file.clear();
-        self.diff_want_prompt = None;
     }
 
     fn rebuild_diff_point_options(&mut self) {
@@ -3769,7 +3878,6 @@ impl Hud {
             self.diff_query.clear();
             self.diff_point_options.clear();
             self.diff_context = DiffContext::Prompt;
-            self.diff_want_prompt = None;
         }
         self.overview_gen += 1;
         let gen = self.overview_gen;
@@ -3996,6 +4104,7 @@ impl Hud {
         }
         self.timeline_open = Some(index);
         self.timeline_focus = Some(index);
+        self.rebuild_wf_child_heights();
         self.bind_event_extract(index);
         self.fetch_open_detail_bodies(index)
     }
@@ -8237,7 +8346,6 @@ mod tests {
             result: Ok(data),
         });
         hud.tab = Tab::Turns;
-        // Same message the turn card emits on click.
         let _ = hud.update(Message::EventsTurnPicked(EventsTurnPick {
             turn_index: Some(1),
             label: "second".into(),
@@ -9436,6 +9544,53 @@ mod tests {
     }
 
     #[test]
+    fn workflow_open_event_caps_inspect_and_keeps_event_body() {
+        let mut hud = hud_with_session();
+        hud.overview = Some(crate::wire::Overview {
+            workflows: vec![crate::wire::WorkflowRow {
+                id: "wf1".into(),
+                name: "sprint".into(),
+                children: vec![
+                    crate::wire::WorkflowChildRow {
+                        id: "ag-1".into(),
+                        label: "research".into(),
+                        success: true,
+                        ..crate::wire::WorkflowChildRow::default()
+                    },
+                    crate::wire::WorkflowChildRow {
+                        id: "ag-2".into(),
+                        label: "review".into(),
+                        success: false,
+                        ..crate::wire::WorkflowChildRow::default()
+                    },
+                ],
+                ..crate::wire::WorkflowRow::default()
+            }],
+            ..crate::wire::Overview::default()
+        });
+        hud.timeline = vec![TimelineEvent {
+            index: 7,
+            tool_name: "workflow".into(),
+            preview: "the needle is here".into(),
+            content: "the needle is here".into(),
+            content_truncated: true,
+            raw_input: json!({"run_id": "wf1"}),
+            ..TimelineEvent::default()
+        }];
+        hud.tl_filter = vec![0];
+        hud.timeline_open = Some(7);
+        hud.timeline_query = "needle".into();
+        hud.rebuild_wf_child_heights();
+        assert_eq!(hud.open_workflow_children().len(), 2);
+        assert_eq!(hud.wf_child_heights().len(), 2);
+        assert!(crate::live::WORKFLOW_INSPECT_H >= 112.0);
+        let ev = hud.timeline.first().expect("event");
+        assert!(ev.content_truncated);
+        assert!(crate::format::timeline_query_hit(ev, hud.timeline_query()).is_some());
+        let _ = crate::view::event_detail_pane(&hud, 7);
+    }
+
+    #[test]
     fn diff_query_filters_visible_files_and_scope_includes_search() {
         let mut hud = Hud {
             overview_pending: "s1".into(),
@@ -9625,73 +9780,6 @@ mod tests {
         let _ = hud.update(Message::DiffPointPicked(pick));
         assert_eq!(hud.diff_point_key(), "0");
         assert_eq!(hud.diff_file(), "a.py");
-    }
-
-    #[test]
-    fn open_turn_diff_selects_matching_snapshot() {
-        let mut hud = Hud {
-            tab: Tab::Turns,
-            overview: Some(crate::wire::Overview {
-                meta: crate::wire::SessionMeta {
-                    session_id: "s1".into(),
-                    ..crate::wire::SessionMeta::default()
-                },
-                ..crate::wire::Overview::default()
-            }),
-            overview_sid: "s1".into(),
-            diff_sid: "s1".into(),
-            diff: crate::wire::DiffBlock {
-                points: vec![
-                    crate::wire::DiffPointRow {
-                        key: "0".into(),
-                        prompt_index: Some(0),
-                        files: vec![crate::wire::DiffFileRow {
-                            path: "a.py".into(),
-                            unified: "+a\n".into(),
-                            ..crate::wire::DiffFileRow::default()
-                        }],
-                        ..crate::wire::DiffPointRow::default()
-                    },
-                    crate::wire::DiffPointRow {
-                        key: "1".into(),
-                        prompt_index: Some(1),
-                        files: vec![crate::wire::DiffFileRow {
-                            path: "b.py".into(),
-                            unified: "+b\n".into(),
-                            ..crate::wire::DiffFileRow::default()
-                        }],
-                        ..crate::wire::DiffPointRow::default()
-                    },
-                ],
-                ..crate::wire::DiffBlock::default()
-            },
-            diff_point: "0".into(),
-            ..Hud::default()
-        };
-        let _ = hud.update(Message::OpenTurnDiff {
-            prompt_index: Some(1),
-        });
-        assert_eq!(hud.tab, Tab::Diff);
-        assert_eq!(hud.diff_point_key(), "1");
-        assert_eq!(hud.diff_file(), "b.py");
-    }
-
-    #[test]
-    fn turn_has_diff_only_when_a_snapshot_matches() {
-        let hud = Hud {
-            diff: crate::wire::DiffBlock {
-                points: vec![crate::wire::DiffPointRow {
-                    key: "0".into(),
-                    prompt_index: Some(1),
-                    ..crate::wire::DiffPointRow::default()
-                }],
-                ..crate::wire::DiffBlock::default()
-            },
-            ..Hud::default()
-        };
-        assert!(hud.turn_has_diff(Some(1)));
-        assert!(!hud.turn_has_diff(Some(2)));
-        assert!(!hud.turn_has_diff(None));
     }
 
     #[test]

@@ -24,13 +24,14 @@ use crate::format::{
 use crate::kit;
 use crate::live::{
     context_fraction, decode_many_choices, finding_severity_rank, finding_severity_title,
-    note_field_input_key, toggle_many_choice, CardMark, NOTE_TURN_INPUT, OVERVIEW_LIST_OVERSCAN,
-    STATS_ROW_H, TIMELINE_OVERSCAN, TURNS_OVERSCAN,
+    note_field_input_key, ordered_finding_indices, toggle_many_choice, CardMark, AGENT_OVERSCAN,
+    FINDING_OVERSCAN, NOTE_TURN_INPUT, OVERVIEW_LIST_OVERSCAN, STATS_ROW_H, TIMELINE_OVERSCAN,
+    TURNS_OVERSCAN, WORKFLOW_INSPECT_H,
 };
 use crate::model::{DiffContext, KindFilter, OverviewSection, SchemaField, Tab};
 use crate::motion::PageLayer;
 use crate::typo;
-use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow};
+use crate::wire::{FindingRow, NoteRow, TimelineEvent, TurnRow, WorkflowChildRow};
 
 fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
@@ -727,6 +728,26 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
             hud,
             tea,
         ));
+    } else if hud.tab() == Tab::Findings && hud.overview().is_some() {
+        stack = stack.push(page_body(
+            container(findings_tab(hud))
+                .padding([tea.density.gap(), tea.density.inset()])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            hud,
+            tea,
+        ));
+    } else if hud.tab() == Tab::Notes && hud.overview().is_some() {
+        stack = stack.push(page_body(
+            container(notes_tab(hud))
+                .padding([tea.density.gap(), tea.density.inset()])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            hud,
+            tea,
+        ));
     } else {
         stack = stack.push(page_body(
             icedtea::widget::themed_scroll(
@@ -1135,19 +1156,7 @@ fn footer(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     )
 }
 
-/// Filled-black mark; icedtea recolors it from tokens.
-const DIFF_MARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="black" d="M2 3h5v2H2zm7 0h5v2H9zM2 7h12v2H2zm0 4h5v2H2zm7 0h5v2H9z"/></svg>"#;
-
 fn chip_btn(label: String, msg: Message, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    chip_btn_icons(label, msg, tea, icedtea::icon::Icons::NONE)
-}
-
-fn chip_btn_icons(
-    label: String,
-    msg: Message,
-    tea: icedtea::theme::Tokens,
-    icons: icedtea::icon::Icons,
-) -> Element<'static, Message> {
     icedtea::widget::chip(
         label.clone(),
         Some(msg),
@@ -1155,7 +1164,7 @@ fn chip_btn_icons(
         tea,
         Variant::Chip,
         icedtea::widget::ChipKind::Assist,
-        icons,
+        icedtea::icon::Icons::NONE,
         A11y::button(label),
     )
 }
@@ -1177,28 +1186,11 @@ fn card_chips(
     row![
         card_marks_row(hud, mark),
         Space::new().width(Length::Fill),
-        card_cmds_row(hud, note, jump, None),
+        card_cmds_row(hud, note, jump),
     ]
     .spacing(8)
     .align_y(Alignment::Center)
     .width(Length::Fill)
-    .into()
-}
-
-/// Compact chips for closed-card title rows (no flex fill — sits beside title).
-fn card_chips_inline(
-    hud: &Hud,
-    mark: Option<CardMark>,
-    note: Option<Message>,
-    jump: Option<Message>,
-    diff: Option<Message>,
-) -> Element<'static, Message> {
-    row![
-        card_marks_row(hud, mark),
-        card_cmds_row(hud, note, jump, diff),
-    ]
-    .spacing(4)
-    .align_y(Alignment::Center)
     .into()
 }
 
@@ -1230,7 +1222,6 @@ fn card_marks_row(hud: &Hud, mark: Option<CardMark>) -> Element<'static, Message
                 tea,
             ));
         }
-        // Tool-error counts live on the turn stats badge row.
     }
     marks.into()
 }
@@ -1239,27 +1230,12 @@ fn card_cmds_row(
     hud: &Hud,
     note: Option<Message>,
     jump: Option<Message>,
-    diff: Option<Message>,
 ) -> Element<'static, Message> {
     let tea = hud.tokens();
     let tok = hud.tokens();
     let mut cmds = row![].spacing(4);
     if let Some(msg) = note {
         cmds = cmds.push(chip_btn("Add note".into(), msg, tea));
-    }
-    if let Some(msg) = diff {
-        cmds = cmds.push(icedtea::widget::tooltip_wrap(
-            chip_btn_icons(
-                "Diff".into(),
-                msg,
-                tea,
-                icedtea::icon::Icons::leading(icedtea::icon::Glyph::Bytes(DIFF_MARK)),
-            ),
-            "Go to Diff",
-            icedtea::widget::TooltipAnchor::Follow,
-            tea,
-            A11y::button("Go to Diff"),
-        ));
     }
     if let Some(msg) = jump {
         cmds = cmds.push(jump_control(msg, tok.muted, tea));
@@ -1295,28 +1271,20 @@ fn expand_card<'a>(
     )
 }
 
-/// Closed Timeline row: flat card. Click opens full-pane detail (not expand).
-///
-/// Chips share the title row so the virtual height only needs title + face
-/// (a third chips row was clipped by ``TIMELINE_ROW_H`` under ``clip(true)``).
-fn closed_list_card<'a>(
-    title: Element<'a, Message>,
-    face: Element<'a, Message>,
-    chips: Element<'a, Message>,
+/// Closed list tile: title plus one badge row (same face as Recent).
+fn closed_list_card(
+    title: String,
+    badges: Element<'static, Message>,
     on_open: Message,
     selected: bool,
     tea: icedtea::theme::Tokens,
-) -> Element<'a, Message> {
-    let header = row![
-        title,
-        Space::new().width(Length::Fill),
-        chips,
-        text("›").size(tea.meta()).color(tea.muted),
-    ]
-    .spacing(6)
-    .align_y(Alignment::Center)
-    .width(Length::Fill);
-    let body = column![header, face].spacing(4).width(Length::Fill);
+) -> Element<'static, Message> {
+    let title = text(title)
+        .size(tea.body())
+        .font(if selected { typo::UI_BOLD } else { typo::UI })
+        .color(tea.text)
+        .width(Length::Fill);
+    let body = column![title, badges].spacing(4).width(Length::Fill);
     mouse_area(
         container(body)
             .padding(tea.density.inset())
@@ -1328,113 +1296,12 @@ fn closed_list_card<'a>(
 }
 
 fn turn_title(t: &TurnRow) -> String {
-    t.face_caption()
-}
-
-/// Outcome plus duration / counts as the same small badges as session chrome.
-fn turn_stats_row(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let status = if t.open {
-        "open".to_string()
+    let plain = plain_card_text(&t.summary);
+    if plain.is_empty() {
+        t.face_caption()
     } else {
-        list_status_label(&t.outcome, &t.outcome)
-    };
-    let tone = if t.open {
-        "running"
-    } else {
-        status_tone(&status)
-    };
-    let mut chips = row![status_chip(status, tone, tea)]
-        .spacing(8)
-        .align_y(Alignment::Center);
-    if let Some(taken) = t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
-        chips = chips.push(status_chip(taken, "", tea));
+        capped_display(&plain, 180)
     }
-    if t.event_count > 0 {
-        chips = chips.push(status_chip(format!("{} events", t.event_count), "", tea));
-    }
-    if t.tool_call_count > 0 {
-        chips = chips.push(status_chip(format!("{} tools", t.tool_call_count), "", tea));
-    }
-    if t.tool_error_count > 0 {
-        chips = chips.push(status_chip(
-            format!("{} tool errors", t.tool_error_count),
-            "error",
-            tea,
-        ));
-    }
-    if let Some(n) = t.prompt_index {
-        chips = chips.push(status_chip(format!("prompt {n}"), "", tea));
-    }
-    chips.into()
-}
-
-fn turn_run_chips(t: &TurnRow, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    if t.subagent_runs.is_empty() {
-        return Space::new().height(0).into();
-    }
-    let mut col = column![].spacing(4);
-    for run in &t.subagent_runs {
-        let kind = if run.subagent_type.is_empty() {
-            "subagent".to_string()
-        } else {
-            run.subagent_type.clone()
-        };
-        let desc = if run.description.is_empty() {
-            run.child_session_id.clone()
-        } else {
-            run.description.clone()
-        };
-        let mut chips = row![
-            status_chip(kind, "", tea),
-            status_chip(
-                list_status_label(&run.status, &run.status),
-                status_tone(&run.status),
-                tea,
-            ),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        if !desc.is_empty() {
-            chips = chips.push(icedtea::widget::meta(
-                desc.clone(),
-                tea,
-                A11y::new(desc, Role::Status),
-            ));
-        }
-        let row: Element<'static, Message> = chips.into();
-        if run.openable {
-            col = col.push(mouse_area(row).on_press(Message::OpenChild {
-                path: run.child_path.clone(),
-                sid: run.child_session_id.clone(),
-            }));
-        } else {
-            col = col.push(row);
-        }
-    }
-    col.into()
-}
-
-fn turn_note(t: &TurnRow) -> Message {
-    Message::StartNote {
-        turn: t.face_id().map(|n| n.to_string()).unwrap_or_default(),
-        event: String::new(),
-    }
-}
-
-/// Open Timeline with this turn’s events only (list, not a single-event detail).
-fn turn_diff(t: &TurnRow) -> Message {
-    Message::OpenTurnDiff {
-        prompt_index: t.prompt_index,
-    }
-}
-
-fn turn_jump(t: &TurnRow) -> Message {
-    use crate::model::EventsTurnPick;
-    let label = t.face_caption();
-    Message::EventsTurnPicked(EventsTurnPick {
-        turn_index: Some(t.turn_index),
-        label,
-    })
 }
 
 fn event_note(ev: &TimelineEvent) -> Message {
@@ -1484,6 +1351,12 @@ fn event_list_heading(
     if let Some((human, role)) = event_type_paint(ev) {
         head = head.push(label_badge(human, role, tea));
     }
+    if is_tool_identity(&ev.kind, &ev.event_type, &ev.tool_name) {
+        let name = format_tool_display(&ev.tool_name);
+        if !name.is_empty() {
+            head = head.push(label_badge(name, event_tool_role(ev), tea));
+        }
+    }
     if let Some(turn) = ev.turn_index {
         head = head.push(status_chip(format!("turn {turn}"), "", tea));
     }
@@ -1494,7 +1367,7 @@ fn event_list_heading(
     head.into()
 }
 
-fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+fn event_list_title(ev: &TimelineEvent) -> String {
     let tool_row = is_tool_identity(&ev.kind, &ev.event_type, &ev.tool_name);
     let raw_preview = if ev.preview.is_empty() {
         ev.content.as_str()
@@ -1522,22 +1395,12 @@ fn event_face(ev: &TimelineEvent, tea: icedtea::theme::Tokens) -> Element<'stati
     } else {
         raw_preview.to_string()
     };
-    // One scannable line (TUI type + summary columns), not a markdown stack.
     let preview = capped_display(&plain_card_text(&preview), 160);
-    if !tool_row {
-        if preview.is_empty() {
-            return text("—").size(tea.body()).color(tea.muted).into();
-        }
-        return text(preview).size(tea.body()).color(tea.text).into();
-    }
-    let name = label_badge(format_tool_display(&ev.tool_name), event_tool_role(ev), tea);
     if preview.is_empty() {
-        return name;
+        String::from("—")
+    } else {
+        preview
     }
-    row![name, text(preview).size(tea.body()).color(tea.text)]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .into()
 }
 
 fn event_body<'a>(
@@ -1701,11 +1564,6 @@ fn note_commands(id: &str, delete_armed: &str) -> Vec<icedtea::action::Action<Me
     ]
 }
 
-fn closed_turn_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    // ~2 lines at typical detail width; keeps closed-card height honest.
-    plain_face(summary, "No user prompt in this turn", 180, tea)
-}
-
 /// Closed-card preview only. Markdown parse/layout per visible row was the
 /// Turns/Timeline scroll tax; open bodies use selectable text when needed.
 fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -1746,52 +1604,53 @@ fn plain_face(
         .into()
 }
 
-/// Fixed Turns card: prompt + light meta + jump/note (no expander / assistant body).
-///
-/// Title row carries chips so the 2-line prompt is not pushed under the
-/// virtual clip (``CLOSED_TURN_CARD_H``).
+/// Closed Turns tile: prompt title plus status badges (same face as Recent).
 fn turn_list_card(
-    hud: &Hud,
     t: &TurnRow,
-    mark: Option<CardMark>,
     selected: bool,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let jump = turn_jump(t);
-    let title = text(turn_title(t))
-        .size(tea.body())
-        .font(typo::UI_BOLD)
-        .color(tea.text);
-    let header = row![
+    let title = turn_title(t);
+    let status = if t.open {
+        "open".to_string()
+    } else {
+        list_status_label(&t.outcome, &t.outcome)
+    };
+    let tone = if t.open {
+        "running"
+    } else {
+        status_tone(&status)
+    };
+    let mut chips = row![status_chip(status, tone, tea)]
+        .spacing(8)
+        .align_y(Alignment::Center);
+    let caption = t.face_caption();
+    if title != caption {
+        chips = chips.push(status_chip(caption, "", tea));
+    }
+    if let Some(taken) = t.duration_seconds.filter(|s| *s > 0.0).map(fmt_duration) {
+        chips = chips.push(status_chip(taken, "", tea));
+    }
+    if t.event_count > 0 {
+        chips = chips.push(status_chip(format!("{} events", t.event_count), "", tea));
+    }
+    if t.tool_call_count > 0 {
+        chips = chips.push(status_chip(format!("{} tools", t.tool_call_count), "", tea));
+    }
+    if t.tool_error_count > 0 {
+        chips = chips.push(status_chip(
+            format!("{} tool errors", t.tool_error_count),
+            "error",
+            tea,
+        ));
+    }
+    closed_list_card(
         title,
-        Space::new().width(Length::Fill),
-        card_chips_inline(
-            hud,
-            mark,
-            Some(turn_note(t)),
-            Some(jump.clone()),
-            hud.turn_has_diff(t.prompt_index).then(|| turn_diff(t)),
-        ),
-    ]
-    .spacing(6)
-    .align_y(Alignment::Center)
-    .width(Length::Fill);
-    let body = column![
-        header,
-        turn_stats_row(t, tea),
-        turn_run_chips(t, tea),
-        closed_turn_face(&t.summary, tea),
-    ]
-    .spacing(4)
-    .width(Length::Fill);
-    mouse_area(
-        container(body)
-            .padding(tea.density.inset())
-            .width(Length::Fill)
-            .style(move |_| icedtea::style::card(tea, selected)),
+        chips.into(),
+        Message::FocusTurn(t.turn_index),
+        selected,
+        tea,
     )
-    .on_press(Message::FocusTurn(t.turn_index))
-    .into()
 }
 
 fn turns_filter(hud: &Hud) -> Element<'_, Message> {
@@ -1817,7 +1676,6 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
 fn turns_tab(hud: &Hud) -> Element<'_, Message> {
     let o = hud.overview().unwrap();
     let turns: &[TurnRow] = &o.turns.turns;
-    let (turn_marks, _) = hud.card_marks();
     let tea = hud.body_tokens();
     if turns.is_empty() {
         return kit::status_empty("No turns", "Nothing segmented yet.", tea);
@@ -1842,10 +1700,9 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                 let Some(t) = turns.get(src) else {
                     return Space::new().height(0).into();
                 };
-                let mark = turn_marks.get(&t.turn_index).cloned();
                 let selected = hud.turns_focus() == Some(t.turn_index);
                 column![
-                    turn_list_card(hud, t, mark, selected, tea),
+                    turn_list_card(t, selected, tea),
                     Space::new().height(crate::live::LIST_GAP),
                 ]
                 .into()
@@ -1881,7 +1738,6 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         }
         return kit::status_empty("No events", "Nothing matches this filter.", hud.tokens());
     }
-    let (_, ev_marks) = hud.card_marks();
     let tea = hud.tokens();
     let source = hud.timeline_events();
     let list = icedtea::widget::virtual_column(
@@ -1900,12 +1756,10 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
                 return Space::new().height(0).into();
             };
             let ix = ev.index;
-            let mark = ev_marks.get(&ix).cloned();
             let selected = hud.timeline_focus() == Some(ix);
             let card = closed_list_card(
+                event_list_title(ev),
                 event_list_heading(ev, tea),
-                event_face(ev, tea),
-                card_chips_inline(hud, mark, Some(event_note(ev)), None, None),
                 Message::SelectTimeline(ix),
                 selected,
                 tea,
@@ -1934,7 +1788,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
 /// Full-area event body (click a list row; Esc returns to the list at this event).
 ///
 /// Chrome (title + adjacent cards) stays **above** the scroll pane.
-fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
+pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let tea = hud.body_tokens();
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
         return column![event_detail_chrome(hud, ix, None, tea), busy_pane(),]
@@ -1944,6 +1798,37 @@ fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     };
     let (_, ev_marks) = hud.card_marks();
     let mark = ev_marks.get(&ix).cloned();
+    let children = hud.open_workflow_children();
+    if ev.tool_name == "workflow" && !children.is_empty() {
+        let inspect = icedtea::widget::themed_scroll(
+            container(event_body(hud, ev, mark))
+                .width(Length::Fill)
+                .padding(Padding {
+                    top: 0.0,
+                    right: icedtea::chrome::SCROLL_RAIL_WIDTH,
+                    bottom: 8.0,
+                    left: 0.0,
+                })
+                .into(),
+            tea,
+            A11y::new(format!("Event {ix}"), Role::Group),
+            false,
+            None,
+            None::<fn(f32) -> Message>,
+        );
+        return column![
+            event_detail_chrome(hud, ix, Some(ev), tea),
+            container(inspect)
+                .width(Length::Fill)
+                .height(Length::Fixed(WORKFLOW_INSPECT_H)),
+            container(workflow_child_list(hud, children))
+                .width(Length::Fill)
+                .height(Length::Fill),
+        ]
+        .spacing(10)
+        .height(Length::Fill)
+        .into();
+    }
     let scroll = icedtea::widget::themed_scroll(
         container(event_body(hud, ev, mark))
             .width(Length::Fill)
@@ -2216,26 +2101,23 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
         let (title, hint) = findings_empty_copy();
         return kit::status_empty(title, hint, tea);
     }
-    let mut buckets: [Vec<&FindingRow>; 4] = [vec![], vec![], vec![], vec![]];
-    for f in findings {
-        let r = finding_severity_rank(&f.severity) as usize;
-        buckets[r.min(3)].push(f);
-    }
-    let mut col = column![status_chip(format!("{} findings", findings.len()), "", tea,)].spacing(8);
-    for (rank, group) in buckets.iter().enumerate() {
-        if group.is_empty() {
-            continue;
-        }
-        let title = finding_severity_title(rank as u8);
-        col = col.push(
-            row![
-                status_chip(title, severity_tone(title), tea),
-                status_chip(format!("{}", group.len()), "", tea),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-        );
-        for f in group {
+    let order = ordered_finding_indices(findings);
+    let header = status_chip(format!("{} findings", findings.len()), "", tea);
+    let list = icedtea::widget::virtual_column(
+        hud.finding_heights(),
+        hud.finding_window(),
+        FINDING_OVERSCAN,
+        None,
+        Message::FindingScroll,
+        Some(hud.finding_scroll_id()),
+        tea,
+        move |i| {
+            let Some(&src) = order.get(i) else {
+                return Space::new().height(0).into();
+            };
+            let Some(f) = findings.get(src) else {
+                return Space::new().height(0).into();
+            };
             let id = finding_key(f);
             let open = hud.finding_expanded(&id);
             let progress = hud.finding_expand_progress(&id);
@@ -2254,23 +2136,28 @@ fn findings_tab(hud: &Hud) -> Element<'_, Message> {
                 .spacing(6)
                 .into()
             };
-            col = col.push(expand_card(
-                title,
-                child,
-                open,
-                progress,
-                {
-                    let id = id.clone();
-                    move |next| Message::FindingExpand {
-                        id: id.clone(),
-                        open: next,
-                    }
-                },
-                tea,
-            ));
-        }
-    }
-    col.into()
+            column![
+                expand_card(
+                    title,
+                    child,
+                    open,
+                    progress,
+                    {
+                        let id = id.clone();
+                        move |next| Message::FindingExpand {
+                            id: id.clone(),
+                            open: next,
+                        }
+                    },
+                    tea,
+                ),
+                Space::new().height(crate::live::LIST_GAP),
+            ]
+            .into()
+        },
+        A11y::new("Findings", Role::List),
+    );
+    column![header, list].spacing(8).height(Length::Fill).into()
 }
 
 fn finding_key(f: &FindingRow) -> String {
@@ -2495,7 +2382,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             hud.tokens(),
         ));
     }
-    let mut col = column![form, note_chrome].spacing(12);
+    let mut col = column![form, note_chrome].spacing(12).height(Length::Fill);
     if notes.is_empty() {
         col = col.push(icedtea::widget::meta(
             "No notes yet.",
@@ -2503,36 +2390,54 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             A11y::new("No notes yet.", Role::Status),
         ));
     } else {
-        for n in notes {
-            let id = n.id.clone();
-            let (title, body, extras) = note_fields_view(&n.fields);
-            let heading = if title.is_empty() {
-                "Empty note".into()
-            } else {
-                title
-            };
-            let open = hud.note_expanded(&id);
-            let progress = hud.note_expand_progress(&id);
-            let child = if open || progress > 0.0 {
-                note_body(hud, n, &body, extras)
-            } else {
-                prompt_face(&body, hud.tokens())
-            };
-            col = col.push(expand_card(
-                heading,
-                child,
-                open,
-                progress,
-                {
-                    let id = id.clone();
-                    move |next| Message::NoteExpand {
-                        id: id.clone(),
-                        open: next,
-                    }
-                },
-                hud.tokens(),
-            ));
-        }
+        let list = icedtea::widget::virtual_column(
+            hud.note_heights(),
+            hud.note_window(),
+            FINDING_OVERSCAN,
+            None,
+            Message::NoteScroll,
+            Some(hud.note_scroll_id()),
+            tea,
+            move |i| {
+                let Some(n) = notes.get(i) else {
+                    return Space::new().height(0).into();
+                };
+                let id = n.id.clone();
+                let (title, body, extras) = note_fields_view(&n.fields);
+                let heading = if title.is_empty() {
+                    "Empty note".into()
+                } else {
+                    title
+                };
+                let open = hud.note_expanded(&id);
+                let progress = hud.note_expand_progress(&id);
+                let child = if open || progress > 0.0 {
+                    note_body(hud, n, &body, extras)
+                } else {
+                    prompt_face(&body, hud.tokens())
+                };
+                column![
+                    expand_card(
+                        heading,
+                        child,
+                        open,
+                        progress,
+                        {
+                            let id = id.clone();
+                            move |next| Message::NoteExpand {
+                                id: id.clone(),
+                                open: next,
+                            }
+                        },
+                        hud.tokens(),
+                    ),
+                    Space::new().height(crate::live::LIST_GAP),
+                ]
+                .into()
+            },
+            A11y::new("Notes", Role::List),
+        );
+        col = col.push(list);
     }
     col.into()
 }
@@ -2676,43 +2581,62 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
             icedtea::typo::FontFace::Ui,
         ));
     }
-    if !run.children.is_empty() {
-        col = col.push(icedtea::widget::meta(
-            "Agents",
-            tok,
-            A11y::new("Agents", Role::Header),
-        ));
-        for (i, child) in run.children.iter().enumerate() {
-            let mark = if child.success { "ok" } else { "fail" };
-            let label = if child.label.is_empty() {
-                child.id.as_str()
-            } else {
-                child.label.as_str()
+    col.into()
+}
+
+fn workflow_child_list<'a>(hud: &'a Hud, children: &'a [WorkflowChildRow]) -> Element<'a, Message> {
+    let tea = hud.body_tokens();
+    let heights = hud.wf_child_heights();
+    icedtea::widget::virtual_column(
+        heights,
+        hud.wf_child_window(),
+        AGENT_OVERSCAN,
+        None,
+        Message::WorkflowChildScroll,
+        Some(hud.wf_child_scroll_id()),
+        tea,
+        move |i| {
+            let Some(child) = children.get(i) else {
+                return Space::new().height(0).into();
             };
-            let line = format!("{mark}  {label}");
-            let body = select_bound(
-                hud,
-                format!("event.{}.wf.child.{i}", ev.index),
-                &line,
-                tok,
-                icedtea::typo::FontFace::Ui,
-            );
+            let mark = if child.success { "ok" } else { "fail" };
+            let title = if child.label.is_empty() {
+                child.id.clone()
+            } else {
+                child.label.clone()
+            };
+            let badges = row![status_chip(
+                mark,
+                if child.success {
+                    "complete"
+                } else {
+                    "cancelled"
+                },
+                tea
+            )]
+            .spacing(8)
+            .align_y(Alignment::Center);
             let sid = if child.session_id.is_empty() {
                 child.id.clone()
             } else {
                 child.session_id.clone()
             };
-            if !sid.is_empty() {
-                col = col.push(mouse_area(body).on_press(Message::OpenChild {
+            let open = if sid.is_empty() {
+                Message::Noop
+            } else {
+                Message::OpenChild {
                     path: child.path.clone(),
                     sid,
-                }));
-            } else {
-                col = col.push(body);
-            }
-        }
-    }
-    col.into()
+                }
+            };
+            column![
+                closed_list_card(title, badges.into(), open, false, tea),
+                Space::new().height(crate::live::LIST_GAP),
+            ]
+            .into()
+        },
+        A11y::new("Agents", Role::List),
+    )
 }
 
 fn job_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a, Message> {
@@ -3224,7 +3148,6 @@ mod tests {
         let _ = prompt_face("# heading\n\n**bold**", tea());
         let _ = prompt_face("plain sentence", tea());
         let _ = prompt_face("", tea());
-        let _ = closed_turn_face("user said hello", tea());
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod");
         let face = prod
@@ -3298,7 +3221,7 @@ mod tests {
             ..TimelineEvent::default()
         };
         assert_eq!(event_tool_role(&tool), BrandRole::Cream);
-        let _ = event_face(&tool, tea());
+        assert_eq!(event_list_title(&tool), "src/app.rs");
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
             .next()
@@ -3354,9 +3277,9 @@ mod tests {
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod source");
         let chip = prod
-            .split("fn chip_btn_icons")
+            .split("fn chip_btn(")
             .nth(1)
-            .expect("chip_btn_icons")
+            .expect("chip_btn")
             .split("fn command_end")
             .next()
             .expect("chip_btn body");
@@ -3472,7 +3395,9 @@ mod tests {
         use icedtea::widget::{label, virtual_column};
 
         let tok = tea();
-        let row_h = crate::live::CLOSED_TURN_CARD_H;
+        // Tall fixture rows so a 4px wheel cannot change the visible
+        // range. Product tiles are shorter; this test is the clip.
+        let row_h = 144.0;
         let viewport = 400.0;
         let heights: Vec<f32> = (0..40).map(|_| row_h).collect();
         let window = VisibleWindow::new(viewport);
@@ -3670,7 +3595,12 @@ mod tests {
         assert!(!prod.contains("context_progress") || prod.contains("kit::context_progress"));
         assert!(prod.contains("pattern::context_menu"));
         assert!(prod.contains("stack![chrome]"));
-        assert!(prod.contains("fn turn_note"));
+        assert!(!prod.contains("fn turn_note"));
+        assert!(!prod.contains("fn turn_diff"));
+        assert!(!prod.contains("fn turn_jump"));
+        assert!(!prod.contains("fn turn_stats_row"));
+        assert!(!prod.contains("fn turn_run_chips"));
+        assert!(!prod.contains("fn card_chips_inline"));
         assert!(!prod.contains("command_palette_view"));
         assert!(prod.contains("fn event_body"));
         assert!(!prod.contains("time_picker"));
@@ -3678,7 +3608,7 @@ mod tests {
         assert!(!prod.contains("fn disclosure"));
         assert!(prod.contains("fn select_bound"));
         assert!(prod.contains("fn turn_list_card"));
-        assert!(prod.contains("fn closed_turn_face"));
+        assert!(!prod.contains("fn closed_turn_face"));
         assert!(prod.contains("Search events…"));
         assert!(prod.contains("Search turns"));
         assert!(!prod.contains("Session events"));
@@ -3718,11 +3648,12 @@ mod tests {
             .split("fn event_list_heading")
             .nth(1)
             .expect("heading")
-            .split("fn event_face")
+            .split("fn event_list_title")
             .next()
             .expect("heading body");
         assert!(heading.contains("label_badge"));
         assert!(heading.contains("status_chip(format!(\"turn {turn}\")"));
+        assert!(heading.contains("format_tool_display"));
         let payload = prod
             .split("fn event_payload")
             .nth(1)
@@ -3737,15 +3668,24 @@ mod tests {
             .split("fn workflow_event_inspect")
             .nth(1)
             .expect("workflow_event_inspect")
-            .split("fn job_event_inspect")
+            .split("fn workflow_child_list")
             .next()
             .expect("workflow card");
-        assert!(wf_card.contains("wf.child"));
         assert!(wf_card.contains("Asked"));
         assert!(wf_card.contains("Happened"));
         assert!(wf_card.contains("Failed"));
         assert!(wf_card.contains("select_bound"));
-        assert!(wf_card.contains("OpenChild"));
+        assert!(!wf_card.contains("virtual_column"));
+        let wf_kids = prod
+            .split("fn workflow_child_list")
+            .nth(1)
+            .expect("workflow_child_list")
+            .split("fn job_event_inspect")
+            .next()
+            .expect("child list");
+        assert!(wf_kids.contains("virtual_column"));
+        assert!(wf_kids.contains("OpenChild"));
+        assert!(!wf_kids.contains("select_bound"));
         let job_card = prod
             .split("fn job_event_inspect")
             .nth(1)
@@ -3772,25 +3712,25 @@ mod tests {
         assert!(!job_card.contains("get(\"last_fired_at\")"));
         assert!(payload.contains("\"Input\""));
         assert!(!payload.contains("text(format_tool_display"));
-        let stats = prod
-            .split("fn turn_stats_row")
+        let turns_card = prod
+            .split("fn turn_list_card")
             .nth(1)
-            .expect("turn_stats_row")
-            .split("fn turn_run_chips")
+            .expect("turn_list_card")
+            .split("fn turns_filter")
             .next()
-            .expect("stats body");
-        assert!(stats.contains("status_chip("));
-        assert!(!stats.contains("tools ·"));
+            .expect("turns card");
+        assert!(turns_card.contains("status_chip("));
+        assert!(turns_card.contains("closed_list_card("));
+        assert!(!turns_card.contains("tools ·"));
         let face = prod
-            .split("fn event_face")
+            .split("fn event_list_title")
             .nth(1)
-            .expect("face")
+            .expect("title")
             .split("fn event_body")
             .next()
-            .expect("face body");
-        assert!(face.contains("label_badge"));
-        assert!(face.contains(".size(tea.body())"));
-        assert!(!face.contains(".size(tea.meta())"));
+            .expect("title body");
+        assert!(face.contains("list_event_detail"));
+        assert!(!face.contains("label_badge"));
         assert!(!face.contains("id_font"));
         assert!(prod.contains("footer_table_for(hud.key_scope(), hud.key_overlay())"));
         assert!(!prod.contains("chip_btn(\"Back\""));
@@ -3813,12 +3753,109 @@ mod tests {
             "empty Findings uses the one-line empty state"
         );
         assert!(
-            !body
-                .split("let mut buckets")
-                .next()
-                .unwrap_or(body)
-                .contains("status_page"),
+            !body.contains("status_page"),
             "empty Findings is not a blank status_page"
         );
+        assert!(
+            body.contains("widget::virtual_column"),
+            "Findings cards scroll on virtual_column"
+        );
+    }
+
+    #[test]
+    fn workflow_child_rows_use_virtual_column() {
+        let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        assert!(prod.contains("fn workflow_child_list"));
+        let kids = prod
+            .split("fn workflow_child_list")
+            .nth(1)
+            .expect("list")
+            .split("fn job_event_inspect")
+            .next()
+            .expect("body");
+        assert!(kids.contains("icedtea::widget::virtual_column"));
+        assert!(!kids.contains("themed_scroll"));
+        assert!(!kids.contains("select_bound"));
+        let pane = prod
+            .split("fn event_detail_pane")
+            .nth(1)
+            .expect("detail")
+            .split("fn event_detail_chrome")
+            .next()
+            .expect("pane");
+        assert!(pane.contains("workflow_child_list"));
+        assert!(pane.contains("open_workflow_children"));
+        assert!(
+            pane.contains("event_body("),
+            "workflow-with-children keeps event_body chrome"
+        );
+        assert!(
+            pane.contains("WORKFLOW_INSPECT_H"),
+            "inspect scroll is capped so Agents get Fill"
+        );
+        assert!(pane.contains("Length::Fixed(WORKFLOW_INSPECT_H)"));
+        assert!(pane.contains(".height(Length::Fill)"));
+        let body = prod
+            .split("fn event_body")
+            .nth(1)
+            .expect("event_body")
+            .split("fn finding_jump")
+            .next()
+            .expect("event_body slice");
+        assert!(body.contains("timeline_query_hit"));
+        assert!(body.contains("content_truncated"));
+        assert!(body.contains("card_chips"));
+        assert!(body.contains("event_note"));
+    }
+
+    #[test]
+    fn event_body_paints_search_hit_truncated_bar_and_note_chips() {
+        let hud = Hud::default();
+        let ev = TimelineEvent {
+            index: 4,
+            tool_name: "workflow".into(),
+            preview: "the needle is here".into(),
+            content: "the needle is here".into(),
+            content_truncated: true,
+            ..TimelineEvent::default()
+        };
+        let _ = event_body(&hud, &ev, None);
+        assert!(ev.content_truncated);
+        assert!(crate::format::timeline_query_hit(&ev, "needle").is_some());
+        let src = include_str!("view.rs");
+        let body = src
+            .split("fn event_body")
+            .nth(1)
+            .expect("event_body")
+            .split("fn finding_jump")
+            .next()
+            .expect("body");
+        assert!(body.contains("timeline_query_hit"));
+        assert!(body.contains("content_truncated"));
+        assert!(body.contains("card_chips"));
+        assert!(body.contains("event_note"));
+    }
+
+    #[test]
+    fn notes_tab_virtualizes_cards() {
+        let src = include_str!("view.rs");
+        let body = src.split("fn notes_tab").nth(1).unwrap_or("");
+        assert!(body.contains("widget::virtual_column"));
+        assert!(body.contains("Message::NoteScroll"));
+    }
+
+    #[test]
+    fn workflow_child_list_builds_from_hud() {
+        let hud = Hud::default();
+        let child = WorkflowChildRow {
+            id: "ag-1".into(),
+            label: "research".into(),
+            success: true,
+            session_id: "child-1".into(),
+            path: "/tmp/child".into(),
+        };
+        let kids = [child];
+        let _ = workflow_child_list(&hud, &kids);
     }
 }
