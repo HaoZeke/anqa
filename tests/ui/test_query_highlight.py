@@ -15,6 +15,14 @@ def test_highlighter_colors_closed_value_and_unknown() -> None:
     assert styles["gooals"] == DANGER
 
 
+def test_highlighter_splits_has_quantity() -> None:
+    painted = CatalogQueryHighlighter()("has:workflows:>=2")
+    styles = {painted.plain[span.start : span.end]: str(span.style) for span in painted.spans}
+    assert styles["has:"] == f"bold {CAUTION}"
+    assert styles["workflows"] == SUCCESS
+    assert styles[":>=2"] == SUCCESS
+
+
 def test_highlighter_leaves_bare_words_unstyled() -> None:
     painted = CatalogQueryHighlighter()("palette")
     assert painted.plain == "palette"

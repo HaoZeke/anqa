@@ -843,7 +843,12 @@ def _fork_child_timeline_suffix(
         # No parent prefix — child is only the new branch (or unrelated).
         return child
 
-    return child[split_at:]
+    suffix = child[split_at:]
+    if suffix and suffix[0].event_type != "turn_started":
+        started = [ev for ev in child[:split_at] if ev.event_type == "turn_started"]
+        if started:
+            return [started[-1], *suffix]
+    return suffix
 
 
 def _merge_fork_parent_timeline(

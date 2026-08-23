@@ -726,7 +726,7 @@ search = Search
 
 search-events-placeholder = Search events…  (/)
 
-search-sessions-placeholder = Search…  is:host  has:goals  has:subagents  errors:>20
+search-sessions-placeholder = Search…  is:host  has:goals  has:subagents  has:errors:>=5
 
 search-mcp-placeholder = search MCP…
 

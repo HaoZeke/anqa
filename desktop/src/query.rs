@@ -36,6 +36,7 @@ pub enum QuerySpanKind {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct QueryTokenSpec {
     name: String,
     #[serde(default)]
@@ -44,6 +45,8 @@ struct QueryTokenSpec {
     values: Vec<String>,
     #[serde(default)]
     compare: bool,
+    #[serde(default)]
+    count_fields: std::collections::BTreeMap<String, String>,
 }
 
 /// One catalog-search help row (label plus wrapped values or role).
@@ -64,6 +67,18 @@ pub fn catalog_query_help_rows() -> Vec<QueryHelpRow> {
                 label: format!("{}:", token.name),
                 body: token.values.join(", "),
             });
+            if !token.count_fields.is_empty() {
+                let names = token
+                    .count_fields
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                rows.push(QueryHelpRow {
+                    label: format!("{}:name:>=N", token.name),
+                    body: names,
+                });
+            }
         } else if token.compare {
             compare.push(token.name.as_str());
         } else {
@@ -113,6 +128,24 @@ fn token_values(name: &str) -> &[String] {
         .find(|t| t.name == name)
         .map(|t| t.values.as_slice())
         .unwrap_or(&[])
+}
+
+fn has_count_fields() -> &'static std::collections::BTreeMap<String, String> {
+    static CELL: OnceLock<std::collections::BTreeMap<String, String>> = OnceLock::new();
+    CELL.get_or_init(|| {
+        scheme()
+            .tokens
+            .iter()
+            .find(|t| t.name == "has")
+            .map(|t| t.count_fields.clone())
+            .unwrap_or_default()
+    })
+}
+
+fn has_countable(name: &str) -> bool {
+    has_count_fields()
+        .keys()
+        .any(|item| item.eq_ignore_ascii_case(name))
 }
 
 /// Presence flags for ``has:`` (row attributes, not the token list).
@@ -246,6 +279,10 @@ pub fn highlight_query_spans(query: &str) -> Vec<QuerySpan> {
         } else {
             &query[value_start..value_end]
         };
+        if field_key == "has" && !quoted {
+            spans.extend(has_value_spans(value_start, value_end, inner, closed));
+            continue;
+        }
         spans.push(QuerySpan {
             start: value_start,
             end: value_end,
@@ -253,6 +290,62 @@ pub fn highlight_query_spans(query: &str) -> Vec<QuerySpan> {
         });
     }
     spans
+}
+
+fn has_value_spans(start: usize, end: usize, inner: &str, closed: &[String]) -> Vec<QuerySpan> {
+    let (name, cmp) = split_has_value(inner);
+    let known = closed.iter().any(|item| item.eq_ignore_ascii_case(&name));
+    if !known {
+        return vec![QuerySpan {
+            start,
+            end,
+            kind: QuerySpanKind::Unknown,
+        }];
+    }
+    if cmp.is_empty() {
+        return vec![QuerySpan {
+            start,
+            end,
+            kind: QuerySpanKind::Value,
+        }];
+    }
+    let name_end = start + name.len();
+    let cmp_kind = if has_compare_known(&name, &cmp) {
+        QuerySpanKind::Value
+    } else {
+        QuerySpanKind::Unknown
+    };
+    vec![
+        QuerySpan {
+            start,
+            end: name_end,
+            kind: QuerySpanKind::Value,
+        },
+        QuerySpan {
+            start: name_end,
+            end,
+            kind: cmp_kind,
+        },
+    ]
+}
+
+fn split_has_value(raw: &str) -> (String, String) {
+    match raw.split_once(':') {
+        Some((name, rest)) => (name.to_ascii_lowercase(), rest.to_string()),
+        None => (raw.to_ascii_lowercase(), String::new()),
+    }
+}
+
+fn has_compare_known(name: &str, cmp: &str) -> bool {
+    if !has_countable(name) || cmp.is_empty() {
+        return false;
+    }
+    for prefix in &scheme().compare {
+        if let Some(rest) = cmp.strip_prefix(prefix.as_str()) {
+            return !rest.trim().is_empty();
+        }
+    }
+    cmp.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 fn value_kind(field: &str, inner: &str, closed: &[String]) -> QuerySpanKind {
@@ -360,6 +453,20 @@ pub fn suggest_last_token(query: &str, models: &[String], paths: &[String]) -> V
     }
     let (field, rest) = token.split_once(':').unwrap_or(("", ""));
     let key = field.to_ascii_lowercase();
+    if key == "has" {
+        if let Some((name, cmp)) = rest.split_once(':') {
+            let folded = name.to_ascii_lowercase();
+            if !has_countable(&folded) {
+                return Vec::new();
+            }
+            return scheme()
+                .compare
+                .iter()
+                .filter(|item| item.starts_with(cmp))
+                .map(|item| format!("has:{folded}:{item}"))
+                .collect();
+        }
+    }
     let prefix = rest.to_ascii_lowercase();
     values_for_field(&key, models, paths)
         .into_iter()
@@ -505,11 +612,11 @@ fn tokenize(raw: &str) -> Result<Vec<Tok>, ()> {
         }
         let (tok, n) = next_word(rest);
         rest = &rest[n..];
-        let low = tok.to_ascii_lowercase();
-        out.push(match low.as_str() {
-            "and" => Tok::And,
-            "or" => Tok::Or,
-            "not" => Tok::Not,
+        // Only this spelling is an operator. `and` / `aNd` are ordinary words.
+        out.push(match tok.as_str() {
+            "AND" => Tok::And,
+            "OR" => Tok::Or,
+            "NOT" => Tok::Not,
             _ => Tok::Word(tok),
         });
     }
@@ -680,23 +787,56 @@ fn eval(node: &Node, row: &SessionListItem) -> bool {
     }
 }
 
-fn match_has(value: &str, row: &SessionListItem) -> bool {
-    let key = value.to_ascii_lowercase();
-    match key.as_str() {
-        "errors" => return row.error_count > 0,
-        "git" => return !row.git_repo.trim().is_empty(),
-        "context" => {
-            return row.context_window_usage_pct.is_some()
-                || row.context_tokens_used.is_some()
-                || row.context_window_tokens.is_some_and(|window| window > 0);
-        }
-        "tasks" => return row.has_jobs || row.has_schedules,
-        _ => {}
-    }
-    HAS_FLAGS
+fn row_has_count(row: &SessionListItem, name: &str) -> i64 {
+    let Some(wire) = has_count_fields()
         .iter()
-        .find(|(name, _)| *name == key)
-        .is_some_and(|(_, flag)| flag(row))
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, wire)| wire.as_str())
+    else {
+        return i64::from(has_present(row, name));
+    };
+    match wire {
+        "workflowCount" => row.workflow_count,
+        "noteCount" => row.note_count,
+        "subagentCount" => row.subagent_count,
+        "taskCount" => row.task_count,
+        "jobCount" => row.job_count,
+        "scheduleCount" => row.schedule_count,
+        "errorCount" => row.error_count,
+        "failureCount" => row.failure_count,
+        "diffLineCount" => row.diff_line_count,
+        "compactionCount" => row.compaction_count,
+        "doomCount" => row.doom_count,
+        _ => i64::from(has_present(row, name)),
+    }
+}
+
+fn has_present(row: &SessionListItem, name: &str) -> bool {
+    match name {
+        "errors" => row.error_count > 0,
+        "git" => !row.git_repo.trim().is_empty(),
+        "context" => {
+            row.context_window_usage_pct.is_some()
+                || row.context_tokens_used.is_some()
+                || row.context_window_tokens.is_some_and(|window| window > 0)
+        }
+        "tasks" => row.has_jobs || row.has_schedules || row.task_count > 0,
+        other => HAS_FLAGS
+            .iter()
+            .find(|(flag, _)| *flag == other)
+            .is_some_and(|(_, flag)| flag(row)),
+    }
+}
+
+fn match_has(value: &str, row: &SessionListItem) -> bool {
+    let (name, cmp) = split_has_value(value);
+    if !cmp.is_empty() {
+        if !has_countable(&name) {
+            return false;
+        }
+        return num_cmp(row_has_count(row, &name), &cmp);
+    }
+    has_present(row, &name) || row_has_count(row, &name) > 0
 }
 
 fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
@@ -722,7 +862,6 @@ fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
             .contains(&value.to_ascii_lowercase()),
         "after" => date_cmp(&row.updated_at, value, true),
         "before" => date_cmp(&row.updated_at, value, false),
-        "errors" => num_cmp(row.error_count, value),
         "turns" => num_cmp(row.turn_count, value),
         "tools" => num_cmp(row.tool_call_count, value),
         "events" => num_cmp(row.num_events, value),
@@ -734,8 +873,19 @@ fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
 fn path_prefix(needle: &str, path: &str) -> bool {
     let want = expand_path(needle);
     let have = expand_path(path);
-    if want.is_empty() {
-        return false;
+    if want.is_empty() || have.is_empty() {
+        let raw = path.trim();
+        let needle = needle.trim().trim_matches('"');
+        return !raw.is_empty()
+            && raw
+                .to_ascii_lowercase()
+                .contains(&needle.to_ascii_lowercase());
+    }
+    if have
+        .to_ascii_lowercase()
+        .contains(&want.to_ascii_lowercase())
+    {
+        return true;
     }
     have == want || have.starts_with(&(want.trim_end_matches('/').to_string() + "/"))
 }
@@ -758,49 +908,113 @@ fn expand_path(raw: &str) -> String {
     Path::new(&p).to_string_lossy().into_owned()
 }
 
-/// True when ``after:`` / ``before:`` needs ``groket serve`` (human phrases).
-pub fn needs_control_when(query: &str) -> bool {
-    let text = finished_prefix(query).to_ascii_lowercase();
-    for tok in text.split(|c: char| c.is_ascii_whitespace() || c == '(' || c == ')') {
-        let (field, value) = match tok.split_once(':') {
-            Some(parts) => parts,
-            None => continue,
-        };
-        if field != "after" && field != "before" {
-            continue;
-        }
-        let value = value.trim_matches('"');
-        if value.is_empty() {
-            continue;
-        }
-        if parse_day(value).is_none() {
-            return true;
-        }
-    }
-    false
-}
-
 fn date_cmp(updated: &str, raw: &str, after: bool) -> bool {
-    match (parse_day(updated), parse_day(raw)) {
-        (Some(s), Some(b)) => {
-            if after {
-                s >= b
-            } else {
-                s <= b
-            }
-        }
-        // ``yesterday`` / ``2d`` / ``2 days ago`` are resolved by groket serve.
-        _ => true,
+    let bound = parse_when(raw);
+    if bound <= 0 {
+        return true;
+    }
+    let stamp = parse_when(updated);
+    if stamp <= 0 {
+        return false;
+    }
+    if after {
+        stamp >= bound
+    } else {
+        stamp <= bound
     }
 }
 
-fn parse_day(raw: &str) -> Option<String> {
-    let t = raw.trim().trim_matches('"');
-    if t.len() >= 10 && t.as_bytes()[4] == b'-' && t.as_bytes()[7] == b'-' {
-        Some(t[..10].to_string())
-    } else {
-        None
+fn parse_when(raw: &str) -> i64 {
+    let text = raw.trim().trim_matches('"').trim_matches('\'');
+    if text.is_empty() {
+        return 0;
     }
+    if let Some(iso) = parse_iso_epoch(text) {
+        return iso;
+    }
+    if let Some(secs) = parse_relative_seconds(text) {
+        return now_epoch().saturating_sub(secs);
+    }
+    0
+}
+
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn parse_iso_epoch(text: &str) -> Option<i64> {
+    let s = text.trim().trim_end_matches('Z');
+    let (date, rest) = s.split_once('T').unwrap_or((s, "00:00:00"));
+    if date.len() < 10
+        || date.as_bytes().get(4) != Some(&b'-')
+        || date.as_bytes().get(7) != Some(&b'-')
+    {
+        return None;
+    }
+    let y: i32 = date[0..4].parse().ok()?;
+    let mo: u32 = date[5..7].parse().ok()?;
+    let d: u32 = date[8..10].parse().ok()?;
+    let time = rest.split(['+', '-']).next().unwrap_or(rest);
+    let time = time.split('.').next().unwrap_or(time);
+    let mut hm = time.split(':');
+    let h: u32 = hm.next().unwrap_or("0").parse().ok()?;
+    let mi: u32 = hm.next().unwrap_or("0").parse().unwrap_or(0);
+    let se: u32 = hm.next().unwrap_or("0").parse().unwrap_or(0);
+    Some(
+        days_from_civil(y, mo, d)? * 86_400
+            + i64::from(h) * 3600
+            + i64::from(mi) * 60
+            + i64::from(se),
+    )
+}
+
+fn days_from_civil(y: i32, m: u32, d: u32) -> Option<i64> {
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe as u32 * 365 + yoe as u32 / 4 - yoe as u32 / 100 + doy;
+    Some(i64::from(era) * 146_097 + i64::from(doe) - 719_468)
+}
+
+fn parse_relative_seconds(text: &str) -> Option<i64> {
+    let low = text.trim().to_ascii_lowercase();
+    if low == "yesterday" {
+        return Some(86_400);
+    }
+    if let Some(s) = parse_compact_span(&low) {
+        return Some(s);
+    }
+    let low = low.strip_suffix(" ago").unwrap_or(&low).trim();
+    if let Some(s) = parse_compact_span(low) {
+        return Some(s);
+    }
+    parse_words_span(low)
+}
+
+fn parse_words_span(text: &str) -> Option<i64> {
+    let mut parts = text.split_whitespace();
+    let n: f64 = parts.next()?.parse().ok()?;
+    let unit = parts.next()?.trim_end_matches('s');
+    if parts.next().is_some() {
+        return None;
+    }
+    let mul = match unit {
+        "second" => 1.0,
+        "minute" => 60.0,
+        "hour" => 3600.0,
+        "day" => 86_400.0,
+        "week" => 604_800.0,
+        _ => return None,
+    };
+    Some((n * mul) as i64)
 }
 
 fn num_cmp(actual: i64, raw: &str) -> bool {
@@ -877,8 +1091,8 @@ mod tests {
         let r = row();
         assert!(row_matches(&r, "palette"));
         assert!(!row_matches(&r, "_git/fubar"));
-        assert!(row_matches(&r, "has:workflows AND errors:>2"));
-        assert!(!row_matches(&r, "has:workflows AND errors:>20"));
+        assert!(row_matches(&r, "has:workflows AND has:errors:>2"));
+        assert!(!row_matches(&r, "has:workflows AND has:errors:>20"));
         assert!(row_matches(&r, "is:eval"));
         assert!(!row_matches(&r, "is:host"));
         assert!(row_matches(&r, "NOT is:host"));
@@ -948,6 +1162,7 @@ mod tests {
         assert!(blob.contains("in:"));
         assert!(blob.contains("duration:"));
         assert!(blob.contains("OR"));
+        assert!(blob.contains("name:>=N"));
     }
 
     #[test]
@@ -1009,10 +1224,106 @@ mod tests {
         assert!(!row_matches(&r, "duration:>2h"));
         assert!(row_matches(&r, "after:2026-08-01"));
         assert!(!row_matches(&r, "before:2026-08-01"));
-        assert!(needs_control_when("after:yesterday"));
-        assert!(needs_control_when("before:2 days ago"));
-        assert!(!needs_control_when("after:2026-08-01"));
-        // Human phrases stay visible until serve applies them.
-        assert!(row_matches(&r, "after:yesterday"));
+        let mut recent = row();
+        recent.updated_at = "2099-01-01T00:00:00+00:00".into();
+        let mut old = row();
+        old.updated_at = "2000-01-01T00:00:00+00:00".into();
+        assert!(row_matches(&recent, "after:yesterday"));
+        assert!(row_matches(&recent, "after:2d"));
+        assert!(row_matches(&recent, "after:2 days ago"));
+        assert!(!row_matches(&old, "after:yesterday"));
+        assert!(!row_matches(&old, "after:2d"));
+        assert!(!row_matches(&old, "after:2 days ago"));
+        assert!(row_matches(&old, "before:yesterday"));
+        assert!(row_matches(&old, "before:2 days ago"));
+        assert!(row_matches(&r, "after:2026-08-01"));
+        assert!(!row_matches(&r, "before:2026-08-01"));
+    }
+
+    #[test]
+    fn has_quantity_compare() {
+        let r = SessionListItem {
+            title: "palette".into(),
+            status: "running".into(),
+            error_count: 5,
+            workflow_count: 3,
+            note_count: 2,
+            has_workflows: true,
+            has_notes: true,
+            ..SessionListItem::default()
+        };
+        assert!(row_matches(&r, "has:errors:>=5"));
+        assert!(row_matches(&r, "has:errors:5"));
+        assert!(!row_matches(&r, "has:errors:>=6"));
+        assert!(!row_matches(&r, "errors:>=5"));
+        assert!(row_matches(&r, "has:workflows:>=2"));
+        assert!(row_matches(&r, "has:workflows:3"));
+        assert!(!row_matches(&r, "has:workflows:>=4"));
+        assert!(row_matches(&r, "has:workflows:>=2 AND NOT is:complete"));
+        assert!(row_matches(&r, "has:notes:>=2 AND has:errors:>=5"));
+        let goals = SessionListItem {
+            has_goals: true,
+            ..SessionListItem::default()
+        };
+        assert!(row_matches(&goals, "has:goals"));
+        assert!(!row_matches(&goals, "has:goals:2"));
+    }
+
+    #[test]
+    fn highlight_has_quantity_spans() {
+        let q = "has:workflows:>=2";
+        let kinds: Vec<_> = highlight_query_spans(q)
+            .into_iter()
+            .map(|s| (&q[s.start..s.end], s.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("has:", QuerySpanKind::Field),
+                ("workflows", QuerySpanKind::Value),
+                (":>=2", QuerySpanKind::Value),
+            ]
+        );
+        let g = "has:goals:2";
+        let kinds: Vec<_> = highlight_query_spans(g)
+            .into_iter()
+            .map(|s| (&g[s.start..s.end], s.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("has:", QuerySpanKind::Field),
+                ("goals", QuerySpanKind::Value),
+                (":2", QuerySpanKind::Unknown),
+            ]
+        );
+    }
+
+    #[test]
+    fn operators_are_uppercase_only() {
+        let r = SessionListItem {
+            title: "palette".into(),
+            ..SessionListItem::default()
+        };
+        assert!(row_matches(&r, "palette AND NOT has:notes"));
+        assert!(!row_matches(&r, "palette and not has:notes"));
+        assert!(!row_matches(&r, "palette aNd NOT has:notes"));
+        assert!(!row_matches(&r, "missing OR has:notes"));
+        assert!(row_matches(&r, "missing OR NOT has:notes"));
+    }
+
+    #[test]
+    fn in_matches_run_dir_substring() {
+        let r = row();
+        assert!(row_matches(&r, "in:/mnt/dev/_git/fubar"));
+        assert!(row_matches(&r, "in:fubar"));
+        assert!(row_matches(&r, "in:FUBAR"));
+        assert!(!row_matches(&r, "in:/mnt/dev/_git/other"));
+        let empty = SessionListItem {
+            git_repo: "https://github.com/x/fubar".into(),
+            run_dir: String::new(),
+            ..SessionListItem::default()
+        };
+        assert!(!row_matches(&empty, "in:fubar"));
     }
 }

@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from groket.integrations.control_contract import catalog_query_values
+from groket.integrations.control_contract import (
+    catalog_query_has_count_fields,
+    catalog_query_values,
+)
+from groket.models import SessionMeta
 from groket.session.query import (
     HAS_VALUES,
     CatalogQueryRow,
@@ -17,6 +21,8 @@ from groket.session.query import (
     catalog_has_schedules,
     catalog_has_subagents,
     catalog_has_tasks,
+    catalog_presence,
+    catalog_workflow_count,
     finished_prefix,
     highlight_query_spans,
     row_matches_query,
@@ -97,18 +103,20 @@ def test_bare_words_match_title_and_id_not_path() -> None:
 def test_implicit_and_and_or() -> None:
     row = _row()
     assert row_matches_query(row, "has:workflows is:eval")
-    assert row_matches_query(row, "has:workflows AND errors:>2")
-    assert row_matches_query(row, "(is:host OR is:eval) AND errors:>0")
+    assert row_matches_query(row, "has:workflows AND has:errors:>2")
+    assert row_matches_query(row, "(is:host OR is:eval) AND has:errors:>0")
     assert not row_matches_query(row, "is:host AND has:workflows")
 
 
 def test_has_and_numeric_and_in_path() -> None:
     row = _row()
-    assert row_matches_query(row, "has:workflows AND errors:>20") is False
-    assert row_matches_query(row, "has:workflows AND errors:>2")
-    assert row_matches_query(row, "errors:>=3")
-    assert not row_matches_query(row, "errors:>3")
+    assert row_matches_query(row, "has:workflows AND has:errors:>20") is False
+    assert row_matches_query(row, "has:workflows AND has:errors:>2")
+    assert row_matches_query(row, "has:errors:>=3")
+    assert not row_matches_query(row, "has:errors:>3")
     assert row_matches_query(row, "in:/mnt/dev/_git/fubar")
+    assert row_matches_query(row, "in:fubar")
+    assert row_matches_query(row, "in:FUBAR")
     assert not row_matches_query(
         _row(git_repo="https://github.com/x/fubar", run_dir=""),
         "in:fubar",
@@ -194,11 +202,78 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
     assert "doom" in text
     assert "in: Directory the session was run in" in text
     assert "duration:" in text
+    assert "has:name:>=N" in text
     assert ">=" in text
     assert "OR" in text
     assert "\n" in text
     for line in text.splitlines():
         assert len(line) <= 72, line
+
+
+def test_has_quantity_compare() -> None:
+    row = _row(error_count=5)
+    assert row_matches_query(row, "has:errors")
+    assert row_matches_query(row, "has:errors:>=5")
+    assert row_matches_query(row, "has:errors:5")
+    assert not row_matches_query(row, "has:errors:>=6")
+    assert not row_matches_query(row, "errors:>=5")
+    rich = CatalogQueryRow(
+        title="palette",
+        status="running",
+        has_workflows=True,
+        has_notes=True,
+        counts={"workflows": 3, "notes": 2, "errors": 5},
+    )
+    assert row_matches_query(rich, "has:workflows:>=2")
+    assert row_matches_query(rich, "has:workflows:3")
+    assert not row_matches_query(rich, "has:workflows:>=4")
+    assert row_matches_query(rich, "has:workflows:>=2 AND NOT is:complete")
+    assert row_matches_query(rich, "has:notes:>=2 AND has:errors:>=5")
+    assert not row_matches_query(rich, "has:notes:>=3")
+
+
+def test_has_quantity_skips_boolean_names() -> None:
+    row = CatalogQueryRow(has_goals=True, has_plan=True)
+    assert row_matches_query(row, "has:goals")
+    assert not row_matches_query(row, "has:goals:2")
+    assert not row_matches_query(row, "has:plan:>=1")
+
+
+def test_highlight_has_quantity_spans() -> None:
+    def kinds(query: str) -> list[tuple[str, str]]:
+        return [(query[s.start : s.end], s.kind) for s in highlight_query_spans(query)]
+
+    assert kinds("has:workflows:>=2") == [
+        ("has:", "field"),
+        ("workflows", "value"),
+        (":>=2", "value"),
+    ]
+    assert kinds("has:goals:2") == [
+        ("has:", "field"),
+        ("goals", "value"),
+        (":2", "unknown"),
+    ]
+    assert kinds("has:gooals:>=2") == [
+        ("has:", "field"),
+        ("gooals:>=2", "unknown"),
+    ]
+
+
+def test_suggest_has_quantity_from_schema() -> None:
+    from groket.integrations.control_contract import (
+        CATALOG_QUERY_COMPARE,
+        catalog_query_has_count_fields,
+    )
+
+    countable = catalog_query_has_count_fields()
+    assert "workflows" in countable
+    assert "errors" in countable
+    assert "goals" not in countable
+    assert suggest_last_token("has:workflows:") == [
+        f"has:workflows:{item}" for item in CATALOG_QUERY_COMPARE
+    ]
+    assert suggest_last_token("has:workflows:>") == ["has:workflows:>=", "has:workflows:>"]
+    assert suggest_last_token("has:goals:") == []
 
 
 def test_has_tokens_match_published_schema() -> None:
@@ -241,7 +316,11 @@ def test_highlight_query_spans_uses_schema_only() -> None:
         ("duration:", "field"),
         (">20 minutes", "value"),
     ]
-    assert kinds("errors:>2") == [("errors:", "field"), (">2", "value")]
+    assert kinds("has:errors:>2") == [
+        ("has:", "field"),
+        ("errors", "value"),
+        (":>2", "value"),
+    ]
     assert kinds("is:canceled") == [("is:", "field"), ("canceled", "value")]
     assert kinds("after: 24 hours ago AND NOT has:goals") == [
         ("after:", "field"),
@@ -399,6 +478,26 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
     planned.mkdir()
     (planned / "plan.json").write_text("{}", encoding="utf-8")
     assert catalog_has_plan(planned)
+
+    flows = tmp_path / "flows"
+    flows.mkdir()
+    (flows / "workflows" / "a").mkdir(parents=True)
+    (flows / "workflows" / "b").mkdir()
+    assert catalog_workflow_count(flows) == 2
+    meta = SessionMeta(
+        session_id="flows",
+        session_dir=flows,
+        error_count=4,
+        tool_failure_count=1,
+    )
+    row = catalog_presence(flows, meta)
+    for _name, wire in catalog_query_has_count_fields().items():
+        assert wire in row, wire
+    assert row["workflowCount"] == 2
+    assert row["hasWorkflows"] is True
+    assert row["errorCount"] == 4
+    assert row["failureCount"] == 1
+
     mode = tmp_path / "plan-mode"
     mode.mkdir()
     (mode / "plan_mode.json").write_text("{}", encoding="utf-8")

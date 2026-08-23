@@ -21,14 +21,13 @@ is tagged.
   file pin a colorway on both clients. Status uses success / caution /
   danger / quiet — not a brand cream overlay.
 - Catalog search understands a query language (`is:host`,
-  `has:workflows`, `has:goals`, `has:subagents`, `has:tasks`,
-  `errors:>20`, `in:~/path`, `AND` / `OR`). `has:` covers workflows,
-  notes, goals, subagents, Overview Tasks (jobs or schedules), flags,
-  plan, errors, tool failures, workspace diff, git, context, compaction,
-  and doom-loop warnings. Tokens live in the published control schema
-  (`catalogQuery`). `?` lists them. Host sessions always load. `in:` is
-  the directory the session was run in. Known tokens color in the
-  search box.
+  `has:workflows`, `has:workflows:>=2`, `has:errors:>=5`,
+  `in:~/path`, `AND` / `OR`). `has:` is presence; countable names take
+  `has:name:>=N`. Session stats stay `turns:` `tools:` `events:`
+  `duration:`. Tokens and count field names live in the published
+  control schema (`catalogQuery`). `?` lists them. Host sessions always
+  load. `in:` is the directory the session was run in. Known tokens
+  color in the search box.
 - Session Overview and Summary share Session, Tasks, Workflows,
   Subagents, and Stats tabs (click the strip). Session is the glance.
   Tasks is shells, monitors, and schedules. Timeline filter Background
@@ -57,6 +56,10 @@ is tagged.
 
 ### Bug fix
 
+- The desktop session list applies `after:` / `before:` locally
+  (`yesterday`, `2d`, `2 days ago`), same as the terminal list.
+- A forked child that replays parent tools keeps the continuation on
+  its own turn.
 - Catalog search colors `AND` / `OR` / `NOT` only in that spelling.
   `and` / `aNd` stay ordinary words, same as the matcher.
 - HUD and TUI note edit show extra fields from an external note. The

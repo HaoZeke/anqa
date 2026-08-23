@@ -82,11 +82,11 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 | Token | Matches |
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin. |
-| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row. |
+| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row. Countable names take has:name:>=N. |
+| `has:workflows:>=N` `has:notes:>=N` `has:subagents:>=N` `has:tasks:>=N` `has:jobs:>=N` `has:schedules:>=N` `has:errors:>=N` `has:failures:>=N` `has:diff:>=N` `has:compaction:>=N` `has:doom:>=N` | Count on the list row. |
 | `in:` | Directory the session was run in. |
 | `model:` | Model id substring. |
 | `task:` | Task id substring. |
-| `errors:` with `>` `>=` `<` `<=` `=` | errorCount. |
 | `turns:` with `>` `>=` `<` `<=` `=` | turnCount. |
 | `tools:` with `>` `>=` `<` `<=` `=` | toolCallCount. |
 | `events:` with `>` `>=` `<` `<=` `=` | numEvents. |

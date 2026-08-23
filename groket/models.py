@@ -479,6 +479,12 @@ class SessionMeta:
     has_diff: bool = False
     has_compaction: bool = False
     has_doom: bool = False
+    workflow_count: int = 0
+    note_count: int = 0
+    subagent_count: int = 0
+    job_count: int = 0
+    schedule_count: int = 0
+    task_count: int = 0
 
     @property
     def model_display(self) -> str:

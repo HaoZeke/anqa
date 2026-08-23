@@ -80,7 +80,7 @@ def filter_session_catalog(
     """Filter and page a catalog snapshot for ``session/list``.
 
     ``query`` is the catalog language (bare words plus ``is:`` / ``has:`` /
-    ``errors:>N`` / ``in:``). See :mod:`groket.session.query`.
+    ``has:errors:>=N`` / ``in:``). See :mod:`groket.session.query`.
 
     :param sessions: Full catalog rows (already shaped for the wire).
     :param query: Catalog query string.

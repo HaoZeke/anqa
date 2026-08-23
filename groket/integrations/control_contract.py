@@ -35,6 +35,8 @@ class CatalogQueryToken:
     role: str
     values: tuple[str, ...] = ()
     compare: bool = False
+    # has: name → session/list count field (workflowCount, …).
+    count_fields: tuple[tuple[str, str], ...] = ()
 
 
 CATALOG_QUERY_BARE = "title, sessionId, and label"
@@ -48,7 +50,7 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     ),
     CatalogQueryToken(
         "has",
-        "Presence on the list row.",
+        "Presence on the list row. Countable names take has:name:>=N.",
         (
             "workflows",
             "notes",
@@ -66,11 +68,23 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
             "compaction",
             "doom",
         ),
+        count_fields=(
+            ("workflows", "workflowCount"),
+            ("notes", "noteCount"),
+            ("subagents", "subagentCount"),
+            ("tasks", "taskCount"),
+            ("jobs", "jobCount"),
+            ("schedules", "scheduleCount"),
+            ("errors", "errorCount"),
+            ("failures", "failureCount"),
+            ("diff", "diffLineCount"),
+            ("compaction", "compactionCount"),
+            ("doom", "doomCount"),
+        ),
     ),
     CatalogQueryToken("in", "Directory the session was run in."),
     CatalogQueryToken("model", "Model id substring."),
     CatalogQueryToken("task", "Task id substring."),
-    CatalogQueryToken("errors", "errorCount.", compare=True),
     CatalogQueryToken("turns", "turnCount.", compare=True),
     CatalogQueryToken("tools", "toolCallCount.", compare=True),
     CatalogQueryToken("events", "numEvents.", compare=True),
@@ -104,6 +118,14 @@ def catalog_query_values(name: str) -> tuple[str, ...]:
     return ()
 
 
+def catalog_query_has_count_fields() -> dict[str, str]:
+    """``has:`` names that take ``:>=N``, mapped to the list-row count field."""
+    for token in CATALOG_QUERY_TOKENS:
+        if token.name == "has":
+            return dict(token.count_fields)
+    return {}
+
+
 def catalog_query_help_plain() -> str:
     """Compact catalog-search help. Same tokens as ``catalogQuery``.
 
@@ -117,6 +139,14 @@ def catalog_query_help_plain() -> str:
     for token in CATALOG_QUERY_TOKENS:
         if token.values:
             lines.extend(_wrap_csv(f"{token.name}: ", token.values))
+            if token.count_fields:
+                names = ", ".join(name for name, _wire in token.count_fields)
+                lines.extend(
+                    _wrap_words(
+                        f"{token.name}:name:>=N  ",
+                        names,
+                    )
+                )
         elif token.compare:
             compare.append(f"{token.name}:")
         else:
@@ -167,6 +197,11 @@ def catalog_query_mapping() -> JsonObject:
                 "role": token.role,
                 "values": list(token.values),
                 "compare": token.compare,
+                **(
+                    {"countFields": {name: wire for name, wire in token.count_fields}}
+                    if token.count_fields
+                    else {}
+                ),
             }
             for token in CATALOG_QUERY_TOKENS
         ],
@@ -186,6 +221,11 @@ def _session_list_query_md() -> str:
         if token.values:
             names = " ".join(f"`{token.name}:{value}`" for value in token.values)
             rows.append(f"| {names} | {token.role} |")
+            if token.count_fields:
+                counted = " ".join(
+                    f"`{token.name}:{name}:>=N`" for name, _wire in token.count_fields
+                )
+                rows.append(f"| {counted} | Count on the list row. |")
         elif token.compare:
             rows.append(f"| `{token.name}:` with `>` `>=` `<` `<=` `=` | {token.role} |")
         else:
@@ -785,6 +825,7 @@ __all__ = (
     "CatalogQueryToken",
     "catalog_query_compare_fields",
     "catalog_query_field_names",
+    "catalog_query_has_count_fields",
     "catalog_query_help_plain",
     "catalog_query_mapping",
     "catalog_query_values",

@@ -51,6 +51,26 @@ pub struct SessionListItem {
     #[serde(default)]
     pub error_count: i64,
     #[serde(default)]
+    pub workflow_count: i64,
+    #[serde(default)]
+    pub note_count: i64,
+    #[serde(default)]
+    pub subagent_count: i64,
+    #[serde(default)]
+    pub task_count: i64,
+    #[serde(default)]
+    pub job_count: i64,
+    #[serde(default)]
+    pub schedule_count: i64,
+    #[serde(default)]
+    pub failure_count: i64,
+    #[serde(default)]
+    pub diff_line_count: i64,
+    #[serde(default)]
+    pub compaction_count: i64,
+    #[serde(default)]
+    pub doom_count: i64,
+    #[serde(default)]
     pub has_workflows: bool,
     #[serde(default)]
     pub has_notes: bool,

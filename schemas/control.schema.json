@@ -48,7 +48,7 @@
           },
           {
             "name": "has",
-            "role": "Presence on the list row.",
+            "role": "Presence on the list row. Countable names take has:name:>=N.",
             "values": [
               "workflows",
               "notes",
@@ -66,7 +66,20 @@
               "compaction",
               "doom"
             ],
-            "compare": false
+            "compare": false,
+            "countFields": {
+              "workflows": "workflowCount",
+              "notes": "noteCount",
+              "subagents": "subagentCount",
+              "tasks": "taskCount",
+              "jobs": "jobCount",
+              "schedules": "scheduleCount",
+              "errors": "errorCount",
+              "failures": "failureCount",
+              "diff": "diffLineCount",
+              "compaction": "compactionCount",
+              "doom": "doomCount"
+            }
           },
           {
             "name": "in",
@@ -85,12 +98,6 @@
             "role": "Task id substring.",
             "values": [],
             "compare": false
-          },
-          {
-            "name": "errors",
-            "role": "errorCount.",
-            "values": [],
-            "compare": true
           },
           {
             "name": "turns",

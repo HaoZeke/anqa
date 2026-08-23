@@ -1,7 +1,7 @@
 """Catalog query language: luqum parse tree applied to list columns.
 
 ``session/list`` ``query`` is this language. Bare words match title, id, and
-label. Typed tokens (``is:``, ``has:``, ``errors:>20``, ``in:``) match
+label. Typed tokens (``is:``, ``has:``, ``has:errors:>=5``, ``in:``) match
 catalog columns. Implicit space is AND. Unknown fields and parse failures
 become ordinary words (Gmail-style).
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -42,6 +42,7 @@ from ..integrations.control_contract import (
     CATALOG_QUERY_OPERATORS,
     catalog_query_compare_fields,
     catalog_query_field_names,
+    catalog_query_has_count_fields,
     catalog_query_values,
 )
 from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
@@ -51,6 +52,7 @@ from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
 FIELD_NAMES: tuple[str, ...] = catalog_query_field_names()
 IS_VALUES: tuple[str, ...] = catalog_query_values("is")
 HAS_VALUES: tuple[str, ...] = catalog_query_values("has")
+HAS_COUNT_FIELDS: dict[str, str] = catalog_query_has_count_fields()
 COMPARE_PREFIXES: tuple[str, ...] = CATALOG_QUERY_COMPARE
 COMPARE_FIELDS: tuple[str, ...] = catalog_query_compare_fields()
 HAS_FLAGS: tuple[tuple[str, str], ...] = (
@@ -140,6 +142,7 @@ class CatalogQueryRow:
     has_compaction: bool = False
     has_doom: bool = False
     has_context: bool = False
+    counts: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_wire(cls, row: JsonObject) -> CatalogQueryRow:
@@ -174,6 +177,7 @@ class CatalogQueryRow:
             has_compaction=bool(row.get("hasCompaction")),
             has_doom=bool(row.get("hasDoom")),
             has_context=_wire_has_context(row),
+            counts=_counts_from_wire(row),
         )
 
     @classmethod
@@ -213,6 +217,7 @@ class CatalogQueryRow:
             has_compaction=bool(meta.has_compaction),
             has_doom=bool(meta.has_doom),
             has_context=bool(meta.has_context_usage),
+            counts=_counts_from_meta(meta),
         )
 
 
@@ -266,6 +271,13 @@ def suggest_last_token(
         return [f"{name}:" for name in FIELD_NAMES if name.startswith(token.casefold())]
     field, _, rest = token.partition(":")
     key = field.casefold()
+    if key == "has":
+        name, sep, cmp = rest.partition(":")
+        if sep:
+            folded = name.casefold()
+            if folded not in HAS_COUNT_FIELDS:
+                return []
+            return [f"has:{folded}:{item}" for item in COMPARE_PREFIXES if item.startswith(cmp)]
     prefix = rest.casefold()
     values = _values_for_field(key, models=models, paths=paths)
     return [f"{key}:{value}" for value in values if value.casefold().startswith(prefix)]
@@ -326,8 +338,22 @@ def _trim_value_span(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
+def _has_compare_known(name: str, cmp: str) -> bool:
+    if name not in HAS_COUNT_FIELDS or not cmp:
+        return False
+    for prefix in COMPARE_PREFIXES:
+        if cmp.startswith(prefix):
+            return bool(cmp[len(prefix) :].strip())
+    return cmp.strip().isalnum()
+
+
 def _value_known(field: str, inner: str) -> bool:
     closed = catalog_query_values(field)
+    if field == "has":
+        name, cmp = _split_has_value(inner)
+        if not cmp:
+            return name in {item.casefold() for item in closed}
+        return _has_compare_known(name, cmp)
     if not closed:
         return True
     key = inner.casefold()
@@ -368,9 +394,27 @@ def highlight_query_spans(query: str) -> tuple[QuerySpan, ...]:
         if value_start >= value_end:
             continue
         inner = text[value_start + 1 : value_end - 1] if quoted else text[value_start:value_end]
+        if field_key == "has" and not quoted:
+            spans.extend(_has_value_spans(value_start, value_end, inner))
+            continue
         kind: QuerySpanKind = "value" if _value_known(field_key, inner) else "unknown"
         spans.append(QuerySpan(value_start, value_end, kind))
     return tuple(spans)
+
+
+def _has_value_spans(start: int, end: int, inner: str) -> tuple[QuerySpan, ...]:
+    name, cmp = _split_has_value(inner)
+    closed = {item.casefold() for item in HAS_VALUES}
+    if name not in closed:
+        return (QuerySpan(start, end, "unknown"),)
+    if not cmp:
+        return (QuerySpan(start, end, "value"),)
+    name_end = start + len(name)
+    cmp_kind: QuerySpanKind = "value" if _has_compare_known(name, cmp) else "unknown"
+    return (
+        QuerySpan(start, name_end, "value"),
+        QuerySpan(name_end, end, cmp_kind),
+    )
 
 
 def _values_for_field(
@@ -474,15 +518,50 @@ def _match_is(value: str, row: CatalogQueryRow) -> bool:
     return status == value
 
 
+def _split_has_value(raw: str) -> tuple[str, str]:
+    name, sep, rest = (raw or "").partition(":")
+    return name.casefold(), rest if sep else ""
+
+
+def _has_count(row: CatalogQueryRow, name: str) -> int:
+    if name in row.counts:
+        return int(row.counts[name])
+    if name == "errors":
+        return int(row.error_count)
+    if name == "tasks":
+        return int(row.has_jobs) + int(row.has_schedules)
+    flags = {
+        "workflows": row.has_workflows,
+        "notes": row.has_notes,
+        "goals": row.has_goals,
+        "subagents": row.has_subagents,
+        "jobs": row.has_jobs,
+        "schedules": row.has_schedules,
+        "plan": row.has_plan,
+        "failures": row.has_failures,
+        "diff": row.has_diff,
+        "compaction": row.has_compaction,
+        "doom": row.has_doom,
+        "git": bool(row.git_repo.strip()),
+        "context": row.has_context,
+    }
+    return 1 if flags.get(name) else 0
+
+
 def _match_has(value: str, row: CatalogQueryRow) -> bool:
-    if value == "errors":
-        return row.error_count > 0
-    if value == "git":
+    name, cmp = _split_has_value(value)
+    if cmp:
+        if name not in HAS_COUNT_FIELDS:
+            return False
+        return _match_number_text(_has_count(row, name), cmp)
+    if name == "errors":
+        return _has_count(row, "errors") > 0
+    if name == "git":
         return bool(row.git_repo.strip())
-    if value == "context":
+    if name == "context":
         return bool(row.has_context)
-    if value == "tasks":
-        return bool(row.has_jobs or row.has_schedules)
+    if name == "tasks":
+        return bool(row.has_jobs or row.has_schedules) or _has_count(row, "tasks") > 0
     flags = {
         "workflows": row.has_workflows,
         "notes": row.has_notes,
@@ -496,7 +575,7 @@ def _match_has(value: str, row: CatalogQueryRow) -> bool:
         "compaction": row.has_compaction,
         "doom": row.has_doom,
     }
-    return bool(flags.get(value))
+    return bool(flags.get(name)) or _has_count(row, name) > 0
 
 
 def _match_in(needle: str, row: CatalogQueryRow) -> bool:
@@ -603,6 +682,24 @@ def _expand_compact_span(raw: str) -> str:
     return f"{amount} {names[unit]} ago"
 
 
+def _match_number_text(actual: int, raw: str) -> bool:
+    """Compare *actual* to ``>=5``, ``>2``, ``3``, or a duration (``1h``)."""
+    text = (raw or "").strip().strip('"').strip("'")
+    for prefix in COMPARE_PREFIXES:
+        if text.startswith(prefix):
+            bound = _parse_duration_seconds(text[len(prefix) :])
+            if prefix == ">=":
+                return actual >= bound
+            if prefix == "<=":
+                return actual <= bound
+            if prefix == ">":
+                return actual > bound
+            if prefix == "<":
+                return actual < bound
+            return actual == bound
+    return actual == _parse_duration_seconds(text)
+
+
 def _match_number(field: str, expr: Item, row: CatalogQueryRow) -> bool:
     actual = _number_column(field, row)
     if isinstance(expr, From):
@@ -668,6 +765,27 @@ def _match_words(row: CatalogQueryRow, words: Sequence[str]) -> bool:
     return all(word.casefold() in hay for word in words if word)
 
 
+def _counts_from_wire(row: JsonObject) -> dict[str, int]:
+    return {name: _as_int(row.get(wire)) for name, wire in HAS_COUNT_FIELDS.items()}
+
+
+def _counts_from_meta(meta: SessionMeta) -> dict[str, int]:
+    by_wire = {
+        "workflowCount": int(meta.workflow_count or 0),
+        "noteCount": int(meta.note_count or 0),
+        "subagentCount": int(meta.subagent_count or 0),
+        "taskCount": int(meta.task_count or 0),
+        "jobCount": int(meta.job_count or 0),
+        "scheduleCount": int(meta.schedule_count or 0),
+        "errorCount": int(meta.error_count or 0),
+        "failureCount": int(meta.tool_failure_count or 0),
+        "diffLineCount": int(meta.lines_added or 0) + int(meta.lines_removed or 0),
+        "compactionCount": int(meta.compaction_count or 0),
+        "doomCount": int(meta.doom_loop_warnings or 0),
+    }
+    return {name: int(by_wire.get(wire, 0)) for name, wire in HAS_COUNT_FIELDS.items()}
+
+
 def _wire_has_context(row: JsonObject) -> bool:
     if row.get("hasContext") is True:
         return True
@@ -693,26 +811,49 @@ def _nonempty_dir(path: Path) -> bool:
         return False
 
 
-def _json_list_nonempty(path: Path) -> bool:
+def _json_list_len(path: Path) -> int:
     if not _is_file(path):
-        return False
+        return 0
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return False
-    return isinstance(raw, list) and any(raw)
+        return 0
+    return len(raw) if isinstance(raw, list) else 0
+
+
+def _json_list_nonempty(path: Path) -> bool:
+    return _json_list_len(path) > 0
+
+
+def _dir_child_count(path: Path) -> int:
+    try:
+        if not path.is_dir():
+            return 0
+        return sum(1 for _ in path.iterdir())
+    except OSError:
+        return 0
+
+
+def catalog_workflow_count(session_dir: Path) -> int:
+    """Child entries under ``workflows/``."""
+    return _dir_child_count(Path(session_dir) / "workflows")
 
 
 def catalog_has_workflows(session_dir: Path) -> bool:
     """True when ``workflows/`` exists and is non-empty."""
-    return _nonempty_dir(Path(session_dir) / "workflows")
+    return catalog_workflow_count(session_dir) > 0
+
+
+def catalog_note_count(session_dir: Path) -> int:
+    """Notes in the session notes file."""
+    from ..notes import load_notes
+
+    return len(load_notes(session_dir).notes)
 
 
 def catalog_has_notes(session_dir: Path) -> bool:
-    """True when a notes file exists (session dir or config-home fallback)."""
-    from ..notes import notes_mtime
-
-    return notes_mtime(session_dir) > 0
+    """True when the session notes file has at least one note."""
+    return catalog_note_count(session_dir) > 0
 
 
 def catalog_has_goals(session_dir: Path) -> bool:
@@ -720,47 +861,64 @@ def catalog_has_goals(session_dir: Path) -> bool:
     return _is_file(Path(session_dir) / "goal" / "state.json")
 
 
+def catalog_subagent_count(session_dir: Path) -> int:
+    """Child directories under ``subagents/``."""
+    return _dir_child_count(Path(session_dir) / "subagents")
+
+
 def catalog_has_subagents(session_dir: Path) -> bool:
     """True when ``subagents/`` lists at least one child directory."""
-    return _nonempty_dir(Path(session_dir) / "subagents")
+    return catalog_subagent_count(session_dir) > 0
+
+
+def catalog_job_count(session_dir: Path) -> int:
+    """Jobs in the manifest, or ``terminal/`` call logs when there is no list."""
+    root = Path(session_dir)
+    listed = _json_list_len(root / "background_tasks_manifest.json")
+    if listed:
+        return listed
+    terminal = root / "terminal"
+    try:
+        if not terminal.is_dir():
+            return 0
+        return sum(
+            1
+            for child in terminal.iterdir()
+            if child.is_file()
+            and (child.name.startswith("call-") or child.name.startswith("monitor-call-"))
+        )
+    except OSError:
+        return 0
 
 
 def catalog_has_jobs(session_dir: Path) -> bool:
     """True when a job manifest or ``terminal/`` call log is present."""
-    root = Path(session_dir)
-    if _json_list_nonempty(root / "background_tasks_manifest.json"):
-        return True
-    terminal = root / "terminal"
-    try:
-        if not terminal.is_dir():
-            return False
-        return any(
-            child.is_file()
-            and (child.name.startswith("call-") or child.name.startswith("monitor-call-"))
-            for child in terminal.iterdir()
-        )
-    except OSError:
-        return False
+    return catalog_job_count(session_dir) > 0
 
 
-def catalog_has_schedules(session_dir: Path) -> bool:
-    """True when ``resources_state.json`` lists scheduler tasks."""
+def catalog_schedule_count(session_dir: Path) -> int:
+    """Scheduler tasks in ``resources_state.json``."""
     path = Path(session_dir) / "resources_state.json"
     if not _is_file(path):
-        return False
+        return 0
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return False
+        return 0
     if not isinstance(raw, dict):
-        return False
+        return 0
     inner = raw.get("state")
     state = inner if isinstance(inner, dict) else {}
     scheduler = state.get("grok_build.Scheduler")
     if not isinstance(scheduler, dict):
-        return False
+        return 0
     tasks = scheduler.get("tasks")
-    return isinstance(tasks, list) and any(tasks)
+    return len(tasks) if isinstance(tasks, list) else 0
+
+
+def catalog_has_schedules(session_dir: Path) -> bool:
+    """True when ``resources_state.json`` lists scheduler tasks."""
+    return catalog_schedule_count(session_dir) > 0
 
 
 def catalog_has_tasks(session_dir: Path) -> bool:
@@ -779,25 +937,53 @@ def catalog_has_compaction(session_dir: Path) -> bool:
     return _nonempty_dir(Path(session_dir) / "compaction")
 
 
-def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool]:
-    """Cheap ``has:`` flags for one catalog row (disk + already-loaded meta)."""
-    jobs = catalog_has_jobs(session_dir)
-    schedules = catalog_has_schedules(session_dir)
-    return {
-        "hasWorkflows": catalog_has_workflows(session_dir),
-        "hasNotes": catalog_has_notes(session_dir),
+def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | int]:
+    """``has:`` flags and counts for one catalog row (disk + loaded meta)."""
+    jobs = catalog_job_count(session_dir)
+    schedules = catalog_schedule_count(session_dir)
+    workflows = catalog_workflow_count(session_dir)
+    notes = catalog_note_count(session_dir)
+    subagents = catalog_subagent_count(session_dir)
+    errors = int(meta.error_count or 0)
+    failures = int(meta.tool_failure_count or 0)
+    diff_lines = int(meta.lines_added or 0) + int(meta.lines_removed or 0)
+    compaction = max(
+        _dir_child_count(Path(session_dir) / "compaction"),
+        int(meta.compaction_count or 0),
+    )
+    doom = int(meta.doom_loop_warnings or 0)
+    tasks = jobs + schedules
+    counts = {
+        "workflows": workflows,
+        "notes": notes,
+        "subagents": subagents,
+        "tasks": tasks,
+        "jobs": jobs,
+        "schedules": schedules,
+        "errors": errors,
+        "failures": failures,
+        "diff": diff_lines,
+        "compaction": compaction,
+        "doom": doom,
+    }
+    out: dict[str, bool | int] = {
+        "hasWorkflows": workflows > 0,
+        "hasNotes": notes > 0,
         "hasGoals": catalog_has_goals(session_dir),
-        "hasSubagents": catalog_has_subagents(session_dir),
-        "hasJobs": jobs,
-        "hasSchedules": schedules,
-        "hasTasks": jobs or schedules,
+        "hasSubagents": subagents > 0,
+        "hasJobs": jobs > 0,
+        "hasSchedules": schedules > 0,
+        "hasTasks": tasks > 0,
         "hasPlan": catalog_has_plan(session_dir),
-        "hasFailures": int(meta.tool_failure_count or 0) > 0,
-        "hasDiff": int(meta.lines_added or 0) > 0 or int(meta.lines_removed or 0) > 0,
-        "hasCompaction": catalog_has_compaction(session_dir) or int(meta.compaction_count or 0) > 0,
-        "hasDoom": int(meta.doom_loop_warnings or 0) > 0,
+        "hasFailures": failures > 0,
+        "hasDiff": diff_lines > 0,
+        "hasCompaction": compaction > 0,
+        "hasDoom": doom > 0,
         "hasContext": bool(meta.has_context_usage),
     }
+    for name, wire in HAS_COUNT_FIELDS.items():
+        out[wire] = int(counts.get(name, 0))
+    return out
 
 
 def apply_catalog_presence(meta: SessionMeta) -> None:
@@ -805,10 +991,28 @@ def apply_catalog_presence(meta: SessionMeta) -> None:
     apply_catalog_presence_row(meta, as_json_object(catalog_presence(meta.session_dir, meta)))
 
 
+_COUNT_META_ATTR: tuple[tuple[str, str], ...] = (
+    ("workflowCount", "workflow_count"),
+    ("noteCount", "note_count"),
+    ("subagentCount", "subagent_count"),
+    ("taskCount", "task_count"),
+    ("jobCount", "job_count"),
+    ("scheduleCount", "schedule_count"),
+)
+
+
 def apply_catalog_presence_row(meta: SessionMeta, row: JsonObject) -> None:
-    """Copy ``has*`` wire flags onto *meta*."""
+    """Copy ``has*`` flags and countable fields onto *meta*."""
     for key, attr in _PRESENCE_ATTRS:
         setattr(meta, attr, bool(row.get(key)))
+    for wire, attr in _COUNT_META_ATTR:
+        setattr(meta, attr, _as_int(row.get(wire)))
+    if "failureCount" in row:
+        meta.tool_failure_count = _as_int(row.get("failureCount"))
+    if "compactionCount" in row:
+        meta.compaction_count = _as_int(row.get("compactionCount"))
+    if "doomCount" in row:
+        meta.doom_loop_warnings = _as_int(row.get("doomCount"))
 
 
 __all__ = [
@@ -823,6 +1027,7 @@ __all__ = [
     "apply_catalog_presence",
     "apply_catalog_presence_row",
     "apply_suggestion",
+    "HAS_COUNT_FIELDS",
     "catalog_has_compaction",
     "catalog_has_goals",
     "catalog_has_jobs",
@@ -832,6 +1037,11 @@ __all__ = [
     "catalog_has_subagents",
     "catalog_has_tasks",
     "catalog_has_workflows",
+    "catalog_job_count",
+    "catalog_note_count",
+    "catalog_schedule_count",
+    "catalog_subagent_count",
+    "catalog_workflow_count",
     "catalog_presence",
     "finished_prefix",
     "highlight_query_spans",
