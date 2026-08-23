@@ -141,6 +141,8 @@ def _md_comment(**attrs: str | int) -> str:
 def _render_note_org(note: NoteEntry, schema: NotesSchema) -> list[str]:
     summary = _one_line(note.fields.get("summary", "")) or note.id
     lines = [f"*** {summary}", ":PROPERTIES:", f":GROKET_NOTE_ID: {note.id}"]
+    if note.source:
+        lines.append(f":GROKET_SOURCE: {note.source}")
     if note.event_indices:
         joined = ",".join(str(index) for index in note.event_indices)
         lines.append(f":GROKET_EVENT_INDICES: {joined}")
@@ -167,6 +169,8 @@ def _render_note_org(note: NoteEntry, schema: NotesSchema) -> list[str]:
 def _render_note_md(note: NoteEntry, schema: NotesSchema) -> list[str]:
     summary = _one_line(note.fields.get("summary", "")) or note.id
     meta: dict[str, str | int] = {"note-id": note.id}
+    if note.source:
+        meta["source"] = note.source
     if note.event_indices:
         meta["event-indices"] = ",".join(str(i) for i in note.event_indices)
     if note.created_at:
@@ -360,6 +364,7 @@ def _note_json(note: NoteEntry) -> JsonObject:
     return {
         "id": note.id,
         "turnIndex": note.turn_index,
+        "source": note.source,
         "fields": dict(note.fields),
         "eventIndices": list(note.event_indices),
         "createdAt": note.created_at,

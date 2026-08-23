@@ -12,16 +12,20 @@ from groket.notes import (
     default_schema,
 )
 from groket.ui.i18n import setup_i18n
+from groket.ui.panel_render import LeftMarkdown
 from groket.ui.widgets.notes_modal import (
     NotesModal,
     NotesPickModal,
     _note_preview_label,
+    append_note_fields,
     note_field_label,
+    note_fields_body,
 )
+from rich.console import Group
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Select, SelectionList, Static, TextArea
 
-from .pilot_helpers import wait_until
+from .pilot_helpers import static_plain, wait_until
 
 
 class _NoteApp(App):
@@ -70,6 +74,7 @@ async def test_notes_modal_create_and_save() -> None:
         assert entry.turn_index == 1
         assert entry.fields["summary"] == "missed gate"
         assert entry.event_indices == [9]
+        assert entry.source == "tui"
         assert (
             not list(app.screen.query("#delete-note"))
             if isinstance(app.screen, NotesModal)
@@ -87,6 +92,7 @@ async def test_notes_modal_edit_shows_delete_and_prefills() -> None:
         event_indices=[3],
         created_at="2020-01-01T00:00:00+00:00",
         updated_at="2020-01-01T00:00:00+00:00",
+        source="mf-plugin",
     )
     async with app.run_test(size=(100, 40)) as pilot:
         modal = NotesModal(
@@ -111,6 +117,41 @@ async def test_notes_modal_edit_shows_delete_and_prefills() -> None:
         assert summary.text == "was summary"
         detail = app.screen.query_one("#note-field-detail", TextArea)
         assert detail.text == "was detail"
+
+
+@pytest.mark.asyncio
+async def test_notes_modal_edit_shows_extra_fields() -> None:
+    app = _NoteApp()
+    existing = NoteEntry(
+        id="n-extra1",
+        turn_index=1,
+        fields={"summary": "was summary", "custom_key": "from nvim"},
+        event_indices=[],
+        created_at="2020-01-01T00:00:00+00:00",
+        updated_at="2020-01-01T00:00:00+00:00",
+        source="nvim",
+    )
+    async with app.run_test(size=(100, 40)) as pilot:
+        modal = NotesModal(
+            schema=default_schema(),
+            turn_options=[("Turn 1", "1")],
+            existing=existing,
+        )
+        app.push_screen(modal)
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, NotesModal),
+            description="NotesModal extra field mounted",
+        )
+        await wait_until(
+            pilot,
+            lambda: bool(list(app.screen.query("#note-field-custom_key"))),
+            description="extra field mounted",
+        )
+        extra = app.screen.query_one("#note-field-custom_key", TextArea)
+        assert extra.text == "from nvim"
+        badge = app.screen.query_one("#note-source-badge", Static)
+        assert "nvim" in static_plain(badge)
 
 
 @pytest.mark.asyncio
@@ -163,6 +204,7 @@ async def test_notes_modal_edit_save_preserves_id_and_merges() -> None:
         event_indices=[8, 9],
         created_at="2019-06-01T12:00:00+00:00",
         updated_at="2019-06-01T12:00:00+00:00",
+        source="mf-plugin",
     )
     async with app.run_test(size=(100, 40)) as pilot:
         modal = NotesModal(
@@ -207,6 +249,7 @@ async def test_notes_modal_edit_save_preserves_id_and_merges() -> None:
         assert entry.fields["summary"] == "new summary"
         assert entry.fields["detail"] == "new detail"
         assert entry.fields["custom_key"] == "keep-me"
+        assert entry.source == "mf-plugin"
         assert entry.updated_at != existing.updated_at
         assert entry.updated_at  # non-empty ISO
 
@@ -270,6 +313,54 @@ async def test_notes_pick_modal_cancel() -> None:
             description="cancel callback fired",
         )
         assert result_holder[0] is None
+
+
+def test_note_fields_body_renders_markdown() -> None:
+    setup_i18n("en")
+    note = NoteEntry.new(
+        turn_index=1,
+        source="hud",
+        fields={"detail": "# Heading\n\n- a\n- b\n\n```python\nimport json\n```"},
+        note_id="n-md",
+    )
+    body = note_fields_body(note, default_schema())
+    kids = list(body.renderables) if isinstance(body, Group) else [body]
+    assert any(isinstance(k, LeftMarkdown) for k in kids)
+
+
+def test_append_note_fields_writes_full_values() -> None:
+    setup_i18n("en")
+    from rich.text import Text
+
+    note = NoteEntry.new(
+        turn_index=2,
+        source="mf-plugin",
+        fields={"summary": "The full title", "detail": "Line one\nLine two", "extra": "more"},
+        note_id="n-full",
+    )
+    out = Text()
+    append_note_fields(out, note, default_schema())
+    plain = out.plain
+    assert "Source" not in plain
+    assert "mf-plugin" not in plain
+    assert "The full title" in plain
+    assert "Line one" in plain
+    assert "Line two" in plain
+    assert "more" in plain
+    assert "…" not in plain
+    assert "Summary" in plain
+    assert "Detail" in plain
+
+
+def test_note_preview_label_includes_foreign_source() -> None:
+    setup_i18n("en")
+    own = NoteEntry.new(turn_index=0, source="tui", fields={"summary": "mine"}, note_id="n-own")
+    other = NoteEntry.new(
+        turn_index=1, source="nvim", fields={"summary": "from vim"}, note_id="n-nvim"
+    )
+    assert "tui" in _note_preview_label(own)
+    assert "nvim" in _note_preview_label(other)
+    assert "from vim" in _note_preview_label(other)
 
 
 def test_note_preview_label_truncates() -> None:

@@ -9,12 +9,19 @@ from pathlib import Path
 from textual import on, work
 from textual.app import ComposeResult
 
-from ..data_table import ListDataTable, cursor_row_key, restore_cursor, style_data_table
+from ..data_table import (
+    ListDataTable,
+    cursor_row_key,
+    preserving_cursor,
+    restore_cursor,
+    style_data_table,
+)
 from ..i18n import join_ui, t
 
 logger = logging.getLogger(__name__)
 from collections import Counter, defaultdict
 
+from rich.console import Group, RenderableType
 from rich.text import Text
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Click
@@ -32,9 +39,8 @@ from textual.widgets import (
 )
 
 from ... import event_types as et
-from ...flags import load_flags, save_flags
 from ...integrations.control import ControlError
-from ...models import Flag, JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ...notes import (
     NoteEntry,
     NotesConflict,
@@ -78,11 +84,7 @@ from ..bindings import BROWSER, ChromeActions, focus_primary_list
 from ..control_notice import control_operator_text
 from ..panel_render import (
     EmptyState,
-    bullet,
-    dim_rule,
-    kv_line,
-    panel_group,
-    section_header,
+    format_stamp,
     status_chip,
 )
 from ..selectable_static import SelectableStatic, is_extractable_static
@@ -92,8 +94,7 @@ from ..threads import call_ui, resolve_ui_app
 from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.diff_view import DiffView
-from ..widgets.flag_panel import FlagModal
-from ..widgets.notes_modal import NotesModal, NotesPickModal
+from ..widgets.notes_modal import NotesModal, NotesPickModal, note_fields_body
 from ..widgets.timeline import TimelineTable
 
 _CHROME_LABEL_MAX = 48
@@ -108,7 +109,7 @@ def _clip_chrome_label(text: str) -> str:
 
 
 class BrowserScreen(TabPaneNavigation, ChromeActions):
-    """Interactive trace browser with timeline, detail view, flags, and notes."""
+    """Interactive trace browser with timeline, detail view, and notes."""
 
     BINDINGS = list(BROWSER)
     TAB_CONTENT_ID = "browser-tabs"
@@ -116,7 +117,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         ("tab-timeline", "#timeline-list"),
         ("tab-summary", "#summary-session-scroll"),
         ("tab-diff", "#diff-file-list"),
-        ("tab-reports", "#reports-scroll"),
+        ("tab-notes", "#notes-list"),
     )
     _diff_doc: WorkspaceDiff
 
@@ -133,6 +134,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     @on(TabbedContent.TabActivated, "#browser-tabs")
     def _on_browser_tab_activated(self, _event: TabbedContent.TabActivated) -> None:
         """Fill the showing pane (tab bar click or digit key) and refresh footer keys."""
+        self._forget_notes_focus()
         self._paint_visible_secondary_panes()
         self.refresh_bindings()
 
@@ -180,8 +182,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def action_tab_diff(self) -> None:
         self.activate_tab_pane("tab-diff")
 
-    def action_tab_report(self) -> None:
-        self.activate_tab_pane("tab-reports")
+    def action_tab_notes(self) -> None:
+        self.activate_tab_pane("tab-notes")
 
     def __init__(
         self,
@@ -196,18 +198,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self.timeline: list[TraceEvent] = []
         self._errors_only = False
         self._current_event: TraceEvent | None = None
-        self._flags: dict[int, Flag] = {}
         self._notes_doc: NotesDoc = NotesDoc()
         self._notes_loaded: bool = False
+        self._notes_focus: str | None = None
+        self._note_delete_id: str = ""
         self._load_started = False
         self._diff_doc = WorkspaceDiff(())
         self._timeline_filter: str = "all"
         self._timeline_search: str = ""
         self._requested_prompt_index = prompt_index
-        self._report_section_keys: set[str] = set()
-        self._report_filter: str = "all"
-        self._report_select_options_key: tuple[str, ...] = ()
-        self._report_updating: bool = False
+        self._notes_updating: bool = False
         self._live_refresh_timer: Timer | None = None
         self._live_heartbeat_timer: Timer | None = None
         # Slow probe while the session looks idle so a resumed agent re-arms hot live.
@@ -290,6 +290,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                                 allow_blank=False,
                                 classes="field-select",
                             )
+                            turn_lab = Static(
+                                t("ui-turn"), id="filter-turn-label", classes=FILTER_LABEL_CLASS
+                            )
+                            turn_lab.display = False
+                            yield turn_lab
                             turn_sel = Select(
                                 [(t("turn-filter-all"), "all")],
                                 value="all",
@@ -350,40 +355,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                                 yield DataTable(id="stats-phases-table")
             with TabPane(U.tab_diff(), id="tab-diff"):
                 yield DiffView(id="diff-view")
-            with TabPane(U.tab_report(), id="tab-reports"):
-                with Vertical(id="reports-panel"):
-                    with Horizontal(id="report-filter-bar", classes=FILTER_BAR_CLASS):
-                        yield Static(U.filter_label(), classes=FILTER_LABEL_CLASS)
-                        yield Select(
-                            [
-                                (U.all_sections(), "all"),
-                                (U.flags_only(), "flags"),
-                                (U.notes_only(), "notes"),
-                            ],
-                            value="all",
-                            id="report-view-select",
-                            allow_blank=False,
-                            classes=t("ui-field-select-report-view-select"),
-                        )
-                    with VerticalScroll(id="reports-scroll"):
-                        with Vertical(classes="panel-card", id="report-section-overview"):
-                            yield SelectableStatic(id="report-overview-content")
-                        with Vertical(
-                            classes=t("ui-panel-card-report-section"), id="report-section-flags"
-                        ):
-                            yield SelectableStatic(id="report-flags-content")
-                            yield EmptyState(U.tip_no_flags(), id="report-flags-empty")
-                        with Vertical(
-                            classes=t("ui-panel-card-report-section"), id="report-section-notes"
-                        ):
-                            yield SelectableStatic(id="report-notes-content")
-                            yield EmptyState(U.tip_no_notes(), id="report-notes-empty")
+            with TabPane(U.tab_notes(), id="tab-notes"):
+                with Vertical(id="notes-panel"):
+                    with VerticalScroll(id="notes-scroll"):
+                        yield EmptyState(U.tip_no_notes(), id="notes-empty")
+                        yield Vertical(id="notes-list", classes="note-card-list")
         yield AppFooter()
 
     def on_mount(self) -> None:
         if self._load_started:
             return
         self._load_started = True
+        with suppress(Exception):
+            self.query_one("#notes-list").can_focus = True
         try:
             for tid in (
                 "#stats-subagents-table",
@@ -1069,8 +1053,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return 0
 
     def _default_note_turn_index(self) -> int:
-        """Turn for a new note: selected event's turn, else turn filter, else last."""
-        from ...session.turns import segment_timeline_turns, turn_index_for_event
+        """List-id turn for a new note: selected event, else turn filter, else last."""
+        from ...session.turns import display_turn_number, segment_timeline_turns
 
         segs = getattr(self, "_turn_segments", None) or []
         if not segs:
@@ -1079,9 +1063,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 segs = []
         if self._current_event is not None and segs:
-            found = turn_index_for_event(segs, self._current_event.index)
-            if found is not None:
-                return found
+            ev_i = int(self._current_event.index)
+            for seg in segs:
+                if any(int(ev.index) == ev_i for ev in seg.events):
+                    return int(seg.turn_index)
         tf = getattr(self, "_turn_filter", "all") or "all"
         if tf != "all":
             try:
@@ -1089,20 +1074,27 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except (TypeError, ValueError):
                 key = None
             if key is not None:
-                from ...session.turns import display_turn_number
-
                 for seg in segs:
                     if int(seg.turn_index) == key:
-                        if (n := display_turn_number(seg)) is not None:
-                            return n
-                        break
+                        return int(seg.turn_index)
+                for seg in segs:
+                    if display_turn_number(seg) == key:
+                        return int(seg.turn_index)
         if segs:
-            from ...session.turns import display_turn_number
-
-            for seg in reversed(segs):
-                if (n := display_turn_number(seg)) is not None:
-                    return n
+            return int(segs[-1].turn_index)
         return self._current_turn_index()
+
+    def _note_turn_face(self, stored: int) -> int:
+        """Face number for a stored list-id turn."""
+        from ...session.turns import display_turn_number
+
+        segs = getattr(self, "_turn_segments", None) or []
+        for seg in segs:
+            if int(seg.turn_index) == int(stored):
+                n = display_turn_number(seg)
+                if n is not None:
+                    return n
+        return int(stored)
 
     def _signals_mtime(self) -> float:
         fp = Path(self.session_dir) / "signals.json"
@@ -1210,11 +1202,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._last_signals_mtime = self._signals_mtime()
 
     def _commit_loaded_session(self) -> None:
-        """Flags, notes, Diff, then first Timeline paint."""
+        """Notes, Diff, then first Timeline paint."""
         if self.meta is not None:
             self.meta.num_events = len(self.timeline or [])
         self._record_context_sample()
-        self._load_flags()
         self._load_notes()
         self._rebuild_indices()
         try:
@@ -1246,7 +1237,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _load_data_light_job(self) -> None:
         """Reload meta (+ timeline when changed). Control path when attached.
 
-        Attached: re-fetch overview; full timeline only when event total moves.
+        Attached: re-fetch overview; timeline growth when the event total
+        or timeline stamp moves (same-count last event may still grow).
         Offline (no control): disk stamp + parse_timeline as before.
         """
         import time
@@ -1293,7 +1285,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 new_n = int(meta.num_events or 0)
                 new_status = meta.list_status_label()
                 timeline_updated = False
-                if new_n != prev_n or not self.timeline:
+                prev_tl = prev_stamp[0] if isinstance(prev_stamp, tuple) and prev_stamp else None
+                new_tl = (
+                    overview_stamp[0]
+                    if isinstance(overview_stamp, tuple) and overview_stamp
+                    else None
+                )
+                if new_n != prev_n or not self.timeline or new_tl != prev_tl:
                     from ...session.wire_timeline import fetch_timeline_growth
 
                     self.timeline = asyncio.run(
@@ -1416,7 +1414,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         return bool(store.record(self._current_turn_index(), self.meta))
 
     def _populate_ui_light(self) -> None:
-        """Update title + timeline + share/stats without rebuilding analysis tabs.
+        """Update title + timeline + share/stats without rebuilding Summary tables.
 
         Skips clearing/rebuilding the timeline table when the light fingerprint
         is unchanged so live polling does not flicker mid-turn. Context-only
@@ -1448,7 +1446,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     timeline_table = self.query_one("#timeline-list", TimelineTable)
                     timeline_table.load_events(
                         self.timeline,
-                        list(self._flags.values()),
                         follow_tail=self._timeline_follow_tail(),
                     )
                     # load_events paints the full list (and row_count mismatches
@@ -1456,6 +1453,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     # View/Turn/search so the Select state matches visible rows.
                     if self._timeline_filters_active():
                         self._reapply_timeline_view_filter()
+                    self._refresh_open_event_detail()
                 except Exception:
                     pass
         # Summary is expensive — only while that tab is focused, never every tick.
@@ -1527,10 +1525,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self._light_refresh_heartbeat = False
                 end(KIND_REFRESH, self.session_dir)
 
-    def _load_flags(self) -> None:
-        """Load user flags from disk into a dict keyed by event_index."""
-        self._flags = {fl.event_index: fl for fl in load_flags(self.session_dir)}
-
     def _load_notes(self) -> None:
         """Load turn-linked operator notes for this session."""
         # Disk is canonical; control notes/* also reads the same files.
@@ -1594,6 +1588,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             return
         style_data_table(table)
+        with preserving_cursor(table):
+            self._fill_subagents_table(table)
+
+    def _fill_subagents_table(self, table: DataTable) -> None:
         table.clear(columns=True)
         table.add_columns(
             t("col-index"),
@@ -1638,6 +1636,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             return
         style_data_table(table)
+        with preserving_cursor(table):
+            self._fill_jobs_table(table)
+
+    def _fill_jobs_table(self, table: DataTable) -> None:
         table.clear(columns=True)
         table.add_columns(
             t("col-kind"),
@@ -1697,6 +1699,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             return
         style_data_table(table)
+        with preserving_cursor(table):
+            self._fill_workflows_table(table)
+
+    def _fill_workflows_table(self, table: DataTable) -> None:
         table.clear(columns=True)
         table.add_columns(
             t("ui-label"),
@@ -1728,7 +1734,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                         f"{used}/{budget}",
                         dur,
                     ],
-                    followable=self._timeline_event_for_workflow(run) is not None,
+                    followable=True,
                 ),
                 key=f"wf-{i}",
             )
@@ -2070,14 +2076,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
 
     def _populate_ui(self) -> None:
-        """Phase 1 UI: title and Timeline. Summary / Report wait until visited."""
+        """Phase 1 UI: title and Timeline. Summary / Notes wait until visited."""
         if not self.is_mounted:
             return
         self._set_title_from_meta()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         timeline_table.load_events(
             self.timeline,
-            list(self._flags.values()),
             follow_tail=self._timeline_follow_tail(),
         )
         # load_events paints the current list; restore View/Turn/search.
@@ -2128,18 +2133,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             box.value = False
 
     def _paint_visible_secondary_panes(self) -> None:
-        """Fill Summary or Report only when that pane is already showing."""
+        """Fill Summary or Notes only when that pane is already showing."""
         active = self._active_browser_tab()
         if active == "tab-summary":
             self._update_summary_tab()
             self._update_stats()
-        elif active == "tab-reports":
-            self._update_reports_tab()
+        elif active == "tab-notes":
+            self._update_notes_tab()
 
-    def _maybe_refresh_reports(self) -> None:
-        """Rebuild Report when the operator is looking at it."""
-        if self._active_browser_tab() == "tab-reports":
-            self._update_reports_tab()
+    def _maybe_refresh_notes(self) -> None:
+        """Rebuild Notes when the operator is looking at it."""
+        if self._active_browser_tab() == "tab-notes":
+            self._update_notes_tab()
 
     def _apply_timeline_remainder(self) -> None:
         """Append later control pages and restore View/Turn/search."""
@@ -2149,7 +2154,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             timeline_table = self.query_one("#timeline-list", TimelineTable)
             timeline_table.load_events(
                 self.timeline,
-                list(self._flags.values()),
                 follow_tail=self._timeline_follow_tail(),
             )
             if self._timeline_filters_active():
@@ -2164,18 +2168,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _fmt_dur(seconds: float) -> str:
         return fmt_duration(seconds)
 
-    def _sync_report_empty_states(self) -> None:
-        """Sync Report empty-states from session data."""
+    def _sync_notes_empty(self) -> None:
+        """Sync Notes empty-state from session data."""
         try:
-            flags_empty = self.query_one("#report-flags-empty", EmptyState)
-            if self._flags:
-                flags_empty.clear_message()
-            else:
-                flags_empty.set_message(U.tip_no_flags())
-        except Exception:
-            pass
-        try:
-            notes_empty = self.query_one("#report-notes-empty", EmptyState)
+            notes_empty = self.query_one("#notes-empty", EmptyState)
             if self._notes_doc.notes:
                 notes_empty.clear_message()
             else:
@@ -2203,93 +2199,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             widget.update(renderable)
         except Exception:
             pass
-        try:
-            self._sync_report_empty_states()
-        except Exception:
-            pass
 
     def _update_diff_tab(self) -> None:
         """Push the loaded rewind / edit doc into the Diff pane."""
         with suppress(Exception):
             self.query_one("#diff-view", DiffView).set_doc(self._diff_doc)
-
-    def _session_id(self) -> str:
-        if self.meta and self.meta.session_id:
-            return self.meta.session_id
-        return self.session_dir.name
-
-    def _report_section_dom_id(self, key: str) -> str:
-        return f"report-section-{key}"
-
-    def _report_filter_options(self) -> list[tuple[str, str]]:
-        """Select options: All, Flags, Notes."""
-        opts: list[tuple[str, str]] = [(U.all_sections(), "all")]
-        n_flags = len(self._flags)
-        if n_flags:
-            opts.append((t("browser-flags-count", n=n_flags), "flags"))
-        n_notes = len(self._notes_doc.notes)
-        if n_notes:
-            opts.append((t("browser-notes-count", n=n_notes), "notes"))
-        return opts
-
-    def _sync_report_view_select(self) -> None:
-        """Refresh Report Filter dropdown options when flags or notes change."""
-        options = self._report_filter_options()
-        key = tuple((f"{lab}\x00{val}" for lab, val in options))
-        if key == self._report_select_options_key:
-            return
-        self._report_select_options_key = key
-        try:
-            sel = self.query_one("#report-view-select", Select)
-        except Exception:
-            return
-        current = self._report_filter or "all"
-        valid = {v for _, v in options}
-        if current not in valid:
-            current = "all"
-            self._report_filter = "all"
-        prev = self._report_updating
-        self._report_updating = True
-        try:
-            sel.set_options(options)
-            if sel.value != current:
-                sel.value = current
-        except Exception:
-            logger.debug(t("ui-report-view-select-sync-failed"), exc_info=True)
-        finally:
-            self._report_updating = prev
-
-    def _ensure_report_sections(self) -> None:
-        """Flags and notes only."""
-        self._report_section_keys.add("flags")
-        self._report_section_keys.add("notes")
-        self._sync_report_view_select()
-        self._apply_report_visibility()
-
-    def _section_visible(self, key: str) -> bool:
-        """Whether section *key* (flags | notes) is shown for the current filter."""
-        mode = self._report_filter or "all"
-        return mode == "all" or key == mode
-
-    def _apply_report_visibility(self) -> None:
-        """Show/hide inline sections from exclusive ``_report_filter`` (display only)."""
-        for key in self._report_section_keys:
-            section_id = self._report_section_dom_id(key)
-            try:
-                section = self.query_one(f"#{section_id}")
-                section.display = self._section_visible(key)
-            except Exception:
-                pass
-
-    def _set_static_content(self, widget_id: str, renderable) -> None:
-        try:
-            # SelectableStatic subclasses Static — query Static matches both.
-            widget = self.query_one(f"#{widget_id}", Static)
-            if self._widget_has_text_selection(widget):
-                return
-            widget.update(renderable)
-        except Exception:
-            logger.debug(t("ui-report-static-s-missing"), widget_id, exc_info=True)
 
     def _plain_from_widget_id(self, widget_id: str) -> str:
         with suppress(Exception):
@@ -2300,15 +2214,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _collect_active_tab_plain_text(self) -> tuple[str, str]:
         """Primary body for the active browser tab (no selection / no focus).
 
-        Report has many sibling panes — without focus there is no single
-        primary body (operator Tabs to a pane, then ``y``). Timeline,
+        Notes has many sibling cards — without focus there is no single
+        primary body (operator Tabs to a card, then ``y``). Timeline,
         Summary, and Diff each have one obvious body.
 
         :returns: ``(text, kind)`` where *kind* is ``detail`` / ``content`` /
             ``none``.
         """
         tab = self._active_browser_tab()
-        if tab == "tab-reports":
+        if tab == "tab-notes":
             # Multipane: require focused SelectableStatic (handled earlier).
             return ("", "none")
         if tab == "tab-summary":
@@ -2326,118 +2240,88 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return (text, "detail" if text else "none")
         return ("", "none")
 
-    def _update_reports_tab(self) -> None:
-        """Fill overview + each inline section; Filter Select controls display."""
-        if self._report_updating:
+    def _update_notes_tab(self) -> None:
+        """Fill the Notes pane list."""
+        if self._notes_updating:
             return
-        self._report_updating = True
+        self._notes_updating = True
         try:
-            self._ensure_report_sections()
-            self._render_report_overview()
-            self._render_report_flags()
-            self._render_report_notes()
+            self._render_notes()
         finally:
-            self._report_updating = False
+            self._notes_updating = False
 
-    def _render_report_overview(self) -> None:
-        sid = self._session_id()
-        model = self.meta.model_display if self.meta else "unknown"
-        flags = self._flags
-        blocks: list = []
-        head = Text()
-        head.append(t("ui-session-report"), style="bold")
-        head.append("\n")
-        head.append(t("browser-flags-dim", n=len(flags)), style="dim")
-        head.append(" │ ", style="dim")
-        head.append(t("browser-notes-count", n=len(self._notes_doc.notes)), style="dim")
-        head.append("\n")
-        blocks.append(head)
-        blocks.append(dim_rule())
-        meta_t = Text()
-        meta_t.append_text(kv_line(t("ui-session-2"), sid))
-        meta_t.append_text(kv_line(t("ui-model"), model or "—"))
-        if self.meta and (self.meta.turn_outcome or "").strip():
-            meta_t.append_text(
-                kv_line(
-                    t("ui-last-outcome"),
-                    t(
-                        "browser-last-turn-outcome-note",
-                        outcome=(self.meta.turn_outcome or "").strip(),
-                    ),
+    def _fill_note_cards(
+        self,
+        host_id: str,
+        cards: list[tuple[str, str | Text, RenderableType]],
+        *,
+        sources: dict[str, str] | None = None,
+    ) -> None:
+        """Keep one panel-card per (id, title, body) under *host_id*."""
+        host = self.query_one(f"#{host_id}", Vertical)
+        existing = {c.id: c for c in host.children if c.id}
+        want = {cid for cid, _, _ in cards}
+        for cid, child in existing.items():
+            if cid not in want:
+                child.remove()
+        for cid, title, body in cards:
+            card = existing.get(cid)
+            src = "" if sources is None else (sources.get(cid) or "").strip()
+            if card is None:
+                title_w = Static(title, classes="panel-card-title")
+                if sources is None:
+                    head: Static | Horizontal = title_w
+                else:
+                    badge = Static(src, classes="note-source-badge")
+                    badge.display = bool(src)
+                    head = Horizontal(title_w, badge, classes="panel-card-head")
+                host.mount(
+                    Vertical(
+                        head,
+                        SelectableStatic(body, id=f"{cid}-body"),
+                        classes="panel-card",
+                        id=cid,
+                    )
                 )
-            )
-        blocks.append(meta_t)
-        if self._report_filter and self._report_filter != "all":
-            mode = self._report_filter
-            if mode == "flags":
-                focus = t("ui-flags-2")
-            else:
-                focus = mode
-            blocks.append(Text(t("browser-viewing-focus", focus=focus) + "\n", style="dim"))
-        try:
-            self._set_static_content("report-overview-content", panel_group(*blocks))
-        except Exception:
-            self._set_static_content("report-overview-content", t("ui-report-unavailable"))
-        try:
-            self._sync_report_empty_states()
-        except Exception:
-            pass
+                continue
+            titles = [n for n in card.query(Static) if "panel-card-title" in n.classes]
+            bodies = list(card.query(SelectableStatic))
+            if not titles or not bodies:
+                continue
+            titles[0].update(title)
+            badges = [n for n in card.query(Static) if "note-source-badge" in n.classes]
+            if badges:
+                badges[0].update(src)
+                badges[0].display = bool(src)
+            if not self._widget_has_text_selection(bodies[0]):
+                bodies[0].update(body)
 
-    def _render_report_flags(self) -> None:
-        flags = sorted(self._flags.values(), key=lambda fl: fl.event_index)
-        fl_t = Text()
-        fl_t.append_text(section_header(U.flags_heading()))
-        fl_t.append(f"  {U.flags_blurb()}\n", style="dim")
-        if flags:
-            for fl in flags:
-                ver = fl.verdict.value.replace("_", " ")
-                tool = fl.tool_name or fl.event_type or "event"
-                note = fl.description or t("ui-no-note")
-                fl_t.append_text(bullet(f"#{fl.event_index}  {tool}  ·  {ver}  — {note}"))
-                if fl.created_at:
-                    fl_t.append(f"      {fl.created_at}\n", style="dim")
-        self._set_static_content("report-flags-content", fl_t)
-        try:
-            self._sync_report_empty_states()
-        except Exception:
-            pass
-
-    def _render_report_notes(self) -> None:
+    def _render_notes(self) -> None:
         notes = self._notes_doc.sorted_notes()
-        preferred_ids = [f.id for f in load_schema().fields]
-        nt = Text()
-        nt.append_text(section_header(U.notes_heading()))
-        nt.append(f"  {U.notes_blurb()}\n", style="dim")
+        schema = load_schema()
+        cards: list[tuple[str, str | Text, RenderableType]] = []
+        sources: dict[str, str] = {}
         for note in notes:
-            summary = next(
-                (
-                    (note.fields.get(fid) or "").strip()
-                    for fid in preferred_ids
-                    if (note.fields.get(fid) or "").strip()
-                ),
-                "",
-            )
-            if not summary:
-                summary = next(
-                    (str(v).strip() for v in note.fields.values() if str(v).strip()),
-                    U.notes_empty_preview(),
-                )
-            preview = summary.replace("\n", " ")
-            if len(preview) > 100:
-                preview = preview[:97] + "…"
-            ev = ""
+            head = t("turn-filter-n", n=self._note_turn_face(note.turn_index))
             if note.event_indices:
-                ev = "  ·  #" + ",".join(str(i) for i in note.event_indices)
-            turn_lab = t("turn-filter-n", n=note.turn_index)
-            nt.append_text(bullet(f"{turn_lab}{ev}  — {preview}"))
-            if note.updated_at or note.created_at:
-                nt.append(
-                    f"      {note.updated_at or note.created_at}\n",
-                    style="dim",
-                )
-        self._set_static_content("report-notes-content", nt)
+                ev = "#" + ",".join(str(idx) for idx in note.event_indices)
+                head = join_ui(head, "·", ev)
+            chunks: list[RenderableType] = []
+            when = note.updated_at or note.created_at
+            if when:
+                chunks.append(Text(format_stamp(when) + "\n", style="dim"))
+            chunks.append(note_fields_body(note, schema))
+            body: RenderableType = Group(*chunks) if len(chunks) > 1 else chunks[0]
+            nid = "".join(c if c.isalnum() or c in "-_" else "-" for c in note.id)
+            cid = f"note-{nid}"
+            src = (note.source or "").strip()
+            if src:
+                sources[cid] = src
+            cards.append((cid, head, body))
+        self._fill_note_cards("notes-list", cards, sources=sources)
+        self._paint_note_focus()
         try:
-            self._sync_report_empty_states()
+            self._sync_notes_empty()
         except Exception:
             pass
 
@@ -2473,7 +2357,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         for etype, count in type_counts.most_common():
             ev_table.add_row(et.type_label(etype), str(count))
         if not type_counts:
-            ev_table.add_row("(none)", "0")
+            ev_table.add_row(t("ui-stats-none"), "0")
         tool_cat: dict[str, str] = {}
         try:
             from ...session.usage_stats import collect_session_usage
@@ -2549,12 +2433,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             for label, secs in sorted(phase_durations.items(), key=lambda x: -x[1]):
                 pct = secs / total_accounted * 100 if total_accounted else 0
                 phases_table.add_row(label, self._fmt_dur(secs), f"{pct:.1f}%")
-            phases_table.add_row("total", self._fmt_dur(total_accounted), "100%")
+            phases_table.add_row(t("ui-stats-total"), self._fmt_dur(total_accounted), "100%")
             if m.duration_seconds and total_accounted < m.duration_seconds:
                 unaccounted = m.duration_seconds - total_accounted
-                phases_table.add_row("overhead", self._fmt_dur(unaccounted), "—")
+                phases_table.add_row(t("ui-stats-overhead"), self._fmt_dur(unaccounted), "—")
         else:
-            phases_table.add_row("(none)", "—", "—")
+            phases_table.add_row(t("ui-stats-none"), "—", "—")
 
     @on(DataTable.RowSelected, "#timeline-list")
     def _on_timeline_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -2590,6 +2474,24 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
         self._request_event_body_expand(ev, table)
 
+    def _refresh_open_event_detail(self) -> None:
+        """Repaint the open event after a live timeline merge (no selection wipe)."""
+        current = self._current_event
+        if current is None:
+            return
+        idx = int(current.index)
+        updated = next((e for e in (self.timeline or []) if int(e.index) == idx), None)
+        if updated is None:
+            return
+        self._current_event = updated
+        try:
+            detail = self.query_one("#detail-panel", DetailView)
+        except Exception:
+            return
+        if detail.has_text_selection():
+            return
+        self._show_selected_event_detail()
+
     def _show_selected_event_detail(self) -> TimelineTable | None:
         """Paint the open-event pane from the current row (no owner fetch)."""
         ev = self._current_event
@@ -2602,10 +2504,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return None
         detail.session_dir = Path(self.session_dir)
         duration = timeline_table.durations.get(ev.index)
-        flag = self._flags.get(ev.index)
         detail.show_event(
             ev,
-            flag,
             duration=duration,
             paired_call=timeline_table.get_paired_call(ev),
             paired_result=timeline_table.get_paired_result(ev),
@@ -2920,10 +2820,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except Exception:
             self._last_turn_segment_count = n_segs
             return
+
+        def _show_turn_pick(on: bool) -> None:
+            sel.display = on
+            try:
+                self.query_one("#filter-turn-label", Static).display = on
+            except Exception:
+                pass
+
         if not multi:
             # No choice to make — keep filter off and hide the control.
             self._turn_filter = "all"
-            sel.display = False
+            _show_turn_pick(False)
             self._last_turn_segment_count = n_segs
             self._sync_compact_child_chrome()
             return
@@ -2931,15 +2839,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if n_segs == self._last_turn_segment_count and sel.display:
             self._last_turn_segment_count = n_segs
             return
-        # Label is the trace turn_number. Value is unique turn_index.
+        # Face is the trace turn_number. Value is unique turn_index.
         from ...session.turns import display_turn_number
 
         options: list[tuple[str, str]] = [(t("turn-filter-all"), "all")]
         for seg in self._turn_segments:
             n = display_turn_number(seg)
-            label = t("turn-filter-n", n=n) if n is not None else t("turn-filter-unnumbered")
+            label = str(n) if n is not None else t("turn-filter-unnumbered")
             options.append((label, str(seg.turn_index)))
-        sel.display = True
+        _show_turn_pick(True)
         sel.set_options(options)
         if getattr(self, "_turn_filter", "all") not in {v for _, v in options}:
             self._turn_filter = "all"
@@ -3133,14 +3041,124 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self.call_after_refresh(lambda: self.call_after_refresh(_go))
 
     def action_timeline_down(self) -> None:
-        """j — next event when the list is not the focused widget."""
+        """j — next event, or next Notes card."""
+        if self._active_browser_tab() == "tab-notes":
+            self._step_note_focus(1)
+            return
         with suppress(Exception):
             self.query_one("#timeline-list", TimelineTable).action_cursor_down()
 
     def action_timeline_up(self) -> None:
-        """k — previous event when the list is not the focused widget."""
+        """k — previous event, or previous Notes card."""
+        if self._active_browser_tab() == "tab-notes":
+            self._step_note_focus(-1)
+            return
         with suppress(Exception):
             self.query_one("#timeline-list", TimelineTable).action_cursor_up()
+
+    def _note_ids(self) -> list[str]:
+        if not self._notes_loaded:
+            self._load_notes()
+        return [n.id for n in self._notes_doc.sorted_notes()]
+
+    def _forget_notes_focus(self) -> None:
+        """Leave Notes: drop note focus so ``x`` cannot delete the session."""
+        if self._active_browser_tab() == "tab-notes":
+            return
+        self._notes_focus = None
+        self._note_delete_id = ""
+
+    def _focused_note(self) -> NoteEntry | None:
+        fid = self._notes_focus
+        if not fid:
+            return None
+        return next((n for n in self._notes_doc.sorted_notes() if n.id == fid), None)
+
+    def _note_card_dom_id(self, note_id: str) -> str:
+        nid = "".join(c if c.isalnum() or c in "-_" else "-" for c in note_id)
+        return f"note-{nid}"
+
+    def _step_note_focus(self, delta: int) -> None:
+        ids = self._note_ids()
+        if not ids:
+            self._notes_focus = None
+            return
+        cur = ids.index(self._notes_focus) if self._notes_focus in ids else None
+        if cur is None:
+            nxt = 0 if delta > 0 else len(ids) - 1
+        elif delta > 0:
+            nxt = min(len(ids) - 1, cur + 1)
+        else:
+            nxt = max(0, cur - 1)
+        self._notes_focus = ids[nxt]
+        self._note_delete_id = ""
+        self._paint_note_focus()
+        self.refresh_bindings()
+
+    def _delete_focused_note(self) -> None:
+        note = self._focused_note()
+        if note is None:
+            return
+        from ..delete_confirm import second_press_armed
+
+        commit, pending = second_press_armed([self._note_delete_id], [note.id])
+        if not commit:
+            self._note_delete_id = pending[0] if pending else note.id
+            self.notify(t("notify-delete-note-arm"), severity="warning", timeout=10)
+            return
+        self._note_delete_id = ""
+        current = notes_snapshot(self.session_dir)
+        try:
+            self._persist_note_mutation(
+                "delete",
+                note_id=note.id,
+                expected_revision=current.revision,
+            )
+        except NotesConflict as exc:
+            self.notify(U.note_save_failed(str(exc)), severity="error")
+            return
+        except OSError as exc:
+            self.notify(U.note_save_failed(str(exc)), severity="error")
+            return
+        self._notes_doc = load_notes(self.session_dir)
+        self._notes_loaded = True
+        self._notes_focus = None
+        self.notify(U.note_deleted())
+        self._maybe_refresh_notes()
+        self.refresh_bindings()
+
+    def _focus_note_from_click(self, widget: object) -> bool:
+        """Select the Notes card that contains *widget*. True when set."""
+        node: object | None = widget
+        while node is not None:
+            wid = getattr(node, "id", None)
+            if isinstance(wid, str) and wid.startswith("note-"):
+                for note in self._notes_doc.sorted_notes():
+                    if self._note_card_dom_id(note.id) == wid:
+                        self._notes_focus = note.id
+                        self._note_delete_id = ""
+                        self._paint_note_focus()
+                        self.refresh_bindings()
+                        return True
+                return False
+            node = getattr(node, "parent", None)
+        return False
+
+    def on_click(self, event: Click) -> None:
+        """Click a Notes card to select it (footer Edit / Delete)."""
+        if self._active_browser_tab() != "tab-notes":
+            return
+        self._focus_note_from_click(event.widget)
+
+    def _paint_note_focus(self) -> None:
+        fid = self._notes_focus
+        with suppress(Exception):
+            for card in self.query("#notes-list > .panel-card"):
+                cid = str(card.id or "")
+                want = bool(fid and cid == self._note_card_dom_id(fid))
+                card.set_class(want, "note-focused")
+                if want:
+                    card.scroll_visible(animate=False)
 
     def action_search(self) -> None:
         if self._active_browser_tab() == "tab-diff":
@@ -3166,51 +3184,21 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             pass
         self._apply_timeline_mode("all")
 
-    def _timeline_event_actionable(self) -> bool:
-        """True when Flag (etc.) should be enabled: Timeline pane + focused list + event."""
-        if self._current_event is None:
-            return False
-        try:
-            tabs = self.query_one("#browser-tabs", TabbedContent)
-            if tabs.active != "tab-timeline":
-                return False
-        except Exception:
-            return False
-        try:
-            tl = self.query_one("#timeline-list", TimelineTable)
-            focused = self.app.focused
-            if focused is None:
-                return False
-            if focused is tl:
-                return True
-            parent = getattr(focused, "parent", None)
-            while parent is not None:
-                if parent is tl:
-                    return True
-                parent = getattr(parent, "parent", None)
-        except Exception:
-            return False
-        return False
-
     def check_action(
         self,
         action: str,
         parameters: tuple[object, ...],  # Textual Screen.check_action
     ) -> bool | None:
-        """Hide Flag in the footer/bindings unless a timeline event is selected+focused.
+        """Hide selection-gated keys unless that action can run now.
 
         Follow-up / Done actions use the cached pending flag from
         :meth:`_session_is_pending` — never re-scan ``events.jsonl`` here.
         """
-        if action == "flag_event":
-            return True if self._timeline_event_actionable() else False
         if action == "operator_note":
             # Always available once the browser is open (turn from event/filter/last).
             return True
         if action == "edit_operator_note":
-            if not self._notes_loaded:
-                return True
-            return bool(self._notes_doc.notes)
+            return self._focused_note() is not None
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
             # O(1) cache; refreshed by pending bar / live poll / gate writes.
             if not self._pending_cache_valid:
@@ -3230,6 +3218,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             focused = self.focused
             if isinstance(focused, (Input, Select)):
                 return False
+            if self._active_browser_tab() == "tab-notes":
+                return self._focused_note() is not None
             if self._active_browser_tab() != "tab-timeline":
                 return False
             return self._current_event is not None
@@ -3237,11 +3227,17 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             focused = self.focused
             if isinstance(focused, (Input, Select)):
                 return False
+            if self._active_browser_tab() == "tab-notes":
+                return bool(self._note_ids())
             if self._active_browser_tab() != "tab-timeline":
                 return False
             with suppress(Exception):
                 if focused is self.query_one("#timeline-list", TimelineTable):
                     return False
+            return True
+        if action == "delete_session":
+            if self._active_browser_tab() == "tab-notes":
+                return self._focused_note() is not None
             return True
         return True
 
@@ -3258,6 +3254,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def action_toggle_event_reader(self) -> None:
         """Enter: full-width event page, or open a spawn/finish child."""
+        if self._active_browser_tab() == "tab-notes":
+            note = self._focused_note()
+            if note is not None:
+                self._open_edit_note_modal(note)
+            return
         if self._active_browser_tab() != "tab-timeline":
             return
         ev = self._current_event
@@ -3278,19 +3279,19 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.refresh_bindings()
 
     def action_copy_detail(self) -> None:
-        """Copy selection, one finding, focused body, or the tab primary body.
+        """Copy selection, focused body, or the tab primary body.
 
         Textual owns the mouse, so OS drag-to-select does not work. Operators
         drag to select, then ``y`` / Ctrl+Shift+C (and Ctrl+C for a live
         selection). Priority:
 
         1. **Live selection** — exact selected plain (not stripped)
-        2. focused :class:`SelectableStatic` body only (detail, one Report
-           sub-pane, summary, …)
+        2. focused :class:`SelectableStatic` body only (detail, one Notes
+           card, summary, …)
         3. tab primary body (Timeline detail, Summary, Diff hunk) — never
-           a silent join of every Report sibling pane
+           a silent join of every Notes card
 
-        On Report, Tab to a sub-pane then ``y`` yanks that body only.
+        On Notes, Tab to a card then ``y`` yanks that body only.
         """
         text = ""
         kind = "none"
@@ -3310,9 +3311,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     if plain:
                         text = plain
                         fid = str(getattr(focused, "id", "") or "")
-                        if fid.startswith("report-"):
-                            kind = "report"
-                        elif fid == "detail-body":
+                        if fid.startswith("note-"):
+                            kind = "content"
+                        elif fid == "detail-body" or str(fid).startswith("detail-body-"):
                             kind = "detail"
                         else:
                             kind = "content"
@@ -3325,8 +3326,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self.app.copy_to_clipboard(text)
         if kind == "selection":
             msg = t("ui-copied-selection")
-        elif kind == "report":
-            msg = t("ui-copied-report")
         elif kind == "detail":
             msg = t("ui-copied-detail")
         else:
@@ -3336,16 +3335,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             notify_copied(msg)
         else:
             self.notify(msg, severity="information", timeout=2.0)
-
-    def action_flag_event(self) -> None:
-        """Open the flag modal for the currently selected timeline event."""
-        if not self._timeline_event_actionable():
-            return
-        assert self._current_event is not None
-        existing = self._flags.get(self._current_event.index)
-        self.app.push_screen(
-            FlagModal(self._current_event, existing_flag=existing), callback=self._on_flag_result
-        )
 
     def action_operator_note(self) -> None:
         """Open modal to add a turn-linked operator note (schema fields)."""
@@ -3372,6 +3361,10 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         """Edit or delete an existing turn-linked operator note."""
         if not self._notes_loaded:
             self._load_notes()
+        focused = self._focused_note()
+        if focused is not None:
+            self._open_edit_note_modal(focused)
+            return
         notes = list(self._notes_doc.sorted_notes())
         if not notes:
             self.notify(U.note_none_to_edit())
@@ -3405,22 +3398,18 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         )
 
     def _note_turn_options(self) -> list[tuple[str, str]]:
-        """Turn select options for the notes modal (trace turn_number)."""
+        """Turn select options: face label, list-id value."""
         from ...session.turns import display_turn_number
 
         segs = getattr(self, "_turn_segments", None) or []
         if not segs:
             ti = self._current_turn_index()
-            return [(t("turn-filter-n", n=ti), str(ti))]
+            return [(str(ti), str(ti))]
         out: list[tuple[str, str]] = []
-        seen: set[int] = set()
         for seg in segs:
-            if (n := display_turn_number(seg)) is None:
-                continue
-            if n in seen:
-                continue
-            seen.add(n)
-            out.append((t("turn-filter-n", n=n), str(n)))
+            n = display_turn_number(seg)
+            label = str(n) if n is not None else str(seg.turn_index)
+            out.append((label, str(seg.turn_index)))
         return out
 
     def _on_note_result(
@@ -3468,7 +3457,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._notes_doc = load_notes(self.session_dir)
         self._notes_loaded = True
         self.notify(notify)
-        self._maybe_refresh_reports()
+        self._maybe_refresh_notes()
 
     def _persist_note_mutation(
         self,
@@ -3548,6 +3537,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 body: dict = {
                     "id": note.id,
                     "turnIndex": note.turn_index,
+                    "source": note.source,
                     "fields": dict(note.fields),
                     "eventIndices": list(note.event_indices),
                 }
@@ -3585,65 +3575,12 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         except concurrent.futures.TimeoutError as exc:
             raise RuntimeError("control notes request timed out") from exc
 
-    def _refresh_event_chrome(self) -> None:
-        """Re-paint timeline Flags column + detail for the current event."""
-        try:
-            tl = self.query_one("#timeline-list", TimelineTable)
-            tl.load_events(
-                self.timeline,
-                list(self._flags.values()),
-                follow_tail=self._timeline_follow_tail(),
-            )
-            if self._timeline_filters_active():
-                self._reapply_timeline_view_filter()
-        except Exception:
-            pass
-        ev = self._current_event
-        if ev is None:
-            return
-        try:
-            detail = self.query_one("#detail-panel", DetailView)
-            timeline_table = self.query_one("#timeline-list", TimelineTable)
-            detail.session_dir = Path(self.session_dir)
-            duration = timeline_table.durations.get(ev.index)
-            detail.show_event(
-                ev,
-                self._flags.get(ev.index),
-                duration=duration,
-                paired_call=timeline_table.get_paired_call(ev),
-                paired_result=timeline_table.get_paired_result(ev),
-                turn_index=timeline_table.turn_index_for(ev.index),
-                subagent_run=self._run_for_bookend_event(ev),
-                job_mate=timeline_table.job_mate(ev),
-                schedule=schedule_for_event(ev, self._session_jobs.schedules),
-                workflow=workflow_for_event(
-                    ev,
-                    self._session_jobs.workflows,
-                    mate=timeline_table.get_paired_result(ev) or timeline_table.get_paired_call(ev),
-                ),
-            )
-        except Exception:
-            pass
-
-    def _on_flag_result(self, result: tuple | None) -> None:
-        """Handle save/delete from the FlagModal."""
-        if result is None:
-            return
-        action, payload = result
-        if action == "save":
-            flag = payload
-            self._flags[flag.event_index] = flag
-            self.notify(U.flag_saved(flag.event_index))
-        elif action == "delete":
-            event_index = payload
-            self._flags.pop(event_index, None)
-            self.notify(U.flag_removed(event_index))
-        save_flags(self.session_dir, list(self._flags.values()))
-        self._refresh_event_chrome()
-        self._maybe_refresh_reports()
-
     def action_delete_session(self) -> None:
-        """Double-press ``x`` deletes this session from disk and leaves the browser."""
+        """Double-press ``x`` deletes the focused Notes card, or this session."""
+        if self._active_browser_tab() == "tab-notes":
+            if self._focused_note() is not None:
+                self._delete_focused_note()
+            return
         from ..delete_confirm import second_press_armed
 
         key = str(self.session_dir)

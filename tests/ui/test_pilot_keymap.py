@@ -105,19 +105,20 @@ async def test_refused_overlay_keeps_default_follow_and_list_down(
         await wait_until(
             pilot,
             lambda: (
-                app._keymap.get("session.follow") == "n" and app._keymap.get("list.down") == "j"
+                app._keymap.get("session.follow") == "n"
+                and app._keymap.get("list.down") == "j,down"
             ),
-            description="refused overlay leaves follow=n and list.down=j",
+            description="refused overlay leaves follow=n and list.down=j,down",
         )
         assert app._keymap["session.follow"] == "n"
-        assert app._keymap["list.down"] == "j"
+        assert app._keymap["list.down"] == "j,down"
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 1, description="session row")
         table.focus()
         await wait_until(
             pilot,
-            lambda: _binding_keys(app, "list.down") == {"j"},
-            description="focused table still uses default j",
+            lambda: _binding_keys(app, "list.down") == {"j", "down"},
+            description="focused table still uses default j,down",
         )
         start = table.cursor_row
         await pilot.press("n")
@@ -380,9 +381,10 @@ async def test_leader_not_armed_in_search_input(
     traces = _minimal_traces(work)
     app = TraceEvalApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         search = app.query_one("#session-search-input")
         search.focus()
-        await wait_until(pilot, lambda: app.focused is search, description="search focused")
+        await wait_until(pilot, lambda: search.has_focus, description="search focused")
         await pilot.press("semicolon")
         await pilot.pause()
         assert not app._leader_armed

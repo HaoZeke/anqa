@@ -154,42 +154,6 @@ TabPane {
     min-height: 5;
 }
 
-/* ── Analysis settings modal ─────────────────────────────────────────── */
-
-#analysis-settings-modal {
-    width: 72;
-    height: auto;
-    max-height: 90%;
-    layout: vertical;
-    padding: 1 2;
-    background: $surface;
-    border: solid $primary;
-}
-
-#analysis-settings-title {
-    text-style: bold;
-    margin-bottom: 1;
-}
-
-#analysis-settings-help {
-    color: $text-muted;
-    margin-bottom: 1;
-}
-
-#analysis-settings-modal Select {
-    width: 100%;
-    margin-bottom: 1;
-}
-
-#analysis-settings-actions {
-    dock: bottom;
-    height: auto;
-    min-height: 3;
-    align: right middle;
-    padding: 1 0 0 0;
-    background: $surface;
-}
-
 #interactive-sessions-modal {
     width: 72;
     height: auto;
@@ -225,10 +189,6 @@ TabPane {
     background: $surface;
 }
 
-#analysis-settings-actions Button {
-    margin-left: 1;
-}
-
 /* ── Session load bar (main screen) ───────────────────────────────────── */
 /* Do not force height: 1 on toolbars that contain Input/Button — clips chrome. */
 
@@ -244,13 +204,12 @@ TabPane {
     color: $text-muted;
 }
 
-/* ── Shared filter bars (sessions, Timeline, Report) ─────────────────── */
+/* ── Shared filter bars (sessions, Timeline) ─────────────────── */
 /* Sit in the vertical stack (not dock: top) so TabPane layout is stable.   */
 /* See widgets/controls.py — label + Select, never chips. */
 
 #session-filter-bar,
 #filter-bar,
-#report-filter-bar,
 .filter-bar {
     height: auto;
     min-height: 3;
@@ -292,21 +251,9 @@ TabPane {
     margin: 0 1 0 0;
 }
 
-/* Report Filter — long plugin names (Security Scanner (2), Feedback (report), …). */
-#report-view-select,
-.report-view-select {
-    width: 1fr;
-    min-width: 28;
-    max-width: 72;
-    height: auto;
-    margin: 0 1 0 0;
-}
-
 #timeline-view-select > SelectCurrent,
 #session-model-select > SelectCurrent,
-.session-filter-select > SelectCurrent,
-#report-view-select > SelectCurrent,
-.report-view-select > SelectCurrent {
+.session-filter-select > SelectCurrent {
     background: $boost;
     border: solid $primary;
     color: $text;
@@ -317,8 +264,6 @@ TabPane {
     text-overflow: ellipsis;
 }
 
-#report-view-select > SelectCurrent,
-.report-view-select > SelectCurrent,
 #session-model-select > SelectCurrent,
 .session-filter-select > SelectCurrent {
     /* Prefer full labels; bar already allows wide select */
@@ -327,16 +272,12 @@ TabPane {
 
 #timeline-view-select:focus > SelectCurrent,
 #session-model-select:focus > SelectCurrent,
-.session-filter-select:focus > SelectCurrent,
-#report-view-select:focus > SelectCurrent,
-.report-view-select:focus > SelectCurrent {
+.session-filter-select:focus > SelectCurrent {
     border: solid $accent;
     background: $surface-lighten-1;
 }
 
 /* Dropdown list options should not squeeze plugin names either */
-#report-view-select > SelectOverlay,
-.report-view-select > SelectOverlay,
 #session-model-select > SelectOverlay,
 .session-filter-select > SelectOverlay {
     min-width: 100%;
@@ -396,34 +337,22 @@ TabPane {
     color: $text-muted;
     height: auto;
     padding: 0 1 0 2;
+    display: none;
 }
 
-/* Report — one scroll, inline panels; Filter = Select (same as Timeline). */
-#reports-panel {
+/* Notes — one scroll of note cards. */
+#notes-panel {
     height: 1fr;
     layout: vertical;
 }
 
-#reports-scroll {
+#notes-scroll {
     height: 1fr;
 }
 
-.report-section {
+.note-card-list {
     height: auto;
 }
-
-/* Plugin report: one focusable SelectableStatic per logical pane (H2 / Issue). */
-.report-pane {
-    height: auto;
-    width: 100%;
-    margin: 0 0 1 0;
-    padding: 0 0 0 0;
-    background: transparent;
-    border: none;
-    color: $text;
-}
-
-/* Report panes stay focusable for Tab + y; no raise chrome on click/focus. */
 
 /* ── Selects — natural height, light chrome (no height:1 clipping) ───── */
 
@@ -461,7 +390,7 @@ Select:focus > SelectCurrent {
 Select > SelectOverlay,
 Select.-expanded > SelectOverlay,
 SelectOverlay {
-    /* Solid panel — not translucent over zebra rows. */
+    /* Solid panel. */
     background: $boost !important;
     /* Outside: opaque black frame (stronger than theme “darken” tokens). */
     border: heavy #000000 !important;
@@ -480,7 +409,7 @@ SelectOverlay:focus {
     background: $boost !important;
 }
 
-/* Options: padding + highlight clearly unlike DataTable cursor/zebra. */
+/* Options: padding + highlight, unlike the DataTable cursor. */
 Select > SelectOverlay > .option-list--option,
 SelectOverlay > .option-list--option {
     padding: 0 1;
@@ -497,8 +426,7 @@ SelectOverlay:focus > .option-list--option-highlighted {
 }
 
 #runner-main Select,
-#persona-editor-shell Select,
-#analysis-settings-modal Select {
+#persona-editor-shell Select {
     width: 100%;
     height: auto;
     margin: 0 0 1 0;
@@ -608,19 +536,6 @@ SelectOverlay:focus > .option-list--option-highlighted {
 
 .severity-low {
     color: $text-muted;
-}
-
-/* ── Flag Panel ───────────────────────────────────────────────────────── */
-
-#flag-form {
-    padding: 1 2;
-    height: auto;
-}
-
-#flag-form TextArea {
-    height: 6;
-    min-height: 4;
-    margin: 1 0;
 }
 
 /* Pending interactive / live session controls (browser; hidden when settled) */
@@ -1525,15 +1440,35 @@ ContentSwitcher {
     color: $text;
 }
 
+.panel-card-head {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+.panel-card-head > .panel-card-title {
+    width: 1fr;
+    padding: 0 1 1 0;
+}
+
+.panel-card.note-focused {
+    border: solid $primary;
+}
+
+.note-source-badge {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
 /* Content sits inside .panel-card — no second border on the Static */
 #summary-content,
-#reports-content,
 #diff-content,
 #diff-prompt,
-#diff-assistant,
-#report-overview-content,
-#report-flags-content,
-#report-notes-content {
+#diff-assistant {
     height: auto;
     padding: 0;
     color: $text;
@@ -1553,7 +1488,7 @@ ContentSwitcher {
 #summary-workflows-scroll,
 #summary-subagents-scroll,
 #summary-stats-scroll,
-#reports-scroll,
+#notes-scroll,
 #diff-scroll,
 #stats-scroll {
     height: 1fr;
@@ -1743,12 +1678,21 @@ ContentSwitcher {
     border-top: solid $primary-background;
 }
 
-#detail-body {
+#detail-sections {
     height: auto;
-    padding: 1;
 }
 
-/* ── DataTable — zebra + frame (theme tokens; enable zebra_stripes in code) ─ */
+#detail-sections .panel-card {
+    margin: 0 0 1 0;
+}
+
+#detail-body,
+.detail-section-body {
+    height: auto;
+    padding: 0;
+}
+
+/* ── DataTable — frame (theme tokens) ─ */
 
 DataTable {
     height: 1fr;
@@ -1771,33 +1715,24 @@ DataTable {
 }
 
 DataTable > .datatable--header {
-    background: $primary;
-    color: $text;
+    background: $surface;
+    color: $text-muted;
     text-style: bold;
 }
 
 DataTable > .datatable--header-cursor {
-    background: $primary-lighten-1;
+    background: $boost;
     text-style: bold;
 }
 
-/* Zebra: subtle alternation (only when zebra_stripes=True on the widget) */
-DataTable > .datatable--odd-row {
-    background: $surface;
-}
-
-DataTable > .datatable--even-row {
-    background: $surface-darken-1;
-}
-
 DataTable > .datatable--cursor {
-    background: $accent;
+    background: $boost;
     color: $text;
     text-style: bold;
 }
 
 DataTable > .datatable--hover {
-    background: $primary 25%;
+    background: $boost 50%;
 }
 
 DataTable > .datatable--fixed {
@@ -1822,28 +1757,13 @@ ModalScreen {
     padding: 1 2;
 }
 
-#modal-container #flag-modal-body {
-    height: 1fr;
-    min-height: 4;
-    overflow-y: auto;
-    padding: 0 2;
-}
-
 #notes-modal-body SelectionList.note-field-choices {
     height: auto;
     max-height: 10;
     margin-bottom: 1;
 }
 
-#flag-buttons {
-    dock: bottom;
-    height: auto;
-    min-height: 3;
-    margin: 0;
-    padding: 1 2;
-    align: left middle;
-    background: $surface;
-}
+
 
 #modal-container Button {
     margin: 0 1 0 0;
@@ -1919,7 +1839,6 @@ Select:focus {
 #rc-actions Button,
 #run-caps-actions Button,
 #pb-actions Button,
-#analysis-settings-actions Button,
 #feedback-actions Button,
 #modal-container Button,
 #mcp-pick-search-row Button,
@@ -1937,7 +1856,6 @@ Select:focus {
 #rc-actions Button:hover,
 #run-caps-actions Button:hover,
 #pb-actions Button:hover,
-#analysis-settings-actions Button:hover,
 #feedback-actions Button:hover,
 #modal-container Button:hover,
 #mcp-pick-search-row Button:hover,
@@ -1955,7 +1873,6 @@ Select:focus {
 #rc-actions Button:focus,
 #run-caps-actions Button:focus,
 #pb-actions Button:focus,
-#analysis-settings-actions Button:focus,
 #feedback-actions Button:focus,
 #modal-container Button:focus,
 #mcp-pick-search-row Button:focus,

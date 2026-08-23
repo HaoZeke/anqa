@@ -1,10 +1,11 @@
 //! Display helpers for notes, status, and errors.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::model::KindFilter;
+use crate::model::{KindFilter, SchemaField};
 
 /// Open event / copy buffer ceiling. Same number as [`crate::live::TIMELINE_OPEN_CHARS`].
 pub const EXTRACT_CHARS: usize = 50_000;
@@ -107,6 +108,23 @@ pub fn list_status_label(status: &str, outcome: &str) -> String {
         "awaiting_follow_up" => "awaiting".into(),
         _ => raw,
     }
+}
+
+/// Remap a trailing ``(completed)`` / ``(success)`` on a turn title to the
+/// product status word (``complete``).
+pub fn remap_turn_outcome_paren(label: &str) -> String {
+    let Some(start) = label.rfind('(') else {
+        return label.to_string();
+    };
+    if !label.ends_with(')') {
+        return label.to_string();
+    }
+    let inner = &label[start + 1..label.len() - 1];
+    let face = list_status_label(inner, "");
+    if face == inner {
+        return label.to_string();
+    }
+    format!("{}({face})", &label[..start])
 }
 
 pub fn status_tone(status: &str) -> &'static str {
@@ -218,6 +236,7 @@ pub fn overview_fields(
             if value.is_empty() {
                 value = last.face_caption();
             }
+            value = remap_turn_outcome_paren(&value);
             match (last.first_index, last.last_index) {
                 (Some(a), Some(b)) => {
                     value = format!("{value} · #{a}–#{b}");
@@ -534,7 +553,7 @@ pub fn overview_workflow_rows(workflows: &[crate::wire::WorkflowRow]) -> Vec<Ove
                 run.name.clone()
             },
             event_index: run.event_index,
-            openable: run.event_index.is_some(),
+            openable: true,
         })
         .collect()
 }
@@ -770,60 +789,48 @@ pub fn format_note_time(iso: &str) -> String {
     s.to_string()
 }
 
-pub fn note_fields_view(fields: &Value) -> (String, String, Vec<(String, String)>) {
-    let obj = fields.as_object();
-    let get = |k: &str| {
-        obj.and_then(|m| m.get(k))
-            .map(|v| match v {
-                Value::String(s) => s.trim().to_string(),
-                other => other.to_string(),
-            })
-            .unwrap_or_default()
-    };
-    let mut title = {
-        let s = get("summary");
-        if !s.is_empty() {
-            s
-        } else {
-            let t = get("title");
-            if !t.is_empty() {
-                t
-            } else {
-                get("issue")
-            }
+/// Operator label for a note field. Same words as the TUI: schema label, or
+/// Summary / Detail for the package default ids when the label is empty
+/// or just repeats the stored id.
+pub fn note_field_label(id: &str, label: &str) -> String {
+    let lab = label.trim();
+    let custom = !lab.is_empty() && !lab.eq_ignore_ascii_case(id);
+    if custom {
+        return lab.to_string();
+    }
+    match id {
+        "summary" => "Summary".into(),
+        "detail" => "Detail".into(),
+        _ if !lab.is_empty() => lab.to_string(),
+        _ => id.to_string(),
+    }
+}
+
+/// Source to show when this surface did not write the note.
+pub fn foreign_note_source<'a>(source: &'a str, surface: &str) -> Option<&'a str> {
+    let src = source.trim();
+    if src.is_empty() || src.eq_ignore_ascii_case(surface.trim()) {
+        None
+    } else {
+        Some(src)
+    }
+}
+
+/// Filled note fields in schema order, then leftover keys. Label, then body.
+pub fn note_display_fields(schema: &[SchemaField], fields: &Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for spec in schema {
+        seen.insert(spec.id.clone());
+        let val = note_json_field(fields, &spec.id);
+        if val.is_empty() {
+            continue;
         }
-    };
-    let mut body = {
-        let d = get("detail");
-        if !d.is_empty() {
-            d
-        } else {
-            let b = get("body");
-            if !b.is_empty() {
-                b
-            } else {
-                let n = get("notes");
-                if !n.is_empty() {
-                    n
-                } else {
-                    get("description")
-                }
-            }
-        }
-    };
-    let skip = [
-        "summary",
-        "title",
-        "issue",
-        "detail",
-        "body",
-        "notes",
-        "description",
-    ];
-    let mut extras = Vec::new();
-    if let Some(map) = obj {
+        out.push((note_field_label(&spec.id, &spec.label), val));
+    }
+    if let Some(map) = fields.as_object() {
         for (k, v) in map {
-            if skip.contains(&k.as_str()) {
+            if seen.contains(k) {
                 continue;
             }
             let val = match v {
@@ -831,22 +838,23 @@ pub fn note_fields_view(fields: &Value) -> (String, String, Vec<(String, String)
                 other => other.to_string(),
             };
             if !val.is_empty() {
-                extras.push((k.clone(), val));
+                out.push((k.clone(), val));
             }
         }
     }
-    if title.is_empty() && body.is_empty() && !extras.is_empty() {
-        title = extras.remove(0).1;
-    }
-    if title.is_empty() && !body.is_empty() {
-        if let Some(line) = body.lines().find(|l| !l.trim().is_empty()) {
-            title = line.trim().chars().take(120).collect();
-            if body.trim() == line.trim() {
-                body.clear();
-            }
-        }
-    }
-    (title, body, extras)
+    out
+}
+
+fn note_json_field(fields: &Value, key: &str) -> String {
+    fields
+        .as_object()
+        .and_then(|m| m.get(key))
+        .map(|v| match v {
+            Value::String(s) => s.trim().to_string(),
+            other => other.to_string(),
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default()
 }
 
 pub fn new_note_id() -> String {
@@ -1916,6 +1924,53 @@ pub fn timeline_body_text(
     }
 }
 
+/// Whole-field Markdown fence: info string and inner body.
+pub fn fenced_code_block(text: &str) -> Option<(&str, &str)> {
+    let t = text.trim();
+    let rest = t.strip_prefix("```")?;
+    let nl = rest.find('\n')?;
+    let info = rest[..nl].trim();
+    let mut body = &rest[nl + 1..];
+    body = body
+        .strip_suffix("\r\n")
+        .or_else(|| body.strip_suffix('\n'))
+        .unwrap_or(body);
+    body = body.strip_suffix("```")?;
+    body = body
+        .strip_suffix('\r')
+        .or_else(|| body.strip_suffix('\n'))
+        .unwrap_or(body);
+    Some((info, body))
+}
+
+/// Highlighter token for a fence info string (`python` → `py`).
+pub fn syntax_for_fence(info: &str) -> &'static str {
+    let word = info
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match word.as_str() {
+        "python" | "py" => "py",
+        "rust" | "rs" => "rs",
+        "javascript" | "js" => "js",
+        "typescript" | "ts" => "ts",
+        "json" => "json",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "bash" | "sh" | "shell" | "zsh" => "bash",
+        "" => "txt",
+        other => {
+            let from_ext = syntax_for_path(&format!("x.{other}"));
+            if from_ext.is_empty() {
+                "txt"
+            } else {
+                from_ext
+            }
+        }
+    }
+}
+
 /// Same cues as TUI ``panel_render.looks_like_markdown``.
 pub fn looks_like_markdown(text: &str) -> bool {
     let s = text.trim_start();
@@ -2496,6 +2551,56 @@ mod tests {
     }
 
     #[test]
+    fn foreign_note_source_hides_this_surface() {
+        assert_eq!(foreign_note_source("hud", "hud"), None);
+        assert_eq!(foreign_note_source("HUD", "hud"), None);
+        assert_eq!(foreign_note_source("  ", "hud"), None);
+        assert_eq!(foreign_note_source("nvim", "hud"), Some("nvim"));
+        assert_eq!(foreign_note_source("tui", "hud"), Some("tui"));
+        assert_eq!(foreign_note_source("mf-plugin", "tui"), Some("mf-plugin"));
+        assert_eq!(foreign_note_source("tui", "tui"), None);
+    }
+
+    #[test]
+    fn note_display_fields_keeps_schema_labels() {
+        let schema = crate::live::default_notes_schema();
+        let fields = serde_json::json!({
+            "summary": "missed gate",
+            "detail": "should have **verified**",
+            "extra": "leftover",
+        });
+        let rows = note_display_fields(&schema, &fields);
+        assert_eq!(
+            rows,
+            vec![
+                ("Summary".into(), "missed gate".into()),
+                ("Detail".into(), "should have **verified**".into()),
+                ("extra".into(), "leftover".into()),
+            ]
+        );
+        assert!(note_display_fields(&schema, &serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn note_field_label_matches_tui_defaults() {
+        assert_eq!(note_field_label("summary", ""), "Summary");
+        assert_eq!(note_field_label("summary", "summary"), "Summary");
+        assert_eq!(note_field_label("detail", ""), "Detail");
+        assert_eq!(note_field_label("detail", "detail"), "Detail");
+        assert_eq!(note_field_label("summary", "Issue"), "Issue");
+        assert_eq!(note_field_label("severity", "Severity"), "Severity");
+        assert_eq!(note_field_label("severity", ""), "severity");
+        let schema = vec![crate::model::SchemaField {
+            id: "summary".into(),
+            label: String::new(),
+            choices: vec![],
+            pick: "one-of".into(),
+        }];
+        let rows = note_display_fields(&schema, &serde_json::json!({"summary": "test"}));
+        assert_eq!(rows, vec![("Summary".into(), "test".into())]);
+    }
+
+    #[test]
     fn duration_matches_tui_thresholds() {
         assert_eq!(fmt_duration(0.4), "<1s");
         assert_eq!(fmt_duration(12.0), "12s");
@@ -2533,6 +2638,14 @@ mod tests {
         assert_eq!(list_status_label("complete", ""), "complete");
         assert_eq!(list_status_label("completed", ""), "complete");
         assert_eq!(list_status_label("—", "completed"), "complete");
+        assert_eq!(
+            remap_turn_outcome_paren("turn 56 (completed)"),
+            "turn 56 (complete)"
+        );
+        assert_eq!(
+            remap_turn_outcome_paren("turn 0 (cancelled)"),
+            "turn 0 (cancelled)"
+        );
         assert_eq!(list_status_label("", "awaiting_follow_up"), "awaiting");
         assert_eq!(list_status_label("", "cancelled"), "cancelled");
         assert_eq!(list_status_label("", "done"), "complete");
@@ -3405,6 +3518,23 @@ mod tests {
         assert_eq!(origin_label("work"), "Eval");
         assert_eq!(origin_label("eval"), "Eval");
         assert_eq!(origin_label(""), "—");
+    }
+
+    #[test]
+    fn fenced_code_block_takes_the_whole_field() {
+        assert_eq!(
+            fenced_code_block("```python\nimport json\n```"),
+            Some(("python", "import json"))
+        );
+        assert_eq!(
+            fenced_code_block("  ```\nplain\n```\n"),
+            Some(("", "plain"))
+        );
+        assert_eq!(fenced_code_block("not a fence"), None);
+        assert_eq!(fenced_code_block("```python\nimport json"), None);
+        assert_eq!(syntax_for_fence("python"), "py");
+        assert_eq!(syntax_for_fence(""), "txt");
+        assert_eq!(syntax_for_fence("rs"), "rs");
     }
 
     #[test]

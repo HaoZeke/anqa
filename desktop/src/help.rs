@@ -28,6 +28,10 @@ pub struct KeyScope {
     pub diff_pick: bool,
     pub tab: Tab,
     pub leader_armed: bool,
+    /// A note card is the list highlight.
+    pub note_focused: bool,
+    /// HUD Notes compose form is open (Tab walks fields; j is not list motion).
+    pub notes_composing: bool,
 }
 
 fn scope_tabs(scope: KeyScope) -> &'static [Tab] {
@@ -156,7 +160,14 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             "enter",
             Message::ActivateSelected,
         );
-        push(&mut table, overlay, "list.down", "Down", "j", Message::Noop);
+        push(
+            &mut table,
+            overlay,
+            "list.down",
+            "Down",
+            "j,down",
+            Message::Noop,
+        );
         push(
             &mut table,
             overlay,
@@ -196,9 +207,25 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
         Message::Noop,
     );
     if scope.timeline_detail {
-        push(&mut table, overlay, "list.down", "Step", "j", Message::Noop);
-    } else if matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff) {
-        push(&mut table, overlay, "list.down", "Down", "j", Message::Noop);
+        push(
+            &mut table,
+            overlay,
+            "list.down",
+            "Step",
+            "j,down",
+            Message::Noop,
+        );
+    } else if matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff)
+        || (scope.tab == Tab::Notes && !scope.notes_composing)
+    {
+        push(
+            &mut table,
+            overlay,
+            "list.down",
+            "Down",
+            "j,down",
+            Message::Noop,
+        );
     }
     if matches!(scope.tab, Tab::Overview | Tab::Turns | Tab::Timeline) {
         push(
@@ -208,6 +235,24 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             "Next",
             "enter",
             Message::ActivateSelected,
+        );
+    }
+    if scope.tab == Tab::Notes && scope.note_focused {
+        push(
+            &mut table,
+            overlay,
+            "session.open",
+            "Edit",
+            "enter",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "session.delete",
+            "Delete",
+            "x,delete",
+            Message::Noop,
         );
     }
     push(&mut table, overlay, "edit.copy", "Copy", "y", Message::Yank);
@@ -299,7 +344,12 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
         "escape",
         Message::Hide,
     );
-    if !scope.browse || matches!(scope.tab, Tab::Overview | Tab::Turns | Tab::Timeline) {
+    if !scope.browse
+        || matches!(
+            scope.tab,
+            Tab::Overview | Tab::Turns | Tab::Timeline | Tab::Notes
+        )
+    {
         push(
             &mut table,
             overlay,
@@ -309,13 +359,16 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::ActivateSelected,
         );
     }
-    if !scope.browse || matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff) {
+    if !scope.browse
+        || matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff)
+        || (scope.tab == Tab::Notes && !scope.notes_composing)
+    {
         push(
             &mut table,
             overlay,
             "list.down",
             "Move down",
-            "j",
+            "j,down",
             Message::Noop,
         );
         push(
@@ -323,7 +376,25 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             overlay,
             "list.up",
             "Move up",
-            "k",
+            "k,up",
+            Message::Noop,
+        );
+    }
+    if scope.browse && scope.tab == Tab::Notes {
+        push(
+            &mut table,
+            overlay,
+            "session.note_edit",
+            "Edit note",
+            "O",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "session.delete",
+            "Delete note",
+            "x,delete",
             Message::Noop,
         );
     }
@@ -503,6 +574,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         }
     }
 
@@ -552,6 +625,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let blob = browse.footer_hints().join("  ·  ");
         assert!(blob.contains("tab panes"));
@@ -567,10 +642,35 @@ mod tests {
             diff_pick: false,
             tab: Tab::Notes,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let notes_blob = notes.footer_hints().join("  ·  ");
         assert!(notes_blob.contains("tab field"), "{notes_blob}");
         assert!(!notes_blob.contains("tab panes"), "{notes_blob}");
+        assert!(notes_blob.contains("j down"), "{notes_blob}");
+        assert!(!notes_blob.contains("edit"), "{notes_blob}");
+        let notes_hi = footer_table(KeyScope {
+            browse: true,
+            help_open: false,
+            timeline_detail: false,
+            awaiting: false,
+            child_open: false,
+            compact_child: false,
+            turn_pick: false,
+            turn_locked: false,
+            diff_pick: false,
+            tab: Tab::Notes,
+            leader_armed: false,
+            note_focused: true,
+            notes_composing: false,
+        });
+        let hi_blob = notes_hi.footer_hints().join("  ·  ");
+        assert!(hi_blob.contains("edit"), "{hi_blob}");
+        assert!(
+            hi_blob.contains("delete") || hi_blob.contains("x "),
+            "{hi_blob}"
+        );
         assert!(blob.contains("u sessions"));
         assert!(blob.contains("y copy"));
         assert!(blob.contains("enter next"));
@@ -602,6 +702,8 @@ mod tests {
             diff_pick: true,
             tab: Tab::Diff,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let dblob = diff.footer_hints().join("  ·  ");
         assert!(dblob.contains("/ search"), "{dblob}");
@@ -623,6 +725,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Turns,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let tblob = turns.footer_hints().join("  ·  ");
         assert!(tblob.contains("j down"), "{tblob}");
@@ -640,10 +744,12 @@ mod tests {
             diff_pick: false,
             tab: Tab::Notes,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let fblob = findings.footer_hints().join("  ·  ");
         assert!(!fblob.contains("enter next"), "{fblob}");
-        assert!(!fblob.contains("j down"), "{fblob}");
+        assert!(fblob.contains("j down"), "{fblob}");
         assert!(
             !findings.footer_hints().iter().any(|h| h.starts_with("h ")),
             "{fblob}"
@@ -661,6 +767,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let blob = detail.footer_hints().join("  ·  ");
         assert!(blob.contains("esc timeline"));
@@ -678,6 +786,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let sblob = scoped.footer_hints().join("  ·  ");
         assert!(
@@ -701,6 +811,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         })
         .footer_hints();
         let blob = hints.join("  ·  ");
@@ -723,6 +835,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         })
         .footer_hints();
         let blob = hints.join("  ·  ");
@@ -740,6 +854,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         assert!(sheet.get("session.follow").is_some());
         assert!(sheet.get("session.done").is_some());
@@ -761,6 +877,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Turns,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         assert!(turns_help.get("turns.timeline").is_some());
         assert!(turns_help.get("events.next_turn").is_none());
@@ -781,6 +899,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let prev = sheet.get("events.prev_turn").expect("prev turn");
         let prev_keys = prev.tooltip.as_deref().unwrap_or("");
@@ -802,6 +922,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         assert!(locked.get("events.next_turn").is_none());
         assert!(locked.get("events.all_turns").is_some());
@@ -821,6 +943,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         assert!(overview.get("session.open").is_some());
         assert!(overview.get("list.down").is_none());
@@ -838,10 +962,14 @@ mod tests {
             diff_pick: false,
             tab: Tab::Notes,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
-        assert!(findings.get("session.open").is_none());
-        assert!(findings.get("list.down").is_none());
-        assert!(findings.get("list.up").is_none());
+        assert!(findings.get("session.open").is_some());
+        assert!(findings.get("list.down").is_some());
+        assert!(findings.get("list.up").is_some());
+        assert!(findings.get("session.note_edit").is_some());
+        assert!(findings.get("session.delete").is_some());
         assert!(findings.get("events.next_turn").is_none());
         assert!(findings.get("pane.next").is_some());
 
@@ -861,6 +989,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         assert!(awaiting_picker.get("session.follow").is_none());
         assert!(awaiting_picker.get("session.done").is_none());
@@ -884,6 +1014,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: true,
+            note_focused: false,
+            notes_composing: false,
         };
         let hints = footer_table_for(scope, &overlay).footer_hints();
         let blob = hints.join("  ·  ");
@@ -918,6 +1050,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         };
         let hints = footer_table_for(scope, &overlay).footer_hints();
         let blob = hints.join("  ·  ");
@@ -958,6 +1092,8 @@ mod tests {
             diff_pick: false,
             tab: Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         };
         let help = help_table_for(awaiting, &overlay);
         let hints = help.footer_hints();

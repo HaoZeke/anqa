@@ -10,6 +10,7 @@ from groket.notes import (
     decode_many_choices,
     default_schema,
     encode_many_choices,
+    form_field_specs,
     load_schema,
     normalize_pick,
     parse_choices,
@@ -23,6 +24,17 @@ def test_default_schema_has_generic_fields() -> None:
     assert [f.id for f in s.fields] == ["summary", "detail"]
     assert all(f.label == "" for f in s.fields)
     assert all(not f.constrained for f in s.fields)
+
+
+def test_form_field_specs_appends_extra_keys() -> None:
+    schema = default_schema()
+    specs = form_field_specs(schema, {"summary": "s", "custom_key": "bag", "detail": ""})
+    assert [f.id for f in specs] == ["summary", "detail", "custom_key"]
+    extra = specs[-1]
+    assert extra.label == "custom_key"
+    assert not extra.constrained
+    assert [f.id for f in form_field_specs(schema, None)] == ["summary", "detail"]
+    assert [f.id for f in form_field_specs(schema, {})] == ["summary", "detail"]
 
 
 def test_load_schema_missing_uses_default(tmp_path: Path, monkeypatch) -> None:

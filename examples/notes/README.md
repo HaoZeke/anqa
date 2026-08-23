@@ -36,14 +36,26 @@ modified.
 In the session browser:
 
 - **`N`** — create a note (linked to the current turn and optional selected event)
-- **`O`** / command palette — edit or delete an existing note (Delete button in the edit modal)
+- **Enter** — edit the focused note (click a card to select it)
 
-Report tab lists notes. Export (`E`) includes `notes/operator_notes.toml` when
-notes exist.
+Notes tab lists notes. `j` / `k` move among them; Enter edits the
+focused note; double-press `x` deletes it. Export (`E`) includes
+`notes/operator_notes.toml` when notes exist.
 
 **Authoring** is via TUI, Emacs, Neovim, or HUD (control plane). Batch does not write notes.
+
+## Writes
+
+Every note must include a non-empty `source` (who wrote it: `tui`,
+`hud`, `nvim`, `emacs`, or a plugin name). `fields` need not match this schema
+file. Extra keys are stored as sent. A new TUI / HUD note uses this
+schema. Editing a note also shows extra stored fields. Notes, HUD
+Notes, and the edit form show a source badge. Session export
+(`notes/operator_notes.toml`) keeps `source` and every field. Delete removes a note; keeping one does not rewrite
+it into the form schema.
 
 ## Ingest
 
 External tools can parse the TOML from the export tarball without scraping the
-Report markdown.
+Notes markdown. Control `notes/upsert` takes the same `source` plus
+field bag.

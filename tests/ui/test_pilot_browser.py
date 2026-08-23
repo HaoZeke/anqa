@@ -6,7 +6,6 @@ Synchronisation is condition-based (``wait_until``); see AGENTS.md §4.5c.
 
 from __future__ import annotations
 
-import inspect
 import json
 import threading
 from pathlib import Path
@@ -157,7 +156,7 @@ async def _activate_tab(pilot, screen: BrowserScreen, pane_id: str) -> None:
         "tab-timeline": screen.action_tab_timeline,
         "tab-summary": screen.action_tab_summary,
         "tab-diff": screen.action_tab_diff,
-        "tab-reports": screen.action_tab_report,
+        "tab-notes": screen.action_tab_notes,
     }
     actions[pane_id]()
     tabs = screen.query_one("#browser-tabs", TabbedContent)
@@ -407,11 +406,11 @@ async def test_browser_timeline_filter_and_cursor_stable(tmp_path: Path) -> None
             tl.move_cursor(row=1, animate=False)
         key_before = cursor_row_key(tl)
 
-        tl.load_events(screen.timeline, list(screen._flags.values()))
+        tl.load_events(screen.timeline)
         await pilot.pause()
         if key_before and tl.row_count:
             key_after = cursor_row_key(tl)
-            assert key_after == key_before or key_after is not None
+            assert key_after == key_before
 
         screen._apply_filter(event_type="tool_call", errors_only=False)
         await pilot.pause()
@@ -439,7 +438,7 @@ async def test_browser_timeline_view_filter_survives_reload(tmp_path: Path) -> N
         assert 0 < filtered_n <= full_n
 
         # Simulate full / light reload painting the unfiltered list first.
-        tl.load_events(screen.timeline, list(screen._flags.values()))
+        tl.load_events(screen.timeline)
         await pilot.pause()
         assert tl.row_count == full_n  # unfiltered paint
         # Without reapply, the Select would still say "sess" while all rows show.
@@ -455,7 +454,7 @@ async def test_browser_timeline_view_filter_survives_reload(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_browser_with_plugin_findings_report(tmp_path: Path) -> None:
+async def test_browser_notes_pane_mounts(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -463,42 +462,213 @@ async def test_browser_with_plugin_findings_report(tmp_path: Path) -> None:
 
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
-        await _activate_tab(pilot, screen, "tab-reports")
-        assert list(screen.query("#report-section-plugin-engine")) == []
-        assert (
-            list(screen.query("#report-section-flags")) != []
-            or list(screen.query("#report-section-notes")) != []
-        )
-
-
-# ── Report tab filter ────────────────────────────────────────────────────
+        await _activate_tab(pilot, screen, "tab-notes")
+        assert list(screen.query("#notes-list")) != []
 
 
 @pytest.mark.asyncio
-async def test_browser_report_filter_sections(tmp_path: Path) -> None:
-    """Report filter dropdown switches visible sections."""
+async def test_notes_mounts_one_card_per_note(tmp_path: Path) -> None:
+    """Notes paints each note as its own extractable card."""
+    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml
+
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
+    sess = _write_multi_turn_session(traces, session_id="note-cards-sess")
+    (sess / "operator_notes.toml").write_text(
+        dump_notes_toml(
+            NotesDoc(
+                schema_id="default",
+                session_id=sess.name,
+                notes=[
+                    NoteEntry(id="n-a", turn_index=0, fields={"summary": "note-one"}),
+                    NoteEntry(id="n-b", turn_index=0, fields={"summary": "note-two"}),
+                ],
+            )
+        ),
+        encoding="utf-8",
+    )
     app = _host_app(work, traces)
-
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
-        await _activate_tab(pilot, screen, "tab-reports")
-        screen._update_reports_tab()
+        await _activate_tab(pilot, screen, "tab-notes")
+        screen._update_notes_tab()
         await pilot.pause()
+        notes = list(screen.query("#notes-list > .panel-card"))
+        assert len(notes) == 2
+        body = screen.query_one("#note-n-a-body", SelectableStatic)
+        plain = body.get_plain_text() or ""
+        assert "note-one" in plain
+        assert "─" not in plain
 
-        # Filter to flags only
-        screen._report_filter = "flags"
-        screen._apply_report_visibility()
-        await pilot.pause()
-        assert screen._section_visible("flags")
 
-        # Filter back to all
-        screen._report_filter = "all"
-        screen._apply_report_visibility()
+@pytest.mark.asyncio
+async def test_report_notes_shows_source_badge(tmp_path: Path) -> None:
+    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces, session_id="note-src-sess")
+    (sess / "operator_notes.toml").write_text(
+        dump_notes_toml(
+            NotesDoc(
+                schema_id="default",
+                session_id=sess.name,
+                notes=[
+                    NoteEntry(
+                        id="n-own",
+                        turn_index=0,
+                        source="tui",
+                        fields={"summary": "typed here"},
+                    ),
+                    NoteEntry(
+                        id="n-ext",
+                        turn_index=0,
+                        source="nvim",
+                        fields={"summary": "from vim"},
+                    ),
+                ],
+            )
+        ),
+        encoding="utf-8",
+    )
+    app = _host_app(work, traces)
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-notes")
+        screen._update_notes_tab()
         await pilot.pause()
-        assert screen._section_visible("flags")
+        own_badge = screen.query_one("#note-n-own .note-source-badge", Static)
+        ext_badge = screen.query_one("#note-n-ext .note-source-badge", Static)
+        assert static_plain(own_badge) == "tui"
+        assert static_plain(ext_badge) == "nvim"
+        own_body = screen.query_one("#note-n-own-body", SelectableStatic)
+        ext_body = screen.query_one("#note-n-ext-body", SelectableStatic)
+        assert "tui" not in (own_body.get_plain_text() or "")
+        assert "nvim" not in (ext_body.get_plain_text() or "")
+        assert "Source" not in (own_body.get_plain_text() or "")
+
+
+@pytest.mark.asyncio
+async def test_report_notes_keyboard_focus_edit_and_delete(tmp_path: Path) -> None:
+    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml, load_notes
+    from groket.ui.widgets.notes_modal import NotesModal
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces, session_id="note-nav-sess")
+    (sess / "operator_notes.toml").write_text(
+        dump_notes_toml(
+            NotesDoc(
+                schema_id="default",
+                session_id=sess.name,
+                notes=[
+                    NoteEntry(id="n-a", turn_index=0, fields={"summary": "note-one"}),
+                    NoteEntry(id="n-b", turn_index=0, fields={"summary": "note-two"}),
+                ],
+            )
+        ),
+        encoding="utf-8",
+    )
+    app = _host_app(work, traces)
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-notes")
+        screen._update_notes_tab()
+        await wait_until(
+            pilot,
+            lambda: bool(list(screen.query("#notes-list > .panel-card"))),
+            description="note cards mounted",
+        )
+        screen.query_one("#notes-list").focus()
+        await wait_until(
+            pilot,
+            lambda: getattr(screen.focused, "id", None) == "notes-list",
+            description="notes list focused",
+        )
+        assert screen.check_action("edit_operator_note", ()) is False
+        assert screen.check_action("delete_session", ()) is False
+        await pilot.click("#note-n-b")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (screen.query_one("#note-n-b").classes),
+            description="click selects the note card",
+        )
+        assert screen.check_action("edit_operator_note", ()) is True
+        screen._notes_focus = None
+        screen._paint_note_focus()
+        screen.refresh_bindings()
+        await pilot.press("j")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (screen.query_one("#note-n-a").classes),
+            description="j focuses first note",
+        )
+        assert screen.check_action("edit_operator_note", ()) is True
+        assert screen.check_action("delete_session", ()) is True
+        await pilot.press("j")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (screen.query_one("#note-n-b").classes),
+            description="j focuses second note",
+        )
+        await pilot.press("k")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (screen.query_one("#note-n-a").classes),
+            description="k returns to first note",
+        )
+        await pilot.press("down")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (screen.query_one("#note-n-b").classes),
+            description="down focuses second note",
+        )
+        await pilot.press("up")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (screen.query_one("#note-n-a").classes),
+            description="up returns to first note",
+        )
+        await pilot.press("O")
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, NotesModal),
+            description="O opens focused note",
+        )
+        assert app.screen.existing is not None
+        assert app.screen.existing.id == "n-a"
+        app.screen.dismiss(None)
+        await wait_until(
+            pilot,
+            lambda: isinstance(app.screen, BrowserScreen),
+            description="edit modal dismissed",
+        )
+        browser = app.screen
+        assert isinstance(browser, BrowserScreen)
+        await _activate_tab(pilot, browser, "tab-notes")
+        browser._update_notes_tab()
+        await pilot.pause()
+        browser._notes_focus = None
+        browser.query_one("#notes-list").focus()
+        await pilot.pause()
+        await pilot.press("j")
+        await wait_until(
+            pilot,
+            lambda: "note-focused" in (browser.query_one("#note-n-a").classes),
+            description="focus first note before delete",
+        )
+        await pilot.press("x")
+        await pilot.press("x")
+        await wait_until(
+            pilot,
+            lambda: (
+                load_notes(sess).notes == [] or all(n.id != "n-a" for n in load_notes(sess).notes)
+            ),
+            description="double x deletes focused note",
+        )
+        left = [n.id for n in load_notes(sess).notes]
+        assert "n-a" not in left
+        assert "n-b" in left
 
 
 @pytest.mark.asyncio
@@ -780,61 +950,9 @@ async def test_browser_summary_tab(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-# ── Flag event ───────────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_browser_flag_event_action(tmp_path: Path) -> None:
-    """Flag action only available when timeline focused with event selected."""
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        await _activate_tab(pilot, screen, "tab-timeline")
-        tl = screen.query_one("#timeline-list", TimelineTable)
-        if tl.row_count > 0:
-            tl.move_cursor(row=0, animate=False)
-            await pilot.pause()
-        # check_action returns False when no event selected yet
-        result = screen.check_action("flag_event", ())
-        # Binding enabled only when timeline has a flaggable event under cursor.
-        assert result in (True, False)
-
-
-@pytest.mark.asyncio
-async def test_browser_flag_result_save_delete(tmp_path: Path) -> None:
-    """_on_flag_result save and delete branches."""
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        from groket.models import Flag, FlagVerdict
-
-        flag = Flag(
-            event_index=0,
-            event_type="tool_call",
-            tool_name="run_terminal_command",
-            verdict=FlagVerdict.BAD,
-            description="wrong command",
-        )
-        screen._on_flag_result(("save", flag))
-        await pilot.pause()
-        assert 0 in screen._flags
-
-        screen._on_flag_result(("delete", 0))
-        await pilot.pause()
-        assert 0 not in screen._flags
-
-
-@pytest.mark.asyncio
-async def test_browser_first_paint_defers_summary_and_report(tmp_path: Path) -> None:
-    """Opening a session paints Timeline only; Summary and Report fill on visit."""
+async def test_browser_first_paint_defers_summary_and_notes(tmp_path: Path) -> None:
+    """Opening a session paints Timeline only; Summary and Notes fill on visit."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -843,11 +961,9 @@ async def test_browser_first_paint_defers_summary_and_report(tmp_path: Path) -> 
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
         summary = screen.query_one("#summary-content", SelectableStatic)
-        report = screen.query_one("#report-overview-content", SelectableStatic)
-        from groket.ui.i18n import t
 
         assert not (summary.get_plain_text() or "").strip()
-        assert t("ui-session-report") not in (report.get_plain_text() or "")
+        assert not list(screen.query("#notes-list > .panel-card"))
         tl = screen.query_one("#timeline-list", TimelineTable)
         assert tl.row_count > 0
         bar = screen.query_one("#filter-bar")
@@ -883,17 +999,17 @@ async def test_browser_first_paint_defers_summary_and_report(tmp_path: Path) -> 
         )
         assert "Pilot" in summary.get_plain_text()
 
-        await _activate_tab(pilot, screen, "tab-reports")
+        await _activate_tab(pilot, screen, "tab-notes")
         await wait_until(
             pilot,
-            lambda: t("ui-session-report") in (report.get_plain_text() or ""),
-            description="Report body after first visit",
+            lambda: screen.query_one("#notes-list") is not None,
+            description="Notes pane after first visit",
         )
 
 
 @pytest.mark.asyncio
-async def test_browser_tab_bar_fills_summary_and_report(tmp_path: Path) -> None:
-    """Setting TabbedContent.active (tab-bar click) fills Summary and Report."""
+async def test_browser_tab_bar_fills_summary_and_notes(tmp_path: Path) -> None:
+    """Setting TabbedContent.active (tab-bar click) fills Summary and Notes."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -902,14 +1018,12 @@ async def test_browser_tab_bar_fills_summary_and_report(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
         summary = screen.query_one("#summary-content", SelectableStatic)
-        report = screen.query_one("#report-overview-content", SelectableStatic)
-        from groket.ui.i18n import t
 
         assert not (summary.get_plain_text() or "").strip()
-        assert t("ui-session-report") not in (report.get_plain_text() or "")
 
         tabs = screen.query_one("#browser-tabs", TabbedContent)
         tabs.active = "tab-summary"
+        await pilot.pause()
         await wait_until(
             pilot,
             lambda: bool((summary.get_plain_text() or "").strip()),
@@ -917,11 +1031,12 @@ async def test_browser_tab_bar_fills_summary_and_report(tmp_path: Path) -> None:
         )
         assert "Pilot" in summary.get_plain_text()
 
-        tabs.active = "tab-reports"
+        tabs.active = "tab-notes"
+        await pilot.pause()
         await wait_until(
             pilot,
-            lambda: t("ui-session-report") in (report.get_plain_text() or ""),
-            description="Report body after tab-bar activate",
+            lambda: tabs.active == "tab-notes" and screen.query_one("#notes-list") is not None,
+            description="Notes pane after tab-bar activate",
         )
 
 
@@ -1032,9 +1147,6 @@ async def test_browser_control_paints_first_page_before_remainder(
         full_indices = [e.index for e in screen.timeline]
         drained = await wt.fetch_timeline_events(access, str(sess), page_limit=1)
         assert full_indices == [e.index for e in drained]
-
-        screen._on_flag_result(None)
-        await pilot.pause()
 
 
 @pytest.mark.asyncio
@@ -1150,21 +1262,6 @@ async def test_browser_refresh_context(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-# ── Show findings tab ────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_browser_show_findings_action_removed(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        assert not hasattr(screen, "action_show_findings")
-
-
 # ── Focus follow-up field ────────────────────────────────────────────────
 
 
@@ -1210,7 +1307,7 @@ def _shown_footer_actions(screen: BrowserScreen) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_browser_footer_hides_timeline_keys_off_timeline(tmp_path: Path) -> None:
-    """Enter / h l / Flag leave the rail when the Timeline pane is not showing."""
+    """Enter / h l leave the rail when the Timeline pane is not showing."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -1233,7 +1330,6 @@ async def test_browser_footer_hides_timeline_keys_off_timeline(tmp_path: Path) -
         assert screen.check_action("toggle_event_reader", ()) is False
         assert screen.check_action("prev_turn", ()) is False
         assert screen.check_action("next_turn", ()) is False
-        assert screen.check_action("flag_event", ()) is False
         shown = _shown_footer_actions(screen)
         assert "toggle_event_reader" not in shown
         assert "prev_turn" not in shown
@@ -1273,61 +1369,21 @@ async def test_browser_open_share_no_url(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-# ── Report plugin helpers ────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_browser_report_plugin_helpers(tmp_path: Path) -> None:
+async def test_browser_panes_are_timeline_summary_diff_notes(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
     app = _host_app(work, traces)
+
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
-        assert not hasattr(screen, "_report_plugin_slug")
-        assert not hasattr(screen, "_collect_findings")
-        assert not hasattr(screen, "apply_analysis_results")
-        assert screen._report_section_dom_id("flags") == "report-section-flags"
-        assert screen._report_section_dom_id("notes") == "report-section-notes"
-
-
-@pytest.mark.asyncio
-async def test_browser_has_no_findings_tab(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        app.push_screen(BrowserScreen(sess))
-
-        def ready() -> bool:
-            scr = app.screen
-            return isinstance(scr, BrowserScreen) and bool(scr.timeline)
-
-        await wait_until(pilot, ready, description="browser open")
-        screen = app.screen
-        assert isinstance(screen, BrowserScreen)
+        assert [pid for pid, _sel in screen.TAB_PANES] == [
+            "tab-timeline",
+            "tab-summary",
+            "tab-diff",
+            "tab-notes",
+        ]
         tabs = screen.query_one("#browser-tabs", TabbedContent)
-        assert "tab-findings" not in {p.id for p in tabs.query("TabPane")}
-        assert list(screen.query("#findings-table")) == []
-        assert list(screen.query("#report-sections-host")) == []
-        assert list(screen.query(".report-pane")) == []
-        assert list(screen.query("#browser-analysis-loading")) == []
-        assert not hasattr(screen, "_schedule_analysis")
-        assert not hasattr(screen, "_should_auto_analyze")
-        assert not hasattr(screen, "_auto_needs_background_job")
-        assert not hasattr(screen, "_findings_table_entries")
-        assert not hasattr(screen, "_selected_finding")
-        assert not hasattr(app, "_plugin_results")
-        assert not hasattr(app, "_findings_for_session")
-        from groket.ui.render_detail import render_event_detail
-        from groket.ui.widgets.detail_view import DetailView
-
-        tl = screen.query_one("#timeline-list", TimelineTable)
-        assert tl.events
-        screen._current_event = tl.events[0]
-        screen._show_selected_event_detail()
-        body = static_plain(screen.query_one("#detail-panel", DetailView).query_one("#detail-body"))
-        assert "finding" not in body.casefold()
-        assert "finding" not in inspect.signature(render_event_detail).parameters
+        for pid, _sel in screen.TAB_PANES:
+            assert tabs.query_one(f"#{pid}")

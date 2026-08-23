@@ -47,8 +47,6 @@ pub const AGENT_ROW_H: f32 = 80.0;
 pub const AGENT_OVERSCAN: usize = 1;
 /// Cap on the open-workflow inspect scroll so the Agents clip gets Fill.
 pub const WORKFLOW_INSPECT_H: f32 = 200.0;
-/// Closed Notes expander tile + gap.
-pub const FINDING_ROW_H: f32 = 80.0;
 /// Spotlight idle list: latest sessions by ``sort_epoch`` (not the full catalog).
 pub const SPOTLIGHT_RECENT: usize = 8;
 
@@ -174,17 +172,31 @@ pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
     h + LIST_CARD_GAP
 }
 
-/// Closed Notes tile, plus body lines when the expander is open.
-pub fn note_card_height(body: &str, open: bool) -> f32 {
-    expand_card_height(body, open)
-}
-
-fn expand_card_height(body: &str, open: bool) -> f32 {
-    let mut h = FINDING_ROW_H;
-    if open {
-        h += 8.0 + wrap_line_count(body, 72) as f32 * 18.0 + 28.0;
+/// Notes card: inset, turn heading, optional when, fields, compact actions.
+pub fn note_card_height(values: &[&str], has_when: bool) -> f32 {
+    const INSET: f32 = 12.0;
+    const HEAD: f32 = 24.0;
+    const GAP: f32 = 8.0;
+    const LABEL: f32 = 16.0;
+    const LABEL_GAP: f32 = 4.0;
+    const LINE: f32 = 20.0;
+    const ACTIONS: f32 = 28.0;
+    let mut h = INSET * 2.0 + HEAD + GAP + ACTIONS;
+    if has_when {
+        h += GAP + LABEL;
     }
-    h
+    if values.is_empty() {
+        h += GAP + LABEL;
+    }
+    for value in values {
+        h += GAP + LABEL + LABEL_GAP;
+        if let Some((_, code)) = crate::format::fenced_code_block(value) {
+            h += 24.0 + wrap_line_count(code, 68) as f32 * LINE;
+        } else {
+            h += 8.0 + wrap_line_count(value, 68) as f32 * LINE;
+        }
+    }
+    h + LIST_CARD_GAP
 }
 
 /// Scroll so ``active`` stays in the viewport. Offsets are height sums
@@ -751,14 +763,9 @@ pub fn notes_schema_fields(overview: Option<&Overview>) -> Vec<SchemaField> {
         if id.is_empty() {
             continue;
         }
-        let label = if f.label.is_empty() {
-            id.to_string()
-        } else {
-            f.label.clone()
-        };
         out.push(SchemaField {
             id: id.to_string(),
-            label,
+            label: crate::format::note_field_label(id, &f.label),
             choices: f.choices.clone(),
             pick: if f.pick.is_empty() {
                 "one-of".into()
@@ -781,6 +788,44 @@ pub fn note_field_input_key(field_id: &str) -> String {
 
 /// Iced id for the notes turn field.
 pub const NOTE_TURN_INPUT: &str = "note-turn";
+
+/// Schema fields, then extra stored keys as unconstrained free-text fields.
+pub fn note_form_fields<I, S>(schema: &[SchemaField], extra_ids: I) -> Vec<SchemaField>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut out = schema.to_vec();
+    let mut seen: HashSet<String> = schema.iter().map(|s| s.id.clone()).collect();
+    for raw in extra_ids {
+        let id = raw.as_ref().trim();
+        if id.is_empty() || !seen.insert(id.to_string()) {
+            continue;
+        }
+        out.push(SchemaField {
+            id: id.to_string(),
+            label: crate::format::note_field_label(id, ""),
+            choices: vec![],
+            pick: "one-of".into(),
+        });
+    }
+    out
+}
+
+/// Padding plus line stack for a notes paragraph field.
+pub const NOTE_TEXTAREA_PAD: f32 = 16.0;
+/// One logical line in a notes paragraph field.
+pub const NOTE_TEXTAREA_LINE: f32 = 22.0;
+/// Empty / one-line paragraph starts this tall.
+pub const NOTE_TEXTAREA_MIN_LINES: usize = 2;
+/// Cap so a long field grows into the form scroll, not the window.
+pub const NOTE_TEXTAREA_MAX_LINES: usize = 12;
+
+/// Pixel height for a notes textarea from its logical line count.
+pub fn note_textarea_height(lines: usize) -> f32 {
+    let n = lines.clamp(NOTE_TEXTAREA_MIN_LINES, NOTE_TEXTAREA_MAX_LINES);
+    NOTE_TEXTAREA_PAD + n as f32 * NOTE_TEXTAREA_LINE
+}
 
 /// Tab order for notes text fields (schema free-text, then turn).
 pub fn note_text_input_keys(fields: &[SchemaField]) -> Vec<String> {
@@ -1442,6 +1487,26 @@ mod tests {
     }
 
     #[test]
+    fn note_card_height_fits_short_fields() {
+        let short = note_card_height(&["test", "test"], false);
+        let with_when = note_card_height(&["test", "test"], true);
+        assert!(short < 240.0, "{short}");
+        assert!(short > 100.0, "{short}");
+        assert!(with_when > short, "short={short} with_when={with_when}");
+        let long = "word ".repeat(80);
+        let tall = note_card_height(&[long.as_str()], false);
+        assert!(tall > short + 20.0, "short={short} tall={tall}");
+        assert!(note_card_height(&[], false) >= LIST_CARD_GAP);
+        let fence = "```python\nimport json\nfrom pathlib import Path\nprint(1)\n```";
+        let fenced = note_card_height(&[fence], true);
+        let one = note_card_height(&["hi"], true);
+        assert!(
+            fenced > one + 20.0,
+            "fenced field must be taller than a one-line field: fenced={fenced} one={one}"
+        );
+    }
+
+    #[test]
     fn session_card_grows_when_the_title_wraps() {
         let short = session_card_height("Fix the rail", "", false);
         // Full-width picker uses ~72 columns — need a long line to wrap.
@@ -1768,6 +1833,8 @@ mod tests {
         let fields = notes_schema_fields(None);
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].id, "summary");
+        assert_eq!(fields[0].label, "Summary");
+        assert_eq!(fields[1].label, "Detail");
         assert!(!fields[0].constrained());
         assert_eq!(
             note_text_input_keys(&fields),
@@ -1777,6 +1844,60 @@ mod tests {
                 NOTE_TURN_INPUT.to_string()
             ]
         );
+    }
+
+    #[test]
+    fn note_form_fields_appends_extra_keys_as_free_text() {
+        let schema = default_notes_schema();
+        let form = note_form_fields(&schema, ["summary", "custom_key", "detail"]);
+        assert_eq!(
+            form.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            vec!["summary", "detail", "custom_key"]
+        );
+        let extra = form.iter().find(|f| f.id == "custom_key").unwrap();
+        assert_eq!(extra.label, "custom_key");
+        assert!(!extra.constrained());
+        assert!(note_form_fields(&schema, None::<&str>)
+            .iter()
+            .all(|f| schema.iter().any(|s| s.id == f.id)));
+        assert_eq!(
+            note_textarea_height(1),
+            NOTE_TEXTAREA_PAD + NOTE_TEXTAREA_MIN_LINES as f32 * NOTE_TEXTAREA_LINE
+        );
+        assert_eq!(
+            note_textarea_height(5),
+            NOTE_TEXTAREA_PAD + 5.0 * NOTE_TEXTAREA_LINE
+        );
+        assert_eq!(
+            note_textarea_height(40),
+            NOTE_TEXTAREA_PAD + NOTE_TEXTAREA_MAX_LINES as f32 * NOTE_TEXTAREA_LINE
+        );
+    }
+
+    #[test]
+    fn notes_schema_fills_default_field_labels() {
+        let ov = Overview {
+            notes: crate::wire::NotesBlock {
+                schema: crate::wire::NotesSchema {
+                    fields: vec![
+                        crate::wire::NoteSchemaField {
+                            id: "summary".into(),
+                            ..crate::wire::NoteSchemaField::default()
+                        },
+                        crate::wire::NoteSchemaField {
+                            id: "detail".into(),
+                            ..crate::wire::NoteSchemaField::default()
+                        },
+                    ],
+                    ..crate::wire::NotesSchema::default()
+                },
+                ..crate::wire::NotesBlock::default()
+            },
+            ..Overview::default()
+        };
+        let fields = notes_schema_fields(Some(&ov));
+        assert_eq!(fields[0].label, "Summary");
+        assert_eq!(fields[1].label, "Detail");
     }
 
     #[test]

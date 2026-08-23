@@ -26,6 +26,7 @@ from groket.ui.panel_render import (
     bullet,
     content_block,
     dim_rule,
+    format_stamp,
     key_chip,
     keys_rich,
     kv_line,
@@ -83,6 +84,13 @@ class TestMdContent:
         r = md_content("hello", indent=0)
         assert_rich_contains(r, "hello")
 
+    def test_headings_stay_left(self):
+        from groket.ui.panel_render import LeftMarkdown, _LeftHeading
+
+        r = md_content("# Title", indent=0)
+        assert isinstance(r, LeftMarkdown)
+        assert _LeftHeading.LEVEL_ALIGN["h1"] == "left"
+
 
 class TestContentBlock:
     def test_markdown_content(self):
@@ -108,6 +116,13 @@ class TestSectionHeader:
     def test_has_rule(self):
         t = section_header("Test")
         assert "─" in t.plain
+
+
+def test_format_stamp_short_card_time() -> None:
+    assert format_stamp("2026-08-22T03:25:29.924849+00:00") == "Aug 22, 03:25"
+    assert format_stamp("2026-01-08T18:02:00Z") == "Jan 8, 18:02"
+    assert format_stamp("") == ""
+    assert format_stamp("not-a-date") == "not-a-date"
 
 
 class TestKvLine:
@@ -145,6 +160,10 @@ class TestStatusChip:
     def test_unknown(self):
         t = status_chip("???", kind="unknown")
         assert "???" in t.plain
+
+    def test_source(self):
+        t = status_chip("nvim", kind="source")
+        assert t.plain == "nvim"
 
 
 class TestKeyChip:
@@ -218,7 +237,7 @@ class TestMdContentExceptionFallback:
         """Markdown parse exception falls back to plain Text."""
         from unittest.mock import patch
 
-        with patch("groket.ui.panel_render.Markdown", side_effect=ValueError("bad")):
+        with patch("groket.ui.panel_render.LeftMarkdown", side_effect=ValueError("bad")):
             r = md_content("# Title")
             assert_rich_contains(r, "Title")
 

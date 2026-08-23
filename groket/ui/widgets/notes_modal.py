@@ -4,23 +4,28 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from rich.console import Group, RenderableType
 from rich.markup import escape as rich_escape
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Select, SelectionList, Static, TextArea
 
 from ...notes import (
+    NOTE_SOURCE_TUI,
     FieldSpec,
     NoteEntry,
     NotesSchema,
     decode_many_choices,
     encode_many_choices,
+    form_field_specs,
 )
 from .. import text as U
 from ..bindings import FORM_SAVE
 from ..forms import select_is_blank, select_null, selection_list_selected_ids
 from ..i18n import join_ui, t
+from ..panel_render import content_block
 from ..quit_actions import QuitActions
 
 _PREVIEW_MAX = 60
@@ -28,6 +33,35 @@ _DEFAULT_FIELD_FTL = {
     "summary": "notes-field-summary",
     "detail": "notes-field-detail",
 }
+
+
+def note_fields_body(note: NoteEntry, schema: NotesSchema) -> RenderableType:
+    """Filled fields: dim label, then markdown or plain body."""
+    parts: list[RenderableType] = []
+    seen: set[str] = set()
+    for spec in schema.fields:
+        seen.add(spec.id)
+        val = (note.fields.get(spec.id) or "").strip()
+        if not val:
+            continue
+        parts.append(Text(f"{note_field_label(spec)}\n", style="dim"))
+        parts.append(content_block(val, indent=0))
+    for key, raw in note.fields.items():
+        if key in seen:
+            continue
+        val = str(raw or "").strip()
+        if not val:
+            continue
+        parts.append(Text(f"{key}\n", style="dim"))
+        parts.append(content_block(val, indent=0))
+    return Group(*parts) if parts else Text()
+
+
+def append_note_fields(out: Text, note: NoteEntry, schema: NotesSchema) -> None:
+    """Append field labels and stored values as plain text (tests / yank)."""
+    from ..selectable_static import display_plain
+
+    out.append(display_plain(note_fields_body(note, schema)))
 
 
 def note_field_label(spec: FieldSpec) -> str:
@@ -44,11 +78,16 @@ def note_field_label(spec: FieldSpec) -> str:
 def _note_preview_label(note: NoteEntry) -> str:
     """Turn label plus first non-empty field value (truncated)."""
     turn = t("turn-filter-n", n=note.turn_index)
+    src = (note.source or "").strip()
     preview = next((v.strip() for v in note.fields.values() if (v or "").strip()), "")
+    if src and not preview:
+        return join_ui(turn, src)
     if not preview:
         return turn
     if len(preview) > _PREVIEW_MAX:
         preview = preview[: _PREVIEW_MAX - 1] + "…"
+    if src:
+        return join_ui(turn, src, "—", preview)
     return join_ui(turn, "—", preview)
 
 
@@ -73,7 +112,7 @@ class NotesModal(QuitActions, ModalScreen):
     ) -> None:
         super().__init__(**kwargs)
         self.schema = schema
-        self.turn_options = turn_options or [(t("turn-filter-n", n=0), "0")]
+        self.turn_options = turn_options or [("0", "0")]
         self.default_turn = int(existing.turn_index if existing is not None else default_turn)
         self.event_indices = list(
             existing.event_indices if existing is not None else (event_indices or [])
@@ -85,14 +124,16 @@ class NotesModal(QuitActions, ModalScreen):
         turn_val = str(self.default_turn)
         turn_choices = {v for _, v in self.turn_options}
         if turn_val not in turn_choices:
-            self.turn_options = list(self.turn_options) + [
-                (t("turn-filter-n", n=self.default_turn), turn_val)
-            ]
+            self.turn_options = list(self.turn_options) + [(str(self.default_turn), turn_val)]
             turn_choices.add(turn_val)
         turn_value = turn_val if turn_val in turn_choices else self.turn_options[0][1]
         with Vertical(id="modal-container"):
             with VerticalScroll(id="notes-modal-body"):
                 yield Static(f"[bold]{rich_escape(title)}[/bold]")
+                if self.existing is not None:
+                    src = (self.existing.source or "").strip()
+                    if src:
+                        yield Static(src, id="note-source-badge", classes="note-source-badge")
                 yield Label(U.turn_label())
                 yield Select(
                     self.turn_options,
@@ -106,13 +147,17 @@ class NotesModal(QuitActions, ModalScreen):
                         f"[dim]{rich_escape(U.notes_events_hint(', '.join(str(i) for i in self.event_indices)))}[/dim]"
                     )
                 yield Static("")
-                for spec in self.schema.fields:
+                for spec in self._form_specs():
                     yield from self._field_widgets(spec)
             with Horizontal(id="note-buttons", classes="modal-footer"):
                 yield Button(U.save(), variant="primary", id="save-note")
                 if self.existing is not None:
                     yield Button(U.delete(), variant="error", id="delete-note")
                 yield Button(U.cancel(), id="cancel-note")
+
+    def _form_specs(self) -> list[FieldSpec]:
+        existing = self.existing.fields if self.existing is not None else None
+        return form_field_specs(self.schema, existing)
 
     def _field_widgets(self, spec: FieldSpec) -> ComposeResult:
         label = note_field_label(spec)
@@ -183,10 +228,11 @@ class NotesModal(QuitActions, ModalScreen):
         except (TypeError, ValueError):
             self.notify(U.note_turn_invalid(), severity="error")
             return
-        form_fields = {spec.id: self._read_field_value(spec) for spec in self.schema.fields}
+        form_fields = {spec.id: self._read_field_value(spec) for spec in self._form_specs()}
         if self.existing is not None:
             fields = dict(self.existing.fields)
             fields.update(form_fields)
+            existing_source = (self.existing.source or "").strip()
             entry = NoteEntry(
                 id=self.existing.id,
                 turn_index=turn_index,
@@ -194,10 +240,12 @@ class NotesModal(QuitActions, ModalScreen):
                 event_indices=list(self.existing.event_indices),
                 created_at=self.existing.created_at,
                 updated_at=datetime.now(UTC).isoformat(),
+                source=existing_source or NOTE_SOURCE_TUI,
             )
         else:
             entry = NoteEntry.new(
                 turn_index=turn_index,
+                source=NOTE_SOURCE_TUI,
                 fields=form_fields,
                 event_indices=list(self.event_indices),
             )

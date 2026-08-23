@@ -143,6 +143,7 @@ async def test_notes_upsert_notifies_second_client(tmp_path: Path) -> None:
             {
                 "id": "n-fanout",
                 "turnIndex": 0,
+                "source": "tui",
                 "fields": {"summary": "From writer", "detail": "visible everywhere"},
                 "eventIndices": [],
             },

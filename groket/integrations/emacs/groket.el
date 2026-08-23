@@ -389,6 +389,7 @@ Leading and trailing blank lines are part of the value."
                           (or (groket--ancestor-property "GROKET_TURN_INDEX") "0")))
              (event-text (or (org-entry-get nil "GROKET_EVENT_INDICES" nil) ""))
              (created-at (or (org-entry-get nil "GROKET_CREATED_AT" nil) ""))
+             (source (or (org-entry-get nil "GROKET_SOURCE" nil) "emacs"))
              (updated-at (format-time-string "%FT%T%:z" nil t))
              (fields (make-hash-table :test #'equal)))
         (save-restriction
@@ -401,6 +402,7 @@ Leading and trailing blank lines are part of the value."
            nil 'tree))
         `(:id ,note-id
           :turnIndex ,turn-index
+          :source ,(if (and source (not (string-empty-p source))) source "emacs")
           :fields ,fields
           :eventIndices ,(vconcat
                           (mapcar #'string-to-number
@@ -667,6 +669,7 @@ ACTION reloads the projection, which would drop those edits."
            (note
             `(:id ,note-id
               :turnIndex ,(string-to-number turn-text)
+              :source "emacs"
               :fields ,fields
               :eventIndices []
               :createdAt ,timestamp

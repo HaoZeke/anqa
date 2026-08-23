@@ -1,4 +1,4 @@
-"""Shared DataTable UX practices — row cursor, zebra, stable selection.
+"""Shared DataTable UX practices — row cursor and stable selection.
 
 Screens must not reimplement cursor capture/restore. Prefer:
 
@@ -25,10 +25,10 @@ from textual.widgets import DataTable
 from groket.keys import chord_has_sequence, load_keymap
 
 
-def style_data_table(table: DataTable, *, zebra: bool = True) -> DataTable:
+def style_data_table(table: DataTable) -> DataTable:
     """Apply consistent list-table behaviour used across the app."""
     table.cursor_type = "row"
-    table.zebra_stripes = zebra
+    table.zebra_stripes = False
     keymap = load_keymap()
     down = keymap.binding("list.down").chord
     up = keymap.binding("list.up").chord

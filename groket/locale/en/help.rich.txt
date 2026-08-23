@@ -16,9 +16,9 @@
   Search          Bare words match title, id, and label. Space is AND.
                   - is:running is:awaiting is:ending is:complete
                   - is:cancelled is:host is:eval
-                  - has:workflows has:notes has:errors
+                  - has:workflows has:notes has:goals has:subagents has:tasks has:jobs has:schedules has:plan has:errors has:failures has:diff has:git has:context has:compaction has:doom
                   - errors: turns: tools: events: duration: with > >= < <= =
-                  - in: repo or workspace the session started in
+                  - in: directory the session was run in
                   - model: task: after: before: (ISO, yesterday, 2d)
                   - OR NOT - ( )
   r               New run
@@ -35,18 +35,17 @@
   x               Delete (press twice)
 
 [bold]Browser[/bold]
-  [ ]  1-4        Timeline, Summary, Diff, Report
+  [ ]  1-4        Timeline, Summary, Diff, Notes
   Diff            Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file
 
   h / l / Left / Right    Previous / next turn on the Timeline
-  j / k                   Previous / next event on the Timeline (also Up / Down)
+  j / k                   Previous / next Timeline event, or previous / next note (also Up / Down)
   v               Timeline filter (Subagents lists spawn/finish; Background lists task and schedule bookends; Workflows lists workflow tool bookends)
   Summary         Session glance; Tasks, Workflows, Subagents, and Stats tabs (click the strip)
   Tail            Follow new events to the end while a turn is open (terminal and HUD). Off keeps the highlight still.
-  Enter           Full-width event (Esc back to the list); or open a child from a spawn/finish row
-  f               Flag this event
+  Enter           Open a Timeline event or child; edit the focused note
   N               New note
-  O               Edit or delete note
+  Notes list every stored field and the source. Click a card to select it. j / k move among notes. Enter edits the focused note; double-press x deletes it.
   n               Follow-up while awaiting
   e               Done while awaiting
   y               Copy the selection or the focused / primary pane body

@@ -123,7 +123,7 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
 # Pane counts must match TabPaneNavigation.TAB_PANES on each screen/modal.
 BROWSER: tuple[Binding, ...] = (
     SCREEN_CHROME
-    + tab_nav_bindings(5)
+    + tab_nav_bindings(4)
     + (
         _b("v", "focus_timeline_filter", U.bind_view(), id="browser.view_filter", show=False),
         _b(
@@ -150,14 +150,27 @@ BROWSER: tuple[Binding, ...] = (
             show=True,
             priority=True,
         ),
-        _b("j", "timeline_down", U.bind_event_down(), id="list.down", show=False),
-        _b("k", "timeline_up", U.bind_event_up(), id="list.up", show=False),
-        _b("f", "flag_event", U.bind_flag(), id="event.flag", show=True),
+        _b(
+            "j,down",
+            "timeline_down",
+            U.bind_event_down(),
+            id="list.down",
+            show=True,
+            priority=True,
+        ),
+        _b(
+            "k,up",
+            "timeline_up",
+            U.bind_event_up(),
+            id="list.up",
+            show=True,
+            priority=True,
+        ),
         _b("N", "operator_note", U.bind_note(), id="pane.notes", show=True),
         _b("O", "edit_operator_note", U.bind_edit_note(), id="session.note_edit", show=False),
         _b("slash", "search", U.bind_search(), id="search.focus", show=True),
         _b("c", "clear_filters", U.bind_clear_view(), id="browser.clear_filters", show=False),
-        _b("x,delete", "delete_session", U.bind_delete(), id="session.delete", show=False),
+        _b("x,delete", "delete_session", U.bind_delete(), id="session.delete", show=True),
         _b("s", "open_share", U.bind_share(), id="session.share", show=False),
         # y = yank detail / selection to clipboard (Textual mouse select + OSC 52).
         _b("y", "copy_detail", U.bind_copy_detail(), id="edit.copy", show=True),

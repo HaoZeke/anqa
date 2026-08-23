@@ -10,31 +10,51 @@ use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
     body_paint_for, capped_display, display_tool_output, event_brand_role, event_is_monitor,
-    fmt_duration, format_note_time, format_tool_display, human_event_type_label, image_result_path,
-    is_chat_message, is_tool_identity, job_command, job_description, job_event_id, job_event_label,
-    job_exit_code, job_inspect_blocks, job_inspect_log, job_list_preview, job_output_path,
-    job_status, list_event_detail, list_status_label, looks_like_markdown, note_fields_view,
-    origin_label, overview_fields, overview_row_status, overview_subagent_rows, overview_task_rows,
-    overview_workflow_rows, path_hint_from_raw, sanitize_console_text, schedule_inspect_blocks,
-    schedule_last_fire, session_duration_chip, status_tone, subagent_inspect_blocks,
-    subagent_list_preview, syntax_for_tool_field, syntax_for_tool_output, timeline_body_text,
+    fenced_code_block, fmt_duration, format_note_time, format_tool_display, human_event_type_label,
+    image_result_path, is_chat_message, is_tool_identity, job_command, job_description,
+    job_event_id, job_event_label, job_exit_code, job_inspect_blocks, job_inspect_log,
+    job_list_preview, job_output_path, job_status, list_event_detail, list_status_label,
+    looks_like_markdown, note_display_fields, origin_label, overview_fields, overview_row_status,
+    overview_subagent_rows, overview_task_rows, overview_workflow_rows, path_hint_from_raw,
+    remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks, schedule_last_fire,
+    session_duration_chip, status_tone, subagent_inspect_blocks, subagent_list_preview,
+    syntax_for_fence, syntax_for_tool_field, syntax_for_tool_output, timeline_body_text,
     timeline_count_caption, timeline_query_hit, tool_brand_role, tool_fields_from_raw,
     workflow_for_event, workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole,
     ToolField,
 };
 use crate::kit;
 use crate::live::{
-    context_fraction, decode_many_choices, note_field_input_key, toggle_many_choice, CardMark,
-    AGENT_OVERSCAN, NOTE_TURN_INPUT, OVERVIEW_LIST_OVERSCAN, STATS_ROW_H, TIMELINE_OVERSCAN,
-    TURNS_OVERSCAN, WORKFLOW_INSPECT_H,
+    context_fraction, decode_many_choices, note_field_input_key, note_textarea_height,
+    toggle_many_choice, CardMark, AGENT_OVERSCAN, NOTE_TURN_INPUT, OVERVIEW_LIST_OVERSCAN,
+    STATS_ROW_H, TIMELINE_OVERSCAN, TURNS_OVERSCAN, WORKFLOW_INSPECT_H,
 };
 use crate::model::{DiffContext, KindFilter, OverviewSection, SchemaField, Tab};
 use crate::motion::PageLayer;
+use crate::query::{highlight_query_spans, QuerySpanKind};
 use crate::typo;
 use crate::wire::{NoteRow, TimelineEvent, TurnRow, WorkflowChildRow};
 
 fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
+}
+
+fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
+    highlight_query_spans(query)
+        .into_iter()
+        .map(|mark| {
+            icedtea::widget::FieldRun::new(mark.start, mark.end, catalog_query_ink(mark.kind))
+        })
+        .collect()
+}
+
+fn catalog_query_ink(kind: QuerySpanKind) -> icedtea::widget::FieldInk {
+    match kind {
+        QuerySpanKind::Field | QuerySpanKind::Operator => icedtea::widget::FieldInk::Warning,
+        QuerySpanKind::Value => icedtea::widget::FieldInk::Success,
+        // icedtea Error is a spelling underline, not danger body ink.
+        QuerySpanKind::Unknown => icedtea::widget::FieldInk::Error,
+    }
 }
 
 fn empty_sessions(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -359,6 +379,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::new("Search sessions", Role::TextBox),
             Some(hud.search_id()),
+            &catalog_query_runs(hud.query()),
         ),
     ]
     .spacing(12)
@@ -370,11 +391,15 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let hint_line = hints.into_iter().take(8).collect::<Vec<_>>().join("   ");
     // Keep this column always so the search field is not remounted when
     // hints appear (that drop of focus eats the next keystrokes).
-    let search: Element<'_, Message> =
-        column![search, text(hint_line).size(tea.meta()).color(tea.muted),]
-            .spacing(tea.density.gap() / 2.0)
-            .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
-            .into();
+    let hint: Element<'_, Message> = if hint_line.is_empty() {
+        Space::new().height(0).into()
+    } else {
+        text(hint_line).size(tea.meta()).color(tea.muted).into()
+    };
+    let search: Element<'_, Message> = column![search, hint]
+        .spacing(tea.density.gap() / 2.0)
+        .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
+        .into();
 
     // Spotlight: search → pick → full-width browse. Type again to switch.
     let body: Element<'_, Message> = {
@@ -876,6 +901,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Search events…", Role::TextBox),
         Some(hud.tl_search_id()),
+        &[],
     ))
     .width(Length::Fill);
     column![picks, search]
@@ -1208,34 +1234,6 @@ fn card_cmds_row(
     cmds.into()
 }
 
-fn card_actions(
-    actions: Vec<icedtea::action::Action<Message>>,
-    tea: icedtea::theme::Tokens,
-) -> Element<'static, Message> {
-    icedtea::pattern::command_bar(actions, tea, tea.direction)
-}
-
-fn expand_card<'a>(
-    title: String,
-    child: Element<'a, Message>,
-    open: bool,
-    progress: f32,
-    on_toggle: impl Fn(bool) -> Message + 'a,
-    tea: icedtea::theme::Tokens,
-) -> Element<'a, Message> {
-    icedtea::widget::expander(
-        title.clone(),
-        None,
-        child,
-        icedtea::widget::Peek::Lines(2),
-        open,
-        progress,
-        on_toggle,
-        tea,
-        A11y::new(title, Role::Group),
-    )
-}
-
 /// Closed list tile: title plus one badge row (same face as Recent).
 fn closed_list_card(
     title: String,
@@ -1263,7 +1261,7 @@ fn closed_list_card(
 fn turn_title(t: &TurnRow) -> String {
     let plain = plain_card_text(&t.summary);
     if plain.is_empty() {
-        t.face_caption()
+        remap_turn_outcome_paren(&t.face_caption())
     } else {
         capped_display(&plain, 180)
     }
@@ -1470,66 +1468,107 @@ fn note_when(n: &NoteRow) -> String {
 fn note_body<'a>(
     hud: &'a Hud,
     n: &'a NoteRow,
-    body: &str,
-    extras: Vec<(String, String)>,
+    fields: &[(String, String)],
 ) -> Element<'a, Message> {
     let tea = hud.tokens();
+    let gap = tea.density.gap();
     let turn = n.turn_index.map(|i| i.to_string()).unwrap_or_default();
     let place = if turn.is_empty() || turn == "null" {
         "Session".to_string()
     } else {
         format!("Turn {turn}")
     };
-    let mut chips = row![status_chip(place, "", tea)]
-        .spacing(8)
-        .align_y(Alignment::Center);
+    let heading = text(place)
+        .size(tea.body())
+        .font(typo::UI_BOLD)
+        .color(tea.text);
+    let mut title = row![heading].spacing(gap).align_y(Alignment::Center);
+    let src = n.source.trim();
+    if !src.is_empty() {
+        title = title.push(label_badge(src.to_string(), BrandRole::Cream, tea));
+    }
+    let mut card = column![title].spacing(gap).width(Length::Fill);
     let when = note_when(n);
     if !when.is_empty() {
-        chips = chips.push(status_chip(when, "", tea));
-    }
-    let mut card = column![chips].spacing(8);
-    if !body.is_empty() {
-        card = card.push(select_bound(
-            hud,
-            format!("note.{}", n.id),
-            body,
+        card = card.push(icedtea::widget::meta(
+            when.clone(),
             tea,
-            icedtea::typo::FontFace::Ui,
+            A11y::new(when, Role::Status),
         ));
     }
-    for (k, v) in extras.into_iter().take(8) {
-        card = card.push(kit::labeled_plain(&k, v, tea));
+    if fields.is_empty() {
+        card = card.push(icedtea::widget::meta(
+            "Empty note",
+            tea,
+            A11y::new("Empty note", Role::Status),
+        ));
+    }
+    for (i, (label, value)) in fields.iter().enumerate() {
+        let fid = format!("note.{}.{i}", n.id);
+        let body = if let Some((lang, code)) = fenced_code_block(value) {
+            code_inset(hud, &fid, code, syntax_for_fence(lang), true, tea)
+        } else {
+            markdown_bound(hud, fid, value, tea)
+        };
+        card = card.push(
+            column![
+                icedtea::widget::meta(label.clone(), tea, A11y::new(label.clone(), Role::Status),),
+                body,
+            ]
+            .spacing(4)
+            .width(Length::Fill),
+        );
     }
     card.push(
         row![
             Space::new().width(Length::Fill),
-            card_actions(note_commands(&n.id, hud.note_delete_armed()), tea),
+            note_edit_links(&n.id, hud.note_delete_armed(), tea),
         ]
-        .spacing(8)
-        .align_y(Alignment::Center),
+        .spacing(gap)
+        .align_y(Alignment::Center)
+        .width(Length::Fill),
     )
     .into()
 }
 
-fn note_commands(id: &str, delete_armed: &str) -> Vec<icedtea::action::Action<Message>> {
-    vec![
-        icedtea::action::Action::new("note.edit", "Edit", Message::OpenNote(id.to_string())),
-        icedtea::action::Action::new(
-            "note.delete",
-            if delete_armed == id {
-                "Delete?"
-            } else {
-                "Delete"
-            },
-            Message::RequestDelete(id.to_string()),
-        ),
-    ]
+fn note_quiet_btn(
+    title: &str,
+    msg: Message,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let compact = tea.with_density(icedtea::density::Density::named(
+        icedtea::density::DensityName::Compact,
+    ));
+    icedtea::widget::themed_button(
+        title.to_string(),
+        Some(msg),
+        compact,
+        Variant::Quiet,
+        icedtea::icon::Icons::NONE,
+        A11y::button(title),
+    )
 }
 
-/// Closed-card preview only. Markdown parse/layout per visible row was the
-/// Turns/Timeline scroll tax; open bodies use selectable text when needed.
-fn prompt_face(summary: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    plain_face(summary, "—", 280, tea)
+fn note_edit_links(
+    id: &str,
+    delete_armed: &str,
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    let del = if delete_armed == id {
+        "Delete?"
+    } else {
+        "Delete"
+    };
+    let compact = tea.with_density(icedtea::density::Density::named(
+        icedtea::density::DensityName::Compact,
+    ));
+    row![
+        note_quiet_btn("Edit", Message::OpenNote(id.to_string()), tea),
+        note_quiet_btn(del, Message::RequestDelete(id.to_string()), tea),
+    ]
+    .spacing(compact.density.gap())
+    .align_y(Alignment::Center)
+    .into()
 }
 
 /// Strip light markdown so closed cards do not show raw ``**bold**`` markers.
@@ -1548,22 +1587,6 @@ fn plain_card_text(summary: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn plain_face(
-    summary: &str,
-    empty: &'static str,
-    max_chars: usize,
-    tea: icedtea::theme::Tokens,
-) -> Element<'static, Message> {
-    if summary.is_empty() {
-        return text(empty).size(tea.body()).color(tea.muted).into();
-    }
-    text(capped_display(&plain_card_text(summary), max_chars))
-        .size(tea.body())
-        .font(typo::UI)
-        .color(tea.text)
-        .into()
 }
 
 /// Closed Turns tile: prompt title plus status badges (same face as Recent).
@@ -1586,7 +1609,7 @@ fn turn_list_card(
     let mut chips = row![status_chip(status, tone, tea)]
         .spacing(8)
         .align_y(Alignment::Center);
-    let caption = t.face_caption();
+    let caption = remap_turn_outcome_paren(&t.face_caption());
     if title != caption {
         chips = chips.push(status_chip(caption, "", tea));
     }
@@ -1624,6 +1647,7 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Search turns", Role::TextBox),
         Some(hud.turns_search_id()),
+        &[],
     ))
     .width(Length::Fill)
     .padding(Padding {
@@ -1681,6 +1705,9 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
 fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     if let Some(ix) = hud.timeline_open() {
         return event_detail_pane(hud, ix);
+    }
+    if hud.workflow_inspect_id().is_some() {
+        return workflow_row_inspect_pane(hud);
     }
     if hud.timeline_query().trim().is_empty()
         && hud.last_timeline().is_none()
@@ -2006,6 +2033,7 @@ fn diff_search(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Search files and hunks", Role::TextBox),
         Some(hud.diff_search_id()),
+        &[],
     )
 }
 
@@ -2119,40 +2147,113 @@ fn note_schema_field<'a>(hud: &'a Hud, spec: SchemaField) -> Element<'a, Message
         note_many_choices(id, spec.choices, val, tea)
     } else if spec.constrained() {
         note_one_choice(id, label, spec.choices, val, tea)
-    } else {
-        icedtea::widget::themed_text_input(
-            label.as_str(),
-            val,
-            {
-                let id = id.clone();
-                move |v| Message::NoteField {
-                    id: id.clone(),
-                    value: v,
-                }
+    } else if let Some(buf) = hud.note_draft().editor(&id) {
+        let fid = id.clone();
+        let height = Length::Fixed(note_textarea_height(buf.line_count()));
+        icedtea::widget::textarea(
+            buf,
+            move |action| Message::NoteEdit {
+                id: fid.clone(),
+                action,
             },
-            Some(Message::SaveNote),
-            icedtea::widget::FieldOpts::NONE,
             tea,
-            A11y::new(label.clone(), Role::TextBox),
-            Some(iced::widget::Id::from(note_field_input_key(&id))),
+            height,
+            A11y::new(note_field_input_key(&id), Role::TextBox),
         )
+    } else {
+        Space::new()
+            .height(Length::Fixed(note_textarea_height(1)))
+            .into()
     };
     column![heading, control].spacing(4).into()
 }
 
 fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    let o = hud.overview().unwrap();
-    let mut notes: Vec<&NoteRow> = o.notes.notes.iter().collect();
-    notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    let specs = hud.notes_schema();
+    let notes = hud.notes_sorted();
+    let n_notes = notes.len();
+    let mut col = column![].spacing(tea.density.space);
+    if hud.composing_note() {
+        let form = icedtea::widget::themed_scroll(
+            container(notes_compose_form(hud))
+                .width(Length::Fill)
+                .padding(Padding {
+                    top: 0.0,
+                    right: icedtea::chrome::SCROLL_RAIL_WIDTH,
+                    bottom: 8.0,
+                    left: 0.0,
+                })
+                .into(),
+            tea,
+            A11y::new("Note form", Role::Group),
+            false,
+            None,
+            None::<fn(f32) -> Message>,
+        );
+        col = col.push(container(form).width(Length::Fill).height(Length::Fill));
+        return col.height(Length::Fill).into();
+    }
+    let notes_label = if n_notes == 1 {
+        "1 note".to_string()
+    } else {
+        format!("{n_notes} notes")
+    };
+    col = col.push(
+        row![
+            icedtea::widget::meta(notes_label, tea, A11y::new("Notes count", Role::Status)),
+            chip_btn(
+                "Add note".into(),
+                Message::StartNote {
+                    turn: String::new(),
+                    event: String::new(),
+                },
+                tea,
+            ),
+        ]
+        .spacing(tea.density.gap())
+        .align_y(Alignment::Center),
+    );
+    if notes.is_empty() {
+        col = col.push(kit::status_empty(
+            "No notes",
+            "Add a note to keep what you found.",
+            tea,
+        ));
+    } else {
+        let list = icedtea::widget::virtual_column(
+            hud.note_heights(),
+            hud.note_window(),
+            OVERVIEW_LIST_OVERSCAN,
+            None,
+            Message::NoteScroll,
+            Some(hud.note_scroll_id()),
+            tea,
+            move |i| {
+                let Some(n) = notes.get(i) else {
+                    return Space::new().height(0).into();
+                };
+                column![
+                    note_list_card(hud, n),
+                    Space::new().height(crate::live::LIST_GAP),
+                ]
+                .into()
+            },
+            A11y::new("Notes", Role::List),
+        );
+        col = col.push(container(list).width(Length::Fill).height(Length::Fill));
+    }
+    col.height(Length::Fill).into()
+}
+
+fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.tokens();
+    let specs = hud.note_form_schema();
     let editing = !hud.note_draft().id.is_empty();
-    let mut form = column![icedtea::widget::label(
-        if editing { "Edit note" } else { "Add note" },
-        tea,
-        A11y::new("Note form", Role::Header),
-    )]
-    .spacing(8);
+    let mut form = column![].spacing(tea.density.gap());
+    let src = hud.note_draft().source.trim();
+    if !src.is_empty() {
+        form = form.push(label_badge(src.to_string(), BrandRole::Cream, tea));
+    }
     for spec in specs {
         form = form.push(note_schema_field(hud, spec));
     }
@@ -2188,102 +2289,40 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     } else {
         "Save note"
     };
-    // Single Save is a chip (command_bar always paints a leading hairline that
-    // reads as a stray "|" with one action). Multi-action edit keeps the bar.
-    if editing {
-        let nid = hud.note_draft().id.clone();
-        let del = if hud.note_delete_armed() == nid {
-            "Delete?"
-        } else {
-            "Delete"
-        };
-        form = form.push(card_actions(
-            vec![
-                icedtea::action::Action::new("note.save", save_label, Message::SaveNote),
-                icedtea::action::Action::new("note.delete", del, Message::RequestDelete(nid)),
-                icedtea::action::Action::new("note.new", "New note", Message::ResetDraft),
-            ],
-            hud.tokens(),
-        ));
+    let nid = hud.note_draft().id.clone();
+    let del = if hud.note_delete_armed() == nid {
+        "Delete?"
     } else {
-        form = form.push(chip_btn(save_label.into(), Message::SaveNote, hud.tokens()));
-    }
-
-    let rev = o.notes.revision.clone();
-    let n_notes = notes.len();
-    let notes_label = if n_notes == 1 {
-        "1 note".to_string()
-    } else {
-        format!("{n_notes} notes")
+        "Delete"
     };
-    let mut note_chrome = row![status_chip(notes_label, "", hud.tokens())]
-        .spacing(8)
-        .align_y(Alignment::Center);
-    if !rev.is_empty() {
-        note_chrome = note_chrome.push(status_chip(
-            format!("rev {}", rev.chars().take(12).collect::<String>()),
-            "",
-            hud.tokens(),
-        ));
+    let mut actions = row![
+        note_quiet_btn(save_label, Message::SaveNote, tea),
+        note_quiet_btn("Cancel", Message::ResetDraft, tea),
+    ]
+    .spacing(tea.density.gap())
+    .align_y(Alignment::Center);
+    if editing {
+        actions = actions.push(note_quiet_btn(del, Message::RequestDelete(nid), tea));
     }
-    let mut col = column![form, note_chrome].spacing(12).height(Length::Fill);
-    if notes.is_empty() {
-        col = col.push(icedtea::widget::meta(
-            "No notes yet.",
-            tea,
-            A11y::new("No notes yet.", Role::Status),
-        ));
-    } else {
-        let list = icedtea::widget::virtual_column(
-            hud.note_heights(),
-            hud.note_window(),
-            OVERVIEW_LIST_OVERSCAN,
-            None,
-            Message::NoteScroll,
-            Some(hud.note_scroll_id()),
-            tea,
-            move |i| {
-                let Some(n) = notes.get(i) else {
-                    return Space::new().height(0).into();
-                };
-                let id = n.id.clone();
-                let (title, body, extras) = note_fields_view(&n.fields);
-                let heading = if title.is_empty() {
-                    "Empty note".into()
-                } else {
-                    title
-                };
-                let open = hud.note_expanded(&id);
-                let progress = hud.note_expand_progress(&id);
-                let child = if open || progress > 0.0 {
-                    note_body(hud, n, &body, extras)
-                } else {
-                    prompt_face(&body, hud.tokens())
-                };
-                column![
-                    expand_card(
-                        heading,
-                        child,
-                        open,
-                        progress,
-                        {
-                            let id = id.clone();
-                            move |next| Message::NoteExpand {
-                                id: id.clone(),
-                                open: next,
-                            }
-                        },
-                        hud.tokens(),
-                    ),
-                    Space::new().height(crate::live::LIST_GAP),
-                ]
-                .into()
-            },
-            A11y::new("Notes", Role::List),
-        );
-        col = col.push(list);
-    }
-    col.into()
+    icedtea::widget::group_box(
+        if editing { "Edit note" } else { "Add note" },
+        form.push(actions).into(),
+        tea,
+        icedtea::widget::CardFace::Outlined,
+        A11y::new("Note form", Role::Group),
+        None,
+    )
+}
+
+fn note_list_card<'a>(hud: &'a Hud, n: &'a NoteRow) -> Element<'a, Message> {
+    let tea = hud.tokens();
+    let fields = note_display_fields(&hud.notes_schema(), &n.fields);
+    let selected = hud.notes_focus() == Some(n.id.as_str());
+    container(note_body(hud, n, &fields))
+        .padding(tea.density.inset())
+        .width(Length::Fill)
+        .style(move |_| icedtea::style::card(tea, selected))
+        .into()
 }
 
 fn paired_tool<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> (&'a TimelineEvent, &'a TimelineEvent) {
@@ -2329,20 +2368,54 @@ fn inspect_fields(call: &TimelineEvent) -> Vec<ToolField> {
     )
 }
 
+fn workflow_row_inspect_pane(hud: &Hud) -> Element<'_, Message> {
+    let tea = hud.body_tokens();
+    let Some(id) = hud.workflow_inspect_id() else {
+        return kit::status_empty("No workflow", "Nothing selected.", tea);
+    };
+    let Some(run) = hud
+        .overview()
+        .and_then(|o| o.workflows.iter().find(|r| r.id == id))
+    else {
+        return kit::status_empty("No workflow run on disk", "This run is gone.", tea);
+    };
+    let inspect = icedtea::widget::themed_scroll(
+        container(workflow_run_inspect(hud, run, "wf.inspect"))
+            .width(Length::Fill)
+            .into(),
+        tea,
+        A11y::new("Workflow", Role::Group),
+        false,
+        None,
+        None::<fn(f32) -> Message>,
+    );
+    let children = hud.open_workflow_children();
+    if children.is_empty() {
+        return inspect;
+    }
+    column![
+        container(inspect)
+            .width(Length::Fill)
+            .height(Length::Fixed(WORKFLOW_INSPECT_H)),
+        container(workflow_child_list(hud, children))
+            .width(Length::Fill)
+            .height(Length::Fill),
+    ]
+    .spacing(10)
+    .height(Length::Fill)
+    .into()
+}
+
 fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a, Message> {
     let tok = hud.tokens();
-    let empty: [crate::wire::WorkflowRow; 0] = [];
-    let runs = hud
+    if let Some(run) = hud
         .overview()
-        .map(|o| o.workflows.as_slice())
-        .unwrap_or(&empty);
-    let run = workflow_for_event(runs, &ev.raw_input);
+        .and_then(|o| workflow_for_event(&o.workflows, &ev.raw_input))
+    {
+        return workflow_run_inspect(hud, run, &format!("event.{}", ev.index)).into();
+    }
     let mut col = column![].spacing(10);
-    let name = run
-        .map(|r| r.name.as_str())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| workflow_name_from_raw(&ev.raw_input));
+    let name = workflow_name_from_raw(&ev.raw_input);
     if !name.is_empty() {
         col = col.push(
             text(name)
@@ -2351,14 +2424,29 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
                 .color(tok.text),
         );
     }
-    let Some(run) = run else {
-        col = col.push(icedtea::widget::meta(
-            "No workflow run on disk",
-            tok,
-            A11y::new("workflow missing", Role::Status),
-        ));
-        return col.into();
-    };
+    col = col.push(icedtea::widget::meta(
+        "No workflow run on disk",
+        tok,
+        A11y::new("workflow missing", Role::Status),
+    ));
+    col.into()
+}
+
+fn workflow_run_inspect<'a>(
+    hud: &'a Hud,
+    run: &'a crate::wire::WorkflowRow,
+    key: &str,
+) -> iced::widget::Column<'a, Message> {
+    let tok = hud.tokens();
+    let mut col = column![].spacing(10);
+    if !run.name.is_empty() {
+        col = col.push(
+            text(run.name.clone())
+                .size(tok.title())
+                .font(typo::UI_BOLD)
+                .color(tok.text),
+        );
+    }
     if !run.objective.is_empty() {
         col = col.push(icedtea::widget::meta(
             "Asked",
@@ -2367,7 +2455,7 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
         ));
         col = col.push(select_bound(
             hud,
-            format!("event.{}.wf.obj", ev.index),
+            format!("{key}.wf.obj"),
             &run.objective,
             tok,
             icedtea::typo::FontFace::Ui,
@@ -2389,7 +2477,7 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
     ));
     col = col.push(select_bound(
         hud,
-        format!("event.{}.wf.happened", ev.index),
+        format!("{key}.wf.happened"),
         &happen_bits.join("  ·  "),
         tok,
         icedtea::typo::FontFace::Ui,
@@ -2405,7 +2493,7 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
             .unwrap_or_else(|| "—".into());
         col = col.push(select_bound(
             hud,
-            format!("event.{}.wf.agents", ev.index),
+            format!("{key}.wf.agents"),
             &format!("{used}/{budget} agents"),
             tok,
             icedtea::typo::FontFace::Ui,
@@ -2419,13 +2507,13 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
         ));
         col = col.push(select_bound(
             hud,
-            format!("event.{}.wf.pause", ev.index),
+            format!("{key}.wf.pause"),
             &run.pause_message,
             tok,
             icedtea::typo::FontFace::Ui,
         ));
     }
-    col.into()
+    col
 }
 
 fn workflow_child_list<'a>(hud: &'a Hud, children: &'a [WorkflowChildRow]) -> Element<'a, Message> {
@@ -2994,23 +3082,20 @@ mod tests {
 
     #[test]
     fn closed_faces_are_plain_text_not_markdown() {
-        let _ = prompt_face("# heading\n\n**bold**", tea());
-        let _ = prompt_face("plain sentence", tea());
-        let _ = prompt_face("", tea());
+        assert_eq!(plain_card_text("# heading\n\n**bold**"), "# heading bold");
         let src = include_str!("view.rs");
         let prod = src.split("#[cfg(test)]").next().expect("prod");
-        let face = prod
-            .split("fn prompt_face")
+        let title = prod
+            .split("fn turn_title")
             .nth(1)
-            .expect("prompt_face")
-            .split("fn plain_face")
+            .expect("turn_title")
+            .split("fn event_note")
             .next()
             .expect("body");
         assert!(
-            !face.contains("md_body"),
+            !title.contains("md_body"),
             "closed faces must not parse markdown per row"
         );
-        assert!(prod.contains("fn plain_face"));
     }
 
     fn event_title_meta(ev: &TimelineEvent) -> String {
@@ -3423,8 +3508,8 @@ mod tests {
         assert!(prod.contains("fn page_body"));
         assert!(prod.contains("overlay_moving()"));
         assert!(prod.contains("page_moving()"));
-        assert!(prod.contains("fn expand_card"));
-        assert!(prod.contains("fn card_actions"));
+        assert!(prod.contains("fn note_list_card"));
+        assert!(prod.contains("fn note_edit_links"));
         assert!(prod.contains("fn card_chips"));
         assert!(prod.contains("fn command_end"));
         assert!(prod.contains("Add note"));
@@ -3433,6 +3518,8 @@ mod tests {
         assert!(prod.contains("ChipKind::Filter"));
         assert!(prod.contains("note_field_input_key"));
         assert!(prod.contains("NOTE_TURN_INPUT"));
+        assert!(prod.contains("icedtea::widget::textarea"));
+        assert!(prod.contains("Message::NoteEdit"));
         // Overview path is selectable; no in-pane Copy path button.
         assert!(!prod.contains("fn overview_commands"));
         assert!(!prod.contains("format!(\"f{}\""));
@@ -3447,7 +3534,6 @@ mod tests {
         assert!(prod.contains("Go to Timeline"));
         assert!(!prod.contains("struct JumpIcon"));
         assert!(!prod.contains("chip_btn(\"Timeline\""));
-        assert!(prod.contains("pattern::command_bar"));
         assert!(prod.contains("TURNS_OVERSCAN"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(prod.contains("turns_tab(hud)"));
@@ -3471,16 +3557,15 @@ mod tests {
         assert!(prod.contains("Search events…"));
         assert!(prod.contains("Search turns"));
         assert!(!prod.contains("Session events"));
-        assert!(prod.contains("fn prompt_face"));
+        assert!(prod.contains("fn turn_title"));
         assert!(!prod.contains("visual_lines("));
         assert!(!prod.contains(".height(height)"));
         assert!(prod.contains("matched in {}:"));
         assert!(prod.contains("fn brand_variant"));
         assert!(!prod.contains("accordion_view"));
-        assert!(prod.contains("widget::expander"));
-        assert!(prod.contains("note_expand_progress"));
-        assert!(!prod.contains("if open { 1.0 } else { 0.0 }"));
-        assert!(prod.contains("Peek::Lines(2)"));
+        assert!(prod.contains("fn note_list_card"));
+        assert!(!prod.contains("widget::expander"));
+        assert!(!prod.contains("Peek::Lines(2)"));
         assert!(prod.contains("fn closed_list_card"));
         assert!(prod.contains("fn event_detail_pane"));
         assert!(prod.contains("fn event_pager"));
@@ -3523,9 +3608,9 @@ mod tests {
         assert!(payload.contains("workflow_event_inspect"));
         assert!(payload.contains("label_badge("));
         let wf_card = prod
-            .split("fn workflow_event_inspect")
+            .split("fn workflow_run_inspect")
             .nth(1)
-            .expect("workflow_event_inspect")
+            .expect("workflow_run_inspect")
             .split("fn workflow_child_list")
             .next()
             .expect("workflow card");
@@ -3599,7 +3684,7 @@ mod tests {
         assert!(!prod.contains("is_timeline_expanded"));
         assert!(!prod.contains("TurnExpand"));
         assert!(!prod.contains("fn turn_body"));
-        assert!(prod.contains("NoteExpand"));
+        assert!(!prod.contains("NoteExpand"));
     }
 
     #[test]
@@ -3692,11 +3777,63 @@ mod tests {
     }
 
     #[test]
+    fn note_card_uses_source_badge_not_source_field() {
+        let src = include_str!("view.rs");
+        let body = src
+            .split("fn note_body")
+            .nth(1)
+            .expect("note_body")
+            .split("fn note_quiet_btn")
+            .next()
+            .expect("body");
+        assert!(body.contains("n.source.trim()"));
+        assert!(body.contains("label_badge"));
+        assert!(body.contains("BrandRole::Cream"));
+        assert!(body.contains("fenced_code_block"));
+        assert!(body.contains("code_inset"));
+        assert!(!body.contains("Source  "));
+    }
+
+    #[test]
     fn notes_tab_virtualizes_cards() {
         let src = include_str!("view.rs");
         let body = src.split("fn notes_tab").nth(1).unwrap_or("");
         assert!(body.contains("widget::virtual_column"));
         assert!(body.contains("Message::NoteScroll"));
+        assert!(body.contains("note_list_card"));
+        assert!(body.contains("Length::Fill"));
+        assert!(body.contains("composing_note"));
+        assert!(body.contains("StartNote"));
+        assert!(body.contains("notes_compose_form"));
+        assert!(body.contains("note_form_schema"));
+        assert!(body.contains("themed_scroll"));
+        assert!(body.contains("note_draft().source.trim()"));
+        assert!(body.contains("label_badge"));
+        assert!(body.contains("CardFace::Outlined"));
+        let field = src
+            .split("fn note_schema_field")
+            .nth(1)
+            .unwrap_or("")
+            .split("fn notes_tab")
+            .next()
+            .unwrap_or("");
+        assert!(field.contains("note_textarea_height"));
+        assert!(body.contains("status_empty"));
+        assert!(body.contains("note_display_fields"));
+        assert!(body.contains("style::card"));
+        let card = src
+            .split("fn note_body")
+            .nth(1)
+            .unwrap_or("")
+            .split("fn note_list_card")
+            .next()
+            .unwrap_or("");
+        assert!(card.contains("markdown_bound"));
+        assert!(card.contains("code_inset"));
+        assert!(card.contains("note_edit_links"));
+        assert!(card.contains("themed_button"));
+        assert!(card.contains("DensityName::Compact"));
+        assert!(card.contains("Length::Fill"));
     }
 
     #[test]

@@ -45,7 +45,6 @@ bind-enable-all = Enable all
 
 bind-export-bundle = Export
 
-bind-flag = Flag
 bind-copy = Copy
 bind-copy-detail = Copy
 
@@ -65,9 +64,9 @@ bind-new = New
 
 bind-new-persona = New persona
 
-bind-note = Note
+bind-note = New note
 
-bind-edit-note = Edit note
+bind-edit-note = Edit
 
 bind-next-pane = Next pane
 
@@ -81,7 +80,7 @@ bind-event-up = Prev event
 
 bind-open = Open
 
-bind-event-reader = Event page
+bind-event-reader = Open
 
 bind-personas = Personas
 
@@ -426,8 +425,6 @@ done = Done
 
 edit = Edit
 
-edit-flag-title = Edit Flag
-
 edit-persona-title = Edit persona · { $pid }
 
 em-dash-dim = [dim]—[/dim]
@@ -494,18 +491,6 @@ extras = Extras
 
 filter-label = Filter
 
-flag-event-title = Flag Event
-
-flag-removed = Flag removed from event #{ $index }
-
-flag-saved = Flag saved on event #{ $index }
-
-flags-blurb = Your annotations on timeline events (verdict + note).
-
-flags-heading = Flags
-
-flags-only = Flags only
-
 new-note-title = New note
 
 edit-note-title = Edit note
@@ -515,14 +500,13 @@ note-saved = Operator note saved (turn { $turn })
 note-updated = Operator note updated (turn { $turn })
 
 note-deleted = Operator note deleted
+notify-delete-note-arm = Press [x] again to delete this note
 
 note-none-to-edit = No notes to edit — press N
 
 note-save-failed = Could not save operator note: { $msg }
 
 note-turn-invalid = Choose a valid turn before saving
-
-notes-blurb = N add · O edit or delete
 
 notes-empty-preview = (empty)
 
@@ -538,7 +522,7 @@ notes-only = Notes only
 
 pick-note-title = Choose a note to edit
 
-tip-no-notes = No notes yet — press N
+tip-no-notes = No notes yet
 
 turn-label = Turn:
 
@@ -740,7 +724,7 @@ search = Search
 
 search-events-placeholder = Search events…  (/)
 
-search-sessions-placeholder = Search…  is:host  has:workflows  errors:>20
+search-sessions-placeholder = Search…  is:host  has:goals  has:subagents  errors:>20
 
 search-mcp-placeholder = search MCP…
 
@@ -777,7 +761,7 @@ skills-title = Skills
 
 tab-diff = 3 Diff
 
-tab-report = 4 Report
+tab-notes = 4 Notes
 
 tab-summary = 2 Summary
 
@@ -806,8 +790,6 @@ theme = Theme
 this-launch-only-dim = [dim]this launch only[/dim]
 
 time-breakdown = Time breakdown
-
-tip-no-flags = No flags yet — select a Timeline event, then press `f`
 
 tip-no-personas = No personas — press `n` to create one.
 
@@ -1027,11 +1009,10 @@ ui-feedback = Feedback
 
 ui-feedback-batch = [bold]Feedback batch:[/bold]
 
-ui-field-select-report-view-select = field-select report-view-select
-
 ui-field-select-session-filter-select = field-select session-filter-select
 
 ui-filter = Filter
+ui-turn = Turn
 
 ui-timeline-tail = Tail
 
@@ -1040,10 +1021,6 @@ ui-finished = Finished
 ui-finished-1 = finished:
 
 ui-finished-in-1 = [/bold] finished in
-
-ui-flagged = FLAGGED
-
-ui-flags-2 = Flags
 
 ui-follow-up-failed-for-s = follow-up failed for %s
 
@@ -1132,6 +1109,8 @@ ui-inactive-model-s-not-in-grok-models-models-cache = inactive model(s) (not in 
 ui-inherit-from-runner-run-config = (inherit from runner / run config)
 
 ui-input = Input
+
+ui-output = Output
 
 ui-interactive-follow-ups-open-the-session-in-the-b = [dim]Interactive follow-ups: open the session in the browser (pending bar while the eval is not finished).[/dim]
 
@@ -1271,11 +1250,7 @@ ui-copied-selection = Copied selection to clipboard
 
 ui-copied-detail = Copied detail to clipboard
 
-ui-copied-report = Copied report to clipboard
-
 ui-copied-content = Copied to clipboard
-
-ui-copied-finding = Copied finding (Issue box) to clipboard
 
 ui-nothing-to-copy = Nothing to copy
 
@@ -1371,16 +1346,6 @@ ui-repo-path-1 = path:
 
 ui-repo-path-requires-single-model = Local path mounts a live host directory — select a single model only
 
-ui-report =  (report)
-
-ui-report-static-s-missing = report static %s missing
-
-ui-report-unavailable = report unavailable
-
-ui-report-uses-selected =  [dim](report uses selected)[/dim]
-
-ui-report-view-select-sync-failed = report view select sync failed
-
 ui-repository = [cyan]repository[/cyan]
 
 ui-required = required,
@@ -1459,10 +1424,6 @@ ui-session-error-1 = [bold red]session error[/]
 ui-session-id = Session ID
 
 ui-session-model-select-update-failed = session model select update failed
-
-ui-session-report =
-    Session report
-    
 
 ui-set-models-above = ; set models above
 
@@ -1591,6 +1552,20 @@ ui-tools = Tools
 ui-total-1 = Total
 
 ui-total-2 = TOTAL
+
+ui-untitled-session = session
+
+ui-tools-error-count = { $tools } · { $errors } errors
+
+ui-open-status = open
+
+ui-stats-total = total
+
+ui-stats-overhead = overhead
+
+ui-stats-none = (none)
+
+ui-event-kind = event
 
 ui-transport = transport
 
@@ -1725,7 +1700,6 @@ notify-control-list-failed = Control catalog failed: { $err }
 notify-control-session-failed = Control session load failed: { $err }
 notify-loaded-sessions = Loaded { $n } sessions
 notify-model-filter = Model filter: { $label }
-flagged-at-when = Flagged at { $when }
 truncate-marker = …truncated…
 truncate-for-display = …truncated for display…
 sessions-home-summary = { $total } sessions
@@ -1766,7 +1740,6 @@ persona-saved = Saved persona { $pid }
 persona-configure-title = Configure { $name }
 browser-high-chip = { $n } high
 browser-medium-chip = { $n } medium
-browser-flags-count = Flags ({ $n })
 
 browser-notes-count = Notes ({ $n })
 browser-status-none = none
@@ -1776,7 +1749,6 @@ browser-follow-ups-pending = { $n } follow-up(s) pending
 browser-follow-up-staged = Follow-up staged (waiting for agent)
 browser-follow-up-staged-final = Last turn staged (session ends after this turn)
 browser-more-queued = … +{ $n } more
-browser-flags-dim = { $n } flags
 browser-viewing-focus = Viewing: { $focus }
 browser-more-children = … +{ $n } more
 browser-report-error = Error: { $msg }

@@ -20,6 +20,7 @@ from ..notes import (
     NotesConflict,
     NotesSnapshot,
     notes_snapshot,
+    require_note_source,
 )
 from ..session.access import LocalSessionAccess, notes_snapshot_mapping
 
@@ -187,6 +188,7 @@ def _note_mapping(note: NoteEntry) -> JsonObject:
     return {
         "id": note.id,
         "turnIndex": note.turn_index,
+        "source": note.source,
         "fields": dict(note.fields),
         "eventIndices": list(note.event_indices),
         "createdAt": note.created_at,
@@ -277,6 +279,10 @@ def _note_from_params(data: JsonObject) -> NoteEntry:
     event_indices = (
         [json_as_int(value) for value in raw_indices] if isinstance(raw_indices, list) else []
     )
+    try:
+        source = require_note_source(data.get("source"))
+    except ValueError as exc:
+        raise ControlError(-32602, str(exc)) from exc
     return NoteEntry(
         id=note_id,
         turn_index=json_as_int(data.get("turnIndex")),
@@ -284,6 +290,7 @@ def _note_from_params(data: JsonObject) -> NoteEntry:
         event_indices=event_indices,
         created_at=created_at,
         updated_at=updated_at,
+        source=source,
     )
 
 

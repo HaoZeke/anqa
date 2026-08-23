@@ -172,6 +172,35 @@ def test_build_session_usage(tmp_path: Path) -> None:
     assert "mcpServers" in usage
 
 
+def test_build_session_overview_notes_include_source_and_foreign_fields(
+    tmp_path: Path,
+) -> None:
+    from groket.notes import NoteEntry, notes_snapshot, upsert_note
+    from groket.session.control_views import build_session_overview
+
+    sd = _write_session(tmp_path, "sess-ov-notes")
+    before = notes_snapshot(sd)
+    upsert_note(
+        sd,
+        NoteEntry.new(
+            turn_index=0,
+            source="mf-plugin",
+            fields={"rule_id": "MF-12", "title": "unchecked return"},
+            note_id="n-ov",
+        ),
+        expected_revision=before.revision,
+    )
+
+    ov = build_session_overview(sd)
+    notes = ov["notes"]["notes"]
+    assert len(notes) == 1
+    row = notes[0]
+    assert row["id"] == "n-ov"
+    assert row["source"] == "mf-plugin"
+    assert row["fields"]["rule_id"] == "MF-12"
+    assert row["fields"]["title"] == "unchecked return"
+
+
 def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     from groket.session.control_views import build_session_overview
 

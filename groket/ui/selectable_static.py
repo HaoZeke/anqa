@@ -25,8 +25,9 @@ from textual.selection import Selection
 from textual.visual import VisualType
 from textual.widgets import Static
 
-# Markdown chrome bake width (Rules never use this).
-_PROSE_WIDTH = 10_000
+# Markdown bake width. Rich headings include a Rule of this width — do
+# not use a huge value or Notes cards explode into a wall of dashes.
+_MD_WIDTH = 88
 _CHROME_WIDTH = 100
 
 
@@ -215,7 +216,7 @@ def to_display_content(renderable: object) -> Content | str:
     if isinstance(renderable, Rule):
         return _rule_content(renderable)
     if isinstance(renderable, Markdown):
-        content = _styled_content(renderable, width=_PROSE_WIDTH)
+        content = _styled_content(renderable, width=_MD_WIDTH)
         if content.plain.strip():
             return content
         markup = str(getattr(renderable, "markup", None) or "")

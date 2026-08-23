@@ -1,8 +1,8 @@
-"""Turn-linked operator notes (session TOML + optional schema).
+"""Turn-linked notes (session TOML + optional in-app form schema).
 
-Schema: ``~/.groket/notes_schema.toml`` (default fields: summary, detail).
-Optional per-field ``choices`` with ``pick`` = ``one-of`` | ``many`` for
-constrained values (dropdown / multi-select). Session file:
+Schema: ``~/.groket/notes_schema.toml`` (default fields: summary, detail)
+is the in-app form layout only. Every write must include a non-empty
+``source``. Extra field keys are stored as sent. Session file:
 ``<session_dir>/operator_notes.toml``, fallback under
 ``~/.groket/notes/<session_id>/``. Host Grok sessions under ``~/.grok/sessions``
 (and any symlinked session dir) always write the fallback so the live host
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 NOTES_FILENAME = "operator_notes.toml"
 SCHEMA_FILENAME = "notes_schema.toml"
 _FIELD_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+
+NOTE_SOURCE_TUI = "tui"
+NOTE_SOURCE_HUD = "hud"
+NOTE_SOURCE_NVIM = "nvim"
+NOTE_SOURCE_EMACS = "emacs"
 
 # Constrained field cardinality (only when ``choices`` is non-empty).
 PICK_ONE_OF = "one-of"
@@ -68,6 +73,29 @@ class NotesSchema:
 
     schema_id: str = "default"
     fields: list[FieldSpec] = field(default_factory=list)
+
+
+def form_field_specs(
+    schema: NotesSchema, fields: Mapping[str, str] | None = None
+) -> list[FieldSpec]:
+    """Schema fields, then extra keys from *fields* as free-text specs.
+
+    :param schema: In-app form layout (``notes_schema.toml``).
+    :param fields: Stored note bag; keys not in *schema* become unconstrained
+        fields labeled with the stored id.
+    :returns: Specs to mount on the edit form, schema order then extras.
+    """
+    out = list(schema.fields)
+    seen = {spec.id for spec in out}
+    if not fields:
+        return out
+    for key in fields:
+        kid = str(key).strip()
+        if not kid or kid in seen:
+            continue
+        seen.add(kid)
+        out.append(FieldSpec(id=kid, label=kid))
+    return out
 
 
 def normalize_pick(value: object) -> str:
@@ -131,9 +159,36 @@ def encode_many_choices(selected: Sequence[str], choices: Sequence[str]) -> str:
     return "\n".join(ordered)
 
 
+def foreign_note_source(source: str, *, surface: str) -> str:
+    """Return *source* when it is set and is not this *surface*.
+
+    :param source: Stored writer (``tui``, ``hud``, ``nvim``, plugin id, …).
+    :param surface: The viewing client (``tui`` or ``hud``).
+    :returns: Source to show, or empty when this surface wrote the note.
+    """
+    src = (source or "").strip()
+    face = (surface or "").strip()
+    if not src or src == face:
+        return ""
+    return src
+
+
+def require_note_source(value: object) -> str:
+    """Return a stripped source, or raise if missing or blank.
+
+    :param value: Client-supplied source (who wrote the note).
+    :returns: Non-empty source string.
+    :raises ValueError: When *value* is missing or blank.
+    """
+    raw = str(value).strip() if value is not None else ""
+    if not raw:
+        raise ValueError("note source is required")
+    return raw
+
+
 @dataclass
 class NoteEntry:
-    """One operator note, usually linked to a turn."""
+    """One note: free field map plus the client that wrote it."""
 
     id: str
     turn_index: int
@@ -141,12 +196,14 @@ class NoteEntry:
     event_indices: list[int] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    source: str = ""
 
     @classmethod
     def new(
         cls,
         *,
         turn_index: int,
+        source: str = NOTE_SOURCE_TUI,
         fields: dict[str, str] | None = None,
         event_indices: list[int] | None = None,
         note_id: str | None = None,
@@ -159,6 +216,7 @@ class NoteEntry:
             event_indices=list(event_indices or []),
             created_at=now,
             updated_at=now,
+            source=require_note_source(source),
         )
 
 
@@ -289,6 +347,8 @@ def dump_notes_toml(doc: NotesDoc) -> str:
         lines.append("[[notes]]")
         lines.append(f"id = {_toml_str(note.id)}")
         lines.append(f"turn_index = {int(note.turn_index)}")
+        if note.source:
+            lines.append(f"source = {_toml_str(note.source)}")
         if note.created_at:
             lines.append(f"created_at = {_toml_str(note.created_at)}")
         if note.updated_at:
@@ -393,6 +453,7 @@ def _note_from_mapping(item: JsonObject) -> NoteEntry | None:
         event_indices=event_indices,
         created_at=str(item.get("created_at") or ""),
         updated_at=str(item.get("updated_at") or ""),
+        source=str(item.get("source") or "").strip(),
     )
 
 
@@ -466,7 +527,12 @@ def upsert_note(
     *,
     expected_revision: str,
 ) -> NotesSnapshot:
-    """Upsert one note when *expected_revision* is still canonical."""
+    """Upsert one note when *expected_revision* is still canonical.
+
+    :raises ValueError: When *entry.source* is missing or blank.
+    :raises NotesConflict: When *expected_revision* is stale.
+    """
+    require_note_source(entry.source)
     session_dir = Path(session_dir)
     with _notes_lock(session_dir):
         current = notes_snapshot(session_dir)
@@ -498,8 +564,7 @@ def delete_note(
 def notes_mtime(session_dir: Path) -> float:
     """Newest mtime of session or fallback notes files (0 if none).
 
-    Used by analysis cache invalidation so operator-note edits refresh
-    deferred automated reviews.
+    Callers re-read notes when this mtime moves.
 
     :param session_dir: Grok session directory.
     :returns: Unix mtime, or ``0.0`` when no notes file exists.

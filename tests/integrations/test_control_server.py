@@ -355,6 +355,7 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
         entry = {
             "id": "n-socket",
             "turnIndex": 0,
+            "source": "tui",
             "fields": {"summary": "Socket note", "detail": "Inspect the event."},
             "eventIndices": [1],
         }
@@ -433,10 +434,16 @@ async def test_control_server_rejects_unroundtrippable_note_tokens(tmp_path: Pat
         revision = listed["result"]["revision"]
         for request_id, note in enumerate(
             [
-                {"id": "spaced id", "turnIndex": 0, "fields": {"summary": "x"}},
-                {"id": "n --> gone", "turnIndex": 0, "fields": {"summary": "x"}},
-                {"id": "n-ok", "turnIndex": 0, "fields": {"bad field": "x"}},
-                {"id": "n-ok", "turnIndex": 0, "fields": {"summary": "x"}, "createdAt": "a b"},
+                {"id": "spaced id", "turnIndex": 0, "source": "tui", "fields": {"summary": "x"}},
+                {"id": "n --> gone", "turnIndex": 0, "source": "tui", "fields": {"summary": "x"}},
+                {"id": "n-ok", "turnIndex": 0, "source": "tui", "fields": {"bad field": "x"}},
+                {
+                    "id": "n-ok",
+                    "turnIndex": 0,
+                    "source": "tui",
+                    "fields": {"summary": "x"},
+                    "createdAt": "a b",
+                },
             ],
             start=2,
         ):
@@ -448,6 +455,81 @@ async def test_control_server_rejects_unroundtrippable_note_tokens(tmp_path: Pat
                 {"session": session_dir.name, "expectedRevision": revision, "note": note},
             )
             assert response["error"]["code"] == -32602
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_control_notes_upsert_requires_source_and_keeps_foreign_fields(
+    tmp_path: Path,
+) -> None:
+    control = import_module("groket.integrations.control")
+    session_dir = tmp_path / "session-foreign"
+    _write_session(session_dir)
+    server = control.ControlServer(
+        socket_path=_short_sock("foreign-notes.sock"),
+        resolve_session=lambda reference: session_dir if reference == session_dir.name else None,
+    )
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(server.socket_path)
+        listed = await _request(reader, writer, 1, "notes/list", {"session": session_dir.name})
+        revision = listed["result"]["revision"]
+        missing = await _request(
+            reader,
+            writer,
+            2,
+            "notes/upsert",
+            {
+                "session": session_dir.name,
+                "expectedRevision": revision,
+                "note": {
+                    "id": "n-mf",
+                    "turnIndex": 0,
+                    "fields": {"rule_id": "MF-12", "title": "unchecked return"},
+                },
+            },
+        )
+        assert missing["error"]["code"] == -32602
+        blank = await _request(
+            reader,
+            writer,
+            3,
+            "notes/upsert",
+            {
+                "session": session_dir.name,
+                "expectedRevision": revision,
+                "note": {
+                    "id": "n-mf",
+                    "turnIndex": 0,
+                    "source": "  ",
+                    "fields": {"rule_id": "MF-12"},
+                },
+            },
+        )
+        assert blank["error"]["code"] == -32602
+        saved = await _request(
+            reader,
+            writer,
+            4,
+            "notes/upsert",
+            {
+                "session": session_dir.name,
+                "expectedRevision": revision,
+                "note": {
+                    "id": "n-mf",
+                    "turnIndex": 1,
+                    "source": "mf-plugin",
+                    "fields": {"rule_id": "MF-12", "title": "unchecked return"},
+                },
+            },
+        )
+        note = saved["result"]["notes"][0]
+        assert note["source"] == "mf-plugin"
+        assert note["fields"]["rule_id"] == "MF-12"
+        assert note["fields"]["title"] == "unchecked return"
         writer.close()
         await writer.wait_closed()
     finally:

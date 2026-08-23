@@ -98,6 +98,16 @@ def test_to_display_content_markdown_is_content() -> None:
     assert len(disp.spans) >= 1
 
 
+def test_markdown_heading_bake_stays_card_width() -> None:
+    """A heading must not bake a thousands-column Rule into the note card."""
+    disp = to_display_content(Markdown("# test\n\n- a\n- b\n\n```python\nimport json\n```"))
+    assert isinstance(disp, Content)
+    longest = max((len(line) for line in disp.plain.splitlines()), default=0)
+    assert longest < 120
+    assert "test" in disp.plain
+    assert "import json" in disp.plain
+
+
 def test_to_display_content_syntax_keeps_highlight_spans() -> None:
     """Tool Input/Output uses product Syntax highlight colors (not plain dump)."""
     from groket.ui.render_detail import _syntax
@@ -174,7 +184,7 @@ async def test_tool_detail_selectable_static_keeps_long_syntax_tail() -> None:
     async with app.run_test(size=(100, 40)):
         dv = app.query_one("#detail", DetailView)
         dv.show_event(ev)
-        body = dv.query_one("#detail-body", SelectableStatic)
+        body = dv.query_one("#detail-body-input", SelectableStatic)
         plain = body.get_plain_text()
         assert tail in plain
         assert isinstance(body.content, Content)
@@ -229,34 +239,34 @@ async def test_tool_detail_input_output_is_drag_selectable() -> None:
         dv = app.query_one("#detail", DetailView)
         dv.show_event(ev)
         await pilot.pause()
-        body = dv.query_one("#detail-body", SelectableStatic)
-        assert isinstance(body.content, Content)
-        plain = body.get_plain_text()
-        assert "UNIQUE_IN" in plain
-        assert "UNIQUE_OUT" in plain
-        # Selection coords use display plain (may differ from source yank plain).
-        lines = body._select_plain.splitlines()
+        inp = dv.query_one("#detail-body-input", SelectableStatic)
+        out = dv.query_one("#detail-body-output", SelectableStatic)
+        assert isinstance(inp.content, Content)
+        assert isinstance(out.content, Content)
+        assert "UNIQUE_IN" in inp.get_plain_text()
+        assert "UNIQUE_OUT" in out.get_plain_text()
+        assert "UNIQUE_OUT" not in inp.get_plain_text()
+        lines = out._select_plain.splitlines()
         idx = next(i for i, ln in enumerate(lines) if "UNIQUE_OUT" in ln)
         sel = Selection(Offset(0, idx), Offset(len(lines[idx]), idx))
-        got = body.get_selection(sel)
+        got = out.get_selection(sel)
         assert got is not None
         assert "UNIQUE_OUT" in got[0]
         assert "UNIQUE_IN" not in got[0]
 
         # Real mouse drag should produce a non-empty selection extract.
-        region = body.content_region
+        region = out.content_region
         lx = 2
         y0 = 1
         y1 = min(region.height - 1, 8)
-        await pilot.mouse_down(body, offset=(lx, y0))
+        await pilot.mouse_down(out, offset=(lx, y0))
         for y in range(y0, y1 + 1):
-            await pilot.hover(body, offset=(lx, y))
-        await pilot.mouse_up(body, offset=(lx, y1))
+            await pilot.hover(out, offset=(lx, y))
+        await pilot.mouse_up(out, offset=(lx, y1))
         await pilot.pause()
         selected = app.screen.get_selected_text()
         assert selected is not None and selected.strip() != ""
-        # Partial span — not forced SELECT_ALL of the whole body unless drag covers it.
-        assert body.ALLOW_SELECT is True
+        assert out.ALLOW_SELECT is True
 
 
 def test_group_plain_preserves_line_for_partial_extract() -> None:
@@ -531,7 +541,7 @@ async def test_detail_view_yank_keeps_full_tool_output_past_display_cap() -> Non
             raw_input={"command": "echo hi"},
         )
         dv.show_event(ev)
-        body = dv.query_one("#detail-body", SelectableStatic)
+        body = dv.query_one("#detail-body-output", SelectableStatic)
         display_plain = body.get_plain_text()
         yank = dv.get_plain_text()
         assert middle in yank
@@ -554,7 +564,7 @@ async def test_detail_view_multiline_message_partial_line() -> None:
             content="line alpha\nline bravo UNIQUE99\nline charlie",
         )
         dv.show_event(ev)
-        body = dv.query_one("#detail-body", SelectableStatic)
+        body = dv.query_one("#detail-body-message", SelectableStatic)
         plain = body.get_plain_text()
         assert "UNIQUE99" in plain
         lines = body._select_plain.splitlines()
@@ -618,7 +628,7 @@ async def test_action_copy_detail_yanks_full_body() -> None:
 
 
 def test_action_copy_detail_report_without_focus_is_nothing() -> None:
-    """On Report with no selection and no focused pane, y does not join siblings."""
+    """On Notes with no selection and no focused card, y does not join siblings."""
     from types import SimpleNamespace
 
     from groket.ui.screens.browser import BrowserScreen
@@ -629,7 +639,7 @@ def test_action_copy_detail_report_without_focus_is_nothing() -> None:
         get_selected_text=lambda: None,
         focused=None,
         _selected_finding=None,
-        _active_browser_tab=lambda: "tab-reports",
+        _active_browser_tab=lambda: "tab-notes",
         _collect_active_tab_plain_text=lambda: ("", "none"),
         app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
         notify=lambda msg, **kwargs: notes.append(str(msg)),
@@ -640,7 +650,7 @@ def test_action_copy_detail_report_without_focus_is_nothing() -> None:
 
 
 def test_action_copy_detail_yanks_focused_report_pane() -> None:
-    """Focused Report sub-pane (e.g. Issue box) yanks only that pane body."""
+    """Focused Notes card yanks only that card body."""
     from types import SimpleNamespace
 
     from groket.ui.screens.browser import BrowserScreen
@@ -659,7 +669,7 @@ def test_action_copy_detail_yanks_focused_report_pane() -> None:
         get_selected_text=lambda: None,
         focused=focused,
         _selected_finding=None,
-        _active_browser_tab=lambda: "tab-reports",
+        _active_browser_tab=lambda: "tab-notes",
         _collect_active_tab_plain_text=lambda: ("whole report", "report"),
         app=SimpleNamespace(copy_to_clipboard=lambda text: copied.append(text)),
         notify=lambda msg, **kwargs: notes.append(str(msg)),
@@ -702,20 +712,20 @@ async def test_multipane_focused_only_via_real_widgets() -> None:
 
     class _Multi(App):
         def compose(self) -> ComposeResult:
-            yield SelectableStatic("PANE_A_ONLY unique-aaa", id="report-overview-content")
-            yield SelectableStatic("PANE_B_ONLY unique-bbb", id="report-flags-content")
+            yield SelectableStatic("PANE_A_ONLY unique-aaa", id="note-a-body")
+            yield SelectableStatic("PANE_B_ONLY unique-bbb", id="note-b-body")
 
     app = _Multi()
     async with app.run_test():
-        a = app.query_one("#report-overview-content", SelectableStatic)
-        b = app.query_one("#report-flags-content", SelectableStatic)
+        a = app.query_one("#note-a-body", SelectableStatic)
+        b = app.query_one("#note-b-body", SelectableStatic)
         a.focus()
         copied: list[str] = []
         host = SimpleNamespace(
             get_selected_text=lambda: None,
             focused=a,
             _selected_finding=None,
-            _active_browser_tab=lambda: "tab-reports",
+            _active_browser_tab=lambda: "tab-notes",
             _collect_active_tab_plain_text=lambda: (
                 f"{a.get_plain_text()}\n\n{b.get_plain_text()}",
                 "report",

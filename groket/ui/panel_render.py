@@ -16,7 +16,7 @@ import re
 from contextlib import suppress
 
 from rich.console import Group, RenderableType
-from rich.markdown import Markdown
+from rich.markdown import Heading, Markdown
 from rich.padding import Padding
 from rich.rule import Rule
 from rich.text import Text
@@ -25,6 +25,18 @@ from textual.widgets import Static
 from .keys import format_key_chord
 
 EMPTY_STATE_CLASS = "empty-state"
+
+
+class _LeftHeading(Heading):
+    """Rich centers ``#`` headings; note cards and detail stay left."""
+
+    LEVEL_ALIGN = {**Heading.LEVEL_ALIGN, "h1": "left"}
+
+
+class LeftMarkdown(Markdown):
+    """Product markdown: headings stay left (``justify=`` only covers paragraphs)."""
+
+    elements = {**Markdown.elements, "heading_open": _LeftHeading}
 
 
 def looks_like_markdown(text: str) -> bool:
@@ -51,7 +63,7 @@ def md_content(text: str, *, max_chars: int = 120000, indent: int = 2) -> Render
         body = body[:half] + "\n\n…\n\n" + body[-half:]
     rendered: RenderableType
     try:
-        rendered = Markdown(body)
+        rendered = LeftMarkdown(body)
     except Exception:
         rendered = Text(body)
     if indent:
@@ -80,6 +92,33 @@ def section_header(title: str) -> Text:
     return t
 
 
+def format_stamp(iso: str) -> str:
+    """Short card time: ``2026-08-22T03:25:29Z`` → ``Aug 22, 03:25``."""
+    s = (iso or "").strip()
+    if len(s) < 16 or s[4] != "-":
+        return s
+    months = (
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    )
+    try:
+        month = months[int(s[5:7]) - 1]
+        day = int(s[8:10])
+    except (ValueError, IndexError):
+        return s
+    return f"{month} {day}, {s[11:16]}"
+
+
 def kv_line(key: str, value: str, *, key_width: int = 12) -> Text:
     t = Text()
     t.append(f"  {key:<{key_width}} ", style="dim")
@@ -105,7 +144,7 @@ def bullet(label: str, *, detail: str = "") -> Text:
 
 def status_chip(label: str, *, kind: str = "unknown") -> Text:
     """Inline status using the shared run/outcome palette."""
-    from .styles import status_rich_style
+    from .styles import EMPHASIS, status_rich_style
 
     kind_l = (kind or "unknown").lower()
     if kind_l in ("ok", "success", "completed"):
@@ -118,6 +157,8 @@ def status_chip(label: str, *, kind: str = "unknown") -> Text:
         style = status_rich_style("ending")
     elif kind_l in ("pending", "idle", "unknown"):
         style = status_rich_style("idle")
+    elif kind_l in ("source", "chrome"):
+        style = f"bold {EMPHASIS}"
     else:
         style = status_rich_style(kind_l)
     chip = Text()
@@ -193,7 +234,7 @@ def _append_tip_body(t: Text, message: str, *, body_style: str = "dim") -> None:
 class EmptyState(Static):
     """Quiet empty-pane chrome: one dim line, no border.
 
-    Use when a section has nothing to show yet (no flags, no notes, no analysis).
+    Use when a section has nothing to show yet (no flags, no notes).
     Keys stay in the Footer and ``?``. Always visible when a message is set.
     """
 

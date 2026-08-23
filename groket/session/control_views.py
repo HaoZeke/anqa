@@ -537,6 +537,7 @@ class SessionOverview:
                     {
                         "id": note.id,
                         "turnIndex": note.turn_index,
+                        "source": note.source,
                         "fields": dict(note.fields),
                         "eventIndices": list(note.event_indices),
                         "createdAt": note.created_at,

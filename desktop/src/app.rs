@@ -17,9 +17,10 @@ use serde_json::{json, Value};
 
 use crate::control::{self, ControlError};
 use crate::format::{
-    control_down_message, event_body_text, extract_event, extract_turn, is_chat_message,
-    list_status_label, looks_like_markdown, message_markdown_source, new_note_id, note_fields_view,
-    tool_fields_from_raw, workflow_for_event,
+    control_down_message, event_body_text, extract_event, extract_turn, fenced_code_block,
+    format_note_time, is_chat_message, list_status_label, looks_like_markdown,
+    message_markdown_source, new_note_id, note_display_fields, tool_fields_from_raw,
+    workflow_for_event,
 };
 use crate::fuzzy::session_search_indices;
 use crate::live::{
@@ -27,15 +28,15 @@ use crate::live::{
     filter_turn_indices, first_list_fetch, is_partial_list_page, is_soft_notes_save_error,
     last_timeline_page_offset, list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top,
     merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
-    note_card_height, note_field_input_key, note_text_input_keys, notes_schema_fields,
-    patch_catalog_delta, patch_list_row_from_meta, plan_tick, previous_timeline_page,
-    scroll_after_prepend, session_card_height, session_needs_live_poll, session_rpc_ref,
-    should_fetch_timeline, should_load_previous_timeline, should_page_recent, spotlight_recent,
-    timeline_coverage_complete, timeline_page_next, timeline_range_label, timeline_window_start,
-    trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput, AGENT_ROW_H,
-    CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_TAIL_LIMIT, OVERVIEW_LIST_ROW_H, SPOTLIGHT_RECENT,
-    STATS_ROW_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_PREVIEW_CHARS,
-    TIMELINE_ROW_H,
+    note_card_height, note_field_input_key, note_form_fields, note_text_input_keys,
+    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
+    previous_timeline_page, scroll_after_prepend, session_card_height, session_needs_live_poll,
+    session_rpc_ref, should_fetch_timeline, should_load_previous_timeline, should_page_recent,
+    spotlight_recent, timeline_coverage_complete, timeline_page_next, timeline_range_label,
+    timeline_window_start, trim_timeline_buffer, wants_periodic_poll, CardMark, TickInput,
+    AGENT_ROW_H, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_TAIL_LIMIT, OVERVIEW_LIST_ROW_H,
+    SPOTLIGHT_RECENT, STATS_ROW_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
+    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -68,6 +69,7 @@ enum DetailTurnEdge {
 #[derive(Debug, Clone)]
 pub enum Message {
     OsMode(icedtea::iced::theme::Mode),
+    OsChrome(icedtea::theme::OsChrome),
     SearchChanged(String),
     SelectSession(usize),
     OpenChild {
@@ -104,6 +106,10 @@ pub enum Message {
     NoteField {
         id: String,
         value: String,
+    },
+    NoteEdit {
+        id: String,
+        action: iced::widget::text_editor::Action,
     },
     NoteTurn(String),
     SaveNote,
@@ -234,6 +240,7 @@ struct ParentFrame {
     timeline_query_draft: String,
     timeline_focus: Option<i64>,
     timeline_open: Option<i64>,
+    workflow_inspect_id: Option<String>,
     timeline_prompt: Option<i64>,
     events_turn_index: Option<i64>,
     turns_focus: Option<i64>,
@@ -309,6 +316,8 @@ pub struct Hud {
     timeline_follow_tail: bool,
     /// Full-pane event detail on Timeline (not an in-list expander).
     timeline_open: Option<i64>,
+    /// Overview workflow inspect when the run has no Timeline bookend.
+    workflow_inspect_id: Option<String>,
     /// After a turn-boundary step, open first/last event once the page loads.
     detail_turn_edge: Option<DetailTurnEdge>,
     /// `session/timeline` promptIndex filter (operator meta on the turn).
@@ -339,6 +348,7 @@ pub struct Hud {
     tl_search_id: Id,
     theme_name: String,
     appearance: icedtea::theme::Appearance,
+    os_chrome: icedtea::theme::OsChrome,
     _hotkeys: Option<GlobalHotKeyManager>,
     _tray: Option<crate::tray::HudTray>,
     _summon: Option<crate::summon::SummonServer>,
@@ -374,6 +384,8 @@ pub struct Hud {
     catalog_busy: bool,
     notes_open: HashSet<String>,
     note_motion: HashMap<String, Animation<bool>>,
+    /// Highlighted note id on the Notes list (`list.down` / edit / delete).
+    notes_focus: Option<String>,
     /// Last focused Turns row (`turns.timeline`, `edit.copy`).
     turns_focus: Option<i64>,
     turns_query: String,
@@ -478,6 +490,7 @@ impl Default for Hud {
             timeline_focus: None,
             timeline_follow_tail: false,
             timeline_open: None,
+            workflow_inspect_id: None,
             detail_turn_edge: None,
             timeline_prompt: None,
             events_turn_index: None,
@@ -506,8 +519,13 @@ impl Default for Hud {
             typing_notes: false,
             search_id: Id::new("search"),
             tl_search_id: Id::new("tl-search"),
-            theme_name: prefs::theme_name(),
+            theme_name: theme::resolve_name(
+                &prefs::theme_name(),
+                icedtea::theme::Appearance::Dark,
+                prefs::follow_os(),
+            ),
             appearance: icedtea::theme::Appearance::Dark,
+            os_chrome: icedtea::theme::OsChrome::empty(),
             _hotkeys: None,
             _tray: None,
             _summon: None,
@@ -543,6 +561,7 @@ impl Default for Hud {
             catalog_busy: false,
             notes_open: HashSet::new(),
             note_motion: HashMap::new(),
+            notes_focus: None,
             turns_focus: None,
             turns_query: String::new(),
             turns_filter: vec![],
@@ -816,7 +835,16 @@ impl Hud {
     }
 
     fn theme(&self, _window: window::Id) -> Theme {
-        theme::iced_theme(&self.theme_name)
+        let pref = prefs::theme_name();
+        let name = theme::resolve_name(&pref, self.appearance, prefs::follow_os());
+        let tok = theme::paint_tokens(
+            &pref,
+            self.appearance,
+            prefs::follow_os(),
+            self.look,
+            self.os_chrome,
+        );
+        icedtea::theme::iced_theme(&name, tok)
     }
 
     /// Overlay: clear window fill so [`tokens`][`Self::tokens`] fade the card.
@@ -842,6 +870,7 @@ impl Hud {
             summon_subscription(),
             notify_subscription(),
             icedtea::iced::system::theme_changes().map(Message::OsMode),
+            icedtea::theme::listen_os_chrome().map(Message::OsChrome),
         ];
         if self.needs_motion_tick() {
             subs.push(window::frames().map(|_| Message::Tick));
@@ -863,6 +892,10 @@ impl Hud {
             Message::OsMode(mode) => {
                 self.appearance = icedtea::theme::Appearance::from_mode(mode);
                 self.sync_theme();
+                Task::none()
+            }
+            Message::OsChrome(chrome) => {
+                self.os_chrome = chrome;
                 Task::none()
             }
             Message::SearchChanged(q) => {
@@ -1153,8 +1186,15 @@ impl Hud {
                     id: String::new(),
                     turn_index: turn,
                     event_index: event,
+                    source: String::new(),
                     fields: vec![],
+                    editors: std::collections::BTreeMap::new(),
                 };
+                for spec in self.notes_schema() {
+                    if !spec.constrained() {
+                        self.note_draft.bind_editor(&spec.id, "");
+                    }
+                }
                 self.note_compose_lock = true;
                 self.typing_notes = true;
                 self.tab = Tab::Notes;
@@ -1170,10 +1210,17 @@ impl Hud {
                 self.note_compose_lock = false;
                 self.typing_notes = false;
                 self.note_saving = false;
-                self.focus_first_note_field()
+                Task::none()
             }
             Message::NoteField { id, value } => {
                 self.note_draft.set_field(&id, value);
+                self.note_compose_lock = true;
+                self.typing_notes = true;
+                self.remember_note_field(&id);
+                Task::none()
+            }
+            Message::NoteEdit { id, action } => {
+                self.note_draft.edit(&id, action);
                 self.note_compose_lock = true;
                 self.typing_notes = true;
                 self.remember_note_field(&id);
@@ -1827,7 +1874,7 @@ impl Hud {
         let paths: Vec<String> = self
             .all_sessions
             .iter()
-            .map(|r| r.git_repo.clone())
+            .map(|r| r.run_dir.clone())
             .filter(|p| !p.is_empty())
             .collect();
         suggest_last_token(&self.query, &models, &paths)
@@ -1848,7 +1895,8 @@ impl Hud {
         crate::help::KeyScope {
             browse: self.browse_mode(),
             help_open: self.help_open,
-            timeline_detail: self.tab == Tab::Timeline && self.timeline_open.is_some(),
+            timeline_detail: self.tab == Tab::Timeline
+                && (self.timeline_open.is_some() || self.workflow_inspect_id.is_some()),
             awaiting: self.selected_awaiting(),
             child_open: !self.parent_stack.is_empty(),
             compact_child: self.compact_child_chrome(),
@@ -1857,6 +1905,8 @@ impl Hud {
             diff_pick: self.tab == Tab::Diff && self.diff.points.len() > 1,
             tab: self.tab,
             leader_armed: self.leader_armed,
+            note_focused: self.notes_focus.is_some() && !self.composing_note(),
+            notes_composing: self.tab == Tab::Notes && self.composing_note(),
         }
     }
 
@@ -1937,13 +1987,21 @@ impl Hud {
         self.wf_child_scroll_id.clone()
     }
     pub fn open_workflow_children(&self) -> &[crate::wire::WorkflowChildRow] {
+        let Some(ov) = self.overview.as_ref() else {
+            return &[];
+        };
+        if let Some(id) = self.workflow_inspect_id.as_deref() {
+            return ov
+                .workflows
+                .iter()
+                .find(|r| r.id == id)
+                .map(|r| r.children.as_slice())
+                .unwrap_or(&[]);
+        }
         let Some(ix) = self.timeline_open else {
             return &[];
         };
         let Some(ev) = self.timeline.iter().find(|e| e.index == ix) else {
-            return &[];
-        };
-        let Some(ov) = self.overview.as_ref() else {
             return &[];
         };
         workflow_for_event(&ov.workflows, &ev.raw_input)
@@ -2011,6 +2069,11 @@ impl Hud {
     /// Event index for full-pane Timeline detail, if any.
     pub fn timeline_open(&self) -> Option<i64> {
         self.timeline_open
+    }
+
+    /// Overview workflow run id when inspecting without a Timeline bookend.
+    pub fn workflow_inspect_id(&self) -> Option<&str> {
+        self.workflow_inspect_id.as_deref()
     }
     pub fn is_timeline_open(&self, index: i64) -> bool {
         self.timeline_open == Some(index)
@@ -2173,16 +2236,19 @@ impl Hud {
     }
 
     fn rebuild_note_heights(&mut self) {
-        let ov = self.overview.as_ref();
-        let mut notes: Vec<&crate::wire::NoteRow> = ov
-            .map(|o| o.notes.notes.iter().collect())
-            .unwrap_or_default();
-        notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let notes = self.notes_sorted();
+        let schema = notes_schema_fields(self.overview.as_ref());
         self.note_heights = notes
             .iter()
             .map(|n| {
-                let (_, body, _) = note_fields_view(&n.fields);
-                note_card_height(&body, self.notes_open.contains(&n.id))
+                let fields = note_display_fields(&schema, &n.fields);
+                let values: Vec<&str> = fields.iter().map(|(_, v)| v.as_str()).collect();
+                let when = if n.updated_at.is_empty() {
+                    n.created_at.as_str()
+                } else {
+                    n.updated_at.as_str()
+                };
+                note_card_height(&values, !format_note_time(when).is_empty())
             })
             .collect();
         let view_h = self.note_window.viewport.max(1.0);
@@ -2454,11 +2520,12 @@ impl Hud {
             .iter()
             .map(|t| (t.turn_index, t.summary.clone(), t.assistant_summary.clone()))
             .collect();
-        let notes: Vec<(String, String)> = o
+        let schema = notes_schema_fields(Some(o));
+        let notes: Vec<(String, Vec<(String, String)>)> = o
             .notes
             .notes
             .iter()
-            .map(|n| (n.id.clone(), crate::format::note_fields_view(&n.fields).1))
+            .map(|n| (n.id.clone(), note_display_fields(&schema, &n.fields)))
             .collect();
         if !summary.is_empty() {
             if looks_like_markdown(&summary) {
@@ -2475,9 +2542,22 @@ impl Hud {
                 self.bind_markdown(format!("turn.{i}.assistant"), &asst);
             }
         }
-        for (id, body) in notes {
-            if !body.is_empty() {
-                self.bind_field(format!("note.{id}"), &body);
+        for (id, fields) in notes {
+            for (i, (_, val)) in fields.iter().enumerate() {
+                let key = format!("note.{id}.{i}");
+                if let Some((_, code)) = fenced_code_block(val) {
+                    self.bind_field(key, code);
+                } else {
+                    self.bind_markdown(key, val);
+                }
+            }
+            let copy = fields
+                .iter()
+                .flat_map(|(label, val)| [label.as_str(), val.as_str()])
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !copy.is_empty() {
+                self.bind_field(format!("note.{id}"), &copy);
             }
         }
         self.bind_diff_bodies();
@@ -2683,8 +2763,16 @@ impl Hud {
                         .notes
                         .iter()
                         .find(|n| self.notes_open.contains(&n.id))
+                        .or_else(|| o.notes.notes.first())
                 })
-                .map(|n| crate::format::note_fields_view(&n.fields).1)
+                .map(|n| {
+                    let schema = notes_schema_fields(self.overview.as_ref());
+                    note_display_fields(&schema, &n.fields)
+                        .into_iter()
+                        .flat_map(|(label, val)| [label, val])
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
                 .unwrap_or_default(),
             Tab::Overview if self.overview_section == crate::model::OverviewSection::Stats => self
                 .stats_selection
@@ -2773,6 +2861,70 @@ impl Hud {
     pub fn note_draft(&self) -> &NoteDraft {
         &self.note_draft
     }
+
+    pub fn composing_note(&self) -> bool {
+        self.note_compose_lock || self.typing_notes || !self.note_draft.id.is_empty()
+    }
+
+    pub fn notes_focus(&self) -> Option<&str> {
+        self.notes_focus.as_deref()
+    }
+
+    pub fn notes_sorted(&self) -> Vec<&crate::wire::NoteRow> {
+        let mut notes: Vec<&crate::wire::NoteRow> = self
+            .overview
+            .as_ref()
+            .map(|o| o.notes.notes.iter().collect())
+            .unwrap_or_default();
+        notes.sort_by(|a, b| {
+            a.turn_index
+                .cmp(&b.turn_index)
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        notes
+    }
+
+    fn nav_notes_step(&mut self, delta: i32) -> Task<Message> {
+        if self.composing_note() {
+            return Task::none();
+        }
+        let ids: Vec<String> = self.notes_sorted().iter().map(|n| n.id.clone()).collect();
+        if ids.is_empty() {
+            return Task::none();
+        }
+        let cur = self
+            .notes_focus
+            .as_ref()
+            .and_then(|id| ids.iter().position(|x| x == id));
+        let next = match cur {
+            None if delta > 0 => 0,
+            None => ids.len() - 1,
+            Some(i) if delta > 0 => (i + 1).min(ids.len() - 1),
+            Some(i) => i.saturating_sub(1),
+        };
+        self.notes_focus = Some(ids[next].clone());
+        let view_h = self.note_window.viewport.max(1.0);
+        let y = list_scroll_to_cover(&self.note_heights, next, self.note_window.scroll, view_h);
+        self.note_window.scroll = y;
+        Task::none()
+    }
+
+    fn open_focused_note(&mut self) -> Task<Message> {
+        let Some(id) = self.notes_focus.clone() else {
+            return Task::none();
+        };
+        self.open_note(&id);
+        self.typing_notes = true;
+        self.focus_first_note_field()
+    }
+
+    fn delete_focused_note(&mut self) -> Task<Message> {
+        let Some(id) = self.notes_focus.clone() else {
+            return Task::none();
+        };
+        self.request_delete(id)
+    }
     pub fn note_saving(&self) -> bool {
         self.note_saving
     }
@@ -2803,8 +2955,14 @@ impl Hud {
     }
 
     pub fn tokens(&self) -> icedtea::theme::Tokens {
-        let tok = crate::theme::tokens_with(&self.theme_name, self.look)
-            .with_reduced_motion(self.reduced_motion);
+        let tok = crate::theme::paint_tokens(
+            &prefs::theme_name(),
+            self.appearance,
+            prefs::follow_os(),
+            self.look,
+            self.os_chrome,
+        )
+        .with_reduced_motion(self.reduced_motion);
         let t = icedtea::motion::visual(self.overlay_progress(), tok.reduced_motion);
         tok.fade(t)
     }
@@ -3170,16 +3328,29 @@ impl Hud {
         notes_schema_fields(self.overview.as_ref())
     }
 
+    pub fn note_form_schema(&self) -> Vec<SchemaField> {
+        note_form_fields(
+            &self.notes_schema(),
+            self.note_draft.fields.iter().map(|(k, _)| k.as_str()),
+        )
+    }
+
     fn note_form_ids(&self) -> Vec<Id> {
-        note_text_input_keys(&self.notes_schema())
+        note_text_input_keys(&self.note_form_schema())
             .into_iter()
-            .map(Id::from)
+            .map(|k| {
+                if k == crate::live::NOTE_TURN_INPUT {
+                    Id::from(k)
+                } else {
+                    Id::from(format!("textbox|{k}|0"))
+                }
+            })
             .collect()
     }
 
     fn remember_note_field(&mut self, field_id: &str) {
         let key = note_field_input_key(field_id);
-        if let Some(i) = note_text_input_keys(&self.notes_schema())
+        if let Some(i) = note_text_input_keys(&self.note_form_schema())
             .iter()
             .position(|k| k == &key)
         {
@@ -3494,6 +3665,7 @@ impl Hud {
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.timeline_open = None;
+        self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
         self.timeline_prompt = None;
         self.events_turn_index = None;
@@ -3902,6 +4074,7 @@ impl Hud {
             timeline_query_draft: self.timeline_query_draft.clone(),
             timeline_focus: self.timeline_focus,
             timeline_open: self.timeline_open,
+            workflow_inspect_id: self.workflow_inspect_id.clone(),
             timeline_prompt: self.timeline_prompt,
             events_turn_index: self.events_turn_index,
             turns_focus: self.turns_focus,
@@ -3917,6 +4090,7 @@ impl Hud {
         self.timeline_query_draft = frame.timeline_query_draft.clone();
         self.timeline_focus = frame.timeline_focus;
         self.timeline_open = frame.timeline_open;
+        self.workflow_inspect_id = frame.workflow_inspect_id.clone();
         self.timeline_prompt = frame.timeline_prompt;
         self.events_turn_index = frame.events_turn_index;
         self.turns_focus = frame.turns_focus;
@@ -4026,6 +4200,7 @@ impl Hud {
         if let Some(prev) = self.timeline_open {
             self.unbind_event_fields(prev);
         }
+        self.workflow_inspect_id = None;
         self.timeline_open = Some(index);
         self.timeline_focus = Some(index);
         self.rebuild_wf_child_heights();
@@ -4038,6 +4213,7 @@ impl Hud {
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
         }
+        self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
     }
 
@@ -4063,6 +4239,7 @@ impl Hud {
             self.unbind_event_fields(ix);
             self.timeline_focus = Some(ix);
         }
+        self.workflow_inspect_id = None;
         // Pin the focused row to the top so Esc always lands on a visible
         // selected card (cover-only can leave it below the fold after detail).
         let Some(pos) = self.timeline_focus_pos() else {
@@ -4102,6 +4279,18 @@ impl Hud {
     }
 
     fn matching_turn_indexes(&self) -> Vec<i64> {
+        if let Some(o) = self.overview.as_ref() {
+            let from_overview: Vec<i64> = o
+                .turns
+                .turns
+                .iter()
+                .filter(|t| self.turn_row_matches_filter(t))
+                .map(|t| t.turn_index)
+                .collect();
+            if !from_overview.is_empty() {
+                return from_overview;
+            }
+        }
         let mut out = Vec::new();
         for &src in &self.tl_filter {
             let Some(ev) = self.timeline.get(src) else {
@@ -4117,11 +4306,50 @@ impl Hud {
         out
     }
 
+    fn turn_row_matches_filter(&self, t: &crate::wire::TurnRow) -> bool {
+        match self.timeline_kind {
+            crate::model::KindFilter::All => {
+                t.event_count > 0
+                    || t.first_index.is_some()
+                    || t.user_event_index.is_some()
+                    || !t.event_indexes.is_empty()
+            }
+            crate::model::KindFilter::Tools => t.tool_call_count > 0,
+            crate::model::KindFilter::User => t.user_count > 0,
+            crate::model::KindFilter::Asst => t.assistant_count > 0,
+            crate::model::KindFilter::Errors => t.error_event_count > 0 || t.tool_error_count > 0,
+            crate::model::KindFilter::Subagents => !t.subagent_runs.is_empty(),
+            crate::model::KindFilter::Workflows
+            | crate::model::KindFilter::Background
+            | crate::model::KindFilter::Sess => self.tl_filter.iter().any(|&src| {
+                self.timeline
+                    .get(src)
+                    .is_some_and(|ev| self.turn_index_of_event(ev.index) == Some(t.turn_index))
+            }),
+        }
+    }
+
     fn first_filtered_event_on_turn(&self, turn: i64) -> Option<i64> {
         self.tl_filter.iter().find_map(|&src| {
             let ev = self.timeline.get(src)?;
             (self.turn_index_of_event(ev.index) == Some(turn)).then_some(ev.index)
         })
+    }
+
+    fn first_event_on_turn(&self, turn: i64) -> Option<i64> {
+        if let Some(ix) = self.first_filtered_event_on_turn(turn) {
+            return Some(ix);
+        }
+        let t = self
+            .overview
+            .as_ref()?
+            .turns
+            .turns
+            .iter()
+            .find(|r| r.turn_index == turn)?;
+        t.user_event_index
+            .or(t.first_index)
+            .or_else(|| t.event_indexes.first().copied())
     }
 
     fn focus_matching_turn(&mut self, forward: bool) -> Task<Message> {
@@ -4152,12 +4380,17 @@ impl Hud {
         let Some(ti) = dest else {
             return Task::none();
         };
-        let Some(ix) = self.first_filtered_event_on_turn(ti) else {
+        let Some(ix) = self.first_event_on_turn(ti) else {
             return Task::none();
         };
         self.timeline_focus = Some(ix);
         if self.timeline_open.is_some() {
             return self.open_timeline_detail(ix);
+        }
+        if !self.timeline.iter().any(|e| e.index == ix) {
+            if let Some(sid) = self.detail_sid() {
+                return self.ensure_timeline(sid, true);
+            }
         }
         self.scroll_focus_into_view()
     }
@@ -4186,10 +4419,9 @@ impl Hud {
         }];
         if let Some(o) = self.overview.as_ref() {
             for t in &o.turns.turns {
-                let label = t.face_caption();
                 out.push(EventsTurnPick {
                     turn_index: Some(t.turn_index),
-                    label,
+                    label: t.pick_label(),
                 });
             }
         }
@@ -4583,10 +4815,25 @@ impl Hud {
                 .first()
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
-            fields,
+            source: n.source.clone(),
+            fields: fields.clone(),
+            editors: std::collections::BTreeMap::new(),
         };
+        for spec in self.notes_schema() {
+            if !spec.constrained() {
+                let val = self.note_draft.field(&spec.id).to_string();
+                self.note_draft.bind_editor(&spec.id, &val);
+            }
+        }
+        for (k, v) in fields {
+            if self.note_draft.editor(&k).is_none() {
+                self.note_draft.bind_editor(&k, &v);
+            }
+        }
         self.note_compose_lock = true;
+        self.typing_notes = true;
         self.notes_open.insert(nid.to_string());
+        self.notes_focus = Some(nid.to_string());
         self.tab = Tab::Notes;
     }
 
@@ -4640,9 +4887,11 @@ impl Hud {
                 event_indices = json!([n]);
             }
         }
+        let source = note_source_for_write(prev);
         let note = json!({
             "id": id,
             "turnIndex": turn_index,
+            "source": source,
             "fields": fields,
             "eventIndices": event_indices,
         });
@@ -4696,6 +4945,7 @@ impl Hud {
             }
         }
         self.rebuild_marks();
+        self.rebuild_note_heights();
     }
 
     fn win_task(&self, f: impl FnOnce(window::Id) -> Task<Message>) -> Task<Message> {
@@ -4816,6 +5066,7 @@ impl Hud {
         self.parent_stack.clear();
         self.restore_around = None;
         self.timeline_open = None;
+        self.workflow_inspect_id = None;
         self.active = 0;
         self.list_selection = icedtea::collection::Selection::None;
         self.rerank_visible_keeping(String::new());
@@ -5322,6 +5573,12 @@ impl Hud {
             "session.done" if self.browse_mode() && self.selected_awaiting() => self.mark_done(),
             "list.down" => self.nav_step(1),
             "list.up" => self.nav_step(-1),
+            "session.note_edit" if self.tab == Tab::Notes && !self.composing_note() => {
+                self.open_focused_note()
+            }
+            "session.delete" if self.tab == Tab::Notes && !self.composing_note() => {
+                self.delete_focused_note()
+            }
             "edit.copy" | "edit.copy_chord" => self.yank_active(),
             "search.focus" => self.focus_context_search(),
             "pane.notes" if self.browse_mode() => self.update(Message::SetTab(Tab::Notes)),
@@ -5385,6 +5642,7 @@ impl Hud {
         if matches!(key, Key::Named(Named::Tab)) && !modifiers.alt() && !modifiers.logo() {
             if self.browse_mode()
                 && self.tab == Tab::Notes
+                && self.composing_note()
                 && !self.look_open
                 && !modifiers.control()
                 && !modifiers.command()
@@ -5461,6 +5719,14 @@ impl Hud {
         {
             return self.select_all_text();
         }
+        if self.tab == Tab::Notes && !self.composing_note() {
+            if self.key_is("session.note_edit", "O", &key, modifiers) {
+                return self.open_focused_note();
+            }
+            if self.key_is("session.delete", "x,delete", &key, modifiers) {
+                return self.delete_focused_note();
+            }
+        }
         if self.key_is("list.down", "j", &key, modifiers) {
             return self.nav_step(1);
         }
@@ -5531,6 +5797,7 @@ impl Hud {
                 self.bind_diff_bodies();
                 self.reveal_diff_hit()
             }
+            Tab::Notes => self.nav_notes_step(delta),
             _ => Task::none(),
         }
     }
@@ -5714,6 +5981,18 @@ impl Hud {
         let Some(row) = rows.get(i) else {
             return Task::none();
         };
+        if self.overview_section == crate::model::OverviewSection::Workflows {
+            if let Some(ix) = row.event_index {
+                return self.update(Message::JumpTimeline(ix));
+            }
+            let Some(run) = o.workflows.get(i) else {
+                return Task::none();
+            };
+            self.workflow_inspect_id = Some(run.id.clone());
+            self.tab = Tab::Timeline;
+            self.rebuild_wf_child_heights();
+            return Task::none();
+        }
         if !row.openable {
             self.toasts.push_warning("No Timeline bookend for this row");
             return Task::none();
@@ -5899,7 +6178,8 @@ impl Hud {
                 }
                 Task::none()
             }
-            Tab::Diff | Tab::Notes => Task::none(),
+            Tab::Notes => self.open_focused_note(),
+            Tab::Diff => Task::none(),
         }
     }
 }
@@ -5995,6 +6275,70 @@ fn fetch_timeline(req: TimelineFetch) -> Task<Message> {
     )
 }
 
+fn note_source_for_write(prev: Option<&crate::wire::NoteRow>) -> String {
+    prev.map(|p| p.source.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "hud".into())
+}
+
+/// Pane jump from a key press: logical digit, C0 control char, or physical key.
+///
+/// X11 often reports Ctrl+4 as ``Character("\\u{0004}")`` (EOT) rather than
+/// ``"4"``. Icedtea's shortcut table only matches the printed digit, so the
+/// subscription must accept the physical Digit/Numpad key as well.
+fn pane_digit_from_event(kev: &keyboard::Event) -> Option<u8> {
+    let keyboard::Event::KeyPressed {
+        key,
+        physical_key,
+        modifiers,
+        ..
+    } = kev
+    else {
+        return None;
+    };
+    if !(modifiers.control() || modifiers.command()) {
+        return None;
+    }
+    if modifiers.alt() || modifiers.shift() {
+        return None;
+    }
+    let max = crate::model::Tab::ALL.len() as u8;
+    if let Key::Character(got) = key {
+        if let Some(ch) = got.chars().next() {
+            if ('1'..='9').contains(&ch) {
+                let n = ch as u8 - b'0';
+                if (1..=max).contains(&n) {
+                    return Some(n);
+                }
+            }
+            if ('\u{0001}'..='\u{0009}').contains(&ch) {
+                let n = ch as u8;
+                if (1..=max).contains(&n) {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    use iced::keyboard::key::Code;
+    let code = match physical_key {
+        iced::keyboard::key::Physical::Code(c) => *c,
+        _ => return None,
+    };
+    let n = match code {
+        Code::Digit1 | Code::Numpad1 => 1,
+        Code::Digit2 | Code::Numpad2 => 2,
+        Code::Digit3 | Code::Numpad3 => 3,
+        Code::Digit4 | Code::Numpad4 => 4,
+        Code::Digit5 | Code::Numpad5 => 5,
+        Code::Digit6 | Code::Numpad6 => 6,
+        Code::Digit7 | Code::Numpad7 => 7,
+        Code::Digit8 | Code::Numpad8 => 8,
+        Code::Digit9 | Code::Numpad9 => 9,
+        _ => return None,
+    };
+    (1..=max).contains(&n).then_some(n)
+}
+
 /// Escape + pane digits while a field is focused (Captured).
 ///
 /// Enter is **not** here: notes/follow-up use `on_submit`, and search uses
@@ -6068,6 +6412,11 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
         Event::Window(window::Event::Focused) => Some(Message::WindowFocus(true)),
         Event::Window(window::Event::Unfocused) => Some(Message::WindowFocus(false)),
         Event::Keyboard(ref kev) => {
+            // Ctrl+1–5 must work even when a field captured the event, and
+            // even when X11 reports the C0 control character instead of "4".
+            if let Some(n) = pane_digit_from_event(kev) {
+                return Some(Message::PaneDigit(n));
+            }
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
             // j/k and arrows while Spotlight search is focused. / stays
@@ -7289,12 +7638,14 @@ mod tests {
         use iced::keyboard::{Key, Modifiers};
         let mut hud = Hud {
             overview: Some(Overview::default()),
-            tab: Tab::Notes,
-            typing_notes: true,
+            window_mode: true,
             ..Hud::default()
         };
-        assert!(hud.browse_mode());
-        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
+        let _ = hud.update(Message::StartNote {
+            turn: String::new(),
+            event: String::new(),
+        });
+        assert!(hud.composing_note());
         assert_eq!(hud.note_form_ix, Some(0));
         let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
         assert_eq!(hud.note_form_ix, Some(1));
@@ -7302,6 +7653,141 @@ mod tests {
         assert_eq!(hud.note_form_ix, Some(0));
         let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::CTRL);
         assert_eq!(hud.tab, Tab::Overview);
+    }
+
+    #[test]
+    fn notes_list_steps_focus_and_opens_the_focused_note() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![
+                        crate::wire::NoteRow {
+                            id: "n-a".into(),
+                            updated_at: "2026-08-22T10:00:00Z".into(),
+                            fields: serde_json::json!({"summary": "one"}),
+                            ..crate::wire::NoteRow::default()
+                        },
+                        crate::wire::NoteRow {
+                            id: "n-b".into(),
+                            updated_at: "2026-08-22T11:00:00Z".into(),
+                            fields: serde_json::json!({"summary": "two"}),
+                            ..crate::wire::NoteRow::default()
+                        },
+                    ],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        assert!(hud.browse_mode());
+        assert_eq!(hud.notes_focus(), None);
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-b"));
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-a"));
+        let _ = hud.on_key(Key::Character("k".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-b"));
+        let _ = hud.on_key(Key::Named(Named::Enter), Modifiers::empty());
+        assert!(hud.composing_note());
+        assert_eq!(hud.note_draft().id, "n-b");
+        assert_eq!(hud.note_draft().field("summary"), "two");
+    }
+
+    #[test]
+    fn notes_compose_does_not_steal_j_into_the_list() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![crate::wire::NoteRow {
+                        id: "n-a".into(),
+                        fields: serde_json::json!({"summary": "one"}),
+                        ..crate::wire::NoteRow::default()
+                    }],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::StartNote {
+            turn: "0".into(),
+            event: String::new(),
+        });
+        assert!(hud.composing_note());
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), None);
+        assert!(hud.composing_note());
+    }
+
+    #[test]
+    fn notes_o_edits_focused_and_x_deletes() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![crate::wire::NoteRow {
+                        id: "n-a".into(),
+                        fields: serde_json::json!({"summary": "one"}),
+                        ..crate::wire::NoteRow::default()
+                    }],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-a"));
+        let _ = hud.on_key(Key::Character("o".into()), Modifiers::SHIFT);
+        assert_eq!(hud.note_draft().id, "n-a");
+        let _ = hud.update(Message::ResetDraft);
+        assert!(!hud.composing_note());
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        let _ = hud.on_key(Key::Character("x".into()), Modifiers::empty());
+        assert_eq!(hud.note_delete_armed(), "n-a");
+        let _ = hud.on_key(Key::Character("x".into()), Modifiers::empty());
+        assert!(hud.note_delete_armed().is_empty());
+    }
+
+    #[test]
+    fn apply_notes_snapshot_rebuilds_row_heights() {
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![crate::wire::NoteRow {
+                        id: "n-a".into(),
+                        fields: serde_json::json!({"summary": "hi"}),
+                        ..crate::wire::NoteRow::default()
+                    }],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        hud.rebuild_clip_lists();
+        let short = hud.note_heights()[0];
+        hud.apply_notes_snapshot(&serde_json::json!({
+            "revision": "r2",
+            "notes": [{
+                "id": "n-a",
+                "fields": {
+                    "summary": "```python\nimport json\nfrom pathlib import Path\nprint(1)\n```"
+                }
+            }]
+        }));
+        let tall = hud.note_heights()[0];
+        assert!(
+            tall > short,
+            "snapshot with a fenced field must grow the clip row: short={short} tall={tall}"
+        );
     }
 
     #[test]
@@ -7318,6 +7804,67 @@ mod tests {
         assert_eq!(hud.tab, Tab::Notes);
         assert_eq!(hud.note_form_ix, Some(0));
         assert!(hud.typing_notes);
+        assert!(hud.composing_note());
+        let _ = hud.update(Message::ResetDraft);
+        assert!(!hud.composing_note());
+    }
+
+    #[test]
+    fn open_note_walks_extra_fields_from_the_stored_bag() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![crate::wire::NoteRow {
+                        id: "n-extra".into(),
+                        source: "nvim".into(),
+                        fields: serde_json::json!({
+                            "summary": "from nvim",
+                            "custom_key": "operator bag",
+                        }),
+                        ..crate::wire::NoteRow::default()
+                    }],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::OpenNote("n-extra".into()));
+        assert_eq!(hud.note_draft().field("custom_key"), "operator bag");
+        assert_eq!(hud.note_draft().source, "nvim");
+        assert_eq!(
+            hud.note_form_schema()
+                .iter()
+                .map(|f| f.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["summary", "detail", "custom_key"]
+        );
+        assert_eq!(hud.note_form_ix, Some(0));
+        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
+        assert_eq!(hud.note_form_ix, Some(1));
+        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
+        assert_eq!(hud.note_form_ix, Some(2));
+        assert_eq!(
+            crate::live::note_text_input_keys(&hud.note_form_schema())[2],
+            crate::live::note_field_input_key("custom_key")
+        );
+    }
+
+    #[test]
+    fn note_source_for_write_keeps_foreign_or_stamps_hud() {
+        let foreign = crate::wire::NoteRow {
+            source: "mf-plugin".into(),
+            ..crate::wire::NoteRow::default()
+        };
+        assert_eq!(note_source_for_write(Some(&foreign)), "mf-plugin");
+        let blank = crate::wire::NoteRow {
+            source: "  ".into(),
+            ..crate::wire::NoteRow::default()
+        };
+        assert_eq!(note_source_for_write(Some(&blank)), "hud");
+        assert_eq!(note_source_for_write(None), "hud");
     }
 
     #[test]
@@ -7951,21 +8498,48 @@ mod tests {
         assert!(!hud.filtered_turn_indices().is_empty());
     }
 
-    #[test]
-    fn pane_digit_keys_route_while_status_would_be_captured() {
-        let digit = Event::Keyboard(keyboard::Event::KeyPressed {
-            key: Key::Character("2".into()),
-            modified_key: Key::Character("2".into()),
-            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Digit2),
+    fn pane_press(ch: &str, code: iced::keyboard::key::Code) -> Event {
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character(ch.into()),
+            modified_key: Key::Character(ch.into()),
+            physical_key: iced::keyboard::key::Physical::Code(code),
             location: iced::keyboard::Location::Standard,
             modifiers: icedtea::shortcut::primary(),
             text: None,
             repeat: false,
-        });
+        })
+    }
+
+    #[test]
+    fn pane_digit_keys_route_while_status_would_be_captured() {
+        let digit = pane_press("2", iced::keyboard::key::Code::Digit2);
         assert!(matches!(
             interesting_hud_event(digit, event::Status::Captured, window::Id::unique()),
             Some(Message::PaneDigit(2))
         ));
+    }
+
+    #[test]
+    fn captured_ctrl_4_opens_diff_from_logical_or_x11_control_char() {
+        use iced::keyboard::key::Code;
+        let printed = pane_press("4", Code::Digit4);
+        assert!(matches!(
+            interesting_hud_event(printed, event::Status::Captured, window::Id::unique()),
+            Some(Message::PaneDigit(4))
+        ));
+        let eot = pane_press("\u{0004}", Code::Digit4);
+        assert!(matches!(
+            interesting_hud_event(eot, event::Status::Captured, window::Id::unique()),
+            Some(Message::PaneDigit(4))
+        ));
+        let mut hud = Hud {
+            tab: Tab::Timeline,
+            overview: Some(crate::wire::Overview::default()),
+            overview_sid: "s1".into(),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::PaneDigit(4));
+        assert_eq!(hud.tab(), Tab::Diff);
     }
 
     #[test]
@@ -8300,6 +8874,41 @@ mod tests {
     }
 
     #[test]
+    fn events_turn_pick_shows_the_number_only() {
+        let mut hud = hud_with_session();
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(json!({
+                "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+                "turns": {
+                    "total": 2,
+                    "turns": [
+                        {
+                            "turnIndex": 0,
+                            "turnNumber": 0,
+                            "label": "turn 0 (completed)"
+                        },
+                        {
+                            "turnIndex": 1,
+                            "turnNumber": 1,
+                            "label": "turn 1 (open)"
+                        }
+                    ]
+                },
+                "notes": { "count": 0, "notes": [] }
+            })),
+        });
+        let labels: Vec<&str> = hud
+            .events_turn_options()
+            .iter()
+            .map(|p| p.label.as_str())
+            .collect();
+        assert_eq!(labels, ["All turns", "0", "1"]);
+    }
+
+    #[test]
     fn events_turn_pick_scopes_prompt_index() {
         let mut hud = hud_with_session();
         let data = json!({
@@ -8436,6 +9045,74 @@ mod tests {
         )));
         assert!(hud.events_turn_index.is_none());
         assert_eq!(hud.timeline_kind(), KindFilter::Workflows);
+    }
+
+    #[test]
+    fn all_turns_bracket_fetches_next_turn_not_on_the_loaded_page() {
+        let mut hud = hud_with_session();
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(json!({
+                "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+                "turns": {
+                    "total": 2,
+                    "turns": [
+                        {
+                            "turnIndex": 0,
+                            "turnNumber": 0,
+                            "firstIndex": 1,
+                            "userEventIndex": 1,
+                            "eventCount": 3,
+                            "eventIndexes": [1, 2, 3]
+                        },
+                        {
+                            "turnIndex": 1,
+                            "turnNumber": 1,
+                            "firstIndex": 50,
+                            "userEventIndex": 50,
+                            "eventCount": 2,
+                            "eventIndexes": [50, 51]
+                        }
+                    ]
+                },
+                "notes": { "count": 0, "notes": [] }
+            })),
+        });
+        let _ = hud.update(Message::SetTab(Tab::Timeline));
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![
+                ev_named(0, "system", "", 0, "sys"),
+                ev_named(1, "user", "", 0, "u0"),
+                ev_named(2, "asst", "", 0, "a0"),
+            ],
+            52,
+            0,
+        );
+        hud.rebuild_tl_filter();
+        hud.timeline_focus = Some(1);
+        assert!(hud.events_turn_index.is_none());
+        let press = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("]".into()),
+            modified_key: Key::Character("]".into()),
+            physical_key: iced::keyboard::key::Physical::Code(
+                iced::keyboard::key::Code::BracketRight,
+            ),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::default(),
+            text: None,
+            repeat: false,
+        });
+        let _ = hud.update(Message::RawEvent(press));
+        assert_eq!(hud.timeline_focus, Some(50));
+        assert!(hud.events_turn_index.is_none(), "All turns stays selected");
+        let req = hud.last_timeline().expect("fetch around the next turn");
+        assert_eq!(req.around_index, Some(50));
     }
 
     #[test]
@@ -9351,6 +10028,40 @@ mod tests {
             }],
             ..Hud::default()
         }
+    }
+
+    #[test]
+    fn overview_workflow_without_bookend_opens_inspect() {
+        let mut hud = Hud {
+            tab: Tab::Overview,
+            overview_section: crate::model::OverviewSection::Workflows,
+            tasks_focus: Some(0),
+            overview: Some(crate::wire::Overview {
+                workflows: vec![crate::wire::WorkflowRow {
+                    id: "wf-disk".into(),
+                    name: "sprint".into(),
+                    event_index: None,
+                    children: vec![crate::wire::WorkflowChildRow {
+                        id: "ag-1".into(),
+                        label: "research".into(),
+                        success: true,
+                        path: "/tmp/child".into(),
+                        ..crate::wire::WorkflowChildRow::default()
+                    }],
+                    ..crate::wire::WorkflowRow::default()
+                }],
+                ..crate::wire::Overview::default()
+            }),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::FocusOverviewRow(0));
+        let _ = hud.update(Message::FocusOverviewRow(0));
+        assert_eq!(hud.tab, Tab::Timeline);
+        assert_eq!(hud.workflow_inspect_id(), Some("wf-disk"));
+        assert!(hud.timeline_open().is_none());
+        assert_eq!(hud.open_workflow_children().len(), 1);
+        let _ = hud.update(Message::CloseTimelineDetail);
+        assert!(hud.workflow_inspect_id().is_none());
     }
 
     #[test]

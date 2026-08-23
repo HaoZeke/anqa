@@ -656,12 +656,16 @@ local function note_at_row(buf, row)
   local turn_index = tonumber(ancestor_meta(lines, note_start, "turn-index", fences) or "0") or 0
   local event_text = ""
   local created_at = ""
+  local source = "nvim"
   for i = note_start, math.min(note_start + 5, note_end) do
     if not fences[i] then
       local meta = parse_groket_comment(lines[i])
       if meta and meta["note-id"] == note_id and not meta["field-id"] then
         event_text = meta["event-indices"] or ""
         created_at = meta.created or ""
+        if meta.source and meta.source ~= "" then
+          source = meta.source
+        end
         break
       end
     end
@@ -722,6 +726,7 @@ local function note_at_row(buf, row)
   return {
     id = note_id,
     turnIndex = turn_index,
+    source = source,
     fields = fields,
     eventIndices = event_indices,
     createdAt = created_at,
@@ -1802,6 +1807,7 @@ function M.new_note()
       note = {
         id = note_id,
         turnIndex = turn_index,
+        source = "nvim",
         fields = fields,
         eventIndices = {},
         createdAt = timestamp,

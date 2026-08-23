@@ -201,7 +201,9 @@ pub struct NoteDraft {
     pub id: String,
     pub turn_index: String,
     pub event_index: String,
+    pub source: String,
     pub fields: Vec<(String, String)>,
+    pub editors: std::collections::BTreeMap<String, iced::widget::text_editor::Content>,
 }
 
 impl NoteDraft {
@@ -213,11 +215,34 @@ impl NoteDraft {
             .unwrap_or("")
     }
 
+    pub fn editor(&self, id: &str) -> Option<&iced::widget::text_editor::Content> {
+        self.editors.get(id)
+    }
+
     pub fn set_field(&mut self, id: &str, value: String) {
         if let Some(slot) = self.fields.iter_mut().find(|(k, _)| k == id) {
             slot.1 = value;
         } else {
             self.fields.push((id.to_string(), value));
+        }
+        self.editors.insert(
+            id.to_string(),
+            iced::widget::text_editor::Content::with_text(self.field(id)),
+        );
+    }
+
+    pub fn bind_editor(&mut self, id: &str, value: &str) {
+        self.set_field(id, value.to_string());
+    }
+
+    pub fn edit(&mut self, id: &str, action: iced::widget::text_editor::Action) {
+        let buf = self.editors.entry(id.to_string()).or_default();
+        buf.perform(action);
+        let text = buf.text();
+        if let Some(slot) = self.fields.iter_mut().find(|(k, _)| k == id) {
+            slot.1 = text;
+        } else {
+            self.fields.push((id.to_string(), text));
         }
     }
 
@@ -287,5 +312,13 @@ mod tests {
         draft.set_field("summary", "yo".into());
         assert_eq!(draft.field("summary"), "yo");
         assert_eq!(draft.field("missing"), "");
+        draft.set_field("detail", "line1\nline2".into());
+        assert_eq!(draft.field("detail"), "line1\nline2");
+        assert!(draft.editor("detail").is_some());
+        assert!(draft
+            .editor("detail")
+            .expect("detail editor")
+            .text()
+            .contains("line1"));
     }
 }

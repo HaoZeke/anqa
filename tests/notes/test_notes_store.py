@@ -8,15 +8,27 @@ from pathlib import Path
 import groket.notes as notes_mod
 import pytest
 from groket.notes import (
+    NOTE_SOURCE_HUD,
+    NOTE_SOURCE_TUI,
     NOTES_FILENAME,
     NoteEntry,
     NotesDoc,
     collect_notes_for_export,
+    foreign_note_source,
     load_notes,
     notes_mtime,
     parse_toml,
     save_notes,
 )
+
+
+def test_foreign_note_source_hides_this_surface() -> None:
+    assert foreign_note_source("tui", surface=NOTE_SOURCE_TUI) == ""
+    assert foreign_note_source("hud", surface=NOTE_SOURCE_HUD) == ""
+    assert foreign_note_source("nvim", surface=NOTE_SOURCE_TUI) == "nvim"
+    assert foreign_note_source("mf-plugin", surface=NOTE_SOURCE_HUD) == "mf-plugin"
+    assert foreign_note_source("", surface=NOTE_SOURCE_TUI) == ""
+    assert foreign_note_source("  ", surface=NOTE_SOURCE_TUI) == ""
 
 
 def test_load_empty(tmp_path: Path) -> None:
@@ -335,12 +347,22 @@ def test_collect_notes_for_export_copies_file(tmp_path: Path) -> None:
     assert collect_notes_for_export(sd, staging) == []
 
     doc = NotesDoc(session_id="sess")
-    doc.upsert(NoteEntry.new(turn_index=1, fields={"summary": "hi"}, note_id="n-1"))
+    doc.upsert(
+        NoteEntry.new(
+            turn_index=1,
+            source="nvim",
+            fields={"summary": "hi", "custom_key": "from nvim"},
+            note_id="n-1",
+        )
+    )
     save_notes(sd, doc)
     written = collect_notes_for_export(sd, staging)
     assert written == [f"notes/{NOTES_FILENAME}"]
-    assert (staging / NOTES_FILENAME).is_file()
-    assert "hi" in (staging / NOTES_FILENAME).read_text(encoding="utf-8")
+    text = (staging / NOTES_FILENAME).read_text(encoding="utf-8")
+    assert 'source = "nvim"' in text
+    assert "hi" in text
+    assert "custom_key" in text
+    assert "from nvim" in text
     assert not (staging / "schema.toml").exists()
 
 
@@ -400,6 +422,104 @@ def test_control_characters_in_field_values_round_trip(tmp_path: Path) -> None:
 
     loaded = load_notes(sd)
     assert loaded.notes[0].fields["summary"] == gnarly
+
+
+def test_upsert_keeps_foreign_fields_and_source(tmp_path: Path) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    before = notes_mod.notes_snapshot(sd)
+    entry = NoteEntry.new(
+        turn_index=1,
+        source="mf-plugin",
+        fields={
+            "severity": "high",
+            "rule_id": "MF-12",
+            "title": "unchecked return",
+        },
+        note_id="n-mf",
+    )
+
+    after = notes_mod.upsert_note(sd, entry, expected_revision=before.revision)
+
+    loaded = load_notes(sd)
+    assert loaded.notes[0].source == "mf-plugin"
+    assert loaded.notes[0].fields == {
+        "severity": "high",
+        "rule_id": "MF-12",
+        "title": "unchecked return",
+    }
+    assert after.doc.notes[0].source == "mf-plugin"
+    listed = notes_mod.notes_snapshot(sd)
+    assert listed.doc.notes[0].source == "mf-plugin"
+    assert listed.doc.notes[0].fields["rule_id"] == "MF-12"
+
+
+@pytest.mark.parametrize("source", ["", "   ", None])
+def test_upsert_rejects_blank_source_and_leaves_store(tmp_path: Path, source: str | None) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    before = notes_mod.notes_snapshot(sd)
+    (sd / NOTES_FILENAME).write_text(
+        'schema_id = "default"\nsession_id = "sess"\n',
+        encoding="utf-8",
+    )
+    before_text = (sd / NOTES_FILENAME).read_text(encoding="utf-8")
+    entry = NoteEntry(
+        id="n-nosrc",
+        turn_index=0,
+        source="" if source is None else source,
+        fields={"title": "should not land"},
+    )
+
+    with pytest.raises(ValueError, match="source"):
+        notes_mod.upsert_note(sd, entry, expected_revision=before.revision)
+
+    assert (sd / NOTES_FILENAME).read_text(encoding="utf-8") == before_text
+    assert load_notes(sd).notes == []
+
+
+def test_snapshot_mapping_includes_source_and_foreign_fields(tmp_path: Path) -> None:
+    from groket.session.access import notes_snapshot_mapping
+
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    empty = notes_mod.notes_snapshot(sd)
+    after = notes_mod.upsert_note(
+        sd,
+        NoteEntry.new(
+            turn_index=2,
+            source="mf-plugin",
+            fields={"rule_id": "MF-12", "title": "unchecked return"},
+            note_id="n-map",
+        ),
+        expected_revision=empty.revision,
+    )
+    mapped = notes_snapshot_mapping(after)
+    note = mapped["notes"][0]
+    assert note["source"] == "mf-plugin"
+    assert note["fields"]["rule_id"] == "MF-12"
+    assert note["fields"]["title"] == "unchecked return"
+
+
+def test_delete_removes_foreign_note(tmp_path: Path) -> None:
+    sd = tmp_path / "sess"
+    sd.mkdir()
+    empty = notes_mod.notes_snapshot(sd)
+    saved = notes_mod.upsert_note(
+        sd,
+        NoteEntry.new(
+            turn_index=0,
+            source="external",
+            fields={"finding": "leak"},
+            note_id="n-ext",
+        ),
+        expected_revision=empty.revision,
+    )
+
+    gone = notes_mod.delete_note(sd, "n-ext", expected_revision=saved.revision)
+
+    assert gone.doc.notes == []
+    assert load_notes(sd).notes == []
 
 
 def test_lone_carriage_return_round_trips(tmp_path: Path) -> None:
