@@ -219,9 +219,9 @@ mod tests {
     }
 
     #[test]
-    fn themed_pick_list_builds() {
+    fn pick_list_builds() {
         let tea = icedtea::theme::named("dark").tokens;
-        let _ = widget::themed_pick_list(
+        let _ = widget::pick_list(
             &["All", "Tools"][..],
             Some("All"),
             |_| Message::Noop,
@@ -229,7 +229,7 @@ mod tests {
             widget::ControlSize::Default,
             A11y::new("Filter", Role::ComboBox),
         );
-        let _ = widget::themed_pick_list(
+        let _ = widget::pick_list(
             &["All"][..],
             Some("All"),
             |_| Message::Noop,
@@ -237,7 +237,7 @@ mod tests {
             widget::ControlSize::Default,
             A11y::new("Filter", Role::ComboBox).with_disabled(true),
         );
-        let _ = widget::themed_pick_list(
+        let _ = widget::pick_list(
             &[] as &[&str],
             None,
             |_| Message::Noop,
@@ -253,6 +253,7 @@ mod tests {
         let _ = widget::search_input(
             "q",
             Message::SearchChanged,
+            Some(Message::SearchChanged(String::new())),
             Some(Message::ActivateSelected),
             tea,
             A11y::new("Search sessions", Role::TextBox),

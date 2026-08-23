@@ -89,7 +89,7 @@ fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, M
             tea,
             A11y::new("awaiting", Role::Status),
         ),
-        container(icedtea::widget::themed_text_input(
+        container(icedtea::widget::text_input(
             "Follow-up prompt",
             hud.follow_draft(),
             Message::FollowDraft,
@@ -100,12 +100,13 @@ fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, M
             Some(hud.follow_id()),
         ))
         .width(Length::Fill),
-        icedtea::widget::themed_button(
+        icedtea::widget::button(
             "Send follow-up",
             Some(Message::SendFollow),
             tea,
             Variant::Primary,
             icedtea::icon::Icons::NONE,
+            icedtea::widget::ButtonOpts::SHRINK,
             A11y::button("Send follow-up"),
         ),
     ]
@@ -375,6 +376,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         icedtea::widget::search_input(
             hud.query(),
             Message::SearchChanged,
+            Some(Message::SearchChanged(String::new())),
             Some(Message::ActivateSelected),
             tea,
             A11y::new("Search sessions", Role::TextBox),
@@ -487,7 +489,7 @@ fn look_pane(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message
         let opts: Vec<String> = options.iter().map(|s| (*s).to_string()).collect();
         let el: Element<'_, Message> = column![
             icedtea::widget::meta(label, tea, A11y::new(label, Role::Status)),
-            icedtea::widget::themed_pick_list(
+            icedtea::widget::pick_list(
                 opts,
                 Some(current.to_string()),
                 on,
@@ -763,7 +765,7 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
         ));
     } else {
         stack = stack.push(page_body(
-            icedtea::widget::themed_scroll(
+            icedtea::widget::scroll(
                 container(body)
                     .padding(tea.density.sheet())
                     .width(Length::Fill)
@@ -853,7 +855,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::new("Turn", Role::Header),
         ));
-        picks = picks.push(icedtea::widget::themed_pick_list(
+        picks = picks.push(icedtea::widget::pick_list(
             hud.events_turn_options(),
             Some(hud.events_turn_selected()),
             Message::EventsTurnPicked,
@@ -867,7 +869,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Filter", Role::Header),
     ));
-    picks = picks.push(icedtea::widget::themed_pick_list(
+    picks = picks.push(icedtea::widget::pick_list(
         &KindFilter::ALL[..],
         Some(hud.timeline_kind()),
         Message::TimelineKind,
@@ -876,7 +878,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         A11y::new("Filter", Role::ComboBox),
     ));
     if hud.show_timeline_tail() {
-        picks = picks.push(icedtea::widget::themed_switch(
+        picks = picks.push(icedtea::widget::switch(
             "Tail",
             hud.timeline_follow_tail(),
             Message::TimelineTail,
@@ -897,6 +899,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let search = container(icedtea::widget::search_input(
         hud.timeline_query_draft(),
         Message::TimelineQuery,
+        Some(Message::TimelineQuery(String::new())),
         None,
         tea,
         A11y::new("Search events…", Role::TextBox),
@@ -1539,12 +1542,13 @@ fn note_quiet_btn(
     let compact = tea.with_density(icedtea::density::Density::named(
         icedtea::density::DensityName::Compact,
     ));
-    icedtea::widget::themed_button(
+    icedtea::widget::button(
         title.to_string(),
         Some(msg),
         compact,
         Variant::Quiet,
         icedtea::icon::Icons::NONE,
+        icedtea::widget::ButtonOpts::SHRINK,
         A11y::button(title),
     )
 }
@@ -1643,6 +1647,7 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
     container(icedtea::widget::search_input(
         hud.turns_query(),
         Message::TurnsQuery,
+        Some(Message::TurnsQuery(String::new())),
         None,
         tea,
         A11y::new("Search turns", Role::TextBox),
@@ -1803,7 +1808,7 @@ pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let mark = ev_marks.get(&ix).cloned();
     let children = hud.open_workflow_children();
     if ev.tool_name == "workflow" && !children.is_empty() {
-        let inspect = icedtea::widget::themed_scroll(
+        let inspect = icedtea::widget::scroll(
             container(event_body(hud, ev, mark))
                 .width(Length::Fill)
                 .padding(Padding {
@@ -1832,7 +1837,7 @@ pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
         .height(Length::Fill)
         .into();
     }
-    let scroll = icedtea::widget::themed_scroll(
+    let scroll = icedtea::widget::scroll(
         container(event_body(hud, ev, mark))
             .width(Length::Fill)
             .padding(Padding {
@@ -1882,21 +1887,23 @@ fn event_pager(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Messa
     let has_prev = at > 1;
     let has_next = at < n;
     row![
-        icedtea::widget::themed_button(
+        icedtea::widget::button(
             "Previous",
             has_prev.then_some(Message::TimelineDetailStep(-1)),
             tea,
             Variant::Quiet,
             icedtea::icon::Icons::NONE,
+            icedtea::widget::ButtonOpts::SHRINK,
             A11y::button("Previous event").with_disabled(!has_prev),
         ),
         Space::new().width(Length::Fill),
-        icedtea::widget::themed_button(
+        icedtea::widget::button(
             "Next",
             has_next.then_some(Message::TimelineDetailStep(1)),
             tea,
             Variant::Quiet,
             icedtea::icon::Icons::NONE,
+            icedtea::widget::ButtonOpts::SHRINK,
             A11y::button("Next event").with_disabled(!has_next),
         ),
     ]
@@ -1919,7 +1926,7 @@ fn diff_tab(hud: &Hud) -> Element<'_, Message> {
 
 fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     let files = hud.visible_diff_files();
-    // tree_view already scrolls; do not nest another themed_scroll.
+    // tree_view already scrolls; do not nest another scroll.
     let files_body: Element<'_, Message> = if files.is_empty() {
         kit::status_empty(
             "No file changes",
@@ -1955,7 +1962,7 @@ fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
         .height(Length::Fill)
         .padding(tea.density.gap())
         .style(move |_| icedtea::style::card(tea, false));
-    let hunk_pane = container(icedtea::widget::themed_scroll(
+    let hunk_pane = container(icedtea::widget::scroll(
         paint_unified(hud, unified, tea),
         tea,
         A11y::new("Diff hunk", Role::Group),
@@ -1981,7 +1988,7 @@ fn diff_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
             tea,
             A11y::new("Snapshot", Role::Header),
         ));
-        header = header.push(icedtea::widget::themed_pick_list(
+        header = header.push(icedtea::widget::pick_list(
             hud.diff_point_options(),
             hud.diff_point_selected(),
             Message::DiffPointPicked,
@@ -1994,7 +2001,7 @@ fn diff_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     container(
         column![
             header,
-            icedtea::widget::themed_scroll(
+            icedtea::widget::scroll(
                 diff_context_body(hud, tea),
                 tea,
                 A11y::new("Diff context body", Role::Group),
@@ -2043,6 +2050,7 @@ fn diff_search(hud: &Hud) -> Element<'_, Message> {
     icedtea::widget::search_input(
         hud.diff_query(),
         Message::DiffQuery,
+        Some(Message::DiffQuery(String::new())),
         None,
         tea,
         A11y::new("Search files and hunks", Role::TextBox),
@@ -2104,7 +2112,7 @@ fn note_one_choice<'a>(
     } else {
         Some(val.to_string())
     };
-    icedtea::widget::themed_pick_list(
+    icedtea::widget::pick_list(
         choices,
         selected,
         move |v| Message::NoteField {
@@ -2188,7 +2196,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let n_notes = notes.len();
     let mut col = column![].spacing(tea.density.space);
     if hud.composing_note() {
-        let form = icedtea::widget::themed_scroll(
+        let form = icedtea::widget::scroll(
             container(notes_compose_form(hud))
                 .width(Length::Fill)
                 .padding(Padding {
@@ -2279,7 +2287,7 @@ fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
         A11y::new("Turn", Role::Status),
     ));
     form = form.push(
-        container(icedtea::widget::themed_text_input(
+        container(icedtea::widget::text_input(
             "session",
             &hud.note_draft().turn_index,
             Message::NoteTurn,
@@ -2398,7 +2406,7 @@ fn workflow_row_inspect_pane(hud: &Hud) -> Element<'_, Message> {
     else {
         return kit::status_empty("No workflow run on disk", "This run is gone.", tea);
     };
-    let inspect = icedtea::widget::themed_scroll(
+    let inspect = icedtea::widget::scroll(
         container(workflow_run_inspect(hud, run, "wf.inspect"))
             .width(Length::Fill)
             .into(),
@@ -3238,7 +3246,7 @@ mod tests {
         assert!(prod.contains("Glyph::Bytes"));
         assert!(chip.contains("Some(msg)"));
         assert!(chip.contains("Variant::Chip"));
-        assert!(!chip.contains("themed_button"));
+        assert!(!chip.contains("widget::button"));
         assert!(!chip.contains("Fixed(22"));
         assert!(!chip.contains("mouse_area"));
         let marks = prod
@@ -3309,7 +3317,7 @@ mod tests {
             "empty range must not paint a11y name"
         );
         assert!(
-            filter_src.contains("themed_switch"),
+            filter_src.contains("widget::switch"),
             "live Tail switch sits on the Timeline filter bar"
         );
         assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
@@ -3431,9 +3439,9 @@ mod tests {
         assert!(prod.contains("widget::rule_h"));
         assert!(prod.contains("widget::tooltip_wrap"));
         assert!(prod.contains("ControlSize::Default"));
-        assert!(prod.contains("themed_pick_list"));
+        assert!(prod.contains("icedtea::widget::pick_list"));
         assert!(prod.contains("TreeFace::Files"));
-        assert!(prod.contains("icedtea::widget::themed_text_input"));
+        assert!(prod.contains("icedtea::widget::text_input"));
         assert!(
             prod.contains("icedtea::widget::highlighted_code"),
             "tool code panes must use iced highlighter, not plain mono code_block"
@@ -3548,9 +3556,9 @@ mod tests {
         assert!(!prod.contains("Tab fields"));
         assert!(!prod.contains("Ctrl+1–5"));
         assert!(!prod.contains("hotkey_hint()"));
-        assert!(prod.contains("themed_button("));
+        assert!(prod.contains("icedtea::widget::button("));
         assert!(prod.contains("Variant::Chip"));
-        assert!(!prod.contains("themed_button_sized"));
+        assert!(!prod.contains("button_sized"));
         assert!(prod.contains("fn jump_control"));
         assert!(prod.contains("Go to Timeline"));
         assert!(!prod.contains("struct JumpIcon"));
@@ -3721,7 +3729,7 @@ mod tests {
             .next()
             .expect("body");
         assert!(kids.contains("icedtea::widget::virtual_column"));
-        assert!(!kids.contains("themed_scroll"));
+        assert!(!kids.contains("widget::scroll("));
         assert!(!kids.contains("select_bound"));
         assert!(kids.contains("if child.success { \"complete\" } else { \"failed\" }"));
         assert!(kids.contains("let openable = !child.path.is_empty()"));
@@ -3827,7 +3835,7 @@ mod tests {
         assert!(body.contains("StartNote"));
         assert!(body.contains("notes_compose_form"));
         assert!(body.contains("note_form_schema"));
-        assert!(body.contains("themed_scroll"));
+        assert!(body.contains("widget::scroll("));
         assert!(body.contains("note_draft().source.trim()"));
         assert!(body.contains("label_badge"));
         assert!(body.contains("CardFace::Outlined"));
@@ -3852,7 +3860,7 @@ mod tests {
         assert!(card.contains("markdown_bound"));
         assert!(card.contains("code_inset"));
         assert!(card.contains("note_edit_links"));
-        assert!(card.contains("themed_button"));
+        assert!(card.contains("widget::button"));
         assert!(card.contains("DensityName::Compact"));
         assert!(card.contains("Length::Fill"));
     }
