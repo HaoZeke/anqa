@@ -71,6 +71,8 @@ pub enum Message {
     OsMode(icedtea::iced::theme::Mode),
     OsChrome(icedtea::theme::OsChrome),
     SearchChanged(String),
+    /// Session list click: highlight that row (Enter / SelectSession opens).
+    FocusSession(usize),
     SelectSession(usize),
     OpenChild {
         path: String,
@@ -87,7 +89,11 @@ pub enum Message {
     EventsTurnPicked(EventsTurnPick),
     /// Turns card click: focus that turn.
     FocusTurn(i64),
+    /// Timeline card click: focus that event (Enter opens).
+    FocusTimeline(i64),
     SelectTimeline(i64),
+    /// Notes card click: focus that note (Enter edits).
+    FocusNote(String),
     /// Follow new Timeline events to the end (live turn only).
     TimelineTail(bool),
     /// Leave full-pane event detail and return to the timeline list.
@@ -906,6 +912,13 @@ impl Hud {
                 self.fetch_catalog_when()
             }
             Message::OpenChild { path, sid } => self.open_child_session(path, sid),
+            Message::FocusSession(i) => {
+                if i >= self.sessions().len() {
+                    return Task::none();
+                }
+                self.set_active(i);
+                self.ensure_active_visible()
+            }
             Message::SelectSession(i) => {
                 self.parent_stack.clear();
                 // Capture the row before clearing the query (index is into the
@@ -1149,6 +1162,11 @@ impl Hud {
                 self.focus_turn(ti);
                 self.scroll_turn_into_view()
             }
+            Message::FocusTimeline(ix) => {
+                self.tab = Tab::Timeline;
+                self.timeline_focus = Some(ix);
+                self.scroll_focus_into_view()
+            }
             Message::SelectTimeline(ix) => {
                 self.timeline_focus = Some(ix);
                 if let Some((path, sid)) = self.openable_child_at(ix) {
@@ -1156,6 +1174,7 @@ impl Hud {
                 }
                 self.open_timeline_detail(ix)
             }
+            Message::FocusNote(nid) => self.focus_note_card(&nid),
             Message::TimelineTail(on) => {
                 if !self.show_timeline_tail() {
                     self.timeline_follow_tail = false;
@@ -2885,6 +2904,21 @@ impl Hud {
         notes
     }
 
+    fn focus_note_card(&mut self, id: &str) -> Task<Message> {
+        if self.composing_note() {
+            return Task::none();
+        }
+        let ids: Vec<String> = self.notes_sorted().iter().map(|n| n.id.clone()).collect();
+        let Some(pos) = ids.iter().position(|x| x == id) else {
+            return Task::none();
+        };
+        self.notes_focus = Some(id.to_string());
+        let view_h = self.note_window.viewport.max(1.0);
+        let y = list_scroll_to_cover(&self.note_heights, pos, self.note_window.scroll, view_h);
+        self.note_window.scroll = y;
+        Task::none()
+    }
+
     fn nav_notes_step(&mut self, delta: i32) -> Task<Message> {
         if self.composing_note() {
             return Task::none();
@@ -4103,7 +4137,7 @@ impl Hud {
         };
     }
 
-    fn event_is_subagent_bookend(ev: &TimelineEvent) -> bool {
+    pub(crate) fn event_is_subagent_bookend(ev: &TimelineEvent) -> bool {
         ev.event_type == "subagent_spawned"
             || ev.event_type == "subagent_finished"
             || ev.kind == "subagent"
@@ -9496,6 +9530,184 @@ mod tests {
         assert_eq!(hud.tab(), Tab::Turns);
         assert_eq!(hud.turns_focus(), Some(0));
         assert!(hud.timeline_open().is_none());
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum SelectList {
+        Sessions,
+        Turns,
+        Timeline,
+        Notes,
+    }
+
+    fn three_session_picker() -> Hud {
+        let mut hud = Hud {
+            query: "x".into(),
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "s0".into(),
+                    title: "zero".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s1".into(),
+                    title: "one".into(),
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "s2".into(),
+                    title: "two".into(),
+                    ..SessionRow::default()
+                },
+            ],
+            ..Hud::default()
+        };
+        hud.sessions = hud.all_sessions.clone();
+        hud
+    }
+
+    fn browse_lists_hud() -> Hud {
+        let mut hud = hud_with_session();
+        hud.overview = Some(Overview {
+            turns: crate::wire::TurnsBlock {
+                turns: vec![
+                    crate::wire::TurnRow {
+                        turn_index: 0,
+                        ..crate::wire::TurnRow::default()
+                    },
+                    crate::wire::TurnRow {
+                        turn_index: 1,
+                        ..crate::wire::TurnRow::default()
+                    },
+                    crate::wire::TurnRow {
+                        turn_index: 2,
+                        ..crate::wire::TurnRow::default()
+                    },
+                ],
+                ..crate::wire::TurnsBlock::default()
+            },
+            notes: crate::wire::NotesBlock {
+                notes: vec![
+                    crate::wire::NoteRow {
+                        id: "n-a".into(),
+                        fields: serde_json::json!({"summary": "one"}),
+                        ..crate::wire::NoteRow::default()
+                    },
+                    crate::wire::NoteRow {
+                        id: "n-b".into(),
+                        fields: serde_json::json!({"summary": "two"}),
+                        ..crate::wire::NoteRow::default()
+                    },
+                    crate::wire::NoteRow {
+                        id: "n-c".into(),
+                        fields: serde_json::json!({"summary": "three"}),
+                        ..crate::wire::NoteRow::default()
+                    },
+                ],
+                ..crate::wire::NotesBlock::default()
+            },
+            ..Overview::default()
+        });
+        let _ = hud.update(Message::TurnsQuery(String::new()));
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(10, "a"), ev_json(11, "b"), ev_json(12, "c")],
+            3,
+            0,
+        );
+        hud.timeline_open = None;
+        hud
+    }
+
+    fn focus_label(hud: &Hud, list: SelectList) -> String {
+        match list {
+            SelectList::Sessions => hud.selected_sid().unwrap_or_default(),
+            SelectList::Turns => hud.turns_focus().map(|i| i.to_string()).unwrap_or_default(),
+            SelectList::Timeline => hud
+                .timeline_focus()
+                .map(|i| i.to_string())
+                .unwrap_or_default(),
+            SelectList::Notes => hud.notes_focus().unwrap_or_default().to_string(),
+        }
+    }
+
+    fn click_middle(hud: &mut Hud, list: SelectList) {
+        match list {
+            SelectList::Sessions => {
+                let _ = hud.update(Message::FocusSession(1));
+            }
+            SelectList::Turns => {
+                hud.tab = Tab::Turns;
+                let _ = hud.update(Message::FocusTurn(1));
+            }
+            SelectList::Timeline => {
+                hud.tab = Tab::Timeline;
+                hud.timeline_open = None;
+                let _ = hud.update(Message::FocusTimeline(11));
+            }
+            SelectList::Notes => {
+                hud.tab = Tab::Notes;
+                let _ = hud.update(Message::FocusNote("n-b".into()));
+            }
+        }
+    }
+
+    #[test]
+    fn click_and_jk_share_one_focus_field_on_each_list() {
+        use iced::keyboard::{Key, Modifiers};
+        let cases = [
+            (SelectList::Sessions, "s1", "s2", "s1"),
+            (SelectList::Turns, "1", "2", "1"),
+            (SelectList::Timeline, "11", "12", "11"),
+            (SelectList::Notes, "n-b", "n-c", "n-b"),
+        ];
+        for (list, after_click, after_j, after_k) in cases {
+            let mut hud = match list {
+                SelectList::Sessions => three_session_picker(),
+                _ => browse_lists_hud(),
+            };
+            click_middle(&mut hud, list);
+            assert_eq!(focus_label(&hud, list), after_click, "{list:?} after click");
+            match list {
+                SelectList::Sessions => {
+                    assert!(hud.overview.is_none(), "session click must not open");
+                    assert!(!hud.browse_mode(), "session click stays on the picker");
+                    assert_eq!(hud.list_selection().primary(), Some(1));
+                }
+                SelectList::Timeline => {
+                    assert!(
+                        hud.timeline_open().is_none(),
+                        "timeline click must not open"
+                    );
+                }
+                SelectList::Notes => {
+                    assert!(!hud.composing_note(), "note click must not edit");
+                }
+                SelectList::Turns => {
+                    assert!(hud.timeline_open().is_none());
+                    assert_eq!(hud.tab(), Tab::Turns);
+                }
+            }
+            let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+            assert_eq!(focus_label(&hud, list), after_j, "{list:?} j from click");
+            let _ = hud.on_key(Key::Character("k".into()), Modifiers::empty());
+            assert_eq!(focus_label(&hud, list), after_k, "{list:?} k back to click");
+        }
+    }
+
+    #[test]
+    fn focus_session_then_enter_opens() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = three_session_picker();
+        let _ = hud.update(Message::FocusSession(1));
+        assert_eq!(hud.selected_sid().as_deref(), Some("s1"));
+        assert!(hud.overview.is_none());
+        let _ = hud.on_key(Key::Named(Named::Enter), Modifiers::empty());
+        assert_eq!(hud.selected_sid().as_deref(), Some("s1"));
+        assert!(hud.browse_mode() || !hud.overview_pending.is_empty() || hud.overview.is_some());
     }
 
     #[test]

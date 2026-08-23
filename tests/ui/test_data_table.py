@@ -73,6 +73,27 @@ async def test_restore_cursor_missing_key_is_safe():
         assert restore_cursor(table, "only") is True
 
 
+def test_style_data_table_disables_zebra() -> None:
+    table = DataTable()
+    style_data_table(table)
+    assert table.zebra_stripes is False
+    assert table.cursor_type == "row"
+
+
+def test_selected_row_css_uses_primary_background() -> None:
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.tcss").read_text(
+        encoding="utf-8"
+    )
+    cursor = css.split("DataTable > .datatable--cursor")[1].split("}", 1)[0]
+    assert "$primary-background" in cursor
+    assert "bold" in cursor
+    notes = css.split(".panel-card.note-focused")[1].split("}", 1)[0]
+    assert "$primary-background" in notes
+    assert "$primary" in notes
+
+
 @pytest.mark.asyncio
 async def test_style_data_table_list_nav_follows_overlay(tmp_path, monkeypatch):
     keys = tmp_path / "keys.toml"

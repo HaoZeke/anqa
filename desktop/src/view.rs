@@ -654,7 +654,7 @@ fn session_list_card(
                 .width(Length::Fill)
                 .style(move |_| icedtea::style::card(tea, selected)),
         )
-        .on_press(Message::SelectSession(index)),
+        .on_press(Message::FocusSession(index)),
         Space::new().height(crate::live::LIST_CARD_GAP),
     ]
     .into()
@@ -1675,7 +1675,11 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             heights,
             hud.turn_window(),
             TURNS_OVERSCAN,
-            None,
+            idxs.iter().position(|&src| {
+                turns
+                    .get(src)
+                    .is_some_and(|t| hud.turns_focus() == Some(t.turn_index))
+            }),
             Message::TurnScroll,
             Some(hud.turn_scroll_id()),
             tea,
@@ -1733,7 +1737,11 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
         hud.timeline_heights(),
         hud.timeline_window(),
         TIMELINE_OVERSCAN,
-        None,
+        idxs.iter().position(|&src_i| {
+            source
+                .get(src_i)
+                .is_some_and(|ev| hud.timeline_focus() == Some(ev.index))
+        }),
         Message::TimelineScroll,
         Some(hud.timeline_scroll_id()),
         tea,
@@ -1746,10 +1754,16 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             };
             let ix = ev.index;
             let selected = hud.timeline_focus() == Some(ix);
+            let on_press = if Hud::event_is_subagent_bookend(ev) && !ev.child_session_id.is_empty()
+            {
+                Message::SelectTimeline(ix)
+            } else {
+                Message::FocusTimeline(ix)
+            };
             let card = closed_list_card(
                 event_list_title(ev),
                 event_list_heading(ev, tea),
-                Message::SelectTimeline(ix),
+                on_press,
                 selected,
                 tea,
             );
@@ -2224,7 +2238,9 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             hud.note_heights(),
             hud.note_window(),
             OVERVIEW_LIST_OVERSCAN,
-            None,
+            notes
+                .iter()
+                .position(|n| hud.notes_focus() == Some(n.id.as_str())),
             Message::NoteScroll,
             Some(hud.note_scroll_id()),
             tea,
@@ -2318,11 +2334,14 @@ fn note_list_card<'a>(hud: &'a Hud, n: &'a NoteRow) -> Element<'a, Message> {
     let tea = hud.tokens();
     let fields = note_display_fields(&hud.notes_schema(), &n.fields);
     let selected = hud.notes_focus() == Some(n.id.as_str());
-    container(note_body(hud, n, &fields))
-        .padding(tea.density.inset())
-        .width(Length::Fill)
-        .style(move |_| icedtea::style::card(tea, selected))
-        .into()
+    mouse_area(
+        container(note_body(hud, n, &fields))
+            .padding(tea.density.inset())
+            .width(Length::Fill)
+            .style(move |_| icedtea::style::card(tea, selected)),
+    )
+    .on_press(Message::FocusNote(n.id.clone()))
+    .into()
 }
 
 fn paired_tool<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> (&'a TimelineEvent, &'a TimelineEvent) {
@@ -3466,6 +3485,8 @@ mod tests {
             .expect("picker body");
         assert!(picker.contains("widget::virtual_column"));
         assert!(picker.contains("session_list_card("));
+        assert!(picker.contains("FocusSession"));
+        assert!(!picker.contains("SelectSession"));
         let detail = prod
             .split("fn detail_pane")
             .nth(1)

@@ -201,6 +201,44 @@ async def test_app_launch_lists_sessions(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("start", "key", "want"),
+    [
+        (0, "j", 1),
+        (1, "j", 2),
+        (2, "k", 1),
+        (1, "k", 0),
+    ],
+)
+async def test_session_list_click_cursor_then_jk_steps(
+    tmp_path: Path, start: int, key: str, want: int
+) -> None:
+    from groket.ui.app import TraceEvalApp
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_minimal_session(traces, "sess-a")
+    _write_minimal_session(traces, "sess-b")
+    _write_minimal_session(traces, "sess-c")
+    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    async with app.run_test(size=(120, 30)) as pilot:
+        table = app.query_one("#session-table", DataTable)
+        await wait_until(pilot, lambda: table.row_count >= 3, description="three session rows")
+        table.focus()
+        table.move_cursor(row=start, animate=False)
+        assert table.cursor_row == start
+        clicked = cursor_row_key(table)
+        assert clicked is not None
+        await pilot.press(key)
+        await wait_until(
+            pilot,
+            lambda: table.cursor_row == want,
+            description=f"{key} from row {start} to {want}",
+        )
+        assert cursor_row_key(table) != clicked
+
+
+@pytest.mark.asyncio
 async def test_app_launch_empty_traces_notifies(tmp_path: Path):
     """Empty traces dir should not crash; table stays empty."""
     from groket.ui.app import TraceEvalApp

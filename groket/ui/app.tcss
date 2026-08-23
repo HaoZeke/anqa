@@ -1452,7 +1452,9 @@ ContentSwitcher {
 }
 
 .panel-card.note-focused {
+    background: $primary-background;
     border: solid $primary;
+    text-style: bold;
 }
 
 .note-source-badge {
@@ -1721,18 +1723,19 @@ DataTable > .datatable--header {
 }
 
 DataTable > .datatable--header-cursor {
-    background: $boost;
+    background: $primary-background;
+    color: $text;
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: $boost;
+    background: $primary-background;
     color: $text;
     text-style: bold;
 }
 
 DataTable > .datatable--hover {
-    background: $boost 50%;
+    background: $boost;
 }
 
 DataTable > .datatable--fixed {

@@ -7,6 +7,9 @@ is tagged.
 
 ### Feature
 
+- Session, Timeline, and Notes lists share one selected-row face:
+  click and `j`/`k` move the same highlight. The terminal cursor
+  uses the theme primary wash (readable without zebra stripes).
 - Footer and `?` help use the same action words on both clients
   (Follow-up, Filter, Recipes, Open, Go). Recipes launch selected is
   `L`. Catalog search tokens in `?` come from the published schema and

@@ -672,6 +672,101 @@ async def test_report_notes_keyboard_focus_edit_and_delete(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("click_id", "key", "want_id"),
+    [
+        ("n-a", "j", "n-b"),
+        ("n-b", "j", "n-c"),
+        ("n-c", "k", "n-b"),
+        ("n-b", "k", "n-a"),
+    ],
+)
+async def test_notes_click_then_jk_continues_from_clicked_row(
+    tmp_path: Path, click_id: str, key: str, want_id: str
+) -> None:
+    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces, session_id=f"note-click-{click_id}-{key}")
+    (sess / "operator_notes.toml").write_text(
+        dump_notes_toml(
+            NotesDoc(
+                schema_id="default",
+                session_id=sess.name,
+                notes=[
+                    NoteEntry(id="n-a", turn_index=0, fields={"summary": "note-one"}),
+                    NoteEntry(id="n-b", turn_index=0, fields={"summary": "note-two"}),
+                    NoteEntry(id="n-c", turn_index=0, fields={"summary": "note-three"}),
+                ],
+            )
+        ),
+        encoding="utf-8",
+    )
+    app = _host_app(work, traces)
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        await _activate_tab(pilot, screen, "tab-notes")
+        screen._update_notes_tab()
+        await wait_until(
+            pilot,
+            lambda: bool(list(screen.query("#notes-list > .panel-card"))),
+            description="note cards mounted",
+        )
+        screen.query_one("#notes-list").focus()
+        await pilot.click(f"#note-{click_id}")
+        await wait_until(
+            pilot,
+            lambda: screen._notes_focus == click_id,
+            description=f"click focuses {click_id}",
+        )
+        assert "note-focused" in screen.query_one(f"#note-{click_id}").classes
+        await pilot.press(key)
+        await wait_until(
+            pilot,
+            lambda: screen._notes_focus == want_id,
+            description=f"{key} from {click_id} to {want_id}",
+        )
+        assert "note-focused" in screen.query_one(f"#note-{want_id}").classes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("start", "key", "want"),
+    [
+        (1, "k", 0),
+        (0, "j", 1),
+    ],
+)
+async def test_timeline_cursor_then_jk_steps(
+    tmp_path: Path, start: int, key: str, want: int
+) -> None:
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces, session_id=f"tl-click-{start}-{key}")
+    app = _host_app(work, traces)
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        tl = screen.query_one("#timeline-list", TimelineTable)
+        if tl.row_count < 2:
+            tl.load_events(screen.timeline)
+            await pilot.pause()
+        assert tl.row_count >= 2
+        tl.focus()
+        tl.move_cursor(row=start, animate=False)
+        clicked = cursor_row_key(tl)
+        assert clicked is not None
+        assert tl.cursor_row == start
+        await pilot.press(key)
+        await wait_until(
+            pilot,
+            lambda: tl.cursor_row == want,
+            description=f"{key} from row {start} to {want}",
+        )
+        assert cursor_row_key(tl) != clicked
+
+
+@pytest.mark.asyncio
 async def test_browser_summary_stats_tables(tmp_path: Path) -> None:
     """Summary pane builds event, tool, phase, and turns tables."""
     work = tmp_path / "work"
