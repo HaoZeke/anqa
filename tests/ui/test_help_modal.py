@@ -18,6 +18,10 @@ def test_help_markup_nonempty() -> None:
     assert len(text) > 10
     assert f"groket {__version__}" in text
     assert "Export a session bundle" in text
+    assert "Catalog search" in text
+    assert "is: running" in text
+    assert "has: workflows" in text
+    assert "%%catalog-query%%" not in text
 
 
 class _HelpApp(App):

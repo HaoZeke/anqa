@@ -232,7 +232,7 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             &mut table,
             overlay,
             "session.open",
-            "Next",
+            "Open",
             "enter",
             Message::ActivateSelected,
         );
@@ -261,7 +261,7 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             &mut table,
             overlay,
             "turns.timeline",
-            "Timeline",
+            "Go",
             "g",
             Message::Noop,
         );
@@ -281,7 +281,7 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             &mut table,
             overlay,
             "events.next_turn",
-            "Next turn",
+            "Next",
             "l,right",
             Message::Noop,
         );
@@ -354,7 +354,11 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "session.open",
-            "Open or next",
+            if scope.tab == Tab::Notes {
+                "Edit note"
+            } else {
+                "Open"
+            },
             "enter",
             Message::ActivateSelected,
         );
@@ -381,14 +385,6 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
         );
     }
     if scope.browse && scope.tab == Tab::Notes {
-        push(
-            &mut table,
-            overlay,
-            "session.note_edit",
-            "Edit note",
-            "O",
-            Message::Noop,
-        );
         push(
             &mut table,
             overlay,
@@ -549,7 +545,7 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "turns.timeline",
-            "Timeline for turn",
+            "Go to Timeline",
             "g",
             Message::Noop,
         );
@@ -673,7 +669,7 @@ mod tests {
         );
         assert!(blob.contains("u sessions"));
         assert!(blob.contains("y copy"));
-        assert!(blob.contains("enter next"));
+        assert!(blob.contains("enter open"));
         assert!(
             !blob.contains("notes"),
             "Overview footer stays one row: Notes is Shift+N in help, not the rail: {blob}"
@@ -730,7 +726,7 @@ mod tests {
         });
         let tblob = turns.footer_hints().join("  ·  ");
         assert!(tblob.contains("j down"), "{tblob}");
-        assert!(tblob.contains("g timeline"), "{tblob}");
+        assert!(tblob.contains("g go"), "{tblob}");
 
         let findings = footer_table(KeyScope {
             browse: true,
@@ -748,7 +744,7 @@ mod tests {
             notes_composing: false,
         });
         let fblob = findings.footer_hints().join("  ·  ");
-        assert!(!fblob.contains("enter next"), "{fblob}");
+        assert!(!fblob.contains("enter open"), "{fblob}");
         assert!(fblob.contains("j down"), "{fblob}");
         assert!(
             !findings.footer_hints().iter().any(|h| h.starts_with("h ")),
@@ -968,7 +964,8 @@ mod tests {
         assert!(findings.get("session.open").is_some());
         assert!(findings.get("list.down").is_some());
         assert!(findings.get("list.up").is_some());
-        assert!(findings.get("session.note_edit").is_some());
+        assert!(findings.get("session.open").is_some());
+        assert!(findings.get("session.note_edit").is_none());
         assert!(findings.get("session.delete").is_some());
         assert!(findings.get("events.next_turn").is_none());
         assert!(findings.get("pane.next").is_some());

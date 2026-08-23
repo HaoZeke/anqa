@@ -228,7 +228,7 @@ ACTIONS: tuple[KeyAction, ...] = (
     # Run configs.
     _row("configs.open", ActionScope.CONFIGS, "enter", ActionSurface.TUI),
     _row("configs.launch", ActionScope.CONFIGS, "l", ActionSurface.TUI),
-    _row("configs.launch_selected", ActionScope.CONFIGS, "w", ActionSurface.TUI),
+    _row("configs.launch_selected", ActionScope.CONFIGS, "L", ActionSurface.TUI),
     _row("configs.delete", ActionScope.CONFIGS, "x", ActionSurface.TUI),
     _row("configs.new", ActionScope.CONFIGS, "n", ActionSurface.TUI),
     # Personas.

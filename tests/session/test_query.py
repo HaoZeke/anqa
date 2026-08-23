@@ -183,6 +183,24 @@ def test_forgiving_unknown_and_incomplete() -> None:
     assert row_matches_query(_row(title="unknown:zzz"), "unknown:zzz")
 
 
+def test_catalog_query_help_lists_schema_tokens() -> None:
+    from groket.integrations.control_contract import catalog_query_help_plain
+
+    text = catalog_query_help_plain()
+    assert "Bare words match title, id, and label" in text
+    assert "is: running" in text
+    assert "cancelled" in text
+    assert "has: workflows" in text
+    assert "doom" in text
+    assert "in: Directory the session was run in" in text
+    assert "duration:" in text
+    assert ">=" in text
+    assert "OR" in text
+    assert "\n" in text
+    for line in text.splitlines():
+        assert len(line) <= 72, line
+
+
 def test_has_tokens_match_published_schema() -> None:
     assert HAS_VALUES == catalog_query_values("has")
     assert HAS_VALUES == HAS_TOKENS

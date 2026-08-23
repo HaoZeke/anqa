@@ -403,7 +403,7 @@ const ACTIONS: &[CatalogRow] = &[
     CatalogRow {
         id: "configs.launch_selected",
         scope: "configs",
-        default: "w",
+        default: "L",
         remappable: true,
     },
     CatalogRow {

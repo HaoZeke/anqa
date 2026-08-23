@@ -25,11 +25,11 @@ bind-cancel = Cancel
 
 bind-clear-logs = Clear logs
 
-bind-clear-view = Clear view
+bind-clear-view = Clear filter
 
 bind-close = Close
 
-bind-configs = Configs
+bind-configs = Recipes
 
 bind-delete = Delete
 
@@ -72,11 +72,11 @@ bind-next-pane = Next pane
 
 bind-next-turn = Next turn
 
-bind-prev-turn = Prev turn
+bind-prev-turn = Previous turn
 
-bind-event-down = Next event
+bind-event-down = Down
 
-bind-event-up = Prev event
+bind-event-up = Up
 
 bind-open = Open
 
@@ -99,7 +99,7 @@ bind-runner = Runner
 
 bind-save = Save
 
-bind-save-cfg = Save cfg
+bind-save-cfg = Save recipe
 
 bind-search = Search
 
@@ -111,7 +111,7 @@ bind-share = Share
 
 bind-toggle = Toggle
 
-bind-view = View
+bind-view = Filter
 
 branch-placeholder = branch (default: main)
 
@@ -545,6 +545,8 @@ jobs = Jobs
 jobs-tab = Jobs
 
 keyboard-help-title = groket {$version}
+
+keyboard-help-search = Catalog search
 
 help-brand-name = groket
 
@@ -1666,7 +1668,7 @@ status-waiting-prompt = awaiting
 status-unknown = —
 
 # Follow-up shortcut (sessions home + browser)
-bind-next-prompt = Next
+bind-next-prompt = Follow-up
 bind-end-session = Done
 cmd-next-prompt = Next prompt
 cmd-next-prompt-help = Send follow-up to awaiting sessions

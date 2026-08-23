@@ -149,9 +149,9 @@ The footer lists the keys that apply now; `?` is the full list.
 | ? | everywhere | This panel |
 | Ctrl+P | everywhere | Command palette for this screen |
 | F5 | everywhere | Refresh (also Ctrl+R) |
-| J | everywhere | Jobs and logs (Docker runs, TUI pool activity, serve log tail, container logs) |
+| J | everywhere | Jobs and logs |
 | q | everywhere | Quit when no field is focused |
-| / | sessions | Search the catalog (Tab completes the last token) |
+| / | sessions | Search (Tab completes the last token) |
 | r | sessions | New run |
 | C | sessions | Recipes |
 | P | sessions | Personas |
@@ -165,12 +165,9 @@ The footer lists the keys that apply now; `?` is the full list.
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
-| Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file. HUD Turns cards show a Diff chip when that turn has a snapshot. |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
-| j / k | browser | Previous / next Timeline event, or previous / next note (also Up / Down) |
-| v | browser | Timeline filter (Subagents lists spawn/finish; Background lists task and schedule bookends; Workflows lists workflow tool bookends) |
-| Summary | browser / HUD | Session glance; Tasks, Workflows, Subagents, and Stats tabs (click the strip) |
-| Tail | browser / HUD | Follow new events to the end while a turn is open (terminal and HUD). Off keeps the highlight still. |
+| j / k | browser | Previous / next Timeline event, or previous / next note |
+| v | browser | Filter (Subagents, Background, Workflows) |
 | Enter | browser / HUD | Open a Timeline event or child; edit the focused note |
 
 | N | browser / HUD | New note (TUI Notes); Notes pane (HUD) |
@@ -178,8 +175,6 @@ The footer lists the keys that apply now; `?` is the full list.
 | e | browser | Done while awaiting |
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
 | Ctrl+Shift+C | browser | Same as y |
-| Ctrl+C | browser | Copy the selection or focused body; quit hint when neither applies |
-| mouse drag | browser | Select text; release copies the selection (multi-line OK); y still works |
 | s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
 | x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session |
@@ -189,6 +184,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | [ ]  1-3 | runner | Recipe, Runtime, Extras |
 | Enter | recipes | Open in the runner |
 | l | recipes | Launch |
+| L | recipes | Launch selected |
 | s | recipes | Select |
 | n | recipes | New |
 | x | recipes | Delete |
@@ -207,7 +203,8 @@ and Ctrl+1–5 except on Notes, where Tab walks the note fields and
 Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
 `]` / `h` `l` jump to the next or previous turn that still matches
 Filter, only while All turns is selected. `u` or the logo leaves the
-open session for the session list.
+open session for the session list. `g` on Turns opens Timeline for that
+turn. Enter opens (or edits the focused note).
 
 ### Follow-up, fork, and re-run
 

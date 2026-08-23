@@ -104,6 +104,56 @@ def catalog_query_values(name: str) -> tuple[str, ...]:
     return ()
 
 
+def catalog_query_help_plain() -> str:
+    """Compact catalog-search help. Same tokens as ``catalogQuery``.
+
+    :returns: Wrapped plain lines for TUI ``?`` and the HUD cheatsheet.
+    """
+    lines = [
+        "Bare words match title, id, and label. Space is AND.",
+        "",
+    ]
+    compare: list[str] = []
+    for token in CATALOG_QUERY_TOKENS:
+        if token.values:
+            lines.extend(_wrap_csv(f"{token.name}: ", token.values))
+        elif token.compare:
+            compare.append(f"{token.name}:")
+        else:
+            lines.extend(_wrap_words(f"{token.name}: ", token.role.rstrip(".")))
+    if compare:
+        cmp = "  ".join(CATALOG_QUERY_COMPARE)
+        lines.append(f"{' '.join(compare)}  {cmp}")
+    lines.append("  ".join((*CATALOG_QUERY_OPERATORS, "(", ")")))
+    return "\n".join(lines)
+
+
+def _wrap_csv(prefix: str, items: Sequence[str], width: int = 68) -> list[str]:
+    """Wrap a comma list so help stays a short column, not one long line."""
+    return _wrap_parts(prefix, items, ", ", width)
+
+
+def _wrap_words(prefix: str, body: str, width: int = 68) -> list[str]:
+    """Wrap a role sentence on word boundaries."""
+    return _wrap_parts(prefix, body.split(), " ", width)
+
+
+def _wrap_parts(prefix: str, items: Sequence[str], sep: str, width: int) -> list[str]:
+    out: list[str] = []
+    current = prefix
+    pad = " " * len(prefix)
+    for i, item in enumerate(items):
+        piece = item if i == 0 else f"{sep}{item}"
+        if current != prefix and len(current) + len(piece) > width:
+            out.append(current)
+            current = pad + item
+        else:
+            current += piece
+    if current.strip():
+        out.append(current)
+    return out
+
+
 def catalog_query_mapping() -> JsonObject:
     """JSON for the published schema and the HUD token file."""
     return {
@@ -735,6 +785,7 @@ __all__ = (
     "CatalogQueryToken",
     "catalog_query_compare_fields",
     "catalog_query_field_names",
+    "catalog_query_help_plain",
     "catalog_query_mapping",
     "catalog_query_values",
     "emit_catalog_query_asset",

@@ -39,9 +39,59 @@ pub enum QuerySpanKind {
 struct QueryTokenSpec {
     name: String,
     #[serde(default)]
+    role: String,
+    #[serde(default)]
     values: Vec<String>,
     #[serde(default)]
     compare: bool,
+}
+
+/// One catalog-search help row (label plus wrapped values or role).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryHelpRow {
+    pub label: String,
+    pub body: String,
+}
+
+/// Same token list as TUI `?` / the published `catalogQuery` schema.
+pub fn catalog_query_help_rows() -> Vec<QueryHelpRow> {
+    let scheme = scheme();
+    let mut rows = Vec::new();
+    let mut compare: Vec<&str> = Vec::new();
+    for token in &scheme.tokens {
+        if !token.values.is_empty() {
+            rows.push(QueryHelpRow {
+                label: format!("{}:", token.name),
+                body: token.values.join(", "),
+            });
+        } else if token.compare {
+            compare.push(token.name.as_str());
+        } else {
+            let role = token.role.trim_end_matches('.');
+            rows.push(QueryHelpRow {
+                label: format!("{}:", token.name),
+                body: role.to_string(),
+            });
+        }
+    }
+    if !compare.is_empty() {
+        let names = compare
+            .iter()
+            .map(|n| format!("{n}:"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        rows.push(QueryHelpRow {
+            label: names,
+            body: scheme.compare.join("  "),
+        });
+    }
+    let mut ops = scheme.operators.clone();
+    ops.extend(["(".into(), ")".into()]);
+    rows.push(QueryHelpRow {
+        label: ops.join("  "),
+        body: String::new(),
+    });
+    rows
 }
 
 fn scheme() -> &'static QueryScheme {
@@ -881,6 +931,23 @@ mod tests {
         assert!(!mixed.iter().any(|s| s.kind == QuerySpanKind::Operator));
         let canceled = highlight_query_spans("is:canceled");
         assert_eq!(canceled.last().map(|s| s.kind), Some(QuerySpanKind::Value));
+    }
+
+    #[test]
+    fn catalog_query_help_lists_schema_tokens() {
+        let rows = catalog_query_help_rows();
+        let blob = rows
+            .iter()
+            .map(|r| format!("{} {}", r.label, r.body))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(blob.contains("is:"));
+        assert!(blob.contains("running"));
+        assert!(blob.contains("has:"));
+        assert!(blob.contains("workflows"));
+        assert!(blob.contains("in:"));
+        assert!(blob.contains("duration:"));
+        assert!(blob.contains("OR"));
     }
 
     #[test]

@@ -221,7 +221,7 @@ RUN_CONFIGS: tuple[Binding, ...] = (
         _b("enter", "open_in_runner", U.bind_open(), id="configs.open", show=True),
         _b("l", "launch_config", U.bind_launch(), id="configs.launch", show=True),
         _b(
-            "w",
+            "L",
             "launch_selected",
             U.bind_launch_selected(),
             id="configs.launch_selected",

@@ -3,7 +3,7 @@
 //! Prefer icedtea public APIs directly. Helpers here name a groket
 //! layout (pane tabs, form gutter), not a missing constructor.
 
-use iced::widget::{container, text};
+use iced::widget::{column, container, text};
 use iced::{Element, Length};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
@@ -138,7 +138,7 @@ pub fn labeled_plain<'a>(
     )
 }
 
-/// `?` help sheet: shortcut rows in a fixed-size modal.
+/// `?` help sheet: shortcut rows plus catalog search tokens.
 ///
 /// icedtea [`pattern::cheatsheet`] already pads for its scroll rail.
 pub fn help_modal<'a>(
@@ -148,18 +148,43 @@ pub fn help_modal<'a>(
 ) -> Element<'a, Message> {
     let heading = format!("Keyboard shortcuts · groket {}", crate::VERSION);
     let list = icedtea::pattern::cheatsheet(table, "", tea);
+    let body = column![list, catalog_search_help(tea)].spacing(tea.density.gap());
     let sheet = widget::group_box(
         heading.clone(),
-        list,
+        body.into(),
         tea,
         widget::CardFace::Elevated,
         A11y::new(heading, Role::Dialog),
         None,
     );
     let card = container(sheet)
-        .width(Length::Fixed(520.0))
-        .height(Length::Fixed(400.0));
+        .width(Length::Fixed(560.0))
+        .height(Length::Fixed(520.0));
     icedtea::pattern::modal_card(backdrop, card.into(), 1.0, tea)
+}
+
+fn catalog_search_help(tea: Tokens) -> Element<'static, Message> {
+    let gap = tea.density.gap();
+    let mut col = column![
+        widget::meta(
+            "Catalog search",
+            tea,
+            A11y::new("Catalog search", Role::Status),
+        ),
+        text("Bare words match title, id, and label. Space is AND.")
+            .size(tea.body())
+            .color(tea.text),
+    ]
+    .spacing(gap);
+    for row in crate::query::catalog_query_help_rows() {
+        let line = if row.body.is_empty() {
+            row.label
+        } else {
+            format!("{}  {}", row.label, row.body)
+        };
+        col = col.push(text(line).size(tea.meta()).color(tea.muted));
+    }
+    col.into()
 }
 
 #[cfg(test)]
@@ -300,6 +325,8 @@ mod tests {
             .next()
             .unwrap();
         assert!(help.contains("pattern::cheatsheet"));
+        assert!(help.contains("catalog_query_help_rows"));
+        assert!(help.contains("Catalog search"));
     }
 
     #[test]

@@ -646,7 +646,7 @@ session delete is on the session list; ``N`` new note;
 ``E`` export. Host sessions filter with ``is:host`` in catalog search.
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
-(double-press); ``r``/``C``/``P`` runner/configs/personas;
+(double-press); ``r``/``C``/``P`` runner/recipes/personas;
 ``H`` show or hide native ``~/.grok/sessions`` next to Docker work traces.
 
 ### 6.10 TUI and HUD: same action, same key

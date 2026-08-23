@@ -7,6 +7,10 @@ is tagged.
 
 ### Feature
 
+- Footer and `?` help use the same action words on both clients
+  (Follow-up, Filter, Recipes, Open, Go). Recipes launch selected is
+  `L`. Catalog search tokens in `?` come from the published schema and
+  wrap as a short list on the terminal and the desktop palette.
 - Default look follows the host (`theme = "auto"`): the terminal app
   uses the terminal's colors, the desktop palette uses the system
   light/dark pair. Named catalog themes (Catppuccin, Nord, GitHub,
