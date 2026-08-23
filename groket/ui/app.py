@@ -1,6 +1,6 @@
 """Main Textual application for groket.
 
-UI entry point only: domain work goes through ``services``, ``analysis``,
+UI entry point only: domain work goes through ``services``,
 ``run_manager``, ``personas`` — not embedded business logic in screens.
 """
 
@@ -56,9 +56,8 @@ from ..session.access import (
 )
 from ..session.query import (
     CatalogQueryRow,
+    apply_catalog_presence,
     apply_suggestion,
-    catalog_has_notes,
-    catalog_has_workflows,
     row_matches_query,
     suggest_last_token,
 )
@@ -83,11 +82,17 @@ from .data_table import (
 )
 from .i18n import setup_i18n, t
 from .keys import format_key_chord
+from .query_highlight import CatalogQueryHighlighter
 from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .screens.run_configs import RunConfigsScreen
 from .screens.runner import RunnerPrefill, RunnerScreen
-from .theme import register_brand_themes, resolve_theme
+from .theme import (
+    AUTO_NAMES,
+    family_of_theme,
+    register_catalog_themes,
+    resolve_theme,
+)
 from .threads import call_ui
 from .widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 
@@ -181,8 +186,11 @@ class InteractiveSessionsModal(QuitActions, ModalScreen[tuple[str, bool] | None]
 
 def _attach_catalog_flags(meta: SessionMeta) -> None:
     """Set cheap ``has:`` flags from disk (offline home list)."""
-    meta.has_workflows = catalog_has_workflows(meta.session_dir)
-    meta.has_notes = catalog_has_notes(meta.session_dir)
+    from ..session.sources import session_run_dir
+
+    apply_catalog_presence(meta)
+    if not (meta.run_dir or "").strip():
+        meta.run_dir = session_run_dir(meta.session_dir)
 
 
 class SessionQuerySuggester(Suggester):
@@ -419,8 +427,8 @@ class TraceEvalApp(App):
         self._delete_row_keys_snapshot: list[str] | None = None
         self._config: JsonObject = self._load_config()
         self._theme_persist = False
-        register_brand_themes(self)
-        early = str(self._config.get("theme") or "").strip() or "groket"
+        register_catalog_themes(self)
+        early = str(self._config.get("theme") or "").strip() or "auto"
         self._desktop_appearance = appearance()
         try:
             self.theme = self._resolved_theme(early)
@@ -441,6 +449,7 @@ class TraceEvalApp(App):
                 yield Input(
                     placeholder=U.search_sessions_placeholder(),
                     id="session-search-input",
+                    highlighter=CatalogQueryHighlighter(),
                     suggester=SessionQuerySuggester(self),
                 )
             yield Static("", id="session-query-hints", classes="session-query-hints")
@@ -467,8 +476,11 @@ class TraceEvalApp(App):
     def _load_config(self) -> JsonObject:
         """Load the canonical app config (defaults when the file is missing)."""
         from ..config import config_dump, load_app_config
+        from ..job_pools import configure_job_pools
 
-        return config_dump(load_app_config(self._config_path))
+        cfg = load_app_config(self._config_path)
+        configure_job_pools(live_refresh_workers=cfg.live_refresh_workers)
+        return config_dump(cfg)
 
     def _save_config(self) -> None:
         """Write shared prefs through :mod:`groket.config` (canonical object)."""
@@ -477,7 +489,7 @@ class TraceEvalApp(App):
         try:
             update_app_config(
                 self._config_path,
-                theme=str(self._config.get("theme") or "groket"),
+                theme=str(self._config.get("theme") or "auto"),
                 follow_os=self._config.get("follow_os") is True,
                 show_host_sessions=bool(self._config.get("show_host_sessions")),
                 auto_serve=self._config.get("auto_serve") is not False,
@@ -502,18 +514,23 @@ class TraceEvalApp(App):
         return self._config.get("follow_os") is True
 
     def _resolved_theme(self, pref: str) -> str:
-        if self._follow_os():
-            return resolve_theme(pref, self._desktop_appearance)
-        return pref
+        return resolve_theme(
+            pref,
+            self._desktop_appearance,
+            follow_os=self._follow_os(),
+        )
+
+    def _theme_pref_is_auto(self) -> bool:
+        return str(self._config.get("theme") or "").strip().casefold() in AUTO_NAMES
 
     def apply_saved_theme(self, *, save: bool = False) -> str | None:
         """Restore theme from config.toml (or keep current). Re-applied after refresh.
 
         Textual can reset ``self.theme`` during App/mount; setting only once in
-        ``on_mount`` is unreliable. ``follow_os`` may pick a pair member;
-        an explicit theme pick writes ``follow_os: false`` and is left alone.
+        ``on_mount`` is unreliable. A pair pick stores the family and applies
+        the desktop member.
         """
-        pref = str(self._config.get("theme") or "").strip() or self.theme
+        pref = str(self._config.get("theme") or "").strip() or "auto"
         names = set(self._theme_names())
         self._desktop_appearance = appearance()
         name = self._resolved_theme(pref)
@@ -546,28 +563,52 @@ class TraceEvalApp(App):
             return
         self._theme_persist = True
         self.theme_changed_signal.subscribe(self, self._on_theme_changed)
-        if self._follow_os() and self._appearance_timer is None:
+        if (self._follow_os() or self._theme_pref_is_auto()) and self._appearance_timer is None:
             self._appearance_timer = self.set_interval(2.0, self._follow_desktop_appearance)
 
     def _follow_desktop_appearance(self) -> None:
-        """Repaint when the host light/dark setting changes (``follow_os`` only)."""
-        if not self._follow_os():
+        """Repaint when the host light/dark setting changes."""
+        if not (self._follow_os() or self._theme_pref_is_auto()):
             return
         if appearance() != self._desktop_appearance:
             self.apply_saved_theme(save=False)
 
+    def _apply_pair_member(self) -> None:
+        """Paint the desktop member of the stored pair without rewriting config."""
+        want = self._resolved_theme(str(self._config.get("theme") or ""))
+        if not want or want == self.theme:
+            return
+        self._applying_saved_theme = True
+        try:
+            self.theme = want
+        except Exception:
+            return
+        finally:
+            self._applying_saved_theme = False
+
     def _on_theme_changed(self, theme: Theme) -> None:
-        """Persist an explicit theme pick. Clears ``follow_os`` so the OS cannot override it."""
+        """Persist a pick. Pair names store the family and apply the desktop member."""
         if not self._theme_persist or self._applying_saved_theme:
             return
         name = (theme.name or self.theme or "").strip()
         if not name:
             return
-        if self._config.get("theme") == name and self._config.get("follow_os") is False:
+        if name.casefold() in AUTO_NAMES:
             return
-        self._config["theme"] = name
-        self._config["follow_os"] = False
-        self._save_config()
+        family = family_of_theme(name)
+        if family is not None:
+            pref, follow = family, True
+        else:
+            pref, follow = name, False
+        changed = self._config.get("theme") != pref or self._config.get("follow_os") is not follow
+        if changed:
+            self._config["theme"] = pref
+            self._config["follow_os"] = follow
+            self._save_config()
+        if follow:
+            if self._appearance_timer is None:
+                self._appearance_timer = self.set_interval(2.0, self._follow_desktop_appearance)
+            self._apply_pair_member()
 
     def _apply_resolved_keymap(self) -> None:
         """Apply ``keys.toml`` remaps via Textual ``set_keymap``.
@@ -784,7 +825,7 @@ class TraceEvalApp(App):
         self._load_sessions(include_host=None, quiet=True)
 
     async def _control_notify_loop(self, stop: asyncio.Event) -> None:
-        """Background: stay connected for session/notes/analysis notifies."""
+        """Background: stay connected for session and notes notifies."""
         if self._control_socket is None:
             return
         await listen_control_notifications(
@@ -795,7 +836,7 @@ class TraceEvalApp(App):
         )
 
     async def _on_control_notification(self, method: str, params: JsonObject) -> None:
-        """Handle serve-side notify (session/selected, changed, notes, analysis)."""
+        """Handle serve-side notify (session/selected, changed, notes)."""
         from ..models import json_as_int
 
         if self._exiting:
@@ -856,7 +897,7 @@ class TraceEvalApp(App):
         try:
             if screen.session_dir.name == session_id:
                 screen._load_notes()
-                screen._update_reports_tab()
+                screen._update_notes_tab()
         except Exception:
             logger.debug("notes refresh on notes/changed failed", exc_info=True)
 
@@ -1575,14 +1616,14 @@ class TraceEvalApp(App):
         )
 
     def query_path_values(self) -> list[str]:
-        """Start repos on the loaded catalog (last-token ``in:`` hints)."""
+        """Run directories on the loaded catalog (last-token ``in:`` hints)."""
         out: list[str] = []
         seen: set[str] = set()
         for meta, _label in self._meta_only:
-            repo = (meta.git_repo or "").strip()
-            if repo and repo not in seen:
-                seen.add(repo)
-                out.append(repo)
+            path = (meta.run_dir or "").strip()
+            if path and path not in seen:
+                seen.add(path)
+                out.append(path)
         return out
 
     def _rebuild_session_filters(self) -> None:
@@ -1929,6 +1970,11 @@ class TraceEvalApp(App):
             models=self.query_model_values(),
             paths=self.query_path_values(),
         )
+        if not hits:
+            hint.update("")
+            hint.display = False
+            return
+        hint.display = True
         hint.update("  ".join(hits[:8]))
 
     def _set_session_query(self, query: str) -> None:
@@ -2964,7 +3010,7 @@ class TraceEvalApp(App):
           ``updates.jsonl`` on the list poll.
         - New sessions only: ``load_session_meta`` once.
         - UI: one ``call_ui`` apply if anything actually changed — no share spam.
-        - Attach client: quiet ``session/list`` refresh (min_gap, keep analysis).
+        - Attach client: quiet ``session/list`` refresh (min_gap).
         - Skip entirely while a catalog reload is in flight (toggle/F5 owns the list).
         """
         import time

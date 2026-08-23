@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import subprocess
 import sys
 from typing import Literal, Protocol, cast
@@ -74,3 +75,24 @@ def appearance() -> Appearance:
     if "uint32 1" in out:
         return "dark"
     return "light"
+
+
+def terminal_appearance() -> Appearance | None:
+    """Light/dark from ``COLORFGBG`` (``fg;bg``), or None when unset."""
+    raw = (os.environ.get("COLORFGBG") or "").strip()
+    if not raw or ";" not in raw:
+        return None
+    tail = raw.rsplit(";", 1)[-1].strip()
+    try:
+        bg = int(tail)
+    except ValueError:
+        return None
+    return "light" if bg in {7, 15} else "dark"
+
+
+def tui_appearance() -> Appearance:
+    """Host look for the terminal app: the terminal first, then the desktop."""
+    term = terminal_appearance()
+    if term is not None:
+        return term
+    return appearance()

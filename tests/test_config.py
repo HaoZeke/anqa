@@ -29,11 +29,11 @@ def _iso(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_defaults_when_missing() -> None:
     cfg = load_app_config()
-    assert cfg.theme == "groket"
+    assert cfg.theme == "auto"
     assert cfg.follow_os is False
     assert cfg.show_host_sessions is False
     assert cfg.auto_serve is True
-    assert cfg.analysis.live_refresh_workers == 1
+    assert cfg.live_refresh_workers == 1
     assert cfg.hud.window_mode is False
     assert cfg.hud.global_shortcut == ""
     assert cfg.hud.desktop_notifications is True
@@ -47,14 +47,14 @@ def test_save_writes_toml_tables(tmp_path: Path) -> None:
     data = tomlkit.parse(text)
     assert data["theme"] == "nord"
     assert data["hud"]["global_shortcut"] == "Ctrl+K"
-    assert "analysis" in data
+    assert data["live_refresh_workers"] == 1
     assert "export" in data
 
 
 def test_update_keeps_comment(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(
-        '# keep me\ntheme = "nord"\n[analysis]\nnote = "keep"\n',
+        '# keep me\ntheme = "nord"\nextra_pref = true\n',
         encoding="utf-8",
     )
     invalidate_config_cache()
@@ -63,14 +63,14 @@ def test_update_keeps_comment(tmp_path: Path) -> None:
     assert "keep me" in text
     data = tomlkit.parse(text)
     assert data["theme"] == "gruvbox"
-    assert data["analysis"]["note"] == "keep"
+    assert data["extra_pref"] is True
 
 
 def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
     (tmp_path / "config.toml").write_text("not = [toml", encoding="utf-8")
     invalidate_config_cache()
     cfg = load_app_config()
-    assert cfg.theme == "groket"
+    assert cfg.theme == "auto"
 
 
 def test_dump_roundtrip() -> None:
@@ -84,7 +84,7 @@ def test_imports_json_when_toml_missing(tmp_path: Path) -> None:
     (tmp_path / "config.json").write_text(
         '{"theme": "nord", "show_host_sessions": true, '
         '"hud_global_shortcut": "Ctrl+K", '
-        '"analysis": {"live_refresh_workers": 1}}\n',
+        '"analysis": {"live_refresh_workers": 3}}\n',
         encoding="utf-8",
     )
     invalidate_config_cache()
@@ -92,7 +92,7 @@ def test_imports_json_when_toml_missing(tmp_path: Path) -> None:
     assert cfg.theme == "nord"
     assert cfg.show_host_sessions is True
     assert cfg.hud.global_shortcut == "Ctrl+K"
-    assert cfg.analysis.live_refresh_workers == 1
+    assert cfg.live_refresh_workers == 1
     text = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert "nord" in text
     assert not (tmp_path / "config.json").exists()
@@ -123,7 +123,7 @@ def test_schema_has_published_id() -> None:
         "follow_os",
         "show_host_sessions",
         "auto_serve",
-        "analysis",
+        "live_refresh_workers",
         "hud",
         "export",
         "global_shortcut",
@@ -135,13 +135,26 @@ def test_schema_has_published_id() -> None:
 def test_validate_example_file() -> None:
     path = Path("examples/config/config.toml")
     cfg = validate_config_file(path)
-    assert cfg.theme == "groket"
+    assert cfg.theme == "auto"
     assert cfg.follow_os is False
     assert cfg.show_host_sessions is False
     assert cfg.auto_serve is True
-    assert cfg.analysis.live_refresh_workers == 1
+    assert cfg.live_refresh_workers == 1
     assert cfg.hud.desktop_notifications is True
     assert cfg.export.default_profile == ""
+
+
+def test_analysis_table_does_not_set_workers(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[analysis]\nlive_refresh_workers = 4\n", encoding="utf-8")
+    invalidate_config_cache()
+    cfg = load_app_config()
+    assert cfg.live_refresh_workers == 1
+    save_app_config(cfg)
+    text = path.read_text(encoding="utf-8")
+    data = tomlkit.parse(text)
+    assert data["live_refresh_workers"] == 1
+    assert "analysis" not in data
 
 
 def test_validate_rejects_invalid_toml(tmp_path: Path) -> None:

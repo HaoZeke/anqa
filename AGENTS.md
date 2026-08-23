@@ -61,14 +61,15 @@ change the user could revert alone. Verify, then commit before starting the next
 Before **any** agent commit:
 
 1. **`just lint`** (or equivalent ruff/mypy/fluent/typing checks) green.
-2. **`uv run pytest tests/ -q`** green (owning subset first is fine, then full).
+2. **Owning tests** for the files you touched green (see §11.6).
 3. **`git status`** — stage intended files only; no secrets.
 4. Commit with a clear imperative message (why, not only what).
 5. If GPG signing fails non-interactively:
    ``git -c commit.gpgsign=false commit …`` and note it.
 
-Re-run tests after the final diff for that commit. Prefer
-``just ci`` before claiming a larger slice done.
+Re-run those owning tests after the final diff for that commit.
+``just test`` / ``just ci`` (and HUD ``just hud-check``) are the publish
+pass: run them when pushing to a remote or opening a pull request.
 
 Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
 (``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` does
@@ -137,8 +138,9 @@ later.”
 - [ ] Batch/schema/examples updated **or** README states TUI-only / batch-only
 - [ ] README updated for operators
 - [ ] Tests for domain + UI (and batch if applicable)
-- [ ] ``just lint`` and ``uv run pytest tests/ -q`` green; prefer ``just ci``
-      for multi-surface work
+- [ ] ``just lint`` and the owning tests for this change green
+- [ ] Full ``just ci`` (or ``just test`` + HUD check) when pushing or
+      opening a pull request
 
 ---
 
@@ -148,7 +150,7 @@ Root modules are **foundational**. Domain logic lives in packages.
 
 ```
 groket/
-  cli.py, models.py, config.py, parser.py, paths.py, constants.py, utils.py, flags.py
+  cli.py, models.py, config.py, parser.py, paths.py, constants.py, utils.py
   event_types.py         # event type sets for filters / segmentation
   fs_watch.py            # TraceTreeWatch (live session / trace FS events)
   job_pools.py           # live-refresh worker pool
@@ -226,7 +228,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.toml``, ``hud.log``, personas, tasks scaffolds, reports, flag fallbacks, notes_schema.toml, notes fallback, optional ``models.yaml`` |
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.toml``, ``hud.log``, personas, tasks scaffolds, reports, notes_schema.toml, notes fallback, optional ``models.yaml`` |
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
@@ -235,7 +237,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
-- Gitignored trees under a checkout (``/runs/``, ``/flags/``, ``/config.toml``,
+- Gitignored trees under a checkout (``/runs/``, ``/config.toml``,
   ``/_meta_cache.json``) are **local leftovers**, not the install layout.
 
 ### 3.1 Live sessions (product behaviour)
@@ -414,7 +416,8 @@ Before claiming work done:
 1. **Feature delivery** checklist in §2 (docs, parity, schemas/examples) complete
    for the change — not only the code path you touched first.
 2. ``just lint`` (or mypy + fluent + typing policy + ruff) green.
-3. ``uv run pytest tests/ -q`` green.
+3. Owning tests for the touched files green (§11.6). Full suite on push
+   or pull request.
 4. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.
 5. Prefer delete/merge duplicates over parallel JSON/UI helpers.
 
@@ -450,7 +453,7 @@ exceeds a limit, split or simplify that unit in the same change — no blanket
 
 ### 4.7 Models
 
-- **Pydantic v2** for serialised models (Flag, EvalRun, …).
+- **Pydantic v2** for serialised models (EvalRun, …).
 - **Dataclasses** for hot-path trace types (TraceEvent, ToolCall, …).
 - Model modules are types only (§4.3).
 
@@ -508,7 +511,12 @@ never caret (``^s``) or glyphs (``⌘⇧``).
 | Mouse | Optional |
 
 After filling a primary list: ``focus_primary_list``. Use ``check_action`` +
-``refresh_bindings`` for selection-gated keys (e.g. Flag).
+``refresh_bindings`` for selection-gated keys (e.g. delete).
+
+A new list-like surface (session list, Timeline, Turns, Notes)
+ships ``list.down`` / ``list.up`` plus the focused-row actions (Enter, and
+edit / delete when those exist) in the same change. Do not ship a mouse-only
+list.
 
 ### 6.2 Two layers of tabs
 
@@ -517,7 +525,7 @@ After filling a primary list: ``focus_primary_list``. Use ``check_action`` +
 
 | Layer | Example | Keys |
 |-------|---------|------|
-| Browser panes | Timeline … Report | ``[`` ``]`` ``1``–``4`` |
+| Browser panes | Timeline … Notes | ``[`` ``]`` ``1``–``4`` |
 | Persona / runner panes | Identity … / Recipe … | ``[`` ``]`` + digits |
 | Timeline filter | All / Tools / … | ``v`` → Select |
 | Multi-select | Sessions, configs, pickers | ``s`` / ``space`` → green ``*`` col 0 |
@@ -572,18 +580,17 @@ drag-select) for the same bodies.
 2. **``y`` / Ctrl+Shift+C** (browser ``action_copy_detail``) order:
    mouse selection → focused ``SelectableStatic`` body only → tab
    primary body when there is no focused extractable (Timeline detail,
-   Summary, Diff hunk). **Report** with no focused pane yields nothing
-   to copy — never a silent join of every visible Report sibling pane.
-   Report mounts **one extractable pane per logical unit**: overview,
-   flags, notes. Tab focuses a pane; ``y`` yanks that pane only.
+   Summary, Diff hunk). **Notes** with no focused card yields nothing
+   to copy — never a silent join of every visible Notes card.
+   Notes mounts **one extractable card per note**. Tab focuses a card;
+   ``y`` yanks that card only.
 3. **Live refresh** must not clear a widget that has an active text
    selection (``_widget_has_text_selection`` / ``set_static_renderable``).
 4. **Tests** for new extractable surfaces: plain-text cache + yank path
    (see ``tests/ui/test_selectable_static.py``).
 5. **Docs**: operator keys in README + ``help.rich.txt`` when adding a
    major extractable surface; Fluent notify ids
-   (``ui-copied-selection`` / ``ui-copied-detail`` / ``ui-copied-report`` /
-   ``ui-copied-content``).
+   (``ui-copied-selection`` / ``ui-copied-detail`` / ``ui-copied-content``).
 
 Helper: :func:`~groket.ui.selectable_static.is_extractable_static`.
 
@@ -629,11 +636,13 @@ keys on that screen; shared TUI/HUD keys stay aligned (§6.10).
 | ``s`` / ``space`` | Select (multi-select lists) |
 
 Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
-(§6.5a); ``j`` / ``k`` next / previous event; ``h`` / ``l`` (and Left / Right)
+(§6.5a); ``j`` / ``k`` next / previous Timeline event or note;
+``h`` / ``l`` (and Left / Right)
 next / previous turn; Enter opens a full-width event (Esc returns to the list)
-or a child from a spawn/finish bookend;
+or a child from a spawn/finish bookend, or the focused note;
 ``n``/``e`` follow-up/Done
-when awaiting; ``x`` delete (double-press); ``f`` flag; ``N``/``O`` notes;
+when awaiting; ``x`` deletes the focused note (double-press);
+session delete is on the session list; ``N`` new note;
 ``E`` export. Host sessions filter with ``is:host`` in catalog search.
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
@@ -670,15 +679,16 @@ against the catalog.
 | ``Esc`` | Back / dismiss (HUD: leave Timeline detail, then hide the overlay) |
 | ``/`` | Search (TUI sessions + browser; HUD picker + Turns / Timeline) |
 | ``y`` / ``Ctrl+Shift+C`` | Copy body |
-| ``j`` / ``k`` | List down / up |
+| ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
 | ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
-| ``Enter`` | Open / drill |
+| ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
 | ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
+| ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 
 
 **TUI only** — the HUD is a session palette (follow-up, Done, notes). It
-does not launch evals, open Jobs, export, flag, or delete.
+does not launch evals, open Jobs, or export.
 
 | Key | Action |
 |-----|--------|
@@ -688,9 +698,8 @@ does not launch evals, open Jobs, export, flag, or delete.
 | ``F5`` / ``Ctrl+R`` | Refresh |
 | ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–5**) |
 | ``E`` | Export bundle |
-| ``f`` | Flag (browser) / fork (sessions home) |
-| ``O`` | Edit note |
-| ``x`` | Delete (double-press) |
+| ``f`` | Fork (sessions home) |
+| ``x`` | Delete a session / persona / recipe (double-press) |
 | ``r`` / ``C`` / ``P`` | Runner / recipes / personas |
 | ``s`` / ``space`` | Multi-select |
 
@@ -713,12 +722,28 @@ that collides with a shared key in this table.
 
 ## 7. Styling
 
-Prefer Textual design tokens (``$primary``, ``$surface``, ``$text``, …).
+Default chrome follows the host. ``theme = "auto"``: both the TUI and the
+HUD use the desktop light/dark pair (``ansi-light`` / ``ansi-dark``, same
+paper as icedtea ``light`` / ``dark``). Picking any member of a named pair
+stores the family (``gruvbox``); both clients apply the desktop member.
+An unpaired name pins both clients.
+
+Color by **role**, never a raw hex on the default path.
+
+| Role | Job | TUI Rich / TCSS | HUD |
+|------|-----|-----------------|-----|
+| success | done, writes | ``green`` / ``$success`` | ``tokens.success`` |
+| caution | live, shell | ``yellow`` / ``$warning`` | ``tokens.warning`` |
+| danger | error | ``red`` / ``$error`` | ``tokens.danger`` |
+| quiet | chrome, marketplace | ``dim`` / ``$text-muted`` | ``tokens.muted`` |
+| emphasis | prompts, reads | default / ``$text`` | ``tokens.text`` |
 
 | Layer | File |
 |-------|------|
-| Layout / focus | ``app.tcss`` |
-| Semantic Rich colours | ``ui/styles.py`` (status, severity, timeline) |
+| Layout / focus | ``app.tcss`` (``$`` tokens only) |
+| Semantic Rich roles | ``ui/styles.py`` |
+| Catalog + user themes | ``ui/theme.py``, ``ui/community_themes.json`` |
+| HUD resolve | ``desktop/src/theme.rs`` (same catalog JSON + user TOML) |
 
 UI chrome via ``panel_render`` / panel-card; Markdown **content** only through
 ``md_content()`` / ``content_block()``.
@@ -730,20 +755,19 @@ One rule on both surfaces. Stored ids stay snake_case; the list never shows them
 **Label.** Underscores become spaces (``read_file`` → ``read file``). Marketplace
 ids are ``server · method``. Same words as event types (``tool call``).
 
-**Color the name by action family** (brand cream / green / yellow / gray / dim).
-Not “every tool is green.” Error is red and wins.
+**Color the name by action family** (one role each). Error is danger and wins.
 
-| Family | Color | Members |
-|--------|-------|---------|
-| read | cream | ``read_file``, ``grep``, ``list_dir``, ``web_search``, ``search_tool`` |
-| write | green | ``search_replace``, ``todo_write``, ``update_goal``, image tools |
-| shell | yellow | ``run_terminal_command``, wait / kill / monitor / scheduler |
-| agent | cream | ``spawn_subagent``, ``ask_user_question``, plan mode |
-| marketplace | gray | ``server__method``, ``use_tool``, ``call_mcp`` |
-| other | dim | unknown |
+| Family | Role | Members |
+|--------|------|---------|
+| read | emphasis | ``read_file``, ``grep``, ``list_dir``, ``web_search``, ``search_tool`` |
+| write | success | ``search_replace``, ``todo_write``, ``update_goal``, image tools |
+| shell | caution | ``run_terminal_command``, wait / kill / monitor / scheduler |
+| agent | emphasis | ``spawn_subagent``, ``ask_user_question``, plan mode |
+| marketplace | quiet | ``server__method``, ``use_tool``, ``call_mcp`` |
+| other | quiet | unknown |
 
 Event *type* (``tool call``, ``user message``) still uses the event-type map
-(all tools green). The **name** uses the family map. Name face is regular
+(tools → success). The **name** uses the family map. Name face is regular
 weight; type labels stay bold. The HUD paints type, tool name, turn, time,
 and similar chrome as small icedtea badges (same face as session status).
 
@@ -771,10 +795,10 @@ Exclusive filters: ``Horizontal`` + ``FILTER_BAR_CLASS`` + bold label +
 
 ---
 
-## 9. Browser Report tab
+## 9. Browser Notes tab
 
-One scroll of inline ``panel-card`` sections; **Filter** ``Select`` toggles
-``display`` only (not nested source tabs).
+One scroll of note cards. Click a card to select it; ``j`` / ``k`` step;
+Enter edits; double-press ``x`` deletes.
 
 ---
 
@@ -813,7 +837,7 @@ Domain-shaped layout, behavioural names, fakes only at **system boundaries**.
 ```
 tests/
   conftest.py
-  test_models.py, test_parser.py, test_paths.py, test_flags.py, test_utils.py
+  test_models.py, test_parser.py, test_paths.py, test_utils.py
   test_event_types.py, test_fs_watch.py, test_job_pools.py, test_session_inflight.py
   test_assets_loader.py
   capabilities/  cli/  diagnostics/  docker/
@@ -845,4 +869,22 @@ pragma/omit. Default CI/``just test`` do not fail on coverage percentage.
 2. External I/O faked at the boundary?  
 3. One conceptual failure reason?  
 4. No Docker daemon / no network?  
-5. Asserts real outcomes (not pause-and-pass)?  
+5. Asserts real outcomes (not pause-and-pass)?
+
+### 11.6 What to run locally
+
+Validate a change with the tests that cover the files you edited:
+
+Name the test files that cover the modules you edited. Examples:
+
+| Touch | Run |
+|-------|-----|
+| ``groket/session/query.py`` | ``uv run pytest tests/session/test_query.py -q`` |
+| ``groket/ui/theme.py`` | ``uv run pytest tests/ui/test_theme.py -q`` |
+| ``desktop/src/theme.rs`` | ``cargo test --manifest-path desktop/Cargo.toml --lib theme`` |
+| Control contract / schema | ``just schema-check`` plus the contract tests you changed |
+
+Name the files. Do not start ``just test`` or ``uv run pytest tests/``
+to prove a local edit. The full suite (``just test``, ``just ci``,
+``just hud-check``) is the publish pass: push to a remote, open a pull
+request, or a multi-surface release cut.

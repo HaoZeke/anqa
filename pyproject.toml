@@ -74,6 +74,7 @@ include = ["groket*"]
 # optional ``groket/_embedded_assets`` mirror for installed wheels).
 groket = [
     "ui/app.tcss",
+    "ui/community_themes.json",
     "locale/**/*.ftl",
     "locale/**/*.txt",
     "locale/**/README*",

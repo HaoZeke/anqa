@@ -107,21 +107,14 @@ impl Look {
     }
 }
 
-/// TUI brand hex (``COMPLETE`` / ``FAILED`` / ``RUNNING`` / ``CANCELLED`` / ``CREAM``).
-pub const BRAND_CREAM: Color = Color::from_rgb8(0xFB, 0xF1, 0xC7);
-pub const BRAND_COMPLETE: Color = Color::from_rgb8(0x98, 0x97, 0x1A);
-pub const BRAND_RUNNING: Color = Color::from_rgb8(0xD7, 0x99, 0x21);
-pub const BRAND_FAILED: Color = Color::from_rgb8(0xCC, 0x24, 0x1D);
-pub const BRAND_CANCELLED: Color = Color::from_rgb8(0x92, 0x83, 0x74);
-
-/// Color for a TUI ``EVENT_TYPE_STYLE`` brand role.
-pub fn brand_role_color(role: BrandRole) -> Color {
+/// Color for a timeline / status role from the active theme tokens.
+pub fn brand_role_color(role: BrandRole, tok: Tokens) -> Color {
     match role {
-        BrandRole::Cream => BRAND_CREAM,
-        BrandRole::Complete => BRAND_COMPLETE,
-        BrandRole::Running => BRAND_RUNNING,
-        BrandRole::Failed => BRAND_FAILED,
-        BrandRole::Cancelled => BRAND_CANCELLED,
+        BrandRole::Cream => tok.text,
+        BrandRole::Complete => tok.success,
+        BrandRole::Running => tok.warning,
+        BrandRole::Failed => tok.danger,
+        BrandRole::Cancelled => tok.muted,
     }
 }
 
@@ -196,6 +189,35 @@ fn color_of(colors: &Value, key: &str, fallback: Color) -> Color {
         .unwrap_or(fallback)
 }
 
+fn user_theme_tokens(name: &str) -> Option<Tokens> {
+    let dir = crate::prefs::themes_dir()?;
+    let path = dir.join(format!("{name}.toml"));
+    let text = std::fs::read_to_string(path).ok()?;
+    let rec: toml::Value = text.parse().ok()?;
+    let table = rec.as_table()?;
+    let hex = |keys: &[&str], fallback: Color| {
+        keys.iter()
+            .find_map(|k| table.get(*k).and_then(|v| v.as_str()).and_then(parse_hex))
+            .unwrap_or(fallback)
+    };
+    let canvas = hex(&["background", "canvas"], Color::from_rgb8(18, 18, 20));
+    let text = hex(&["foreground", "text"], Color::from_rgb8(224, 224, 224));
+    let primary = hex(&["primary"], Color::from_rgb8(1, 120, 212));
+    Some(Tokens::from_aliases(
+        canvas,
+        hex(&["surface"], mix(text, canvas, 0.08)),
+        hex(&["panel"], mix(text, canvas, 0.10)),
+        text,
+        hex(&["muted", "secondary"], mix(text, canvas, 0.55)),
+        primary,
+        hex(&["accent"], Color::from_rgb8(254, 166, 43)),
+        hex(&["success"], Color::from_rgb8(78, 191, 113)),
+        hex(&["warning"], Color::from_rgb8(254, 166, 43)),
+        hex(&["error", "danger"], Color::from_rgb8(185, 60, 91)),
+        hex(&["primary-background"], mix(primary, canvas, 0.35)),
+    ))
+}
+
 fn catalog_colors(name: &str) -> Option<Value> {
     let root = serde_json::from_str::<Value>(CATALOG).ok()?;
     let key = name.trim();
@@ -205,8 +227,40 @@ fn catalog_colors(name: &str) -> Option<Value> {
     root.get(key)?.get("colors").cloned()
 }
 
-/// Config ``theme``. ``follow`` may pick the pair member; a pinned name stays.
+fn is_auto(pref: &str) -> bool {
+    matches!(
+        pref.trim().to_ascii_lowercase().as_str(),
+        "" | "auto" | "system" | "default" | "ansi" | "groket" | "groket-light"
+    )
+}
+
+fn host_pair(appearance: icedtea::theme::Appearance) -> String {
+    match appearance {
+        icedtea::theme::Appearance::Light => "light".into(),
+        icedtea::theme::Appearance::Dark => "dark".into(),
+    }
+}
+
+/// Textual ANSI pair members → icedtea host pair (no hex catalog for live ANSI).
+fn ansi_member(pref: &str) -> Option<&'static str> {
+    match pref.trim().to_ascii_lowercase().as_str() {
+        "ansi-light" => Some("light"),
+        "ansi-dark" => Some("dark"),
+        _ => None,
+    }
+}
+
+/// Config ``theme``. ``auto`` is the host pair. ``follow`` flips named pairs.
 pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: bool) -> String {
+    if is_auto(pref) {
+        return host_pair(appearance);
+    }
+    if let Some(mapped) = ansi_member(pref) {
+        if follow {
+            return host_pair(appearance);
+        }
+        return mapped.into();
+    }
     if !follow {
         return pref.to_string();
     }
@@ -227,10 +281,12 @@ pub fn tokens(name: &str) -> Tokens {
 /// Theme colors with live look knobs (density, type scale, shape, elevation).
 pub fn tokens_with(name: &str, look: Look) -> Tokens {
     let key = name.trim();
-    let tok = if catalog_colors(key).is_some() {
+    let tok = if is_auto(key) {
+        icedtea::theme::named("dark").tokens
+    } else if let Some(user) = user_theme_tokens(key) {
+        user
+    } else if catalog_colors(key).is_some() {
         textual_tokens(key)
-    } else if key.is_empty() {
-        textual_tokens("textual-dark")
     } else {
         icedtea::theme::named(key).tokens
     };
@@ -243,7 +299,7 @@ pub fn tokens_with(name: &str, look: Look) -> Tokens {
 fn textual_tokens(name: &str) -> Tokens {
     let colors = catalog_colors(name).unwrap_or(Value::Null);
     let fallback_bg = Color::from_rgb8(18, 18, 20);
-    let canvas = color_of(&colors, "surface", fallback_bg);
+    let canvas = color_of(&colors, "background", fallback_bg);
     let text = color_of(&colors, "foreground", Color::from_rgb8(224, 224, 224));
     let muted = color_of(
         &colors,
@@ -252,25 +308,14 @@ fn textual_tokens(name: &str) -> Tokens {
     );
     let primary = color_of(&colors, "primary", Color::from_rgb8(1, 120, 212));
     let accent = color_of(&colors, "accent", Color::from_rgb8(254, 166, 43));
-    let highlight = color_of(&colors, "primary-background", mix(primary, canvas, 0.35));
-    let success = color_of(
-        &colors,
-        "text-success",
-        color_of(&colors, "success", Color::from_rgb8(78, 191, 113)),
-    );
-    let warning = color_of(
-        &colors,
-        "text-warning",
-        color_of(&colors, "warning", Color::from_rgb8(254, 166, 43)),
-    );
-    let danger = color_of(
-        &colors,
-        "text-error",
-        color_of(&colors, "error", Color::from_rgb8(185, 60, 91)),
-    );
+    let success = color_of(&colors, "success", Color::from_rgb8(78, 191, 113));
+    let warning = color_of(&colors, "warning", Color::from_rgb8(254, 166, 43));
+    let danger = color_of(&colors, "error", Color::from_rgb8(185, 60, 91));
+    let surface = color_of(&colors, "surface", mix(text, canvas, 0.08));
     let panel = color_of(&colors, "panel", mix(text, canvas, 0.10));
+    let border = color_of(&colors, "border", mix(primary, canvas, 0.35));
     Tokens::from_aliases(
-        canvas, canvas, panel, text, muted, primary, accent, success, warning, danger, highlight,
+        canvas, surface, panel, text, muted, primary, accent, success, warning, danger, border,
     )
 }
 
@@ -297,20 +342,39 @@ pub fn iced_theme(name: &str) -> Theme {
     icedtea::theme::iced_theme(name, tokens(name))
 }
 
+/// Tokens for a config preference. ``auto`` layers host paper when *chrome*
+/// has any fields (macOS / Windows). Empty chrome on Linux is a no-op.
+pub fn paint_tokens(
+    pref: &str,
+    appearance: icedtea::theme::Appearance,
+    follow_pairs: bool,
+    look: Look,
+    chrome: icedtea::theme::OsChrome,
+) -> Tokens {
+    let name = resolve_name(pref, appearance, follow_pairs);
+    let tok = tokens_with(&name, look);
+    if is_auto(pref) {
+        icedtea::theme::apply_os_chrome(tok, true, chrome)
+    } else {
+        tok
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn textual_dark_uses_screen_surface_not_void_background() {
+    fn named_theme_uses_textual_background_and_status() {
         let t = tokens("textual-dark");
-        assert_eq!(t.canvas, Color::from_rgb8(0x1E, 0x1E, 0x1E));
-        assert_ne!(t.canvas, Color::from_rgb8(0x12, 0x12, 0x12));
+        assert_eq!(t.canvas, Color::from_rgb8(0x12, 0x12, 0x12));
+        assert_eq!(t.surface, Color::from_rgb8(0x1E, 0x1E, 0x1E));
         assert_eq!(t.primary, Color::from_rgb8(0x01, 0x78, 0xD4));
+        assert_eq!(t.success, Color::from_rgb8(0x4E, 0xBF, 0x71));
+        assert_eq!(t.warning, Color::from_rgb8(0xFE, 0xA6, 0x2B));
+        assert_eq!(t.danger, Color::from_rgb8(0xB9, 0x3C, 0x5B));
         assert_eq!(t.selection, mix(t.primary, t.canvas, 0.28));
-        assert_eq!(t.selection, icedtea::theme::mix(t.primary, t.canvas, 0.28));
         assert_eq!(t.selection_text, t.text);
-        assert_eq!(t.border, Color::from_rgb8(0x33, 0x42, 0x4E));
     }
 
     #[test]
@@ -326,13 +390,16 @@ mod tests {
     }
 
     #[test]
-    fn flexoki_matches_tui_screen_surface() {
+    fn flexoki_matches_tui_background() {
         let t = tokens("flexoki");
-        assert_eq!(t.canvas, Color::from_rgb8(0x1C, 0x1B, 0x1A));
-        assert_ne!(t.canvas, Color::from_rgb8(0x10, 0x0F, 0x0F));
+        assert_eq!(t.canvas, Color::from_rgb8(0x10, 0x0F, 0x0F));
+        assert_eq!(t.surface, Color::from_rgb8(0x1C, 0x1B, 0x1A));
         assert_eq!(t.selection, mix(t.primary, t.canvas, 0.28));
         assert_eq!(t.selection_text, t.text);
         assert_eq!(t.panel, Color::from_rgb8(0x28, 0x27, 0x26));
+        assert_eq!(t.success, Color::from_rgb8(0x65, 0x80, 0x0B));
+        assert_eq!(t.warning, Color::from_rgb8(0xAC, 0x83, 0x01));
+        assert_eq!(t.danger, Color::from_rgb8(0xAE, 0x30, 0x29));
     }
 
     #[test]
@@ -352,8 +419,72 @@ mod tests {
         assert_eq!(t.muted.a, 1.0);
         assert_eq!(t.muted, Color::from_rgb8(0xD0, 0xC6, 0x9E));
         assert_eq!(t.accent, Color::from_rgb8(0xF9, 0xBD, 0x2F));
-        assert_eq!(t.warning, Color::from_rgb8(0xFE, 0xAB, 0x67));
-        assert_eq!(t.danger, Color::from_rgb8(0xFC, 0x86, 0x79));
+        assert_eq!(t.warning, Color::from_rgb8(0xFD, 0x80, 0x19));
+        assert_eq!(t.danger, Color::from_rgb8(0xFA, 0x49, 0x34));
+        assert_eq!(t.success, Color::from_rgb8(0xB7, 0xBB, 0x26));
+        assert_eq!(t.canvas, Color::from_rgb8(0x28, 0x28, 0x28));
+    }
+
+    #[test]
+    fn auto_applies_os_paper_named_theme_does_not() {
+        use iced::Color;
+        use icedtea::theme::{apply_os_chrome, Appearance, OsChrome};
+        let paper = Color::from_rgb8(0xE8, 0xE6, 0xE1);
+        let ink = Color::from_rgb8(0x1D, 0x1D, 0x1F);
+        let chrome = OsChrome {
+            canvas: Some(paper),
+            text: Some(ink),
+            ..OsChrome::empty()
+        };
+        let auto = paint_tokens("auto", Appearance::Light, false, Look::default(), chrome);
+        assert_eq!(auto.canvas, paper);
+        assert_eq!(auto.text, ink);
+        let empty = paint_tokens(
+            "auto",
+            Appearance::Light,
+            false,
+            Look::default(),
+            OsChrome::empty(),
+        );
+        assert_eq!(empty.canvas, tokens("light").canvas);
+        let nord = paint_tokens("nord", Appearance::Light, false, Look::default(), chrome);
+        assert_ne!(nord.canvas, paper);
+        assert_eq!(nord.canvas, tokens("nord").canvas);
+        let _ = apply_os_chrome;
+    }
+
+    #[test]
+    fn auto_follows_host_pair() {
+        use icedtea::theme::Appearance;
+        assert_eq!(resolve_name("auto", Appearance::Light, false), "light");
+        assert_eq!(resolve_name("", Appearance::Dark, false), "dark");
+        assert_eq!(resolve_name("system", Appearance::Light, true), "light");
+        assert_eq!(resolve_name("default", Appearance::Dark, false), "dark");
+        assert_eq!(resolve_name("groket", Appearance::Light, false), "light");
+    }
+
+    #[test]
+    fn ansi_pair_pins_unless_follow() {
+        use icedtea::theme::Appearance;
+        assert_eq!(resolve_name("ansi-light", Appearance::Dark, false), "light");
+        assert_eq!(resolve_name("ansi-dark", Appearance::Light, false), "dark");
+        assert_eq!(resolve_name("ansi-light", Appearance::Dark, true), "dark");
+        assert_eq!(
+            resolve_name("tokyo-night", Appearance::Light, false),
+            "tokyo-night"
+        );
+        assert_eq!(
+            resolve_name("tokyo-night", Appearance::Light, true),
+            "tokyo-night-day"
+        );
+        let light = paint_tokens(
+            "ansi-light",
+            Appearance::Dark,
+            false,
+            Look::default(),
+            icedtea::theme::OsChrome::empty(),
+        );
+        assert_eq!(light.canvas, Color::from_rgb8(0xF3, 0xF3, 0xF3));
     }
 
     #[test]
@@ -386,25 +517,21 @@ mod tests {
     }
 
     #[test]
-    fn brand_role_colors_match_tui_hex() {
+    fn brand_role_colors_follow_theme_tokens() {
         use crate::format::BrandRole;
-        assert_eq!(brand_role_color(BrandRole::Cream), BRAND_CREAM);
-        assert_eq!(brand_role_color(BrandRole::Complete), BRAND_COMPLETE);
-        assert_eq!(brand_role_color(BrandRole::Running), BRAND_RUNNING);
-        assert_eq!(brand_role_color(BrandRole::Failed), BRAND_FAILED);
-        assert_eq!(brand_role_color(BrandRole::Cancelled), BRAND_CANCELLED);
-        assert_eq!(BRAND_CREAM, Color::from_rgb8(0xFB, 0xF1, 0xC7));
-        assert_eq!(BRAND_COMPLETE, Color::from_rgb8(0x98, 0x97, 0x1A));
-        assert_eq!(BRAND_RUNNING, Color::from_rgb8(0xD7, 0x99, 0x21));
-        assert_eq!(BRAND_FAILED, Color::from_rgb8(0xCC, 0x24, 0x1D));
-        assert_eq!(BRAND_CANCELLED, Color::from_rgb8(0x92, 0x83, 0x74));
+        let tok = tokens("textual-dark");
+        assert_eq!(brand_role_color(BrandRole::Cream, tok), tok.text);
+        assert_eq!(brand_role_color(BrandRole::Complete, tok), tok.success);
+        assert_eq!(brand_role_color(BrandRole::Running, tok), tok.warning);
+        assert_eq!(brand_role_color(BrandRole::Failed, tok), tok.danger);
+        assert_eq!(brand_role_color(BrandRole::Cancelled, tok), tok.muted);
     }
 
     #[test]
     fn named_theme_tokens_are_icedtea_tokens() {
         let t = tokens("textual-dark");
         assert_eq!(t.selection, icedtea::theme::mix(t.primary, t.canvas, 0.28));
-        assert_eq!(t.surface, t.canvas);
+        assert_eq!(t.surface, Color::from_rgb8(0x1E, 0x1E, 0x1E));
         let registered = catalog().resolve("textual-dark");
         assert_eq!(registered.selection, t.selection);
         assert_eq!(registered.primary, t.primary);
@@ -441,11 +568,11 @@ mod tests {
     }
 
     #[test]
-    fn ink_on_lifts_brand_olive_off_cream_and_keeps_it_on_ink() {
+    fn ink_on_lifts_olive_off_cream_and_keeps_it_on_ink() {
         let cream = Color::from_rgb8(0xFB, 0xF1, 0xC7);
         let ink = Color::from_rgb8(0x28, 0x28, 0x28);
-        let olive = BRAND_COMPLETE;
-        let gold = BRAND_RUNNING;
+        let olive = Color::from_rgb8(0x98, 0x97, 0x1A);
+        let gold = Color::from_rgb8(0xD7, 0x99, 0x21);
         assert!(contrast_ratio(olive, cream) < 4.5);
         assert!(contrast_ratio(ink_on(olive, cream), cream) >= 4.5);
         assert!(contrast_ratio(ink_on(gold, cream), cream) >= 4.5);

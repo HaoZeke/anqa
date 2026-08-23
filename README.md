@@ -68,12 +68,10 @@ Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
 ```toml
 #:schema https://indynull.github.io/groket/schemas/config.schema.json
 
-theme = "groket"
+theme = "auto"
 follow_os = false
 show_host_sessions = false
 auto_serve = true
-
-[analysis]
 live_refresh_workers = 1
 
 [hud]
@@ -84,6 +82,14 @@ desktop_notifications = true
 [export]
 default_profile = ""
 ```
+
+`theme = "auto"` uses the desktop light/dark pair on both the TUI and
+the HUD (`ansi-light` / `ansi-dark`, same paper). Picking any member of
+a named pair (`gruvbox` or `gruvbox-light`) stores the family; both
+clients apply the desktop member. An unpaired name (`nord`) pins both
+clients. Drop a TOML file in
+`~/.groket/themes/` (see [`examples/themes/`](examples/themes/)) and
+point `theme` at its stem.
 
 Key remaps stay in `keys.toml` (below), not in this file.
 
@@ -108,7 +114,11 @@ groket keys --check      # exit 1 on overlay errors
 sessions are native Grok trees at `~/.grok/sessions` (real paths; `H`
 shows or hides them). `groket -P ~/.grok/sessions` browses Host while
 keeping the default work root for new runs. Notes on Host sessions write
-under `~/.groket/notes/<session_id>/`. Subagent runs stay off the top
+under `~/.groket/notes/<session_id>/`. Every note has a `source` (who
+wrote it). Control `notes/upsert` accepts any field bag plus that
+source. A new note uses `~/.groket/notes_schema.toml`. Editing a note
+also shows extra stored fields as free-text. Notes, the edit form,
+and HUD Notes show a source badge plus the stored fields. Subagent runs stay off the top
 list; open them from the parent (Summary run table, or Timeline
 Subagents filter — Enter, or click the tile in the desktop HUD). Esc
 returns to that Timeline or Turns place. Background shells, monitors, and schedules live on Summary **Tasks**.
@@ -154,18 +164,16 @@ The footer lists the keys that apply now; `?` is the full list.
 | n | sessions | Follow-up while awaiting |
 | e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
-| [ ]  1-4 | browser | Timeline, Summary, Diff, Report |
+| [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
 | Diff | browser / HUD | Rewind snapshots (or approximate search_replace edits); Prompt/Assistant tabs above a files and hunk split; / fuzzy-finds path or hunk; h/l steps snapshots; y copies the highlighted file. HUD Turns cards show a Diff chip when that turn has a snapshot. |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
-| j / k | browser | Previous / next event on the Timeline (also Up / Down) |
+| j / k | browser | Previous / next Timeline event, or previous / next note (also Up / Down) |
 | v | browser | Timeline filter (Subagents lists spawn/finish; Background lists task and schedule bookends; Workflows lists workflow tool bookends) |
 | Summary | browser / HUD | Session glance; Tasks, Workflows, Subagents, and Stats tabs (click the strip) |
 | Tail | browser / HUD | Follow new events to the end while a turn is open (terminal and HUD). Off keeps the highlight still. |
-| Enter | browser | Full-width event (Esc back to the list); or open a child from a spawn/finish row |
+| Enter | browser / HUD | Open a Timeline event or child; edit the focused note |
 
-| f | browser | Flag this event |
-| N | browser | New note |
-| O | browser | Edit or delete note |
+| N | browser / HUD | New note (TUI Notes); Notes pane (HUD) |
 | n | browser | Follow-up while awaiting |
 | e | browser | Done while awaiting |
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
@@ -174,7 +182,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | mouse drag | browser | Select text; release copies the selection (multi-line OK); y still works |
 | s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
-| x | browser | Delete (press twice) |
+| x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session |
 | Ctrl+Enter | runner | Launch |
 | Ctrl+S | runner | Save recipe |
 | T | runner | Export this form as task YAML |
@@ -238,10 +246,10 @@ openable child. Exporting an opened child is that child only.
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
 | `is:host` `is:eval` | Origin |
-| `has:workflows` `has:notes` `has:errors` | Presence flags on the list row |
+| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row. `has:tasks` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. |
 | `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
-| `in:~/path` | Where the session started (git repo / workspace) |
+| `in:~/path` | Directory the session was run in |
 | `model:` `task:` | Substring |
 | `after:` `before:` | `updatedAt` (ISO, `yesterday`, `2d`, `2 days ago`) |
 | `OR` `NOT` `-` `( )` | Compose |
@@ -316,7 +324,7 @@ Sessions open as Org. Same [control](#control) socket as the
 ## Neovim (0.9+)
 
 ```lua
-vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "groket", "vim-path" })))
+vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "groket", "editor", "vim-path" })))
 require("groket").setup()
 ```
 

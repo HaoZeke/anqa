@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write desktop/assets/textual-themes.json from Textual built-in themes."""
+"""Write desktop/assets/textual-themes.json from the shared catalog."""
 
 from __future__ import annotations
 
@@ -7,21 +7,32 @@ import json
 import sys
 from pathlib import Path
 
+from groket.ui.theme import community_themes
 from textual.theme import BUILTIN_THEMES
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "desktop" / "assets" / "textual-themes.json"
 
 
+def _record(theme: object) -> dict[str, object] | None:
+    if getattr(theme, "ansi", False):
+        return None
+    colors = theme.to_color_system().generate()
+    hex_colors = {key: val for key, val in colors.items() if isinstance(val, str)}
+    return {"dark": bool(theme.dark), "colors": hex_colors}
+
+
 def theme_payload() -> dict[str, dict[str, object]]:
     """Map theme name → {dark, colors} using Textual ColorSystem hex tokens."""
     out: dict[str, dict[str, object]] = {}
     for name, theme in sorted(BUILTIN_THEMES.items()):
-        if theme.ansi:
-            continue
-        colors = theme.to_color_system().generate()
-        hex_colors = {key: val for key, val in colors.items() if isinstance(val, str)}
-        out[name] = {"dark": bool(theme.dark), "colors": hex_colors}
+        rec = _record(theme)
+        if rec is not None:
+            out[name] = rec
+    for theme in community_themes():
+        rec = _record(theme)
+        if rec is not None:
+            out[theme.name] = rec
     return out
 
 

@@ -1,0 +1,17 @@
+# Copy to ~/.groket/themes/paper.toml
+# Then set theme = "paper" in ~/.groket/config.toml
+#
+# Keys match the shared catalog (foreground/background or text/canvas).
+
+name = "paper"
+dark = false
+foreground = "#1a1a1a"
+background = "#f7f4ef"
+surface = "#efeae2"
+panel = "#e6dfd4"
+primary = "#3d6b4f"
+accent = "#8a6d3b"
+success = "#3d6b4f"
+warning = "#8a6d3b"
+error = "#8b3a3a"
+muted = "#6b6560"

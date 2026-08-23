@@ -9,7 +9,9 @@ that work ships (or when the changelog line is no longer true).
 
 ## Unreleased (see CHANGELOG.md)
 
-(none)
+- icedtea `markdown_view` leaves fence ticks on a code block. HUD notes
+  paint a whole-field fence with `highlighted_code` until icedtea
+  renders fences cleanly.
 
 ## Always on (`just ci` / `just lint`)
 

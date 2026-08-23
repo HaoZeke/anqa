@@ -1,128 +1,195 @@
-"""Textual themes that use the groket brand palette.
-
-Ink / cream for chrome. Caps for success / error / warning. No cyan.
-"""
+"""Catalog themes for the terminal app (host default plus named colorways)."""
 
 from __future__ import annotations
 
+import json
+from importlib import resources
+from pathlib import Path
+
 from textual.theme import Theme
 
+from ..models import JsonObject, as_json_object
+from ..paths import user_themes_dir
 from .appearance import Appearance
 
-# Same hex as brand/build.py.
-INK = "#282828"
-CREAM = "#FBF1C7"
-COMPLETE = "#98971A"
-FAILED = "#CC241D"
-RUNNING = "#D79921"
-CANCELLED = "#928374"
-# Lifted ink for panels (gruvbox bg1 / bg2).
-INK_LIFT = "#3c3836"
-INK_BOOST = "#504945"
-CREAM_DIM = "#ebdbb2"
-CREAM_LIFT = "#f2e5bc"
-
-GROKET = Theme(
-    name="groket",
-    primary=COMPLETE,
-    secondary=CANCELLED,
-    accent=RUNNING,
-    warning=RUNNING,
-    error=FAILED,
-    success=COMPLETE,
-    foreground=CREAM,
-    background=INK,
-    surface=INK_LIFT,
-    panel=INK_LIFT,
-    boost=INK_BOOST,
-    dark=True,
-    variables={
-        "block-cursor-foreground": INK,
-        "button-color-foreground": INK,
-        "footer-background": INK_LIFT,
-        "footer-key-foreground": CREAM,
-        "footer-description-foreground": CANCELLED,
-    },
+# Preference aliases that mean "follow the host". Pair members (ansi-light)
+# are catalog names, not aliases.
+AUTO_NAMES = frozenset(
+    {
+        "",
+        "auto",
+        "system",
+        "default",
+        "groket",
+        "groket-light",
+    }
 )
 
-# Textual ships dark ``gruvbox`` only. Light member matches that face.
-GRUVBOX_LIGHT = Theme(
-    name="gruvbox-light",
-    primary="#689d6a",
-    secondary="#7c6f64",
-    warning="#d65d0e",
-    error="#9d0006",
-    success="#79740e",
-    accent="#b57614",
-    foreground="#3c3836",
-    background="#fbf1c7",
-    surface="#ebdbb2",
-    panel="#d5c4a1",
-    dark=False,
-    variables={
-        "block-cursor-foreground": "#282828",
-        "input-selection-background": "#689d6a40",
-        "button-color-foreground": "#fbf1c7",
-    },
-)
-
-GROKET_LIGHT = Theme(
-    name="groket-light",
-    primary=COMPLETE,
-    secondary=CANCELLED,
-    accent=RUNNING,
-    warning=RUNNING,
-    error=FAILED,
-    success=COMPLETE,
-    foreground=INK,
-    background=CREAM,
-    surface=CREAM_LIFT,
-    panel=CREAM_DIM,
-    boost="#d5c4a1",
-    dark=False,
-    variables={
-        "block-cursor-foreground": CREAM,
-        "button-color-foreground": CREAM,
-        "footer-background": CREAM_DIM,
-        "footer-key-foreground": INK,
-        "footer-description-foreground": CANCELLED,
-    },
-)
-
-
-def register_brand_themes(app: object) -> None:
-    """Register groket themes on a Textual app.
-
-    :param app: ``App`` with ``register_theme``.
-    """
-    register = getattr(app, "register_theme", None)
-    if not callable(register):
-        return
-    register(GROKET)
-    register(GROKET_LIGHT)
-    register(GRUVBOX_LIGHT)
-
-
-# id / light / dark → (light, dark)
 _PAIRS: dict[str, tuple[str, str]] = {}
+_FAMILY: dict[str, str] = {}
 for _id, _pair in {
-    "groket": ("groket-light", "groket"),
-    "gruvbox": ("gruvbox-light", "gruvbox"),
-    "textual": ("textual-light", "textual-dark"),
-    "solarized": ("solarized-light", "solarized-dark"),
-    "atom-one": ("atom-one-light", "atom-one-dark"),
     "ansi": ("ansi-light", "ansi-dark"),
+    "atom-one": ("atom-one-light", "atom-one-dark"),
+    "ayu": ("ayu-light", "ayu-dark"),
     "catppuccin": ("catppuccin-latte", "catppuccin-mocha"),
+    "everforest": ("everforest-light", "everforest-dark"),
+    "github": ("github-light", "github-dark"),
+    "gruvbox": ("gruvbox-light", "gruvbox"),
+    "kanagawa": ("kanagawa-lotus", "kanagawa-wave"),
+    "modus": ("modus-operandi", "modus-vivendi"),
+    "nightfox": ("dawnfox", "nightfox"),
     "rose-pine": ("rose-pine-dawn", "rose-pine"),
+    "solarized": ("solarized-light", "solarized-dark"),
+    "textual": ("textual-light", "textual-dark"),
+    "tokyo-night": ("tokyo-night-day", "tokyo-night"),
 }.items():
     _PAIRS[_id] = _pair
     _PAIRS[_pair[0]] = _pair
     _PAIRS[_pair[1]] = _pair
+    _FAMILY[_id] = _id
+    _FAMILY[_pair[0]] = _id
+    _FAMILY[_pair[1]] = _id
 
 
-def resolve_theme(pref: str, desktop: Appearance) -> str:
-    """Family member for ``pref`` when ``follow_os`` is on. Unpaired names stay."""
-    key = pref.strip()
+def _hex(rec: JsonObject, *keys: str, default: str) -> str:
+    for key in keys:
+        raw = rec.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return default
+
+
+def theme_from_mapping(name: str, rec: JsonObject) -> Theme:
+    """Build a Textual theme from catalog or user-file tokens."""
+    dark = rec.get("dark")
+    if not isinstance(dark, bool):
+        dark = True
+    return Theme(
+        name=name,
+        primary=_hex(rec, "primary", default="#0178D4"),
+        secondary=_hex(rec, "secondary", "muted", default="#928374"),
+        accent=_hex(rec, "accent", default="#D79921"),
+        warning=_hex(rec, "warning", default="#D79921"),
+        error=_hex(rec, "error", "danger", default="#CC241D"),
+        success=_hex(rec, "success", default="#98971A"),
+        foreground=_hex(rec, "foreground", "text", default="#F2F2F2"),
+        background=_hex(rec, "background", "canvas", default="#1E1E1E"),
+        surface=_hex(rec, "surface", default="#282828"),
+        panel=_hex(rec, "panel", default="#3C3836"),
+        dark=dark,
+    )
+
+
+def community_themes() -> list[Theme]:
+    """Popular named colorways Textual does not ship."""
+    raw = resources.files("groket.ui").joinpath("community_themes.json").read_text(encoding="utf-8")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        return []
+    out: list[Theme] = []
+    for name, rec in data.items():
+        if isinstance(name, str) and isinstance(rec, dict):
+            out.append(theme_from_mapping(name, as_json_object(rec)))
+    return out
+
+
+def load_user_themes(root: Path | None = None) -> list[Theme]:
+    """Themes from ``~/.groket/themes/*.toml`` (Kitty-style drop-in files)."""
+    import tomllib
+
+    folder = root if root is not None else user_themes_dir()
+    if not folder.is_dir():
+        return []
+    out: list[Theme] = []
+    try:
+        files = sorted(folder.glob("*.toml"))
+    except OSError:
+        return []
+    for path in files:
+        try:
+            rec = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if not isinstance(rec, dict):
+            continue
+        name = str(rec.get("name") or path.stem).strip() or path.stem
+        out.append(theme_from_mapping(name, as_json_object(rec)))
+    return out
+
+
+def host_pair_themes() -> list[Theme]:
+    """``ansi-light`` / ``ansi-dark`` paper matching icedtea ``light`` / ``dark``."""
+    return [
+        Theme(
+            name="ansi-light",
+            primary="#2563EB",
+            secondary="#5C5C5C",
+            accent="#0F766E",
+            warning="#9A6700",
+            error="#B42318",
+            success="#1B7F3A",
+            foreground="#1A1A1A",
+            background="#F3F3F3",
+            surface="#FFFFFF",
+            panel="#EBEBEB",
+            dark=False,
+        ),
+        Theme(
+            name="ansi-dark",
+            primary="#6B9EFF",
+            secondary="#A3A3A3",
+            accent="#5EEAD4",
+            warning="#FBBF24",
+            error="#F87171",
+            success="#4ADE80",
+            foreground="#F2F2F2",
+            background="#202020",
+            surface="#2B2B2B",
+            panel="#2B2B2B",
+            dark=True,
+        ),
+    ]
+
+
+def theme_in_pair(name: str) -> bool:
+    """True when *name* is a light/dark catalog pair member."""
+    return (name or "").strip() in _PAIRS
+
+
+def family_of_theme(name: str) -> str | None:
+    """Pair id for *name* (``gruvbox-light`` → ``gruvbox``), or None."""
+    key = (name or "").strip()
+    return _FAMILY.get(key)
+
+
+def register_catalog_themes(app: object, *, user_root: Path | None = None) -> None:
+    """Register community and user themes on a Textual app.
+
+    :param app: ``App`` with ``register_theme``.
+    :param user_root: Optional themes directory (tests).
+    """
+    register = getattr(app, "register_theme", None)
+    if not callable(register):
+        return
+    for theme in host_pair_themes():
+        register(theme)
+    for theme in community_themes():
+        register(theme)
+    for theme in load_user_themes(user_root):
+        register(theme)
+
+
+def resolve_theme(pref: str, desktop: Appearance, *, follow_os: bool = True) -> str:
+    """Concrete catalog name for *pref*.
+
+    ``auto`` / empty follows the desktop (terminal ANSI pair). A named
+    pair flips with the host only when *follow_os* is on.
+    """
+    key = (pref or "").strip()
+    if key.casefold() in AUTO_NAMES:
+        return "ansi-light" if desktop == "light" else "ansi-dark"
+    if not follow_os:
+        return key
     pair = _PAIRS.get(key)
     if pair is None:
         return key

@@ -9,8 +9,9 @@ them. Copy into `~/.groket/` or pass paths explicitly. Nothing under
 | [`config/`](config/) | Prefs TOML (`config.toml`) | `~/.groket/config.toml` |
 | [`tasks/`](tasks/) | Batch task catalogs | `groket batch -t <file>` |
 | [`personas/`](personas/) | Persona JSON (e.g. marketplace plugins) | `~/.groket/personas/` |
-| [`notes/`](notes/) | Operator notes schema TOML (field list) | `~/.groket/notes_schema.toml` |
+| [`notes/`](notes/) | In-app notes form schema (`source` is required on every write; extra fields are kept) | `~/.groket/notes_schema.toml` |
 | [`keys/`](keys/) | Key overlay (`colemak.toml`) | `~/.groket/keys.toml` |
+| [`themes/`](themes/) | Named colorway (`paper.toml`) | `~/.groket/themes/` |
 
 ## Start here
 

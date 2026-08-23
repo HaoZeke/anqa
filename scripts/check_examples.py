@@ -94,6 +94,7 @@ def check_readmes() -> None:
         EXAMPLES / "notes" / "README.md",
         EXAMPLES / "keys" / "README.md",
         EXAMPLES / "config" / "README.md",
+        EXAMPLES / "themes" / "README.md",
     ]
     for path in required:
         if not path.is_file() or path.stat().st_size < 40:
@@ -142,9 +143,23 @@ def check_app_config() -> None:
         cfg = validate_config_file(path)
     except ValueError as exc:
         _err(path, str(exc))
-    if cfg.theme != "groket":
-        _err(path, f"expected default theme groket, got {cfg.theme!r}")
+    if cfg.theme != "auto":
+        _err(path, f"expected default theme auto, got {cfg.theme!r}")
     _ok(f"{_repo_rel(path)}  theme={cfg.theme}")
+
+
+def check_user_theme() -> None:
+    """Validate examples/themes/*.toml load as catalog themes."""
+    from groket.ui.theme import load_user_themes
+
+    folder = EXAMPLES / "themes"
+    themes = load_user_themes(folder)
+    if not themes:
+        _err(folder, "no loadable theme TOML")
+    names = {t.name for t in themes}
+    if "paper" not in names:
+        _err(folder, f"expected paper theme, got {sorted(names)}")
+    _ok(f"{_repo_rel(folder)}  ({', '.join(sorted(names))})")
 
 
 def check_notes_schema() -> None:
@@ -174,6 +189,7 @@ def main() -> int:
         check_notes_schema()
         check_keys_overlay()
         check_app_config()
+        check_user_theme()
     except _Fail as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

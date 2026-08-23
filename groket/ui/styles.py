@@ -1,11 +1,9 @@
 """Semantic style constants for Rich markup and Text objects.
 
-All Python-side color choices live here.  Screens and widgets import from
-this module instead of hardcoding color names.  The TCSS layer (``app.tcss``)
-uses Textual ``$`` design tokens and is maintained separately.
-
-One-off structural markup (``[dim]``, ``[bold]``) is fine inline — only
-*semantic concepts* that repeat across files belong in this module.
+Roles only — not a hex palette. Chrome uses the active Textual theme
+(``$success``, ``$warning``, ``$error``, ``$text-muted``). Timeline and
+status markup uses the matching ANSI names so the terminal's own colors
+win on ``auto``.
 """
 
 from __future__ import annotations
@@ -14,79 +12,76 @@ from contextlib import suppress
 
 from textual.app import App
 
+from ..session.query import QuerySpanKind
 from ..tool_display import format_tool_display, tool_family
 
-# Brand hex (same as brand/build.py). Caps = complete / failed / running.
-COMPLETE = "#98971A"
-FAILED = "#CC241D"
-RUNNING = "#D79921"
-CANCELLED = "#928374"
-CREAM = "#FBF1C7"
-# Olive / gold / gray that hold 4.5:1 on cream paper.
-COMPLETE_ON_LIGHT = "#5C5B12"
-RUNNING_ON_LIGHT = "#7A5410"
-CANCELLED_ON_LIGHT = "#6B6358"
-INK_ON_LIGHT = "#3C3836"
+# One job, one ANSI face. Theme tokens paint the same roles in TCSS / HUD.
+SUCCESS = "green"
+CAUTION = "yellow"
+DANGER = "red"
+QUIET = "dim"
+EMPHASIS = "default"
+
+# Catalog search box — modifier vs value (same roles on the HUD).
+QUERY_SPAN_STYLE: dict[QuerySpanKind, str] = {
+    "field": f"bold {CAUTION}",
+    "operator": f"bold {CAUTION}",
+    "value": SUCCESS,
+    "unknown": DANGER,
+}
 
 SEVERITY_STYLE: dict[str, str] = {
-    "high": f"{FAILED} bold",
-    "medium": f"{RUNNING} bold",
-    "low": RUNNING,
+    "high": f"{DANGER} bold",
+    "medium": f"{CAUTION} bold",
+    "low": CAUTION,
 }
 
 SEVERITY_LABEL: dict[str, str] = {
-    "high": f"[{FAILED} bold]High[/]",
-    "medium": f"[{RUNNING} bold]Medium[/]",
-    "low": f"[{RUNNING}]Low[/]",
+    "high": f"[{DANGER} bold]High[/]",
+    "medium": f"[{CAUTION} bold]Medium[/]",
+    "low": f"[{CAUTION}]Low[/]",
 }
 
 
-# Small palette by *role* (not a rainbow per label):
-#   cream  = human input / model stream
-#   complete green = tools / writes
-#   running yellow = session runtime
-#   failed red = error
-
 # Grok sessionUpdate / events.jsonl type → Rich style (identity keys).
 EVENT_TYPE_STYLE: dict[str, str] = {
-    "user_message_chunk": f"bold {CREAM}",
-    "agent_message_chunk": CREAM,
-    "agent_thought_chunk": f"dim {CREAM} italic",
-    "plan": CREAM,
-    "tool_call": f"bold {COMPLETE}",
-    "tool_call_update": f"dim {COMPLETE}",
-    "task_backgrounded": f"bold {RUNNING}",
-    "task_completed": RUNNING,
-    "scheduled_task_created": RUNNING,
-    "scheduled_task_updated": RUNNING,
-    "scheduled_task_fired": RUNNING,
-    "scheduled_task_deleted": RUNNING,
-    "turn_completed": RUNNING,
-    "subagent_spawned": CREAM,
-    "subagent_finished": CREAM,
-    "current_mode_update": f"dim {RUNNING}",
-    "retry_state": f"dim {RUNNING}",
-    "goal_updated": RUNNING,
-    "session_recap": RUNNING,
-    "auto_compact_started": RUNNING,
-    "auto_compact_completed": RUNNING,
-    "compaction_checkpoint": RUNNING,
-    "hook_execution": RUNNING,
-    "hook_annotation": RUNNING,
-    "turn_started": RUNNING,
-    "turn_ended": RUNNING,
-    "session_error": f"bold {FAILED}",
-    "error": f"bold {FAILED}",
-    "turn_error": f"bold {FAILED}",
-    "fatal_error": f"bold {FAILED}",
-    "system": CANCELLED,
-    # Short event-type names stored in traces.
-    "user": f"bold {CREAM}",
-    "assistant": CREAM,
-    "thought": f"dim {CREAM} italic",
-    "tool_result": f"dim {COMPLETE}",
-    "subagent": CREAM,
-    "session": RUNNING,
+    "user_message_chunk": f"bold {EMPHASIS}",
+    "agent_message_chunk": EMPHASIS,
+    "agent_thought_chunk": f"{QUIET} italic",
+    "plan": EMPHASIS,
+    "tool_call": f"bold {SUCCESS}",
+    "tool_call_update": f"{QUIET} {SUCCESS}",
+    "task_backgrounded": f"bold {CAUTION}",
+    "task_completed": CAUTION,
+    "scheduled_task_created": CAUTION,
+    "scheduled_task_updated": CAUTION,
+    "scheduled_task_fired": CAUTION,
+    "scheduled_task_deleted": CAUTION,
+    "turn_completed": CAUTION,
+    "subagent_spawned": EMPHASIS,
+    "subagent_finished": EMPHASIS,
+    "current_mode_update": f"{QUIET} {CAUTION}",
+    "retry_state": f"{QUIET} {CAUTION}",
+    "goal_updated": CAUTION,
+    "session_recap": CAUTION,
+    "auto_compact_started": CAUTION,
+    "auto_compact_completed": CAUTION,
+    "compaction_checkpoint": CAUTION,
+    "hook_execution": CAUTION,
+    "hook_annotation": CAUTION,
+    "turn_started": CAUTION,
+    "turn_ended": CAUTION,
+    "session_error": f"bold {DANGER}",
+    "error": f"bold {DANGER}",
+    "turn_error": f"bold {DANGER}",
+    "fatal_error": f"bold {DANGER}",
+    "system": QUIET,
+    "user": f"bold {EMPHASIS}",
+    "assistant": EMPHASIS,
+    "thought": f"{QUIET} italic",
+    "tool_result": f"{QUIET} {SUCCESS}",
+    "subagent": EMPHASIS,
+    "session": CAUTION,
 }
 
 # Type column uses Grok identifiers (spaces from underscores in type_label).
@@ -94,61 +89,35 @@ EVENT_TYPE_LABEL: dict[str, str] = {
     k: f"[{v}]{k.replace('_', ' ')}[/]" for k, v in EVENT_TYPE_STYLE.items()
 }
 
-EVENT_TYPE_STYLE_LIGHT: dict[str, str] = {
-    k: v.replace(CREAM, INK_ON_LIGHT) for k, v in EVENT_TYPE_STYLE.items()
-}
-
-# Color by *action family*, not per-tool identity (keeps the column scannable):
-#   cream  = read / search / inspect
-#   complete green = write / edit / mutate workspace
-#   running yellow = shell / process / wait
-#   cream  = agent / plan
-#   cancelled gray = marketplace
-
+# Action family → role (scannable, not a rainbow).
 TOOL_FAMILY_STYLE: dict[str, str] = {
-    "read": CREAM,
-    "write": COMPLETE,
-    "shell": RUNNING,
-    "agent": CREAM,
-    "mcp": CANCELLED,
-    "other": "dim",
-}
-
-TOOL_FAMILY_STYLE_LIGHT: dict[str, str] = {
-    k: (INK_ON_LIGHT if v == CREAM else v) for k, v in TOOL_FAMILY_STYLE.items()
+    "read": EMPHASIS,
+    "write": SUCCESS,
+    "shell": CAUTION,
+    "agent": EMPHASIS,
+    "mcp": QUIET,
+    "other": QUIET,
 }
 
 
 # Run / container lifecycle — one palette for tables, activity bar, labels.
 STATUS_RICH_STYLE: dict[str, str] = {
-    "pending": "dim",
-    "building": f"bold {RUNNING}",
-    "running": f"bold {RUNNING}",
-    "ending": f"bold {CANCELLED}",
-    "awaiting": f"bold {CANCELLED}",
-    "extracting": f"bold {RUNNING}",
-    "completed": f"bold {COMPLETE}",
-    "failed": f"bold {FAILED}",
-    "idle": "dim",
-}
-
-STATUS_RICH_STYLE_LIGHT: dict[str, str] = {
-    "pending": "dim",
-    "building": f"bold {RUNNING_ON_LIGHT}",
-    "running": f"bold {RUNNING_ON_LIGHT}",
-    "ending": f"bold {CANCELLED_ON_LIGHT}",
-    "awaiting": f"bold {CANCELLED_ON_LIGHT}",
-    "extracting": f"bold {RUNNING_ON_LIGHT}",
-    "completed": f"bold {COMPLETE_ON_LIGHT}",
-    "failed": f"bold {FAILED}",
-    "idle": "dim",
+    "pending": QUIET,
+    "building": f"bold {CAUTION}",
+    "running": f"bold {CAUTION}",
+    "ending": f"bold {QUIET}",
+    "awaiting": f"bold {QUIET}",
+    "extracting": f"bold {CAUTION}",
+    "completed": f"bold {SUCCESS}",
+    "failed": f"bold {DANGER}",
+    "idle": QUIET,
 }
 
 
 def theme_is_light(name: str) -> bool:
-    """True when a Textual theme name is a light paper colorway."""
+    """True when a theme name is a light colorway."""
     n = (name or "").strip().lower()
-    return any(tok in n for tok in ("light", "latte", "dawn"))
+    return any(tok in n for tok in ("light", "latte", "dawn", "lotus", "operandi", "day", "paper"))
 
 
 def active_theme_is_light() -> bool:
@@ -162,8 +131,8 @@ def active_theme_is_light() -> bool:
 
 def event_type_markup(event_type: str, *, light: bool = False) -> str:
     """Styled Type-column label, or empty when *event_type* has no palette entry."""
-    styles = EVENT_TYPE_STYLE_LIGHT if light else EVENT_TYPE_STYLE
-    style = styles.get(event_type)
+    del light
+    style = EVENT_TYPE_STYLE.get(event_type)
     if not style:
         return ""
     return f"[{style}]{event_type.replace('_', ' ')}[/]"
@@ -181,12 +150,9 @@ STATUS_LABEL: dict[str, str] = {
 
 
 def status_rich_style(status: str, *, light: bool = False) -> str:
-    """Rich style for a container/run status name (``running``, ``failed``, …).
-
-    :param light: Use darker brand inks that hold contrast on cream paper.
-    """
-    table = STATUS_RICH_STYLE_LIGHT if light else STATUS_RICH_STYLE
-    return table.get((status or "").strip().lower(), table["idle"])
+    """Rich style for a container/run status name (``running``, ``failed``, …)."""
+    del light
+    return STATUS_RICH_STYLE.get((status or "").strip().lower(), STATUS_RICH_STYLE["idle"])
 
 
 SYNTAX_THEME_LIGHT = "friendly"
@@ -196,12 +162,15 @@ SYNTAX_THEME_DARK = "monokai"
 _SYNTAX_BY_THEME: tuple[tuple[str, str], ...] = (
     ("solarized-light", "solarized-light"),
     ("solarized", "solarized-dark"),
+    ("gruvbox-light", "gruvbox-light"),
     ("gruvbox", "gruvbox-dark"),
     ("nord", "nord"),
-    ("groket-light", "gruvbox-light"),
-    ("groket", "gruvbox-dark"),
+    ("github-light", SYNTAX_THEME_LIGHT),
     ("textual-light", SYNTAX_THEME_LIGHT),
+    ("ansi-light", SYNTAX_THEME_LIGHT),
     ("catppuccin", "dracula"),
+    ("tokyo-night", "nord"),
+    ("everforest", "gruvbox-dark"),
 )
 
 
@@ -219,13 +188,13 @@ def syntax_theme_for_app(app: App) -> str:
 
 def severity_style(value: str) -> str:
     """Rich style string for a severity value (``"high"`` / ``"medium"`` / ``"low"``)."""
-    return SEVERITY_STYLE.get(value, "white")
+    return SEVERITY_STYLE.get(value, QUIET)
 
 
 def tool_style(name: str, *, light: bool = False) -> str:
     """Rich style for a tool name (family palette)."""
-    table = TOOL_FAMILY_STYLE_LIGHT if light else TOOL_FAMILY_STYLE
-    return table.get(tool_family(name or ""), table["other"])
+    del light
+    return TOOL_FAMILY_STYLE.get(tool_family(name or ""), TOOL_FAMILY_STYLE["other"])
 
 
 def tool_label(name: str, *, max_len: int = 32, light: bool = False) -> str:

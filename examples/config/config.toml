@@ -3,12 +3,10 @@
 # Prefs for the terminal app and the desktop HUD.
 # Copy to ~/.groket/config.toml. Missing keys use defaults.
 
-theme = "groket"
+theme = "auto"
 follow_os = false
 show_host_sessions = false
 auto_serve = true
-
-[analysis]
 live_refresh_workers = 1
 
 [hud]

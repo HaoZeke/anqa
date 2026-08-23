@@ -15,6 +15,19 @@ class _Proc:
         self.stdout = stdout
 
 
+def test_colorfgbg_terminal_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
+    from groket.ui.appearance import tui_appearance
+
+    monkeypatch.setattr("groket.ui.appearance.sys.platform", "linux")
+    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "(<<uint32 2>>,)")
+    monkeypatch.setenv("COLORFGBG", "15;0")
+    assert tui_appearance() == "dark"
+    monkeypatch.setenv("COLORFGBG", "0;15")
+    assert tui_appearance() == "light"
+    monkeypatch.delenv("COLORFGBG", raising=False)
+    assert tui_appearance() == "light"
+
+
 def test_appearance_by_host(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("groket.ui.appearance.sys.platform", "darwin")
     monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "Dark\n")

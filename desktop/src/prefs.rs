@@ -58,15 +58,21 @@ pub fn follow_os() -> bool {
     read_file().follow_os.unwrap_or(false)
 }
 
-/// Theme name from config, or ``groket``.
+/// Theme name from config, or ``auto`` (host light/dark).
 pub fn theme_name() -> String {
     read_file()
         .theme
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("groket")
+        .unwrap_or("auto")
         .to_string()
+}
+
+/// ``~/.groket/themes`` drop-in colorways.
+pub fn themes_dir() -> Option<PathBuf> {
+    let home = env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".groket").join("themes"))
 }
 
 /// HUD summon chord from ``hud.global_shortcut`` (empty = binary default).
@@ -119,7 +125,7 @@ mod tests {
     fn parse_shipped_example() {
         let text = include_str!("../../examples/config/config.toml");
         let f: File = toml::from_str(text).expect("example toml");
-        assert_eq!(f.theme.as_deref(), Some("groket"));
+        assert_eq!(f.theme.as_deref(), Some("auto"));
         assert_eq!(f.follow_os, Some(false));
         assert_eq!(f.hud.window_mode, Some(false));
         assert_eq!(f.hud.global_shortcut.as_deref(), Some(""));

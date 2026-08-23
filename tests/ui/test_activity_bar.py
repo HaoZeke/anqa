@@ -47,12 +47,12 @@ def test_build_activity_line_lifecycle_and_spinner():
     # Awaiting does not get a spinner prefix (operator wait).
     assert "⠋ Awaiting" not in plain
     assert "⠋ Building" in plain or plain.index("⠋") < plain.index("Building")
-    assert status_rich_style("running") == "bold #D79921"
+    assert status_rich_style("running") == "bold yellow"
     styles = {str(span.style) for span in text.spans}
-    assert any("D79921" in s for s in styles)
+    assert any("yellow" in s.lower() for s in styles)
     light = build_activity_line(running=1, sessions_loaded=1, light=True)
     light_styles = {str(span.style) for span in light.spans}
-    assert any("7A5410" in s for s in light_styles)
+    assert any("yellow" in s.lower() for s in light_styles)
     assert not any("cyan" in s for s in styles)
 
 
@@ -73,7 +73,7 @@ def test_build_activity_line_ending():
     plain = text.plain
     assert "Ending 2" in plain
     assert "⠋" in plain
-    assert status_rich_style("ending") == "bold #928374"
+    assert status_rich_style("ending") == "bold dim"
 
 
 def test_activity_counters_meta_ending():

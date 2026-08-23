@@ -83,9 +83,9 @@ class TestSyntaxThemeForApp:
 
 class TestToolStyle:
     def test_known_tool_returns_family_color(self) -> None:
-        assert tool_style("read_file") == "#FBF1C7"
-        assert tool_style("search_replace") == "#98971A"
-        assert tool_style("run_terminal_command") == "#D79921"
+        assert tool_style("read_file") == "default"
+        assert tool_style("search_replace") == "green"
+        assert tool_style("run_terminal_command") == "yellow"
 
     def test_unknown_tool_dim(self) -> None:
         assert tool_style("unknown") == "dim"
@@ -108,7 +108,7 @@ class TestToolLabel:
         label = tool_label("playwright__browser_navigate")
         assert "playwright" in label
         assert "browser navigate" in label
-        assert "#928374" in label
+        assert "dim" in label
 
     def test_truncates_long_names(self) -> None:
         label = tool_label("a" * 50, max_len=10)
@@ -121,22 +121,22 @@ class TestToolLabel:
 
 class TestSeverityStyle:
     def test_known(self) -> None:
-        assert severity_style("high") == "#CC241D bold"
-        assert severity_style("medium") == "#D79921 bold"
-        assert severity_style("low") == "#D79921"
+        assert severity_style("high") == "red bold"
+        assert severity_style("medium") == "yellow bold"
+        assert severity_style("low") == "yellow"
 
     def test_unknown_fallback(self) -> None:
-        assert severity_style("critical") == "white"
+        assert severity_style("critical") == "dim"
 
 
 class TestLightFaces:
-    def test_user_and_read_are_not_cream_on_light(self) -> None:
-        from groket.ui.styles import CREAM, event_type_markup
+    def test_user_and_read_use_emphasis_not_hex(self) -> None:
+        from groket.ui.styles import event_type_markup
 
         user = event_type_markup("user_message_chunk", light=True)
         read = tool_style("read_file", light=True)
-        assert CREAM not in user
-        assert CREAM not in read
+        assert "#" not in user
+        assert "#" not in read
         assert user
         assert read
 
