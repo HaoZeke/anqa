@@ -175,15 +175,15 @@ def test_merge_includes_plugins() -> None:
 
 
 def test_work_dir_plugins_not_scanned_as_grok(tmp_path: Path, monkeypatch) -> None:
-    """groket analysis packages under work_dir/plugins/ must not appear as Grok plugins."""
+    """Python packages under work_dir/plugins/ are not Grok Build plugins."""
     from groket.capabilities.marketplace import list_installed_plugins_for_work
 
     home = tmp_path / "h"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home)
-    analysis = tmp_path / "proj" / "plugins" / "gte-feedback-grok"
-    analysis.mkdir(parents=True)
-    (analysis / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    pkg = tmp_path / "proj" / "plugins" / "gte-feedback-grok"
+    pkg.mkdir(parents=True)
+    (pkg / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
     names = {p.name for p in list_installed_plugins_for_work(tmp_path / "proj")}
     assert "gte-feedback-grok" not in names
 

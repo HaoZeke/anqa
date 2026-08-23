@@ -1037,7 +1037,15 @@ def main() -> int:
                 "skipped": True,
             }
         )
-    step("07-diff", "Ctrl+4 Diff", lambda: walk.key("ctrl+4"))
+
+    def open_diff() -> None:
+        # Leave Timeline search / turn pick so the chord is not captured as
+        # typing. Pane digits still match while a field is focused; this click
+        # is the same as an operator clicking the title before Ctrl+4.
+        click_win(80, 72)
+        walk.key("ctrl+4")
+
+    step("07-diff", "Ctrl+4 Diff", open_diff)
     step("08-notes", "Ctrl+5 Notes", lambda: walk.key("ctrl+5"))
     step("09-overview-return", "Ctrl+1 Overview", lambda: walk.key("ctrl+1"))
 
@@ -1050,7 +1058,7 @@ def main() -> int:
             "03-overview",
             "04-turns",
             "06-events",
-            "07-findings",
+            "07-diff",
             "08-notes",
             "09-overview-return",
         }

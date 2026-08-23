@@ -120,8 +120,7 @@ def list_installed_plugins_for_work(
     """Installed user plugins plus project-scoped Grok plugins under *work_dir*.
 
     Only scans ``work_dir/.grok/plugins/`` (Grok Build layout). Does **not** scan
-    ``work_dir/plugins/`` — that path is often used for *groket analysis* plugins
-    (Python packages), which are a different concept.
+    ``work_dir/plugins/``.
     """
     by_name = {p.name: p for p in list_installed_plugins(home=home)}
     if work_dir is not None:

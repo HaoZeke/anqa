@@ -20,7 +20,7 @@ One process owns `$XDG_RUNTIME_DIR/groket/control.sock` (or
 through `LocalSessionAccess` in `groket/session/access.py`.
 
 Disk-heavy methods (`session/list`, `session/overview`, `session/timeline`,
-`session/render`, and `_access_call` for get/turns/usage/findings/diff)
+`session/render`, and `_access_call` for get/turns/usage/diff)
 share `HEAVY_IO_CONCURRENCY = 4` (`asyncio.Semaphore`) and run in
 `asyncio.to_thread`. Per-session `parse_timeline` and
 `build_session_overview` are also **single-flight** (one in-process parse
@@ -72,7 +72,7 @@ filesystem watch → `refresh_rows`.
 | Method | Function | Reads |
 |--------|----------|--------|
 | `session/get` | `build_session_get` | `load_session_meta(..., include_timeline_count=False)` — **no** `parse_timeline`. Notes revision optional. |
-| `session/overview` | `build_session_overview` → `_build_session_overview_uncached` | **Always `parse_timeline`**, then `segment_timeline_turns`, subagent runs, notes, cached findings. Timeline `events` is empty (`lazy: true`). |
+| `session/overview` | `build_session_overview` → `_build_session_overview_uncached` | **Always `parse_timeline`**, then `segment_timeline_turns`, subagent runs, notes. Timeline `events` is empty (`lazy: true`). |
 | `session/timeline` | `build_session_timeline` | **Always `parse_timeline`**, then filter/page. Default 300 events / 4000 content characters (caps 2000 / 50_000). |
 | `session/turns` | `build_session_turns` | Another parse (or cache hit) + full turn mapping (long assistant previews). |
 
@@ -408,7 +408,7 @@ Named moments. Continuous integration keeps **structural** tests only
 | B. First catalog page, serve cold | Keys live immediately; page may be empty then fill (`incomplete` / `building`) |
 | C. Quiet live poll | No full catalog rebuild; no table rebuild if `sinceRevision` matches |
 | D. Click one session: chrome (title, status, context) | Comes from `session/get` (and the catalog row already on screen). Body may still be loading. |
-| E. Click one session: first Timeline / Events viewport | Does **not** wait for a full `updates.jsonl` parse. Turns / findings may still be loading. |
+| E. Click one session: first Timeline / Events viewport | Does **not** wait for a full `updates.jsonl` parse. Turns may still be loading. |
 | F. Turns list + overview extras | Arrive after E, via `session/overview-ready` when the full parse finishes |
 | G. Leave serve up a working day | Resident set plateaus at documented cache caps; no linear climb with catalog size |
 | H. Editors `session/render` | Full parse is acceptable for a whole-document projection |

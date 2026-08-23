@@ -48,8 +48,6 @@ def test_help_lists_main_commands() -> None:
     assert runner.invoke(app, ["serve", "--help"]).exit_code == 0
     assert runner.invoke(app, ["editor", "--help"]).exit_code == 0
     assert runner.invoke(app, ["keys", "--help"]).exit_code == 0
-    analyzer_help = runner.invoke(app, ["analyzer", "--help"])
-    assert analyzer_help.exit_code != 0
 
 
 def test_tool_commands() -> None:

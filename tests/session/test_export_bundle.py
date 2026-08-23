@@ -234,7 +234,6 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     assert "run/prompt_history.jsonl" in names
     assert "run/.groket-turn/scripted-turns.json" in names
     assert "human/summary.md" in names
-    assert not any(n == "analysis" or n.startswith("analysis/") for n in names)
     assert "notes/operator_notes.toml" in names
     assert "notes/schema.toml" not in names
     assert "export me" in notes_text
@@ -275,49 +274,6 @@ def test_export_missing_session_raises(tmp_path: Path) -> None:
         export_session_bundle(tmp_path / "nope", dest=tmp_path / "x.tar.gz")
 
 
-def test_export_fallback_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    sess = _seed_session(tmp_path)
-    _patch_cli(monkeypatch)
-    flags_dir = tmp_path / "flag-fallback" / SID
-    flags_dir.mkdir(parents=True)
-    (flags_dir / "flags.json").write_text(
-        json.dumps([{"event_index": 1, "verdict": "bad", "description": "fallback flag"}]) + "\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        "groket.flags.flags_fallback_file",
-        lambda sid: tmp_path / "flag-fallback" / sid / "flags.json",
-    )
-    dest = tmp_path / "with-flags.tar.gz"
-    result = export_session_bundle(sess, dest=dest)
-    with tarfile.open(result.path, "r:gz") as tf:
-        names = set(tf.getnames())
-        raw = tf.extractfile("flags.json")
-        assert raw is not None
-        body = raw.read().decode()
-    assert "flags.json" in names
-    assert "fallback flag" in body
-
-
-def test_export_session_local_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Session-local flags go in the outer bundle (not inside nested grok-trace)."""
-    sess = _seed_session(tmp_path)
-    (sess / "flags.json").write_text(
-        json.dumps([{"event_index": 2, "verdict": "good", "description": "session flag"}]) + "\n",
-        encoding="utf-8",
-    )
-    _patch_cli(monkeypatch)
-    dest = tmp_path / "session-flags.tar.gz"
-    result = export_session_bundle(sess, dest=dest)
-    with tarfile.open(result.path, "r:gz") as tf:
-        names = set(tf.getnames())
-        raw = tf.extractfile("flags.json")
-        assert raw is not None
-        body = raw.read().decode()
-    assert "flags.json" in names
-    assert "session flag" in body
-
-
 def test_export_trace_only_profile_skips_extras(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -334,7 +290,6 @@ def test_export_trace_only_profile_skips_extras(
     assert GROK_TRACE_ARCHIVE_NAME in names
     assert "manifest.json" in names
     assert "README.txt" in names
-    assert not any(n.startswith("analysis/") for n in names)
     assert not any(n.startswith("run/") for n in names)
     assert result.profile_id == "trace-only"
 
@@ -382,7 +337,6 @@ def test_export_archive_org_writes_org_reports(
         sum_f = tf.extractfile("human/summary.org")
         assert sum_f is not None
         sum_text = sum_f.read().decode()
-    assert not any(n == "analysis" or n.startswith("analysis/") for n in names)
     assert "human/summary.org" in names
     assert "human/summary.md" not in names
     assert "#+TITLE:" in sum_text

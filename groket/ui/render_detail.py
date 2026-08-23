@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Group, RenderableType
@@ -17,7 +18,7 @@ from rich.text import Text
 from textual.app import App
 
 from .. import event_types as et
-from ..models import Flag, JsonObject, JsonValue, ToolInputBag, TraceEvent
+from ..models import JsonObject, JsonValue, ToolInputBag, TraceEvent
 from ..session.jobs import (
     JOB_INSPECT_LOG_CHARS,
     BackgroundJob,
@@ -45,9 +46,9 @@ from ..utils import fmt_duration
 from .i18n import t
 from .panel_render import looks_like_markdown
 from .styles import (
-    COMPLETE,
-    FAILED,
-    RUNNING,
+    CAUTION,
+    DANGER,
+    SUCCESS,
     SYNTAX_THEME_DARK,
     syntax_theme_for_app,
     tool_style,
@@ -55,6 +56,27 @@ from .styles import (
 from .styles import EVENT_TYPE_STYLE as KIND_STYLES
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DetailSection:
+    """One extractable event-detail card (title chrome + body)."""
+
+    sid: str
+    title: str
+    body: RenderableType
+
+
+def _stack(parts: list) -> RenderableType:
+    """Join body pieces into one renderable."""
+    cleaned = [p for p in parts if p is not None]
+    if not cleaned:
+        return Text("")
+    if len(cleaned) == 1:
+        return cleaned[0]
+    return Group(*cleaned)
+
+
 # Regexes stay in Python (not Fluent — catalogs are for UI copy only).
 _RE_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _RE_ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -1027,7 +1049,7 @@ def _task_detail_parts(
             parts.append(Text("\n"))
             parts.append(_section(t("ui-inspect-failed")))
             last = tail.splitlines()[-1] if tail.splitlines() else tail
-            parts.append(_line(last, style=f"bold {FAILED}"))
+            parts.append(_line(last, style=f"bold {DANGER}"))
         parts.append(Text("\n"))
         parts.append(Rule(t("col-log"), style="bright_black"))
         if tail.strip():
@@ -1037,7 +1059,7 @@ def _task_detail_parts(
             parts.append(_line(str(host or output_path), style="dim"))
     elif failed:
         parts.append(_section(t("ui-inspect-failed")))
-        parts.append(_line(_subagent_status_word(status), style=f"bold {FAILED}"))
+        parts.append(_line(_subagent_status_word(status), style=f"bold {DANGER}"))
     if len(parts) == 1:
         bag = ev.raw_input.raw() if isinstance(ev.raw_input, ToolInputBag) else {}
         preview = job_list_preview(ev.event_type, bag, ev.content)
@@ -1059,7 +1081,7 @@ def render_workflow_detail(run: WorkflowRun | None, *, ev: TraceEvent | None = N
         if run is not None
         else (workflow_name_from_raw(ev.raw_input) if ev is not None else "")
     )
-    head.append(name or t("ui-workflow"), style=f"bold {RUNNING}")
+    head.append(name or t("ui-workflow"), style=f"bold {CAUTION}")
     head.append("\n")
     if run is None:
         head.append(t("ui-workflow-missing"), style="dim")
@@ -1081,9 +1103,9 @@ def render_workflow_detail(run: WorkflowRun | None, *, ev: TraceEvent | None = N
         happened = f"{happened}  ·  {fmt_duration(run.elapsed_ms / 1000.0)}"
     parts.append(_section(t("ui-inspect-happened")))
     st_style = {
-        "complete": COMPLETE,
-        "running": RUNNING,
-        "failed": f"bold {FAILED}",
+        "complete": SUCCESS,
+        "running": CAUTION,
+        "failed": f"bold {DANGER}",
         "cancelled": "dim",
         "interrupted": "dim",
     }.get(run.status_word(), "")
@@ -1100,7 +1122,7 @@ def render_workflow_detail(run: WorkflowRun | None, *, ev: TraceEvent | None = N
     if run.pause_message.strip():
         parts.append(Text("\n"))
         parts.append(_section(t("ui-inspect-failed")))
-        pause_style = f"bold {FAILED}" if run.status == "failed" else "dim"
+        pause_style = f"bold {DANGER}" if run.status == "failed" else "dim"
         parts.append(Text(run.pause_message.rstrip() + "\n", style=pause_style))
     return Group(*parts)
 
@@ -1148,16 +1170,153 @@ def _subagent_detail_parts(
         "cancelled",
     }:
         parts.append(_section(t("ui-inspect-failed")))
-        parts.append(_line(_subagent_status_word(info.status), style=f"bold {FAILED}"))
+        parts.append(_line(_subagent_status_word(info.status), style=f"bold {DANGER}"))
     if len(parts) == 1:
         parts.append(_line("(empty)", style="dim"))
     return parts
 
 
-def render_event_detail(
+def _tool_output_card(out: str, tname: str, path_hint: str, *, truncate: bool) -> DetailSection:
+    parts = _render_tool_output(out, tname, path_hint, truncate=truncate)
+    title = t("ui-output")
+    body: list = []
+    for part in parts:
+        if isinstance(part, Rule):
+            raw = getattr(part, "title", None)
+            if raw is not None:
+                title = str(raw)
+            continue
+        body.append(part)
+    return DetailSection("output", title, _stack(body))
+
+
+def _tool_event_sections(
     ev: TraceEvent,
     *,
-    flag: Flag | None = None,
+    paired_call: TraceEvent | None,
+    paired_result: TraceEvent | None,
+    duration: float | None,
+    truncate: bool,
+    turn_index: int | None,
+) -> list[DetailSection]:
+    g = render_tool_detail_from_event(
+        ev,
+        paired_call=paired_call,
+        paired_result=paired_result,
+        duration=duration,
+        truncate=truncate,
+        turn_index=turn_index,
+    )
+    # Rebuild cards from the same data so Input / Output are separate.
+    call = ev if ev.event_type == "tool_call" else paired_call
+    result = ev if ev.event_type in et.TOOL_UPDATE_TYPES else paired_result
+    src_ev = call if call is not None else ev
+    bag = (
+        src_ev.raw_input
+        if isinstance(src_ev.raw_input, ToolInputBag)
+        else ToolInputBag(src_ev.raw_input if isinstance(src_ev.raw_input, dict) else {})
+    )
+    ri = dict(bag.raw())
+    tname = (
+        (call.tool_name if call else "")
+        or (result.tool_name if result else "")
+        or ev.tool_name
+        or "?"
+    )
+    out = ""
+    if result is not None:
+        out = _content_str(result.content, sanitize=True, tool_name=tname)
+    if not (out or "").strip():
+        out = _content_str(ev.content, sanitize=True, tool_name=tname)
+    chrome = []
+    for item in g.renderables:
+        if isinstance(item, Rule):
+            break
+        chrome.append(item)
+    sections = [DetailSection("chrome", "", _stack(chrome) if chrome else g)]
+    inp = _render_tool_input(tname, ri, truncate=truncate)
+    if not inp:
+        inp = [Text(t("tool-no-input"), style="dim italic")]
+    sections.append(DetailSection("input", t("ui-input"), _stack(inp)))
+    if (out or "").strip() or tname in ("image_gen", "image_edit"):
+        sections.append(_tool_output_card(out, tname, _path_hint(ri), truncate=truncate))
+    return sections
+
+
+def workflow_detail_sections(
+    run: WorkflowRun | None, ev: TraceEvent | None = None
+) -> list[DetailSection]:
+    """Asked / Happened / Failed cards for a workflow inspect."""
+    g = render_workflow_detail(run, ev=ev)
+    return _sections_from_inspect_group(g, chrome_sid="chrome")
+
+
+def _split_inspect_parts(parts: list) -> list[DetailSection]:
+    """Turn Asked / Happened / Failed / Log sequences into cards."""
+    asked = t("ui-inspect-asked")
+    happened = t("ui-inspect-happened")
+    failed = t("ui-inspect-failed")
+    log_l = t("col-log")
+    labels = {asked: "asked", happened: "happened", failed: "failed", log_l: "log"}
+    sections: list[DetailSection] = []
+    cur_sid = "body"
+    cur_title = ""
+    buf: list = []
+
+    def flush() -> None:
+        nonlocal buf
+        if not buf:
+            return
+        sections.append(DetailSection(cur_sid, cur_title, _stack(buf)))
+        buf = []
+
+    for part in parts:
+        label = ""
+        if isinstance(part, Rule):
+            raw = getattr(part, "title", None)
+            label = str(raw) if raw is not None else ""
+        elif isinstance(part, Text) and part.plain.strip() in labels:
+            label = part.plain.strip()
+        if label in labels:
+            flush()
+            cur_sid = labels[label]
+            cur_title = label
+            continue
+        if isinstance(part, Text) and not part.plain.strip() and not buf:
+            continue
+        buf.append(part)
+    flush()
+    return sections
+
+
+def _sections_from_inspect_group(g: Group, *, chrome_sid: str) -> list[DetailSection]:
+    labeled = _split_inspect_parts(list(g.renderables))
+    if not labeled:
+        return [DetailSection(chrome_sid, "", g)]
+    if labeled[0].title:
+        return [DetailSection(chrome_sid, "", Text(""))] + labeled
+    first = labeled[0]
+    return [DetailSection(chrome_sid, "", first.body), *labeled[1:]]
+
+
+def _message_body(body: str, ev: TraceEvent) -> RenderableType:
+    if ev.event_type in et.THOUGHT_TYPES:
+        return Text(body, style="dim italic")
+    if ev.event_type in et.MESSAGE_TYPES:
+        md_body = "  \n".join(body.split("\n"))
+        return Markdown(md_body)
+    if ev.event_type in et.SESSION_CHROME_TYPES:
+        return Text(body or "(empty)", style="bold red" if ev.is_error else "yellow")
+    if ev.event_type == "plan":
+        return _prose_or_code(body)
+    if body.strip():
+        return _prose_or_code(body)
+    return Text("(empty)", style="dim")
+
+
+def event_detail_sections(
+    ev: TraceEvent,
+    *,
     duration: float | None = None,
     paired_call: TraceEvent | None = None,
     paired_result: TraceEvent | None = None,
@@ -1168,35 +1327,24 @@ def render_event_detail(
     schedule: ScheduleTask | None = None,
     workflow: WorkflowRun | None = None,
     session_dir: Path | None = None,
-) -> RenderableType:
-    """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners).
-
-    :param truncate: Display caps for huge bodies (default). Pass False for
-        clipboard yank so the operator gets the full event text.
-    :param turn_index: Sequential operator turn id (0-based) for orientation.
-    """
-    banners: list = []
-    if flag:
-        ft = Text()
-        ft.append(t("ui-flagged"), style="red bold")
-        ft.append(f"[{flag.verdict.value}] {flag.description}\n", style="red")
-        ft.append(t("flagged-at-when", when=flag.created_at), style="dim")
-        banners.append(ft)
+) -> list[DetailSection]:
+    """Split an event into titled cards (Input, Output, Asked, …)."""
+    sections: list[DetailSection] = []
     if ev.event_type in et.TOOL_TYPES:
         if ev.tool_name == "workflow":
-            core = render_workflow_detail(workflow, ev=ev)
+            sections.extend(workflow_detail_sections(workflow, ev))
         else:
-            core = render_tool_detail_from_event(
-                ev,
-                paired_call=paired_call,
-                paired_result=paired_result,
-                duration=duration,
-                truncate=truncate,
-                turn_index=turn_index,
+            sections.extend(
+                _tool_event_sections(
+                    ev,
+                    paired_call=paired_call,
+                    paired_result=paired_result,
+                    duration=duration,
+                    truncate=truncate,
+                    turn_index=turn_index,
+                )
             )
-        if banners:
-            return Group(*banners, Text(""), core)
-        return core
+        return sections
     from ..session.tagged_blocks import unwrap_for_display
     from ..session.turns import harness_user_chrome_heading
 
@@ -1234,6 +1382,7 @@ def render_event_detail(
     if meta_parts:
         head.append("  ·  ".join(meta_parts), style="dim")
         head.append("\n")
+    sections.append(DetailSection("chrome", "", head))
     body = _content_str(
         unwrap_for_display(ev.content or ""),
         sanitize=True,
@@ -1241,51 +1390,82 @@ def render_event_detail(
     )
     if truncate and len(body) > 20000:
         body = body[:10000] + t("truncate-marker") + body[-8000:]
-    chunks: list = []
-    if banners:
-        chunks.extend(banners)
-        chunks.append(Text(""))
-    chunks.append(head)
-    if ev.event_type in et.THOUGHT_TYPES and body.strip():
-        chunks += [
-            Text(""),
-            Rule(t("ui-thought"), style="bright_black"),
-            Text(body, style="dim italic"),
-        ]
-    elif ev.event_type in et.MESSAGE_TYPES and body.strip():
-        # Soft newlines → Markdown hard breaks so each prompt line stays its own
-        # visual line (selectable for partial copy). Blank lines stay paragraphs.
-        md_body = "  \n".join(body.split("\n"))
-        chunks += [Text(""), Markdown(md_body)]
-    elif ev.event_type == "plan":
-        chunks += [Text(""), Rule(t("ui-plan"), style="bright_black"), _prose_or_code(body)]
-    elif ev.event_type in et.TASK_TYPES or ev.event_type.startswith("scheduled_task_"):
-        chunks.extend(
-            _task_detail_parts(
-                ev,
-                mate=job_mate,
-                schedule=schedule,
-                session_dir=session_dir,
+    if ev.event_type in et.TASK_TYPES or ev.event_type.startswith("scheduled_task_"):
+        sections.extend(
+            _split_inspect_parts(
+                _task_detail_parts(ev, mate=job_mate, schedule=schedule, session_dir=session_dir)
             )
         )
-    elif ev.event_type in et.SUBAGENT_TYPES:
-        chunks.extend(_subagent_detail_parts(ev, run=subagent_run))
-    elif ev.event_type == "subagent" and body.strip():
-        chunks += [
-            Text(""),
-            Rule(t("ui-subagent"), style="bright_black"),
-            _prose_or_code(body),
-        ]
-    elif ev.event_type in et.SESSION_CHROME_TYPES:
-        chunks += [
-            Text(""),
-            Text(body or "(empty)", style="bold red" if ev.is_error else "yellow"),
-        ]
-    elif body.strip():
-        chunks += [Text(""), _prose_or_code(body)]
-    else:
-        chunks += [Text(""), Text("(empty)", style="dim")]
-    return Group(*chunks)
+        return sections
+    if ev.event_type in et.SUBAGENT_TYPES:
+        sections.extend(_split_inspect_parts(_subagent_detail_parts(ev, run=subagent_run)))
+        return sections
+    if ev.event_type == "subagent" and body.strip():
+        sections.append(DetailSection("subagent", t("ui-subagent"), _prose_or_code(body)))
+        return sections
+    if ev.event_type in et.THOUGHT_TYPES and body.strip():
+        sections.append(DetailSection("thought", t("ui-thought"), _message_body(body, ev)))
+        return sections
+    if ev.event_type in et.MESSAGE_TYPES and body.strip():
+        title = ev.type_label or ev.event_type.replace("_", " ")
+        sections.append(DetailSection("message", title, _message_body(body, ev)))
+        return sections
+    if ev.event_type == "plan":
+        sections.append(DetailSection("plan", t("ui-plan"), _message_body(body, ev)))
+        return sections
+    if ev.event_type in et.SESSION_CHROME_TYPES:
+        sections.append(DetailSection("session", ev.type_label or "", _message_body(body, ev)))
+        return sections
+    if body.strip():
+        sections.append(DetailSection("body", ev.type_label or "", _message_body(body, ev)))
+        return sections
+    sections.append(DetailSection("body", "", Text("(empty)", style="dim")))
+    return sections
+
+
+def render_event_detail(
+    ev: TraceEvent,
+    *,
+    duration: float | None = None,
+    paired_call: TraceEvent | None = None,
+    paired_result: TraceEvent | None = None,
+    truncate: bool = True,
+    turn_index: int | None = None,
+    subagent_run: SubagentRun | None = None,
+    job_mate: TraceEvent | None = None,
+    schedule: ScheduleTask | None = None,
+    workflow: WorkflowRun | None = None,
+    session_dir: Path | None = None,
+) -> RenderableType:
+    """Full detail pane for any TraceEvent (trace_viewer render_event_detail + banners).
+
+    :param truncate: Display caps for huge bodies (default). Pass False for
+        clipboard yank so the operator gets the full event text.
+    :param turn_index: Sequential operator turn id (0-based) for orientation.
+    """
+    sections = event_detail_sections(
+        ev,
+        duration=duration,
+        paired_call=paired_call,
+        paired_result=paired_result,
+        truncate=truncate,
+        turn_index=turn_index,
+        subagent_run=subagent_run,
+        job_mate=job_mate,
+        schedule=schedule,
+        workflow=workflow,
+        session_dir=session_dir,
+    )
+    chunks: list = []
+    for sec in sections:
+        if sec.title:
+            chunks.append(Text(""))
+            chunks.append(Rule(sec.title, style="bright_black"))
+        if isinstance(sec.body, Group):
+            chunks.extend(sec.body.renderables)
+        else:
+            chunks.append(sec.body)
+    return Group(*chunks) if chunks else Group(Text(""))
 
 
 def render_markdown_doc(

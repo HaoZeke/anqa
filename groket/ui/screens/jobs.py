@@ -226,7 +226,6 @@ class JobsModal(TabPaneNavigation, QuitActions, ModalScreen[None]):
             ts = datetime.fromtimestamp(entry.ts).strftime("%H:%M:%S")
             kind = entry.kind
             style = {
-                "analysis": "cyan",
                 "refresh": "yellow",
                 "system": "dim",
                 "control": "magenta",

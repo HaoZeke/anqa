@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 from groket.parser import find_sessions, load_session_meta
-from textual.widgets import DataTable, Static
+from groket.ui.data_table import cursor_row_key
+from textual.widgets import DataTable
 
 from .pilot_helpers import wait_until
 
@@ -153,26 +154,8 @@ async def test_home_table_omits_task_id_and_path_label(tmp_path: Path):
         assert t("ui-session-id") not in headers
         assert t("ui-title") in headers
         assert t("ui-status") in headers
-        assert "Findings" not in headers
         assert t("ui-high-1") not in headers
         assert t("ui-med") not in headers
-
-
-@pytest.mark.asyncio
-async def test_home_summary_has_no_pending_analysis(tmp_path: Path) -> None:
-    from groket.ui.app import TraceEvalApp
-
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    _write_minimal_session(traces, "sess-sum")
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
-    async with app.run_test(size=(140, 30)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        summary = app.query_one("#session-summary", Static)
-        content = summary.content
-        text = getattr(content, "plain", None) or str(content)
-        assert "pending analysis" not in text.lower()
-        assert "findings" not in text.lower()
 
 
 @pytest.mark.asyncio
@@ -189,12 +172,14 @@ async def test_home_table_populate_keeps_horizontal_scroll(tmp_path: Path):
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 1, description="session rows populated")
         table.scroll_x = 9
+        key = cursor_row_key(table)
         meta, label = app._meta_only[0]
         meta.duration_seconds = float(meta.duration_seconds or 0) + 12
         app._meta_only[0] = (meta, label)
         app._populate_session_table()
         await pilot.pause()
         assert table.scroll_x == 9
+        assert cursor_row_key(table) == key
 
 
 @pytest.mark.asyncio

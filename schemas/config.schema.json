@@ -1,19 +1,5 @@
 {
   "$defs": {
-    "AnalysisPrefs": {
-      "description": "``[analysis]``: worker pools.",
-      "properties": {
-        "live_refresh_workers": {
-          "default": 1,
-          "description": "Live timeline refresh pool size.",
-          "minimum": 1,
-          "title": "Live Refresh Workers",
-          "type": "integer"
-        }
-      },
-      "title": "AnalysisPrefs",
-      "type": "object"
-    },
     "ExportPrefs": {
       "description": "``[export]``: default session-export profile id.",
       "properties": {
@@ -56,14 +42,14 @@
   "description": "Prefs file ~/.groket/config.toml. Authoring format is TOML; this schema describes the same keys for editors and groket config validate.",
   "properties": {
     "theme": {
-      "default": "groket",
-      "description": "Textual / HUD theme name.",
+      "default": "auto",
+      "description": "auto (terminal / desktop host) or a catalog / ~/.groket/themes name.",
       "title": "Theme",
       "type": "string"
     },
     "follow_os": {
       "default": false,
-      "description": "Paired colorways follow the host light/dark setting.",
+      "description": "Named pairs follow the host light/dark setting.",
       "title": "Follow Os",
       "type": "boolean"
     },
@@ -79,8 +65,12 @@
       "title": "Auto Serve",
       "type": "boolean"
     },
-    "analysis": {
-      "$ref": "#/$defs/AnalysisPrefs"
+    "live_refresh_workers": {
+      "default": 1,
+      "description": "Live timeline refresh pool size.",
+      "minimum": 1,
+      "title": "Live Refresh Workers",
+      "type": "integer"
     },
     "hud": {
       "$ref": "#/$defs/HudPrefs"

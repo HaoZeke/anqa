@@ -37,7 +37,6 @@ class IncludeUnit(StrEnum):
     GROK_TRACE = "grok_trace"
     RUN = "run"
     SUMMARY = "summary"
-    FLAGS = "flags"
     NOTES = "notes"
     README = "readme"
     MANIFEST = "manifest"
@@ -51,7 +50,6 @@ ARCHIVE_FULL_INCLUDE: tuple[IncludeUnit, ...] = (
     IncludeUnit.GROK_TRACE,
     IncludeUnit.RUN,
     IncludeUnit.SUMMARY,
-    IncludeUnit.FLAGS,
     IncludeUnit.NOTES,
     IncludeUnit.README,
     IncludeUnit.MANIFEST,
@@ -164,7 +162,7 @@ def builtin_profiles() -> dict[str, ExportSpec]:
     archive = ExportSpec(
         profile_id=DEFAULT_PROFILE_ID,
         name="Archive (full)",
-        description="Official grok-trace nest plus groket run/flags/notes extras.",
+        description="Official grok-trace nest plus groket run/notes extras.",
         packaging=Packaging.TAR_GZ,
         include=frozenset(ARCHIVE_FULL_INCLUDE),
         renderer="markdown",

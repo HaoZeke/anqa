@@ -43,13 +43,13 @@ const ACTIONS: &[CatalogRow] = &[
     CatalogRow {
         id: "list.down",
         scope: "home",
-        default: "j",
+        default: "j,down",
         remappable: true,
     },
     CatalogRow {
         id: "list.up",
         scope: "home",
-        default: "k",
+        default: "k,up",
         remappable: true,
     },
     CatalogRow {
@@ -333,12 +333,6 @@ const ACTIONS: &[CatalogRow] = &[
         scope: "browser",
         default: "enter",
         remappable: false,
-    },
-    CatalogRow {
-        id: "event.flag",
-        scope: "browser",
-        default: "f",
-        remappable: true,
     },
     CatalogRow {
         id: "session.note_edit",

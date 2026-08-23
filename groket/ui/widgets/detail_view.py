@@ -6,33 +6,50 @@ from pathlib import Path
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
-from textual.widgets import DataTable
+from textual.widgets import DataTable, Static
 
-from ...models import Flag, TraceEvent
+from ...models import TraceEvent
 from ...session.jobs import ScheduleTask
 from ...session.subagents import SubagentRun
 from ...session.workflows import WorkflowChild, WorkflowRun
 from ..data_table import ListDataTable, style_data_table
 from ..i18n import t
-from ..render_detail import render_event_detail, render_workflow_detail, set_static_renderable
+from ..render_detail import (
+    DetailSection,
+    event_detail_sections,
+    render_event_detail,
+    render_workflow_detail,
+    set_static_renderable,
+    workflow_detail_sections,
+)
 from ..selectable_static import SelectableStatic, plain_from_renderable
+
+_SECTION_SIDS = (
+    "chrome",
+    "input",
+    "output",
+    "asked",
+    "happened",
+    "failed",
+    "log",
+    "thought",
+    "plan",
+    "message",
+    "subagent",
+    "session",
+    "body",
+)
 
 
 class DetailView(VerticalScroll):
     """Shows detailed information about a selected trace event.
 
-    Uses a single :class:`SelectableStatic` child whose content is replaced on
-    each selection, avoiding the remove_children/mount race that causes
-    'NoneType' render_strips errors in Textual. SelectableStatic enables mouse
+    Mounts one panel card per event section (Input, Output, Asked, …)
+    so each body is extractable. SelectableStatic enables mouse
     text selection and plain-text clipboard yank for Markdown/Syntax bodies.
     """
-
-    class FlagRequested(Message):
-        def __init__(self, event: TraceEvent) -> None:
-            super().__init__()
-            self.event = event
 
     class ChildActivated(Message):
         """Operator activated a workflow child row."""
@@ -44,7 +61,6 @@ class DetailView(VerticalScroll):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._current_event: TraceEvent | None = None
-        self._current_flag: Flag | None = None
         self._current_duration: float | None = None
         self._paired_call: TraceEvent | None = None
         self._paired_result: TraceEvent | None = None
@@ -56,13 +72,17 @@ class DetailView(VerticalScroll):
         self.session_dir: Path | None = None
 
     def compose(self) -> ComposeResult:
-        yield SelectableStatic("", id="detail-body")
+        with Vertical(id="detail-sections"):
+            for sid in _SECTION_SIDS:
+                body_id = self._section_body_id(sid)
+                with Vertical(id=f"detail-sec-{sid}", classes="panel-card"):
+                    yield Static("", classes="panel-card-title", id=f"detail-title-{sid}")
+                    yield SelectableStatic("", id=body_id, classes="detail-section-body")
         yield ListDataTable(id="workflow-children-table")
 
     def show_event(
         self,
         event: TraceEvent,
-        flag: Flag | None = None,
         duration: float | None = None,
         *,
         paired_call: TraceEvent | None = None,
@@ -77,7 +97,6 @@ class DetailView(VerticalScroll):
             event.index
         )
         self._current_event = event
-        self._current_flag = flag
         self._current_duration = duration
         self._paired_call = paired_call
         self._paired_result = paired_result
@@ -92,7 +111,6 @@ class DetailView(VerticalScroll):
     def show_workflow(self, run: WorkflowRun) -> None:
         """Inspect a Summary row when no Timeline bookend can be paired."""
         self._current_event = None
-        self._current_flag = None
         self._current_duration = None
         self._paired_call = None
         self._paired_result = None
@@ -101,41 +119,95 @@ class DetailView(VerticalScroll):
         self._job_mate = None
         self._schedule = None
         self._workflow = run
-        body = self.query_one("#detail-body", SelectableStatic)
-        set_static_renderable(body, render_workflow_detail(run))
+        self._sync_detail_sections(workflow_detail_sections(run))
         self._sync_workflow_children()
         self.scroll_home(animate=False)
 
+    def _section_body_id(self, sid: str) -> str:
+        return "detail-body" if sid == "chrome" else f"detail-body-{sid}"
+
+    def _sync_detail_sections(self, sections: list[DetailSection]) -> None:
+        by_sid = {sec.sid: sec for sec in sections}
+        for sid in _SECTION_SIDS:
+            try:
+                card = self.query_one(f"#detail-sec-{sid}", Vertical)
+                title = self.query_one(f"#detail-title-{sid}", Static)
+                body = self.query_one(f"#{self._section_body_id(sid)}", SelectableStatic)
+            except Exception:
+                continue
+            sec = by_sid.get(sid)
+            if sec is None:
+                card.display = False
+                continue
+            card.display = True
+            if sec.title:
+                title.update(sec.title)
+                title.display = True
+            else:
+                title.update("")
+                title.display = False
+            if not self._body_has_selection(body):
+                set_static_renderable(body, sec.body)
+
+    def _body_has_selection(self, widget: object) -> bool:
+        sels = getattr(self.screen, "selections", None)
+        return bool(sels and widget in sels)
+
+    def has_text_selection(self) -> bool:
+        """True when any section body has an active drag selection."""
+        for widget in self.query(SelectableStatic):
+            if self._body_has_selection(widget):
+                return True
+        return False
+
+    def visible_plain(self) -> str:
+        """Joined plain text of every visible section body."""
+        bits: list[str] = []
+        for sid in _SECTION_SIDS:
+            try:
+                card = self.query_one(f"#detail-sec-{sid}", Vertical)
+                if not card.display:
+                    continue
+                body = self.query_one(f"#{self._section_body_id(sid)}", SelectableStatic)
+            except Exception:
+                continue
+            bits.append(body.get_plain_text() or "")
+        return "\n".join(bits)
+
     def _refresh_content(self, *, scroll_home: bool = True) -> None:
         ev = self._current_event
-        body = self.query_one("#detail-body", SelectableStatic)
         if ev is None:
             if self._workflow is not None:
-                set_static_renderable(body, render_workflow_detail(self._workflow))
+                self._sync_detail_sections(workflow_detail_sections(self._workflow))
                 self._sync_workflow_children()
                 return
-            body.update("")
+            self._sync_detail_sections([])
             self._sync_workflow_children()
             return
-        renderable = render_event_detail(
-            ev,
-            flag=self._current_flag,
-            duration=self._current_duration,
-            paired_call=self._paired_call,
-            paired_result=self._paired_result,
-            turn_index=self._current_turn_index,
-            subagent_run=self._subagent_run,
-            job_mate=self._job_mate,
-            schedule=self._schedule,
-            workflow=self._workflow,
-            session_dir=self.session_dir,
+        self._sync_detail_sections(
+            event_detail_sections(
+                ev,
+                duration=self._current_duration,
+                paired_call=self._paired_call,
+                paired_result=self._paired_result,
+                turn_index=self._current_turn_index,
+                subagent_run=self._subagent_run,
+                job_mate=self._job_mate,
+                schedule=self._schedule,
+                workflow=self._workflow,
+                session_dir=self.session_dir,
+            )
         )
-        set_static_renderable(body, renderable)
         self._sync_workflow_children()
         if scroll_home:
             self.scroll_home(animate=False)
 
     def on_mount(self) -> None:
+        for sid in _SECTION_SIDS:
+            try:
+                self.query_one(f"#detail-sec-{sid}", Vertical).display = False
+            except Exception:
+                pass
         table = self.query_one("#workflow-children-table", DataTable)
         style_data_table(table)
         table.add_columns(t("ui-agents"), t("col-status"))
@@ -187,7 +259,6 @@ class DetailView(VerticalScroll):
 
     def clear_detail(self) -> None:
         self._current_event = None
-        self._current_flag = None
         self._current_duration = None
         self._paired_call = None
         self._paired_result = None
@@ -196,7 +267,7 @@ class DetailView(VerticalScroll):
         self._job_mate = None
         self._schedule = None
         self._workflow = None
-        self.query_one("#detail-body", SelectableStatic).update("")
+        self._sync_detail_sections([])
         self._sync_workflow_children()
 
     def get_plain_text(self) -> str:
@@ -212,7 +283,6 @@ class DetailView(VerticalScroll):
         if ev is not None:
             renderable = render_event_detail(
                 ev,
-                flag=self._current_flag,
                 duration=self._current_duration,
                 paired_call=self._paired_call,
                 paired_result=self._paired_result,
@@ -224,8 +294,4 @@ class DetailView(VerticalScroll):
                 truncate=False,
             )
             return plain_from_renderable(renderable, full=True)
-        try:
-            body = self.query_one("#detail-body", SelectableStatic)
-        except Exception:
-            return ""
-        return body.get_plain_text()
+        return self.visible_plain()

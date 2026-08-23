@@ -6,7 +6,6 @@ from pathlib import Path
 
 import groket.event_types as et
 from groket.constants import INTERRUPTED_MARKER_FILENAME
-from groket.flags import load_flags
 from groket.notes import NOTES_FILENAME
 from groket.parser import find_sessions
 from groket.session.catalog import session_catalog_row
@@ -143,7 +142,6 @@ def test_cited_groket_disk_symbols_still_exist(tmp_path: Path) -> None:
     assert callable(segment_timeline_turns)
     assert callable(load_workspace_diff)
     assert callable(can_resume_session)
-    assert callable(load_flags)
     from groket.fs_watch import _TRACE_NAME_HINTS
 
     assert "updates.jsonl" in _TRACE_NAME_HINTS

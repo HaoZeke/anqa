@@ -65,7 +65,7 @@ def render_session_summary(
     tool_calls = [e for e in timeline if e.event_type == "tool_call"]
     tools_n = max(int(meta.tool_call_count or 0), len(tool_calls))
     tool_errs = sum(1 for e in tool_calls if e.is_error)
-    title = (meta.title or meta.session_id or "session").strip()
+    title = (meta.title or meta.session_id or t("ui-untitled-session")).strip()
     outcome = (meta.turn_outcome or "").strip() or "unknown"
     dur = fmt_duration(meta.duration_seconds) if meta.duration_seconds else "—"
     model = (meta.model_display or "").strip() or "—"
@@ -174,7 +174,7 @@ def _glance_rows(
     if tools_n > 0 or tool_errs > 0 or meta.error_count:
         if tool_errs or meta.error_count:
             errs = max(tool_errs, int(meta.error_count or 0))
-            tools_s = f"{tools_n} · {errs} errors"
+            tools_s = t("ui-tools-error-count", tools=tools_n, errors=errs)
         else:
             tools_s = str(tools_n)
         rows.append((t("ui-tools"), tools_s))
@@ -183,8 +183,12 @@ def _glance_rows(
         last = turns[-1]
         last_label = _turn_label_face(last)
         if turns_n > len(turns):
-            extra = "open" if last.open else (_outcome_face(last.outcome) if last.outcome else "")
-            last_label = f"turn {turns_n - 1}" + (f" ({extra})" if extra else "")
+            extra = (
+                t("ui-open-status")
+                if last.open
+                else (_outcome_face(last.outcome) if last.outcome else "")
+            )
+            last_label = t("ui-turn-number", turn=turns_n - 1) + (f" ({extra})" if extra else "")
         rows.append((t("ui-last-turn"), last_label))
     if meta.num_messages > 0:
         rows.append((t("ui-messages"), str(meta.num_messages)))

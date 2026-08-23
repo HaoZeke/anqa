@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from groket.paths import (
-    analysis_cache_dir,
     app_config_path,
     app_home,
+    cache_dir,
     default_traces_root,
     is_run_dir_name,
     mcp_registry_cache_dir,
@@ -14,6 +14,7 @@ from groket.paths import (
     run_name,
     strip_run_prefix,
     user_keys_path,
+    user_themes_dir,
 )
 
 
@@ -110,10 +111,10 @@ class TestAppHome:
         assert result == fake
         assert fake.is_dir()
 
-    def test_analysis_cache_dir(self, tmp_path, monkeypatch):
+    def test_cache_dir(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
         monkeypatch.setattr("groket.paths.APP_HOME", fake)
-        result = analysis_cache_dir()
+        result = cache_dir()
         assert result == fake / "cache"
         assert result.is_dir()
 
@@ -142,6 +143,11 @@ class TestAppHome:
         monkeypatch.setattr("groket.paths.APP_HOME", fake)
         assert user_keys_path() == fake / "keys.toml"
 
+    def test_user_themes_dir(self, tmp_path, monkeypatch):
+        fake = tmp_path / "app-home"
+        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        assert user_themes_dir() == fake / "themes"
+
 
 from pathlib import Path
 
@@ -151,7 +157,7 @@ from groket import paths
 def test_app_home_and_dirs():
     assert paths.APP_HOME
     assert paths.default_work_dir()
-    assert paths.analysis_cache_dir()
+    assert paths.cache_dir()
 
 
 def test_resolve_work_and_traces(tmp_path: Path):

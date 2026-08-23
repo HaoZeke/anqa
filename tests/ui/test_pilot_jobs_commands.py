@@ -211,7 +211,7 @@ async def test_jobs_modal_clear_logs(tmp_path: Path) -> None:
     bg.append_log("test-c", "retained line")
     with app.run_manager._lock:
         app.run_manager._active[bg.run_id] = bg
-    get_activity_log().log("analysis", "pool line before clear")
+    get_activity_log().log("refresh", "pool line before clear")
 
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -242,22 +242,6 @@ async def test_jobs_modal_clear_btn(tmp_path: Path) -> None:
         modal._btn_clear()
         await pilot.pause()
         assert len(modal.query_one("#jobs-logs-all", RichLog).lines) == 0
-
-
-@pytest.mark.asyncio
-async def test_jobs_status_has_no_plugin_cache(tmp_path: Path) -> None:
-    """Jobs banner has no session-eval plugin-cache count."""
-    work, traces = _make_work(tmp_path)
-    app = _host_app(work, traces)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        modal = await _open_jobs(app, pilot, work)
-        modal._refresh_app_jobs()
-        await pilot.pause()
-        status = static_plain(modal.query_one("#jobs-app-status", Static))
-        assert "Detector analysis" not in status
-        assert "Analysis" not in status
-        assert not hasattr(app, "_plugin_results")
 
 
 @pytest.mark.asyncio
@@ -297,12 +281,12 @@ async def test_jobs_activity_tails_control_log(tmp_path: Path) -> None:
     sock = tmp_path / "groket.sock"
     sock.write_text("", encoding="utf-8")
     log_path = sock.with_name(sock.name + ".log")
-    log_path.write_text("serve boot\nanalysis done for sess\n", encoding="utf-8")
+    log_path.write_text("serve boot\nrefresh done for sess\n", encoding="utf-8")
     app._control_socket = sock
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         modal = await _open_jobs(app, pilot, work)
-        assert modal._read_control_log_tail() == ["serve boot", "analysis done for sess"]
+        assert modal._read_control_log_tail() == ["serve boot", "refresh done for sess"]
         tabs = modal.query_one("#jobs-tabs", TabbedContent)
         tabs.active = "jobs-tab-activity"
         await pilot.pause()
@@ -313,7 +297,7 @@ async def test_jobs_activity_tails_control_log(tmp_path: Path) -> None:
         await pilot.pause()
         act = modal.query_one("#jobs-activity-log", RichLog)
         joined = "\n".join(str(line) for line in act.lines)
-        assert "analysis done for sess" in joined
+        assert "refresh done for sess" in joined
         help_txt = static_plain(modal.query_one("#jobs-activity-help", Static))
         assert str(log_path) in help_txt or "Serve log" in help_txt
 

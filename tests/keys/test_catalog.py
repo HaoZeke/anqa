@@ -149,8 +149,8 @@ def test_default_chords_match_today() -> None:
     assert action_by_id("session.done").default == "e"
     assert action_by_id("edit.copy").default == "y"
     assert action_by_id("help.toggle").default == "?"
-    assert action_by_id("list.down").default == "j"
-    assert action_by_id("list.up").default == "k"
+    assert action_by_id("list.down").default == "j,down"
+    assert action_by_id("list.up").default == "k,up"
     assert action_by_id("edit.copy_chord").default == "ctrl+shift+c"
     assert action_by_id("sessions.home").default == "u"
 
@@ -254,7 +254,7 @@ def test_list_nav_is_shared_table_binding() -> None:
     assert down.surfaces is ActionSurface.SHARED
     assert up.surfaces is ActionSurface.SHARED
     browser_nav = {b.id: b.key for b in B.BROWSER if b.id in {"list.down", "list.up"}}
-    assert browser_nav == {"list.down": "j", "list.up": "k"}
+    assert browser_nav == {"list.down": "j,down", "list.up": "k,up"}
     assert not any(
         b.id in {"list.down", "list.up"}
         for tup in _BINDING_TUPLES

@@ -72,7 +72,6 @@ class TestYieldAppCommands:
         assert len(cmds) > 5
         titles = [c[0] for c in cmds]
         assert any("Refresh" in t or "refresh" in t.lower() for t in titles)
-        assert not any("analysis" in t.lower() for t in titles)
 
     def test_browser_screen_commands(self) -> None:
         from groket.ui.screens.browser import BrowserScreen
@@ -83,8 +82,6 @@ class TestYieldAppCommands:
         assert len(cmds) > 5
         titles = [c[0] for c in cmds]
         assert any("export" in t.lower() for t in titles)
-        assert not any("analyze" in t.lower() for t in titles)
-        assert not any("analysis" in t.lower() for t in titles)
 
     def test_runner_screen_commands(self) -> None:
         from groket.ui.screens.runner import RunnerScreen

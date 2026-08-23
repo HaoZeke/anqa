@@ -8,35 +8,6 @@ from groket.models import SessionMeta
 from groket.ui.app import TraceEvalApp
 
 
-def test_importing_trace_eval_app_does_not_import_scoring_packages() -> None:
-    """Cold ``import groket.ui.app`` must not pull deleted scoring packages."""
-    import sys
-
-    ui_app = sys.modules.pop("groket.ui.app", None)
-    try:
-        import groket.ui.app as app_mod
-
-        assert "groket.analysis" not in sys.modules
-        assert "groket.engine" not in sys.modules
-        assert "groket.analyzer" not in sys.modules
-        assert app_mod.TraceEvalApp is not None
-    finally:
-        if ui_app is not None:
-            sys.modules["groket.ui.app"] = ui_app
-
-
-def test_tui_on_mount_does_not_construct_scoring_services() -> None:
-    """Opening the TUI must not construct deleted scoring services."""
-    source = Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.py"
-    text = source.read_text(encoding="utf-8")
-    chunk = text.split("class TraceEvalApp", 1)[1]
-    on_mount = chunk.split("def on_mount(self)", 1)[1].split("\n    def ", 1)[0]
-    assert "AnalysisService(" not in on_mount
-    assert "set_analysis_service" not in on_mount
-    assert "load_config_plugins" not in on_mount
-    assert "RulesScreen" not in on_mount
-
-
 def test_first_control_catalog_paint_requests_a_page() -> None:
     """Initial attach paint must request one page, not drain matched."""
     from groket.session.access import DEFAULT_SESSION_LIST_LIMIT

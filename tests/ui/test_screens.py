@@ -30,27 +30,6 @@ async def test_run_configs_screen_mount(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_flag_modal_mount():
-    from groket.models import TraceEvent
-    from groket.ui.widgets.flag_panel import FlagModal
-
-    ev = TraceEvent(index=0, event_type="tool_call", content="x", tool_name="grep")
-
-    class H(App[None]):
-        async def on_mount(self) -> None:
-            self.push_screen(FlagModal(ev))
-
-    async with H().run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        from groket.ui.widgets.flag_panel import FlagModal as FM
-
-        assert isinstance(pilot.app.screen, FM)
-        # Modal shows the event under review (tool name and/or content).
-        body = "\n".join(static_plain(w) for w in pilot.app.screen.query(Static))
-        assert "grep" in body.lower() or "tool" in body.lower() or "x" in body
-
-
-@pytest.mark.asyncio
 async def test_help_modal_mount():
     from groket.ui.widgets.help_modal import HelpModal
 
@@ -97,5 +76,4 @@ async def test_detail_view_mount():
     async with H().run_test() as pilot:
         await pilot.pause()
         dv = pilot.app.query_one("#dv", DetailView)
-        body = dv.query_one("#detail-body", Static)
-        assert static_plain(body).strip() == ""
+        assert dv.visible_plain().strip() == ""

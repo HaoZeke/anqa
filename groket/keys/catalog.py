@@ -149,8 +149,8 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("help.toggle", ActionScope.GLOBAL, "?", ActionSurface.SHARED),
     _row("overlay.hide", ActionScope.GLOBAL, "escape", ActionSurface.SHARED),
     _row("session.open", ActionScope.HOME, "enter", ActionSurface.SHARED),
-    _row("list.down", ActionScope.HOME, "j", ActionSurface.SHARED, overlay_scopes=_NAV),
-    _row("list.up", ActionScope.HOME, "k", ActionSurface.SHARED, overlay_scopes=_NAV),
+    _row("list.down", ActionScope.HOME, "j,down", ActionSurface.SHARED, overlay_scopes=_NAV),
+    _row("list.up", ActionScope.HOME, "k,up", ActionSurface.SHARED, overlay_scopes=_NAV),
     _row(
         "search.focus",
         ActionScope.HOME,
@@ -215,8 +215,7 @@ ACTIONS: tuple[KeyAction, ...] = (
     # Session browser.
     _row("browser.view_filter", ActionScope.BROWSER, "v", ActionSurface.TUI),
     _row("browser.event_reader", ActionScope.BROWSER, "enter", ActionSurface.TUI),
-    _row("event.flag", ActionScope.BROWSER, "f", ActionSurface.TUI),
-    _row("session.note_edit", ActionScope.BROWSER, "O", ActionSurface.TUI),
+    _row("session.note_edit", ActionScope.BROWSER, "O", ActionSurface.SHARED),
     _row("browser.clear_filters", ActionScope.BROWSER, "c", ActionSurface.TUI),
     _row("session.share", ActionScope.BROWSER, "s", ActionSurface.TUI),
     # Runner.

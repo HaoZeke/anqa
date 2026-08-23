@@ -7,23 +7,10 @@ from pathlib import Path
 
 from groket.models import (
     EvalRun,
-    Flag,
-    FlagVerdict,
     SessionMeta,
     ToolCall,
     TraceEvent,
 )
-
-# ── FlagVerdict ───────────────────────────────────────────────────────────
-
-
-class TestFlagVerdict:
-    def test_all_values(self):
-        assert FlagVerdict.BAD.value == "bad"
-        assert FlagVerdict.ACCEPTABLE.value == "acceptable"
-        assert FlagVerdict.GOOD.value == "good"
-        assert FlagVerdict.NEEDS_REVIEW.value == "needs_review"
-
 
 # ── ToolCall ──────────────────────────────────────────────────────────────
 
@@ -207,31 +194,6 @@ class TestSessionMeta:
         assert meta.turn_in_progress is True
         assert meta.turn_failed is False
         assert meta.list_status_label() == "ending"
-
-
-# ── Flag (Pydantic) ──────────────────────────────────────────────────────
-
-
-class TestFlag:
-    def test_construction(self):
-        flag = Flag(event_index=5, verdict=FlagVerdict.BAD, description="Wrong tool used")
-        assert flag.event_index == 5
-        assert flag.verdict == FlagVerdict.BAD
-        assert flag.description == "Wrong tool used"
-
-    def test_serialization_roundtrip(self):
-        flag = Flag(
-            event_index=3,
-            verdict=FlagVerdict.GOOD,
-            description="Good approach",
-            tool_name="read_file",
-        )
-        data = flag.model_dump()
-        restored = Flag.model_validate(data)
-        assert restored.event_index == flag.event_index
-        assert restored.verdict == flag.verdict
-        assert restored.description == flag.description
-        assert restored.tool_name == flag.tool_name
 
 
 # ── EvalRun (Pydantic) ───────────────────────────────────────────────────

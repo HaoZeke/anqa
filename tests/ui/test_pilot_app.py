@@ -62,7 +62,6 @@ async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
         bar.refresh_activity()
         await pilot.pause()
         counts = activity_counters_from_app(app)
-        assert "analyze" not in counts
         line = build_activity_line(
             pending=counts["pending"],
             building=counts["building"],
@@ -74,9 +73,6 @@ async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
         )
         plain = line.plain.lower()
         assert "sessions" in plain
-        assert "analysis" not in plain
-        assert "live" not in plain
-        assert "lib" not in plain
 
 
 @pytest.mark.asyncio

@@ -99,7 +99,7 @@ def test_list_session_catalog_includes_host_by_default(
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
-    monkeypatch.setattr("groket.session.mtime_export.analysis_cache_dir", lambda: cache)
+    monkeypatch.setattr("groket.session.mtime_export.cache_dir", lambda: cache)
     from groket.config import invalidate_config_cache
 
     invalidate_config_cache()
@@ -152,7 +152,7 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
-    monkeypatch.setattr("groket.session.mtime_export.analysis_cache_dir", lambda: cache)
+    monkeypatch.setattr("groket.session.mtime_export.cache_dir", lambda: cache)
     from groket.config import invalidate_config_cache
 
     invalidate_config_cache()

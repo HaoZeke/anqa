@@ -1,6 +1,6 @@
 """App-global ``~/.groket/config.toml``.
 
-One file, one shape. Tables are ``analysis``, ``hud``, and ``export``.
+One file, one shape. Tables are ``hud`` and ``export``.
 Top-level keys are the prefs the terminal app and the desktop HUD share.
 Saves use tomlkit so comments on untouched keys stay put.
 """
@@ -28,30 +28,6 @@ SCHEMA_COMMENT = f":schema {SCHEMA_ID}"
 _CACHE: AppConfig | None = None
 _CACHE_PATH: Path | None = None
 _DOC_CACHE: tomlkit.TOMLDocument | None = None
-
-
-class AnalysisPrefs(BaseModel):
-    """``[analysis]``: worker pools."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    live_refresh_workers: int = Field(
-        default=1, ge=1, description="Live timeline refresh pool size."
-    )
-
-    @field_validator("live_refresh_workers", mode="before")
-    @classmethod
-    def _workers(cls, value: object) -> int:
-        if isinstance(value, bool):
-            return 1
-        if isinstance(value, int):
-            return max(1, value)
-        if isinstance(value, str):
-            try:
-                return max(1, int(value.strip()))
-            except ValueError:
-                return 1
-        return 1
 
 
 class HudPrefs(BaseModel):
@@ -96,10 +72,13 @@ class AppConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    theme: str = Field(default="groket", description="Textual / HUD theme name.")
+    theme: str = Field(
+        default="auto",
+        description="auto (terminal / desktop host) or a catalog / ~/.groket/themes name.",
+    )
     follow_os: bool = Field(
         default=False,
-        description="Paired colorways follow the host light/dark setting.",
+        description="Named pairs follow the host light/dark setting.",
     )
     show_host_sessions: bool = Field(
         default=False,
@@ -109,7 +88,9 @@ class AppConfig(BaseModel):
         default=True,
         description="Detach-start groket serve when the control socket is free.",
     )
-    analysis: AnalysisPrefs = Field(default_factory=AnalysisPrefs)
+    live_refresh_workers: int = Field(
+        default=1, ge=1, description="Live timeline refresh pool size."
+    )
     hud: HudPrefs = Field(default_factory=HudPrefs)
     export: ExportPrefs = Field(default_factory=ExportPrefs)
 
@@ -117,7 +98,21 @@ class AppConfig(BaseModel):
     @classmethod
     def _theme(cls, value: object) -> str:
         raw = str(value).strip() if isinstance(value, str) else ""
-        return raw or "groket"
+        return raw or "auto"
+
+    @field_validator("live_refresh_workers", mode="before")
+    @classmethod
+    def _workers(cls, value: object) -> int:
+        if isinstance(value, bool):
+            return 1
+        if isinstance(value, int):
+            return max(1, value)
+        if isinstance(value, str):
+            try:
+                return max(1, int(value.strip()))
+            except ValueError:
+                return 1
+        return 1
 
 
 def _to_plain(value: object) -> JsonValue:
@@ -166,8 +161,9 @@ def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     doc["follow_os"] = cfg.follow_os
     doc["show_host_sessions"] = cfg.show_host_sessions
     doc["auto_serve"] = cfg.auto_serve
-    analysis = _ensure_table(doc, "analysis")
-    analysis["live_refresh_workers"] = cfg.analysis.live_refresh_workers
+    doc["live_refresh_workers"] = cfg.live_refresh_workers
+    if "analysis" in doc:
+        del doc["analysis"]
     hud = _ensure_table(doc, "hud")
     hud["window_mode"] = cfg.hud.window_mode
     hud["global_shortcut"] = cfg.hud.global_shortcut
@@ -189,11 +185,16 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
         if isinstance(flat, str) and flat.strip():
             hud_raw = {**hud_raw, "global_shortcut": flat.strip()}
     payload: JsonObject = {
-        "analysis": raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {},
         "hud": hud_raw,
         "export": raw.get("export") if isinstance(raw.get("export"), dict) else {},
     }
-    for key in ("theme", "follow_os", "show_host_sessions", "auto_serve"):
+    for key in (
+        "theme",
+        "follow_os",
+        "show_host_sessions",
+        "auto_serve",
+        "live_refresh_workers",
+    ):
         if key in raw:
             payload[key] = raw[key]
     return AppConfig.model_validate(payload)
@@ -278,7 +279,7 @@ def save_app_config(cfg: AppConfig, path: Path | None = None) -> None:
 def update_app_config(path: Path | None = None, **changes: object) -> AppConfig:
     """Load, apply top-level field *changes*, save, return the new config.
 
-    Nested sections pass a full replacement object (``analysis=…``, ``hud=…``).
+    Nested sections pass a full replacement object (``hud=…``, ``export=…``).
 
     :param path: Explicit file; default :func:`paths.app_config_path`.
     :param changes: Field names on :class:`AppConfig`.

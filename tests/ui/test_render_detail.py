@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 
 from groket.ui.render_detail import (
@@ -62,10 +61,10 @@ class TestSanitizeConsoleText:
 class TestToolStyle:
     def test_known_tools(self):
         # Family palette: shell=running, read=cream, write=complete
-        assert tool_style("run_terminal_command") == "#D79921"
-        assert tool_style("read_file") == "#FBF1C7"
-        assert tool_style("grep") == "#FBF1C7"
-        assert tool_style("search_replace") == "#98971A"
+        assert tool_style("run_terminal_command") == "yellow"
+        assert tool_style("read_file") == "default"
+        assert tool_style("grep") == "default"
+        assert tool_style("search_replace") == "green"
 
     def test_unknown_tool(self):
         assert tool_style("some_random_tool") == "dim"
@@ -136,8 +135,8 @@ class TestTruncateMid:
 # ── Event and tool detail rendering ───────────────────────────────────────
 
 from conftest import make_trace_event
-from groket.models import Flag, FlagVerdict
 from groket.ui.render_detail import (
+    event_detail_sections,
     render_event_detail,
     render_tool_detail,
 )
@@ -301,6 +300,45 @@ class TestRenderToolDetail:
         assert isinstance(result, Group)
 
 
+class TestEventDetailSections:
+    def test_tool_event_has_input_and_output_cards(self) -> None:
+        ev = make_trace_event(
+            index=1,
+            event_type="tool_call",
+            tool_name="run_terminal_command",
+            raw_input={"command": "echo hi"},
+            content="hi\n",
+        )
+        secs = event_detail_sections(ev)
+        ids = [s.sid for s in secs]
+        assert "chrome" in ids
+        assert "input" in ids
+        assert "output" in ids
+        titles = {s.sid: s.title for s in secs}
+        assert titles["input"]
+        assert titles["output"]
+
+    def test_message_event_has_message_card(self) -> None:
+        ev = make_trace_event(
+            index=0,
+            event_type="agent_message_chunk",
+            content="I'll help you.",
+        )
+        secs = event_detail_sections(ev)
+        assert any(s.sid == "message" for s in secs)
+        msg = next(s for s in secs if s.sid == "message")
+        assert msg.title
+
+    def test_hides_empty_optional_sections(self) -> None:
+        ev = make_trace_event(
+            index=0,
+            event_type="user_message_chunk",
+            content="",
+        )
+        secs = event_detail_sections(ev)
+        assert all(s.sid != "input" for s in secs)
+
+
 class TestRenderEventDetail:
     def test_tool_call_event(self):
         ev = make_trace_event(
@@ -330,17 +368,6 @@ class TestRenderEventDetail:
         )
         result = render_event_detail(ev)
         assert_rich_contains(result, "error")
-
-    def test_with_flag(self):
-        ev = make_trace_event(
-            index=0,
-            event_type="tool_call",
-            tool_name="grep",
-            raw_input={"pattern": "x"},
-        )
-        flag = Flag(event_index=0, verdict=FlagVerdict.BAD, description="Wrong approach")
-        result = render_event_detail(ev, flag=flag)
-        assert_rich_contains(result, "Wrong approach")
 
     def test_thought_event(self):
         ev = make_trace_event(
@@ -1285,19 +1312,6 @@ class TestRenderEventDetailMore:
         plain = rich_plain(result)
         assert "x" in plain
         assert len(plain) < 25000
-
-    def test_flag_banner_with_non_tool_event(self):
-        """Flag banner renders on non-tool events; no finding banner."""
-        ev = make_trace_event(
-            index=0,
-            event_type="user_message_chunk",
-            content="Do something",
-        )
-        flag = Flag(event_index=0, verdict=FlagVerdict.BAD, description="Flagged")
-        result = render_event_detail(ev, flag=flag)
-        assert_rich_contains(result, "Flagged", "Do something")
-        assert "Issue found" not in rich_plain(result)
-        assert inspect.signature(render_event_detail).parameters.get("finding") is None
 
     def test_session_non_error_event(self):
         """Session event without error renders normally."""

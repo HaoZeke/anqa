@@ -7,7 +7,6 @@ Selected units (only written when the data exists)::
 
     grok-trace.tar.gz   # exact ``grok trace --local`` (CLI only; no fallback)
     run/                # eval volume (recipe, launch, prompt, turn gate, …)
-    flags.json          # operator flags (session or config-home fallback)
     notes/              # operator_notes.toml from the notes store
     README.txt
     manifest.json
@@ -308,22 +307,6 @@ def _collect_run_volume_files(run_vol: Path, staging: Path) -> None:
             pass
 
 
-def _collect_flags(session_dir: Path, staging: Path) -> None:
-    """Write operator flags to outer ``flags.json`` when any exist.
-
-    Flags are a groket annotation, not part of the official nested
-    ``grok-trace.tar.gz`` (``grok trace`` does not pack them). Load from the
-    session file or config-home fallback via :func:`~groket.flags.load_flags`.
-    """
-    from ..flags import load_flags
-
-    flags = load_flags(session_dir)
-    if not flags:
-        return
-    payload = [fl.model_dump() for fl in flags]
-    (staging / "flags.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
 def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
     """Embed turn-linked operator notes under ``notes/``."""
     collect_notes_for_export(session_dir, staging / "notes")
@@ -411,12 +394,12 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
         f"{GROK_TRACE_ARCHIVE_NAME}\n"
         f"                 Nested archive from: grok trace --local {sid}\n"
         f"                 (exact CLI bytes). Grok session files only — not\n"
-        f"                 groket flags/notes/run extras.\n\n"
+        f"                 groket notes/run extras.\n\n"
         f"run/             Eval launch artifacts under a work volume.\n"
         f"human/summary.*  Session overview (meta, counts, usage) in the\n"
         f"                 profile renderer dialect (.md / .org / .txt).\n"
-        f"flags.json       Operator flags (session or ~/.groket/flags fallback).\n"
         f"notes/           operator_notes.toml when notes exist.\n"
+        f"                 Same store file: source plus every field.\n"
         f"                 Schema: ~/.groket/notes_schema.toml (not bundled).\n"
         f"children/<id>/{GROK_TRACE_ARCHIVE_NAME}\n"
         f"                 Official grok-trace of each openable child.\n"
@@ -584,12 +567,6 @@ def export_session_bundle(
                 logger.debug("session summary collect failed", exc_info=True)
             except Exception:
                 logger.warning("session summary collect failed", exc_info=True)
-
-        if resolved.includes(IncludeUnit.FLAGS):
-            try:
-                _collect_flags(session_dir, staging)
-            except OSError:
-                logger.debug("flags collect failed", exc_info=True)
 
         if resolved.includes(IncludeUnit.NOTES):
             try:

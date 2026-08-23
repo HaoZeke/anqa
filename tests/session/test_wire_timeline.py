@@ -189,8 +189,62 @@ async def test_fetch_timeline_growth_requests_only_new_offset(tmp_path: Path) ->
     )
     assert [e.index for e in grown[: len(held)]] == [e.index for e in held]
     assert offsets
-    assert offsets[0] == len(held)
-    assert 0 not in offsets
+    assert len(held) in offsets
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeline_growth_refreshes_last_event_when_count_same(
+    tmp_path: Path,
+) -> None:
+    sd = _write_session(tmp_path, "w-tail")
+    seen: list[dict[str, object]] = []
+
+    class _Local:
+        async def session_timeline(self, session: str, **kwargs: object) -> object:
+            seen.append(dict(kwargs))
+            return build_session_timeline(
+                sd,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 1),
+                at_index=kwargs.get("at_index"),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    held, total = await fetch_timeline_page(_Local(), "w-tail", page_limit=50)
+    assert held
+    seen.clear()
+    grown = await fetch_timeline_growth(_Local(), "w-tail", held=held, new_total=len(held))
+    assert len(grown) == len(held)
+    assert grown[-1].index == held[-1].index
+    assert any(call.get("at_index") == held[-1].index for call in seen)
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeline_growth_refreshes_last_when_count_grows(
+    tmp_path: Path,
+) -> None:
+    sd = _write_session(tmp_path, "w-grow-last")
+    seen: list[dict[str, object]] = []
+
+    class _Local:
+        async def session_timeline(self, session: str, **kwargs: object) -> object:
+            seen.append(dict(kwargs))
+            return build_session_timeline(
+                sd,
+                offset=int(kwargs.get("offset") or 0),
+                limit=int(kwargs.get("limit") or 1),
+                at_index=kwargs.get("at_index"),
+                content_chars=int(kwargs.get("content_chars") or 500),
+            )
+
+    held, total = await fetch_timeline_page(_Local(), "w-grow-last", page_limit=1)
+    assert held
+    seen.clear()
+    grown = await fetch_timeline_growth(
+        _Local(), "w-grow-last", held=held, new_total=max(total, len(held) + 1)
+    )
+    assert grown[0].index == held[0].index
+    assert any(call.get("at_index") == held[-1].index for call in seen)
 
 
 def test_timeline_rpc_pages_are_smaller_than_server_max() -> None:

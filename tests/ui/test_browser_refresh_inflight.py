@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from groket.job_pools import get_live_refresh_pool
+from groket.models import TraceEvent
 from groket.session_inflight import (
     KIND_REFRESH,
     clear,
@@ -22,26 +23,12 @@ def teardown_function() -> None:
     clear(KIND_REFRESH)
 
 
+def _held_event() -> TraceEvent:
+    return TraceEvent(index=0, event_type="user_message_chunk", content="hi")
+
+
 def _screen(sd: Path) -> BrowserScreen:
-    from groket.session.context_samples import ContextSampleStore
-
-    screen = BrowserScreen.__new__(BrowserScreen)
-    screen.session_dir = sd
-    screen.timeline = []
-    screen.meta = None
-    screen._live_refresh_busy = False
-    screen._live_refresh_pending = False
-    screen._last_trace_mtime = None
-    screen._last_signals_mtime = None
-    screen._trace_watch = None
-    screen._live_refresh_timer = None
-    screen._live_heartbeat_timer = None
-    screen._context_samples = ContextSampleStore()
-    screen._light_refresh_heartbeat = False
-    from groket.session.jobs import SessionJobs
-
-    screen._session_jobs = SessionJobs(jobs=[], schedules=[])
-    return screen
+    return BrowserScreen(sd)
 
 
 def test_live_refresh_skips_second_enqueue(tmp_path: Path) -> None:
@@ -133,7 +120,7 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
     screen = _screen(sd)
-    screen.timeline = [object()]  # non-empty so unchanged path skips parse
+    screen.timeline = [_held_event()]  # non-empty so unchanged path skips parse
     screen._last_trace_mtime = (1.0, 0, 0, 0)
     screen._last_signals_mtime = 1.0
     screen._light_refresh_heartbeat = True
@@ -198,7 +185,7 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
     sd = tmp_path / "019f-sess"
     sd.mkdir()
     screen = _screen(sd)
-    screen.timeline = [object()]
+    screen.timeline = [_held_event()]
     screen._last_trace_mtime = (1.0, 0, 0, 0)
     screen._last_signals_mtime = 1.0
     screen._light_refresh_heartbeat = False
@@ -302,7 +289,7 @@ def test_load_data_light_control_skips_overview_when_stamp_unchanged(
     screen._uses_control_data = lambda: True  # type: ignore[method-assign]
     screen._session_control_ref = lambda: "s"  # type: ignore[method-assign]
     screen.meta = SessionMeta(session_id="s", session_dir=sd)
-    screen.timeline = [object()]
+    screen.timeline = [_held_event()]
     screen._last_overview_stamp = overview_input_stamp(sd)
     calls: list[str] = []
 
@@ -310,6 +297,9 @@ def test_load_data_light_control_skips_overview_when_stamp_unchanged(
         async def session_overview(self, _ref: str) -> object:
             calls.append("overview")
             return {"sessionId": "s", "timeline": {"total": 1}}
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            return {"events": [], "total": 1}
 
     class _App:
         def session_access(self) -> _Access:
@@ -345,7 +335,7 @@ def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
     screen._uses_control_data = lambda: True  # type: ignore[method-assign]
     screen._session_control_ref = lambda: "s"  # type: ignore[method-assign]
     screen.meta = SessionMeta(session_id="s", session_dir=sd)
-    screen.timeline = [object()]
+    screen.timeline = [_held_event()]
     screen._overview_payload = None
     calls: list[str] = []
     before = overview_input_stamp(sd)
@@ -355,6 +345,9 @@ def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
             calls.append("overview")
             (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
             return {"sessionId": "s", "timeline": {"total": 1}}
+
+        async def session_timeline(self, _ref: str, **kwargs: object) -> object:
+            return {"events": [], "total": 1}
 
     class _App:
         def session_access(self) -> _Access:

@@ -17,7 +17,6 @@ from groket.ui.app import (
     TraceEvalApp,
     _coerce_select_value,
 )
-from groket.ui.commands import yield_app_commands
 from textual.widgets import DataTable, Input, Select
 
 from .pilot_helpers import wait_until
@@ -296,6 +295,24 @@ async def test_model_token_filters_sessions(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_theme_is_not_pinned_to_ansi(tmp_path: Path) -> None:
+    """Applying auto must not write ansi-light / ansi-dark into config.toml."""
+    import tomlkit
+    from groket.paths import app_config_path
+
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    app._config["theme"] = "auto"
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: app._theme_persist)
+        assert app.theme in {"ansi-light", "ansi-dark"}
+        path = app_config_path()
+        if path.is_file():
+            saved = tomlkit.parse(path.read_text(encoding="utf-8")).get("theme")
+            assert saved in (None, "auto")
+        assert app._config.get("theme") in ("auto", "", None)
+
+
+@pytest.mark.asyncio
 async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
     """Setting ``App.theme`` (e.g. Ctrl+P Change theme) writes config.toml."""
     import tomlkit
@@ -308,7 +325,12 @@ async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
         names = app._theme_names()
         if len(names) < 2:
             return
+        from groket.ui.appearance import appearance
+        from groket.ui.theme import family_of_theme, resolve_theme
+
         target = next(n for n in names if n != app.theme)
+        family = family_of_theme(target)
+        want_pref = family or target
         app.theme = target
         await pilot.pause()
         await wait_until(
@@ -316,9 +338,13 @@ async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
             lambda: (
                 app_config_path().is_file()
                 and tomlkit.parse(app_config_path().read_text(encoding="utf-8")).get("theme")
-                == target
+                == want_pref
                 and tomlkit.parse(app_config_path().read_text(encoding="utf-8")).get("follow_os")
-                is False
+                is (family is not None)
+                and (
+                    family is None
+                    or app.theme == resolve_theme(family, appearance(), follow_os=True)
+                )
             ),
         )
 
@@ -343,6 +369,33 @@ async def test_apply_saved_theme(tmp_path: Path) -> None:
             result = app.apply_saved_theme(save=True)
             assert result == names[0]
             assert app._config.get("theme") == names[0]
+
+
+@pytest.mark.asyncio
+async def test_pair_pick_stores_family_and_applies_desktop_member(
+    tmp_path: Path,
+) -> None:
+    """Picking gruvbox selects the family; the live face follows the desktop."""
+    import tomlkit
+    from groket.paths import app_config_path
+    from groket.ui.appearance import appearance
+    from groket.ui.theme import resolve_theme
+
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: app._theme_persist)
+        app.theme = "gruvbox"
+        await wait_until(
+            pilot,
+            lambda: (
+                app_config_path().is_file()
+                and tomlkit.parse(app_config_path().read_text(encoding="utf-8")).get("theme")
+                == "gruvbox"
+                and tomlkit.parse(app_config_path().read_text(encoding="utf-8")).get("follow_os")
+                is True
+                and app.theme == resolve_theme("gruvbox", appearance(), follow_os=True)
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -746,20 +799,6 @@ async def test_session_search_filters_as_you_type(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_app_has_no_analysis_settings(tmp_path: Path) -> None:
-    """Session eval has no analysis-settings action or modal."""
-    from groket.ui import app as app_mod
-
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        assert not hasattr(app, "action_analysis_settings")
-        assert not hasattr(app_mod, "AnalysisSettingsModal")
-        titles = [c[0] for c in yield_app_commands(app, app.screen)]
-        assert not any("analysis" in t.lower() for t in titles)
-
-
-@pytest.mark.asyncio
 async def test_update_run_status_no_active_runs(tmp_path: Path) -> None:
     """update_run_status with no active runs resets to 'groket'."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)
@@ -779,7 +818,7 @@ def test_config_save_and_load(tmp_path: Path) -> None:
     loaded = app._load_config()
     assert loaded.get("theme") == "nord"
     assert "custom_key" not in loaded
-    assert "analysis" in loaded
+    assert loaded.get("live_refresh_workers") == 1
     assert "hud" in loaded
 
 
@@ -803,22 +842,6 @@ def test_derive_label(tmp_path: Path) -> None:
     other.mkdir(parents=True)
     label2 = app._derive_label(other, traces)
     assert label2  # non-empty
-
-
-@pytest.mark.asyncio
-async def test_populate_with_analyzed_sessions(tmp_path: Path) -> None:
-    """Home table still paints after a populate with no plugin cache."""
-    app, _, _ = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        table = app.query_one("#session-table", DataTable)
-        await wait_until(pilot, lambda: table.row_count >= 1, description="table populated")
-
-        app._populate_session_table()
-        await pilot.pause()
-        # Table should still show the session
-        assert table.row_count >= 1
-        assert not hasattr(app, "_plugin_results")
 
 
 @pytest.mark.asyncio
@@ -912,14 +935,6 @@ def test_merge_session_dirs_empty(tmp_path: Path) -> None:
     before = len(app._meta_only)
     app._merge_session_dirs([])
     assert len(app._meta_only) == before
-
-
-def test_findings_for_session(tmp_path: Path) -> None:
-    """Session eval no longer caches or lists plugin findings."""
-    app, _, traces = _make_app(tmp_path, n_sessions=1)
-    _prime_catalog(app, traces)
-    assert not hasattr(app, "_findings_for_session")
-    assert not hasattr(app, "_plugin_results")
 
 
 @pytest.mark.asyncio

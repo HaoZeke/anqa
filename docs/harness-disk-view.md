@@ -145,13 +145,12 @@ Requires the `grok` binary `--resume` / `--fork-session`.
 Grok does not persist a full per-turn context series; browser samples are
 in-memory (`session/context_samples.py`).
 
-### 2.9 Notes and flags (operator overlay)
+### 2.9 Notes (operator overlay)
 
 | Overlay | Path | Module |
 |---|---|---|
 | Notes | `<session_dir>/operator_notes.toml`; host Grok always uses `~/.groket/notes/<session_id>/` | `groket/notes.py` |
 | Schema | `~/.groket/notes_schema.toml` | same |
-| Flags | `<session_dir>/flags.json` or `~/.groket/flags/<session_id>/flags.json` | `groket/flags.py` |
 
 These are groket-owned. A rewrite keeps them keyed by harness + session id,
 never written into a foreign host tree unless the operator opts in.
@@ -162,7 +161,7 @@ never written into a foreign host tree unless the operator opts in.
 Units: official `grok trace --local` archive (core files
 `export_metadata.json`, `trace_config.json`, `summary.json`, `events.jsonl`,
 `chat_history.jsonl`, `prompt_context.json`, `system_prompt.txt`), eval
-`run/` volume, `flags.json`, notes. Export of non-Grok
+`run/` volume, notes. Export of non-Grok
 sessions cannot call `grok trace --local`.
 
 ### 2.11 Control plane

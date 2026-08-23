@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from conftest import make_trace_event
-from groket.models import Flag, FlagVerdict, TraceEvent
+from groket.models import TraceEvent
 from groket.ui.widgets.timeline import TimelineTable
 from textual.app import App, ComposeResult
 
@@ -473,18 +473,6 @@ async def test_timeline_tool_pairs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_timeline_with_flags() -> None:
-    app = _TimelineApp()
-    async with app.run_test():
-        tl = app.query_one("#timeline-list", TimelineTable)
-        events = _basic_events()
-        flag = Flag(event_index=0, verdict=FlagVerdict.BAD, description="bad")
-        tl.load_events(events, flags=[flag])
-        assert not hasattr(tl, "findings_by_call")
-        assert tl.flags_by_index.get(0) is flag
-
-
-@pytest.mark.asyncio
 async def test_timeline_filter_by_type() -> None:
     app = _TimelineApp()
     async with app.run_test():
@@ -621,18 +609,6 @@ async def test_timeline_filter_errors_only() -> None:
         tl.load_events(events)
         tl.apply_filter(errors_only=True)
         assert tl.row_count >= 1
-
-
-@pytest.mark.asyncio
-async def test_timeline_filter_flagged_only() -> None:
-    app = _TimelineApp()
-    async with app.run_test():
-        tl = app.query_one("#timeline-list", TimelineTable)
-        events = _basic_events()
-        flag = Flag(event_index=0, verdict=FlagVerdict.GOOD, description="ok")
-        tl.load_events(events, flags=[flag])
-        tl.apply_filter(flagged_only=True)
-        assert tl.row_count == 1
 
 
 @pytest.mark.asyncio
@@ -876,27 +852,6 @@ async def test_timeline_unknown_type_uses_human_label() -> None:
         cells = tl._row_cell_values(ev)
         assert "BRAND_NEW_SIGNAL" not in cells[4]
         assert "brand new signal" in cells[4]
-
-
-def _summary_cell(tl: TimelineTable, key: str) -> str:
-    cols = list(tl.columns.keys())
-    return str(tl.get_cell(key, cols[6]))
-
-
-@pytest.mark.asyncio
-async def test_timeline_same_length_reload_paints_new_flag() -> None:
-    """Flag chrome must update Summary when the list length is unchanged."""
-    app = _TimelineApp()
-    async with app.run_test():
-        tl = app.query_one("#timeline-list", TimelineTable)
-        events = _basic_events()
-        tl.load_events(events)
-        assert "⚑" not in _summary_cell(tl, "1")
-        flag = Flag(event_index=1, verdict=FlagVerdict.BAD, description="bad")
-        tl.load_events(events, flags=[flag])
-        marked = _summary_cell(tl, "1")
-        assert "⚑" in marked
-        assert "⚠" not in marked
 
 
 @pytest.mark.asyncio

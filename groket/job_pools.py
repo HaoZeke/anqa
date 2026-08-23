@@ -1,7 +1,7 @@
-"""Fixed-size background pools for analysis and live session refresh.
+"""Fixed-size background pool for live session refresh.
 
 Serial-by-default (``max_workers=1``) so heavy work does not stampede CPUs.
-Both pools share an :class:`ActivityLog` ring buffer for the debug / jobs UI.
+The pool shares an :class:`ActivityLog` ring buffer for the debug / jobs UI.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class ActivityEntry:
     """One logged heavy action."""
 
     ts: float
-    kind: str  # analysis | refresh | system
+    kind: str  # refresh | system
     message: str
 
 

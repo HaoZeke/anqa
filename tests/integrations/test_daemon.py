@@ -93,6 +93,7 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
             {
                 "id": "n-daemon",
                 "turnIndex": 0,
+                "source": "tui",
                 "fields": {"summary": "Daemon note"},
                 "eventIndices": [],
             },
@@ -383,6 +384,7 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
                 {
                     "id": "n-cli",
                     "turnIndex": 0,
+                    "source": "tui",
                     "fields": {"summary": "cli note"},
                     "eventIndices": [],
                 },
@@ -810,25 +812,6 @@ def test_launch_tui_no_serve_does_not_spawn(tmp_path: Path) -> None:
     assert captured[0]["control_attach_only"] is True
     assert not sock.exists()
     assert not daemon_mod.control_socket_accepts(sock)
-
-
-def test_domain_server_has_no_analysis_service(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Serve must bind without an analysis service or worker pool."""
-    daemon = import_module("groket.integrations.daemon")
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    _write_session(traces, "s1")
-    sock = _short_sock("defer-analysis.sock")
-    server = daemon.build_domain_control_server(
-        socket_path=sock,
-        work_dir=work,
-        traces_path=traces,
-    )
-    assert not hasattr(server, "_analysis_service")
-    assert not hasattr(server, "_analysis_pool")
-    assert server._work_dir == work
 
 
 def test_ensure_does_not_stop_owner_when_protocol_probe_fails(

@@ -11,7 +11,7 @@ from textual.widgets import DataTable
 
 from ... import event_types as et
 from ...constants import LIVE_TIMELINE_TAIL_CHECK
-from ...models import Flag, ToolInputBag, TraceEvent
+from ...models import ToolInputBag, TraceEvent
 from ...session.jobs import event_job_kind, event_task_id
 from ...session.subagents import (
     event_child_session_id,
@@ -33,7 +33,6 @@ from ..data_table import (
 from ..i18n import t
 from ..styles import (
     EVENT_TYPE_STYLE,
-    EVENT_TYPE_STYLE_LIGHT,
     active_theme_is_light,
     event_type_markup,
 )
@@ -48,7 +47,6 @@ class _ViewFilter:
     event_types: frozenset[str] | None = None
     tool_name: str | None = None
     errors_only: bool = False
-    flagged_only: bool = False
     search_query: str = ""
     call_ids: frozenset[str] | None = None
     update_indices: frozenset[int] | None = None
@@ -61,7 +59,6 @@ class _ViewFilter:
             or self.event_types
             or self.tool_name
             or self.errors_only
-            or self.flagged_only
             or self.search_query.strip()
             or self.call_ids
             or self.update_indices
@@ -81,7 +78,6 @@ class TimelineTable(DataTable):
     def __init__(self, id: str | None = None) -> None:
         super().__init__(id=id)
         self.events: list[TraceEvent] = []
-        self.flags_by_index: dict[int, Flag] = {}
         self._durations: dict[int, float] = {}
         self._call_by_id: dict[str, TraceEvent] = {}
         self._result_by_id: dict[str, TraceEvent] = {}
@@ -112,7 +108,6 @@ class TimelineTable(DataTable):
     def load_events(
         self,
         events: list[TraceEvent],
-        flags: list[Flag] | None = None,
         *,
         follow_tail: bool = False,
     ) -> None:
@@ -120,9 +115,8 @@ class TimelineTable(DataTable):
 
         Live refresh paths (cheapest first):
 
-        1. **Same-length** — structure unchanged. Rebind tool pairs. Patch
-           flag chrome when those maps change. Streaming body text
-           is not rewritten (that froze the TUI).
+        1. **Same-length** — structure unchanged. Rebind tool pairs.
+           Streaming body text is not rewritten (that froze the TUI).
         2. **Append** — previous events are a structural prefix. Add only
            new rows that pass the current View/Turn/search filter.
         3. **Full rebuild** — order/identity changed.
@@ -136,10 +130,8 @@ class TimelineTable(DataTable):
         new_n = len(new_events)
         painted_n = len(self._paint_list())
         row_ok = self.row_count == painted_n and painted_n > 0
-        old_flags = set(self.flags_by_index)
 
         self.events = new_events
-        self._set_chrome(flags)
         new_visible = self._compute_visible(new_events)
 
         if not row_ok or not prev:
@@ -155,9 +147,14 @@ class TimelineTable(DataTable):
         if new_n >= prev_n and self._live_tail_struct_ok(prev, new_events):
             if new_n == prev_n:
                 self._build_tool_pairs()
-                if old_flags != set(self.flags_by_index):
-                    self._patch_chrome_rows(old_flags)
                 self._visible = new_visible
+                last_old = prev[-1]
+                last_new = new_events[-1]
+                if last_old.index == last_new.index and (
+                    last_old.content != last_new.content
+                    or last_old.summary_line != last_new.summary_line
+                ):
+                    self._update_event_row(last_new)
                 return
             self._index_new_events(new_events[prev_n:])
             self._extend_turn_map_from(prev_n)
@@ -172,8 +169,6 @@ class TimelineTable(DataTable):
                 self._visible = None
                 self._append_live_rows(added, follow_tail=follow_tail)
                 self._patch_paired_call_durations(added)
-            if old_flags != set(self.flags_by_index):
-                self._patch_chrome_rows(old_flags)
             return
 
         self._build_tool_pairs()
@@ -200,12 +195,6 @@ class TimelineTable(DataTable):
                 return False
         return True
 
-    def _set_chrome(self, flags: list[Flag] | None) -> None:
-        self.flags_by_index = {}
-        if flags:
-            for fl in flags:
-                self.flags_by_index[fl.event_index] = fl
-
     def _paint_list(self) -> list[TraceEvent]:
         if self._visible is not None:
             return self._visible
@@ -214,14 +203,6 @@ class TimelineTable(DataTable):
     def visible_events(self) -> list[TraceEvent]:
         """Events currently painted (the filtered set, or the full list)."""
         return list(self._paint_list())
-
-    def _patch_chrome_rows(self, old_flags: set[int]) -> None:
-        idxs = set(old_flags) | set(self.flags_by_index)
-        by_idx = {int(e.index): e for e in self.events}
-        for i in idxs:
-            hit = by_idx.get(i)
-            if hit is not None:
-                self._update_event_row(hit)
 
     def _compute_visible(self, events: list[TraceEvent]) -> list[TraceEvent] | None:
         spec = self._filter_spec
@@ -241,8 +222,6 @@ class TimelineTable(DataTable):
         if spec.tool_name and ev.tool_name != spec.tool_name:
             return False
         if spec.errors_only and not (ev.is_error or ev.event_type in et.ERROR_TYPES):
-            return False
-        if spec.flagged_only and ev.index not in self.flags_by_index:
             return False
         if spec.search_query:
             q = spec.search_query.lower()
@@ -558,15 +537,15 @@ class TimelineTable(DataTable):
         chrome_heading = harness_user_chrome_heading(ev.content or "")
         if chrome_heading is not None:
             # Harness injects system-reminder / background-task as user_message_chunk.
-            type_style = f"[bold magenta]{chrome_heading.lower()}[/]"
+            type_style = f"[bold]{chrome_heading.lower()}[/]"
         else:
             honest = et.job_event_label(ev.event_type, kind=event_job_kind(ev))
             if honest:
-                faces = EVENT_TYPE_STYLE_LIGHT if light else EVENT_TYPE_STYLE
+                faces = EVENT_TYPE_STYLE
                 face = faces.get(ev.event_type, "yellow")
                 type_style = f"[{face}]{honest}[/]"
             elif (ev.tool_name or "") == "workflow":
-                faces = EVENT_TYPE_STYLE_LIGHT if light else EVENT_TYPE_STYLE
+                faces = EVENT_TYPE_STYLE
                 face = faces.get("task_backgrounded", "yellow")
                 label = (
                     t("ui-workflow-done")
@@ -592,9 +571,6 @@ class TimelineTable(DataTable):
         tool_col = self._tool_column(ev)
         if tool_err and tool_col and (not tool_col.startswith("[")):
             tool_col = f"[red]{tool_col}[/]"
-        prefix = ""
-        if ev.index in self.flags_by_index:
-            prefix += "[magenta bold]⚑[/] "
         if ev.event_type in et.TASK_TYPES or ev.event_type.startswith("scheduled_task_"):
             bag = ev.raw_input.raw() if isinstance(ev.raw_input, ToolInputBag) else {}
             raw_sum = job_list_preview(ev.event_type, bag, ev.content)
@@ -615,7 +591,7 @@ class TimelineTable(DataTable):
             if (ev.tool_name or "") == "workflow"
             else list_event_preview(raw_sum, ev.tool_name)
         )
-        summary = prefix + rich_escape(shown[: 56 if prefix else 60])
+        summary = rich_escape(shown[:60])
         # Prefer the warm map (built on open / extended on append). Avoid
         # turn_index_for side effects during bulk paint.
         turn = self._turn_by_index.get(int(ev.index))
@@ -663,7 +639,6 @@ class TimelineTable(DataTable):
         event_types: set[str] | None = None,
         tool_name: str | None = None,
         errors_only: bool = False,
-        flagged_only: bool = False,
         search_query: str = "",
         call_ids: set[str] | None = None,
         update_indices: set[int] | None = None,
@@ -676,7 +651,6 @@ class TimelineTable(DataTable):
             event_types=frozenset(event_types) if event_types is not None else None,
             tool_name=tool_name,
             errors_only=errors_only,
-            flagged_only=flagged_only,
             search_query=search_query or "",
             call_ids=frozenset(call_ids) if call_ids is not None else None,
             update_indices=frozenset(update_indices) if update_indices is not None else None,

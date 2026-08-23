@@ -209,9 +209,21 @@ async def fetch_timeline_growth(
     prev_n = len(held)
     want = max(0, int(new_total))
     if held and want > prev_n:
+        last = await fetch_timeline_event(access, session_ref, held[-1].index)
         tail = await fetch_timeline_events(access, session_ref, offset=prev_n)
+        out = list(held)
+        if last is not None:
+            out[-1] = last
         if tail:
-            return list(held) + tail
+            out.extend(tail)
+        return out
+    if held and want == prev_n:
+        last = await fetch_timeline_event(access, session_ref, held[-1].index)
+        if last is None:
+            return list(held)
+        out = list(held)
+        out[-1] = last
+        return out
     return await fetch_timeline_events(access, session_ref)
 
 

@@ -41,7 +41,7 @@ def test_missing_file_keeps_defaults(tmp_path: Path, monkeypatch) -> None:
     assert keymap.ok
     assert keymap.loaded_overlay is False
     assert _follow_chord(keymap) == action_by_id("session.follow").default
-    assert keymap.binding("session.analyze").chord == "a"
+    assert keymap.binding("home.host").chord == "H"
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 
@@ -168,7 +168,7 @@ def test_overlay_clash_refuses_and_keeps_defaults(tmp_path: Path, monkeypatch) -
     keymap = load_keymap()
     assert not keymap.ok
     assert keymap.loaded_overlay is False
-    assert keymap.binding("list.down").chord == "j"
+    assert keymap.binding("list.down").chord == "j,down"
     assert _follow_chord(keymap) == "n"
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
 
@@ -186,7 +186,7 @@ def test_third_occupant_on_list_down_clashes(tmp_path: Path, monkeypatch) -> Non
     assert not keymap.ok
     assert keymap.loaded_overlay is False
     assert any(err.kind is OverlayErrorKind.CLASH for err in keymap.errors)
-    assert keymap.binding("list.down").chord == "j"
+    assert keymap.binding("list.down").chord == "j,down"
     assert _follow_chord(keymap) == "n"
 
 
@@ -208,7 +208,7 @@ def test_slash_and_slash_name_are_the_same_key(tmp_path: Path, monkeypatch) -> N
 def test_default_shared_chords_are_not_clashes() -> None:
     keymap = load_keymap()
     assert keymap.ok
-    assert keymap.binding("session.analyze").chord == "a"
+    assert keymap.binding("home.host").chord == "H"
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 
@@ -263,7 +263,7 @@ leader = ";"
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
     assert not keymap.ok
-    assert keymap.binding("list.down").chord == "j"
+    assert keymap.binding("list.down").chord == "j,down"
     assert any(err.kind is OverlayErrorKind.INVALID_VALUE for err in keymap.errors)
 
 
@@ -472,7 +472,7 @@ def test_textual_keymap_defaults_when_overlay_refused(tmp_path: Path, monkeypatc
     keymap = load_keymap()
     assert not keymap.ok
     mapped = textual_keymap(keymap)
-    assert mapped["list.down"] == "j"
+    assert mapped["list.down"] == "j,down"
     assert mapped["session.follow"] == "n"
     assert mapped["home.runner"] == "r"
 

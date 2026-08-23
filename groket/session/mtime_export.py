@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..models import JsonObject, as_json_object
-from ..paths import analysis_cache_dir
+from ..paths import cache_dir
 from .sources import host_grok_sessions_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
@@ -40,9 +40,9 @@ def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:
 
 
 def default_host_catalog_cache(host_root: Path) -> Path:
-    """Per-root snapshot under the analysis cache directory."""
+    """Per-root snapshot under the local cache directory."""
     key = hashlib.sha256(str(Path(host_root).expanduser()).encode()).hexdigest()[:16]
-    return analysis_cache_dir() / f"host-catalog-{key}.json"
+    return cache_dir() / f"host-catalog-{key}.json"
 
 
 def _stamp_ns(value: object) -> int | None:

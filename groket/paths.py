@@ -30,7 +30,7 @@ def app_home() -> Path:
     return APP_HOME
 
 
-def analysis_cache_dir() -> Path:
+def cache_dir() -> Path:
     """``~/.groket/cache`` — host catalog snapshot and other local cache."""
     d = APP_HOME / "cache"
     d.mkdir(parents=True, exist_ok=True)
@@ -66,21 +66,14 @@ def user_keys_path() -> Path:
     return APP_HOME / "keys.toml"
 
 
+def user_themes_dir() -> Path:
+    """``~/.groket/themes`` — optional named colorways (``*.toml``)."""
+    return APP_HOME / "themes"
+
+
 def reports_dir() -> Path:
     """``~/.groket/reports`` — finding Markdown and session export tarballs."""
     d = APP_HOME / "reports"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def flags_fallback_file(session_id: str) -> Path:
-    """``~/.groket/flags/<session_id>/flags.json`` — path only, no mkdir."""
-    return APP_HOME / "flags" / session_id / "flags.json"
-
-
-def flags_fallback_dir(session_id: str) -> Path:
-    """``~/.groket/flags/<session_id>`` — created when saving a fallback flag."""
-    d = flags_fallback_file(session_id).parent
     d.mkdir(parents=True, exist_ok=True)
     return d
 

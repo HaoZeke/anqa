@@ -15,7 +15,7 @@ from groket.job_pools import (
 
 def test_activity_log_and_spinner() -> None:
     log = ActivityLog(maxlen=3)
-    log.log("analysis", "a")
+    log.log("refresh", "a")
     log.log("refresh", "b")
     assert len(log.snapshot()) == 2
     assert log.spinner_frame()
@@ -27,7 +27,7 @@ def test_activity_log_and_spinner() -> None:
 
 def test_pool_serial_submit() -> None:
     log = ActivityLog()
-    pool = JobPool("analysis", 1, log)
+    pool = JobPool("refresh", 1, log)
     out: list[int] = []
 
     def work(n: int) -> None:
