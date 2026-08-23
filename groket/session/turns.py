@@ -332,6 +332,64 @@ def _stamp_trace_turn_ids(segments: list[TurnSegment]) -> list[TurnSegment]:
     return segments
 
 
+def _closed_host_turn(seg: TurnSegment) -> bool:
+    """True when a startless slice already ended (fork parent replay)."""
+    if any(_is_turn_ended(e) for e in seg.events):
+        return True
+    return (not seg.open) and bool(seg.outcome)
+
+
+def _number_host_prefix(segments: list[TurnSegment]) -> None:
+    """Give leading host-only rows 0, 1, … skipping ids the harness already used."""
+    used = {s.turn_number for s in segments if s.turn_number is not None}
+    n = 0
+    for seg in segments:
+        if seg.turn_number is not None:
+            continue
+        while n in used:
+            n += 1
+        seg.turn_number = n
+        used.add(n)
+        n += 1
+
+
+def _attach_startless_turns(segments: list[TurnSegment]) -> list[TurnSegment]:
+    """Join mid-session follow-ups onto the next numbered turn.
+
+    A finished host turn before the first ``turn_started`` (fork parent
+    replay) stays its own row and is numbered 0, 1, … An open preamble
+    before that first start joins it.
+    """
+    if not segments:
+        return segments
+    out: list[TurnSegment] = []
+    pending: list[TurnSegment] = []
+    seen_numbered = False
+    for seg in segments:
+        if seg.turn_number is None:
+            if seen_numbered or not _closed_host_turn(seg):
+                pending.append(seg)
+            else:
+                out.append(seg)
+            continue
+        if pending:
+            events = [ev for p in pending for ev in p.events]
+            events.extend(seg.events)
+            seg.events = events
+            pending.clear()
+        seen_numbered = True
+        out.append(seg)
+    if pending and out:
+        for p in pending:
+            out[-1].events.extend(p.events)
+    elif pending:
+        out.extend(pending)
+    _number_host_prefix(out)
+    for i, seg in enumerate(out):
+        seg.turn_index = i
+    return out
+
+
 def _assign_prompt_indexes(segments: list[TurnSegment]) -> list[TurnSegment]:
     for seg in segments:
         # Prefer operator user rows; harness chrome may still carry a promptIndex.
@@ -405,9 +463,7 @@ def event_display_turn_map(segments: list[TurnSegment]) -> dict[int, int]:
                 out[idx] = current
             else:
                 pending.append(idx)
-        # Host-only fill (no start markers in the session) stamps turn_number
-        # from list position. A start-less segment in a numbered session stays
-        # unmapped — do not invent a face id.
+        # Startless events folded onto this numbered turn inherit its id.
         if pending and (fallback := seg.turn_number) is not None:
             for idx in pending:
                 out[idx] = int(fallback)
@@ -426,12 +482,13 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     are omitted from segments entirely — they are not a turn and must not
     create an extra segment before the first ``turn started``.
 
-    Remaining events before the first turn_started form an unnumbered
-    segment when present (e.g. user messages). Labels and the event column
-    use the trace ``turn_number`` on ``turn_started``. ``turn_index`` is the
-    unique list position so a restamp can repeat ``turn_number``. A segment
-    with no start marker in a numbered session stays unlabeled. Every
-    ``turn_started`` keeps its own picker row.
+    Follow-up user rows often land before the next ``turn_started``, and a
+    late host ``turn_completed`` can close that slice too early. Those
+    mid-session slices join the next numbered turn. A finished host turn
+    before the first start (fork parent replay) stays its own row (0, 1,
+    …). Labels use the trace ``turn_number`` on ``turn_started``.
+    ``turn_index`` is the unique list position so a restamp can repeat
+    ``turn_number``. Every ``turn_started`` keeps its own picker row.
     """
     turn_events = [e for e in timeline if not is_session_level_timeline_event(e)]
     if not turn_events:
@@ -526,7 +583,7 @@ def segment_timeline_turns(timeline: list[TraceEvent]) -> list[TurnSegment]:
     if current is not None and current.events:
         segments.append(current)
 
-    return _assign_prompt_indexes(_stamp_trace_turn_ids(segments))
+    return _assign_prompt_indexes(_attach_startless_turns(_stamp_trace_turn_ids(segments)))
 
 
 def turn_summary_rows(

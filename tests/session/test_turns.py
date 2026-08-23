@@ -947,8 +947,8 @@ def test_host_only_stamps_list_position() -> None:
     assert set(mapped.values()) == {0, 1}
 
 
-def test_startless_operator_turn_stays_unnumbered() -> None:
-    """A follow-up with no turn_started must not invent prev+1."""
+def test_startless_follow_up_joins_next_turn_started() -> None:
+    """User row + late turn_completed belong on the next turn_started."""
     from groket.session.turns import display_turn_number, events_on_display_turn
 
     tl = [
@@ -963,23 +963,43 @@ def test_startless_operator_turn_stays_unnumbered() -> None:
         _ev(8, "turn_ended", "turn ended  outcome=completed"),
     ]
     segs = segment_timeline_turns(tl)
-    assert len(segs) == 3
-    assert [s.turn_index for s in segs] == [0, 1, 2]
-    assert [s.turn_number for s in segs] == [0, None, 2]
-    assert display_turn_number(segs[1]) is None
-    assert segs[1].label.startswith("unnumbered")
+    assert [s.turn_index for s in segs] == [0, 1]
+    assert [s.turn_number for s in segs] == [0, 2]
+    assert display_turn_number(segs[1]) == 2
     mapped = event_display_turn_map(segs)
     assert mapped[1] == 0
+    assert mapped[3] == 2
+    assert mapped[4] == 2
     assert mapped[7] == 2
-    assert 3 not in mapped
-    assert 4 not in mapped
     assert set(mapped.values()) == {0, 2}
     kept = {e.index for e in events_on_display_turn(segs[1], mapped)}
-    assert kept == {3, 4, 5}
+    assert kept == {3, 4, 5, 6, 7, 8}
 
 
-def test_fork_late_start_is_its_own_row() -> None:
-    """Host fork: parent replay has no starts; late turn_started is turn 13."""
+def test_late_host_completed_does_not_orphan_follow_up() -> None:
+    """Host: user, turn_completed, user, turn_started N → one turn N."""
+    tl = [
+        _ev(0, "turn_started", "turn started  turn_number=7"),
+        _ev(1, "user_message_chunk", "ask"),
+        _ev(2, "turn_completed", "turn_completed  prompt_id=a"),
+        _ev(3, "user_message_chunk", "in: should be start repo"),
+        _ev(4, "turn_ended", "turn ended  outcome=cancelled"),
+        _ev(5, "turn_completed", "turn_completed  prompt_id=b"),
+        _ev(6, "user_message_chunk", "something weird here"),
+        _ev(7, "turn_started", "turn started  turn_number=10"),
+        _ev(8, "agent_message_chunk", "ok"),
+    ]
+    segs = segment_timeline_turns(tl)
+    assert [s.turn_number for s in segs] == [7, 10]
+    mapped = event_display_turn_map(segs)
+    assert mapped[3] == 10
+    assert mapped[6] == 10
+    assert mapped[7] == 10
+    assert None not in [s.turn_number for s in segs]
+
+
+def test_fork_parent_replay_keeps_its_own_turns() -> None:
+    """Host fork: finished parent turns stay 0, 1; live start stays 13."""
     from groket.session.turns import display_turn_number
 
     tl = [
@@ -993,15 +1013,13 @@ def test_fork_late_start_is_its_own_row() -> None:
         _ev(7, "turn_started", "turn started  turn_number=13"),
     ]
     segs = segment_timeline_turns(tl)
-    assert [s.turn_number for s in segs] == [None, None, 13]
-    assert display_turn_number(segs[0]) is None
-    assert display_turn_number(segs[1]) is None
-    assert display_turn_number(segs[2]) == 13
+    assert [s.turn_number for s in segs] == [0, 1, 13]
+    assert [display_turn_number(s) for s in segs] == [0, 1, 13]
     mapped = event_display_turn_map(segs)
-    assert 0 not in mapped
-    assert 3 not in mapped
+    assert mapped[0] == 0
+    assert mapped[3] == 1
     assert mapped[7] == 13
-    assert set(mapped.values()) == {13}
+    assert set(mapped.values()) == {0, 1, 13}
 
 
 def test_gap_in_start_numbers_is_not_filled() -> None:

@@ -147,11 +147,11 @@ def test_rebuild_turn_select_keeps_restamped_turns_distinct(tmp_path: Path) -> N
     screen._rebuild_turn_select()
     assert calls
     labeled = [(lab, val) for lab, val in calls[-1] if val != "all"]
-    assert labeled == [("Turn 23", "0"), ("Turn 23", "1")]
+    assert labeled == [("23", "0"), ("23", "1")]
 
 
-def test_rebuild_turn_select_labels_startless_unnumbered(tmp_path: Path) -> None:
-    """A follow-up with no turn_started is Unnumbered, not an invented id."""
+def test_rebuild_turn_select_labels_startless_joins_next(tmp_path: Path) -> None:
+    """A follow-up before the next turn_started is that turn, not Unnumbered."""
     sd = tmp_path / "sess"
     sd.mkdir()
     screen = BrowserScreen.__new__(BrowserScreen)
@@ -185,7 +185,7 @@ def test_rebuild_turn_select_labels_startless_unnumbered(tmp_path: Path) -> None
     screen._rebuild_turn_select()
     assert calls
     labeled = [(lab, val) for lab, val in calls[-1] if val != "all"]
-    assert labeled == [("Turn 0", "0"), ("Unnumbered", "1"), ("Turn 2", "2")]
+    assert labeled == [("0", "0"), ("2", "1")]
 
 
 def test_rebuild_turn_select_skips_set_options_when_count_unchanged(tmp_path: Path) -> None:
