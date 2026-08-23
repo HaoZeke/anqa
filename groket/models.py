@@ -1,6 +1,6 @@
 """Core data models and extension contracts.
 
-Serialised models use Pydantic v2 (:class:`Flag`, :class:`EvalRun`). Hot-path
+Serialised models use Pydantic v2 (:class:`EvalRun`). Hot-path
 trace types use dataclasses (:class:`ToolCall`, :class:`TraceEvent`). Shared
 aliases (:data:`JsonValue`, :data:`JsonObject`, :class:`ChatMessage`,
 :data:`ToolInput`) define JSON/YAML boundaries.
@@ -12,7 +12,6 @@ import json
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -271,13 +270,6 @@ class ChatMessage(TypedDict, total=False):
 type ChatHistory = Sequence[ChatMessage]
 
 
-class FlagVerdict(str, Enum):
-    BAD = "bad"
-    ACCEPTABLE = "acceptable"
-    GOOD = "good"
-    NEEDS_REVIEW = "needs_review"
-
-
 @dataclass
 class ToolCall:
     """A single tool invocation extracted from a trace."""
@@ -431,19 +423,6 @@ class TraceEvent:
             return text[:80].replace("\n", " ")
 
 
-class Flag(BaseModel):
-    """A user flag on a trace event."""
-
-    event_index: int
-    verdict: FlagVerdict = FlagVerdict.BAD
-    description: str = ""
-    event_type: str = ""
-    tool_name: str = ""
-    tool_call_id: str = ""
-    timestamp: int | None = None
-    created_at: str = ""
-
-
 @dataclass
 class SessionMeta:
     """Metadata about a session from summary.json and signals.json."""
@@ -474,6 +453,8 @@ class SessionMeta:
     total_tokens_before_compaction: int = 0
     git_repo: str = ""
     git_branch: str = ""
+    # Host directory the session was run in (encoded cwd bucket or repo_path).
+    run_dir: str = ""
     # From summary ``head_commit`` (for fork restore / checkout after clone).
     git_commit: str = ""
     task_id: str = ""
@@ -489,7 +470,15 @@ class SessionMeta:
     # Cheap catalog flags for ``has:`` (no timeline parse).
     has_workflows: bool = False
     has_notes: bool = False
-    has_findings: bool = False
+    has_goals: bool = False
+    has_subagents: bool = False
+    has_jobs: bool = False
+    has_schedules: bool = False
+    has_plan: bool = False
+    has_failures: bool = False
+    has_diff: bool = False
+    has_compaction: bool = False
+    has_doom: bool = False
 
     @property
     def model_display(self) -> str:

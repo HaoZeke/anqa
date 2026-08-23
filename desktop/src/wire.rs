@@ -31,6 +31,8 @@ pub struct SessionListItem {
     #[serde(default)]
     pub git_repo: String,
     #[serde(default)]
+    pub run_dir: String,
+    #[serde(default)]
     pub duration_seconds: f64,
     #[serde(default)]
     pub num_events: i64,
@@ -53,7 +55,23 @@ pub struct SessionListItem {
     #[serde(default)]
     pub has_notes: bool,
     #[serde(default)]
-    pub has_findings: bool,
+    pub has_goals: bool,
+    #[serde(default)]
+    pub has_subagents: bool,
+    #[serde(default)]
+    pub has_jobs: bool,
+    #[serde(default)]
+    pub has_schedules: bool,
+    #[serde(default)]
+    pub has_plan: bool,
+    #[serde(default)]
+    pub has_failures: bool,
+    #[serde(default)]
+    pub has_diff: bool,
+    #[serde(default)]
+    pub has_compaction: bool,
+    #[serde(default)]
+    pub has_doom: bool,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
@@ -232,6 +250,14 @@ impl TurnRow {
         }
         match self.turn_number {
             Some(n) => format!("Turn {n}"),
+            None => "Unnumbered".into(),
+        }
+    }
+
+    /// Timeline turn pick: the display number only (field is already labeled Turn).
+    pub fn pick_label(&self) -> String {
+        match self.face_id() {
+            Some(n) => n.to_string(),
             None => "Unnumbered".into(),
         }
     }
@@ -469,6 +495,8 @@ pub struct NoteRow {
     pub id: String,
     #[serde(default)]
     pub turn_index: Option<i64>,
+    #[serde(default)]
+    pub source: String,
     #[serde(default)]
     pub fields: Value,
     #[serde(default)]
@@ -1047,6 +1075,23 @@ mod tests {
     }
 
     #[test]
+    fn pick_label_is_the_display_number() {
+        let numbered = TurnRow {
+            turn_number: Some(2),
+            label: "turn 2 (completed)".into(),
+            ..TurnRow::default()
+        };
+        assert_eq!(numbered.pick_label(), "2");
+        assert_eq!(numbered.face_caption(), "turn 2 (completed)");
+        let unmarked = TurnRow {
+            turn_number: None,
+            label: String::new(),
+            ..TurnRow::default()
+        };
+        assert_eq!(unmarked.pick_label(), "Unnumbered");
+    }
+
+    #[test]
     fn meta_status_and_open_turns() {
         let meta = SessionMeta {
             status: String::new(),
@@ -1128,7 +1173,8 @@ mod tests {
                 {
                     "id": "n-aaa111bbb222",
                     "turnIndex": 0,
-                    "fields": {"summary": "saved note"},
+                    "source": "mf-plugin",
+                    "fields": {"summary": "saved note", "rule_id": "MF-12"},
                     "eventIndices": [3],
                     "createdAt": "2026-08-08T12:00:00Z",
                     "updatedAt": "2026-08-08T12:01:00Z"
@@ -1145,6 +1191,8 @@ mod tests {
         assert_eq!(after.count, i64::try_from(after.notes.len()).unwrap());
         assert_eq!(after.count, 1);
         assert_eq!(after.notes[0].id, "n-aaa111bbb222");
+        assert_eq!(after.notes[0].source, "mf-plugin");
+        assert_eq!(after.notes[0].fields["rule_id"], "MF-12");
         assert_eq!(after.revision, "rev-after-upsert");
         assert_eq!(after.schema.fields.len(), 2);
 

@@ -17,7 +17,7 @@ from pathlib import Path
 from ..models import JsonObject, JsonValue, SessionMeta
 from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
 from .mtime_export import default_host_catalog_cache, load_or_rebuild_host_catalog
-from .query import catalog_has_notes, catalog_has_workflows
+from .query import apply_catalog_presence_row, catalog_presence
 from .sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
@@ -25,6 +25,7 @@ from .sources import (
     classify_session_origin,
     collect_session_dirs,
     is_under_host_grok_sessions,
+    session_run_dir,
     session_scan_roots,
     work_traces_root,
 )
@@ -154,6 +155,7 @@ def session_catalog_row(
         logger.debug("catalog meta failed for %s", session_dir, exc_info=True)
         return None
     meta.origin = origin
+    meta.run_dir = session_run_dir(session_dir)
     session_id = (meta.session_id or session_dir.name).strip()
     try:
         path_str = str(session_dir.resolve())
@@ -184,6 +186,7 @@ def session_catalog_row(
         # Home-list columns for attach-mode TUI (and any rich client).
         "taskId": meta.task_id or "",
         "gitRepo": meta.git_repo or "",
+        "runDir": meta.run_dir or "",
         "durationSeconds": float(meta.duration_seconds or 0),
         "numEvents": int(meta.num_events or 0),
         "contextUsageCompact": meta.context_usage_compact or "",
@@ -194,12 +197,11 @@ def session_catalog_row(
         "toolCallCount": int(meta.tool_call_count or 0),
         "turnCount": int(meta.turn_count or 0),
         "errorCount": int(meta.error_count or 0),
-        "hasWorkflows": catalog_has_workflows(session_dir),
-        "hasNotes": catalog_has_notes(session_dir),
         # Newest-first list ordering for all control clients.
         "createdAt": created,
         "updatedAt": updated,
         "sortEpoch": sort_epoch,
+        **catalog_presence(session_dir, meta),
     }
 
 
@@ -283,6 +285,7 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "origin",
     "taskId",
     "gitRepo",
+    "runDir",
     "durationSeconds",
     "numEvents",
     "contextUsageCompact",
@@ -294,6 +297,17 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "errorCount",
     "hasWorkflows",
     "hasNotes",
+    "hasGoals",
+    "hasSubagents",
+    "hasJobs",
+    "hasSchedules",
+    "hasTasks",
+    "hasPlan",
+    "hasFailures",
+    "hasDiff",
+    "hasCompaction",
+    "hasDoom",
+    "hasContext",
     "createdAt",
     "updatedAt",
 )
@@ -949,12 +963,13 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     meta.tool_call_count = _as_int(row.get("toolCallCount"), 0)
     meta.turn_count = _as_int(row.get("turnCount"), 0)
     meta.error_count = _as_int(row.get("errorCount"), 0)
-    meta.has_workflows = bool(row.get("hasWorkflows"))
-    meta.has_notes = bool(row.get("hasNotes"))
-    meta.has_findings = bool(row.get("hasFindings"))
+    apply_catalog_presence_row(meta, row)
     git_repo = str(row.get("gitRepo") or "").strip()
     if git_repo:
         meta.git_repo = git_repo
+    run_dir = str(row.get("runDir") or "").strip()
+    if run_dir:
+        meta.run_dir = run_dir
 
     pct = _opt_int("contextWindowUsagePct")
     if pct is not None:

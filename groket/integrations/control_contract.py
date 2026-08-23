@@ -49,9 +49,25 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "has",
         "Presence on the list row.",
-        ("workflows", "notes", "errors"),
+        (
+            "workflows",
+            "notes",
+            "goals",
+            "subagents",
+            "tasks",
+            "jobs",
+            "schedules",
+            "plan",
+            "errors",
+            "failures",
+            "diff",
+            "git",
+            "context",
+            "compaction",
+            "doom",
+        ),
     ),
-    CatalogQueryToken("in", "Where the session started (git repo / workspace)."),
+    CatalogQueryToken("in", "Directory the session was run in."),
     CatalogQueryToken("model", "Model id substring."),
     CatalogQueryToken("task", "Task id substring."),
     CatalogQueryToken("errors", "errorCount.", compare=True),
@@ -371,7 +387,11 @@ METHODS: tuple[MethodSpec, ...] = (
             "Every `notes/upsert` and `notes/delete` sends `expectedRevision`.\n"
             "A mismatch is a conflict; the client reloads and retries.\n"
             "Canonical store is `operator_notes.toml` (host sessions under\n"
-            "`~/.groket/notes/`)."
+            "`~/.groket/notes/`).\n"
+            "Every note must include a non-empty `source` (who wrote it).\n"
+            "`fields` need not match the configured form schema; extra keys\n"
+            "are stored as sent. The in-app form uses `notes_schema.toml`\n"
+            "and stamps its own source."
         ),
     ),
     MethodSpec(

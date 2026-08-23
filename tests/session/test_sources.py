@@ -14,6 +14,7 @@ from groket.session.sources import (
     is_host_grok_sessions_root,
     is_under_host_grok_sessions,
     session_dir_for_watch_path,
+    session_run_dir,
     session_scan_roots,
     work_traces_root,
 )
@@ -37,6 +38,25 @@ def test_host_grok_sessions_root_default() -> None:
 
 def test_work_traces_root(tmp_path: Path) -> None:
     assert work_traces_root(tmp_path) == tmp_path / "runs" / "traces"
+
+
+def test_session_run_dir_decodes_host_cwd(tmp_path: Path) -> None:
+    sess = _seed_session(tmp_path, cwd_token="%2Fmnt%2Fdev%2F_git%2Ffubar", sid="s1")
+    assert session_run_dir(sess) == "/mnt/dev/_git/fubar"
+
+
+def test_session_run_dir_skips_container_workspace(tmp_path: Path) -> None:
+    sess = _seed_session(tmp_path, cwd_token="%2Fworkspace", sid="s1")
+    assert session_run_dir(sess) == ""
+
+
+def test_session_run_dir_uses_repo_path_when_cwd_is_workspace(tmp_path: Path) -> None:
+    sess = _seed_session(tmp_path, cwd_token="%2Fworkspace", sid="s1")
+    (sess / "run.json").write_text(
+        json.dumps({"repo_path": str(tmp_path / "proj")}),
+        encoding="utf-8",
+    )
+    assert session_run_dir(sess) == str((tmp_path / "proj").expanduser())
 
 
 def test_session_scan_roots_work_only(tmp_path: Path) -> None:

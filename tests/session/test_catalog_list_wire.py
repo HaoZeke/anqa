@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from groket.session.catalog import session_catalog_row, session_meta_from_catalog_row
+from groket.session.query import CatalogQueryRow, row_matches_query
 
 
 def _write_list_fixture(
@@ -141,3 +142,70 @@ def test_host_catalog_row_also_uses_message_proxy(tmp_path: Path) -> None:
     row = session_catalog_row(sd, origin="host")
     assert row is not None
     assert row["numEvents"] == 9
+
+
+def test_session_catalog_row_has_presence_flags(tmp_path: Path) -> None:
+    traces = tmp_path / "runs" / "traces"
+    sd = _write_list_fixture(
+        traces,
+        "has-ents",
+        num_messages=3,
+        ctx_pct=15,
+        tokens_used=100,
+        window=1000,
+    )
+    signals = json.loads((sd / "signals.json").read_text(encoding="utf-8"))
+    signals.update(
+        {
+            "toolFailureCount": 2,
+            "agentLinesAdded": 8,
+            "agentLinesRemoved": 1,
+            "compactionCount": 1,
+            "doomLoopWarnings": 1,
+        }
+    )
+    (sd / "signals.json").write_text(json.dumps(signals), encoding="utf-8")
+    (sd / "goal").mkdir()
+    (sd / "goal" / "state.json").write_text('{"objective": "Ship it"}', encoding="utf-8")
+    (sd / "subagents" / "child-a").mkdir(parents=True)
+    (sd / "background_tasks_manifest.json").write_text('[{"task_id": "j1"}]', encoding="utf-8")
+    (sd / "plan.json").write_text("{}", encoding="utf-8")
+    row = session_catalog_row(sd, origin="work")
+    assert row is not None
+    assert row["hasGoals"] is True
+    assert row["hasSubagents"] is True
+    assert row["hasJobs"] is True
+    assert row["hasTasks"] is True
+    assert row["hasPlan"] is True
+    assert row.get("runDir") == ""
+    assert row["hasFailures"] is True
+    assert row["hasDiff"] is True
+    assert row["hasCompaction"] is True
+    assert row["hasDoom"] is True
+    meta = session_meta_from_catalog_row(row)
+    assert meta is not None
+    assert meta.has_goals is True
+    assert meta.has_subagents is True
+    assert meta.has_jobs is True
+    assert meta.has_plan is True
+    rebuilt = CatalogQueryRow.from_meta(meta)
+    assert row_matches_query(rebuilt, "has:goals has:subagents has:tasks has:plan")
+
+
+def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:
+    host = tmp_path / "%2Fmnt%2Fdev%2F_git%2Ffubar"
+    sd = _write_list_fixture(
+        host,
+        "sess-1",
+        num_messages=1,
+        ctx_pct=1,
+        tokens_used=1,
+        window=10,
+    )
+    row = session_catalog_row(sd, origin="host")
+    assert row is not None
+    assert row["runDir"] == "/mnt/dev/_git/fubar"
+    meta = session_meta_from_catalog_row(row)
+    assert meta is not None
+    assert meta.run_dir == "/mnt/dev/_git/fubar"
+    assert row_matches_query(CatalogQueryRow.from_meta(meta), "in:/mnt/dev/_git/fubar")

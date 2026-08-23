@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote
 
 from ..parser import find_sessions
 from .subagents import drop_subagent_sessions
@@ -183,6 +184,29 @@ def is_encoded_cwd_name(name: str) -> bool:
     return n.startswith("%2f") or "%2f" in n
 
 
+def session_run_dir(session_dir: Path) -> str:
+    """Host directory the session was run in.
+
+    Host trees nest under a percent-encoded cwd bucket
+    (``~/.grok/sessions/%2Fhome%2F…/<id>``). Container ``/workspace`` is
+    skipped. Eval bind-mounts use ``run.json`` ``repo_path``.
+    """
+    parent = Path(session_dir).parent.name
+    if is_encoded_cwd_name(parent):
+        decoded = unquote(parent)
+        if decoded and decoded not in {"/workspace", "workspace"}:
+            return decoded
+    from ..runs.run_recipe import load_run_recipe
+
+    raw = str(load_run_recipe(session_dir).get("repo_path") or "").strip()
+    if not raw:
+        return ""
+    try:
+        return str(Path(raw).expanduser())
+    except OSError:
+        return raw
+
+
 def is_host_skip_dir_name(name: str) -> bool:
     """Host-tree names that must not be descended (workspace / staging junk)."""
     low = (name or "").casefold()
@@ -307,6 +331,7 @@ __all__ = [
     "host_grok_sessions_root",
     "is_encoded_cwd_name",
     "session_dir_for_watch_path",
+    "session_run_dir",
     "is_host_skip_dir_name",
     "is_host_grok_sessions_root",
     "is_under_host_grok_sessions",

@@ -8,12 +8,14 @@ become ordinary words (Gmail-style).
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import dateparser
 from luqum.parser import parser as luqum_parser
@@ -37,11 +39,12 @@ from pytimeparse import parse as parse_span
 
 from ..integrations.control_contract import (
     CATALOG_QUERY_COMPARE,
+    CATALOG_QUERY_OPERATORS,
     catalog_query_compare_fields,
     catalog_query_field_names,
     catalog_query_values,
 )
-from ..models import JsonObject, SessionMeta, json_as_str
+from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
 
 # Language comes from the published control contract. Row attributes for
 # ``has:`` stay here (implementation, not the token list).
@@ -53,6 +56,18 @@ COMPARE_FIELDS: tuple[str, ...] = catalog_query_compare_fields()
 HAS_FLAGS: tuple[tuple[str, str], ...] = (
     ("workflows", "has_workflows"),
     ("notes", "has_notes"),
+    ("goals", "has_goals"),
+    ("subagents", "has_subagents"),
+    ("jobs", "has_jobs"),
+    ("schedules", "has_schedules"),
+    ("plan", "has_plan"),
+    ("failures", "has_failures"),
+    ("diff", "has_diff"),
+    ("compaction", "has_compaction"),
+    ("doom", "has_doom"),
+)
+_PRESENCE_ATTRS: tuple[tuple[str, str], ...] = tuple(
+    (f"has{name[:1].upper()}{name[1:]}", attr) for name, attr in HAS_FLAGS
 )
 
 _INCOMPLETE_FIELD = re.compile(
@@ -67,8 +82,29 @@ _COMPACT_SPAN = re.compile(r"(?i)^(\d+(?:\.\d+)?)([smhdw])$")
 _SPAN_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _WORD_SPLIT = re.compile(r"\s+")
 _SKIP_WORDS = frozenset({"and", "or", "not", "(", ")", "((", "))"})
+_FIELD_SET = frozenset(FIELD_NAMES)
+_BOOL_WORDS = frozenset({"and", "or", "not"})
+_HIGHLIGHT_RE = re.compile(
+    r"(?P<operator>\b(?:"
+    + "|".join(re.escape(op) for op in CATALOG_QUERY_OPERATORS if op != "-")
+    + r")\b)"
+    r"|(?P<prohibit>-)?(?P<field>(?i:"
+    + "|".join(re.escape(name) for name in FIELD_NAMES)
+    + r")):(?P<value>\s*\"[^\"]*\"|\s*[^\s)]*)"
+)
 
 _RESOLVE_AND = UnknownOperationResolver(resolve_to=AndOperation)
+
+type QuerySpanKind = Literal["field", "value", "unknown", "operator"]
+
+
+@dataclass(frozen=True)
+class QuerySpan:
+    """One highlighted slice of a catalog query (character offsets)."""
+
+    start: int
+    end: int
+    kind: QuerySpanKind
 
 
 @dataclass(frozen=True)
@@ -84,6 +120,7 @@ class CatalogQueryRow:
     origin: str = ""
     path: str = ""
     git_repo: str = ""
+    run_dir: str = ""
     task_id: str = ""
     error_count: int = 0
     turn_count: int = 0
@@ -93,7 +130,16 @@ class CatalogQueryRow:
     updated_at: str = ""
     has_workflows: bool = False
     has_notes: bool = False
-    has_findings: bool = False
+    has_goals: bool = False
+    has_subagents: bool = False
+    has_jobs: bool = False
+    has_schedules: bool = False
+    has_plan: bool = False
+    has_failures: bool = False
+    has_diff: bool = False
+    has_compaction: bool = False
+    has_doom: bool = False
+    has_context: bool = False
 
     @classmethod
     def from_wire(cls, row: JsonObject) -> CatalogQueryRow:
@@ -108,6 +154,7 @@ class CatalogQueryRow:
             origin=json_as_str(row.get("origin")),
             path=json_as_str(row.get("path")),
             git_repo=json_as_str(row.get("gitRepo")),
+            run_dir=json_as_str(row.get("runDir")),
             task_id=json_as_str(row.get("taskId")),
             error_count=_as_int(row.get("errorCount")),
             turn_count=_as_int(row.get("turnCount")),
@@ -117,7 +164,16 @@ class CatalogQueryRow:
             updated_at=json_as_str(row.get("updatedAt") or row.get("updated_at")),
             has_workflows=bool(row.get("hasWorkflows")),
             has_notes=bool(row.get("hasNotes")),
-            has_findings=bool(row.get("hasFindings")),
+            has_goals=bool(row.get("hasGoals")),
+            has_subagents=bool(row.get("hasSubagents")),
+            has_jobs=bool(row.get("hasJobs")),
+            has_schedules=bool(row.get("hasSchedules")),
+            has_plan=bool(row.get("hasPlan")),
+            has_failures=bool(row.get("hasFailures")),
+            has_diff=bool(row.get("hasDiff")),
+            has_compaction=bool(row.get("hasCompaction")),
+            has_doom=bool(row.get("hasDoom")),
+            has_context=_wire_has_context(row),
         )
 
     @classmethod
@@ -137,6 +193,7 @@ class CatalogQueryRow:
             origin=meta.origin or "",
             path=path,
             git_repo=meta.git_repo or "",
+            run_dir=meta.run_dir or "",
             task_id=meta.task_id or "",
             error_count=int(meta.error_count or 0),
             turn_count=int(meta.turn_count or 0),
@@ -146,7 +203,16 @@ class CatalogQueryRow:
             updated_at=str(meta.updated_at or ""),
             has_workflows=bool(meta.has_workflows),
             has_notes=bool(meta.has_notes),
-            has_findings=bool(meta.has_findings),
+            has_goals=bool(meta.has_goals),
+            has_subagents=bool(meta.has_subagents),
+            has_jobs=bool(meta.has_jobs),
+            has_schedules=bool(meta.has_schedules),
+            has_plan=bool(meta.has_plan),
+            has_failures=bool(meta.has_failures),
+            has_diff=bool(meta.has_diff),
+            has_compaction=bool(meta.has_compaction),
+            has_doom=bool(meta.has_doom),
+            has_context=bool(meta.has_context_usage),
         )
 
 
@@ -194,6 +260,8 @@ def suggest_last_token(
 ) -> list[str]:
     """Last-token completions (field names, closed values, live model/path)."""
     token = _last_token(query)
+    if not token:
+        return []
     if ":" not in token:
         return [f"{name}:" for name in FIELD_NAMES if name.startswith(token.casefold())]
     field, _, rest = token.partition(":")
@@ -220,6 +288,89 @@ def query_has_tokens(query: str) -> bool:
     """True when the finished prefix contains a typed ``field:`` token."""
     text = finished_prefix(query)
     return any(re.search(rf"(?i)(?<![A-Za-z0-9_]){name}:", text) for name in FIELD_NAMES)
+
+
+def _quoted_value(raw: str) -> bool:
+    return len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"'
+
+
+def _extend_open_value(text: str, end: int) -> int:
+    """Keep unquoted open values through spaces until AND/OR/NOT or the next field."""
+    n = len(text)
+    while end < n:
+        if text[end] == ")":
+            return end
+        i = end
+        while i < n and text[i] in " \t":
+            i += 1
+        if i == end or i == n:
+            return end
+        j = i
+        while j < n and text[j] not in " \t)":
+            j += 1
+        word = text[i:j]
+        if word.casefold() in _BOOL_WORDS:
+            return end
+        head, sep, _rest = word.partition(":")
+        if sep and head.casefold() in _FIELD_SET:
+            return end
+        end = j
+    return end
+
+
+def _trim_value_span(text: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and text[start] in " \t":
+        start += 1
+    while end > start and text[end - 1] in " \t":
+        end -= 1
+    return start, end
+
+
+def _value_known(field: str, inner: str) -> bool:
+    closed = catalog_query_values(field)
+    if not closed:
+        return True
+    key = inner.casefold()
+    if key in {item.casefold() for item in closed}:
+        return True
+    return field == "is" and key in {"cancelled", "canceled"}
+
+
+def highlight_query_spans(query: str) -> tuple[QuerySpan, ...]:
+    """Paint offsets for known fields, values, and operators.
+
+    Live box color uses this scanner because the luqum tree has no source
+    offsets. Matching still goes through :func:`row_matches_query`.
+    """
+    text = query or ""
+    spans: list[QuerySpan] = []
+    for match in _HIGHLIGHT_RE.finditer(text):
+        if match.start() > 0 and text[match.start() - 1] not in " \t\n\r(":
+            continue
+        if match.group("operator") is not None:
+            start, end = match.span("operator")
+            spans.append(QuerySpan(start, end, "operator"))
+            continue
+        if match.group("prohibit") is not None:
+            start, end = match.span("prohibit")
+            spans.append(QuerySpan(start, end, "operator"))
+        field_start, field_end = match.span("field")
+        spans.append(QuerySpan(field_start, field_end + 1, "field"))
+        raw = match.group("value") or ""
+        value_start, value_end = match.span("value")
+        quoted = _quoted_value(raw)
+        field_key = match.group("field").casefold()
+        closed = catalog_query_values(field_key)
+        if not quoted and not closed:
+            value_end = _extend_open_value(text, value_end)
+        if not quoted:
+            value_start, value_end = _trim_value_span(text, value_start, value_end)
+        if value_start >= value_end:
+            continue
+        inner = text[value_start + 1 : value_end - 1] if quoted else text[value_start:value_end]
+        kind: QuerySpanKind = "value" if _value_known(field_key, inner) else "unknown"
+        spans.append(QuerySpan(value_start, value_end, kind))
+    return tuple(spans)
 
 
 def _values_for_field(
@@ -326,18 +477,34 @@ def _match_is(value: str, row: CatalogQueryRow) -> bool:
 def _match_has(value: str, row: CatalogQueryRow) -> bool:
     if value == "errors":
         return row.error_count > 0
-    for name, attr in HAS_FLAGS:
-        if name == value:
-            return bool(getattr(row, attr))
-    return False
+    if value == "git":
+        return bool(row.git_repo.strip())
+    if value == "context":
+        return bool(row.has_context)
+    if value == "tasks":
+        return bool(row.has_jobs or row.has_schedules)
+    flags = {
+        "workflows": row.has_workflows,
+        "notes": row.has_notes,
+        "goals": row.has_goals,
+        "subagents": row.has_subagents,
+        "jobs": row.has_jobs,
+        "schedules": row.has_schedules,
+        "plan": row.has_plan,
+        "failures": row.has_failures,
+        "diff": row.has_diff,
+        "compaction": row.has_compaction,
+        "doom": row.has_doom,
+    }
+    return bool(flags.get(value))
 
 
 def _match_in(needle: str, row: CatalogQueryRow) -> bool:
-    """Prefix or substring on the start repo / workspace, not the store path."""
+    """Prefix or substring on the directory the session was run in."""
     want = _expand_path(needle)
-    started = _expand_path(row.git_repo)
+    started = _expand_path(row.run_dir)
     if not want or not started:
-        raw = (row.git_repo or "").casefold()
+        raw = (row.run_dir or "").casefold()
         return bool(raw) and needle.strip().strip('"').casefold() in raw
     if want.casefold() in started.casefold():
         return True
@@ -501,13 +668,44 @@ def _match_words(row: CatalogQueryRow, words: Sequence[str]) -> bool:
     return all(word.casefold() in hay for word in words if word)
 
 
-def catalog_has_workflows(session_dir: Path) -> bool:
-    """True when ``workflows/`` exists and is non-empty."""
-    root = Path(session_dir) / "workflows"
+def _wire_has_context(row: JsonObject) -> bool:
+    if row.get("hasContext") is True:
+        return True
+    if row.get("contextWindowUsagePct") is not None:
+        return True
+    if row.get("contextTokensUsed") is not None:
+        return True
+    window = row.get("contextWindowTokens")
+    return isinstance(window, int | float) and not isinstance(window, bool) and window > 0
+
+
+def _is_file(path: Path) -> bool:
     try:
-        return root.is_dir() and any(root.iterdir())
+        return path.is_file()
     except OSError:
         return False
+
+
+def _nonempty_dir(path: Path) -> bool:
+    try:
+        return path.is_dir() and any(path.iterdir())
+    except OSError:
+        return False
+
+
+def _json_list_nonempty(path: Path) -> bool:
+    if not _is_file(path):
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    return isinstance(raw, list) and any(raw)
+
+
+def catalog_has_workflows(session_dir: Path) -> bool:
+    """True when ``workflows/`` exists and is non-empty."""
+    return _nonempty_dir(Path(session_dir) / "workflows")
 
 
 def catalog_has_notes(session_dir: Path) -> bool:
@@ -517,6 +715,102 @@ def catalog_has_notes(session_dir: Path) -> bool:
     return notes_mtime(session_dir) > 0
 
 
+def catalog_has_goals(session_dir: Path) -> bool:
+    """True when ``goal/state.json`` is present."""
+    return _is_file(Path(session_dir) / "goal" / "state.json")
+
+
+def catalog_has_subagents(session_dir: Path) -> bool:
+    """True when ``subagents/`` lists at least one child directory."""
+    return _nonempty_dir(Path(session_dir) / "subagents")
+
+
+def catalog_has_jobs(session_dir: Path) -> bool:
+    """True when a job manifest or ``terminal/`` call log is present."""
+    root = Path(session_dir)
+    if _json_list_nonempty(root / "background_tasks_manifest.json"):
+        return True
+    terminal = root / "terminal"
+    try:
+        if not terminal.is_dir():
+            return False
+        return any(
+            child.is_file()
+            and (child.name.startswith("call-") or child.name.startswith("monitor-call-"))
+            for child in terminal.iterdir()
+        )
+    except OSError:
+        return False
+
+
+def catalog_has_schedules(session_dir: Path) -> bool:
+    """True when ``resources_state.json`` lists scheduler tasks."""
+    path = Path(session_dir) / "resources_state.json"
+    if not _is_file(path):
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    if not isinstance(raw, dict):
+        return False
+    inner = raw.get("state")
+    state = inner if isinstance(inner, dict) else {}
+    scheduler = state.get("grok_build.Scheduler")
+    if not isinstance(scheduler, dict):
+        return False
+    tasks = scheduler.get("tasks")
+    return isinstance(tasks, list) and any(tasks)
+
+
+def catalog_has_tasks(session_dir: Path) -> bool:
+    """True when Overview Tasks would list a job or a schedule."""
+    return catalog_has_jobs(session_dir) or catalog_has_schedules(session_dir)
+
+
+def catalog_has_plan(session_dir: Path) -> bool:
+    """True when ``plan.json`` or ``plan_mode.json`` is present."""
+    root = Path(session_dir)
+    return _is_file(root / "plan.json") or _is_file(root / "plan_mode.json")
+
+
+def catalog_has_compaction(session_dir: Path) -> bool:
+    """True when ``compaction/`` exists and is non-empty."""
+    return _nonempty_dir(Path(session_dir) / "compaction")
+
+
+def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool]:
+    """Cheap ``has:`` flags for one catalog row (disk + already-loaded meta)."""
+    jobs = catalog_has_jobs(session_dir)
+    schedules = catalog_has_schedules(session_dir)
+    return {
+        "hasWorkflows": catalog_has_workflows(session_dir),
+        "hasNotes": catalog_has_notes(session_dir),
+        "hasGoals": catalog_has_goals(session_dir),
+        "hasSubagents": catalog_has_subagents(session_dir),
+        "hasJobs": jobs,
+        "hasSchedules": schedules,
+        "hasTasks": jobs or schedules,
+        "hasPlan": catalog_has_plan(session_dir),
+        "hasFailures": int(meta.tool_failure_count or 0) > 0,
+        "hasDiff": int(meta.lines_added or 0) > 0 or int(meta.lines_removed or 0) > 0,
+        "hasCompaction": catalog_has_compaction(session_dir) or int(meta.compaction_count or 0) > 0,
+        "hasDoom": int(meta.doom_loop_warnings or 0) > 0,
+        "hasContext": bool(meta.has_context_usage),
+    }
+
+
+def apply_catalog_presence(meta: SessionMeta) -> None:
+    """Set cheap ``has:`` flags on *meta* from disk and loaded counts."""
+    apply_catalog_presence_row(meta, as_json_object(catalog_presence(meta.session_dir, meta)))
+
+
+def apply_catalog_presence_row(meta: SessionMeta, row: JsonObject) -> None:
+    """Copy ``has*`` wire flags onto *meta*."""
+    for key, attr in _PRESENCE_ATTRS:
+        setattr(meta, attr, bool(row.get(key)))
+
+
 __all__ = [
     "COMPARE_PREFIXES",
     "FIELD_NAMES",
@@ -524,10 +818,23 @@ __all__ = [
     "HAS_VALUES",
     "IS_VALUES",
     "CatalogQueryRow",
+    "QuerySpan",
+    "QuerySpanKind",
+    "apply_catalog_presence",
+    "apply_catalog_presence_row",
     "apply_suggestion",
+    "catalog_has_compaction",
+    "catalog_has_goals",
+    "catalog_has_jobs",
     "catalog_has_notes",
+    "catalog_has_plan",
+    "catalog_has_schedules",
+    "catalog_has_subagents",
+    "catalog_has_tasks",
     "catalog_has_workflows",
+    "catalog_presence",
     "finished_prefix",
+    "highlight_query_spans",
     "prepare_query",
     "query_has_tokens",
     "row_matches_query",

@@ -19,7 +19,7 @@ pub const LABEL_GUTTER: f32 = icedtea::layout::FORM_LABEL;
 
 /// Determinate context / fill bar — icedtea [`widget::progress`].
 pub fn context_progress<'a>(frac: f32, tea: Tokens) -> Element<'a, Message> {
-    let label = widget::progress_label(frac, None);
+    let label = widget::progress_label(frac, None, tea.clock_digits);
     widget::progress(
         frac.clamp(0.0, 1.0),
         None,
@@ -154,6 +154,7 @@ pub fn help_modal<'a>(
         tea,
         widget::CardFace::Elevated,
         A11y::new(heading, Role::Dialog),
+        None,
     );
     let card = container(sheet)
         .width(Length::Fixed(520.0))
@@ -231,6 +232,7 @@ mod tests {
             tea,
             A11y::new("Search sessions", Role::TextBox),
             None,
+            &[],
         );
     }
 
@@ -249,6 +251,8 @@ mod tests {
             diff_pick: false,
             tab: crate::model::Tab::Timeline,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let _ = icedtea::pattern::status_bar("", None, None, &table, tea, tea.direction);
         let src = include_str!("kit.rs");
@@ -272,6 +276,8 @@ mod tests {
             diff_pick: false,
             tab: crate::model::Tab::Overview,
             leader_armed: false,
+            note_focused: false,
+            notes_composing: false,
         });
         let backdrop = status_empty("HUD", "backdrop", tea);
         let _ = help_modal(backdrop, &table, tea);

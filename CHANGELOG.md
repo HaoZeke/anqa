@@ -94,6 +94,8 @@ is tagged.
 
 ### Bug fix
 
+- Catalog search colors `AND` / `OR` / `NOT` only in that spelling.
+  `and` / `aNd` stay ordinary words, same as the matcher.
 - The session list summary is the session count. It does not say
   pending analysis or findings totals.
 - A client that resets the control socket no longer logs an unhandled

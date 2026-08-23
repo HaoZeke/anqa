@@ -82,8 +82,8 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 | Token | Matches |
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin. |
-| `has:workflows` `has:notes` `has:errors` | Presence on the list row. |
-| `in:` | Where the session started (git repo / workspace). |
+| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row. |
+| `in:` | Directory the session was run in. |
 | `model:` | Model id substring. |
 | `task:` | Task id substring. |
 | `errors:` with `>` `>=` `<` `<=` `=` | errorCount. |
@@ -116,6 +116,10 @@ Every `notes/upsert` and `notes/delete` sends `expectedRevision`.
 A mismatch is a conflict; the client reloads and retries.
 Canonical store is `operator_notes.toml` (host sessions under
 `~/.groket/notes/`).
+Every note must include a non-empty `source` (who wrote it).
+`fields` need not match the configured form schema; extra keys
+are stored as sent. The in-app form uses `notes_schema.toml`
+and stamps its own source.
 
 ## Notifications
 

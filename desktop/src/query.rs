@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
+use regex::Regex;
 use serde::Deserialize;
 
 use crate::wire::SessionListItem;
@@ -12,7 +13,26 @@ use crate::wire::SessionListItem;
 #[serde(rename_all = "camelCase")]
 struct QueryScheme {
     compare: Vec<String>,
+    #[serde(default)]
+    operators: Vec<String>,
     tokens: Vec<QueryTokenSpec>,
+}
+
+/// One highlighted slice of a catalog query (byte offsets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuerySpan {
+    pub start: usize,
+    pub end: usize,
+    pub kind: QuerySpanKind,
+}
+
+/// Schema token role for catalog search color.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuerySpanKind {
+    Field,
+    Value,
+    Unknown,
+    Operator,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,6 +70,15 @@ type HasFlag = fn(&SessionListItem) -> bool;
 const HAS_FLAGS: &[(&str, HasFlag)] = &[
     ("workflows", |r| r.has_workflows),
     ("notes", |r| r.has_notes),
+    ("goals", |r| r.has_goals),
+    ("subagents", |r| r.has_subagents),
+    ("jobs", |r| r.has_jobs),
+    ("schedules", |r| r.has_schedules),
+    ("plan", |r| r.has_plan),
+    ("failures", |r| r.has_failures),
+    ("diff", |r| r.has_diff),
+    ("compaction", |r| r.has_compaction),
+    ("doom", |r| r.has_doom),
 ];
 
 const SKIP_WORDS: &[&str] = &["and", "or", "not", "(", ")", "((", "))"];
@@ -104,8 +133,174 @@ pub fn query_has_tokens(query: &str) -> bool {
     })
 }
 
+/// Paint offsets for known fields, values, and operators.
+///
+/// Live box color uses this scanner because the parse tree has no source
+/// offsets. Matching still goes through [`row_matches`].
+pub fn highlight_query_spans(query: &str) -> Vec<QuerySpan> {
+    let mut spans = Vec::new();
+    for caps in highlight_re().captures_iter(query) {
+        let start = caps.get(0).map_or(0, |m| m.start());
+        if start > 0 {
+            let prev = query.as_bytes()[start - 1];
+            if !prev.is_ascii_whitespace() && prev != b'(' {
+                continue;
+            }
+        }
+        if let Some(op) = caps.name("operator") {
+            spans.push(QuerySpan {
+                start: op.start(),
+                end: op.end(),
+                kind: QuerySpanKind::Operator,
+            });
+            continue;
+        }
+        if let Some(prohibit) = caps.name("prohibit") {
+            spans.push(QuerySpan {
+                start: prohibit.start(),
+                end: prohibit.end(),
+                kind: QuerySpanKind::Operator,
+            });
+        }
+        let Some(field) = caps.name("field") else {
+            continue;
+        };
+        spans.push(QuerySpan {
+            start: field.start(),
+            end: field.end() + 1,
+            kind: QuerySpanKind::Field,
+        });
+        let Some(value) = caps.name("value") else {
+            continue;
+        };
+        if value.as_str().is_empty() {
+            continue;
+        }
+        let raw = value.as_str();
+        let quoted = quoted_value(raw);
+        let field_key = field.as_str().to_ascii_lowercase();
+        let closed = token_values(&field_key);
+        let mut value_start = value.start();
+        let mut value_end = value.end();
+        if !quoted && closed.is_empty() {
+            value_end = extend_open_value(query, value_end);
+        }
+        if !quoted {
+            (value_start, value_end) = trim_value_span(query, value_start, value_end);
+        }
+        if value_start >= value_end {
+            continue;
+        }
+        let inner = if quoted {
+            &query[value_start + 1..value_end - 1]
+        } else {
+            &query[value_start..value_end]
+        };
+        spans.push(QuerySpan {
+            start: value_start,
+            end: value_end,
+            kind: value_kind(&field_key, inner, closed),
+        });
+    }
+    spans
+}
+
+fn value_kind(field: &str, inner: &str, closed: &[String]) -> QuerySpanKind {
+    if closed.is_empty() || closed.iter().any(|item| item.eq_ignore_ascii_case(inner)) {
+        return QuerySpanKind::Value;
+    }
+    if field == "is"
+        && matches!(
+            inner.to_ascii_lowercase().as_str(),
+            "cancelled" | "canceled"
+        )
+    {
+        return QuerySpanKind::Value;
+    }
+    QuerySpanKind::Unknown
+}
+
+fn quoted_value(raw: &str) -> bool {
+    raw.len() >= 2 && raw.starts_with('"') && raw.ends_with('"')
+}
+
+fn is_field_token(word: &str) -> bool {
+    word.split_once(':')
+        .is_some_and(|(head, _)| field_names().any(|name| name.eq_ignore_ascii_case(head)))
+}
+
+fn extend_open_value(query: &str, mut end: usize) -> usize {
+    let bytes = query.as_bytes();
+    while end < bytes.len() {
+        if bytes[end] == b')' {
+            return end;
+        }
+        let mut i = end;
+        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+            i += 1;
+        }
+        if i == end || i == bytes.len() {
+            return end;
+        }
+        let mut j = i;
+        while j < bytes.len() && !matches!(bytes[j], b' ' | b'\t' | b')') {
+            j += 1;
+        }
+        let word = &query[i..j];
+        if matches!(word.to_ascii_lowercase().as_str(), "and" | "or" | "not") {
+            return end;
+        }
+        if is_field_token(word) {
+            return end;
+        }
+        end = j;
+    }
+    end
+}
+
+fn trim_value_span(query: &str, mut start: usize, mut end: usize) -> (usize, usize) {
+    let bytes = query.as_bytes();
+    while start < end && matches!(bytes[start], b' ' | b'\t') {
+        start += 1;
+    }
+    while end > start && matches!(bytes[end - 1], b' ' | b'\t') {
+        end -= 1;
+    }
+    (start, end)
+}
+
+fn highlight_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| {
+        let words: Vec<String> = scheme()
+            .operators
+            .iter()
+            .filter(|op| op.as_str() != "-")
+            .map(|op| regex::escape(op))
+            .collect();
+        let words = if words.is_empty() {
+            vec!["AND".into(), "OR".into(), "NOT".into()]
+        } else {
+            words
+        };
+        let fields: String = field_names()
+            .map(regex::escape)
+            .collect::<Vec<_>>()
+            .join("|");
+        let pat = format!(
+            r#"(?P<operator>\b(?:{})\b)|(?P<prohibit>-)?(?P<field>(?i:{})):(?P<value>\s*"[^"]*"|\s*[^\s)]*)"#,
+            words.join("|"),
+            fields
+        );
+        Regex::new(&pat).expect("catalog highlight pattern")
+    })
+}
+
 pub fn suggest_last_token(query: &str, models: &[String], paths: &[String]) -> Vec<String> {
     let token = last_token(query);
+    if token.is_empty() {
+        return Vec::new();
+    }
     if !token.contains(':') {
         let prefix = token.to_ascii_lowercase();
         return field_names()
@@ -437,8 +632,16 @@ fn eval(node: &Node, row: &SessionListItem) -> bool {
 
 fn match_has(value: &str, row: &SessionListItem) -> bool {
     let key = value.to_ascii_lowercase();
-    if key == "errors" {
-        return row.error_count > 0;
+    match key.as_str() {
+        "errors" => return row.error_count > 0,
+        "git" => return !row.git_repo.trim().is_empty(),
+        "context" => {
+            return row.context_window_usage_pct.is_some()
+                || row.context_tokens_used.is_some()
+                || row.context_window_tokens.is_some_and(|window| window > 0);
+        }
+        "tasks" => return row.has_jobs || row.has_schedules,
+        _ => {}
     }
     HAS_FLAGS
         .iter()
@@ -458,7 +661,7 @@ fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
             other => row.status.eq_ignore_ascii_case(other),
         },
         "has" => match_has(value, row),
-        "in" => path_prefix(value, &row.git_repo),
+        "in" => path_prefix(value, &row.run_dir),
         "model" => row
             .model
             .to_ascii_lowercase()
@@ -605,7 +808,8 @@ mod tests {
             status: "complete".into(),
             origin: "work".into(),
             path: "/mnt/dev/_git/fubar/sess-1".into(),
-            git_repo: "/mnt/dev/_git/fubar".into(),
+            git_repo: "https://github.com/x/fubar".into(),
+            run_dir: "/mnt/dev/_git/fubar".into(),
             task_id: "eval-a".into(),
             error_count: 3,
             turn_count: 8,
@@ -614,7 +818,6 @@ mod tests {
             duration_seconds: 4000.0,
             updated_at: "2026-08-10T12:00:00+00:00".into(),
             has_workflows: true,
-            has_findings: true,
             ..SessionListItem::default()
         }
     }
@@ -633,8 +836,102 @@ mod tests {
         assert!(row_matches(&r, "model:grok"));
         assert_eq!(
             suggest_last_token("has:", &[], &[]),
-            vec!["has:workflows", "has:notes", "has:errors",]
+            vec![
+                "has:workflows",
+                "has:notes",
+                "has:goals",
+                "has:subagents",
+                "has:tasks",
+                "has:jobs",
+                "has:schedules",
+                "has:plan",
+                "has:errors",
+                "has:failures",
+                "has:diff",
+                "has:git",
+                "has:context",
+                "has:compaction",
+                "has:doom",
+            ]
         );
+        assert!(suggest_last_token("", &[], &[]).is_empty());
+        assert!(suggest_last_token("   ", &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn highlight_spans_use_schema() {
+        let marks = highlight_query_spans("has:goals AND has:gooals");
+        let kinds: Vec<_> = marks
+            .iter()
+            .map(|s| (&"has:goals AND has:gooals"[s.start..s.end], s.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ("has:", QuerySpanKind::Field),
+                ("goals", QuerySpanKind::Value),
+                ("AND", QuerySpanKind::Operator),
+                ("has:", QuerySpanKind::Field),
+                ("gooals", QuerySpanKind::Unknown),
+            ]
+        );
+        let lower = highlight_query_spans("and not has:goals");
+        assert!(!lower.iter().any(|s| s.kind == QuerySpanKind::Operator));
+        let mixed = highlight_query_spans("aNd has:goals");
+        assert!(!mixed.iter().any(|s| s.kind == QuerySpanKind::Operator));
+        let canceled = highlight_query_spans("is:canceled");
+        assert_eq!(canceled.last().map(|s| s.kind), Some(QuerySpanKind::Value));
+    }
+
+    #[test]
+    fn has_presence_tokens() {
+        let empty = SessionListItem::default();
+        assert!(!row_matches(&empty, "has:goals"));
+        assert!(!row_matches(&empty, "has:tasks"));
+        assert!(!row_matches(&empty, "has:git"));
+        let full = SessionListItem {
+            git_repo: "/tmp/repo".into(),
+            error_count: 1,
+            has_workflows: true,
+            has_notes: true,
+            has_goals: true,
+            has_subagents: true,
+            has_jobs: true,
+            has_schedules: true,
+            has_plan: true,
+            has_failures: true,
+            has_diff: true,
+            has_compaction: true,
+            has_doom: true,
+            context_window_usage_pct: Some(10.0),
+            ..SessionListItem::default()
+        };
+        for token in [
+            "has:workflows",
+            "has:notes",
+            "has:goals",
+            "has:subagents",
+            "has:tasks",
+            "has:jobs",
+            "has:schedules",
+            "has:plan",
+            "has:errors",
+            "has:failures",
+            "has:diff",
+            "has:git",
+            "has:context",
+            "has:compaction",
+            "has:doom",
+        ] {
+            assert!(row_matches(&full, token), "{token}");
+        }
+        let jobs = SessionListItem {
+            has_jobs: true,
+            ..SessionListItem::default()
+        };
+        assert!(row_matches(&jobs, "has:jobs"));
+        assert!(row_matches(&jobs, "has:tasks"));
+        assert!(!row_matches(&jobs, "has:schedules"));
     }
 
     #[test]

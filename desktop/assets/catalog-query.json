@@ -35,13 +35,25 @@
       "values": [
         "workflows",
         "notes",
-        "errors"
+        "goals",
+        "subagents",
+        "tasks",
+        "jobs",
+        "schedules",
+        "plan",
+        "errors",
+        "failures",
+        "diff",
+        "git",
+        "context",
+        "compaction",
+        "doom"
       ],
       "compare": false
     },
     {
       "name": "in",
-      "role": "Where the session started (git repo / workspace).",
+      "role": "Directory the session was run in.",
       "values": [],
       "compare": false
     },
