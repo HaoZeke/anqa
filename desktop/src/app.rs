@@ -71,7 +71,7 @@ pub enum Message {
     OsMode(icedtea::iced::theme::Mode),
     OsChrome(icedtea::theme::OsChrome),
     SearchChanged(String),
-    /// Session list click: highlight that row (Enter / SelectSession opens).
+    /// Session list click: highlight that row (Enter / double-click opens).
     FocusSession(usize),
     SelectSession(usize),
     OpenChild {
@@ -9651,6 +9651,18 @@ mod tests {
             let _ = hud.on_key(Key::Character("k".into()), Modifiers::empty());
             assert_eq!(focus_label(&hud, list), after_k, "{list:?} k back to click");
         }
+    }
+
+    #[test]
+    fn focus_session_then_double_click_opens() {
+        let mut hud = three_session_picker();
+        let _ = hud.update(Message::FocusSession(1));
+        assert_eq!(hud.selected_sid().as_deref(), Some("s1"));
+        assert!(hud.overview.is_none());
+        assert!(!hud.browse_mode());
+        let _ = hud.update(Message::SelectSession(1));
+        assert_eq!(hud.selected_sid().as_deref(), Some("s1"));
+        assert!(hud.browse_mode() || !hud.overview_pending.is_empty() || hud.overview.is_some());
     }
 
     #[test]

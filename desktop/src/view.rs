@@ -656,7 +656,8 @@ fn session_list_card(
                 .width(Length::Fill)
                 .style(move |_| icedtea::style::card(tea, selected)),
         )
-        .on_press(Message::FocusSession(index)),
+        .on_press(Message::FocusSession(index))
+        .on_double_click(Message::SelectSession(index)),
         Space::new().height(crate::live::LIST_CARD_GAP),
     ]
     .into()
@@ -3494,7 +3495,8 @@ mod tests {
         assert!(picker.contains("widget::virtual_column"));
         assert!(picker.contains("session_list_card("));
         assert!(picker.contains("FocusSession"));
-        assert!(!picker.contains("SelectSession"));
+        assert!(picker.contains("on_double_click"));
+        assert!(picker.contains("SelectSession"));
         let detail = prod
             .split("fn detail_pane")
             .nth(1)
