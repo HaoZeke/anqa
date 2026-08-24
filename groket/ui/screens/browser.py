@@ -1152,6 +1152,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _session_control_ref(self) -> str:
         """Session path for control RPCs (id lookup is a host-tree walk)."""
+        from ...harness.ref import parse_session_ref_string
+
+        raw = str(self.session_dir)
+        if parse_session_ref_string(raw) is not None:
+            return raw
+        if self.meta is not None and (self.meta.harness or "grok") != "grok":
+            return f"{self.meta.harness}:{self.meta.session_id}"
         try:
             return str(Path(self.session_dir).expanduser().resolve())
         except OSError:
@@ -1822,14 +1829,30 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _open_subagent_run(self, run: SubagentRun | None) -> None:
         if run is None:
             return
-        if not run.openable or run.child_path is None:
-            self.notify(t("ui-subagent-missing"))
-            return
         opener = getattr(self.app, "open_session_path", None)
         if not callable(opener):
             return
-        opener(run.child_path)
-        self.notify(t("ui-subagent-opened"))
+        from ...harness.ref import parse_session_ref_string
+        from ...session.subagents import is_full_session_mirror
+
+        path = run.child_path
+        if path is not None and is_full_session_mirror(path):
+            opener(path)
+            self.notify(t("ui-subagent-opened"))
+            return
+        child = (run.child_session_id or "").strip()
+        harness = "grok"
+        if self.meta is not None and (self.meta.harness or "grok") != "grok":
+            harness = self.meta.harness
+        else:
+            parsed = parse_session_ref_string(str(self.session_dir))
+            if parsed is not None:
+                harness = parsed[0]
+        if child and harness != "grok":
+            opener(Path(f"{harness}:{child}"))
+            self.notify(t("ui-subagent-opened"))
+            return
+        self.notify(t("ui-subagent-missing"))
 
     def _open_workflow_child_path(self, path: Path) -> None:
         """Open a workflow child session (same return path as a subagent bookend)."""

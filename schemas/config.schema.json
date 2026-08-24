@@ -13,6 +13,21 @@
       "title": "ExportPrefs",
       "type": "object"
     },
+    "HarnessPrefs": {
+      "description": "``[harness]``: which native stores the host catalog includes.",
+      "properties": {
+        "host": {
+          "description": "Adapter ids scanned when the host catalog is on.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Host",
+          "type": "array"
+        }
+      },
+      "title": "HarnessPrefs",
+      "type": "object"
+    },
     "HudPrefs": {
       "description": "``[hud]``: desktop palette only.",
       "properties": {
@@ -71,6 +86,9 @@
     },
     "export": {
       "$ref": "#/$defs/ExportPrefs"
+    },
+    "harness": {
+      "$ref": "#/$defs/HarnessPrefs"
     }
   },
   "title": "groket-config",

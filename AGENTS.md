@@ -22,7 +22,7 @@ rejected-design narration.
 uv tool install --editable .    # ``groket`` + ``groket-hud`` on PATH (needs Rust)
 just install        # .venv (test+dev) for lint/test
 just test           # pytest (default unit suite; no Docker daemon)
-just lint           # ruff + mypy + fluent/typing policy scripts
+just lint           # ruff + mypy + fluent/typing + harness adapter check
 just ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
 ```
 
@@ -60,7 +60,7 @@ change the user could revert alone. Verify, then commit before starting the next
 
 Before **any** agent commit:
 
-1. **`just lint`** (or equivalent ruff/mypy/fluent/typing checks) green.
+1. **`just lint`** (or equivalent ruff/mypy/fluent/typing/harness checks) green.
 2. **Owning tests** for the files you touched green (see §11.6).
 3. **`git status`** — stage intended files only; no secrets.
 4. Commit with a clear imperative message (why, not only what).
@@ -158,7 +158,7 @@ groket/
   assets_loader.py       # repo assets/ or wheel-embedded templates
   scan.py                # session walk + updates.jsonl keep/skip (Python + groket._scan)
   keys/                  # action catalog + keys.toml overlay
-  harness/               # Grok disk/harness helpers
+  harness/               # disk adapters (see docs/harness-adapters.md)
   runs/                  # personas, run_configs, run_manager, batch, live_share,
                          #   launch_meta, services, task_schema
   session/               # turns, turn_gate, usage_stats, workspace_diff,
@@ -233,8 +233,12 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
-  Docker). **Host** catalog = ``~/.grok/sessions`` (always loaded; ``is:host``
-  filters the list); real host paths.
+  Docker). **Host** catalog = native stores enabled in
+  ``config.toml`` ``[harness].host`` (Grok ``~/.grok/sessions``, OpenCode
+  sqlite, Pi jsonl). ``H`` / ``is:host``; ``harness:<id>`` filters. Non-Grok
+  rows use catalog path ``harness:<session_id>``. Contract:
+  ``docs/harness-adapters.md``. New or bumped adapters go through
+  ``.grok/skills/harness-adapter-qa`` and ``scripts/check_harness_adapters.py``.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
@@ -339,7 +343,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | Target | Action |
 |--------|--------|
 | ``just install`` | ``uv sync --group test --group dev`` (lint/test venv). Product install: ``uv tool install --editable .`` |
-| ``just lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` |
+| ``just lint`` | ruff check/format-check + mypy + ``check_fluent`` + ``check_typing_policy`` + ``check_harness_adapters`` |
 | ``just lint-fix`` | ruff autofix + format + mypy |
 | ``just lint-complexity`` | Size-limit report only (not in ``just ci``); see §4.6 |
 | ``just test`` | pytest (no coverage flag) |
@@ -415,7 +419,7 @@ Before claiming work done:
 
 1. **Feature delivery** checklist in §2 (docs, parity, schemas/examples) complete
    for the change — not only the code path you touched first.
-2. ``just lint`` (or mypy + fluent + typing policy + ruff) green.
+2. ``just lint`` (or mypy + fluent + typing policy + harness adapters + ruff) green.
 3. Owning tests for the touched files green (§11.6). Full suite on push
    or pull request.
 4. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.

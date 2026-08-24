@@ -73,6 +73,11 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
         count_fields=tuple((flag, wire) for flag, _count, wire in CATALOG_QUERY_COUNTS),
     ),
     CatalogQueryToken("in", "Directory the session was run in."),
+    CatalogQueryToken(
+        "harness",
+        "Disk adapter id.",
+        ("grok", "opencode", "claude", "codex", "gemini", "cursor", "aider", "pi", "copilot"),
+    ),
     CatalogQueryToken("model", "Model id substring."),
     CatalogQueryToken("task", "Task id substring."),
     *(

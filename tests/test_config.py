@@ -37,6 +37,7 @@ def test_defaults_when_missing() -> None:
     assert cfg.hud.global_shortcut == ""
     assert cfg.hud.desktop_notifications is True
     assert cfg.export.default_profile == ""
+    assert cfg.harness.host == ["grok"]
 
 
 def test_save_writes_toml_tables(tmp_path: Path) -> None:
@@ -48,6 +49,7 @@ def test_save_writes_toml_tables(tmp_path: Path) -> None:
     assert data["hud"]["global_shortcut"] == "Ctrl+K"
     assert data["live_refresh_workers"] == 1
     assert "export" in data
+    assert list(data["harness"]["host"]) == ["grok"]
 
 
 def test_update_keeps_comment(tmp_path: Path) -> None:
@@ -70,6 +72,11 @@ def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
     invalidate_config_cache()
     cfg = load_app_config()
     assert cfg.theme == "auto"
+
+
+def test_harness_host_normalizes_ids() -> None:
+    cfg = parse_app_config({"harness": {"host": ["OpenCode", "opencode", "pi"]}})
+    assert cfg.harness.host == ["opencode", "pi"]
 
 
 def test_dump_roundtrip() -> None:

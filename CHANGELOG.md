@@ -39,8 +39,8 @@ workspace diffs, Docker evals, and personas.
 ### Sessions
 
 - Eval sessions are Docker launches under `work/runs/traces`.
-- Host sessions are native Grok trees at `~/.grok/sessions` (always
-  loaded; `is:host` filters the list).
+- Host sessions are native stores enabled in `config.toml`
+  `[harness].host`. `is:host` and `harness:<id>` filter the list.
 - Subagent runs stay off the top list; open them from the parent
   (Summary or Timeline Subagents). Esc returns there.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,

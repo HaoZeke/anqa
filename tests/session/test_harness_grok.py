@@ -33,7 +33,7 @@ def test_harness_id_is_grok() -> None:
 def test_discover_finds_summary_json_session(tmp_path: Path) -> None:
     sd = _write_summary_session(tmp_path)
     found = discover([tmp_path])
-    assert sd.resolve() in {p.resolve() for p in found}
+    assert sd.resolve() in {p.locator.resolve() for p in found}
 
 
 def test_discover_host_root_uses_shallow_collector(tmp_path: Path, monkeypatch) -> None:
@@ -46,7 +46,7 @@ def test_discover_host_root_uses_shallow_collector(tmp_path: Path, monkeypatch) 
         lambda: host,
     )
     found = discover([host])
-    assert sess.resolve() in {p.resolve() for p in found}
+    assert sess.resolve() in {p.locator.resolve() for p in found}
     meta = load_meta(sess)
     assert meta.origin == "host"
 
@@ -67,6 +67,7 @@ def test_load_meta_returns_session_meta(tmp_path: Path) -> None:
     assert isinstance(meta, SessionMeta)
     assert meta.session_id == "meta-sid"
     assert meta.origin == "work"
+    assert meta.harness == "grok"
 
 
 def test_parse_timeline_minimal_session() -> None:

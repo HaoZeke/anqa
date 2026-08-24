@@ -67,6 +67,34 @@ class ExportPrefs(BaseModel):
         return str(value).strip() if isinstance(value, str) else ""
 
 
+class HarnessPrefs(BaseModel):
+    """``[harness]``: which native stores the host catalog includes."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    host: list[str] = Field(
+        default_factory=lambda: ["grok"],
+        description="Adapter ids scanned when the host catalog is on.",
+    )
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def _host(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            return ["grok"]
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            hid = str(item).strip().casefold()
+            if not hid or hid in seen:
+                continue
+            seen.add(hid)
+            out.append(hid)
+        return out or ["grok"]
+
+
 class AppConfig(BaseModel):
     """Canonical ``config.toml`` body."""
 
@@ -89,6 +117,7 @@ class AppConfig(BaseModel):
     )
     hud: HudPrefs = Field(default_factory=HudPrefs)
     export: ExportPrefs = Field(default_factory=ExportPrefs)
+    harness: HarnessPrefs = Field(default_factory=HarnessPrefs)
 
     @field_validator("theme", mode="before")
     @classmethod
@@ -168,6 +197,8 @@ def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     hud["desktop_notifications"] = cfg.hud.desktop_notifications
     export = _ensure_table(doc, "export")
     export["default_profile"] = cfg.export.default_profile
+    harness = _ensure_table(doc, "harness")
+    harness["host"] = list(cfg.harness.host)
 
 
 def parse_app_config(raw: JsonObject) -> AppConfig:
@@ -185,6 +216,7 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
     payload: JsonObject = {
         "hud": hud_raw,
         "export": raw.get("export") if isinstance(raw.get("export"), dict) else {},
+        "harness": raw.get("harness") if isinstance(raw.get("harness"), dict) else {},
     }
     for key in (
         "theme",

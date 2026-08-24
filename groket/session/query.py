@@ -141,6 +141,7 @@ class CatalogQueryRow:
     status: str = ""
     outcome: str = ""
     origin: str = ""
+    harness: str = ""
     path: str = ""
     git_repo: str = ""
     run_dir: str = ""
@@ -176,6 +177,7 @@ class CatalogQueryRow:
             status=json_as_str(row.get("status")),
             outcome=json_as_str(row.get("outcome")),
             origin=json_as_str(row.get("origin")),
+            harness=json_as_str(row.get("harness")) or "grok",
             path=json_as_str(row.get("path")),
             git_repo=json_as_str(row.get("gitRepo")),
             run_dir=json_as_str(row.get("runDir")),
@@ -216,6 +218,7 @@ class CatalogQueryRow:
             status=meta.list_status_label() or "",
             outcome=meta.turn_outcome or "",
             origin=meta.origin or "",
+            harness=(meta.harness or "grok"),
             path=path,
             git_repo=meta.git_repo or "",
             run_dir=meta.run_dir or "",
@@ -527,6 +530,8 @@ def _eval_field(field: str, expr: Item, row: CatalogQueryRow) -> bool:
         return _match_has(_term_text(expr).casefold(), row)
     if field == "in":
         return _match_in(_term_text(expr), row)
+    if field == "harness":
+        return _term_text(expr).casefold() == (row.harness or "grok").casefold()
     if field == "model":
         return _term_text(expr).casefold() in row.model.casefold()
     if field == "task":

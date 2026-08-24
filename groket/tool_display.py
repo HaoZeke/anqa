@@ -40,6 +40,7 @@ _TOOL_FAMILY_WRITE = frozenset(
 )
 _TOOL_FAMILY_SHELL = frozenset(
     {
+        "bash",
         "run_terminal_command",
         "get_command_or_subagent_output",
         "kill_command_or_subagent",

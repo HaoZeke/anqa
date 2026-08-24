@@ -1777,7 +1777,7 @@ class TraceEvalApp(App):
     ) -> tuple[str | Text, ...]:
         from ..session.sources import ORIGIN_HOST
 
-        origin = self._origin_for_dir(Path(meta.session_dir))
+        origin = (meta.origin or "").strip() or self._origin_for_dir(Path(meta.session_dir))
         origin_text = (
             Text(t("ui-origin-host"), style="magenta")
             if origin == ORIGIN_HOST

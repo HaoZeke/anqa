@@ -161,6 +161,8 @@ def session_meta_mapping(
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
         "origin": origin_key,
+        "harness": (meta.harness or "grok").strip() or "grok",
+        "harnessVersion": (meta.harness_version or "").strip(),
         "createdAt": meta.created_at or "",
         "updatedAt": meta.updated_at or "",
         "numMessages": int(meta.num_messages or 0),

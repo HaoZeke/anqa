@@ -157,6 +157,22 @@
             "compare": false
           },
           {
+            "name": "harness",
+            "role": "Disk adapter id.",
+            "values": [
+              "grok",
+              "opencode",
+              "claude",
+              "codex",
+              "gemini",
+              "cursor",
+              "aider",
+              "pi",
+              "copilot"
+            ],
+            "compare": false
+          },
+          {
             "name": "model",
             "role": "Model id substring.",
             "values": [],

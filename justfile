@@ -16,6 +16,7 @@ lint:
     uv run mypy groket
     uv run python scripts/check_fluent.py
     uv run python scripts/check_typing_policy.py
+    uv run python scripts/check_harness_adapters.py
 
 # Autofix ruff + format + mypy.
 lint-fix:

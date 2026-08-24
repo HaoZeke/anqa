@@ -499,7 +499,7 @@ def test_match_operators_are_uppercase_only(query: str, want: bool) -> None:
 def test_suggest_and_apply() -> None:
     assert suggest_last_token("") == []
     assert suggest_last_token("   ") == []
-    assert suggest_last_token("h") == ["has:"]
+    assert suggest_last_token("h") == ["has:", "harness:"]
     assert suggest_last_token("has:") == [f"has:{name}" for name in HAS_TOKENS]
     assert suggest_last_token("has:g") == ["has:goal", "has:git"]
     assert suggest_last_token("has:sub") == ["has:subagent"]

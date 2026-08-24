@@ -300,13 +300,41 @@ pub fn clamp_scroll(y: f32, content: f32, viewport: f32) -> f32 {
     y.clamp(0.0, (content - viewport).max(0.0))
 }
 
-/// Control `session` argument: live directory path, else id.
+/// Control `session` argument: live directory path, harness:id, else id.
 pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
     let path = path.trim();
     if !path.is_empty() && std::path::Path::new(path).is_dir() {
         return path.to_string();
     }
+    if is_harness_ref(path) {
+        return path.to_string();
+    }
     session_id.trim().to_string()
+}
+
+fn is_harness_ref(path: &str) -> bool {
+    if path.contains('/') || path.contains('\\') {
+        return false;
+    }
+    let Some((head, tail)) = path.split_once(':') else {
+        return false;
+    };
+    if tail.is_empty() {
+        return false;
+    }
+    matches!(
+        head,
+        "grok"
+            | "opencode"
+            | "claude"
+            | "codex"
+            | "gemini"
+            | "cursor"
+            | "aider"
+            | "pi"
+            | "copilot"
+            | "kimi"
+    )
 }
 
 /// Event pages load whenever the Events pane is active (with a session).
@@ -1543,6 +1571,10 @@ mod tests {
             "uuid"
         );
         assert_eq!(session_rpc_ref("", "uuid"), "uuid");
+        assert_eq!(
+            session_rpc_ref("opencode:ses_abc", "ses_abc"),
+            "opencode:ses_abc"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

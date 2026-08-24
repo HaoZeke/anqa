@@ -2,8 +2,7 @@
 
 Public harness contract for harness id ``grok``. Implementation lives in
 :mod:`groket.parser` and :mod:`groket.session.sources`; this module wraps
-those APIs. :class:`~groket.models.SessionMeta` has no ``harness`` field
-and no extras bag; catalog row ``harness`` is not set here.
+those APIs.
 """
 
 from __future__ import annotations
@@ -20,15 +19,32 @@ from ..session.sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
     collect_host_session_dirs,
+    host_grok_sessions_root,
     is_host_grok_sessions_root,
     is_under_host_grok_sessions,
 )
+from .ref import SessionRef
 
 GROK_HARNESS_ID = "grok"
 
 
-def discover(roots: Sequence[Path | str]) -> list[Path]:
-    """List unique Grok session directories under *roots*.
+def _ref_for_dir(path: Path) -> SessionRef:
+    origin = ORIGIN_HOST if is_under_host_grok_sessions(path) else ORIGIN_WORK
+    loc = Path(path)
+    try:
+        loc = loc.resolve()
+    except OSError:
+        pass
+    return SessionRef(
+        harness=GROK_HARNESS_ID,
+        session_id=loc.name,
+        origin=origin,
+        locator=loc,
+    )
+
+
+def discover(roots: Sequence[Path | str]) -> list[SessionRef]:
+    """List unique Grok sessions under *roots*.
 
     Host ``~/.grok/sessions`` uses
     :func:`~groket.session.sources.collect_host_session_dirs`. Every other
@@ -36,9 +52,9 @@ def discover(roots: Sequence[Path | str]) -> list[Path]:
     are dropped (first-seen wins).
 
     :param roots: Trees to scan.
-    :returns: Session directories in first-seen order.
+    :returns: Session refs in first-seen order.
     """
-    found: list[Path] = []
+    found: list[SessionRef] = []
     seen: set[str] = set()
     for raw in roots:
         root = Path(raw).expanduser()
@@ -54,7 +70,7 @@ def discover(roots: Sequence[Path | str]) -> list[Path]:
             if key in seen:
                 continue
             seen.add(key)
-            found.append(sd)
+            found.append(_ref_for_dir(sd))
     return found
 
 
@@ -92,7 +108,9 @@ def load_meta(ref: Path | str) -> SessionMeta:
     """
     path = Path(ref).expanduser()
     origin = ORIGIN_HOST if is_under_host_grok_sessions(path) else ORIGIN_WORK
-    return load_session_meta_list(path, origin=origin)
+    meta = load_session_meta_list(path, origin=origin)
+    meta.harness = GROK_HARNESS_ID
+    return meta
 
 
 def parse_timeline(ref: Path | str) -> list[TraceEvent]:
@@ -116,8 +134,44 @@ def watch_hints() -> tuple[str, ...]:
     return TRACE_FILE_HINTS
 
 
+class GrokAdapter:
+    """Directory-shaped Grok Build store."""
+
+    id: str = GROK_HARNESS_ID
+    product: str = "Grok Build"
+    supported_version: str = "1.0.5"
+
+    def default_host_roots(self) -> list[Path]:
+        return [host_grok_sessions_root()]
+
+    def discover(self, roots: Sequence[Path | str] | None = None) -> list[SessionRef]:
+        return discover(self.default_host_roots() if roots is None else roots)
+
+    def looks_like(self, ref: SessionRef | Path | str) -> bool:
+        if isinstance(ref, SessionRef):
+            return ref.harness == GROK_HARNESS_ID and looks_like(ref.locator)
+        return looks_like(ref)
+
+    def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
+        if isinstance(ref, SessionRef):
+            return load_meta(ref.locator)
+        return load_meta(ref)
+
+    def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
+        if isinstance(ref, SessionRef):
+            return parse_timeline(ref.locator)
+        return parse_timeline(ref)
+
+    def ref_for_id(self, session_id: str) -> SessionRef | None:
+        return None
+
+    def watch_hints(self) -> tuple[str, ...]:
+        return watch_hints()
+
+
 __all__ = [
     "GROK_HARNESS_ID",
+    "GrokAdapter",
     "discover",
     "load_meta",
     "looks_like",

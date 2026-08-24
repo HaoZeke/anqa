@@ -109,10 +109,16 @@ def catalog_scan_roots(
     :param host_root: Override for the host sessions root (tests).
     :returns: Ordered scan roots (work first).
     """
+    want_host = effective_include_host(include_host)
+    include_grok_host = want_host
+    if want_host:
+        from ..harness.registry import enabled_host_ids
+
+        include_grok_host = "grok" in enabled_host_ids()
     return session_scan_roots(
         work_dir,
         traces_path=traces_path,
-        include_host=effective_include_host(include_host),
+        include_host=include_grok_host,
         host_root=host_root,
     )
 
@@ -167,6 +173,8 @@ def session_catalog_row(
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
         "origin": meta.origin or origin,
+        "harness": (meta.harness or "grok").strip() or "grok",
+        "harnessVersion": (meta.harness_version or "").strip(),
         # Home-list columns for attach-mode TUI (and any rich client).
         "taskId": meta.task_id or "",
         "gitRepo": meta.git_repo or "",
@@ -251,6 +259,8 @@ def list_session_catalog(
                 build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_HOST),
             )
         )
+    if effective_include_host(include_host):
+        rows.extend(_foreign_host_catalog_rows())
     rows.sort(
         key=lambda r: (
             -catalog_row_sort_epoch(r),
@@ -270,6 +280,8 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "status",
     "outcome",
     "origin",
+    "harness",
+    "harnessVersion",
     "taskId",
     "gitRepo",
     "runDir",
@@ -874,10 +886,13 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
         origin = ORIGIN_HOST
     else:
         origin = raw_origin or ORIGIN_WORK
+    harness = str(row.get("harness") or "grok").strip() or "grok"
     meta = SessionMeta(
         session_id=sid or session_dir.name,
         session_dir=session_dir,
         origin=origin,
+        harness=harness,
+        harness_version=str(row.get("harnessVersion") or "").strip(),
     )
     title = str(row.get("title") or "").strip()
     if title:
@@ -980,6 +995,22 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     if window is not None and window > 0:
         meta.context_window_tokens = window
     return meta
+
+
+def _foreign_host_catalog_rows() -> list[JsonObject]:
+    """Native non-Grok stores (OpenCode sqlite, …)."""
+    from ..harness.registry import enabled_host_adapters
+    from ..harness.views import catalog_row_from_ref
+
+    rows: list[JsonObject] = []
+    for item in enabled_host_adapters():
+        if item.id == "grok":
+            continue
+        for ref in item.discover():
+            row = catalog_row_from_ref(ref)
+            if row is not None:
+                rows.append(row)
+    return rows
 
 
 def resolve_session_reference(

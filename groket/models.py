@@ -459,8 +459,12 @@ class SessionMeta:
     git_commit: str = ""
     task_id: str = ""
     run_id: str = ""
-    # Catalog origin: ``work`` (Docker/eval under work traces) or ``host`` (native Grok).
+    # Catalog origin: ``work`` (Docker/eval under work traces) or ``host`` (native store).
     origin: str = "work"
+    # Disk adapter id (``grok``, ``opencode``, …). Default keeps existing rows Grok.
+    harness: str = "grok"
+    # Product version recorded on the session, when the store has one.
+    harness_version: str = ""
     # From events.jsonl runtime telemetry
     # success | error | cancelled | interrupted | running | ""
     turn_outcome: str = ""
