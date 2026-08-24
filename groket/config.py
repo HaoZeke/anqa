@@ -162,6 +162,7 @@ def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     doc["show_host_sessions"] = cfg.show_host_sessions
     doc["auto_serve"] = cfg.auto_serve
     doc["live_refresh_workers"] = cfg.live_refresh_workers
+    # Dropped key; ignored on read so a leftover file does not grow it back.
     if "analysis" in doc:
         del doc["analysis"]
     hud = _ensure_table(doc, "hud")

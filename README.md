@@ -84,13 +84,15 @@ default_profile = ""
 ```
 
 `theme = "auto"`: the terminal app follows the terminal (`COLORFGBG`,
-then the desktop) and paints `ansi-light` / `ansi-dark`. The desktop
-palette follows the system light/dark pair and, when the OS reports
-it, system paper and ink. Picking any member of a named pair
-(`gruvbox` or `gruvbox-light`) stores the family; both clients apply
-the desktop member. An unpaired name (`nord`) pins both clients. Drop
-a TOML file in `~/.groket/themes/` (see
-[`examples/themes/`](examples/themes/)) and point `theme` at its stem.
+then the desktop) and paints the host pair paper (`ansi-light` /
+`ansi-dark`). The desktop palette follows the system light/dark pair
+and, when the OS reports it, system paper and ink. Picking any member
+of a named pair (`gruvbox` or `gruvbox-light`) stores the family and
+sets `follow_os = true`; both clients apply the desktop member. An
+unpaired name (`nord`) pins both clients. Aliases `groket` and
+`groket-light` mean `auto`. Drop a TOML file in `~/.groket/themes/`
+(see [`examples/themes/`](examples/themes/)) and point `theme` at its
+stem.
 
 Key remaps stay in `keys.toml` (below), not in this file.
 

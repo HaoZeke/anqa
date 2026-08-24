@@ -41,6 +41,7 @@ from textual.widgets import (
 )
 
 from ... import event_types as et
+from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
 from ...integrations.control import ControlError
 from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ...notes import (
@@ -235,6 +236,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._diff_doc = WorkspaceDiff(())
         self._timeline_filter: str = "all"
         self._timeline_search: str = ""
+        self._timeline_hint_line: str = ""
+        self._timeline_events_complete: bool = True
         self._requested_prompt_index = prompt_index
         self._notes_updating: bool = False
         self._live_refresh_timer: Timer | None = None
@@ -1541,14 +1544,21 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if self._uses_control_data():
                 total = self._load_control_first_page()
                 remainder = (len(self.timeline or []), total)
+                self._timeline_events_complete = remainder[1] <= remainder[0]
                 self._last_timeline_parse_at = time.monotonic()
                 self._last_trace_mtime = None
             else:
                 self._load_offline_session()
+                self._timeline_events_complete = True
                 self._last_timeline_parse_at = time.monotonic()
             self._commit_loaded_session()
-            if remainder[1] > remainder[0]:
-                self._load_control_remainder(remainder[0], remainder[1])
+            try:
+                if remainder[1] > remainder[0]:
+                    self._load_control_remainder(remainder[0], remainder[1])
+            finally:
+                self._timeline_events_complete = True
+            if self._timeline_search:
+                self._start_timeline_search_worker()
         except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
             self._on_control_browser_error(exc, notify=True)
         finally:
@@ -2769,8 +2779,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 pass
             self._search_debounce = None
-        from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
-
         self._search_debounce = self.set_timer(
             TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_timeline_search
         )
@@ -2786,7 +2794,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             tools = list(self.query_one("#timeline-list", TimelineTable).tool_names)
         hits = suggest_last_token(self._timeline_search, scope="timeline", tools=tools)
         line = "  ".join(hits[:8]) if hits else ""
-        if getattr(self, "_timeline_hint_line", None) == line:
+        if self._timeline_hint_line == line:
             return
         self._timeline_hint_line = line
         hint.display = True
@@ -2800,7 +2808,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _start_timeline_search_worker(self) -> None:
         """Copy table state on this thread, then match off it."""
-        query = getattr(self, "_timeline_search", "") or ""
+        query = self._timeline_search or ""
+        if not self._timeline_events_complete:
+            return
         try:
             tl = self.query_one("#timeline-list", TimelineTable)
         except NoMatches:
@@ -3021,14 +3031,25 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         with suppress(Exception):
             self.query_one("#search-input", Input).focus()
 
-    def _apply_filter(self, **kwargs) -> None:
+    def _apply_filter(
+        self,
+        *,
+        kind: str | None = None,
+        errors_only: bool = False,
+        search_query: str | None = None,
+        event_type: str | None = None,
+        event_types: set[str] | None = None,
+    ) -> None:
         keep = self._timeline_search_has_focus()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
-        if "event_indices" not in kwargs:
-            kwargs["event_indices"] = self._turn_event_indices()
-        if "search_query" not in kwargs:
-            kwargs["search_query"] = getattr(self, "_timeline_search", "") or ""
-        timeline_table.apply_filter(**kwargs)
+        timeline_table.apply_filter(
+            kind=kind,
+            errors_only=errors_only,
+            search_query=self._timeline_search if search_query is None else search_query,
+            event_type=event_type,
+            event_types=event_types,
+            event_indices=self._turn_event_indices(),
+        )
         if keep:
             self._restore_timeline_search_focus()
 

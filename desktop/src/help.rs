@@ -728,7 +728,7 @@ mod tests {
         assert!(tblob.contains("j down"), "{tblob}");
         assert!(tblob.contains("g go"), "{tblob}");
 
-        let findings = footer_table(KeyScope {
+        let report = footer_table(KeyScope {
             browse: true,
             help_open: false,
             timeline_detail: false,
@@ -743,11 +743,11 @@ mod tests {
             note_focused: false,
             notes_composing: false,
         });
-        let fblob = findings.footer_hints().join("  ·  ");
+        let fblob = report.footer_hints().join("  ·  ");
         assert!(!fblob.contains("enter open"), "{fblob}");
         assert!(fblob.contains("j down"), "{fblob}");
         assert!(
-            !findings.footer_hints().iter().any(|h| h.starts_with("h ")),
+            !report.footer_hints().iter().any(|h| h.starts_with("h ")),
             "{fblob}"
         );
 
@@ -946,7 +946,7 @@ mod tests {
         assert!(overview.get("list.down").is_none());
         assert!(overview.get("pane.next").is_some());
 
-        let findings = help_table(KeyScope {
+        let notes = help_table(KeyScope {
             browse: true,
             help_open: false,
             timeline_detail: false,
@@ -961,14 +961,14 @@ mod tests {
             note_focused: false,
             notes_composing: false,
         });
-        assert!(findings.get("session.open").is_some());
-        assert!(findings.get("list.down").is_some());
-        assert!(findings.get("list.up").is_some());
-        assert!(findings.get("session.open").is_some());
-        assert!(findings.get("session.note_edit").is_none());
-        assert!(findings.get("session.delete").is_some());
-        assert!(findings.get("events.next_turn").is_none());
-        assert!(findings.get("pane.next").is_some());
+        assert!(notes.get("session.open").is_some());
+        assert!(notes.get("list.down").is_some());
+        assert!(notes.get("list.up").is_some());
+        assert!(notes.get("session.open").is_some());
+        assert!(notes.get("session.note_edit").is_none());
+        assert!(notes.get("session.delete").is_some());
+        assert!(notes.get("events.next_turn").is_none());
+        assert!(notes.get("pane.next").is_some());
 
         let sheet = help_table(picker());
         assert!(sheet.get("session.open").is_some());

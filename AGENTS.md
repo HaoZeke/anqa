@@ -723,11 +723,13 @@ that collides with a shared key in this table.
 
 ## 7. Styling
 
-Default chrome follows the host. ``theme = "auto"``: both the TUI and the
-HUD use the desktop light/dark pair (``ansi-light`` / ``ansi-dark``, same
-paper as icedtea ``light`` / ``dark``). Picking any member of a named pair
-stores the family (``gruvbox``); both clients apply the desktop member.
-An unpaired name pins both clients.
+Default chrome follows the host. ``theme = "auto"``: the TUI picks
+``ansi-light`` / ``ansi-dark`` from the terminal (``COLORFGBG``, then
+the desktop). The HUD uses the system light/dark pair (icedtea
+``light`` / ``dark``) and system paper when the OS reports it. Picking
+any member of a named pair stores the family (``gruvbox``) and sets
+``follow_os``; both clients apply the desktop member. An unpaired name
+pins both clients.
 
 Color by **role**, never a raw hex on the default path.
 

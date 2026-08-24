@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Literal
 
 import dateparser
+from luqum.exceptions import InconsistentQueryException, ParseError
 from luqum.parser import parser as luqum_parser
 from luqum.tree import (
     AndOperation,
@@ -301,7 +302,7 @@ def row_matches_query(row: CatalogQueryRow, query: str) -> bool:
 def _parsed_tree(text: str) -> Item | None:
     try:
         return _RESOLVE_AND(luqum_parser.parse(prepare_query(text)))
-    except Exception:
+    except (ParseError, InconsistentQueryException):
         return None
 
 

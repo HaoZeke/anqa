@@ -12,7 +12,7 @@ from textual.widgets import DataTable
 from ... import event_types as et
 from ...constants import LIVE_TIMELINE_TAIL_CHECK
 from ...models import ToolInputBag, TraceEvent
-from ...session.event_search import event_durations, matching_indexes
+from ...session.event_search import event_durations
 from ...session.jobs import event_job_kind, event_task_id
 from ...session.subagents import (
     event_child_session_id,
@@ -254,22 +254,15 @@ class TimelineTable(DataTable):
         last_ix = int(last.index) if last is not None else -1
         return f"table:{id(self)}", (float(len(evs)), first_ix, last_ix, 0)
 
-    def _query_hits(self, events: list[TraceEvent], query: str) -> set[int] | None:
+    def _query_hits(self, _events: list[TraceEvent], query: str) -> set[int] | None:
         text = (query or "").strip()
         if not text:
             return None
         if self._hits_ready and text == self._hit_query:
             return self._hit_indexes
-        key, stamp = self.search_identity(events)
-        return set(
-            matching_indexes(
-                events,
-                text,
-                key=key,
-                stamp=stamp,
-                turns=self._turn_by_index,
-            )
-        )
+        if self._hit_indexes is not None and self._hit_query:
+            return self._hit_indexes
+        return None
 
     def _rebuild_tool_names(self) -> None:
         seen: set[str] = set()

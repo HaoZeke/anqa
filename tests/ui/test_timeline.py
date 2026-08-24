@@ -618,8 +618,22 @@ async def test_timeline_filter_search_query() -> None:
         tl = app.query_one("#timeline-list", TimelineTable)
         events = _basic_events()
         tl.load_events(events)
+        hello = {int(ev.index) for ev in events if "hello" in (ev.content or "").lower()}
+        tl.set_search_hits("hello", hello)
         tl.apply_filter(search_query="hello")
         assert tl.row_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_apply_filter_keeps_rows_until_search_hits() -> None:
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = _basic_events()
+        tl.load_events(events)
+        before = tl.row_count
+        tl.apply_filter(search_query="hello")
+        assert tl.row_count == before
 
 
 @pytest.mark.asyncio
@@ -629,6 +643,10 @@ async def test_timeline_is_assistant_filters_loaded_events() -> None:
         tl = app.query_one("#timeline-list", TimelineTable)
         events = _basic_events()
         tl.load_events(events)
+        from groket.session.query import event_matches_query
+
+        hits = {int(ev.index) for ev in events if event_matches_query(ev, "is:assistant")}
+        tl.set_search_hits("is:assistant", hits)
         tl.apply_filter(search_query="is:assistant")
         kinds = {ev.event_type for ev in tl.visible_events()}
         assert kinds

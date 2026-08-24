@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from importlib import resources
 from pathlib import Path
+from typing import Protocol
 
 from textual.theme import Theme
 
@@ -168,24 +169,27 @@ def family_of_theme(name: str) -> str | None:
     return _FAMILY.get(key)
 
 
-def register_catalog_themes(app: object, *, user_root: Path | None = None) -> None:
+class ThemeHost(Protocol):
+    """Object that can take a Textual catalog theme."""
+
+    def register_theme(self, theme: Theme) -> None: ...
+
+
+def register_catalog_themes(app: ThemeHost, *, user_root: Path | None = None) -> None:
     """Register community and user themes on a Textual app.
 
-    :param app: ``App`` with ``register_theme``.
+    :param app: ``App`` (or test stub) with ``register_theme``.
     :param user_root: Optional themes directory (tests).
     """
-    register = getattr(app, "register_theme", None)
-    if not callable(register):
-        return
     for theme in host_pair_themes():
-        register(theme)
+        app.register_theme(theme)
     for theme in community_themes():
-        register(theme)
+        app.register_theme(theme)
     for theme in load_user_themes(user_root):
-        register(theme)
+        app.register_theme(theme)
 
 
-def resolve_theme(pref: str, desktop: Appearance, *, follow_os: bool = True) -> str:
+def resolve_theme(pref: str, desktop: Appearance, *, follow_os: bool = False) -> str:
     """Concrete catalog name for *pref*.
 
     ``auto`` / empty follows the look passed in (terminal, then desktop).

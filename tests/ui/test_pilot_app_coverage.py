@@ -450,15 +450,15 @@ async def test_follow_desktop_appearance(tmp_path: Path) -> None:
         app._config["follow_os"] = False
         app.apply_saved_theme(save=False)
         assert app.theme == "gruvbox-light"
-        app._desktop_appearance = "dark" if appearance() == "light" else "light"
+        app._host_look = "dark" if appearance() == "light" else "light"
         app._follow_desktop_appearance()
         assert app.theme == "gruvbox-light"
 
         app._config["follow_os"] = True
         app._config["theme"] = "gruvbox"
-        app._desktop_appearance = appearance()
+        app._host_look = appearance()
         app.apply_saved_theme(save=False)
-        assert app.theme == resolve_theme("gruvbox", appearance())
+        assert app.theme == resolve_theme("gruvbox", appearance(), follow_os=True)
         assert app._config.get("theme") == "gruvbox"
 
 

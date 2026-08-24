@@ -231,7 +231,7 @@ fn catalog_colors(name: &str) -> Option<Value> {
 fn is_auto(pref: &str) -> bool {
     matches!(
         pref.trim().to_ascii_lowercase().as_str(),
-        "" | "auto" | "system" | "default" | "ansi" | "groket" | "groket-light"
+        "" | "auto" | "system" | "default" | "groket" | "groket-light"
     )
 }
 
@@ -242,26 +242,26 @@ fn host_pair(appearance: icedtea::theme::Appearance) -> String {
     }
 }
 
-/// Portal `color-scheme`: 1 dark, 2 light. Other output is unknown.
-pub fn appearance_from_portal_stdout(out: &str) -> Option<icedtea::theme::Appearance> {
+/// Portal `color-scheme`: 1 dark; 2, 0, or empty is light (same as the TUI).
+pub fn appearance_from_portal_stdout(out: &str) -> icedtea::theme::Appearance {
     if out.contains("uint32 1") {
-        Some(icedtea::theme::Appearance::Dark)
-    } else if out.contains("uint32 2") {
-        Some(icedtea::theme::Appearance::Light)
+        icedtea::theme::Appearance::Dark
     } else {
-        None
+        icedtea::theme::Appearance::Light
     }
 }
 
-/// `None` (no preference) keeps *current* unless the portal has an explicit pair.
+/// `None` (no preference) uses the portal, then light.
 pub fn appearance_from_mode(
     mode: icedtea::iced::theme::Mode,
-    current: icedtea::theme::Appearance,
+    _current: icedtea::theme::Appearance,
 ) -> icedtea::theme::Appearance {
     match mode {
         icedtea::iced::theme::Mode::Dark => icedtea::theme::Appearance::Dark,
         icedtea::iced::theme::Mode::Light => icedtea::theme::Appearance::Light,
-        icedtea::iced::theme::Mode::None => portal_appearance().unwrap_or(current),
+        icedtea::iced::theme::Mode::None => {
+            portal_appearance().unwrap_or(icedtea::theme::Appearance::Light)
+        }
     }
 }
 
@@ -269,22 +269,27 @@ pub fn appearance_from_mode(
 pub fn portal_appearance() -> Option<icedtea::theme::Appearance> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let out = std::process::Command::new("gdbus")
-            .args([
-                "call",
-                "--session",
-                "--dest=org.freedesktop.portal.Desktop",
-                "--object-path=/org/freedesktop/portal/desktop",
-                "--method=org.freedesktop.portal.Settings.Read",
-                "org.freedesktop.appearance",
-                "color-scheme",
-            ])
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            return None;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let out = std::process::Command::new("gdbus")
+                .args([
+                    "call",
+                    "--session",
+                    "--dest=org.freedesktop.portal.Desktop",
+                    "--object-path=/org/freedesktop/portal/desktop",
+                    "--method=org.freedesktop.portal.Settings.Read",
+                    "org.freedesktop.appearance",
+                    "color-scheme",
+                ])
+                .output();
+            let _ = tx.send(out);
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(1)) {
+            Ok(Ok(out)) if out.status.success() => Some(appearance_from_portal_stdout(
+                &String::from_utf8_lossy(&out.stdout),
+            )),
+            Ok(Ok(_)) | Ok(Err(_)) | Err(_) => Some(icedtea::theme::Appearance::Light),
         }
-        appearance_from_portal_stdout(&String::from_utf8_lossy(&out.stdout))
     }
     #[cfg(not(all(unix, not(target_os = "macos"))))]
     {
@@ -381,9 +386,7 @@ pub fn tokens(name: &str) -> Tokens {
 /// Theme colors with live look knobs (density, type scale, shape, elevation).
 pub fn tokens_with(name: &str, look: Look) -> Tokens {
     let key = name.trim();
-    let tok = if is_auto(key) {
-        icedtea::theme::named("dark").tokens
-    } else if let Some(user) = user_theme_tokens(key) {
+    let tok = if let Some(user) = user_theme_tokens(key) {
         user
     } else if catalog_colors(key).is_some() {
         textual_tokens(key)
@@ -573,14 +576,25 @@ mod tests {
         use icedtea::theme::Appearance;
         assert_eq!(
             appearance_from_portal_stdout("(<<uint32 1>>,)"),
-            Some(Appearance::Dark)
+            Appearance::Dark
         );
         assert_eq!(
             appearance_from_portal_stdout("(<<uint32 2>>,)"),
-            Some(Appearance::Light)
+            Appearance::Light
         );
-        assert_eq!(appearance_from_portal_stdout("(<<uint32 0>>,)"), None);
-        assert_eq!(appearance_from_portal_stdout(""), None);
+        assert_eq!(
+            appearance_from_portal_stdout("(<<uint32 0>>,)"),
+            Appearance::Light
+        );
+        assert_eq!(appearance_from_portal_stdout(""), Appearance::Light);
+    }
+
+    #[test]
+    fn ansi_pref_is_a_family_not_auto() {
+        use icedtea::theme::Appearance;
+        assert_eq!(resolve_name("ansi", Appearance::Light, true), "light");
+        assert_eq!(resolve_name("ansi", Appearance::Dark, false), "ansi");
+        assert_eq!(resolve_name("ansi-light", Appearance::Dark, false), "light");
     }
 
     #[test]

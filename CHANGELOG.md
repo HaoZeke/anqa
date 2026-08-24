@@ -20,22 +20,21 @@ is tagged.
   and system paper when the OS reports it. Named catalog themes
   (Catppuccin, Nord, GitHub, Everforest, Kanagawa, and others) and a
   drop-in `~/.groket/themes/` file pin a colorway on both clients.
-  Status uses success / caution / danger / quiet — not a brand cream
-  overlay.
+  Status uses success / caution / danger / quiet.
 - Timeline search accepts `tool:`, `turn:`, `user:`, and `duration:`
   (same seconds as Dur) as well as `is:` / `has:error`. Turns and
   Timeline show last-token hints. The terminal search box is a
   full-width row under Filter / Turn / Tail. Typing in those boxes
   keeps the caret (no remount / loading flash).
-- Catalog and the desktop Timeline / Turns search apply after 0.28s
-  idle. The palette sends the committed query to `groket serve`.
+- Catalog, Timeline, and Turns search apply after 0.28s idle on both
+  clients. The palette sends the committed query to `groket serve`.
+  The terminal box matches loaded events (the first page, then the
+  rest once they arrive). Structured tokens do not wait on full-text.
+  Unfinished `AND` / `is:err` keep the last complete clause. A
+  zero-hit desktop search shows an empty list, not a spinner.
   `AND` clause order does not change the match.
 - A failed Timeline tool keeps its family color. Failure is a mark after
   the name (terminal warning sign, desktop icedtea error icon).
-- Terminal Timeline search updates as soon as the matcher answers.
-  Structured tokens (`is:`, `has:`, `tool:`, `turn:`) do not wait on
-  full-text. Unfinished `AND` / `is:err` keep the last complete clause.
-  A zero-hit desktop search shows an empty list, not a spinner.
 - Search tokens for the current list are on the box tooltip. Last-token
   completions still appear while you type. `?` no longer lists every token.
 - Catalog search understands a query language (`is:host`,
@@ -98,8 +97,7 @@ is tagged.
   form.
 - A HUD note field that is a fenced code block paints as highlighted
   code.
-- The session list summary is the session count. It does not say
-  pending analysis or findings totals.
+- The session list summary is the session count.
 - A client that resets the control socket no longer logs an unhandled
   exception in groket serve.
 - Summary and HUD Tasks open a schedule the same way as a job: Enter

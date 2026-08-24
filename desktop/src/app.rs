@@ -546,10 +546,10 @@ impl Default for Hud {
             tl_search_id: Id::new("tl-search"),
             theme_name: theme::resolve_name(
                 &prefs::theme_name(),
-                icedtea::theme::Appearance::Dark,
+                icedtea::theme::Appearance::Light,
                 prefs::follow_os(),
             ),
-            appearance: icedtea::theme::Appearance::Dark,
+            appearance: icedtea::theme::Appearance::Light,
             os_chrome: icedtea::theme::OsChrome::empty(),
             _hotkeys: None,
             _tray: None,
@@ -919,7 +919,8 @@ impl Hud {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::OsMode(mode) => {
-                self.appearance = theme::appearance_from_mode(mode, self.appearance);
+                self.appearance = theme::portal_appearance()
+                    .unwrap_or_else(|| theme::appearance_from_mode(mode, self.appearance));
                 self.sync_theme();
                 Task::none()
             }
@@ -5208,6 +5209,8 @@ impl Hud {
     fn resample_host_look(&mut self) -> Task<Message> {
         if let Some(look) = theme::portal_appearance() {
             self.appearance = look;
+            self.sync_theme();
+            return Task::none();
         }
         self.sync_theme();
         icedtea::iced::system::theme().map(Message::OsMode)

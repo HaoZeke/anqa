@@ -51,17 +51,15 @@ def test_ansi_light_paper_matches_host_light() -> None:
 
 
 def test_named_pair_follows_only_when_asked() -> None:
-    assert resolve_theme("gruvbox", "light") == "gruvbox-light"
-    assert resolve_theme("gruvbox", "dark") == "gruvbox"
-    assert resolve_theme("gruvbox-light", "dark") == "gruvbox"
+    assert resolve_theme("gruvbox", "light") == "gruvbox"
+    assert resolve_theme("gruvbox", "dark", follow_os=True) == "gruvbox"
+    assert resolve_theme("gruvbox", "light", follow_os=True) == "gruvbox-light"
+    assert resolve_theme("gruvbox-light", "dark", follow_os=True) == "gruvbox"
     assert resolve_theme("gruvbox", "light", follow_os=False) == "gruvbox"
     assert resolve_theme("nord", "light") == "nord"
-    assert resolve_theme("github-dark", "light") == "github-light"
-    assert resolve_theme("kanagawa-wave", "light") == "kanagawa-lotus"
-
-
-def test_register_catalog_themes_skips_without_hook() -> None:
-    register_catalog_themes(object())
+    assert resolve_theme("github-dark", "light") == "github-dark"
+    assert resolve_theme("github-dark", "light", follow_os=True) == "github-light"
+    assert resolve_theme("kanagawa-wave", "light", follow_os=True) == "kanagawa-lotus"
 
 
 def test_register_catalog_includes_community() -> None:
