@@ -70,7 +70,6 @@ Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
 
 theme = "auto"
 follow_os = false
-show_host_sessions = false
 auto_serve = true
 live_refresh_workers = 1
 
@@ -114,8 +113,8 @@ groket keys --check      # exit 1 on overlay errors
 ## Eval and Host
 
 **Eval** sessions are Docker launches under `work/runs/traces`. **Host**
-sessions are native Grok trees at `~/.grok/sessions` (real paths; `H`
-shows or hides them). `groket -P ~/.grok/sessions` browses Host while
+sessions are native Grok trees at `~/.grok/sessions` (always loaded;
+`is:host` filters the list). `groket -P ~/.grok/sessions` browses Host while
 keeping the default work root for new runs. Notes on Host sessions write
 under `~/.groket/notes/<session_id>/`. Every note has a `source` (who
 wrote it). Control `notes/upsert` accepts any field bag plus that

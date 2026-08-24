@@ -8,27 +8,15 @@ from pathlib import Path
 import groket.notes as notes_mod
 import pytest
 from groket.notes import (
-    NOTE_SOURCE_HUD,
-    NOTE_SOURCE_TUI,
     NOTES_FILENAME,
     NoteEntry,
     NotesDoc,
     collect_notes_for_export,
-    foreign_note_source,
     load_notes,
     notes_mtime,
     parse_toml,
     save_notes,
 )
-
-
-def test_foreign_note_source_hides_this_surface() -> None:
-    assert foreign_note_source("tui", surface=NOTE_SOURCE_TUI) == ""
-    assert foreign_note_source("hud", surface=NOTE_SOURCE_HUD) == ""
-    assert foreign_note_source("nvim", surface=NOTE_SOURCE_TUI) == "nvim"
-    assert foreign_note_source("mf-plugin", surface=NOTE_SOURCE_HUD) == "mf-plugin"
-    assert foreign_note_source("", surface=NOTE_SOURCE_TUI) == ""
-    assert foreign_note_source("  ", surface=NOTE_SOURCE_TUI) == ""
 
 
 def test_load_empty(tmp_path: Path) -> None:

@@ -29,7 +29,7 @@ def _mtime_ns(path: Path) -> int:
         st = path.stat()
     except OSError:
         return 0
-    return int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+    return int(st.st_mtime_ns)
 
 
 def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:

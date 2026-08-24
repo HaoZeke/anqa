@@ -317,12 +317,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "home.host",
-        scope: "home",
-        default: "H",
-        remappable: true,
-    },
-    CatalogRow {
         id: "browser.view_filter",
         scope: "browser",
         default: "v",

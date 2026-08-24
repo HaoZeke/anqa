@@ -80,10 +80,6 @@ class AppConfig(BaseModel):
         default=False,
         description="Named pairs follow the host light/dark setting.",
     )
-    show_host_sessions: bool = Field(
-        default=False,
-        description="List native ~/.grok/sessions next to Docker eval traces.",
-    )
     auto_serve: bool = Field(
         default=True,
         description="Detach-start groket serve when the control socket is free.",
@@ -159,12 +155,13 @@ def _ensure_table(container: tomlkit.TOMLDocument | Table, key: str) -> Table:
 def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
     doc["theme"] = cfg.theme
     doc["follow_os"] = cfg.follow_os
-    doc["show_host_sessions"] = cfg.show_host_sessions
     doc["auto_serve"] = cfg.auto_serve
     doc["live_refresh_workers"] = cfg.live_refresh_workers
-    # Dropped key; ignored on read so a leftover file does not grow it back.
+    # Dropped keys; ignored on read so a leftover file does not grow them back.
     if "analysis" in doc:
         del doc["analysis"]
+    if "show_host_sessions" in doc:
+        del doc["show_host_sessions"]
     hud = _ensure_table(doc, "hud")
     hud["window_mode"] = cfg.hud.window_mode
     hud["global_shortcut"] = cfg.hud.global_shortcut
@@ -192,7 +189,6 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
     for key in (
         "theme",
         "follow_os",
-        "show_host_sessions",
         "auto_serve",
         "live_refresh_workers",
     ):

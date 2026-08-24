@@ -321,15 +321,12 @@ def test_session_open_is_only_open_session() -> None:
     assert action_by_id("personas.open").surfaces is ActionSurface.TUI
 
 
-def test_host_sessions_is_one_remappable_id() -> None:
+def test_host_sessions_has_no_toggle_action() -> None:
+    assert "home.host" not in ACTIONS_BY_ID
     assert "home.host_show" not in ACTIONS_BY_ID
     assert "home.host_hide" not in ACTIONS_BY_ID
-    row = action_by_id("home.host")
-    assert row.default == "H"
-    assert row.remappable is True
     host = [b for tup in _BINDING_TUPLES for b in tup if b.id == "home.host"]
-    assert {b.action for b in host} == {"show_host_sessions", "hide_host_sessions"}
-    assert {b.key for b in host} == {"H"}
+    assert host == []
 
 
 def test_remappable_chords_unique_per_scope_and_surface() -> None:

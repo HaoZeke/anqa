@@ -94,17 +94,11 @@ def test_list_session_catalog_includes_host_by_default(
         "groket.session.sources.host_grok_sessions_root",
         lambda: host,
     )
-    cfg = tmp_path / "config.toml"
-    cfg.write_text("show_host_sessions = true\n", encoding="utf-8")
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
     monkeypatch.setattr("groket.session.mtime_export.cache_dir", lambda: cache)
-    from groket.config import invalidate_config_cache
 
-    invalidate_config_cache()
-
-    # include_host=None → config
+    # include_host=None includes host
     rows = list_session_catalog(work, include_host=None)
     ids = {r["sessionId"] for r in rows}
     assert "work-only-sess" in ids
@@ -147,15 +141,9 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
         "groket.session.sources.host_grok_sessions_root",
         lambda: host,
     )
-    cfg = tmp_path / "config.toml"
-    cfg.write_text("show_host_sessions = true\n", encoding="utf-8")
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
     monkeypatch.setattr("groket.session.mtime_export.cache_dir", lambda: cache)
-    from groket.config import invalidate_config_cache
-
-    invalidate_config_cache()
 
     calls: list[str] = []
     real_row = catalog_mod.session_catalog_row

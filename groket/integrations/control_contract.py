@@ -369,6 +369,7 @@ class FieldSpec:
     role: str
     required: bool = False
     json_type: str = "string"
+    fields: tuple[FieldSpec, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -586,7 +587,13 @@ METHODS: tuple[MethodSpec, ...] = (
         role="Write a note (`expectedRevision`)",
         params=(
             _SESSION,
-            FieldSpec("note", "Note object to write.", required=True, json_type="object"),
+            FieldSpec(
+                "note",
+                "Note object to write.",
+                required=True,
+                json_type="object",
+                fields=(FieldSpec("source", "Who wrote the note.", required=True),),
+            ),
             _EXPECTED_REV,
         ),
         extra_md=(
@@ -662,6 +669,9 @@ def method_by_name(name: str) -> MethodSpec | None:
 
 
 def _field_schema(spec: FieldSpec) -> JsonObject:
+    if spec.fields:
+        inner = _object_schema(spec.fields, title=spec.name)
+        return as_json_object({**inner, "description": spec.role})
     return as_json_object(
         {
             "description": spec.role,

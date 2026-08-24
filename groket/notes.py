@@ -159,20 +159,6 @@ def encode_many_choices(selected: Sequence[str], choices: Sequence[str]) -> str:
     return "\n".join(ordered)
 
 
-def foreign_note_source(source: str, *, surface: str) -> str:
-    """Return *source* when it is set and is not this *surface*.
-
-    :param source: Stored writer (``tui``, ``hud``, ``nvim``, plugin id, …).
-    :param surface: The viewing client (``tui`` or ``hud``).
-    :returns: Source to show, or empty when this surface wrote the note.
-    """
-    src = (source or "").strip()
-    face = (surface or "").strip()
-    if not src or src == face:
-        return ""
-    return src
-
-
 def require_note_source(value: object) -> str:
     """Return a stripped source, or raise if missing or blank.
 

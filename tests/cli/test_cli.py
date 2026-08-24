@@ -403,7 +403,7 @@ class TestBatchCommands:
         assert result.exit_code == 0
         out = result.stdout or result.output or ""
         assert "config.schema.json" in out
-        assert "show_host_sessions" in out
+        assert "auto_serve" in out
 
     def test_config_validate_default(self) -> None:
         result = runner.invoke(app, ["config", "validate"])

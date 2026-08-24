@@ -31,7 +31,6 @@ def test_defaults_when_missing() -> None:
     cfg = load_app_config()
     assert cfg.theme == "auto"
     assert cfg.follow_os is False
-    assert cfg.show_host_sessions is False
     assert cfg.auto_serve is True
     assert cfg.live_refresh_workers == 1
     assert cfg.hud.window_mode is False
@@ -74,9 +73,9 @@ def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
 
 
 def test_dump_roundtrip() -> None:
-    cfg = parse_app_config({"show_host_sessions": True, "hud": {"window_mode": True}})
+    cfg = parse_app_config({"follow_os": True, "hud": {"window_mode": True}})
     restored = parse_app_config(config_dump(cfg))
-    assert restored.show_host_sessions is True
+    assert restored.follow_os is True
     assert restored.hud.window_mode is True
 
 
@@ -90,7 +89,6 @@ def test_imports_json_when_toml_missing(tmp_path: Path) -> None:
     invalidate_config_cache()
     cfg = load_app_config()
     assert cfg.theme == "nord"
-    assert cfg.show_host_sessions is True
     assert cfg.hud.global_shortcut == "Ctrl+K"
     assert cfg.live_refresh_workers == 1
     text = (tmp_path / "config.toml").read_text(encoding="utf-8")
@@ -121,7 +119,6 @@ def test_schema_has_published_id() -> None:
     for key in (
         "theme",
         "follow_os",
-        "show_host_sessions",
         "auto_serve",
         "live_refresh_workers",
         "hud",
@@ -137,11 +134,21 @@ def test_validate_example_file() -> None:
     cfg = validate_config_file(path)
     assert cfg.theme == "auto"
     assert cfg.follow_os is False
-    assert cfg.show_host_sessions is False
     assert cfg.auto_serve is True
     assert cfg.live_refresh_workers == 1
     assert cfg.hud.desktop_notifications is True
     assert cfg.export.default_profile == ""
+
+
+def test_show_host_sessions_is_dropped(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('show_host_sessions = false\ntheme = "nord"\n', encoding="utf-8")
+    invalidate_config_cache()
+    cfg = load_app_config()
+    assert cfg.theme == "nord"
+    save_app_config(cfg)
+    text = path.read_text(encoding="utf-8")
+    assert "show_host_sessions" not in text
 
 
 def test_analysis_table_does_not_set_workers(tmp_path: Path) -> None:

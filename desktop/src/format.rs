@@ -806,16 +806,6 @@ pub fn note_field_label(id: &str, label: &str) -> String {
     }
 }
 
-/// Source to show when this surface did not write the note.
-pub fn foreign_note_source<'a>(source: &'a str, surface: &str) -> Option<&'a str> {
-    let src = source.trim();
-    if src.is_empty() || src.eq_ignore_ascii_case(surface.trim()) {
-        None
-    } else {
-        Some(src)
-    }
-}
-
 /// Filled note fields in schema order, then leftover keys. Label, then body.
 pub fn note_display_fields(schema: &[SchemaField], fields: &Value) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -2548,17 +2538,6 @@ mod tests {
     #[test]
     fn extract_chars_matches_open_event_ceiling() {
         assert_eq!(EXTRACT_CHARS, crate::live::TIMELINE_OPEN_CHARS as usize);
-    }
-
-    #[test]
-    fn foreign_note_source_hides_this_surface() {
-        assert_eq!(foreign_note_source("hud", "hud"), None);
-        assert_eq!(foreign_note_source("HUD", "hud"), None);
-        assert_eq!(foreign_note_source("  ", "hud"), None);
-        assert_eq!(foreign_note_source("nvim", "hud"), Some("nvim"));
-        assert_eq!(foreign_note_source("tui", "hud"), Some("tui"));
-        assert_eq!(foreign_note_source("mf-plugin", "tui"), Some("mf-plugin"));
-        assert_eq!(foreign_note_source("tui", "tui"), None);
     }
 
     #[test]

@@ -41,7 +41,6 @@ def test_missing_file_keeps_defaults(tmp_path: Path, monkeypatch) -> None:
     assert keymap.ok
     assert keymap.loaded_overlay is False
     assert _follow_chord(keymap) == action_by_id("session.follow").default
-    assert keymap.binding("home.host").chord == "H"
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 
@@ -208,7 +207,6 @@ def test_slash_and_slash_name_are_the_same_key(tmp_path: Path, monkeypatch) -> N
 def test_default_shared_chords_are_not_clashes() -> None:
     keymap = load_keymap()
     assert keymap.ok
-    assert keymap.binding("home.host").chord == "H"
     assert keymap.binding("edit.save").chord == "ctrl+s"
 
 

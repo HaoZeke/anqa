@@ -5,7 +5,6 @@
 
 theme = "auto"
 follow_os = false
-show_host_sessions = false
 auto_serve = true
 live_refresh_workers = 1
 

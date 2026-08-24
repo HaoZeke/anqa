@@ -495,7 +495,6 @@ class TraceEvalApp(App):
                 self._config_path,
                 theme=str(self._config.get("theme") or "auto"),
                 follow_os=self._config.get("follow_os") is True,
-                show_host_sessions=bool(self._config.get("show_host_sessions")),
                 auto_serve=self._config.get("auto_serve") is not False,
             )
         except OSError:
@@ -2378,8 +2377,7 @@ class TraceEvalApp(App):
     ) -> bool | None:
         """Gate session-home bindings so they do not leak into pushed-screen footers.
 
-        ``n`` / ``e`` need an awaiting multi-turn target. ``H`` is two actions
-        (show / hide host); only the matching one is enabled.
+        ``n`` / ``e`` need an awaiting multi-turn target.
         """
         if action == "leader_idle":
             return bool(self._leader_armed)

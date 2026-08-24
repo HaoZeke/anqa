@@ -53,12 +53,6 @@
       "title": "Follow Os",
       "type": "boolean"
     },
-    "show_host_sessions": {
-      "default": false,
-      "description": "List native ~/.grok/sessions next to Docker eval traces.",
-      "title": "Show Host Sessions",
-      "type": "boolean"
-    },
     "auto_serve": {
       "default": true,
       "description": "Detach-start groket serve when the control socket is free.",

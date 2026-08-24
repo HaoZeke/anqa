@@ -948,8 +948,19 @@
                   "type": "string"
                 },
                 "note": {
-                  "description": "Note object to write.",
-                  "type": "object"
+                  "title": "note",
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "source": {
+                      "description": "Who wrote the note.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source"
+                  ],
+                  "description": "Note object to write."
                 },
                 "expectedRevision": {
                   "description": "Notes revision the client last read.",

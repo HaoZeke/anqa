@@ -126,8 +126,6 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_mark_sessions_done", U.cmd_end_session()),
                 ("action_export_session_bundle", U.cmd_export_bundle()),
                 ("action_export_session_choose_profile", U.cmd_export_choose_profile()),
-                ("action_show_host_sessions", U.cmd_show_host_sessions()),
-                ("action_hide_host_sessions", U.cmd_hide_host_sessions()),
             ):
                 if hasattr(app, method):
                     yield _app(app, method, th)

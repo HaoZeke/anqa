@@ -41,7 +41,7 @@ state. Cite is the groket module that owns the path.
 |---|---|---|
 | Find session dirs | Recurse; treat as session if `updates.jsonl` or `summary.json` present, or non-empty `events.jsonl`. Skip subagents, resume seeds, `*.stage`, `groket-plugins`. | `groket/parser.py` `find_sessions`, `_looks_like_session_dir` |
 | Eval root | `<work>/runs/traces` | `groket/session/sources.py` `work_traces_root` |
-| Host root | `~/.grok/sessions` (`H` / `show_host_sessions`) | `sources.host_grok_sessions_root`, `catalog.show_host_sessions_from_config` |
+| Host root | `~/.grok/sessions` (always loaded; `is:host` filters) | `sources.host_grok_sessions_root` |
 | Catalog row | `sessionId`, `path`, `title`, `model`, `status`, `origin` (`work`/`host`), times, context, event count | `session/catalog.py` `session_catalog_row` |
 | List meta | Host: `summary.json` + `signals.json` only. Eval: those plus turn markers / gate. | `parser.load_session_meta_list` |
 

@@ -16,6 +16,7 @@ from groket.integrations.control import (
 from groket.integrations.control_contract import (
     InventorySnapshot,
     capability_names,
+    control_json_schema,
     emit_control_doc,
     emit_control_schema,
     handshake_field_names,
@@ -164,6 +165,22 @@ def test_emit_doc_contains_version_methods_framing() -> None:
     assert "GROKET_CONTROL_SOCKET" in text
     assert "Content-Length" in text
     assert "control_contract.py" in text
+
+
+def test_notes_upsert_schema_requires_source() -> None:
+    schema = control_json_schema()
+    methods = schema["properties"]["methods"]["properties"]
+    assert isinstance(methods, dict)
+    upsert = methods["notes/upsert"]
+    assert isinstance(upsert, dict)
+    params = upsert["properties"]["params"]
+    assert isinstance(params, dict)
+    note = params["properties"]["note"]
+    assert isinstance(note, dict)
+    assert note["required"] == ["source"]
+    source = note["properties"]["source"]
+    assert isinstance(source, dict)
+    assert source["type"] == "string"
 
 
 def test_committed_doc_and_schema_match_emit() -> None:

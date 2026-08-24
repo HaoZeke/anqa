@@ -18,8 +18,7 @@ def _isolate_prefs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     invalidate_config_cache()
 
 
-def test_host_and_auto_serve_defaults() -> None:
-    assert prefs.show_host_sessions_enabled() is False
+def test_auto_serve_default() -> None:
     assert prefs.auto_serve_enabled() is True
 
 
@@ -35,11 +34,11 @@ def test_hud_shortcut_reads_table(tmp_path: Path) -> None:
 def test_write_failure_keeps_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("groket.paths.app_config_path", lambda: Path("/dev/null/nope/config.toml"))
     invalidate_config_cache()
-    prefs.set_show_host_sessions(True)
-    assert prefs.show_host_sessions_enabled() is False
+    prefs.set_auto_serve(False)
+    assert prefs.auto_serve_enabled() is True
 
 
 def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
     (tmp_path / "config.toml").write_text("not = [toml", encoding="utf-8")
     invalidate_config_cache()
-    assert prefs.show_host_sessions_enabled() is False
+    assert prefs.auto_serve_enabled() is True

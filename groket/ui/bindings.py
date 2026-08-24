@@ -84,8 +84,6 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _ctrl_s("save_session_config", U.bind_save_cfg(), id="session.save_config", show=True),
     _b("x,delete", "delete_sessions", U.bind_delete(), id="session.delete", show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), id="session.export", show=False),
-    _b("H", "show_host_sessions", U.bind_show_host(), id="home.host", show=True),
-    _b("H", "hide_host_sessions", U.bind_hide_host(), id="home.host", show=True),
     _b("n", "follow_up_sessions", U.bind_next_prompt(), id="session.follow", show=True),
     _b("e", "mark_sessions_done", U.bind_end_session(), id="session.done", show=True),
 )
@@ -114,8 +112,6 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "save_session_config",
         "delete_sessions",
         "export_session_bundle",
-        "show_host_sessions",
-        "hide_host_sessions",
         "follow_up_sessions",
         "mark_sessions_done",
     }

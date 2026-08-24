@@ -39,7 +39,7 @@ Timeline is a second path: open one session → `session/overview` + paged
 The list payload is cheap. Launch pays for **discovery** and **process
 start**, not for shipping timelines.
 
-On this machine (`show_host_sessions` true):
+On this machine (host sessions loaded):
 
 | Step | Time | Notes |
 |------|------|--------|

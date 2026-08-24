@@ -74,55 +74,6 @@ is tagged.
   the source. A new note uses `notes_schema.toml`. Editing a note also
   shows extra stored fields as free-text.
 
-### Bug fix
-
-- Host session list status uses the updates tail (`session_recap`,
-  `turn_completed`) and the same cheap turn markers as Summary, so
-  finished host rows show `complete` without opening the session.
-- Host catalog snapshot version 2 rebuilds cached `—` rows after a
-  status-rule change. A host session with chat history but no turn
-  close lists as cancelled.
-- The desktop session list applies `after:` / `before:` locally
-  (`yesterday`, `2d`, `2 days ago`), same as the terminal list.
-- A forked child that replays parent tools keeps the continuation on
-  its own turn.
-- Catalog search colors `AND` / `OR` / `NOT` only in that spelling.
-  `and` / `aNd` stay ordinary words, same as the matcher.
-- HUD and TUI note edit show extra fields from an external note. The
-  HUD form scrolls, and paragraph fields start short and grow.
-- Report notes and HUD Notes use `j` / `k` to move among cards. Enter
-  or `O` edits the focused note; double-press `x` deletes it.
-- Every note with a writer shows a source badge on the TUI Report
-  card, the TUI edit dialog, the HUD Notes card, and the HUD edit
-  form.
-- A HUD note field that is a fenced code block paints as highlighted
-  code.
-- The session list summary is the session count.
-- A client that resets the control socket no longer logs an unhandled
-  exception in groket serve.
-- Summary and HUD Tasks open a schedule the same way as a job: Enter
-  or a second click jumps to the Timeline bookend. A row with no
-  bookend is dim and stays put.
-- Summary tables keep their size when focused, so a click lands on the
-  row under the pointer. Click highlights; Enter or a second click
-  opens, same as the session list and Timeline.
-- Jobs Clear resets logs, activity, and buffers.
-- Marketplace list previews use ``server · method``. Paths keep
-  underscores and hyphens. Light themes keep type and tool faces
-  readable.
-- Control serve applies catalog watch on the serve loop, with disk
-  work off that loop, so a live write does not stall RPC.
-- Filesystem watch does not subscribe ``workspace/``, ``images/``, or
-  ``compaction/`` trees, and ignores read open/close so a catalog apply
-  does not retrigger itself. The list stays still when only
-  ``events.jsonl`` or ``workspace/`` files grow.
-- A catalog ``search_tool`` query is a search, not proof an MCP
-  server was available.
-- An older ``groket serve`` missing a method asks the operator to
-  restart serve.
-- ``groket config validate`` rejects missing or invalid TOML.
-- A monitor log inspect reads only the tail of a large file.
-
 ### Chore
 
 - groket no longer ships an analyzer or a rules engine. The
@@ -200,8 +151,8 @@ workspace diffs, Docker evals, and personas.
 ### Sessions
 
 - Eval sessions are Docker launches under `work/runs/traces`.
-- Host sessions are native Grok trees at `~/.grok/sessions` (`H` shows
-  or hides them).
+- Host sessions are native Grok trees at `~/.grok/sessions` (always
+  loaded; `is:host` filters the list).
 - Subagent runs stay off the top list; open them from the parent.
 - Follow-up (`n`) and Done (`e`) apply while a session is awaiting.
 - Fork (`f`) continues an ended session as a new Docker launch.

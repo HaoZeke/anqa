@@ -8,10 +8,6 @@ all-events = All events
 
 all-models = All models
 
-all-rules-disabled = All rules disabled
-
-all-rules-enabled = All rules enabled
-
 all-sections = All sections
 
 all-tab = All
@@ -198,10 +194,6 @@ filter-label = Filter
 cmd-edit-persona = Edit persona
 
 cmd-edit-persona-help = Edit selected
-
-cmd-enable-all-rules = Enable all rules
-
-cmd-enable-all-rules-help = Turn all rules on
 
 cmd-export-bundle = Export session
 
@@ -993,8 +985,6 @@ ui-failed-to-load-persona-s = Failed to load persona %s
 ui-failed-to-load-session-meta-for-s = Failed to load session meta for %s
 
 ui-failed-to-mount-report-section-s = failed to mount report section %s
-
-ui-failed-to-refresh-rules-table = Failed to refresh rules table
 
 ui-failed-to-resolve-docker-base-for-s = Failed to resolve docker base for %s
 

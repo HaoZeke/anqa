@@ -20,18 +20,6 @@ def invalidate_prefs_cache() -> None:
     invalidate_config_cache()
 
 
-def show_host_sessions_enabled() -> bool:
-    """Whether the sessions home list includes native ``~/.grok/sessions``."""
-    return load_app_config().show_host_sessions
-
-
-def set_show_host_sessions(enabled: bool) -> None:
-    try:
-        update_app_config(show_host_sessions=bool(enabled))
-    except OSError:
-        logger.warning(t("ui-failed-to-write-prefs-to-s"), app_config_path(), exc_info=True)
-
-
 def auto_serve_enabled() -> bool:
     """Whether the TUI should detach-start a control owner when the socket is free."""
     return load_app_config().auto_serve

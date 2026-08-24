@@ -84,21 +84,6 @@ def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) 
     return 0.0
 
 
-def show_host_sessions_from_config() -> bool:
-    """Whether operator config includes host Grok sessions in the catalog.
-
-    Reads ``show_host_sessions`` from ``~/.groket/config.toml``.
-    Catalog membership no longer follows this pref (host is always loaded).
-    """
-    from ..config import load_app_config
-
-    try:
-        return load_app_config().show_host_sessions
-    except OSError:
-        logger.debug("catalog: could not read config for show_host_sessions", exc_info=True)
-        return False
-
-
 def effective_include_host(include_host: bool | None) -> bool:
     """Resolve catalog host inclusion: explicit flag, else always include.
 
@@ -121,7 +106,7 @@ def catalog_scan_roots(
     :param work_dir: Work root (``runs/traces`` lives under this).
     :param traces_path: Optional extra traces path (CLI ``-P`` override).
     :param include_host: When true, include host Grok sessions; when false,
-        work only; when None, include host.
+        work only; when None, include host (``is:host`` filters the list).
     :param host_root: Override for the host sessions root (tests).
     :returns: Ordered scan roots (work first).
     """
@@ -151,7 +136,7 @@ def session_catalog_row(
             meta = load_host_list_meta(session_dir)
         else:
             meta = load_session_meta_list(session_dir, origin=origin)
-    except Exception:
+    except OSError:
         logger.debug("catalog meta failed for %s", session_dir, exc_info=True)
         return None
     meta.origin = origin
@@ -221,7 +206,7 @@ def list_session_catalog(
 
     :param work_dir: Work root owning eval traces.
     :param traces_path: Optional traces path override.
-    :param include_host: Host inclusion (True/False force; None = config pref).
+    :param include_host: Host inclusion (True/False force; None includes host).
     :param host_root: Optional host root override (tests).
     :param host_catalog_cache: Optional host snapshot path (tests).
     :returns: Catalog rows sorted newest activity first (``sortEpoch`` desc).
@@ -413,7 +398,7 @@ def catalog_roots_fingerprint(
         path = Path(root.path)
         try:
             st = path.stat()
-            mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+            mtime_ns = int(st.st_mtime_ns)
         except OSError:
             parts.append((str(path), 0))
             continue
@@ -1011,7 +996,7 @@ def resolve_session_reference(
     :param reference: Absolute/relative path, or a session directory name / id.
     :param work_dir: Work root for catalog roots.
     :param traces_path: Optional traces path override.
-    :param include_host: Host inclusion (True/False force; None = config pref).
+    :param include_host: Host inclusion (True/False force; None includes host).
     :param host_root: Optional host root override (tests).
     :returns: Resolved directory path, or None when not found.
     """
@@ -1059,5 +1044,4 @@ __all__ = [
     "session_catalog_row",
     "catalog_row_sort_epoch",
     "session_meta_from_catalog_row",
-    "show_host_sessions_from_config",
 ]
