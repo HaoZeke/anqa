@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -774,6 +774,7 @@ def _counts_from_meta(meta: SessionMeta) -> dict[str, int]:
         "workflowCount": int(meta.workflow_count or 0),
         "noteCount": int(meta.note_count or 0),
         "goalCount": int(meta.goal_count or 0),
+        "planCount": int(meta.plan_count or 0),
         "subagentCount": int(meta.subagent_count or 0),
         "taskCount": int(meta.task_count or 0),
         "jobCount": int(meta.job_count or 0),
@@ -857,13 +858,48 @@ def catalog_has_notes(session_dir: Path) -> bool:
     return catalog_note_count(session_dir) > 0
 
 
+def _session_updates(session_dir: Path, needles: tuple[str, ...]) -> Iterator[JsonObject]:
+    """Yield ``params.update`` objects from ``updates.jsonl`` matching *needles*."""
+    path = Path(session_dir) / "updates.jsonl"
+    if not path.is_file():
+        return
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not any(needle in line for needle in needles):
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(raw, dict):
+                    continue
+                params = raw.get("params")
+                if not isinstance(params, dict):
+                    continue
+                update = params.get("update")
+                if isinstance(update, dict):
+                    yield update
+    except OSError:
+        return
+
+
 def catalog_goal_count(session_dir: Path) -> int:
-    """1 when ``goal/state.json`` is present, else 0."""
+    """Distinct ``goal_id`` values from ``goal_updated`` (else 1 if the file exists)."""
+    ids: set[str] = set()
+    for update in _session_updates(session_dir, ("goal_updated",)):
+        if update.get("sessionUpdate") != "goal_updated":
+            continue
+        gid = json_as_str(update.get("goal_id") or update.get("goalId")).strip()
+        if gid:
+            ids.add(gid)
+    if ids:
+        return len(ids)
     return 1 if _is_file(Path(session_dir) / "goal" / "state.json") else 0
 
 
 def catalog_has_goals(session_dir: Path) -> bool:
-    """True when ``goal/state.json`` is present."""
+    """True when the session created at least one goal."""
     return catalog_goal_count(session_dir) > 0
 
 
@@ -932,10 +968,27 @@ def catalog_has_tasks(session_dir: Path) -> bool:
     return catalog_has_jobs(session_dir) or catalog_has_schedules(session_dir)
 
 
-def catalog_has_plan(session_dir: Path) -> bool:
-    """True when ``plan.json`` or ``plan_mode.json`` is present."""
+def _plan_files_present(session_dir: Path) -> bool:
     root = Path(session_dir)
     return _is_file(root / "plan.json") or _is_file(root / "plan_mode.json")
+
+
+def catalog_plan_count(session_dir: Path) -> int:
+    """Times plan mode was entered (``enter_plan_mode``), else 1 if a plan file exists."""
+    n = 0
+    for update in _session_updates(session_dir, ("enter_plan_mode",)):
+        if update.get("sessionUpdate") != "tool_call":
+            continue
+        if str(update.get("title") or "") == "enter_plan_mode":
+            n += 1
+    if n:
+        return n
+    return 1 if _plan_files_present(session_dir) else 0
+
+
+def catalog_has_plan(session_dir: Path) -> bool:
+    """True when the session entered plan mode or still has a plan file."""
+    return catalog_plan_count(session_dir) > 0
 
 
 def catalog_has_compaction(session_dir: Path) -> bool:
@@ -950,6 +1003,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
     workflows = catalog_workflow_count(session_dir)
     notes = catalog_note_count(session_dir)
     goals = catalog_goal_count(session_dir)
+    plans = catalog_plan_count(session_dir)
     subagents = catalog_subagent_count(session_dir)
     errors = int(meta.error_count or 0)
     failures = int(meta.tool_failure_count or 0)
@@ -964,6 +1018,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
         "workflows": workflows,
         "notes": notes,
         "goals": goals,
+        "plan": plans,
         "subagents": subagents,
         "tasks": tasks,
         "jobs": jobs,
@@ -982,7 +1037,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
         "hasJobs": jobs > 0,
         "hasSchedules": schedules > 0,
         "hasTasks": tasks > 0,
-        "hasPlan": catalog_has_plan(session_dir),
+        "hasPlan": plans > 0,
         "hasFailures": failures > 0,
         "hasDiff": diff_lines > 0,
         "hasCompaction": compaction > 0,
@@ -1003,6 +1058,7 @@ _COUNT_META_ATTR: tuple[tuple[str, str], ...] = (
     ("workflowCount", "workflow_count"),
     ("noteCount", "note_count"),
     ("goalCount", "goal_count"),
+    ("planCount", "plan_count"),
     ("subagentCount", "subagent_count"),
     ("taskCount", "task_count"),
     ("jobCount", "job_count"),
@@ -1049,6 +1105,7 @@ __all__ = [
     "catalog_goal_count",
     "catalog_job_count",
     "catalog_note_count",
+    "catalog_plan_count",
     "catalog_schedule_count",
     "catalog_subagent_count",
     "catalog_workflow_count",

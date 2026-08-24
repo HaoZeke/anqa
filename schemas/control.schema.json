@@ -71,6 +71,7 @@
               "workflows": "workflowCount",
               "notes": "noteCount",
               "goals": "goalCount",
+              "plan": "planCount",
               "subagents": "subagentCount",
               "tasks": "taskCount",
               "jobs": "jobCount",

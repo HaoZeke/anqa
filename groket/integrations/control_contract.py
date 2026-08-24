@@ -72,6 +72,7 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
             ("workflows", "workflowCount"),
             ("notes", "noteCount"),
             ("goals", "goalCount"),
+            ("plan", "planCount"),
             ("subagents", "subagentCount"),
             ("tasks", "taskCount"),
             ("jobs", "jobCount"),

@@ -799,6 +799,7 @@ fn row_has_count(row: &SessionListItem, name: &str) -> i64 {
         "workflowCount" => row.workflow_count,
         "noteCount" => row.note_count,
         "goalCount" => row.goal_count,
+        "planCount" => row.plan_count,
         "subagentCount" => row.subagent_count,
         "taskCount" => row.task_count,
         "jobCount" => row.job_count,

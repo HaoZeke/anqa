@@ -482,6 +482,7 @@ class SessionMeta:
     workflow_count: int = 0
     note_count: int = 0
     goal_count: int = 0
+    plan_count: int = 0
     subagent_count: int = 0
     job_count: int = 0
     schedule_count: int = 0

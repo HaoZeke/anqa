@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from groket.integrations.control_contract import (
@@ -22,6 +23,7 @@ from groket.session.query import (
     catalog_has_schedules,
     catalog_has_subagents,
     catalog_has_tasks,
+    catalog_plan_count,
     catalog_presence,
     catalog_workflow_count,
     finished_prefix,
@@ -242,10 +244,48 @@ def test_has_goals_quantity() -> None:
     assert not row_matches_query(row, "has:goals:>2")
 
 
+def test_catalog_counts_goals_and_plans_created(tmp_path: Path) -> None:
+    import json
+
+    sess = tmp_path / "traced"
+    sess.mkdir()
+    (sess / "goal").mkdir()
+    (sess / "goal" / "state.json").write_text('{"goal_id": "a"}', encoding="utf-8")
+    (sess / "plan.json").write_text('{"todos": {}}', encoding="utf-8")
+    rows = [
+        {"params": {"update": {"sessionUpdate": "goal_updated", "goal_id": "a"}}},
+        {"params": {"update": {"sessionUpdate": "goal_updated", "goal_id": "a"}}},
+        {"params": {"update": {"sessionUpdate": "goal_updated", "goal_id": "b"}}},
+        {"params": {"update": {"sessionUpdate": "tool_call", "title": "enter_plan_mode"}}},
+        {"params": {"update": {"sessionUpdate": "plan", "entries": [{"content": "x"}]}}},
+        {"params": {"update": {"sessionUpdate": "tool_call", "title": "enter_plan_mode"}}},
+        {
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "title": "grep",
+                    "rawInput": {"pattern": "enter_plan_mode"},
+                }
+            }
+        },
+    ]
+    (sess / "updates.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    assert catalog_goal_count(sess) == 2
+    assert catalog_plan_count(sess) == 2
+    row = CatalogQueryRow(has_goals=True, has_plan=True, counts={"goals": 2, "plan": 2})
+    assert row_matches_query(row, "has:goals:2")
+    assert row_matches_query(row, "has:plan:2")
+    assert not row_matches_query(row, "has:goals:3")
+    assert not row_matches_query(row, "has:plans:2")
+
+
 def test_has_quantity_skips_boolean_names() -> None:
-    row = CatalogQueryRow(has_plan=True)
-    assert row_matches_query(row, "has:plan")
-    assert not row_matches_query(row, "has:plan:>=1")
+    row = CatalogQueryRow(git_repo="/tmp/repo")
+    assert row_matches_query(row, "has:git")
+    assert not row_matches_query(row, "has:git:>=1")
 
 
 def test_highlight_has_quantity_spans() -> None:

@@ -57,6 +57,8 @@ pub struct SessionListItem {
     #[serde(default)]
     pub goal_count: i64,
     #[serde(default)]
+    pub plan_count: i64,
+    #[serde(default)]
     pub subagent_count: i64,
     #[serde(default)]
     pub task_count: i64,
