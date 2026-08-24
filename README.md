@@ -243,7 +243,7 @@ openable child. Exporting an opened child is that child only.
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
 | `is:host` `is:eval` | Origin |
-| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row (`has:workflows` is at least one). Countable names take `has:name:>=N` (`has:workflows:>=2`, `has:errors:>=5`). `has:tasks` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Goals, plan, and git stay yes/no. |
+| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row (`has:workflows` is at least one). Countable names take `has:name:>=N` (`has:workflows:>=2`, `has:errors:>=5`, `has:goals:>=1`). `has:tasks` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Plan and git stay yes/no. |
 | `turns:` `tools:` `events:` | Session stats, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
 | `in:~/path` | Directory the session was run in |

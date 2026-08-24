@@ -773,6 +773,7 @@ def _counts_from_meta(meta: SessionMeta) -> dict[str, int]:
     by_wire = {
         "workflowCount": int(meta.workflow_count or 0),
         "noteCount": int(meta.note_count or 0),
+        "goalCount": int(meta.goal_count or 0),
         "subagentCount": int(meta.subagent_count or 0),
         "taskCount": int(meta.task_count or 0),
         "jobCount": int(meta.job_count or 0),
@@ -856,9 +857,14 @@ def catalog_has_notes(session_dir: Path) -> bool:
     return catalog_note_count(session_dir) > 0
 
 
+def catalog_goal_count(session_dir: Path) -> int:
+    """1 when ``goal/state.json`` is present, else 0."""
+    return 1 if _is_file(Path(session_dir) / "goal" / "state.json") else 0
+
+
 def catalog_has_goals(session_dir: Path) -> bool:
     """True when ``goal/state.json`` is present."""
-    return _is_file(Path(session_dir) / "goal" / "state.json")
+    return catalog_goal_count(session_dir) > 0
 
 
 def catalog_subagent_count(session_dir: Path) -> int:
@@ -943,6 +949,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
     schedules = catalog_schedule_count(session_dir)
     workflows = catalog_workflow_count(session_dir)
     notes = catalog_note_count(session_dir)
+    goals = catalog_goal_count(session_dir)
     subagents = catalog_subagent_count(session_dir)
     errors = int(meta.error_count or 0)
     failures = int(meta.tool_failure_count or 0)
@@ -956,6 +963,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
     counts = {
         "workflows": workflows,
         "notes": notes,
+        "goals": goals,
         "subagents": subagents,
         "tasks": tasks,
         "jobs": jobs,
@@ -969,7 +977,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
     out: dict[str, bool | int] = {
         "hasWorkflows": workflows > 0,
         "hasNotes": notes > 0,
-        "hasGoals": catalog_has_goals(session_dir),
+        "hasGoals": goals > 0,
         "hasSubagents": subagents > 0,
         "hasJobs": jobs > 0,
         "hasSchedules": schedules > 0,
@@ -994,6 +1002,7 @@ def apply_catalog_presence(meta: SessionMeta) -> None:
 _COUNT_META_ATTR: tuple[tuple[str, str], ...] = (
     ("workflowCount", "workflow_count"),
     ("noteCount", "note_count"),
+    ("goalCount", "goal_count"),
     ("subagentCount", "subagent_count"),
     ("taskCount", "task_count"),
     ("jobCount", "job_count"),
@@ -1037,6 +1046,7 @@ __all__ = [
     "catalog_has_subagents",
     "catalog_has_tasks",
     "catalog_has_workflows",
+    "catalog_goal_count",
     "catalog_job_count",
     "catalog_note_count",
     "catalog_schedule_count",

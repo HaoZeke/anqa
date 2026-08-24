@@ -53,6 +53,7 @@
       "countFields": {
         "workflows": "workflowCount",
         "notes": "noteCount",
+        "goals": "goalCount",
         "subagents": "subagentCount",
         "tasks": "taskCount",
         "jobs": "jobCount",

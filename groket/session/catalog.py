@@ -297,6 +297,7 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "errorCount",
     "workflowCount",
     "noteCount",
+    "goalCount",
     "subagentCount",
     "taskCount",
     "jobCount",

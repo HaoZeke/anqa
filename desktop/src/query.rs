@@ -798,6 +798,7 @@ fn row_has_count(row: &SessionListItem, name: &str) -> i64 {
     match wire {
         "workflowCount" => row.workflow_count,
         "noteCount" => row.note_count,
+        "goalCount" => row.goal_count,
         "subagentCount" => row.subagent_count,
         "taskCount" => row.task_count,
         "jobCount" => row.job_count,
@@ -1263,10 +1264,14 @@ mod tests {
         assert!(row_matches(&r, "has:notes:>=2 AND has:errors:>=5"));
         let goals = SessionListItem {
             has_goals: true,
+            goal_count: 1,
             ..SessionListItem::default()
         };
         assert!(row_matches(&goals, "has:goals"));
+        assert!(row_matches(&goals, "has:goals:>=1"));
+        assert!(row_matches(&goals, "has:goals:1"));
         assert!(!row_matches(&goals, "has:goals:2"));
+        assert!(!row_matches(&goals, "has:goals:>2"));
     }
 
     #[test]
@@ -1294,7 +1299,7 @@ mod tests {
             vec![
                 ("has:", QuerySpanKind::Field),
                 ("goals", QuerySpanKind::Value),
-                (":2", QuerySpanKind::Unknown),
+                (":2", QuerySpanKind::Value),
             ]
         );
     }

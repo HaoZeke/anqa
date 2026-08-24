@@ -15,6 +15,7 @@ from groket.session.query import (
     CatalogQueryRow,
     QuerySpan,
     apply_suggestion,
+    catalog_goal_count,
     catalog_has_goals,
     catalog_has_jobs,
     catalog_has_plan,
@@ -232,10 +233,18 @@ def test_has_quantity_compare() -> None:
     assert not row_matches_query(rich, "has:notes:>=3")
 
 
-def test_has_quantity_skips_boolean_names() -> None:
-    row = CatalogQueryRow(has_goals=True, has_plan=True)
+def test_has_goals_quantity() -> None:
+    row = CatalogQueryRow(has_goals=True, counts={"goals": 1})
     assert row_matches_query(row, "has:goals")
+    assert row_matches_query(row, "has:goals:>=1")
+    assert row_matches_query(row, "has:goals:1")
     assert not row_matches_query(row, "has:goals:2")
+    assert not row_matches_query(row, "has:goals:>2")
+
+
+def test_has_quantity_skips_boolean_names() -> None:
+    row = CatalogQueryRow(has_plan=True)
+    assert row_matches_query(row, "has:plan")
     assert not row_matches_query(row, "has:plan:>=1")
 
 
@@ -251,7 +260,12 @@ def test_highlight_has_quantity_spans() -> None:
     assert kinds("has:goals:2") == [
         ("has:", "field"),
         ("goals", "value"),
-        (":2", "unknown"),
+        (":2", "value"),
+    ]
+    assert kinds("has:goals:>2") == [
+        ("has:", "field"),
+        ("goals", "value"),
+        (":>2", "value"),
     ]
     assert kinds("has:gooals:>=2") == [
         ("has:", "field"),
@@ -268,12 +282,14 @@ def test_suggest_has_quantity_from_schema() -> None:
     countable = catalog_query_has_count_fields()
     assert "workflows" in countable
     assert "errors" in countable
-    assert "goals" not in countable
+    assert "goals" in countable
     assert suggest_last_token("has:workflows:") == [
         f"has:workflows:{item}" for item in CATALOG_QUERY_COMPARE
     ]
     assert suggest_last_token("has:workflows:>") == ["has:workflows:>=", "has:workflows:>"]
-    assert suggest_last_token("has:goals:") == []
+    assert suggest_last_token("has:goals:") == [
+        f"has:goals:{item}" for item in CATALOG_QUERY_COMPARE
+    ]
 
 
 def test_has_tokens_match_published_schema() -> None:
@@ -446,6 +462,8 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
     (goal / "goal").mkdir()
     (goal / "goal" / "state.json").write_text("{}", encoding="utf-8")
     assert catalog_has_goals(goal)
+    assert catalog_goal_count(goal) == 1
+    assert catalog_goal_count(empty) == 0
 
     kids = tmp_path / "kids"
     kids.mkdir()
@@ -497,6 +515,7 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
     assert row["hasWorkflows"] is True
     assert row["errorCount"] == 4
     assert row["failureCount"] == 1
+    assert row["goalCount"] == 0
 
     mode = tmp_path / "plan-mode"
     mode.mkdir()
