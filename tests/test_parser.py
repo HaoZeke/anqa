@@ -3563,6 +3563,67 @@ def test_load_host_list_meta_skips_events_and_title_infer(tmp_path: Path) -> Non
     assert meta.num_events == 4
 
 
+def test_load_host_list_meta_uses_turn_ended_when_tail_is_recap(tmp_path: Path) -> None:
+    """Host list status must match Summary when the updates tail is session_recap."""
+    import time
+
+    from groket.parser import load_host_list_meta, load_session_meta
+
+    sd = tmp_path / "host-recap"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"info":{"id":"host-recap"},"generated_title":"Recap","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "signals.json").write_text("{}", encoding="utf-8")
+    (sd / "events.jsonl").write_text(
+        json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
+        + "\n"
+        + json.dumps({"ts": 2, "type": "turn_ended", "outcome": "completed"})
+        + "\n",
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_completed"}}})
+        + "\n"
+        + json.dumps({"params": {"update": {"sessionUpdate": "session_recap"}}})
+        + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (20 * 60)
+    for name in ("summary.json", "signals.json", "events.jsonl", "updates.jsonl"):
+        os.utime(sd / name, (old, old))
+    cheap = load_host_list_meta(sd)
+    full = load_session_meta(sd, include_timeline_count=False)
+    assert cheap.list_status_label() == "complete"
+    assert cheap.list_status_label() == full.list_status_label()
+
+
+def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -> None:
+    """A later agent chunk must not hide turn_completed once the traces are stale."""
+    import time
+
+    from groket.parser import load_host_list_meta
+
+    sd = tmp_path / "host-chunk-after"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"After","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_completed"}}})
+        + "\n"
+        + json.dumps({"params": {"update": {"sessionUpdate": "agent_message_chunk"}}})
+        + "\n",
+        encoding="utf-8",
+    )
+    old = time.time() - (20 * 60)
+    os.utime(sd / "summary.json", (old, old))
+    os.utime(sd / "updates.jsonl", (old, old))
+    assert load_host_list_meta(sd).list_status_label() == "complete"
+
+
 def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     """Host list meta must not require events.jsonl (catalog speed)."""
     from groket.parser import load_session_meta_list

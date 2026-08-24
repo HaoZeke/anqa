@@ -2155,8 +2155,10 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
     """Host home-list meta from summary, signals, and the updates tail.
 
     Reads ``summary.json``, ``signals.json``, and the 64 KiB
-    ``updates.jsonl`` tail for live status. Does not read ``events.jsonl``
-    or infer a title from the trace. Opening a session still uses
+    ``updates.jsonl`` tail for live status. When that tail has no
+    ``turn_completed`` / ``session_recap``, a marker pass on
+    ``events.jsonl`` fills the same turn status Summary uses. Does not
+    infer a title from the trace. Opening a session still uses
     :func:`load_session_meta`.
     """
     meta = SessionMeta(
@@ -2168,10 +2170,18 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
     _load_signals(meta, session_dir)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
-    last = _last_session_update_type(session_dir)
-    if last == "turn_completed":
+    last, terminal = _updates_tail_status(session_dir)
+    fresh = _traces_are_fresh(session_dir, origin="host")
+    outcome, loop_count, open_after = _list_runtime_status(session_dir)
+    if loop_count:
+        meta.loop_count = loop_count
+    if outcome:
+        meta.turn_outcome = outcome
+        if open_after and fresh:
+            meta.turn_outcome = "running"
+    elif last in _HOST_LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh):
         meta.turn_outcome = "completed"
-    elif _traces_are_fresh(session_dir, origin="host"):
+    elif fresh:
         meta.turn_outcome = "running"
     return meta
 
@@ -2319,11 +2329,29 @@ def _is_host_session_dir(session_dir: Path, *, origin: str = "") -> bool:
 _UPDATES_TAIL_BYTES = 64 * 1024
 
 
+_HOST_LIST_COMPLETE_UPDATES = frozenset({"turn_completed", "session_recap"})
+
+
+def _updates_tail_status(session_dir: Path) -> tuple[str, str]:
+    """Last ``sessionUpdate`` and last terminal outcome in the updates tail."""
+    last, terminal = "", ""
+    for etype in _updates_tail_types(session_dir):
+        last = etype
+        if etype in _HOST_LIST_COMPLETE_UPDATES:
+            terminal = "completed"
+    return last, terminal
+
+
 def _last_session_update_type(session_dir: Path) -> str:
     """Last ``sessionUpdate`` in a tail of ``updates.jsonl``, or empty."""
+    return _updates_tail_status(session_dir)[0]
+
+
+def _updates_tail_types(session_dir: Path) -> list[str]:
+    """``sessionUpdate`` values from the 64 KiB tail of ``updates.jsonl``."""
     updates_file = session_dir / "updates.jsonl"
     if not updates_file.is_file():
-        return ""
+        return []
     try:
         size = int(updates_file.stat().st_size)
         with updates_file.open("rb") as handle:
@@ -2332,8 +2360,8 @@ def _last_session_update_type(session_dir: Path) -> str:
                 handle.readline()
             raw = handle.read()
     except OSError:
-        return ""
-    last = ""
+        return []
+    types: list[str] = []
     for line in raw.decode("utf-8", errors="replace").splitlines():
         row = json_object_line(line)
         if row is None:
@@ -2344,8 +2372,8 @@ def _last_session_update_type(session_dir: Path) -> str:
             continue
         etype = str(update.get("sessionUpdate") or "").strip()
         if etype:
-            last = etype
-    return last
+            types.append(etype)
+    return types
 
 
 def _list_timeline_event_count(session_dir: Path) -> int:

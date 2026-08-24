@@ -1,4 +1,4 @@
-"""Host catalog snapshot: stamp gate, no events.jsonl, updates-tail status."""
+"""Host catalog snapshot: stamp gate, updates-tail status, marker fallback."""
 
 from __future__ import annotations
 
@@ -47,15 +47,20 @@ def _chunk_line() -> str:
     return json.dumps({"params": {"update": {"sessionUpdate": "user_message_chunk"}}}) + "\n"
 
 
-def test_host_catalog_row_skips_events_jsonl(tmp_path: Path, monkeypatch) -> None:
+def test_host_catalog_row_skips_full_timeline_parse(tmp_path: Path, monkeypatch) -> None:
     import groket.parser as parser_mod
 
-    sd = _host_session(tmp_path / "host", "019aaaa", title="Host title", messages=9)
+    sd = _host_session(
+        tmp_path / "host",
+        "019aaaa",
+        title="Host title",
+        messages=9,
+        updates=_turn_completed_line(),
+    )
 
     def _boom(*_a: object, **_k: object) -> None:
-        raise AssertionError("host list must not read events.jsonl")
+        raise AssertionError("host list must not parse the full timeline")
 
-    monkeypatch.setattr(parser_mod, "_list_runtime_status", _boom)
     monkeypatch.setattr(parser_mod, "_list_timeline_event_count", _boom)
     monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
     row = session_catalog_row(sd, origin="host")
@@ -65,6 +70,7 @@ def test_host_catalog_row_skips_events_jsonl(tmp_path: Path, monkeypatch) -> Non
     assert row["origin"] == "host"
     assert row["toolCallCount"] == 2
     assert row["turnCount"] == 4
+    assert row["status"] == "complete"
 
 
 def test_host_list_meta_tail_sets_complete_vs_running(tmp_path: Path) -> None:

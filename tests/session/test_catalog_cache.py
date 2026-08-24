@@ -353,8 +353,8 @@ def test_drop_subagent_rows_clears_cached_children(tmp_path: Path) -> None:
     assert {str(r["sessionId"]) for r in updated} == {"parent"}
 
 
-def test_refresh_rows_host_does_not_read_events_jsonl(tmp_path: Path) -> None:
-    """Host watch refresh must not open events.jsonl."""
+def test_refresh_rows_host_reads_events_when_tail_has_no_close(tmp_path: Path) -> None:
+    """Host watch refresh reads events.jsonl only to fill a missing list status."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -375,7 +375,9 @@ def test_refresh_rows_host_does_not_read_events_jsonl(tmp_path: Path) -> None:
     cache = SessionCatalogCache(
         work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
     )
-    cache.get(force=True)
+    first = cache.get(force=True)
+    by_id = {str(r["sessionId"]): r for r in first}
+    assert by_id["live-host"]["status"] == "running"
     events.write_text(
         json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0})
         + "\n"
@@ -383,19 +385,10 @@ def test_refresh_rows_host_does_not_read_events_jsonl(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    opened: list[str] = []
-    real_open = Path.open
-
-    def tracking_open(self: Path, *args: object, **kwargs: object) -> object:
-        opened.append(str(self))
-        return real_open(self, *args, **kwargs)
-
-    from unittest.mock import patch
-
-    with patch.object(Path, "open", tracking_open):
-        _rows, changed = cache.refresh_rows([bucket])
-    assert not any(p.endswith("events.jsonl") for p in opened)
-    assert changed.get("live-host") is False
+    rows, changed = cache.refresh_rows([bucket])
+    by_id = {str(r["sessionId"]): r for r in rows}
+    assert by_id["live-host"]["status"] == "complete"
+    assert changed.get("live-host") is True
 
 
 def _age_host_traces(session_dir: Path, *, seconds: float = 9 * 60) -> None:

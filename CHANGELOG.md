@@ -58,6 +58,9 @@ is tagged.
 
 ### Bug fix
 
+- Host session list status uses the updates tail (`session_recap`,
+  `turn_completed`) and the same cheap turn markers as Summary, so
+  finished host rows show `complete` without opening the session.
 - The desktop session list applies `after:` / `before:` locally
   (`yesterday`, `2d`, `2 days ago`), same as the terminal list.
 - A forked child that replays parent tools keeps the continuation on
