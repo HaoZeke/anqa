@@ -15,11 +15,13 @@ is tagged.
   `L`. Catalog search tokens in `?` come from the published schema and
   wrap as a short list on the terminal and the desktop palette.
 - Default look follows the host (`theme = "auto"`): the terminal app
-  uses the terminal's colors, the desktop palette uses the system
-  light/dark pair. Named catalog themes (Catppuccin, Nord, GitHub,
-  Everforest, Kanagawa, and others) and a drop-in `~/.groket/themes/`
-  file pin a colorway on both clients. Status uses success / caution /
-  danger / quiet — not a brand cream overlay.
+  picks `ansi-light` / `ansi-dark` from the terminal (`COLORFGBG`, then
+  the desktop). The desktop palette uses the system light/dark pair
+  and system paper when the OS reports it. Named catalog themes
+  (Catppuccin, Nord, GitHub, Everforest, Kanagawa, and others) and a
+  drop-in `~/.groket/themes/` file pin a colorway on both clients.
+  Status uses success / caution / danger / quiet — not a brand cream
+  overlay.
 - Timeline search accepts `tool:`, `turn:`, `user:`, and `duration:`
   (same seconds as Dur) as well as `is:` / `has:error`. Turns and
   Timeline show last-token hints. The terminal search box is a

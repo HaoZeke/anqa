@@ -62,7 +62,7 @@ from ..session.query import (
     suggest_last_token,
 )
 from . import text as U
-from .appearance import Appearance, appearance
+from .appearance import Appearance, appearance, tui_appearance
 from .bindings import (
     APP_GLOBAL_PRIORITY,
     APP_SESSIONS,
@@ -432,7 +432,7 @@ class TraceEvalApp(App):
         self._theme_persist = False
         register_catalog_themes(self)
         early = str(self._config.get("theme") or "").strip() or "auto"
-        self._desktop_appearance = appearance()
+        self._desktop_appearance = self._look_for_pref()
         try:
             self.theme = self._resolved_theme(early)
         except Exception:
@@ -517,6 +517,12 @@ class TraceEvalApp(App):
     def _follow_os(self) -> bool:
         return self._config.get("follow_os") is True
 
+    def _look_for_pref(self) -> Appearance:
+        """Terminal look for ``auto``; desktop look for a named ``follow_os`` pair."""
+        if self._theme_pref_is_auto():
+            return tui_appearance()
+        return appearance()
+
     def _resolved_theme(self, pref: str) -> str:
         return resolve_theme(
             pref,
@@ -536,7 +542,7 @@ class TraceEvalApp(App):
         """
         pref = str(self._config.get("theme") or "").strip() or "auto"
         names = set(self._theme_names())
-        self._desktop_appearance = appearance()
+        self._desktop_appearance = self._look_for_pref()
         name = self._resolved_theme(pref)
         if name not in names:
             if not names:
@@ -571,10 +577,10 @@ class TraceEvalApp(App):
             self._appearance_timer = self.set_interval(2.0, self._follow_desktop_appearance)
 
     def _follow_desktop_appearance(self) -> None:
-        """Repaint when the host light/dark setting changes."""
+        """Repaint when the look that owns this pref changes."""
         if not (self._follow_os() or self._theme_pref_is_auto()):
             return
-        if appearance() != self._desktop_appearance:
+        if self._look_for_pref() != self._desktop_appearance:
             self.apply_saved_theme(save=False)
 
     def _apply_pair_member(self) -> None:
@@ -612,6 +618,7 @@ class TraceEvalApp(App):
         if follow:
             if self._appearance_timer is None:
                 self._appearance_timer = self.set_interval(2.0, self._follow_desktop_appearance)
+            self._desktop_appearance = self._look_for_pref()
             self._apply_pair_member()
 
     def _apply_resolved_keymap(self) -> None:

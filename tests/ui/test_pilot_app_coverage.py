@@ -399,6 +399,45 @@ async def test_pair_pick_stores_family_and_applies_desktop_member(
 
 
 @pytest.mark.asyncio
+async def test_auto_theme_follows_terminal_not_desktop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``theme = auto`` takes COLORFGBG; a light desktop does not force ansi-light."""
+    monkeypatch.setattr("groket.ui.app.appearance", lambda: "light")
+    monkeypatch.setattr("groket.ui.appearance.appearance", lambda: "light")
+    monkeypatch.setenv("COLORFGBG", "15;0")
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: app._theme_persist)
+        app._config["theme"] = "auto"
+        app.apply_saved_theme(save=False)
+        assert app.theme == "ansi-dark"
+        monkeypatch.setenv("COLORFGBG", "0;15")
+        app._follow_desktop_appearance()
+        assert app.theme == "ansi-light"
+
+
+@pytest.mark.asyncio
+async def test_named_follow_os_uses_desktop_not_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A named pair with ``follow_os`` follows the desktop, not COLORFGBG."""
+    from groket.ui.theme import resolve_theme
+
+    monkeypatch.setattr("groket.ui.app.appearance", lambda: "light")
+    monkeypatch.setattr("groket.ui.appearance.appearance", lambda: "light")
+    monkeypatch.setenv("COLORFGBG", "15;0")
+    app, _, _ = _make_app(tmp_path, n_sessions=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: app._theme_persist)
+        app._config["theme"] = "gruvbox"
+        app._config["follow_os"] = True
+        app.apply_saved_theme(save=False)
+        assert app.theme == resolve_theme("gruvbox", "light", follow_os=True)
+        assert app.theme == "gruvbox-light"
+
+
+@pytest.mark.asyncio
 async def test_follow_desktop_appearance(tmp_path: Path) -> None:
     """``follow_os`` re-resolves the colorway; a pinned pick stays put."""
     from groket.ui.appearance import appearance

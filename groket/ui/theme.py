@@ -25,9 +25,7 @@ AUTO_NAMES = frozenset(
     }
 )
 
-_PAIRS: dict[str, tuple[str, str]] = {}
-_FAMILY: dict[str, str] = {}
-for _id, _pair in {
+THEME_FAMILIES: dict[str, tuple[str, str]] = {
     "ansi": ("ansi-light", "ansi-dark"),
     "atom-one": ("atom-one-light", "atom-one-dark"),
     "ayu": ("ayu-light", "ayu-dark"),
@@ -42,7 +40,10 @@ for _id, _pair in {
     "solarized": ("solarized-light", "solarized-dark"),
     "textual": ("textual-light", "textual-dark"),
     "tokyo-night": ("tokyo-night-day", "tokyo-night"),
-}.items():
+}
+_PAIRS: dict[str, tuple[str, str]] = {}
+_FAMILY: dict[str, str] = {}
+for _id, _pair in THEME_FAMILIES.items():
     _PAIRS[_id] = _pair
     _PAIRS[_pair[0]] = _pair
     _PAIRS[_pair[1]] = _pair
@@ -151,6 +152,11 @@ def host_pair_themes() -> list[Theme]:
     ]
 
 
+def theme_family_pairs() -> dict[str, tuple[str, str]]:
+    """Family id → ``(light member, dark member)``. Same table the HUD reads."""
+    return dict(THEME_FAMILIES)
+
+
 def theme_in_pair(name: str) -> bool:
     """True when *name* is a light/dark catalog pair member."""
     return (name or "").strip() in _PAIRS
@@ -182,8 +188,8 @@ def register_catalog_themes(app: object, *, user_root: Path | None = None) -> No
 def resolve_theme(pref: str, desktop: Appearance, *, follow_os: bool = True) -> str:
     """Concrete catalog name for *pref*.
 
-    ``auto`` / empty follows the desktop (terminal ANSI pair). A named
-    pair flips with the host only when *follow_os* is on.
+    ``auto`` / empty follows the look passed in (terminal, then desktop).
+    A named pair flips with that look only when *follow_os* is on.
     """
     key = (pref or "").strip()
     if key.casefold() in AUTO_NAMES:

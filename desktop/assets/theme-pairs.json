@@ -1,0 +1,58 @@
+{
+  "ansi": [
+    "ansi-light",
+    "ansi-dark"
+  ],
+  "atom-one": [
+    "atom-one-light",
+    "atom-one-dark"
+  ],
+  "ayu": [
+    "ayu-light",
+    "ayu-dark"
+  ],
+  "catppuccin": [
+    "catppuccin-latte",
+    "catppuccin-mocha"
+  ],
+  "everforest": [
+    "everforest-light",
+    "everforest-dark"
+  ],
+  "github": [
+    "github-light",
+    "github-dark"
+  ],
+  "gruvbox": [
+    "gruvbox-light",
+    "gruvbox"
+  ],
+  "kanagawa": [
+    "kanagawa-lotus",
+    "kanagawa-wave"
+  ],
+  "modus": [
+    "modus-operandi",
+    "modus-vivendi"
+  ],
+  "nightfox": [
+    "dawnfox",
+    "nightfox"
+  ],
+  "rose-pine": [
+    "rose-pine-dawn",
+    "rose-pine"
+  ],
+  "solarized": [
+    "solarized-light",
+    "solarized-dark"
+  ],
+  "textual": [
+    "textual-light",
+    "textual-dark"
+  ],
+  "tokyo-night": [
+    "tokyo-night-day",
+    "tokyo-night"
+  ]
+}

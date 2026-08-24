@@ -119,6 +119,7 @@ pub fn brand_role_color(role: BrandRole, tok: Tokens) -> Color {
 }
 
 const CATALOG: &str = include_str!("../assets/textual-themes.json");
+const PAIRS: &str = include_str!("../assets/theme-pairs.json");
 
 /// True when ``$surface`` is a dark canvas (gruvbox, nord, …).
 pub fn canvas_is_dark(tok: Tokens) -> bool {
@@ -250,6 +251,51 @@ fn ansi_member(pref: &str) -> Option<&'static str> {
     }
 }
 
+fn family_pairs() -> &'static std::collections::BTreeMap<String, (String, String)> {
+    static MAP: OnceLock<std::collections::BTreeMap<String, (String, String)>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(root) = serde_json::from_str::<Value>(PAIRS) else {
+            return out;
+        };
+        let Some(obj) = root.as_object() else {
+            return out;
+        };
+        for (id, val) in obj {
+            let Some(arr) = val.as_array() else {
+                continue;
+            };
+            if arr.len() != 2 {
+                continue;
+            }
+            let (Some(light), Some(dark)) = (arr[0].as_str(), arr[1].as_str()) else {
+                continue;
+            };
+            out.insert(id.clone(), (light.to_string(), dark.to_string()));
+        }
+        out
+    })
+}
+
+fn pair_members(pref: &str) -> Option<(String, String)> {
+    let key = pref.trim();
+    let map = family_pairs();
+    if let Some(pair) = map.get(key) {
+        return Some(pair.clone());
+    }
+    map.values()
+        .find(|(light, dark)| light == key || dark == key)
+        .cloned()
+}
+
+fn hud_face(member: &str) -> String {
+    match member {
+        "ansi-light" => "light".into(),
+        "ansi-dark" => "dark".into(),
+        other => other.to_string(),
+    }
+}
+
 /// Config ``theme``. ``auto`` is the host pair. ``follow`` flips named pairs.
 pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: bool) -> String {
     if is_auto(pref) {
@@ -264,10 +310,14 @@ pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: 
     if !follow {
         return pref.to_string();
     }
-    match icedtea::theme::family_of_name(pref) {
-        Some(_) => icedtea::theme::resolve_pref(pref, None, true, appearance),
-        None => pref.to_string(),
-    }
+    let Some((light, dark)) = pair_members(pref) else {
+        return pref.to_string();
+    };
+    let member = match appearance {
+        icedtea::theme::Appearance::Light => light,
+        icedtea::theme::Appearance::Dark => dark,
+    };
+    hud_face(&member)
 }
 
 /// Tokens for ``theme`` in ``~/.groket/config.toml``.
@@ -454,6 +504,21 @@ mod tests {
     }
 
     #[test]
+    fn textual_and_nightfox_follow_like_tui() {
+        use icedtea::theme::Appearance;
+        assert_eq!(
+            resolve_name("textual", Appearance::Light, true),
+            "textual-light"
+        );
+        assert_eq!(
+            resolve_name("textual-dark", Appearance::Light, true),
+            "textual-light"
+        );
+        assert_eq!(resolve_name("nightfox", Appearance::Light, true), "dawnfox");
+        assert_eq!(resolve_name("dawnfox", Appearance::Dark, true), "nightfox");
+    }
+
+    #[test]
     fn auto_follows_host_pair() {
         use icedtea::theme::Appearance;
         assert_eq!(resolve_name("auto", Appearance::Light, false), "light");
@@ -498,10 +563,6 @@ mod tests {
         assert_eq!(
             resolve_name("gruvbox-light", Appearance::Dark, false),
             "gruvbox-light"
-        );
-        assert_eq!(
-            resolve_name("textual-dark", Appearance::Light, true),
-            "textual-dark"
         );
         assert!(!canvas_is_dark(tokens("gruvbox-light")));
         assert_eq!(tokens("gruvbox").text, Color::from_rgb8(0xFB, 0xF1, 0xC7));

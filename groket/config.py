@@ -74,7 +74,7 @@ class AppConfig(BaseModel):
 
     theme: str = Field(
         default="auto",
-        description="auto (terminal / desktop host) or a catalog / ~/.groket/themes name.",
+        description="auto (terminal, then desktop) or a catalog / ~/.groket/themes name.",
     )
     follow_os: bool = Field(
         default=False,

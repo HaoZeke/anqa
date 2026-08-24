@@ -7,11 +7,12 @@ import json
 import sys
 from pathlib import Path
 
-from groket.ui.theme import community_themes
+from groket.ui.theme import community_themes, theme_family_pairs
 from textual.theme import BUILTIN_THEMES
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "desktop" / "assets" / "textual-themes.json"
+PAIRS_OUT = ROOT / "desktop" / "assets" / "theme-pairs.json"
 
 
 def _record(theme: object) -> dict[str, object] | None:
@@ -36,6 +37,11 @@ def theme_payload() -> dict[str, dict[str, object]]:
     return out
 
 
+def pairs_payload() -> dict[str, list[str]]:
+    """Family id → ``[light, dark]`` members (same table as ``THEME_FAMILIES``)."""
+    return {name: [light, dark] for name, (light, dark) in sorted(theme_family_pairs().items())}
+
+
 def emit(path: Path | None = None) -> Path:
     """Write pretty JSON (stable key order) to *path* or the committed HUD file."""
     dest = path or OUT
@@ -45,9 +51,23 @@ def emit(path: Path | None = None) -> Path:
     return dest
 
 
+def emit_pairs(path: Path | None = None) -> Path:
+    """Write the shared light/dark pair table next to the theme map."""
+    dest = path or PAIRS_OUT
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(pairs_payload(), indent=2) + "\n", encoding="utf-8")
+    return dest
+
+
 def main() -> int:
-    dest = emit(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
-    print(f"wrote {dest} ({len(theme_payload())} themes)", file=sys.stderr)
+    theme_dest = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    pairs_dest = Path(sys.argv[2]) if len(sys.argv) > 2 else None
+    dest = emit(theme_dest)
+    pairs = emit_pairs(pairs_dest)
+    print(
+        f"wrote {dest} ({len(theme_payload())} themes) and {pairs}",
+        file=sys.stderr,
+    )
     return 0
 
 

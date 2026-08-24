@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from groket.ui.styles import status_rich_style, theme_is_light
 from groket.ui.theme import (
+    THEME_FAMILIES,
     community_themes,
     family_of_theme,
     host_pair_themes,
     load_user_themes,
     register_catalog_themes,
     resolve_theme,
+    theme_family_pairs,
     theme_in_pair,
 )
 
@@ -89,6 +91,19 @@ def test_user_theme_file(tmp_path) -> None:
     assert themes[0].name == "paper"
     assert themes[0].background == "#f7f4ef"
     assert themes[0].dark is False
+
+
+def test_theme_family_pairs_include_textual_and_nightfox() -> None:
+    import json
+    from pathlib import Path
+
+    pairs = theme_family_pairs()
+    assert pairs["textual"] == ("textual-light", "textual-dark")
+    assert pairs["nightfox"] == ("dawnfox", "nightfox")
+    assert pairs["ansi"] == ("ansi-light", "ansi-dark")
+    assert set(pairs) == set(THEME_FAMILIES)
+    asset = json.loads(Path("desktop/assets/theme-pairs.json").read_text(encoding="utf-8"))
+    assert {k: tuple(v) for k, v in asset.items()} == pairs
 
 
 def test_status_roles_are_ansi() -> None:

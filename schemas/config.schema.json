@@ -43,7 +43,7 @@
   "properties": {
     "theme": {
       "default": "auto",
-      "description": "auto (terminal / desktop host) or a catalog / ~/.groket/themes name.",
+      "description": "auto (terminal, then desktop) or a catalog / ~/.groket/themes name.",
       "title": "Theme",
       "type": "string"
     },

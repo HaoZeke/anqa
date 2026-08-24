@@ -83,13 +83,14 @@ desktop_notifications = true
 default_profile = ""
 ```
 
-`theme = "auto"` uses the desktop light/dark pair on both the TUI and
-the HUD (`ansi-light` / `ansi-dark`, same paper). Picking any member of
-a named pair (`gruvbox` or `gruvbox-light`) stores the family; both
-clients apply the desktop member. An unpaired name (`nord`) pins both
-clients. Drop a TOML file in
-`~/.groket/themes/` (see [`examples/themes/`](examples/themes/)) and
-point `theme` at its stem.
+`theme = "auto"`: the terminal app follows the terminal (`COLORFGBG`,
+then the desktop) and paints `ansi-light` / `ansi-dark`. The desktop
+palette follows the system light/dark pair and, when the OS reports
+it, system paper and ink. Picking any member of a named pair
+(`gruvbox` or `gruvbox-light`) stores the family; both clients apply
+the desktop member. An unpaired name (`nord`) pins both clients. Drop
+a TOML file in `~/.groket/themes/` (see
+[`examples/themes/`](examples/themes/)) and point `theme` at its stem.
 
 Key remaps stay in `keys.toml` (below), not in this file.
 

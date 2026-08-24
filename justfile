@@ -71,13 +71,19 @@ hud-themes-check:
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp)
-    uv run python scripts/gen_textual_themes.py "$tmp"
+    pairs=$(mktemp)
+    uv run python scripts/gen_textual_themes.py "$tmp" "$pairs"
+    stale=0
     if ! diff -q "$tmp" desktop/assets/textual-themes.json >/dev/null; then
       echo "desktop/assets/textual-themes.json is stale — run just hud-themes and commit" >&2
-      rm -f "$tmp"
-      exit 1
+      stale=1
     fi
-    rm -f "$tmp"
+    if ! diff -q "$pairs" desktop/assets/theme-pairs.json >/dev/null; then
+      echo "desktop/assets/theme-pairs.json is stale — run just hud-themes and commit" >&2
+      stale=1
+    fi
+    rm -f "$tmp" "$pairs"
+    exit "$stale"
 
 # Theme map + rustfmt + clippy + HUD cargo test (+ cov if installed).
 hud-check: hud-themes-check
