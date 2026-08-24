@@ -919,13 +919,13 @@ impl Hud {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::OsMode(mode) => {
-                self.appearance = icedtea::theme::Appearance::from_mode(mode);
+                self.appearance = theme::appearance_from_mode(mode, self.appearance);
                 self.sync_theme();
                 Task::none()
             }
             Message::OsChrome(chrome) => {
                 self.os_chrome = chrome;
-                Task::none()
+                self.resample_host_look()
             }
             Message::SearchChanged(q) => {
                 self.query = q;
@@ -5205,9 +5205,17 @@ impl Hud {
         reset
     }
 
+    fn resample_host_look(&mut self) -> Task<Message> {
+        if let Some(look) = theme::portal_appearance() {
+            self.appearance = look;
+        }
+        self.sync_theme();
+        icedtea::iced::system::theme().map(Message::OsMode)
+    }
+
     fn show_palette(&mut self) -> Task<Message> {
         if overlay_already_mapped(self.visible, self.window_mode, self.window_id.is_some()) {
-            return self.focus_overlay();
+            return Task::batch([self.resample_host_look(), self.focus_overlay()]);
         }
         self.window_mode = false;
         self.visible = true;
@@ -5225,13 +5233,14 @@ impl Hud {
                 self.go_overlay(true);
             }
         }
-        self.sync_theme();
+        let look = self.resample_host_look();
         // Always open on the session list — pick is explicit (Enter / click).
         let reset = self.return_to_spotlight();
         if self.window_id.is_none() {
             let (id, open) = open_hud_window(false);
             self.window_id = Some(id);
             return Task::batch([
+                look,
                 reset,
                 open.map(|id| Message::WindowId(Some(id))),
                 delayed_focus(0),
@@ -5249,6 +5258,7 @@ impl Hud {
             None => Task::none(),
         };
         Task::batch([
+            look,
             reset,
             chrome,
             delayed_focus(0),
@@ -11564,6 +11574,14 @@ mod tests {
         assert!(!overlay_already_mapped(false, false, true));
         assert!(!overlay_already_mapped(true, true, true));
         assert!(!overlay_already_mapped(true, false, false));
+    }
+
+    #[test]
+    fn summon_and_os_chrome_reread_host_look() {
+        let src = include_str!("app.rs");
+        assert!(src.contains("fn resample_host_look"));
+        assert!(src.contains("self.resample_host_look()"));
+        assert!(src.contains("appearance_from_mode"));
     }
 
     #[test]

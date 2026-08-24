@@ -242,6 +242,56 @@ fn host_pair(appearance: icedtea::theme::Appearance) -> String {
     }
 }
 
+/// Portal `color-scheme`: 1 dark, 2 light. Other output is unknown.
+pub fn appearance_from_portal_stdout(out: &str) -> Option<icedtea::theme::Appearance> {
+    if out.contains("uint32 1") {
+        Some(icedtea::theme::Appearance::Dark)
+    } else if out.contains("uint32 2") {
+        Some(icedtea::theme::Appearance::Light)
+    } else {
+        None
+    }
+}
+
+/// `None` (no preference) keeps *current* unless the portal has an explicit pair.
+pub fn appearance_from_mode(
+    mode: icedtea::iced::theme::Mode,
+    current: icedtea::theme::Appearance,
+) -> icedtea::theme::Appearance {
+    match mode {
+        icedtea::iced::theme::Mode::Dark => icedtea::theme::Appearance::Dark,
+        icedtea::iced::theme::Mode::Light => icedtea::theme::Appearance::Light,
+        icedtea::iced::theme::Mode::None => portal_appearance().unwrap_or(current),
+    }
+}
+
+/// Session portal color-scheme, when this host publishes one.
+pub fn portal_appearance() -> Option<icedtea::theme::Appearance> {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let out = std::process::Command::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest=org.freedesktop.portal.Desktop",
+                "--object-path=/org/freedesktop/portal/desktop",
+                "--method=org.freedesktop.portal.Settings.Read",
+                "org.freedesktop.appearance",
+                "color-scheme",
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        appearance_from_portal_stdout(&String::from_utf8_lossy(&out.stdout))
+    }
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        None
+    }
+}
+
 /// Textual ANSI pair members → icedtea host pair (no hex catalog for live ANSI).
 fn ansi_member(pref: &str) -> Option<&'static str> {
     match pref.trim().to_ascii_lowercase().as_str() {
@@ -516,6 +566,35 @@ mod tests {
         );
         assert_eq!(resolve_name("nightfox", Appearance::Light, true), "dawnfox");
         assert_eq!(resolve_name("dawnfox", Appearance::Dark, true), "nightfox");
+    }
+
+    #[test]
+    fn portal_stdout_maps_color_scheme() {
+        use icedtea::theme::Appearance;
+        assert_eq!(
+            appearance_from_portal_stdout("(<<uint32 1>>,)"),
+            Some(Appearance::Dark)
+        );
+        assert_eq!(
+            appearance_from_portal_stdout("(<<uint32 2>>,)"),
+            Some(Appearance::Light)
+        );
+        assert_eq!(appearance_from_portal_stdout("(<<uint32 0>>,)"), None);
+        assert_eq!(appearance_from_portal_stdout(""), None);
+    }
+
+    #[test]
+    fn mode_none_keeps_current_when_portal_is_silent() {
+        use icedtea::iced::theme::Mode;
+        use icedtea::theme::Appearance;
+        assert_eq!(
+            appearance_from_mode(Mode::Dark, Appearance::Light),
+            Appearance::Dark
+        );
+        assert_eq!(
+            appearance_from_mode(Mode::Light, Appearance::Dark),
+            Appearance::Light
+        );
     }
 
     #[test]
