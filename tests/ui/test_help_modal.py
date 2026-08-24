@@ -19,7 +19,7 @@ def test_help_markup_nonempty() -> None:
     assert f"groket {__version__}" in text
     assert "Export a session bundle" in text
     assert "Search" in text
-    assert "Hover the search box for tokens on this list" in text
+    assert "Tokens appear under the box as you type" in text
     assert "has: workflow" not in text
     assert "%%catalog-query%%" not in text
 

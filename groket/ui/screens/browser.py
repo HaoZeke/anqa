@@ -103,7 +103,6 @@ from ..panel_render import (
     status_chip,
 )
 from ..query_highlight import CatalogQueryHighlighter
-from ..query_legend import search_tooltip
 from ..selectable_static import SelectableStatic, is_extractable_static
 from ..session_summary import render_session_summary
 from ..tab_panes import TabPaneNavigation
@@ -356,7 +355,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                                 id="search-input",
                                 highlighter=CatalogQueryHighlighter(),
                                 suggester=TimelineQuerySuggester(),
-                                tooltip=search_tooltip("timeline"),
                             )
                         yield Static("", id="timeline-query-hints", classes="session-query-hints")
                         yield TimelineTable(id="timeline-list")

@@ -539,7 +539,7 @@ jobs-tab = Jobs
 keyboard-help-title = groket {$version}
 
 keyboard-help-search = Search
-search-help-under-box = Hover the search box for tokens on this list.
+search-help-under-box = Tokens appear under the box as you type. Tab completes the last token.
 
 help-brand-name = groket
 

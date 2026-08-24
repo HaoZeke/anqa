@@ -239,7 +239,7 @@ openable child. Exporting an opened child is that child only.
 
 ### Catalog search
 
-`/` on the session list. Hover the box for that list's tokens. Last-token completions appear while you type. `?` is keys only. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `groket serve`.
+`/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `groket serve`.
 
 | Token | Matches |
 |-------|---------|

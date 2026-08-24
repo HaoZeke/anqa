@@ -272,18 +272,10 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
     for line in text.splitlines():
         assert len(line) <= 72, line
     from groket.integrations.control_contract import list_query_help_pairs
-    from groket.ui.query_legend import search_tooltip
-    from rich.console import Console
 
     pairs = list_query_help_pairs("timeline")
     assert any(label == "tool:" for label, _body in pairs)
     assert all(label != "after:" for label, _body in pairs)
-    console = Console(record=True, width=80, color_system=None)
-    console.print(search_tooltip("catalog"))
-    painted = console.export_text()
-    assert "is:" in painted
-    assert "has:" in painted
-    assert "AND" in painted
 
 
 def test_has_quantity_compare() -> None:

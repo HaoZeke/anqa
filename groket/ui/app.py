@@ -83,7 +83,6 @@ from .data_table import (
 from .i18n import setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
-from .query_legend import search_tooltip
 from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .screens.run_configs import RunConfigsScreen
@@ -454,7 +453,6 @@ class TraceEvalApp(App):
                     id="session-search-input",
                     highlighter=CatalogQueryHighlighter(),
                     suggester=SessionQuerySuggester(self),
-                    tooltip=search_tooltip("catalog"),
                 )
             yield Static("", id="session-query-hints", classes="session-query-hints")
             yield DataTable(id="session-table")

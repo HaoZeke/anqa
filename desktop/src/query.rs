@@ -149,7 +149,7 @@ pub fn query_help_rows(scope: QueryScope) -> Vec<QueryHelpRow> {
     rows
 }
 
-/// Plain tooltip / hint body for one search box.
+/// Plain help body for one search list (tests and schema copy).
 pub fn query_help_plain(scope: QueryScope) -> String {
     query_help_rows(scope)
         .into_iter()

@@ -1,8 +1,6 @@
 //! Palette layout.
 
-use iced::widget::{
-    column, container, image, mouse_area, responsive, row, stack, text, tooltip, Space,
-};
+use iced::widget::{column, container, image, mouse_area, responsive, row, stack, text, Space};
 use iced::{Alignment, Color, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
 use icedtea::icon::Icon;
@@ -34,7 +32,7 @@ use crate::live::{
 };
 use crate::model::{DiffContext, KindFilter, OverviewSection, SchemaField, Tab};
 use crate::motion::PageLayer;
-use crate::query::{highlight_query_spans, QueryScope, QuerySpanKind};
+use crate::query::{highlight_query_spans, QuerySpanKind};
 use crate::typo;
 use crate::wire::{NoteRow, TimelineEvent, TurnRow, WorkflowChildRow};
 
@@ -49,42 +47,6 @@ fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
             icedtea::widget::FieldRun::new(mark.start, mark.end, catalog_query_ink(mark.kind))
         })
         .collect()
-}
-
-fn query_help_tooltip<'a>(
-    child: Element<'a, Message>,
-    scope: QueryScope,
-    tea: icedtea::theme::Tokens,
-) -> Element<'a, Message> {
-    let mut col = column![].spacing(4);
-    for row in crate::query::query_help_rows(scope) {
-        if row.label.is_empty() {
-            if !row.body.is_empty() {
-                col = col.push(text(row.body).size(tea.meta()).color(tea.muted));
-            }
-            continue;
-        }
-        if row.body.is_empty() {
-            col = col.push(text(row.label).size(tea.meta()).color(tea.text));
-            continue;
-        }
-        col = col.push(
-            row![
-                text(row.label)
-                    .size(tea.meta())
-                    .color(tea.muted)
-                    .width(Length::Fixed(96.0)),
-                text(row.body).size(tea.meta()).color(tea.text),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Start),
-        );
-    }
-    let tip = container(col)
-        .padding(tea.density.inset())
-        .max_width(420.0)
-        .style(move |_| icedtea::style::tooltip(tea));
-    tooltip(child, tip, tooltip::Position::FollowCursor).into()
 }
 
 fn query_hint_line(hints: Vec<String>, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -421,19 +383,15 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::button("Session list"),
         ),
-        query_help_tooltip(
-            icedtea::widget::search_input(
-                hud.query(),
-                Message::SearchChanged,
-                Some(Message::SearchChanged(String::new())),
-                Some(Message::ActivateSelected),
-                tea,
-                A11y::new("Search sessions", Role::TextBox),
-                Some(hud.search_id()),
-                &catalog_query_runs(hud.query()),
-            ),
-            QueryScope::Catalog,
+        icedtea::widget::search_input(
+            hud.query(),
+            Message::SearchChanged,
+            Some(Message::SearchChanged(String::new())),
+            Some(Message::ActivateSelected),
             tea,
+            A11y::new("Search sessions", Role::TextBox),
+            Some(hud.search_id()),
+            &catalog_query_runs(hud.query()),
         ),
     ]
     .spacing(12)
@@ -961,19 +919,15 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             A11y::new(cap.to_string(), Role::Status),
         ));
     }
-    let search = container(query_help_tooltip(
-        icedtea::widget::search_input(
-            hud.timeline_query_draft(),
-            Message::TimelineQuery,
-            Some(Message::TimelineQuery(String::new())),
-            None,
-            tea,
-            A11y::new("Search events…", Role::TextBox),
-            Some(hud.tl_search_id()),
-            &catalog_query_runs(hud.timeline_query_draft()),
-        ),
-        QueryScope::Timeline,
+    let search = container(icedtea::widget::search_input(
+        hud.timeline_query_draft(),
+        Message::TimelineQuery,
+        Some(Message::TimelineQuery(String::new())),
+        None,
         tea,
+        A11y::new("Search events…", Role::TextBox),
+        Some(hud.tl_search_id()),
+        &catalog_query_runs(hud.timeline_query_draft()),
     ))
     .width(Length::Fill);
     let hint = query_hint_line(hud.timeline_query_hints(), tea);
@@ -1727,19 +1681,15 @@ fn turn_list_card(
 
 fn turns_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    let search = query_help_tooltip(
-        icedtea::widget::search_input(
-            hud.turns_query_draft(),
-            Message::TurnsQuery,
-            Some(Message::TurnsQuery(String::new())),
-            None,
-            tea,
-            A11y::new("Search turns", Role::TextBox),
-            Some(hud.turns_search_id()),
-            &catalog_query_runs(hud.turns_query_draft()),
-        ),
-        QueryScope::Turns,
+    let search = icedtea::widget::search_input(
+        hud.turns_query_draft(),
+        Message::TurnsQuery,
+        Some(Message::TurnsQuery(String::new())),
+        None,
         tea,
+        A11y::new("Search turns", Role::TextBox),
+        Some(hud.turns_search_id()),
+        &catalog_query_runs(hud.turns_query_draft()),
     );
     let hint = query_hint_line(hud.turns_query_hints(), tea);
     column![search, hint]
@@ -3558,7 +3508,7 @@ mod tests {
         assert!(!prod.contains("pattern::list_detail"));
         assert!(prod.contains("widget::rule_h"));
         assert!(prod.contains("widget::tooltip_wrap"));
-        assert!(prod.contains("fn query_help_tooltip"));
+        assert!(!prod.contains("fn query_help_tooltip"));
         assert!(prod.contains("ControlSize::Default"));
         assert!(prod.contains("icedtea::widget::pick_list"));
         assert!(prod.contains("TreeFace::Files"));

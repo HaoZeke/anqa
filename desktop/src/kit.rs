@@ -138,7 +138,7 @@ pub fn labeled_plain<'a>(
     )
 }
 
-/// `?` help sheet: shortcut rows. Search tokens are on the box tooltip.
+/// `?` help sheet: shortcut rows. Search tokens appear while you type.
 ///
 /// icedtea [`pattern::cheatsheet`] already pads for its scroll rail.
 pub fn help_modal<'a>(
@@ -148,9 +148,10 @@ pub fn help_modal<'a>(
 ) -> Element<'a, Message> {
     let heading = format!("Keyboard shortcuts · groket {}", crate::VERSION);
     let list = icedtea::pattern::cheatsheet(table, "", tea);
-    let search_note = text("Hover a search box for tokens on that list.")
-        .size(tea.meta())
-        .color(tea.muted);
+    let search_note =
+        text("Tokens appear under the box as you type. Tab completes the last token.")
+            .size(tea.meta())
+            .color(tea.muted);
     let body = column![list, search_note].spacing(tea.density.gap());
     let sheet = widget::group_box(
         heading.clone(),
@@ -305,7 +306,7 @@ mod tests {
             .next()
             .unwrap();
         assert!(help.contains("pattern::cheatsheet"));
-        assert!(help.contains("Hover a search box"));
+        assert!(help.contains("Tokens appear under the box as you type"));
         assert!(!help.contains("catalog_query_help_rows"));
     }
 
