@@ -27,7 +27,7 @@ iced = { version = "0.14", default-features = true, features = [
 ] }
 notify-rust = "4"
 regex = "1"
-icedtea = { path = "../../icedtea", version = "0.14.0" }
+icedtea = "0.14.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
