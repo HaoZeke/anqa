@@ -1165,10 +1165,20 @@ async def test_browser_search_debounce_applies_final_query(tmp_path: Path) -> No
 
         tl._refresh_rows = _count  # type: ignore[method-assign]
         inp = screen.query_one("#search-input", Input)
+        started = {"n": 0}
+        orig_start = screen._start_timeline_search_worker
+
+        def _count_start() -> None:
+            started["n"] += 1
+            orig_start()
+
+        screen._start_timeline_search_worker = _count_start  # type: ignore[method-assign]
         for needle in ("e", "ec", "ech"):
             inp.value = needle
             screen._on_search_changed(Input.Changed(inp, needle))
+        assert started["n"] == 0
         assert rebuilds["n"] == 0
+        screen._start_timeline_search_worker = orig_start  # type: ignore[method-assign]
         await wait_until(
             pilot,
             lambda: rebuilds["n"] >= 1,
@@ -1180,6 +1190,25 @@ async def test_browser_search_debounce_applies_final_query(tmp_path: Path) -> No
         screen._apply_timeline_filters()
         await pilot.pause()
         assert tl.row_count == filtered
+
+
+@pytest.mark.asyncio
+async def test_timeline_search_hints_keep_layout_slot(tmp_path: Path) -> None:
+    """Hint text may change; the row stays so the table does not resize."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        hint = screen.query_one("#timeline-query-hints", Static)
+        inp = screen.query_one("#search-input", Input)
+        assert hint.display
+        screen._on_search_changed(Input.Changed(inp, "zzzz-no-token"))
+        assert hint.display
+        screen._on_search_changed(Input.Changed(inp, "is:"))
+        assert hint.display
 
 
 @pytest.mark.asyncio

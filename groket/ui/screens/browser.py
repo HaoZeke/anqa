@@ -2756,16 +2756,24 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     @on(Input.Changed, "#search-input")
     def _on_search_changed(self, event: Input.Changed) -> None:
-        """Keep the caret moving; match and paint on a worker."""
+        """Keep the caret moving; match and paint after the shared idle gap."""
         self._timeline_search = event.value or ""
+        self._search_gen += 1
         self._refresh_timeline_query_hints()
+        self._arm_timeline_search_debounce()
+
+    def _arm_timeline_search_debounce(self) -> None:
         if self._search_debounce is not None:
             try:
                 self._search_debounce.stop()
             except Exception:
                 pass
             self._search_debounce = None
-        self._start_timeline_search_worker()
+        from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
+
+        self._search_debounce = self.set_timer(
+            TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_timeline_search
+        )
 
     def _refresh_timeline_query_hints(self) -> None:
         """Paint last-token completions under the Timeline search box."""
@@ -2781,10 +2789,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if getattr(self, "_timeline_hint_line", None) == line:
             return
         self._timeline_hint_line = line
-        if not hits:
-            hint.update("")
-            hint.display = False
-            return
         hint.display = True
         hint.update(line)
 

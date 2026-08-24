@@ -2007,12 +2007,8 @@ class TraceEvalApp(App):
             models=self.query_model_values(),
             paths=self.query_path_values(),
         )
-        if not hits:
-            hint.update("")
-            hint.display = False
-            return
         hint.display = True
-        hint.update("  ".join(hits[:8]))
+        hint.update("  ".join(hits[:8]) if hits else "")
 
     def _set_session_query(self, query: str) -> None:
         """Write the search box and apply the matcher now."""

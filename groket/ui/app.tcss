@@ -349,9 +349,10 @@ TabPane {
 
 .session-query-hints {
     color: $text-muted;
-    height: auto;
+    height: 1;
+    min-height: 1;
+    max-height: 1;
     padding: 0 1 0 2;
-    display: none;
 }
 
 /* Notes — one scroll of note cards. */
