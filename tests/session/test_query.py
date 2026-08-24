@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 from groket.integrations.control_contract import (
+    CATALOG_QUERY_COUNTS,
+    catalog_query_count_fields,
+    catalog_query_flag_count,
     catalog_query_has_count_fields,
     catalog_query_values,
 )
@@ -33,21 +36,21 @@ from groket.session.query import (
 )
 
 HAS_TOKENS = (
-    "workflows",
-    "notes",
-    "goals",
-    "subagents",
-    "tasks",
-    "jobs",
-    "schedules",
+    "workflow",
+    "note",
+    "goal",
     "plan",
-    "errors",
-    "failures",
+    "subagent",
+    "task",
+    "job",
+    "schedule",
+    "error",
+    "failure",
     "diff",
-    "git",
-    "context",
     "compaction",
     "doom",
+    "git",
+    "context",
 )
 
 
@@ -105,18 +108,18 @@ def test_bare_words_match_title_and_id_not_path() -> None:
 
 def test_implicit_and_and_or() -> None:
     row = _row()
-    assert row_matches_query(row, "has:workflows is:eval")
-    assert row_matches_query(row, "has:workflows AND has:errors:>2")
-    assert row_matches_query(row, "(is:host OR is:eval) AND has:errors:>0")
-    assert not row_matches_query(row, "is:host AND has:workflows")
+    assert row_matches_query(row, "has:workflow is:eval")
+    assert row_matches_query(row, "has:workflow AND errors:>2")
+    assert row_matches_query(row, "(is:host OR is:eval) AND errors:>0")
+    assert not row_matches_query(row, "is:host AND has:workflow")
 
 
 def test_has_and_numeric_and_in_path() -> None:
     row = _row()
-    assert row_matches_query(row, "has:workflows AND has:errors:>20") is False
-    assert row_matches_query(row, "has:workflows AND has:errors:>2")
-    assert row_matches_query(row, "has:errors:>=3")
-    assert not row_matches_query(row, "has:errors:>3")
+    assert row_matches_query(row, "has:workflow AND errors:>20") is False
+    assert row_matches_query(row, "has:workflow AND errors:>2")
+    assert row_matches_query(row, "errors:>=3")
+    assert not row_matches_query(row, "errors:>3")
     assert row_matches_query(row, "in:/mnt/dev/_git/fubar")
     assert row_matches_query(row, "in:fubar")
     assert row_matches_query(row, "in:FUBAR")
@@ -187,8 +190,8 @@ def test_human_after_before() -> None:
 
 def test_forgiving_unknown_and_incomplete() -> None:
     row = _row()
-    assert finished_prefix("has:workflows AND has:") == "has:workflows"
-    assert row_matches_query(row, "has:workflows AND has:")
+    assert finished_prefix("has:workflow AND has:") == "has:workflow"
+    assert row_matches_query(row, "has:workflow AND has:")
     assert row_matches_query(row, "palette AND ((")
     assert row_matches_query(row, "unknown:zzz") is False
     assert row_matches_query(_row(title="unknown:zzz"), "unknown:zzz")
@@ -201,11 +204,11 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
     assert "Bare words match title, id, and label" in text
     assert "is: running" in text
     assert "cancelled" in text
-    assert "has: workflows" in text
+    assert "has: workflow" in text
     assert "doom" in text
     assert "in: Directory the session was run in" in text
     assert "duration:" in text
-    assert "has:name:>=N" in text
+    assert "has:plan plans:>=N" in text
     assert ">=" in text
     assert "OR" in text
     assert "\n" in text
@@ -215,11 +218,11 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
 
 def test_has_quantity_compare() -> None:
     row = _row(error_count=5)
-    assert row_matches_query(row, "has:errors")
-    assert row_matches_query(row, "has:errors:>=5")
-    assert row_matches_query(row, "has:errors:5")
-    assert not row_matches_query(row, "has:errors:>=6")
-    assert not row_matches_query(row, "errors:>=5")
+    assert row_matches_query(row, "has:error")
+    assert row_matches_query(row, "errors:>=5")
+    assert row_matches_query(row, "errors:5")
+    assert not row_matches_query(row, "errors:>=6")
+    assert not row_matches_query(row, "has:error:>=5")
     rich = CatalogQueryRow(
         title="palette",
         status="running",
@@ -227,21 +230,23 @@ def test_has_quantity_compare() -> None:
         has_notes=True,
         counts={"workflows": 3, "notes": 2, "errors": 5},
     )
-    assert row_matches_query(rich, "has:workflows:>=2")
-    assert row_matches_query(rich, "has:workflows:3")
-    assert not row_matches_query(rich, "has:workflows:>=4")
-    assert row_matches_query(rich, "has:workflows:>=2 AND NOT is:complete")
-    assert row_matches_query(rich, "has:notes:>=2 AND has:errors:>=5")
-    assert not row_matches_query(rich, "has:notes:>=3")
+    assert row_matches_query(rich, "has:workflow")
+    assert row_matches_query(rich, "workflows:>=2")
+    assert row_matches_query(rich, "workflows:3")
+    assert not row_matches_query(rich, "workflows:>=4")
+    assert row_matches_query(rich, "workflows:>=2 AND NOT is:complete")
+    assert row_matches_query(rich, "notes:>=2 AND errors:>=5")
+    assert not row_matches_query(rich, "notes:>=3")
 
 
 def test_has_goals_quantity() -> None:
     row = CatalogQueryRow(has_goals=True, counts={"goals": 1})
-    assert row_matches_query(row, "has:goals")
-    assert row_matches_query(row, "has:goals:>=1")
-    assert row_matches_query(row, "has:goals:1")
-    assert not row_matches_query(row, "has:goals:2")
-    assert not row_matches_query(row, "has:goals:>2")
+    assert row_matches_query(row, "has:goal")
+    assert row_matches_query(row, "goals:>=1")
+    assert row_matches_query(row, "goals:1")
+    assert not row_matches_query(row, "goals:2")
+    assert not row_matches_query(row, "goals:>2")
+    assert not row_matches_query(row, "has:goal:2")
 
 
 def test_catalog_counts_goals_and_plans_created(tmp_path: Path) -> None:
@@ -275,11 +280,12 @@ def test_catalog_counts_goals_and_plans_created(tmp_path: Path) -> None:
     )
     assert catalog_goal_count(sess) == 2
     assert catalog_plan_count(sess) == 2
-    row = CatalogQueryRow(has_goals=True, has_plan=True, counts={"goals": 2, "plan": 2})
-    assert row_matches_query(row, "has:goals:2")
-    assert row_matches_query(row, "has:plan:2")
-    assert not row_matches_query(row, "has:goals:3")
-    assert not row_matches_query(row, "has:plans:2")
+    row = CatalogQueryRow(has_goals=True, has_plan=True, counts={"goals": 2, "plans": 2})
+    assert row_matches_query(row, "goals:2")
+    assert row_matches_query(row, "plans:2")
+    assert not row_matches_query(row, "goals:3")
+    assert not row_matches_query(row, "has:goal:2")
+    assert not row_matches_query(row, "has:plans")
 
 
 def test_has_quantity_skips_boolean_names() -> None:
@@ -292,20 +298,21 @@ def test_highlight_has_quantity_spans() -> None:
     def kinds(query: str) -> list[tuple[str, str]]:
         return [(query[s.start : s.end], s.kind) for s in highlight_query_spans(query)]
 
-    assert kinds("has:workflows:>=2") == [
-        ("has:", "field"),
-        ("workflows", "value"),
-        (":>=2", "value"),
+    assert kinds("workflows:>=2") == [
+        ("workflows:", "field"),
+        (">=2", "value"),
     ]
-    assert kinds("has:goals:2") == [
-        ("has:", "field"),
-        ("goals", "value"),
-        (":2", "value"),
+    assert kinds("goals:2") == [
+        ("goals:", "field"),
+        ("2", "value"),
     ]
-    assert kinds("has:goals:>2") == [
+    assert kinds("goals:>2") == [
+        ("goals:", "field"),
+        (">2", "value"),
+    ]
+    assert kinds("has:workflow:>=2") == [
         ("has:", "field"),
-        ("goals", "value"),
-        (":>2", "value"),
+        ("workflow:>=2", "unknown"),
     ]
     assert kinds("has:gooals:>=2") == [
         ("has:", "field"),
@@ -316,20 +323,20 @@ def test_highlight_has_quantity_spans() -> None:
 def test_suggest_has_quantity_from_schema() -> None:
     from groket.integrations.control_contract import (
         CATALOG_QUERY_COMPARE,
-        catalog_query_has_count_fields,
+        catalog_query_count_fields,
     )
 
-    countable = catalog_query_has_count_fields()
+    countable = catalog_query_count_fields()
     assert "workflows" in countable
     assert "errors" in countable
     assert "goals" in countable
-    assert suggest_last_token("has:workflows:") == [
-        f"has:workflows:{item}" for item in CATALOG_QUERY_COMPARE
+    assert "plans" in countable
+    assert suggest_last_token("workflows:") == [
+        f"workflows:{item}" for item in CATALOG_QUERY_COMPARE
     ]
-    assert suggest_last_token("has:workflows:>") == ["has:workflows:>=", "has:workflows:>"]
-    assert suggest_last_token("has:goals:") == [
-        f"has:goals:{item}" for item in CATALOG_QUERY_COMPARE
-    ]
+    assert suggest_last_token("workflows:>") == ["workflows:>=", "workflows:>"]
+    assert suggest_last_token("goals:") == [f"goals:{item}" for item in CATALOG_QUERY_COMPARE]
+    assert suggest_last_token("has:workflow:") == []
 
 
 def test_has_tokens_match_published_schema() -> None:
@@ -339,69 +346,94 @@ def test_has_tokens_match_published_schema() -> None:
     assert suggest_last_token("has:") == [f"has:{name}" for name in HAS_TOKENS]
 
 
+def test_count_tokens_are_written_pairs() -> None:
+    flags = catalog_query_flag_count()
+    counts = catalog_query_count_fields()
+    assert flags["plan"] == "plans"
+    assert flags["error"] == "errors"
+    assert flags["diff"] == "diff"
+    assert "plans" in counts
+    assert "sheep" not in flags
+    assert "sheep" not in counts
+    assert CATALOG_QUERY_COUNTS == (
+        ("workflow", "workflows", "workflowCount"),
+        ("note", "notes", "noteCount"),
+        ("goal", "goals", "goalCount"),
+        ("plan", "plans", "planCount"),
+        ("subagent", "subagents", "subagentCount"),
+        ("task", "tasks", "taskCount"),
+        ("job", "jobs", "jobCount"),
+        ("schedule", "schedules", "scheduleCount"),
+        ("error", "errors", "errorCount"),
+        ("failure", "failures", "failureCount"),
+        ("diff", "diff", "diffLineCount"),
+        ("compaction", "compaction", "compactionCount"),
+        ("doom", "doom", "doomCount"),
+    )
+
+
 def test_highlight_query_spans_uses_schema_only() -> None:
     def kinds(query: str) -> list[tuple[str, str]]:
         return [(query[s.start : s.end], s.kind) for s in highlight_query_spans(query)]
 
     assert highlight_query_spans("") == ()
     assert highlight_query_spans("palette") == ()
-    assert kinds("has:goals") == [("has:", "field"), ("goals", "value")]
+    assert kinds("has:goal") == [("has:", "field"), ("goal", "value")]
     assert kinds("has:gooals") == [("has:", "field"), ("gooals", "unknown")]
     assert kinds("has:g") == [("has:", "field"), ("g", "unknown")]
-    assert kinds("AND NOT has:goals") == [
+    assert kinds("AND NOT has:goal") == [
         ("AND", "operator"),
         ("NOT", "operator"),
         ("has:", "field"),
-        ("goals", "value"),
+        ("goal", "value"),
     ]
-    assert not row_matches_query(_row(title="palette"), "palette and has:notes")
-    assert row_matches_query(_row(title="palette"), "palette AND NOT has:notes")
-    assert not row_matches_query(_row(title="palette"), "palette AND has:notes")
-    assert kinds("and not has:goals") == [
+    assert not row_matches_query(_row(title="palette"), "palette and has:note")
+    assert row_matches_query(_row(title="palette"), "palette AND NOT has:note")
+    assert not row_matches_query(_row(title="palette"), "palette AND has:note")
+    assert kinds("and not has:goal") == [
         ("has:", "field"),
-        ("goals", "value"),
+        ("goal", "value"),
     ]
-    assert kinds("aNd nOt has:goals") == [
+    assert kinds("aNd nOt has:goal") == [
         ("has:", "field"),
-        ("goals", "value"),
+        ("goal", "value"),
     ]
-    assert kinds("-has:notes") == [("-", "operator"), ("has:", "field"), ("notes", "value")]
+    assert kinds("-has:note") == [("-", "operator"), ("has:", "field"), ("note", "value")]
     assert kinds("after:24h") == [("after:", "field"), ("24h", "value")]
     assert kinds('after:"24 hours ago"') == [("after:", "field"), ('"24 hours ago"', "value")]
     assert kinds("duration:>20 minutes") == [
         ("duration:", "field"),
         (">20 minutes", "value"),
     ]
-    assert kinds("has:errors:>2") == [
-        ("has:", "field"),
-        ("errors", "value"),
-        (":>2", "value"),
+    assert kinds("errors:>2") == [
+        ("errors:", "field"),
+        (">2", "value"),
     ]
     assert kinds("is:canceled") == [("is:", "field"), ("canceled", "value")]
-    assert kinds("after: 24 hours ago AND NOT has:goals") == [
+    assert kinds("after: 24 hours ago AND NOT has:goal") == [
         ("after:", "field"),
         ("24 hours ago", "value"),
         ("AND", "operator"),
         ("NOT", "operator"),
         ("has:", "field"),
-        ("goals", "value"),
+        ("goal", "value"),
     ]
     assert highlight_query_spans("has:") == (QuerySpan(0, 4, "field"),)
-    assert kinds("foo-has:goals") == []
+    assert kinds("foo-has:goal") == []
 
 
 @pytest.mark.parametrize(
     ("query", "ops"),
     [
-        ("palette AND has:notes", ["AND"]),
-        ("palette OR has:notes", ["OR"]),
-        ("NOT has:notes", ["NOT"]),
-        ("palette AND NOT has:notes", ["AND", "NOT"]),
-        ("palette and has:notes", []),
-        ("palette or has:notes", []),
-        ("not has:notes", []),
-        ("palette aNd has:notes", []),
-        ("palette AnD NOT has:notes", ["NOT"]),
+        ("palette AND has:note", ["AND"]),
+        ("palette OR has:note", ["OR"]),
+        ("NOT has:note", ["NOT"]),
+        ("palette AND NOT has:note", ["AND", "NOT"]),
+        ("palette and has:note", []),
+        ("palette or has:note", []),
+        ("not has:note", []),
+        ("palette aNd has:note", []),
+        ("palette AnD NOT has:note", ["NOT"]),
     ],
 )
 def test_highlight_operators_are_uppercase_only(query: str, ops: list[str]) -> None:
@@ -412,11 +444,11 @@ def test_highlight_operators_are_uppercase_only(query: str, ops: list[str]) -> N
 @pytest.mark.parametrize(
     ("query", "want"),
     [
-        ("palette AND NOT has:notes", True),
-        ("palette and not has:notes", False),
-        ("palette aNd NOT has:notes", False),
-        ("missing OR has:notes", False),
-        ("missing OR NOT has:notes", True),
+        ("palette AND NOT has:note", True),
+        ("palette and not has:note", False),
+        ("palette aNd NOT has:note", False),
+        ("missing OR has:note", False),
+        ("missing OR NOT has:note", True),
     ],
 )
 def test_match_operators_are_uppercase_only(query: str, want: bool) -> None:
@@ -429,9 +461,9 @@ def test_suggest_and_apply() -> None:
     assert suggest_last_token("   ") == []
     assert suggest_last_token("h") == ["has:"]
     assert suggest_last_token("has:") == [f"has:{name}" for name in HAS_TOKENS]
-    assert suggest_last_token("has:g") == ["has:goals", "has:git"]
-    assert suggest_last_token("has:sub") == ["has:subagents"]
-    assert suggest_last_token("has:ta") == ["has:tasks"]
+    assert suggest_last_token("has:g") == ["has:goal", "has:git"]
+    assert suggest_last_token("has:sub") == ["has:subagent"]
+    assert suggest_last_token("has:ta") == ["has:task"]
     assert suggest_last_token("is:ho") == ["is:host"]
     assert suggest_last_token("dur") == ["duration:"]
     assert suggest_last_token("duration:") == [
@@ -442,15 +474,15 @@ def test_suggest_and_apply() -> None:
         "duration:=",
     ]
     assert suggest_last_token("model:gr", models=["grok-4", "other"]) == ["model:grok-4"]
-    assert apply_suggestion("has:", "has:workflows") == "has:workflows "
+    assert apply_suggestion("has:", "has:workflow") == "has:workflow "
 
 
 def test_has_presence_tokens_match_row_flags() -> None:
     empty = _row(error_count=0, git_repo="")
-    assert not row_matches_query(empty, "has:errors")
-    assert not row_matches_query(empty, "has:goals")
-    assert not row_matches_query(empty, "has:subagents")
-    assert not row_matches_query(empty, "has:tasks")
+    assert not row_matches_query(empty, "has:error")
+    assert not row_matches_query(empty, "has:goal")
+    assert not row_matches_query(empty, "has:subagent")
+    assert not row_matches_query(empty, "has:task")
     assert not row_matches_query(empty, "has:git")
     full = CatalogQueryRow(
         session_id="sess-1",
@@ -475,12 +507,12 @@ def test_has_presence_tokens_match_row_flags() -> None:
         assert row_matches_query(full, f"has:{name}"), name
     jobs_only = CatalogQueryRow(has_jobs=True)
     schedules_only = CatalogQueryRow(has_schedules=True)
-    assert row_matches_query(jobs_only, "has:jobs")
-    assert row_matches_query(jobs_only, "has:tasks")
-    assert not row_matches_query(jobs_only, "has:schedules")
-    assert row_matches_query(schedules_only, "has:schedules")
-    assert row_matches_query(schedules_only, "has:tasks")
-    assert not row_matches_query(schedules_only, "has:jobs")
+    assert row_matches_query(jobs_only, "has:job")
+    assert row_matches_query(jobs_only, "has:task")
+    assert not row_matches_query(jobs_only, "has:schedule")
+    assert row_matches_query(schedules_only, "has:schedule")
+    assert row_matches_query(schedules_only, "has:task")
+    assert not row_matches_query(schedules_only, "has:job")
     assert not row_matches_query(CatalogQueryRow(git_repo=""), "has:git")
     assert row_matches_query(CatalogQueryRow(git_repo="/tmp/repo"), "has:git")
     assert not row_matches_query(CatalogQueryRow(has_context=False), "has:context")
@@ -561,3 +593,45 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
     mode.mkdir()
     (mode / "plan_mode.json").write_text("{}", encoding="utf-8")
     assert catalog_has_plan(mode)
+
+
+def test_event_and_turn_use_same_query_language() -> None:
+    from groket.models import TraceEvent
+    from groket.session.query import event_matches_query, turn_matches_query
+
+    ev = TraceEvent(
+        index=1,
+        event_type="tool_call",
+        tool_name="read_file",
+        content="hello user",
+        is_error=True,
+    )
+    assert event_matches_query(ev, "hello")
+    assert event_matches_query(ev, "has:error")
+    assert event_matches_query(ev, "errors:>=1")
+    assert event_matches_query(ev, "is:tool AND has:error")
+    assert not event_matches_query(ev, "is:user")
+    assert not event_matches_query(ev, "is:workflow")
+    assert not event_matches_query(ev, "has:error:>=1")
+    assert turn_matches_query(
+        label="paint the list",
+        summary="did the work",
+        outcome="success",
+        error_count=2,
+        tool_count=4,
+        event_count=10,
+        duration_seconds=90,
+        subagent_count=1,
+        query="paint AND errors:>=2 AND has:subagent",
+    )
+    assert not turn_matches_query(
+        label="paint the list",
+        summary="did the work",
+        outcome="success",
+        error_count=2,
+        tool_count=4,
+        event_count=10,
+        duration_seconds=90,
+        subagent_count=0,
+        query="has:subagent",
+    )

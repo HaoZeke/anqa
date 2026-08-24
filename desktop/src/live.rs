@@ -50,21 +50,15 @@ pub const WORKFLOW_INSPECT_H: f32 = 200.0;
 /// Spotlight idle list: latest sessions by ``sort_epoch`` (not the full catalog).
 pub const SPOTLIGHT_RECENT: usize = 8;
 
-/// Indices into ``turns`` whose label or prompt match *query* (casefold substring).
+/// Indices into ``turns`` that satisfy the catalog query language.
 pub fn filter_turn_indices(turns: &[TurnRow], query: &str) -> Vec<usize> {
-    let q = query.trim().to_ascii_lowercase();
-    if q.is_empty() {
+    if query.trim().is_empty() {
         return (0..turns.len()).collect();
     }
     turns
         .iter()
         .enumerate()
-        .filter(|(_, t)| {
-            t.label.to_ascii_lowercase().contains(&q)
-                || t.summary.to_ascii_lowercase().contains(&q)
-                || t.outcome.to_ascii_lowercase().contains(&q)
-                || format!("turn {}", t.turn_index).contains(&q)
-        })
+        .filter(|(_, t)| crate::query::turn_matches(t, query))
         .map(|(i, _)| i)
         .collect()
 }
@@ -447,7 +441,7 @@ pub fn filter_timeline_indices(
         .iter()
         .enumerate()
         .filter(|(_, ev)| ev.matches_kind(kind))
-        .filter(|(_, ev)| needle.is_empty() || crate::fuzzy::fzf_score(needle, &ev.haystack()) > 0)
+        .filter(|(_, ev)| needle.is_empty() || crate::query::event_matches(ev, needle))
         .map(|(i, _)| i)
         .collect()
 }

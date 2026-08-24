@@ -13,6 +13,7 @@ from ... import event_types as et
 from ...constants import LIVE_TIMELINE_TAIL_CHECK
 from ...models import ToolInputBag, TraceEvent
 from ...session.jobs import event_job_kind, event_task_id
+from ...session.query import event_matches_query
 from ...session.subagents import (
     event_child_session_id,
     subagent_duration_seconds,
@@ -223,11 +224,8 @@ class TimelineTable(DataTable):
             return False
         if spec.errors_only and not (ev.is_error or ev.event_type in et.ERROR_TYPES):
             return False
-        if spec.search_query:
-            q = spec.search_query.lower()
-            hay = f"{ev.content} {ev.tool_name} {ev.raw_input}".lower()
-            if q not in hay:
-                return False
+        if spec.search_query and not event_matches_query(ev, spec.search_query):
+            return False
         if spec.call_ids or spec.update_indices or spec.event_indices:
             if spec.call_ids and ev.tool_call_id in spec.call_ids:
                 return True

@@ -243,8 +243,8 @@ openable child. Exporting an opened child is that child only.
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
 | `is:host` `is:eval` | Origin |
-| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row (`has:workflows` is at least one). Countable names take `has:name:>=N` (`has:workflows:>=2`, `has:errors:>=5`, `has:goals:2`, `has:plan:2`). `has:goals` is distinct goal ids in the trace. `has:plan` is times plan mode was entered. `has:tasks` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
-| `turns:` `tools:` `events:` | Session stats, with `>` `>=` `<` `<=` `=` |
+| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:2`). Both words are listed in the schema; nothing is pluralized. `has:goal` is distinct goal ids in the trace. `has:plan` is times plan mode was entered. `has:task` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
+| `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
 | `in:~/path` | Directory the session was run in |
 | `model:` `task:` | Substring |
@@ -253,13 +253,13 @@ openable child. Exporting an opened child is that child only.
 
 | Query | Meaning |
 |-------|---------|
-| `has:notes AND is:awaiting` | Waiting on a reply, and you already wrote notes |
-| `is:complete AND NOT has:notes` | Finished sessions you have not written up |
-| `has:errors OR has:failures` | Tool errors or a failed child |
-| `has:workflows:>=2 AND NOT is:complete` | Multi-workflow sessions still going |
-| `is:eval AND has:errors:>=5 AND NOT has:notes` | Noisy evals you have not written up |
-| `has:notes:>=2 AND after:yesterday` | Recently updated, more than one note |
-| `has:subagents OR has:workflows` | Spawned a child or a workflow |
+| `has:note AND is:awaiting` | Waiting on a reply, and you already wrote notes |
+| `is:complete AND NOT has:note` | Finished sessions you have not written up |
+| `has:error OR has:failure` | Tool errors or a failed child |
+| `workflows:>=2 AND NOT is:complete` | Multi-workflow sessions still going |
+| `is:eval AND errors:>=5 AND NOT has:note` | Noisy evals you have not written up |
+| `notes:>=2 AND after:yesterday` | Recently updated, more than one note |
+| `has:subagent OR has:workflow` | Spawned a child or a workflow |
 | `in:~/src/app AND after:yesterday` | This repo, updated since yesterday |
 
 ## Desktop HUD

@@ -31,6 +31,73 @@
           "<",
           "="
         ],
+        "counts": [
+          {
+            "flag": "workflow",
+            "count": "workflows",
+            "field": "workflowCount"
+          },
+          {
+            "flag": "note",
+            "count": "notes",
+            "field": "noteCount"
+          },
+          {
+            "flag": "goal",
+            "count": "goals",
+            "field": "goalCount"
+          },
+          {
+            "flag": "plan",
+            "count": "plans",
+            "field": "planCount"
+          },
+          {
+            "flag": "subagent",
+            "count": "subagents",
+            "field": "subagentCount"
+          },
+          {
+            "flag": "task",
+            "count": "tasks",
+            "field": "taskCount"
+          },
+          {
+            "flag": "job",
+            "count": "jobs",
+            "field": "jobCount"
+          },
+          {
+            "flag": "schedule",
+            "count": "schedules",
+            "field": "scheduleCount"
+          },
+          {
+            "flag": "error",
+            "count": "errors",
+            "field": "errorCount"
+          },
+          {
+            "flag": "failure",
+            "count": "failures",
+            "field": "failureCount"
+          },
+          {
+            "flag": "diff",
+            "count": "diff",
+            "field": "diffLineCount"
+          },
+          {
+            "flag": "compaction",
+            "count": "compaction",
+            "field": "compactionCount"
+          },
+          {
+            "flag": "doom",
+            "count": "doom",
+            "field": "doomCount"
+          }
+        ],
         "tokens": [
           {
             "name": "is",
@@ -48,36 +115,36 @@
           },
           {
             "name": "has",
-            "role": "Presence on the list row. Countable names take has:name:>=N.",
+            "role": "Presence (has:plan). Counts use the written pair (plans:>=2).",
             "values": [
-              "workflows",
-              "notes",
-              "goals",
-              "subagents",
-              "tasks",
-              "jobs",
-              "schedules",
+              "workflow",
+              "note",
+              "goal",
               "plan",
-              "errors",
-              "failures",
+              "subagent",
+              "task",
+              "job",
+              "schedule",
+              "error",
+              "failure",
               "diff",
-              "git",
-              "context",
               "compaction",
-              "doom"
+              "doom",
+              "git",
+              "context"
             ],
             "compare": false,
             "countFields": {
-              "workflows": "workflowCount",
-              "notes": "noteCount",
-              "goals": "goalCount",
+              "workflow": "workflowCount",
+              "note": "noteCount",
+              "goal": "goalCount",
               "plan": "planCount",
-              "subagents": "subagentCount",
-              "tasks": "taskCount",
-              "jobs": "jobCount",
-              "schedules": "scheduleCount",
-              "errors": "errorCount",
-              "failures": "failureCount",
+              "subagent": "subagentCount",
+              "task": "taskCount",
+              "job": "jobCount",
+              "schedule": "scheduleCount",
+              "error": "errorCount",
+              "failure": "failureCount",
               "diff": "diffLineCount",
               "compaction": "compactionCount",
               "doom": "doomCount"
@@ -102,6 +169,66 @@
             "compare": false
           },
           {
+            "name": "workflows",
+            "role": "Count of workflows.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "notes",
+            "role": "Count of notes.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "goals",
+            "role": "Count of goals.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "plans",
+            "role": "Count of plans.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "subagents",
+            "role": "Count of subagents.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "tasks",
+            "role": "Count of tasks.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "jobs",
+            "role": "Count of jobs.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "schedules",
+            "role": "Count of schedules.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "errors",
+            "role": "Count of errors.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "failures",
+            "role": "Count of failures.",
+            "values": [],
+            "compare": true
+          },
+          {
             "name": "turns",
             "role": "turnCount.",
             "values": [],
@@ -122,6 +249,24 @@
           {
             "name": "duration",
             "role": "Session length (1h, 2d, 30m).",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "diff",
+            "role": "Diff line count.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "compaction",
+            "role": "Compaction count.",
+            "values": [],
+            "compare": true
+          },
+          {
+            "name": "doom",
+            "role": "Doom-loop warnings.",
             "values": [],
             "compare": true
           },

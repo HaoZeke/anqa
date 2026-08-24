@@ -905,7 +905,7 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Search events…", Role::TextBox),
         Some(hud.tl_search_id()),
-        &[],
+        &catalog_query_runs(hud.timeline_query_draft()),
     ))
     .width(Length::Fill);
     column![picks, search]
@@ -1653,7 +1653,7 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
         tea,
         A11y::new("Search turns", Role::TextBox),
         Some(hud.turns_search_id()),
-        &[],
+        &catalog_query_runs(hud.turns_query()),
     ))
     .width(Length::Fill)
     .padding(Padding {

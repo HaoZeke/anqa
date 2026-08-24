@@ -189,7 +189,7 @@ def test_session_catalog_row_has_presence_flags(tmp_path: Path) -> None:
     assert meta.has_jobs is True
     assert meta.has_plan is True
     rebuilt = CatalogQueryRow.from_meta(meta)
-    assert row_matches_query(rebuilt, "has:goals has:subagents has:tasks has:plan")
+    assert row_matches_query(rebuilt, "has:goal has:subagent has:task has:plan")
 
 
 def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:

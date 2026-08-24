@@ -87,6 +87,7 @@ from ..panel_render import (
     format_stamp,
     status_chip,
 )
+from ..query_highlight import CatalogQueryHighlighter
 from ..selectable_static import SelectableStatic, is_extractable_static
 from ..session_summary import render_session_summary
 from ..tab_panes import TabPaneNavigation
@@ -305,7 +306,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             turn_sel.display = False  # shown only when multi-turn
                             yield turn_sel
                             yield Input(
-                                placeholder=U.search_events_placeholder(), id="search-input"
+                                placeholder=U.search_events_placeholder(),
+                                id="search-input",
+                                highlighter=CatalogQueryHighlighter(),
                             )
                             tail_label = Static(t("ui-timeline-tail"), id="timeline-tail-label")
                             tail_label.display = False

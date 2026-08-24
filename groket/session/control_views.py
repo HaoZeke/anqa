@@ -49,6 +49,7 @@ from ..tool_display import (
 )
 from .catalog import session_catalog_row
 from .jobs import SessionJobs, job_input_stamp
+from .query import event_matches_query
 from .subagents import (
     SubagentRun,
     event_child_session_id,
@@ -717,7 +718,7 @@ def build_session_timeline(
                 continue
         if not event_matches_timeline_kind(ev, kind):
             continue
-        if query.strip() and timeline_query_hit(ev, query) is None:
+        if query.strip() and not event_matches_query(ev, query):
             continue
         if prompt_indexes is not None and int(ev.index) not in prompt_indexes:
             continue

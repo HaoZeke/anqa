@@ -82,15 +82,28 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 | Token | Matches |
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin. |
-| `has:workflows` `has:notes` `has:goals` `has:subagents` `has:tasks` `has:jobs` `has:schedules` `has:plan` `has:errors` `has:failures` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence on the list row. Countable names take has:name:>=N. |
-| `has:workflows:>=N` `has:notes:>=N` `has:goals:>=N` `has:plan:>=N` `has:subagents:>=N` `has:tasks:>=N` `has:jobs:>=N` `has:schedules:>=N` `has:errors:>=N` `has:failures:>=N` `has:diff:>=N` `has:compaction:>=N` `has:doom:>=N` | Count on the list row. |
+| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:compaction` `has:doom` `has:git` `has:context` | Presence (has:plan). Counts use the written pair (plans:>=2). |
+| `has:workflow` `workflows:>=N` `has:note` `notes:>=N` `has:goal` `goals:>=N` `has:plan` `plans:>=N` `has:subagent` `subagents:>=N` `has:task` `tasks:>=N` `has:job` `jobs:>=N` `has:schedule` `schedules:>=N` `has:error` `errors:>=N` `has:failure` `failures:>=N` `has:diff` `diff:>=N` `has:compaction` `compaction:>=N` `has:doom` `doom:>=N` | Presence and count (written pairs). |
 | `in:` | Directory the session was run in. |
 | `model:` | Model id substring. |
 | `task:` | Task id substring. |
+| `workflows:` with `>` `>=` `<` `<=` `=` | Count of workflows. |
+| `notes:` with `>` `>=` `<` `<=` `=` | Count of notes. |
+| `goals:` with `>` `>=` `<` `<=` `=` | Count of goals. |
+| `plans:` with `>` `>=` `<` `<=` `=` | Count of plans. |
+| `subagents:` with `>` `>=` `<` `<=` `=` | Count of subagents. |
+| `tasks:` with `>` `>=` `<` `<=` `=` | Count of tasks. |
+| `jobs:` with `>` `>=` `<` `<=` `=` | Count of jobs. |
+| `schedules:` with `>` `>=` `<` `<=` `=` | Count of schedules. |
+| `errors:` with `>` `>=` `<` `<=` `=` | Count of errors. |
+| `failures:` with `>` `>=` `<` `<=` `=` | Count of failures. |
 | `turns:` with `>` `>=` `<` `<=` `=` | turnCount. |
 | `tools:` with `>` `>=` `<` `<=` `=` | toolCallCount. |
 | `events:` with `>` `>=` `<` `<=` `=` | numEvents. |
 | `duration:` with `>` `>=` `<` `<=` `=` | Session length (1h, 2d, 30m). |
+| `diff:` with `>` `>=` `<` `<=` `=` | Diff line count. |
+| `compaction:` with `>` `>=` `<` `<=` `=` | Compaction count. |
+| `doom:` with `>` `>=` `<` `<=` `=` | Doom-loop warnings. |
 | `after:` | updatedAt on or after this time (ISO, yesterday, 2d, 2 days ago). |
 | `before:` | updatedAt on or before this time (ISO, yesterday, 2d, 2 days ago). |
 

@@ -7,20 +7,19 @@ from groket.ui.styles import CAUTION, DANGER, SUCCESS
 
 
 def test_highlighter_colors_closed_value_and_unknown() -> None:
-    painted = CatalogQueryHighlighter()("has:goals AND has:gooals")
+    painted = CatalogQueryHighlighter()("has:goal AND has:gooals")
     styles = {painted.plain[span.start : span.end]: str(span.style) for span in painted.spans}
     assert styles["has:"] == f"bold {CAUTION}"
-    assert styles["goals"] == SUCCESS
+    assert styles["goal"] == SUCCESS
     assert styles["AND"] == f"bold {CAUTION}"
     assert styles["gooals"] == DANGER
 
 
-def test_highlighter_splits_has_quantity() -> None:
-    painted = CatalogQueryHighlighter()("has:workflows:>=2")
+def test_highlighter_splits_count_compare() -> None:
+    painted = CatalogQueryHighlighter()("workflows:>=2")
     styles = {painted.plain[span.start : span.end]: str(span.style) for span in painted.spans}
-    assert styles["has:"] == f"bold {CAUTION}"
-    assert styles["workflows"] == SUCCESS
-    assert styles[":>=2"] == SUCCESS
+    assert styles["workflows:"] == f"bold {CAUTION}"
+    assert styles[">=2"] == SUCCESS
 
 
 def test_highlighter_leaves_bare_words_unstyled() -> None:

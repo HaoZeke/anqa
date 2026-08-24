@@ -21,15 +21,15 @@ is tagged.
   file pin a colorway on both clients. Status uses success / caution /
   danger / quiet — not a brand cream overlay.
 - Catalog search understands a query language (`is:host`,
-  `has:workflows`, `has:workflows:>=2`, `has:errors:>=5`,
-  `has:goals:2`, `has:plan:2`, `in:~/path`, `AND` / `OR`). `has:` is
-  presence; countable names take `has:name:>=N`. `has:goals` is
-  distinct goal ids in the trace. `has:plan` is times plan mode was
-  entered. Session stats stay `turns:` `tools:` `events:` `duration:`.
-  Tokens and count field names live in the published control schema
-  (`catalogQuery`). `?` lists them. Host sessions always load. `in:` is
-  the directory the session was run in. Known tokens color in the
-  search box.
+  `has:plan`, `plans:>=2`, `errors:>=5`, `goals:2`, `in:~/path`,
+  `AND` / `OR`). `has:` is presence. Counts use a written pair
+  (`has:plan` / `plans:>=2`); the schema lists both words. The same
+  language filters Turns and Timeline. `has:goal` is distinct goal ids
+  in the trace. `has:plan` is times plan mode was entered. Session
+  stats stay `turns:` `tools:` `events:` `duration:`. Tokens live in
+  the published control schema (`catalogQuery`). `?` lists them. Host
+  sessions always load. `in:` is the directory the session was run in.
+  Known tokens color in the search box.
 - Session Overview and Summary share Session, Tasks, Workflows,
   Subagents, and Stats tabs (click the strip). Session is the glance.
   Tasks is shells, monitors, and schedules. Timeline filter Background

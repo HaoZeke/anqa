@@ -7,7 +7,8 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::wire::SessionListItem;
+use crate::model::KindFilter;
+use crate::wire::{SessionListItem, TimelineEvent, TurnRow};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,7 +16,17 @@ struct QueryScheme {
     compare: Vec<String>,
     #[serde(default)]
     operators: Vec<String>,
+    #[serde(default)]
+    counts: Vec<QueryCountSpec>,
     tokens: Vec<QueryTokenSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueryCountSpec {
+    flag: String,
+    count: String,
+    field: String,
 }
 
 /// One highlighted slice of a catalog query (byte offsets).
@@ -46,6 +57,7 @@ struct QueryTokenSpec {
     #[serde(default)]
     compare: bool,
     #[serde(default)]
+    #[allow(dead_code)]
     count_fields: std::collections::BTreeMap<String, String>,
 }
 
@@ -67,16 +79,16 @@ pub fn catalog_query_help_rows() -> Vec<QueryHelpRow> {
                 label: format!("{}:", token.name),
                 body: token.values.join(", "),
             });
-            if !token.count_fields.is_empty() {
-                let names = token
-                    .count_fields
-                    .keys()
-                    .cloned()
+            if !scheme.counts.is_empty() && token.name == "has" {
+                let pairs = scheme
+                    .counts
+                    .iter()
+                    .map(|c| format!("has:{} {}:>=N", c.flag, c.count))
                     .collect::<Vec<_>>()
                     .join(", ");
                 rows.push(QueryHelpRow {
-                    label: format!("{}:name:>=N", token.name),
-                    body: names,
+                    label: String::new(),
+                    body: pairs,
                 });
             }
         } else if token.compare {
@@ -130,35 +142,34 @@ fn token_values(name: &str) -> &[String] {
         .unwrap_or(&[])
 }
 
-fn has_count_fields() -> &'static std::collections::BTreeMap<String, String> {
-    static CELL: OnceLock<std::collections::BTreeMap<String, String>> = OnceLock::new();
-    CELL.get_or_init(|| {
-        scheme()
-            .tokens
-            .iter()
-            .find(|t| t.name == "has")
-            .map(|t| t.count_fields.clone())
-            .unwrap_or_default()
-    })
+fn count_specs() -> &'static [QueryCountSpec] {
+    scheme().counts.as_slice()
 }
 
-fn has_countable(name: &str) -> bool {
-    has_count_fields()
-        .keys()
+fn count_wire(name: &str) -> Option<&'static str> {
+    count_specs()
+        .iter()
+        .find(|c| c.count.eq_ignore_ascii_case(name) || c.flag.eq_ignore_ascii_case(name))
+        .map(|c| c.field.as_str())
+}
+
+fn known_has_flag(name: &str) -> bool {
+    token_values("has")
+        .iter()
         .any(|item| item.eq_ignore_ascii_case(name))
 }
 
 /// Presence flags for ``has:`` (row attributes, not the token list).
 type HasFlag = fn(&SessionListItem) -> bool;
 const HAS_FLAGS: &[(&str, HasFlag)] = &[
-    ("workflows", |r| r.has_workflows),
-    ("notes", |r| r.has_notes),
-    ("goals", |r| r.has_goals),
-    ("subagents", |r| r.has_subagents),
-    ("jobs", |r| r.has_jobs),
-    ("schedules", |r| r.has_schedules),
+    ("workflow", |r| r.has_workflows),
+    ("note", |r| r.has_notes),
+    ("goal", |r| r.has_goals),
+    ("subagent", |r| r.has_subagents),
+    ("job", |r| r.has_jobs),
+    ("schedule", |r| r.has_schedules),
     ("plan", |r| r.has_plan),
-    ("failures", |r| r.has_failures),
+    ("failure", |r| r.has_failures),
     ("diff", |r| r.has_diff),
     ("compaction", |r| r.has_compaction),
     ("doom", |r| r.has_doom),
@@ -295,38 +306,18 @@ pub fn highlight_query_spans(query: &str) -> Vec<QuerySpan> {
 fn has_value_spans(start: usize, end: usize, inner: &str, closed: &[String]) -> Vec<QuerySpan> {
     let (name, cmp) = split_has_value(inner);
     let known = closed.iter().any(|item| item.eq_ignore_ascii_case(&name));
-    if !known {
+    if !cmp.is_empty() || !known {
         return vec![QuerySpan {
             start,
             end,
             kind: QuerySpanKind::Unknown,
         }];
     }
-    if cmp.is_empty() {
-        return vec![QuerySpan {
-            start,
-            end,
-            kind: QuerySpanKind::Value,
-        }];
-    }
-    let name_end = start + name.len();
-    let cmp_kind = if has_compare_known(&name, &cmp) {
-        QuerySpanKind::Value
-    } else {
-        QuerySpanKind::Unknown
-    };
-    vec![
-        QuerySpan {
-            start,
-            end: name_end,
-            kind: QuerySpanKind::Value,
-        },
-        QuerySpan {
-            start: name_end,
-            end,
-            kind: cmp_kind,
-        },
-    ]
+    vec![QuerySpan {
+        start,
+        end,
+        kind: QuerySpanKind::Value,
+    }]
 }
 
 fn split_has_value(raw: &str) -> (String, String) {
@@ -334,18 +325,6 @@ fn split_has_value(raw: &str) -> (String, String) {
         Some((name, rest)) => (name.to_ascii_lowercase(), rest.to_string()),
         None => (raw.to_ascii_lowercase(), String::new()),
     }
-}
-
-fn has_compare_known(name: &str, cmp: &str) -> bool {
-    if !has_countable(name) || cmp.is_empty() {
-        return false;
-    }
-    for prefix in &scheme().compare {
-        if let Some(rest) = cmp.strip_prefix(prefix.as_str()) {
-            return !rest.trim().is_empty();
-        }
-    }
-    cmp.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 fn value_kind(field: &str, inner: &str, closed: &[String]) -> QuerySpanKind {
@@ -453,20 +432,6 @@ pub fn suggest_last_token(query: &str, models: &[String], paths: &[String]) -> V
     }
     let (field, rest) = token.split_once(':').unwrap_or(("", ""));
     let key = field.to_ascii_lowercase();
-    if key == "has" {
-        if let Some((name, cmp)) = rest.split_once(':') {
-            let folded = name.to_ascii_lowercase();
-            if !has_countable(&folded) {
-                return Vec::new();
-            }
-            return scheme()
-                .compare
-                .iter()
-                .filter(|item| item.starts_with(cmp))
-                .map(|item| format!("has:{folded}:{item}"))
-                .collect();
-        }
-    }
     let prefix = rest.to_ascii_lowercase();
     values_for_field(&key, models, paths)
         .into_iter()
@@ -499,6 +464,38 @@ pub fn row_matches(row: &SessionListItem, query: &str) -> bool {
                 || words
                     .iter()
                     .all(|w| text_hay(row).contains(&w.to_ascii_lowercase()))
+        }
+    }
+}
+
+/// Same language as [`row_matches`] on a timeline event.
+pub fn event_matches(ev: &TimelineEvent, query: &str) -> bool {
+    let text = prepare_query(&finished_prefix(query));
+    if text.trim().is_empty() {
+        return true;
+    }
+    let hay = ev.haystack().to_ascii_lowercase();
+    match parse_query(&text) {
+        Ok(node) => eval_event(&node, ev, &hay),
+        Err(()) => {
+            let words = bare_words(&text);
+            words.is_empty() || words.iter().all(|w| hay.contains(&w.to_ascii_lowercase()))
+        }
+    }
+}
+
+/// Same language as [`row_matches`] on a turn row.
+pub fn turn_matches(turn: &TurnRow, query: &str) -> bool {
+    let text = prepare_query(&finished_prefix(query));
+    if text.trim().is_empty() {
+        return true;
+    }
+    let hay = format!("{} {} {}", turn.label, turn.summary, turn.outcome).to_ascii_lowercase();
+    match parse_query(&text) {
+        Ok(node) => eval_turn(&node, turn, &hay),
+        Err(()) => {
+            let words = bare_words(&text);
+            words.is_empty() || words.iter().all(|w| hay.contains(&w.to_ascii_lowercase()))
         }
     }
 }
@@ -787,12 +784,71 @@ fn eval(node: &Node, row: &SessionListItem) -> bool {
     }
 }
 
+fn eval_event(node: &Node, ev: &TimelineEvent, hay: &str) -> bool {
+    match node {
+        Node::And(xs) => xs.iter().all(|n| eval_event(n, ev, hay)),
+        Node::Or(xs) => xs.iter().any(|n| eval_event(n, ev, hay)),
+        Node::Not(n) => !eval_event(n, ev, hay),
+        Node::Pred { field, value } => match field.as_str() {
+            "is" => event_is(ev, value),
+            "has" => {
+                let (name, cmp) = split_has_value(value);
+                cmp.is_empty() && known_has_flag(&name) && name == "error" && ev.is_error
+            }
+            "errors" => num_cmp(i64::from(ev.is_error), value),
+            _ => hay.contains(&format!("{field}:{value}").to_ascii_lowercase()),
+        },
+        Node::Text(w) => hay.contains(&w.to_ascii_lowercase()),
+    }
+}
+
+fn event_is(ev: &TimelineEvent, value: &str) -> bool {
+    let mode = match value.to_ascii_lowercase().as_str() {
+        "tool" | "tools" => KindFilter::Tools,
+        "user" => KindFilter::User,
+        "assistant" | "asst" | "agent" => KindFilter::Asst,
+        "session" | "sess" => KindFilter::Sess,
+        "subagent" | "subagents" => KindFilter::Subagents,
+        "background" => KindFilter::Background,
+        "workflow" | "workflows" => KindFilter::Workflows,
+        "error" | "errors" => KindFilter::Errors,
+        _ => return false,
+    };
+    ev.matches_kind(mode)
+}
+
+fn eval_turn(node: &Node, turn: &TurnRow, hay: &str) -> bool {
+    match node {
+        Node::And(xs) => xs.iter().all(|n| eval_turn(n, turn, hay)),
+        Node::Or(xs) => xs.iter().any(|n| eval_turn(n, turn, hay)),
+        Node::Not(n) => !eval_turn(n, turn, hay),
+        Node::Pred { field, value } => match field.as_str() {
+            "has" => turn_has(turn, value),
+            "errors" => num_cmp(turn.error_event_count.max(turn.tool_error_count), value),
+            "tools" => num_cmp(turn.tool_call_count, value),
+            "events" => num_cmp(turn.event_count, value),
+            "duration" => num_cmp(turn.duration_seconds.unwrap_or(0.0) as i64, value),
+            "subagents" => num_cmp(turn.subagent_runs.len() as i64, value),
+            _ => hay.contains(&format!("{field}:{value}").to_ascii_lowercase()),
+        },
+        Node::Text(w) => hay.contains(&w.to_ascii_lowercase()),
+    }
+}
+
+fn turn_has(turn: &TurnRow, value: &str) -> bool {
+    let (name, cmp) = split_has_value(value);
+    if !cmp.is_empty() || !known_has_flag(&name) {
+        return false;
+    }
+    match name.as_str() {
+        "error" => turn.error_event_count > 0 || turn.tool_error_count > 0,
+        "subagent" => !turn.subagent_runs.is_empty(),
+        _ => false,
+    }
+}
+
 fn row_has_count(row: &SessionListItem, name: &str) -> i64 {
-    let Some(wire) = has_count_fields()
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case(name))
-        .map(|(_, wire)| wire.as_str())
-    else {
+    let Some(wire) = count_wire(name) else {
         return i64::from(has_present(row, name));
     };
     match wire {
@@ -815,14 +871,14 @@ fn row_has_count(row: &SessionListItem, name: &str) -> i64 {
 
 fn has_present(row: &SessionListItem, name: &str) -> bool {
     match name {
-        "errors" => row.error_count > 0,
+        "error" => row.error_count > 0,
         "git" => !row.git_repo.trim().is_empty(),
         "context" => {
             row.context_window_usage_pct.is_some()
                 || row.context_tokens_used.is_some()
                 || row.context_window_tokens.is_some_and(|window| window > 0)
         }
-        "tasks" => row.has_jobs || row.has_schedules || row.task_count > 0,
+        "task" => row.has_jobs || row.has_schedules || row.task_count > 0,
         other => HAS_FLAGS
             .iter()
             .find(|(flag, _)| *flag == other)
@@ -832,11 +888,8 @@ fn has_present(row: &SessionListItem, name: &str) -> bool {
 
 fn match_has(value: &str, row: &SessionListItem) -> bool {
     let (name, cmp) = split_has_value(value);
-    if !cmp.is_empty() {
-        if !has_countable(&name) {
-            return false;
-        }
-        return num_cmp(row_has_count(row, &name), &cmp);
+    if !cmp.is_empty() || !known_has_flag(&name) {
+        return false;
     }
     has_present(row, &name) || row_has_count(row, &name) > 0
 }
@@ -868,6 +921,7 @@ fn eval_field(field: &str, value: &str, row: &SessionListItem) -> bool {
         "tools" => num_cmp(row.tool_call_count, value),
         "events" => num_cmp(row.num_events, value),
         "duration" => num_cmp(row.duration_seconds as i64, value),
+        other if count_wire(other).is_some() => num_cmp(row_has_count(row, other), value),
         _ => text_hay(row).contains(&format!("{field}:{value}").to_ascii_lowercase()),
     }
 }
@@ -1093,8 +1147,8 @@ mod tests {
         let r = row();
         assert!(row_matches(&r, "palette"));
         assert!(!row_matches(&r, "_git/fubar"));
-        assert!(row_matches(&r, "has:workflows AND has:errors:>2"));
-        assert!(!row_matches(&r, "has:workflows AND has:errors:>20"));
+        assert!(row_matches(&r, "has:workflow AND errors:>2"));
+        assert!(!row_matches(&r, "has:workflow AND errors:>20"));
         assert!(row_matches(&r, "is:eval"));
         assert!(!row_matches(&r, "is:host"));
         assert!(row_matches(&r, "NOT is:host"));
@@ -1103,21 +1157,21 @@ mod tests {
         assert_eq!(
             suggest_last_token("has:", &[], &[]),
             vec![
-                "has:workflows",
-                "has:notes",
-                "has:goals",
-                "has:subagents",
-                "has:tasks",
-                "has:jobs",
-                "has:schedules",
+                "has:workflow",
+                "has:note",
+                "has:goal",
                 "has:plan",
-                "has:errors",
-                "has:failures",
+                "has:subagent",
+                "has:task",
+                "has:job",
+                "has:schedule",
+                "has:error",
+                "has:failure",
                 "has:diff",
-                "has:git",
-                "has:context",
                 "has:compaction",
                 "has:doom",
+                "has:git",
+                "has:context",
             ]
         );
         assert!(suggest_last_token("", &[], &[]).is_empty());
@@ -1126,24 +1180,24 @@ mod tests {
 
     #[test]
     fn highlight_spans_use_schema() {
-        let marks = highlight_query_spans("has:goals AND has:gooals");
+        let marks = highlight_query_spans("has:goal AND has:gooals");
         let kinds: Vec<_> = marks
             .iter()
-            .map(|s| (&"has:goals AND has:gooals"[s.start..s.end], s.kind))
+            .map(|s| (&"has:goal AND has:gooals"[s.start..s.end], s.kind))
             .collect();
         assert_eq!(
             kinds,
             vec![
                 ("has:", QuerySpanKind::Field),
-                ("goals", QuerySpanKind::Value),
+                ("goal", QuerySpanKind::Value),
                 ("AND", QuerySpanKind::Operator),
                 ("has:", QuerySpanKind::Field),
                 ("gooals", QuerySpanKind::Unknown),
             ]
         );
-        let lower = highlight_query_spans("and not has:goals");
+        let lower = highlight_query_spans("and not has:goal");
         assert!(!lower.iter().any(|s| s.kind == QuerySpanKind::Operator));
-        let mixed = highlight_query_spans("aNd has:goals");
+        let mixed = highlight_query_spans("aNd has:goal");
         assert!(!mixed.iter().any(|s| s.kind == QuerySpanKind::Operator));
         let canceled = highlight_query_spans("is:canceled");
         assert_eq!(canceled.last().map(|s| s.kind), Some(QuerySpanKind::Value));
@@ -1164,14 +1218,15 @@ mod tests {
         assert!(blob.contains("in:"));
         assert!(blob.contains("duration:"));
         assert!(blob.contains("OR"));
-        assert!(blob.contains("name:>=N"));
+        assert!(blob.contains("has:plan"));
+        assert!(blob.contains("plans:>=N"));
     }
 
     #[test]
     fn has_presence_tokens() {
         let empty = SessionListItem::default();
-        assert!(!row_matches(&empty, "has:goals"));
-        assert!(!row_matches(&empty, "has:tasks"));
+        assert!(!row_matches(&empty, "has:goal"));
+        assert!(!row_matches(&empty, "has:task"));
         assert!(!row_matches(&empty, "has:git"));
         let full = SessionListItem {
             git_repo: "/tmp/repo".into(),
@@ -1191,16 +1246,16 @@ mod tests {
             ..SessionListItem::default()
         };
         for token in [
-            "has:workflows",
-            "has:notes",
-            "has:goals",
-            "has:subagents",
-            "has:tasks",
-            "has:jobs",
-            "has:schedules",
+            "has:workflow",
+            "has:note",
+            "has:goal",
+            "has:subagent",
+            "has:task",
+            "has:job",
+            "has:schedule",
             "has:plan",
-            "has:errors",
-            "has:failures",
+            "has:error",
+            "has:failure",
             "has:diff",
             "has:git",
             "has:context",
@@ -1213,9 +1268,9 @@ mod tests {
             has_jobs: true,
             ..SessionListItem::default()
         };
-        assert!(row_matches(&jobs, "has:jobs"));
-        assert!(row_matches(&jobs, "has:tasks"));
-        assert!(!row_matches(&jobs, "has:schedules"));
+        assert!(row_matches(&jobs, "has:job"));
+        assert!(row_matches(&jobs, "has:task"));
+        assert!(!row_matches(&jobs, "has:schedule"));
     }
 
     #[test]
@@ -1254,30 +1309,33 @@ mod tests {
             has_notes: true,
             ..SessionListItem::default()
         };
-        assert!(row_matches(&r, "has:errors:>=5"));
-        assert!(row_matches(&r, "has:errors:5"));
-        assert!(!row_matches(&r, "has:errors:>=6"));
-        assert!(!row_matches(&r, "errors:>=5"));
-        assert!(row_matches(&r, "has:workflows:>=2"));
-        assert!(row_matches(&r, "has:workflows:3"));
-        assert!(!row_matches(&r, "has:workflows:>=4"));
-        assert!(row_matches(&r, "has:workflows:>=2 AND NOT is:complete"));
-        assert!(row_matches(&r, "has:notes:>=2 AND has:errors:>=5"));
+        assert!(row_matches(&r, "has:error"));
+        assert!(row_matches(&r, "errors:>=5"));
+        assert!(row_matches(&r, "errors:5"));
+        assert!(!row_matches(&r, "errors:>=6"));
+        assert!(!row_matches(&r, "has:error:>=5"));
+        assert!(row_matches(&r, "has:workflow"));
+        assert!(row_matches(&r, "workflows:>=2"));
+        assert!(row_matches(&r, "workflows:3"));
+        assert!(!row_matches(&r, "workflows:>=4"));
+        assert!(row_matches(&r, "workflows:>=2 AND NOT is:complete"));
+        assert!(row_matches(&r, "notes:>=2 AND errors:>=5"));
         let goals = SessionListItem {
             has_goals: true,
             goal_count: 1,
             ..SessionListItem::default()
         };
-        assert!(row_matches(&goals, "has:goals"));
-        assert!(row_matches(&goals, "has:goals:>=1"));
-        assert!(row_matches(&goals, "has:goals:1"));
-        assert!(!row_matches(&goals, "has:goals:2"));
-        assert!(!row_matches(&goals, "has:goals:>2"));
+        assert!(row_matches(&goals, "has:goal"));
+        assert!(row_matches(&goals, "goals:>=1"));
+        assert!(row_matches(&goals, "goals:1"));
+        assert!(!row_matches(&goals, "goals:2"));
+        assert!(!row_matches(&goals, "goals:>2"));
+        assert!(!row_matches(&goals, "has:goal:2"));
     }
 
     #[test]
     fn highlight_has_quantity_spans() {
-        let q = "has:workflows:>=2";
+        let q = "workflows:>=2";
         let kinds: Vec<_> = highlight_query_spans(q)
             .into_iter()
             .map(|s| (&q[s.start..s.end], s.kind))
@@ -1285,12 +1343,11 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                ("has:", QuerySpanKind::Field),
-                ("workflows", QuerySpanKind::Value),
-                (":>=2", QuerySpanKind::Value),
+                ("workflows:", QuerySpanKind::Field),
+                (">=2", QuerySpanKind::Value),
             ]
         );
-        let g = "has:goals:2";
+        let g = "goals:2";
         let kinds: Vec<_> = highlight_query_spans(g)
             .into_iter()
             .map(|s| (&g[s.start..s.end], s.kind))
@@ -1298,9 +1355,20 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
+                ("goals:", QuerySpanKind::Field),
+                ("2", QuerySpanKind::Value),
+            ]
+        );
+        let old = "has:goal:2";
+        let kinds: Vec<_> = highlight_query_spans(old)
+            .into_iter()
+            .map(|s| (&old[s.start..s.end], s.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
                 ("has:", QuerySpanKind::Field),
-                ("goals", QuerySpanKind::Value),
-                (":2", QuerySpanKind::Value),
+                ("goal:2", QuerySpanKind::Unknown),
             ]
         );
     }
@@ -1311,11 +1379,11 @@ mod tests {
             title: "palette".into(),
             ..SessionListItem::default()
         };
-        assert!(row_matches(&r, "palette AND NOT has:notes"));
-        assert!(!row_matches(&r, "palette and not has:notes"));
-        assert!(!row_matches(&r, "palette aNd NOT has:notes"));
-        assert!(!row_matches(&r, "missing OR has:notes"));
-        assert!(row_matches(&r, "missing OR NOT has:notes"));
+        assert!(row_matches(&r, "palette AND NOT has:note"));
+        assert!(!row_matches(&r, "palette and not has:note"));
+        assert!(!row_matches(&r, "palette aNd NOT has:note"));
+        assert!(!row_matches(&r, "missing OR has:note"));
+        assert!(row_matches(&r, "missing OR NOT has:note"));
     }
 
     #[test]
@@ -1331,5 +1399,41 @@ mod tests {
             ..SessionListItem::default()
         };
         assert!(!row_matches(&empty, "in:fubar"));
+    }
+
+    #[test]
+    fn event_and_turn_use_same_language() {
+        let ev = TimelineEvent {
+            event_type: "tool_call".into(),
+            kind: "tool".into(),
+            tool_name: "read_file".into(),
+            content: "hello user".into(),
+            is_error: true,
+            ..TimelineEvent::default()
+        };
+        assert!(event_matches(&ev, "hello"));
+        assert!(event_matches(&ev, "has:error"));
+        assert!(event_matches(&ev, "errors:>=1"));
+        assert!(event_matches(&ev, "is:tool AND has:error"));
+        assert!(!event_matches(&ev, "is:user"));
+        assert!(!event_matches(&ev, "is:workflow"));
+        assert!(!event_matches(&ev, "has:error:>=1"));
+        let turn = TurnRow {
+            label: "paint the list".into(),
+            summary: "did the work".into(),
+            outcome: "success".into(),
+            error_event_count: 2,
+            tool_call_count: 4,
+            event_count: 10,
+            duration_seconds: Some(90.0),
+            subagent_runs: vec![crate::wire::SubagentRunRow::default()],
+            ..TurnRow::default()
+        };
+        assert!(turn_matches(&turn, "paint AND errors:>=2 AND has:subagent"));
+        let quiet = TurnRow {
+            label: "paint the list".into(),
+            ..TurnRow::default()
+        };
+        assert!(!turn_matches(&quiet, "has:subagent"));
     }
 }

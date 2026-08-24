@@ -1,7 +1,7 @@
 """Catalog query language: luqum parse tree applied to list columns.
 
 ``session/list`` ``query`` is this language. Bare words match title, id, and
-label. Typed tokens (``is:``, ``has:``, ``has:errors:>=5``, ``in:``) match
+label. Typed tokens (``is:``, ``has:plan``, ``plans:>=2``, ``in:``) match
 catalog columns. Implicit space is AND. Unknown fields and parse failures
 become ordinary words (Gmail-style).
 """
@@ -41,11 +41,13 @@ from ..integrations.control_contract import (
     CATALOG_QUERY_COMPARE,
     CATALOG_QUERY_OPERATORS,
     catalog_query_compare_fields,
+    catalog_query_count_fields,
     catalog_query_field_names,
+    catalog_query_flag_count,
     catalog_query_has_count_fields,
     catalog_query_values,
 )
-from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
+from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_as_str
 
 # Language comes from the published control contract. Row attributes for
 # ``has:`` stay here (implementation, not the token list).
@@ -53,23 +55,35 @@ FIELD_NAMES: tuple[str, ...] = catalog_query_field_names()
 IS_VALUES: tuple[str, ...] = catalog_query_values("is")
 HAS_VALUES: tuple[str, ...] = catalog_query_values("has")
 HAS_COUNT_FIELDS: dict[str, str] = catalog_query_has_count_fields()
+COUNT_FIELDS: dict[str, str] = catalog_query_count_fields()
+FLAG_COUNT: dict[str, str] = catalog_query_flag_count()
 COMPARE_PREFIXES: tuple[str, ...] = CATALOG_QUERY_COMPARE
 COMPARE_FIELDS: tuple[str, ...] = catalog_query_compare_fields()
 HAS_FLAGS: tuple[tuple[str, str], ...] = (
-    ("workflows", "has_workflows"),
-    ("notes", "has_notes"),
-    ("goals", "has_goals"),
-    ("subagents", "has_subagents"),
-    ("jobs", "has_jobs"),
-    ("schedules", "has_schedules"),
+    ("workflow", "has_workflows"),
+    ("note", "has_notes"),
+    ("goal", "has_goals"),
+    ("subagent", "has_subagents"),
+    ("job", "has_jobs"),
+    ("schedule", "has_schedules"),
     ("plan", "has_plan"),
-    ("failures", "has_failures"),
+    ("failure", "has_failures"),
     ("diff", "has_diff"),
     ("compaction", "has_compaction"),
     ("doom", "has_doom"),
 )
-_PRESENCE_ATTRS: tuple[tuple[str, str], ...] = tuple(
-    (f"has{name[:1].upper()}{name[1:]}", attr) for name, attr in HAS_FLAGS
+_PRESENCE_ATTRS: tuple[tuple[str, str], ...] = (
+    ("hasWorkflows", "has_workflows"),
+    ("hasNotes", "has_notes"),
+    ("hasGoals", "has_goals"),
+    ("hasSubagents", "has_subagents"),
+    ("hasJobs", "has_jobs"),
+    ("hasSchedules", "has_schedules"),
+    ("hasPlan", "has_plan"),
+    ("hasFailures", "has_failures"),
+    ("hasDiff", "has_diff"),
+    ("hasCompaction", "has_compaction"),
+    ("hasDoom", "has_doom"),
 )
 
 _INCOMPLETE_FIELD = re.compile(
@@ -271,13 +285,6 @@ def suggest_last_token(
         return [f"{name}:" for name in FIELD_NAMES if name.startswith(token.casefold())]
     field, _, rest = token.partition(":")
     key = field.casefold()
-    if key == "has":
-        name, sep, cmp = rest.partition(":")
-        if sep:
-            folded = name.casefold()
-            if folded not in HAS_COUNT_FIELDS:
-                return []
-            return [f"has:{folded}:{item}" for item in COMPARE_PREFIXES if item.startswith(cmp)]
     prefix = rest.casefold()
     values = _values_for_field(key, models=models, paths=paths)
     return [f"{key}:{value}" for value in values if value.casefold().startswith(prefix)]
@@ -338,28 +345,17 @@ def _trim_value_span(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def _has_compare_known(name: str, cmp: str) -> bool:
-    if name not in HAS_COUNT_FIELDS or not cmp:
-        return False
-    for prefix in COMPARE_PREFIXES:
-        if cmp.startswith(prefix):
-            return bool(cmp[len(prefix) :].strip())
-    return cmp.strip().isalnum()
-
-
 def _value_known(field: str, inner: str) -> bool:
     closed = catalog_query_values(field)
     if field == "has":
         name, cmp = _split_has_value(inner)
-        if not cmp:
-            return name in {item.casefold() for item in closed}
-        return _has_compare_known(name, cmp)
+        return not cmp and name in {item.casefold() for item in closed}
     if not closed:
         return True
     key = inner.casefold()
     if key in {item.casefold() for item in closed}:
         return True
-    return field == "is" and key in {"cancelled", "canceled"}
+    return field == "is" and key in _LIST_IS_KNOWN
 
 
 def highlight_query_spans(query: str) -> tuple[QuerySpan, ...]:
@@ -405,16 +401,9 @@ def highlight_query_spans(query: str) -> tuple[QuerySpan, ...]:
 def _has_value_spans(start: int, end: int, inner: str) -> tuple[QuerySpan, ...]:
     name, cmp = _split_has_value(inner)
     closed = {item.casefold() for item in HAS_VALUES}
-    if name not in closed:
+    if cmp or name not in closed:
         return (QuerySpan(start, end, "unknown"),)
-    if not cmp:
-        return (QuerySpan(start, end, "value"),)
-    name_end = start + len(name)
-    cmp_kind: QuerySpanKind = "value" if _has_compare_known(name, cmp) else "unknown"
-    return (
-        QuerySpan(start, name_end, "value"),
-        QuerySpan(name_end, end, cmp_kind),
-    )
+    return (QuerySpan(start, end, "value"),)
 
 
 def _values_for_field(
@@ -524,58 +513,54 @@ def _split_has_value(raw: str) -> tuple[str, str]:
 
 
 def _has_count(row: CatalogQueryRow, name: str) -> int:
+    key = FLAG_COUNT.get(name, name)
+    if key in row.counts:
+        return int(row.counts[key])
     if name in row.counts:
         return int(row.counts[name])
-    if name == "errors":
+    if key == "errors" or name == "error":
         return int(row.error_count)
-    if name == "tasks":
+    if key == "tasks" or name == "task":
         return int(row.has_jobs) + int(row.has_schedules)
     flags = {
-        "workflows": row.has_workflows,
-        "notes": row.has_notes,
-        "goals": row.has_goals,
-        "subagents": row.has_subagents,
-        "jobs": row.has_jobs,
-        "schedules": row.has_schedules,
+        "workflow": row.has_workflows,
+        "note": row.has_notes,
+        "goal": row.has_goals,
+        "subagent": row.has_subagents,
+        "job": row.has_jobs,
+        "schedule": row.has_schedules,
         "plan": row.has_plan,
-        "failures": row.has_failures,
+        "failure": row.has_failures,
         "diff": row.has_diff,
         "compaction": row.has_compaction,
         "doom": row.has_doom,
         "git": bool(row.git_repo.strip()),
         "context": row.has_context,
+        "error": row.error_count > 0,
+        "task": bool(row.has_jobs or row.has_schedules),
     }
     return 1 if flags.get(name) else 0
 
 
+_HAS_VALUE_SET = frozenset(HAS_VALUES)
+_EVENT_IS = (
+    ("tool", "tools"),
+    ("user", "user"),
+    ("assistant", "assistant"),
+    ("error", "error"),
+    ("session", "session"),
+    ("subagent", "subagent"),
+    ("background", "background"),
+    ("workflow", "workflow"),
+)
+_LIST_IS_KNOWN = frozenset((*IS_VALUES, "canceled", *(name for name, _mode in _EVENT_IS)))
+
+
 def _match_has(value: str, row: CatalogQueryRow) -> bool:
     name, cmp = _split_has_value(value)
-    if cmp:
-        if name not in HAS_COUNT_FIELDS:
-            return False
-        return _match_number_text(_has_count(row, name), cmp)
-    if name == "errors":
-        return _has_count(row, "errors") > 0
-    if name == "git":
-        return bool(row.git_repo.strip())
-    if name == "context":
-        return bool(row.has_context)
-    if name == "tasks":
-        return bool(row.has_jobs or row.has_schedules) or _has_count(row, "tasks") > 0
-    flags = {
-        "workflows": row.has_workflows,
-        "notes": row.has_notes,
-        "goals": row.has_goals,
-        "subagents": row.has_subagents,
-        "jobs": row.has_jobs,
-        "schedules": row.has_schedules,
-        "plan": row.has_plan,
-        "failures": row.has_failures,
-        "diff": row.has_diff,
-        "compaction": row.has_compaction,
-        "doom": row.has_doom,
-    }
-    return bool(flags.get(name)) or _has_count(row, name) > 0
+    if cmp or name not in _HAS_VALUE_SET:
+        return False
+    return _has_count(row, name) > 0
 
 
 def _match_in(needle: str, row: CatalogQueryRow) -> bool:
@@ -722,8 +707,8 @@ def _in_range(actual: int, expr: Range) -> bool:
 
 
 def _number_column(field: str, row: CatalogQueryRow) -> int:
-    if field == "errors":
-        return row.error_count
+    if field in COUNT_FIELDS:
+        return _has_count(row, field)
     if field == "turns":
         return row.turn_count
     if field == "tools":
@@ -766,7 +751,7 @@ def _match_words(row: CatalogQueryRow, words: Sequence[str]) -> bool:
 
 
 def _counts_from_wire(row: JsonObject) -> dict[str, int]:
-    return {name: _as_int(row.get(wire)) for name, wire in HAS_COUNT_FIELDS.items()}
+    return {name: _as_int(row.get(wire)) for name, wire in COUNT_FIELDS.items()}
 
 
 def _counts_from_meta(meta: SessionMeta) -> dict[str, int]:
@@ -785,7 +770,7 @@ def _counts_from_meta(meta: SessionMeta) -> dict[str, int]:
         "compactionCount": int(meta.compaction_count or 0),
         "doomCount": int(meta.doom_loop_warnings or 0),
     }
-    return {name: int(by_wire.get(wire, 0)) for name, wire in HAS_COUNT_FIELDS.items()}
+    return {name: int(by_wire.get(wire, 0)) for name, wire in COUNT_FIELDS.items()}
 
 
 def _wire_has_context(row: JsonObject) -> bool:
@@ -1018,7 +1003,7 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
         "workflows": workflows,
         "notes": notes,
         "goals": goals,
-        "plan": plans,
+        "plans": plans,
         "subagents": subagents,
         "tasks": tasks,
         "jobs": jobs,
@@ -1044,9 +1029,130 @@ def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | i
         "hasDoom": doom > 0,
         "hasContext": bool(meta.has_context_usage),
     }
-    for name, wire in HAS_COUNT_FIELDS.items():
+    for name, wire in COUNT_FIELDS.items():
         out[wire] = int(counts.get(name, 0))
     return out
+
+
+@dataclass(frozen=True)
+class ListQueryBag:
+    """Hay, presence, and counts one Turns or Timeline query can see."""
+
+    hay: str
+    has: dict[str, bool] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
+    kinds: frozenset[str] = frozenset()
+
+
+def bag_matches_query(bag: ListQueryBag, query: str) -> bool:
+    """True when *bag* satisfies the catalog query language."""
+    text = finished_prefix(query).strip()
+    if not text:
+        return True
+    tree = _parsed_tree(text)
+    if tree is None:
+        words = _bare_words(text)
+        return True if not words else _hay_has_words(bag.hay, words)
+    return _eval_bag(tree, bag)
+
+
+def event_matches_query(event: TraceEvent, query: str) -> bool:
+    """True when a timeline event satisfies *query*."""
+    from .turns import event_matches_timeline_kind
+
+    kinds = frozenset(
+        name for name, mode in _EVENT_IS if event_matches_timeline_kind(event, mode)
+    )
+    hay = " ".join(
+        part
+        for part in (
+            event.event_type,
+            event.type_label,
+            event.tool_name,
+            event.summary_line,
+            event.content if isinstance(event.content, str) else str(event.content or ""),
+        )
+        if part
+    )
+    err = bool(event.is_error)
+    return bag_matches_query(
+        ListQueryBag(hay=hay, has={"error": err}, counts={"errors": int(err)}, kinds=kinds),
+        query,
+    )
+
+
+def turn_matches_query(
+    *,
+    label: str,
+    summary: str,
+    outcome: str,
+    error_count: int,
+    tool_count: int,
+    event_count: int,
+    duration_seconds: int,
+    subagent_count: int,
+    query: str,
+) -> bool:
+    """True when a turn row satisfies *query*."""
+    hay = " ".join(part for part in (label, summary, outcome) if part)
+    return bag_matches_query(
+        ListQueryBag(
+            hay=hay,
+            has={
+                "error": error_count > 0,
+                "subagent": subagent_count > 0,
+            },
+            counts={
+                "errors": error_count,
+                "tools": tool_count,
+                "events": event_count,
+                "duration": duration_seconds,
+                "subagents": subagent_count,
+            },
+        ),
+        query,
+    )
+
+
+def _hay_has_words(hay: str, words: Sequence[str]) -> bool:
+    folded = hay.casefold()
+    return all(word.casefold() in folded for word in words if word)
+
+
+def _eval_bag(node: Item, bag: ListQueryBag) -> bool:
+    if isinstance(node, Group):
+        children = list(node.children)
+        return _eval_bag(children[0], bag) if children else True
+    if isinstance(node, AndOperation | UnknownOperation):
+        return all(_eval_bag(child, bag) for child in node.children)
+    if isinstance(node, OrOperation):
+        return any(_eval_bag(child, bag) for child in node.children)
+    if isinstance(node, Not | Prohibit):
+        children = list(node.children)
+        return not _eval_bag(children[0], bag) if children else True
+    if isinstance(node, SearchField):
+        return _eval_bag_field(node.name.casefold(), node.expr, bag)
+    if isinstance(node, Word | Phrase):
+        return _hay_has_words(bag.hay, [_term_text(node)])
+    return _hay_has_words(bag.hay, [str(node)])
+
+
+def _eval_bag_field(field: str, expr: Item, bag: ListQueryBag) -> bool:
+    value = _term_text(expr).casefold()
+    if field == "is":
+        return value in bag.kinds
+    if field == "has":
+        name, cmp = _split_has_value(value)
+        if cmp or name not in _HAS_VALUE_SET:
+            return False
+        if name in bag.has:
+            return bag.has[name]
+        key = FLAG_COUNT.get(name, name)
+        return int(bag.counts.get(key, 0)) > 0
+    if field in COUNT_FIELDS or field in {"tools", "events", "duration"}:
+        actual = int(bag.counts.get(field, 0))
+        return _match_number_text(actual, _term_text(expr))
+    return _hay_has_words(bag.hay, [f"{field}:{_term_text(expr)}"])
 
 
 def apply_catalog_presence(meta: SessionMeta) -> None:
@@ -1092,6 +1198,10 @@ __all__ = [
     "apply_catalog_presence",
     "apply_catalog_presence_row",
     "apply_suggestion",
+    "bag_matches_query",
+    "event_matches_query",
+    "ListQueryBag",
+    "turn_matches_query",
     "HAS_COUNT_FIELDS",
     "catalog_has_compaction",
     "catalog_has_goals",

@@ -42,6 +42,24 @@ class CatalogQueryToken:
 CATALOG_QUERY_BARE = "title, sessionId, and label"
 CATALOG_QUERY_OPERATORS: tuple[str, ...] = ("AND", "OR", "NOT", "-")
 CATALOG_QUERY_COMPARE: tuple[str, ...] = (">=", "<=", ">", "<", "=")
+# Written pairs only. has:FLAG and COUNT:>=N share one list-row field.
+# Never derive COUNT from FLAG.
+CATALOG_QUERY_COUNTS: tuple[tuple[str, str, str], ...] = (
+    ("workflow", "workflows", "workflowCount"),
+    ("note", "notes", "noteCount"),
+    ("goal", "goals", "goalCount"),
+    ("plan", "plans", "planCount"),
+    ("subagent", "subagents", "subagentCount"),
+    ("task", "tasks", "taskCount"),
+    ("job", "jobs", "jobCount"),
+    ("schedule", "schedules", "scheduleCount"),
+    ("error", "errors", "errorCount"),
+    ("failure", "failures", "failureCount"),
+    ("diff", "diff", "diffLineCount"),
+    ("compaction", "compaction", "compactionCount"),
+    ("doom", "doom", "doomCount"),
+)
+_HAS_FLAG_ONLY: tuple[str, ...] = ("git", "context")
 CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "is",
@@ -50,47 +68,30 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     ),
     CatalogQueryToken(
         "has",
-        "Presence on the list row. Countable names take has:name:>=N.",
-        (
-            "workflows",
-            "notes",
-            "goals",
-            "subagents",
-            "tasks",
-            "jobs",
-            "schedules",
-            "plan",
-            "errors",
-            "failures",
-            "diff",
-            "git",
-            "context",
-            "compaction",
-            "doom",
-        ),
-        count_fields=(
-            ("workflows", "workflowCount"),
-            ("notes", "noteCount"),
-            ("goals", "goalCount"),
-            ("plan", "planCount"),
-            ("subagents", "subagentCount"),
-            ("tasks", "taskCount"),
-            ("jobs", "jobCount"),
-            ("schedules", "scheduleCount"),
-            ("errors", "errorCount"),
-            ("failures", "failureCount"),
-            ("diff", "diffLineCount"),
-            ("compaction", "compactionCount"),
-            ("doom", "doomCount"),
-        ),
+        "Presence (has:plan). Counts use the written pair (plans:>=2).",
+        tuple(flag for flag, _count, _wire in CATALOG_QUERY_COUNTS) + _HAS_FLAG_ONLY,
+        count_fields=tuple((flag, wire) for flag, _count, wire in CATALOG_QUERY_COUNTS),
     ),
     CatalogQueryToken("in", "Directory the session was run in."),
     CatalogQueryToken("model", "Model id substring."),
     CatalogQueryToken("task", "Task id substring."),
+    *(
+        CatalogQueryToken(count, f"Count of {count}.", compare=True)
+        for _flag, count, _wire in CATALOG_QUERY_COUNTS
+        if count
+        not in {
+            "diff",
+            "compaction",
+            "doom",
+        }
+    ),
     CatalogQueryToken("turns", "turnCount.", compare=True),
     CatalogQueryToken("tools", "toolCallCount.", compare=True),
     CatalogQueryToken("events", "numEvents.", compare=True),
     CatalogQueryToken("duration", "Session length (1h, 2d, 30m).", compare=True),
+    CatalogQueryToken("diff", "Diff line count.", compare=True),
+    CatalogQueryToken("compaction", "Compaction count.", compare=True),
+    CatalogQueryToken("doom", "Doom-loop warnings.", compare=True),
     CatalogQueryToken(
         "after",
         "updatedAt on or after this time (ISO, yesterday, 2d, 2 days ago).",
@@ -121,11 +122,21 @@ def catalog_query_values(name: str) -> tuple[str, ...]:
 
 
 def catalog_query_has_count_fields() -> dict[str, str]:
-    """``has:`` names that take ``:>=N``, mapped to the list-row count field."""
+    """``has:`` singular names mapped to the list-row count field."""
     for token in CATALOG_QUERY_TOKENS:
         if token.name == "has":
             return dict(token.count_fields)
     return {}
+
+
+def catalog_query_count_fields() -> dict[str, str]:
+    """Written count token → list-row field (``plans`` → ``planCount``)."""
+    return {count: wire for _flag, count, wire in CATALOG_QUERY_COUNTS}
+
+
+def catalog_query_flag_count() -> dict[str, str]:
+    """``has:plan`` flag → count token ``plans``."""
+    return {flag: count for flag, count, _wire in CATALOG_QUERY_COUNTS}
 
 
 def catalog_query_help_plain() -> str:
@@ -142,20 +153,15 @@ def catalog_query_help_plain() -> str:
         if token.values:
             lines.extend(_wrap_csv(f"{token.name}: ", token.values))
             if token.count_fields:
-                names = ", ".join(name for name, _wire in token.count_fields)
-                lines.extend(
-                    _wrap_words(
-                        f"{token.name}:name:>=N  ",
-                        names,
-                    )
-                )
+                pairs = [f"has:{flag} {count}:>=N" for flag, count, _w in CATALOG_QUERY_COUNTS]
+                lines.extend(_wrap_csv("", pairs))
         elif token.compare:
             compare.append(f"{token.name}:")
         else:
             lines.extend(_wrap_words(f"{token.name}: ", token.role.rstrip(".")))
     if compare:
-        cmp = "  ".join(CATALOG_QUERY_COMPARE)
-        lines.append(f"{' '.join(compare)}  {cmp}")
+        lines.extend(_wrap_csv("", compare))
+        lines.append("  ".join(CATALOG_QUERY_COMPARE))
     lines.append("  ".join((*CATALOG_QUERY_OPERATORS, "(", ")")))
     return "\n".join(lines)
 
@@ -193,6 +199,10 @@ def catalog_query_mapping() -> JsonObject:
         "implicitAnd": True,
         "operators": list(CATALOG_QUERY_OPERATORS),
         "compare": list(CATALOG_QUERY_COMPARE),
+        "counts": [
+            {"flag": flag, "count": count, "field": wire}
+            for flag, count, wire in CATALOG_QUERY_COUNTS
+        ],
         "tokens": [
             {
                 "name": token.name,
@@ -223,11 +233,11 @@ def _session_list_query_md() -> str:
         if token.values:
             names = " ".join(f"`{token.name}:{value}`" for value in token.values)
             rows.append(f"| {names} | {token.role} |")
-            if token.count_fields:
+            if token.name == "has":
                 counted = " ".join(
-                    f"`{token.name}:{name}:>=N`" for name, _wire in token.count_fields
+                    f"`has:{flag}` `{count}:>=N`" for flag, count, _wire in CATALOG_QUERY_COUNTS
                 )
-                rows.append(f"| {counted} | Count on the list row. |")
+                rows.append(f"| {counted} | Presence and count (written pairs). |")
         elif token.compare:
             rows.append(f"| `{token.name}:` with `>` `>=` `<` `<=` `=` | {token.role} |")
         else:
@@ -827,6 +837,8 @@ __all__ = (
     "CatalogQueryToken",
     "catalog_query_compare_fields",
     "catalog_query_field_names",
+    "catalog_query_count_fields",
+    "catalog_query_flag_count",
     "catalog_query_has_count_fields",
     "catalog_query_help_plain",
     "catalog_query_mapping",
