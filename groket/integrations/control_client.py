@@ -399,9 +399,12 @@ class ControlClient:
         result = await self.request("session/timeline", params)
         return as_json_object(result) if isinstance(result, dict) else {}
 
-    async def session_turns(self, session: str) -> JsonObject:
+    async def session_turns(self, session: str, query: str = "") -> JsonObject:
         """Call ``session/turns`` for turn segments."""
-        result = await self.request("session/turns", {"session": session})
+        params: JsonObject = {"session": session}
+        if query.strip():
+            params["query"] = query
+        result = await self.request("session/turns", params)
         return as_json_object(result) if isinstance(result, dict) else {}
 
     async def session_diff(self, session: str) -> JsonObject:

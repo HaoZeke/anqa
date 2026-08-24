@@ -17,6 +17,8 @@ pub fn wants_periodic_poll(visible: bool, focused: bool, window_mode: bool) -> b
 }
 pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 80;
+/// Idle gap before a committed catalog / desktop Timeline / Turns search.
+pub const SEARCH_DEBOUNCE_MS: u64 = 280;
 /// Hard cap on buffered timeline rows. Host sessions of 5k–10k stay in memory.
 pub const TIMELINE_BUFFER_CAP: usize = 10_000;
 /// Preview bytes per row on a page. Opened cards refetch a larger slice.
@@ -50,17 +52,9 @@ pub const WORKFLOW_INSPECT_H: f32 = 200.0;
 /// Spotlight idle list: latest sessions by ``sort_epoch`` (not the full catalog).
 pub const SPOTLIGHT_RECENT: usize = 8;
 
-/// Indices into ``turns`` that satisfy the catalog query language.
-pub fn filter_turn_indices(turns: &[TurnRow], query: &str) -> Vec<usize> {
-    if query.trim().is_empty() {
-        return (0..turns.len()).collect();
-    }
-    turns
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| crate::query::turn_matches(t, query))
-        .map(|(i, _)| i)
-        .collect()
+/// Indices into the displayed turn list (kind/query already applied by serve).
+pub fn filter_turn_indices(turns: &[TurnRow]) -> Vec<usize> {
+    (0..turns.len()).collect()
 }
 
 /// Latest catalog rows for the idle Spotlight list (newest ``sort_epoch`` first).
@@ -431,17 +425,11 @@ pub fn session_needs_live_poll(status: &str, turns: Option<&TurnsBlock>) -> bool
 ///
 /// Hits stay in timeline order. A non-empty query drops non-matches
 /// via [`crate::fuzzy::fzf_score`] and does not clone the events.
-pub fn filter_timeline_indices(
-    events: &[TimelineEvent],
-    kind: KindFilter,
-    query: &str,
-) -> Vec<usize> {
-    let needle = query.trim();
+pub fn filter_timeline_indices(events: &[TimelineEvent], kind: KindFilter) -> Vec<usize> {
     events
         .iter()
         .enumerate()
         .filter(|(_, ev)| ev.matches_kind(kind))
-        .filter(|(_, ev)| needle.is_empty() || crate::query::event_matches(ev, needle))
         .map(|(i, _)| i)
         .collect()
 }
@@ -1175,10 +1163,7 @@ mod tests {
                 ..TurnRow::default()
             },
         ];
-        assert_eq!(filter_turn_indices(&turns, "").len(), 2);
-        assert_eq!(filter_turn_indices(&turns, "paint"), vec![1]);
-        assert_eq!(filter_turn_indices(&turns, "setup"), vec![0]);
-        assert!(filter_turn_indices(&turns, "missing").is_empty());
+        assert_eq!(filter_turn_indices(&turns).len(), 2);
     }
 
     #[test]
@@ -1189,27 +1174,10 @@ mod tests {
             ev(2, "agent", "ok"),
         ];
         assert_eq!(
-            filter_timeline_indices(&events, KindFilter::All, ""),
+            filter_timeline_indices(&events, KindFilter::All),
             vec![0, 1, 2]
         );
-        assert_eq!(
-            filter_timeline_indices(&events, KindFilter::Tools, ""),
-            vec![1]
-        );
-    }
-
-    #[test]
-    fn filter_timeline_indices_keeps_time_order_for_query() {
-        let events = vec![
-            ev(0, "user", "also hud"),
-            ev(1, "user", "hud window"),
-            ev(2, "user", "other"),
-        ];
-        assert_eq!(
-            filter_timeline_indices(&events, KindFilter::All, "hud"),
-            vec![0, 1]
-        );
-        assert!(filter_timeline_indices(&events, KindFilter::Tools, "hud").is_empty());
+        assert_eq!(filter_timeline_indices(&events, KindFilter::Tools), vec![1]);
     }
 
     #[test]

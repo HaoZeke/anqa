@@ -138,7 +138,7 @@ pub fn labeled_plain<'a>(
     )
 }
 
-/// `?` help sheet: shortcut rows plus catalog search tokens.
+/// `?` help sheet: shortcut rows. Search tokens are on the box tooltip.
 ///
 /// icedtea [`pattern::cheatsheet`] already pads for its scroll rail.
 pub fn help_modal<'a>(
@@ -148,7 +148,10 @@ pub fn help_modal<'a>(
 ) -> Element<'a, Message> {
     let heading = format!("Keyboard shortcuts · groket {}", crate::VERSION);
     let list = icedtea::pattern::cheatsheet(table, "", tea);
-    let body = column![list, catalog_search_help(tea)].spacing(tea.density.gap());
+    let search_note = text("Hover a search box for tokens on that list.")
+        .size(tea.meta())
+        .color(tea.muted);
+    let body = column![list, search_note].spacing(tea.density.gap());
     let sheet = widget::group_box(
         heading.clone(),
         body.into(),
@@ -161,30 +164,6 @@ pub fn help_modal<'a>(
         .width(Length::Fixed(560.0))
         .height(Length::Fixed(520.0));
     icedtea::pattern::modal_card(backdrop, card.into(), 1.0, tea)
-}
-
-fn catalog_search_help(tea: Tokens) -> Element<'static, Message> {
-    let gap = tea.density.gap();
-    let mut col = column![
-        widget::meta(
-            "Catalog search",
-            tea,
-            A11y::new("Catalog search", Role::Status),
-        ),
-        text("Bare words match title, id, and label. Space is AND.")
-            .size(tea.body())
-            .color(tea.text),
-    ]
-    .spacing(gap);
-    for row in crate::query::catalog_query_help_rows() {
-        let line = if row.body.is_empty() {
-            row.label
-        } else {
-            format!("{}  {}", row.label, row.body)
-        };
-        col = col.push(text(line).size(tea.meta()).color(tea.muted));
-    }
-    col.into()
 }
 
 #[cfg(test)]
@@ -326,8 +305,8 @@ mod tests {
             .next()
             .unwrap();
         assert!(help.contains("pattern::cheatsheet"));
-        assert!(help.contains("catalog_query_help_rows"));
-        assert!(help.contains("Catalog search"));
+        assert!(help.contains("Hover a search box"));
+        assert!(!help.contains("catalog_query_help_rows"));
     }
 
     #[test]

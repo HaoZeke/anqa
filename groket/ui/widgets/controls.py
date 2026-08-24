@@ -5,7 +5,8 @@ Standard pattern (sessions list, Timeline **Filter**):
 - Horizontal bar with classes ``filter-bar`` + bold ``filter-view-label``
 - One or more **Select** widgets for exclusive modes (All / …) — shared styling
   in ``app.tcss`` (``#timeline-view-select``, ``.field-select``)
-- Optional trailing ``Input`` (timeline search only)
+- Timeline search is a second full-width row under the picks (same as the HUD)
+- Live Tail is a compact label + switch on the trailing end of the picks row
 
 Form field booleans still use full-width ``Checkbox`` (persona editor).
 Do **not** use Button chips or ad-hoc multi-checkbox rows for

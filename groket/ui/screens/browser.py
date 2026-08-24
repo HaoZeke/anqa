@@ -8,6 +8,8 @@ from pathlib import Path
 
 from textual import on, work
 from textual.app import ComposeResult
+from textual.css.query import NoMatches
+from textual.suggester import Suggester
 
 from ..data_table import (
     ListDataTable,
@@ -53,11 +55,23 @@ from ...notes import (
 )
 from ...parser import load_session_meta, parse_timeline
 from ...session.control_views import overview_stat_counters
+from ...session.event_search import (
+    ensure_indexed,
+    index_covers,
+    matching_indexes,
+    scan_index,
+)
 from ...session.jobs import (
     ScheduleTask,
     SessionJobs,
     schedule_for_event,
     session_jobs_for_view,
+)
+from ...session.query import (
+    apply_suggestion,
+    finished_prefix,
+    query_needs_hay,
+    suggest_last_token,
 )
 from ...session.subagents import (
     SubagentRun,
@@ -88,6 +102,7 @@ from ..panel_render import (
     status_chip,
 )
 from ..query_highlight import CatalogQueryHighlighter
+from ..query_legend import search_tooltip
 from ..selectable_static import SelectableStatic, is_extractable_static
 from ..session_summary import render_session_summary
 from ..tab_panes import TabPaneNavigation
@@ -107,6 +122,19 @@ def _clip_chrome_label(text: str) -> str:
     if len(one) <= _CHROME_LABEL_MAX:
         return one
     return one[: _CHROME_LABEL_MAX - 1] + "…"
+
+
+class TimelineQuerySuggester(Suggester):
+    """Last-token completion for Timeline search."""
+
+    def __init__(self) -> None:
+        super().__init__(use_cache=True, case_sensitive=True)
+
+    async def get_suggestion(self, value: str) -> str | None:
+        hits = suggest_last_token(value, scope="timeline")
+        if not hits:
+            return None
+        return apply_suggestion(value, hits[0]).rstrip()
 
 
 class BrowserScreen(TabPaneNavigation, ChromeActions):
@@ -237,6 +265,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._turn_rebuild_sig: tuple[int, int | None] | None = None
         self._detail_debounce: Timer | None = None
         self._search_debounce: Timer | None = None
+        self._search_gen: int = 0
         self._detail_expanded: set[int] = set()
         self._detail_expanding: set[int] = set()
         from ...session.context_samples import ContextSampleStore
@@ -305,21 +334,28 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             )
                             turn_sel.display = False  # shown only when multi-turn
                             yield turn_sel
-                            yield Input(
-                                placeholder=U.search_events_placeholder(),
-                                id="search-input",
-                                highlighter=CatalogQueryHighlighter(),
-                            )
-                            tail_label = Static(t("ui-timeline-tail"), id="timeline-tail-label")
-                            tail_label.display = False
-                            yield tail_label
-                            with Vertical(id="timeline-tail-slot") as tail_slot:
-                                tail_slot.display = False
+                            yield Static("", id="timeline-filter-grow")
+                            with Horizontal(id="timeline-tail-cluster") as tail_cluster:
+                                tail_cluster.display = False
+                                yield Static(
+                                    t("ui-timeline-tail"),
+                                    id="timeline-tail-label",
+                                    classes=FILTER_LABEL_CLASS,
+                                )
                                 yield Switch(
                                     id="timeline-tail",
                                     value=False,
                                     animate=False,
                                 )
+                        with Horizontal(id="timeline-search-bar", classes=FILTER_BAR_CLASS):
+                            yield Input(
+                                placeholder=U.search_events_placeholder(),
+                                id="search-input",
+                                highlighter=CatalogQueryHighlighter(),
+                                suggester=TimelineQuerySuggester(),
+                                tooltip=search_tooltip("timeline"),
+                            )
+                        yield Static("", id="timeline-query-hints", classes="session-query-hints")
                         yield TimelineTable(id="timeline-list")
                     with Vertical(id="detail-column"):
                         yield DetailView(id="detail-panel")
@@ -383,6 +419,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 style_data_table(self.query_one(tid, DataTable))
         except Exception:
             pass
+        self._refresh_timeline_query_hints()
         self._load_data()
 
     def on_unmount(self) -> None:
@@ -1446,6 +1483,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             # Skip DataTable work when Timeline is not visible (still keep data).
             if active in ("", "tab-timeline"):
                 try:
+                    keep_search = self._timeline_search_has_focus()
                     timeline_table = self.query_one("#timeline-list", TimelineTable)
                     timeline_table.load_events(
                         self.timeline,
@@ -1457,6 +1495,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     if self._timeline_filters_active():
                         self._reapply_timeline_view_filter()
                     self._refresh_open_event_detail()
+                    if keep_search:
+                        self._restore_timeline_search_focus()
                 except Exception:
                     pass
         # Summary is expensive — only while that tab is focused, never every tick.
@@ -2088,6 +2128,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.timeline,
             follow_tail=self._timeline_follow_tail(),
         )
+        self._warm_timeline_index()
         # load_events paints the current list; restore View/Turn/search.
         self._reapply_timeline_view_filter()
         self._rebuild_turn_select()
@@ -2114,9 +2155,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _timeline_follow_tail(self) -> bool:
         """True when the live Tail switch is showing and on."""
         with suppress(Exception):
-            slot = self.query_one("#timeline-tail-slot", Vertical)
+            cluster = self.query_one("#timeline-tail-cluster", Horizontal)
             box = self.query_one("#timeline-tail", Switch)
-            return bool(slot.display and box.value)
+            return bool(cluster.display and box.value)
         return False
 
     def _sync_timeline_tail_checkbox(self) -> None:
@@ -2125,13 +2166,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         with suppress(Exception):
             live = bool(self._session_is_pending() or self._session_needs_live_timeline())
         try:
-            label = self.query_one("#timeline-tail-label", Static)
-            slot = self.query_one("#timeline-tail-slot", Vertical)
+            cluster = self.query_one("#timeline-tail-cluster", Horizontal)
             box = self.query_one("#timeline-tail", Switch)
         except Exception:
             return
-        label.display = live
-        slot.display = live
+        cluster.display = live
         if not live:
             box.value = False
 
@@ -2159,6 +2198,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 self.timeline,
                 follow_tail=self._timeline_follow_tail(),
             )
+            self._warm_timeline_index()
             if self._timeline_filters_active():
                 self._reapply_timeline_view_filter()
         except Exception:
@@ -2716,25 +2756,127 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     @on(Input.Changed, "#search-input")
     def _on_search_changed(self, event: Input.Changed) -> None:
-        """Filter timeline after a short idle so each key does not rebuild the table."""
+        """Keep the caret moving; match and paint on a worker."""
         self._timeline_search = event.value or ""
+        self._refresh_timeline_query_hints()
         if self._search_debounce is not None:
             try:
                 self._search_debounce.stop()
             except Exception:
                 pass
             self._search_debounce = None
-        from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
+        self._start_timeline_search_worker()
 
-        self._search_debounce = self.set_timer(
-            TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_timeline_search
-        )
+    def _refresh_timeline_query_hints(self) -> None:
+        """Paint last-token completions under the Timeline search box."""
+        try:
+            hint = self.query_one("#timeline-query-hints", Static)
+        except NoMatches:
+            return
+        tools: list[str] = []
+        with suppress(Exception):
+            tools = list(self.query_one("#timeline-list", TimelineTable).tool_names)
+        hits = suggest_last_token(self._timeline_search, scope="timeline", tools=tools)
+        line = "  ".join(hits[:8]) if hits else ""
+        if getattr(self, "_timeline_hint_line", None) == line:
+            return
+        self._timeline_hint_line = line
+        if not hits:
+            hint.update("")
+            hint.display = False
+            return
+        hint.display = True
+        hint.update(line)
 
     def _apply_debounced_timeline_search(self) -> None:
         self._search_debounce = None
         if not self.is_mounted:
             return
+        self._start_timeline_search_worker()
+
+    def _start_timeline_search_worker(self) -> None:
+        """Copy table state on this thread, then match off it."""
+        query = getattr(self, "_timeline_search", "") or ""
+        try:
+            tl = self.query_one("#timeline-list", TimelineTable)
+        except NoMatches:
+            return
+        self._search_gen += 1
+        gen = self._search_gen
+        key, stamp = tl.search_identity(tl.events)
+        finished = finished_prefix(query).strip()
+        need_hay = bool(finished) and query_needs_hay(finished)
+        payload: tuple[list[TraceEvent], str, tuple[float, int, int, int], dict[int, int]] | None
+        if not finished or index_covers(key, stamp, len(tl.events), hay=need_hay):
+            payload = None
+        else:
+            payload = (list(tl.events), key, stamp, dict(tl._turn_by_index))
+        self._run_timeline_search(gen, query, finished, key, payload)
+
+    @work(thread=True, exclusive=True, group="timeline-search")
+    def _run_timeline_search(
+        self,
+        gen: int,
+        query: str,
+        finished: str,
+        key: str,
+        payload: tuple[list[TraceEvent], str, tuple[float, int, int, int], dict[int, int]] | None,
+    ) -> None:
+        hits: set[int] | None
+        if not finished:
+            hits = None
+        elif payload is None:
+            hits = set(scan_index(key, finished))
+        else:
+            events, key, stamp, turns = payload
+            hits = set(
+                matching_indexes(
+                    events,
+                    finished,
+                    key=key,
+                    stamp=stamp,
+                    turns=turns,
+                )
+            )
+
+        def _schedule() -> None:
+            if gen != self._search_gen or not self.is_mounted:
+                return
+            try:
+                tl = self.query_one("#timeline-list", TimelineTable)
+            except NoMatches:
+                return
+            tl.set_search_hits(query.strip(), hits)
+            self.call_later(self._paint_timeline_search, gen)
+
+        call_ui(resolve_ui_app(self), _schedule)
+
+    def _paint_timeline_search(self, gen: int) -> None:
+        if gen != self._search_gen or not self.is_mounted:
+            return
         self._apply_timeline_filters()
+
+    def _warm_timeline_index(self) -> None:
+        """Fill search columns/hay off the UI thread after a load."""
+        try:
+            tl = self.query_one("#timeline-list", TimelineTable)
+        except NoMatches:
+            return
+        events = list(tl.events)
+        if not events:
+            return
+        key, stamp = tl.search_identity(events)
+        self._index_timeline_store(events, key, stamp, dict(tl._turn_by_index))
+
+    @work(thread=True, exclusive=True, group="timeline-index")
+    def _index_timeline_store(
+        self,
+        events: list[TraceEvent],
+        key: str,
+        stamp: tuple[float, int, int, int],
+        turns: dict[int, int],
+    ) -> None:
+        ensure_indexed(events, key=key, stamp=stamp, turns=turns)
 
     @on(Input.Submitted, "#search-input")
     def _on_search_submitted(self, event: Input.Submitted) -> None:
@@ -2746,7 +2888,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 pass
             self._search_debounce = None
         self._timeline_search = event.value or ""
-        self._apply_timeline_filters()
+        self._start_timeline_search_worker()
         try:
             focus_primary_list(self.query_one("#timeline-list", TimelineTable))
         except Exception:
@@ -2865,13 +3007,26 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             len(getattr(self, "_turn_segments", None) or []),
         )
 
+    def _timeline_search_has_focus(self) -> bool:
+        try:
+            return bool(self.query_one("#search-input", Input).has_focus)
+        except NoMatches:
+            return False
+
+    def _restore_timeline_search_focus(self) -> None:
+        with suppress(Exception):
+            self.query_one("#search-input", Input).focus()
+
     def _apply_filter(self, **kwargs) -> None:
+        keep = self._timeline_search_has_focus()
         timeline_table = self.query_one("#timeline-list", TimelineTable)
         if "event_indices" not in kwargs:
             kwargs["event_indices"] = self._turn_event_indices()
         if "search_query" not in kwargs:
             kwargs["search_query"] = getattr(self, "_timeline_search", "") or ""
         timeline_table.apply_filter(**kwargs)
+        if keep:
+            self._restore_timeline_search_focus()
 
     @on(Select.Changed, "#timeline-turn-select")
     def _on_timeline_turn_changed(self, event: Select.Changed) -> None:

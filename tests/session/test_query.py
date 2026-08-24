@@ -188,9 +188,55 @@ def test_human_after_before() -> None:
     assert row_matches_query(old, "before:2 days ago")
 
 
+def test_and_clause_order_does_not_change_catalog_match() -> None:
+    now = datetime.now(tz=UTC)
+    recent_err = _row(
+        error_count=2,
+        updated_at=(now - timedelta(hours=2)).isoformat(),
+    )
+    old_err = _row(
+        error_count=2,
+        updated_at=(now - timedelta(days=20)).isoformat(),
+    )
+    recent_clean = _row(
+        error_count=0,
+        updated_at=(now - timedelta(hours=2)).isoformat(),
+    )
+    first = 'after:"2 days ago" AND has:error'
+    second = 'has:error AND after:"2 days ago"'
+    assert row_matches_query(recent_err, first) is True
+    assert row_matches_query(recent_err, second) is True
+    assert row_matches_query(old_err, first) is False
+    assert row_matches_query(old_err, second) is False
+    assert row_matches_query(recent_clean, first) is False
+    assert row_matches_query(recent_clean, second) is False
+
+
+def test_and_clause_order_does_not_change_event_match() -> None:
+    from groket.models import TraceEvent
+    from groket.session.query import event_matches_query
+
+    ev = TraceEvent(
+        index=1,
+        event_type="tool_call",
+        tool_name="read_file",
+        content="boom",
+        is_error=True,
+    )
+    first = 'after:"2 days ago" AND has:error'
+    second = 'has:error AND after:"2 days ago"'
+    assert event_matches_query(ev, first) == event_matches_query(ev, second)
+
+
 def test_forgiving_unknown_and_incomplete() -> None:
     row = _row()
     assert finished_prefix("has:workflow AND has:") == "has:workflow"
+    assert finished_prefix("tool:grep AN") == "tool:grep"
+    assert finished_prefix("tool:grep AND") == "tool:grep"
+    assert finished_prefix("tool:grep AND is:") == "tool:grep"
+    assert finished_prefix("tool:grep AND is:err") == "tool:grep"
+    assert finished_prefix("tool:grep AND is:error") == "tool:grep AND is:error"
+    assert finished_prefix("is:assistant") == "is:assistant"
     assert row_matches_query(row, "has:workflow AND has:")
     assert row_matches_query(row, "palette AND ((")
     assert row_matches_query(row, "unknown:zzz") is False
@@ -202,6 +248,17 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
 
     text = catalog_query_help_plain()
     assert "Bare words match title, id, and label" in text
+    from groket.integrations.control_contract import list_query_help_plain
+
+    timeline = list_query_help_plain("timeline")
+    assert "tool:" in timeline
+    assert "turn:" in timeline
+    assert "duration:" in timeline
+    assert "in:" not in timeline
+    turns = list_query_help_plain("turns")
+    assert "has: error" in turns or "has:" in turns
+    assert "subagent" in turns
+    assert "after:" not in turns
     assert "is: running" in text
     assert "cancelled" in text
     assert "has: workflow" in text
@@ -214,6 +271,19 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
     assert "\n" in text
     for line in text.splitlines():
         assert len(line) <= 72, line
+    from groket.integrations.control_contract import list_query_help_pairs
+    from groket.ui.query_legend import search_tooltip
+    from rich.console import Console
+
+    pairs = list_query_help_pairs("timeline")
+    assert any(label == "tool:" for label, _body in pairs)
+    assert all(label != "after:" for label, _body in pairs)
+    console = Console(record=True, width=80, color_system=None)
+    console.print(search_tooltip("catalog"))
+    painted = console.export_text()
+    assert "is:" in painted
+    assert "has:" in painted
+    assert "AND" in painted
 
 
 def test_has_quantity_compare() -> None:
@@ -477,6 +547,57 @@ def test_suggest_and_apply() -> None:
     assert apply_suggestion("has:", "has:workflow") == "has:workflow "
 
 
+def test_suggest_timeline_tokens() -> None:
+    assert suggest_last_token("h", scope="timeline") == ["has:"]
+    assert suggest_last_token("has:", scope="timeline") == ["has:error"]
+    assert suggest_last_token("is:", scope="timeline") == [
+        "is:tool",
+        "is:user",
+        "is:assistant",
+        "is:error",
+        "is:session",
+        "is:subagent",
+        "is:background",
+        "is:workflow",
+    ]
+    assert suggest_last_token("i", scope="timeline") == ["is:"]
+    assert "in:" not in suggest_last_token("i", scope="timeline")
+    assert suggest_last_token("errors:", scope="timeline") == [
+        "errors:>=",
+        "errors:<=",
+        "errors:>",
+        "errors:<",
+        "errors:=",
+    ]
+    assert suggest_last_token("t", scope="timeline") == ["tool:", "turn:"]
+    assert suggest_last_token("d", scope="timeline") == ["duration:"]
+    assert suggest_last_token("duration:", scope="timeline") == [
+        "duration:>=",
+        "duration:<=",
+        "duration:>",
+        "duration:<",
+        "duration:=",
+    ]
+    assert suggest_last_token("tool:", scope="timeline", tools=["read_file", "grep"]) == [
+        "tool:read_file",
+        "tool:grep",
+    ]
+
+
+def test_suggest_turns_tokens() -> None:
+    assert suggest_last_token("has:", scope="turns") == ["has:error", "has:subagent"]
+    assert suggest_last_token("t", scope="turns") == ["tools:"]
+    assert suggest_last_token("tools:", scope="turns") == [
+        "tools:>=",
+        "tools:<=",
+        "tools:>",
+        "tools:<",
+        "tools:=",
+    ]
+    assert suggest_last_token("has:p", scope="turns") == []
+    assert "has:plan" not in suggest_last_token("has:", scope="turns")
+
+
 def test_has_presence_tokens_match_row_flags() -> None:
     empty = _row(error_count=0, git_repo="")
     assert not row_matches_query(empty, "has:error")
@@ -610,9 +731,32 @@ def test_event_and_turn_use_same_query_language() -> None:
     assert event_matches_query(ev, "has:error")
     assert event_matches_query(ev, "errors:>=1")
     assert event_matches_query(ev, "is:tool AND has:error")
+    assert event_matches_query(ev, "tool:read")
+    assert event_matches_query(ev, "tool:read_file")
+    assert not event_matches_query(ev, "tool:grep")
+    assert event_matches_query(ev, "turn:2", turn=2)
+    assert event_matches_query(ev, "turn:>=2", turn=2)
+    assert not event_matches_query(ev, "turn:3", turn=2)
     assert not event_matches_query(ev, "is:user")
     assert not event_matches_query(ev, "is:workflow")
     assert not event_matches_query(ev, "has:error:>=1")
+    assert not event_matches_query(ev, "user:hello")
+    user_ev = TraceEvent(index=2, event_type="user_message_chunk", content="please fix hello")
+    assert event_matches_query(user_ev, "user:hello")
+    assert event_matches_query(user_ev, "is:user AND user:fix")
+    assert not event_matches_query(user_ev, "tool:read")
+    huge = TraceEvent(
+        index=3,
+        event_type="tool_call",
+        tool_name="read_file",
+        content="assistant " * 50_000,
+    )
+    assert event_matches_query(huge, "is:tool")
+    assert not event_matches_query(huge, "is:assistant")
+    grep = TraceEvent(index=4, event_type="tool_call", tool_name="grep", content="x")
+    assert event_matches_query(grep, "tool:grep AN")
+    assert event_matches_query(grep, "tool:grep AND is:err")
+    assert not event_matches_query(grep, "tool:grep AND is:error")
     assert turn_matches_query(
         label="paint the list",
         summary="did the work",

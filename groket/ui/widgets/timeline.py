@@ -12,11 +12,10 @@ from textual.widgets import DataTable
 from ... import event_types as et
 from ...constants import LIVE_TIMELINE_TAIL_CHECK
 from ...models import ToolInputBag, TraceEvent
+from ...session.event_search import event_durations, matching_indexes
 from ...session.jobs import event_job_kind, event_task_id
-from ...session.query import event_matches_query
 from ...session.subagents import (
     event_child_session_id,
-    subagent_duration_seconds,
     subagent_inspect,
     subagent_list_preview,
 )
@@ -33,7 +32,9 @@ from ..data_table import (
 )
 from ..i18n import t
 from ..styles import (
+    DANGER,
     EVENT_TYPE_STYLE,
+    TOOL_ERROR_MARK,
     active_theme_is_light,
     event_type_markup,
 )
@@ -68,6 +69,18 @@ class _ViewFilter:
         )
 
 
+def _same_event_indexes(
+    left: list[TraceEvent] | None,
+    right: list[TraceEvent] | None,
+    universe: list[TraceEvent],
+) -> bool:
+    def _ids(rows: list[TraceEvent] | None) -> list[int]:
+        src = universe if rows is None else rows
+        return [int(ev.index) for ev in src]
+
+    return _ids(left) == _ids(right)
+
+
 class TimelineTable(DataTable):
     """DataTable specialized for trace event timelines."""
 
@@ -88,6 +101,17 @@ class TimelineTable(DataTable):
         self._job_mate: dict[int, TraceEvent] = {}
         self._visible: list[TraceEvent] | None = None
         self._filter_spec: _ViewFilter | None = None
+        self.tool_names: list[str] = []
+        self._hit_query: str = ""
+        self._hit_indexes: set[int] | None = None
+        self._hits_ready: bool = False
+        self._cell_cache: dict[
+            int,
+            tuple[
+                tuple[int | str | float | bool | None, ...],
+                tuple[str, str, str, str, str, str, str],
+            ],
+        ] = {}
 
     @property
     def durations(self) -> dict[int, float]:
@@ -133,6 +157,7 @@ class TimelineTable(DataTable):
         row_ok = self.row_count == painted_n and painted_n > 0
 
         self.events = new_events
+        self._rebuild_tool_names()
         new_visible = self._compute_visible(new_events)
 
         if not row_ok or not prev:
@@ -209,10 +234,59 @@ class TimelineTable(DataTable):
         spec = self._filter_spec
         if spec is None or not spec.restricts():
             return None
-        out = [ev for ev in events if self._event_matches_spec(ev, spec)]
+        query_hits = self._query_hits(events, spec.search_query)
+        out = [ev for ev in events if self._event_matches_spec(ev, spec, query_hits)]
         return out
 
-    def _event_matches_spec(self, ev: TraceEvent, spec: _ViewFilter) -> bool:
+    def set_search_hits(self, query: str, hits: set[int] | None) -> None:
+        """Cache worker hits for *query* (``None`` means the query does not restrict)."""
+        self._hit_query = (query or "").strip()
+        self._hit_indexes = hits
+        self._hits_ready = True
+
+    def search_identity(
+        self, events: list[TraceEvent] | None = None
+    ) -> tuple[str, tuple[float, int, int, int]]:
+        """Session key and stamp for the in-process search index."""
+        evs = events if events is not None else self.events
+        last = evs[-1] if evs else None
+        first_ix = int(evs[0].index) if evs else -1
+        last_ix = int(last.index) if last is not None else -1
+        return f"table:{id(self)}", (float(len(evs)), first_ix, last_ix, 0)
+
+    def _query_hits(self, events: list[TraceEvent], query: str) -> set[int] | None:
+        text = (query or "").strip()
+        if not text:
+            return None
+        if self._hits_ready and text == self._hit_query:
+            return self._hit_indexes
+        key, stamp = self.search_identity(events)
+        return set(
+            matching_indexes(
+                events,
+                text,
+                key=key,
+                stamp=stamp,
+                turns=self._turn_by_index,
+            )
+        )
+
+    def _rebuild_tool_names(self) -> None:
+        seen: set[str] = set()
+        names: list[str] = []
+        for ev in self.events:
+            name = ev.tool_name
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+        self.tool_names = names
+
+    def _event_matches_spec(
+        self,
+        ev: TraceEvent,
+        spec: _ViewFilter,
+        query_hits: set[int] | None,
+    ) -> bool:
         if spec.kind and spec.kind not in {"", "all"}:
             if not event_matches_timeline_kind(ev, spec.kind):
                 return False
@@ -224,7 +298,7 @@ class TimelineTable(DataTable):
             return False
         if spec.errors_only and not (ev.is_error or ev.event_type in et.ERROR_TYPES):
             return False
-        if spec.search_query and not event_matches_query(ev, spec.search_query):
+        if query_hits is not None and int(ev.index) not in query_hits:
             return False
         if spec.call_ids or spec.update_indices or spec.event_indices:
             if spec.call_ids and ev.tool_call_id in spec.call_ids:
@@ -291,25 +365,9 @@ class TimelineTable(DataTable):
                 self._call_by_id[ev.tool_call_id] = ev
             elif ev.event_type in et.TOOL_UPDATE_TYPES:
                 self._result_by_id[ev.tool_call_id] = ev
-        # Durations: tool_call ↔ result, or next-event gap for new non-tool rows.
-        for ev in new_events:
-            if ev.timestamp is None:
-                continue
-            if ev.event_type == "tool_call" and ev.tool_call_id in self._result_by_id:
-                res = self._result_by_id[ev.tool_call_id]
-                if res.timestamp is not None and res.timestamp >= ev.timestamp:
-                    self._durations[ev.index] = res.timestamp - ev.timestamp
-            elif ev.event_type in et.TOOL_UPDATE_TYPES and ev.tool_call_id:
-                call = self._call_by_id.get(ev.tool_call_id)
-                if (
-                    call is not None
-                    and call.timestamp is not None
-                    and ev.timestamp >= call.timestamp
-                ):
-                    self._durations[call.index] = ev.timestamp - call.timestamp
+        self._durations = event_durations(self.events)
         self._index_subagent_mates()
         self._index_job_mates()
-        self._apply_subagent_run_durations()
 
     def _build_tool_pairs(self) -> None:
         """Index tool_call / tool_result by call_id (trace_viewer merges these)."""
@@ -350,42 +408,10 @@ class TimelineTable(DataTable):
         return res
 
     def _compute_durations(self) -> None:
-        """Compute per-event durations from timestamps.
-
-        For tool_call events, duration = time until the matching tool_result.
-        For other events, duration = time until the next event.
-        """
-        self._durations = {}
-        if not self.events:
-            return
-        result_ts: dict[str, int] = {}
-        for ev in self.events:
-            if ev.event_type in et.TOOL_UPDATE_TYPES and ev.tool_call_id and ev.timestamp:
-                result_ts[ev.tool_call_id] = ev.timestamp
-        for i, ev in enumerate(self.events):
-            if ev.timestamp is None:
-                continue
-            if ev.event_type == "tool_call" and ev.tool_call_id in result_ts:
-                dur = result_ts[ev.tool_call_id] - ev.timestamp
-                if dur >= 0:
-                    self._durations[ev.index] = dur
-            elif ev.event_type in et.TOOL_UPDATE_TYPES:
-                continue
-            else:
-                ev_ts = ev.timestamp
-                for j in range(i + 1, len(self.events)):
-                    next_ts = self.events[j].timestamp
-                    if next_ts is not None and ev_ts is not None:
-                        dur = next_ts - ev_ts
-                        if dur >= 0:
-                            self._durations[ev.index] = dur
-                        break
-            own = subagent_duration_seconds(ev)
-            if own is not None:
-                self._durations[ev.index] = own
+        """Pair seconds for the Dur column (same map as Timeline ``duration:``)."""
+        self._durations = event_durations(self.events)
         self._index_subagent_mates()
         self._index_job_mates()
-        self._apply_subagent_run_durations()
 
     def _index_subagent_mates(self) -> None:
         by_child: dict[str, list[TraceEvent]] = {}
@@ -423,17 +449,6 @@ class TimelineTable(DataTable):
 
     def job_mate(self, ev: TraceEvent) -> TraceEvent | None:
         return self._job_mate.get(ev.index)
-
-    def _apply_subagent_run_durations(self) -> None:
-        for ev in self.events:
-            if ev.event_type != "subagent_spawned":
-                continue
-            mate = self._subagent_mate.get(ev.index)
-            if mate is None:
-                continue
-            own = subagent_duration_seconds(mate)
-            if own is not None:
-                self._durations[ev.index] = own
 
     @staticmethod
     def _fmt_dur(seconds: float) -> str:
@@ -529,6 +544,30 @@ class TimelineTable(DataTable):
 
     def _row_cell_values(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str, str]:
         """Visible cell values for one event (Index, Turn, Time, Dur, Type, Tool, Summary)."""
+        sig = self._row_cell_sig(ev)
+        cached = self._cell_cache.get(int(ev.index))
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        values = self._compute_row_cells(ev)
+        self._cell_cache[int(ev.index)] = (sig, values)
+        return values
+
+    def _row_cell_sig(self, ev: TraceEvent) -> tuple[int | str | float | bool | None, ...]:
+        body = ev.content if isinstance(ev.content, str) else str(ev.content or "")
+        tail = body[-32:] if len(body) > 32 else body
+        return (
+            int(ev.index),
+            ev.event_type,
+            ev.tool_name,
+            ev.is_error,
+            len(body),
+            body[:32],
+            tail,
+            self._durations.get(ev.index),
+            self._turn_by_index.get(int(ev.index)),
+        )
+
+    def _compute_row_cells(self, ev: TraceEvent) -> tuple[str, str, str, str, str, str, str]:
         from ...session.turns import harness_user_chrome_heading
 
         light = active_theme_is_light()
@@ -553,10 +592,7 @@ class TimelineTable(DataTable):
                 type_style = f"[{face}]{label}[/]"
             else:
                 type_style = event_type_markup(ev.event_type, light=light) or ev.type_label
-        tool_err = ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES
-        if tool_err and chrome_heading is None:
-            type_style = f"[red bold underline]{ev.type_label}[/]"
-        elif ev.event_type in et.ERROR_TYPES and chrome_heading is None:
+        if ev.event_type in et.ERROR_TYPES and chrome_heading is None:
             type_style = f"[red bold underline]{ev.type_label}[/]"
         dur_str = ""
         if ev.index in self._durations:
@@ -567,8 +603,9 @@ class TimelineTable(DataTable):
             elif dur >= 30:
                 dur_str = f"[yellow]{dur_str}[/]"
         tool_col = self._tool_column(ev)
-        if tool_err and tool_col and (not tool_col.startswith("[")):
-            tool_col = f"[red]{tool_col}[/]"
+        if ev.is_error and ev.event_type not in et.SESSION_CHROME_TYPES:
+            mark = f"[{DANGER}]{TOOL_ERROR_MARK}[/]"
+            tool_col = f"{tool_col} {mark}".strip() if tool_col else mark
         if ev.event_type in et.TASK_TYPES or ev.event_type.startswith("scheduled_task_"):
             bag = ev.raw_input.raw() if isinstance(ev.raw_input, ToolInputBag) else {}
             raw_sum = job_list_preview(ev.event_type, bag, ev.content)
@@ -657,7 +694,11 @@ class TimelineTable(DataTable):
         )
         if self._turn_map_stale:
             self._rebuild_turn_map()
-        self._visible = self._compute_visible(self.events)
+        new_visible = self._compute_visible(self.events)
+        if _same_event_indexes(self._visible, new_visible, self.events):
+            self._visible = new_visible
+            return
+        self._visible = new_visible
         self._refresh_rows()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -40,18 +40,23 @@ from pytimeparse import parse as parse_span
 from ..integrations.control_contract import (
     CATALOG_QUERY_COMPARE,
     CATALOG_QUERY_OPERATORS,
+    all_query_field_names,
     catalog_query_compare_fields,
     catalog_query_count_fields,
     catalog_query_field_names,
     catalog_query_flag_count,
     catalog_query_has_count_fields,
     catalog_query_values,
+    list_query_compare_fields,
+    list_query_field_names,
+    list_query_values,
 )
 from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_as_str
 
 # Language comes from the published control contract. Row attributes for
 # ``has:`` stay here (implementation, not the token list).
 FIELD_NAMES: tuple[str, ...] = catalog_query_field_names()
+ALL_FIELD_NAMES: tuple[str, ...] = all_query_field_names()
 IS_VALUES: tuple[str, ...] = catalog_query_values("is")
 HAS_VALUES: tuple[str, ...] = catalog_query_values("has")
 HAS_COUNT_FIELDS: dict[str, str] = catalog_query_has_count_fields()
@@ -87,9 +92,10 @@ _PRESENCE_ATTRS: tuple[tuple[str, str], ...] = (
 )
 
 _INCOMPLETE_FIELD = re.compile(
-    rf"(?i)(?:^|\s)(?:{'|'.join(FIELD_NAMES)}):$",
+    rf"(?i)(?:^|\s)(?:{'|'.join(ALL_FIELD_NAMES)}):$",
 )
-_TRAILING_BOOL = re.compile(r"(?i)(?:^|\s)(?:AND|OR|NOT)$")
+_TRAILING_BOOL = re.compile(r"(?i)(?:^|\s)(?:AND|OR|NOT|AN)$")
+_TRAILING_ENUM = re.compile(r"(?i)(?:^|\s)(is|has):(\S+)$")
 _IN_UNQUOTED = re.compile(r'(?i)(?<![A-Za-z0-9_])(in:)(?!")(\S+)')
 _WHEN_UNQUOTED = re.compile(
     r'(?i)(?<![A-Za-z0-9_])((?:after|before):)(?!")(.+?)(?=\s+(?:AND|OR|NOT)\b|\s*\)|$)'
@@ -98,14 +104,14 @@ _COMPACT_SPAN = re.compile(r"(?i)^(\d+(?:\.\d+)?)([smhdw])$")
 _SPAN_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _WORD_SPLIT = re.compile(r"\s+")
 _SKIP_WORDS = frozenset({"and", "or", "not", "(", ")", "((", "))"})
-_FIELD_SET = frozenset(FIELD_NAMES)
+_FIELD_SET = frozenset(ALL_FIELD_NAMES)
 _BOOL_WORDS = frozenset({"and", "or", "not"})
 _HIGHLIGHT_RE = re.compile(
     r"(?P<operator>\b(?:"
     + "|".join(re.escape(op) for op in CATALOG_QUERY_OPERATORS if op != "-")
     + r")\b)"
     r"|(?P<prohibit>-)?(?P<field>(?i:"
-    + "|".join(re.escape(name) for name in FIELD_NAMES)
+    + "|".join(re.escape(name) for name in ALL_FIELD_NAMES)
     + r")):(?P<value>\s*\"[^\"]*\"|\s*[^\s)]*)"
 )
 
@@ -238,10 +244,38 @@ class CatalogQueryRow:
 def finished_prefix(query: str) -> str:
     """Drop a trailing empty ``field:`` or boolean so as-you-type keeps matches."""
     text = (query or "").rstrip()
-    if _INCOMPLETE_FIELD.search(text):
-        text = _INCOMPLETE_FIELD.sub("", text).rstrip()
-    if _TRAILING_BOOL.search(text):
-        text = _TRAILING_BOOL.sub("", text).rstrip()
+    while True:
+        nxt = text
+        if _INCOMPLETE_FIELD.search(nxt):
+            nxt = _INCOMPLETE_FIELD.sub("", nxt).rstrip()
+        if _TRAILING_BOOL.search(nxt):
+            nxt = _TRAILING_BOOL.sub("", nxt).rstrip()
+        nxt = _strip_incomplete_enum(nxt)
+        if nxt == text:
+            return text
+        text = nxt
+
+
+def _strip_incomplete_enum(text: str) -> str:
+    """Drop ``is:err`` while typing ``is:error`` so the last complete clause stays."""
+    match = _TRAILING_ENUM.search(text)
+    if match is None:
+        return text
+    field = match.group(1).casefold()
+    value = match.group(2).strip('"').casefold()
+    if not value:
+        return text
+    closed = (
+        list_query_values("timeline", field)
+        or list_query_values("turns", field)
+        or list_query_values("catalog", field)
+    )
+    if not closed:
+        return text
+    if value in {item.casefold() for item in closed}:
+        return text
+    if any(item.casefold().startswith(value) for item in closed):
+        return text[: match.start()].rstrip()
     return text
 
 
@@ -276,17 +310,20 @@ def suggest_last_token(
     *,
     models: Sequence[str] = (),
     paths: Sequence[str] = (),
+    tools: Sequence[str] = (),
+    scope: str = "catalog",
 ) -> list[str]:
     """Last-token completions (field names, closed values, live model/path)."""
     token = _last_token(query)
     if not token:
         return []
+    names = list_query_field_names(scope)
     if ":" not in token:
-        return [f"{name}:" for name in FIELD_NAMES if name.startswith(token.casefold())]
+        return [f"{name}:" for name in names if name.startswith(token.casefold())]
     field, _, rest = token.partition(":")
     key = field.casefold()
     prefix = rest.casefold()
-    values = _values_for_field(key, models=models, paths=paths)
+    values = _values_for_field(key, models=models, paths=paths, tools=tools, scope=scope)
     return [f"{key}:{value}" for value in values if value.casefold().startswith(prefix)]
 
 
@@ -306,7 +343,7 @@ def apply_suggestion(query: str, suggestion: str) -> str:
 def query_has_tokens(query: str) -> bool:
     """True when the finished prefix contains a typed ``field:`` token."""
     text = finished_prefix(query)
-    return any(re.search(rf"(?i)(?<![A-Za-z0-9_]){name}:", text) for name in FIELD_NAMES)
+    return any(re.search(rf"(?i)(?<![A-Za-z0-9_]){name}:", text) for name in ALL_FIELD_NAMES)
 
 
 def _quoted_value(raw: str) -> bool:
@@ -411,13 +448,18 @@ def _values_for_field(
     *,
     models: Sequence[str],
     paths: Sequence[str],
+    tools: Sequence[str] = (),
+    scope: str = "catalog",
 ) -> tuple[str, ...]:
-    if field == "is":
-        return IS_VALUES
-    if field == "has":
-        return HAS_VALUES
-    if field in COMPARE_FIELDS:
+    closed = list_query_values(scope, field)
+    if closed:
+        return closed
+    if field in list_query_compare_fields(scope):
         return COMPARE_PREFIXES
+    if field == "tool" and scope == "timeline":
+        return tuple(dict.fromkeys(name for name in tools if name.strip()))
+    if scope != "catalog":
+        return ()
     if field == "model":
         return tuple(dict.fromkeys(m for m in models if m.strip()))
     if field == "in":
@@ -1042,6 +1084,9 @@ class ListQueryBag:
     has: dict[str, bool] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
     kinds: frozenset[str] = frozenset()
+    tool: str = ""
+    turn: int | None = None
+    user_hay: str = ""
 
 
 def bag_matches_query(bag: ListQueryBag, query: str) -> bool:
@@ -1056,29 +1101,53 @@ def bag_matches_query(bag: ListQueryBag, query: str) -> bool:
     return _eval_bag(tree, bag)
 
 
-def event_matches_query(event: TraceEvent, query: str) -> bool:
+def event_matches_query(
+    event: TraceEvent,
+    query: str,
+    *,
+    turn: int | None = None,
+    duration_seconds: int | None = None,
+) -> bool:
     """True when a timeline event satisfies *query*."""
-    from .turns import event_matches_timeline_kind
+    pred = compile_bag_predicate(query)
+    text = finished_prefix(query).strip()
+    if not text:
+        return True
+    tree = _parsed_tree(text)
+    need = _event_query_need(tree, text)
+    return pred(_event_bag(event, turn, need, duration_seconds=duration_seconds))
 
-    kinds = frozenset(
-        name for name, mode in _EVENT_IS if event_matches_timeline_kind(event, mode)
-    )
-    hay = " ".join(
-        part
-        for part in (
-            event.event_type,
-            event.type_label,
-            event.tool_name,
-            event.summary_line,
-            event.content if isinstance(event.content, str) else str(event.content or ""),
-        )
-        if part
-    )
-    err = bool(event.is_error)
-    return bag_matches_query(
-        ListQueryBag(hay=hay, has={"error": err}, counts={"errors": int(err)}, kinds=kinds),
-        query,
-    )
+
+def _event_query_need(tree: Item | None, text: str) -> frozenset[str]:
+    """Which event fields *text* must load (skip bodies for ``is:`` / ``has:``)."""
+    if tree is None:
+        return frozenset({"hay"}) if _bare_words(text) else frozenset()
+    return frozenset(_walk_event_need(tree))
+
+
+def _walk_event_need(node: Item) -> set[str]:
+    if isinstance(node, Group | AndOperation | OrOperation | UnknownOperation | Not | Prohibit):
+        out: set[str] = set()
+        for child in node.children:
+            out.update(_walk_event_need(child))
+        return out
+    if isinstance(node, SearchField):
+        name = node.name.casefold()
+        if name == "is":
+            value = _term_text(node.expr).casefold()
+            return {"kinds", value} if value else {"kinds"}
+        if name in {"has", "errors"}:
+            return {"error"}
+        if name == "tool":
+            return {"tool"}
+        if name == "turn":
+            return {"turn"}
+        if name == "user":
+            return {"user", "kinds"}
+        if name == "duration":
+            return {"duration"}
+        return {"hay"}
+    return {"hay"}
 
 
 def turn_matches_query(
@@ -1149,10 +1218,112 @@ def _eval_bag_field(field: str, expr: Item, bag: ListQueryBag) -> bool:
             return bag.has[name]
         key = FLAG_COUNT.get(name, name)
         return int(bag.counts.get(key, 0)) > 0
-    if field in COUNT_FIELDS or field in {"tools", "events", "duration"}:
+    if field == "tool":
+        return value in bag.tool.casefold()
+    if field == "user":
+        return bool(bag.user_hay) and _hay_has_words(bag.user_hay, [value])
+    if field == "turn":
+        if bag.turn is None:
+            return False
+        return _match_number_text(int(bag.turn), _term_text(expr))
+    if field == "duration":
+        if "duration" not in bag.counts:
+            return False
+        return _match_number_text(int(bag.counts["duration"]), _term_text(expr))
+    if field in COUNT_FIELDS or field in {"tools", "events"}:
         actual = int(bag.counts.get(field, 0))
         return _match_number_text(actual, _term_text(expr))
     return _hay_has_words(bag.hay, [f"{field}:{_term_text(expr)}"])
+
+
+def compile_bag_predicate(query: str) -> Callable[[ListQueryBag], bool]:
+    """Compile *query* once; the result is applied to many bags."""
+    text = finished_prefix(query).strip()
+    if not text:
+        return lambda _bag: True
+    tree = _parsed_tree(text)
+    if tree is None:
+        words = _bare_words(text)
+        if not words:
+            return lambda _bag: True
+        return lambda bag: _hay_has_words(bag.hay, words)
+    return lambda bag: _eval_bag(tree, bag)
+
+
+def query_needs_hay(query: str) -> bool:
+    """True when *query* must read event bodies or summary text."""
+    text = finished_prefix(query).strip()
+    if not text:
+        return False
+    return bool(_event_query_need(_parsed_tree(text), text) & {"hay", "user"})
+
+
+def event_query_predicate(
+    query: str,
+) -> Callable[[TraceEvent, int | None], bool]:
+    """Compile a Timeline query; call the result once per loaded event."""
+    pred = compile_bag_predicate(query)
+    text = finished_prefix(query).strip()
+    if not text:
+        return lambda _event, _turn: True
+    tree = _parsed_tree(text)
+    need = _event_query_need(tree, text)
+
+    def _match(event: TraceEvent, turn: int | None) -> bool:
+        return pred(_event_bag(event, turn, need))
+
+    return _match
+
+
+def _event_bag(
+    event: TraceEvent,
+    turn: int | None,
+    need: frozenset[str],
+    *,
+    duration_seconds: int | None = None,
+) -> ListQueryBag:
+    kinds: frozenset[str] = frozenset()
+    if "kinds" in need or "user" in need:
+        from .turns import event_matches_timeline_kind
+
+        wanted = need - {"kinds", "hay", "error", "tool", "turn", "user", "duration"}
+        check = tuple(
+            (name, mode)
+            for name, mode in _EVENT_IS
+            if not wanted or name in wanted or (name == "user" and "user" in need)
+        )
+        kinds = frozenset(name for name, mode in check if event_matches_timeline_kind(event, mode))
+    body = ""
+    if "hay" in need or "user" in need:
+        body = event.content if isinstance(event.content, str) else str(event.content or "")
+    hay = ""
+    if "hay" in need:
+        hay = " ".join(
+            part
+            for part in (
+                event.event_type,
+                event.type_label,
+                event.tool_name,
+                event.summary_line,
+                body,
+            )
+            if part
+        )
+    err = bool(event.is_error) if "error" in need else False
+    counts: dict[str, int] = {}
+    if "error" in need:
+        counts["errors"] = int(err)
+    if "duration" in need and duration_seconds is not None:
+        counts["duration"] = int(duration_seconds)
+    return ListQueryBag(
+        hay=hay,
+        has={"error": err} if "error" in need else {},
+        counts=counts,
+        kinds=kinds,
+        tool=(event.tool_name or "") if "tool" in need else "",
+        turn=turn if "turn" in need else None,
+        user_hay=body if "user" in need and "user" in kinds else "",
+    )
 
 
 def apply_catalog_presence(meta: SessionMeta) -> None:
@@ -1199,7 +1370,10 @@ __all__ = [
     "apply_catalog_presence_row",
     "apply_suggestion",
     "bag_matches_query",
+    "compile_bag_predicate",
     "event_matches_query",
+    "event_query_predicate",
+    "query_needs_hay",
     "ListQueryBag",
     "turn_matches_query",
     "HAS_COUNT_FIELDS",

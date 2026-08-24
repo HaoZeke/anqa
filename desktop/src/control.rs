@@ -422,8 +422,12 @@ pub fn session_overview(session: &str) -> Result<Value, ControlError> {
 }
 
 /// Full turn segments (long assistant wrap-ups). Overview keeps a short list preview.
-pub fn session_turns(session: &str) -> Result<Value, ControlError> {
-    request("session/turns", json!({ "session": session }))
+pub fn session_turns(session: &str, query: &str) -> Result<Value, ControlError> {
+    let mut params = json!({ "session": session });
+    if !query.is_empty() {
+        params["query"] = json!(query);
+    }
+    request("session/turns", params)
 }
 
 pub struct TimelineRequest<'a> {

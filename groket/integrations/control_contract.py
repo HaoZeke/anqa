@@ -101,6 +101,36 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
         "updatedAt on or before this time (ISO, yesterday, 2d, 2 days ago).",
     ),
 )
+TURNS_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
+    CatalogQueryToken("has", "Presence on this turn.", ("error", "subagent")),
+    CatalogQueryToken("errors", "Error count.", compare=True),
+    CatalogQueryToken("tools", "Tool-call count.", compare=True),
+    CatalogQueryToken("events", "Event count.", compare=True),
+    CatalogQueryToken("duration", "Turn length (1h, 30m).", compare=True),
+    CatalogQueryToken("subagents", "Child count.", compare=True),
+)
+TIMELINE_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
+    CatalogQueryToken(
+        "is",
+        "Event kind.",
+        (
+            "tool",
+            "user",
+            "assistant",
+            "error",
+            "session",
+            "subagent",
+            "background",
+            "workflow",
+        ),
+    ),
+    CatalogQueryToken("has", "Presence on this event.", ("error",)),
+    CatalogQueryToken("tool", "Tool name substring."),
+    CatalogQueryToken("turn", "Turn number.", compare=True),
+    CatalogQueryToken("user", "User-message text substring."),
+    CatalogQueryToken("errors", "This event is an error (0 or 1).", compare=True),
+    CatalogQueryToken("duration", "Time on this event (Dur; 1h, 30s).", compare=True),
+)
 
 
 def catalog_query_compare_fields() -> tuple[str, ...]:
@@ -115,10 +145,46 @@ def catalog_query_field_names() -> tuple[str, ...]:
 
 def catalog_query_values(name: str) -> tuple[str, ...]:
     """Closed values for *name*, or empty when the catalog supplies them."""
-    for token in CATALOG_QUERY_TOKENS:
+    return list_query_values("catalog", name)
+
+
+def list_query_tokens(scope: str) -> tuple[CatalogQueryToken, ...]:
+    """Token table for *scope* (``catalog``, ``turns``, or ``timeline``)."""
+    if scope == "turns":
+        return TURNS_QUERY_TOKENS
+    if scope == "timeline":
+        return TIMELINE_QUERY_TOKENS
+    return CATALOG_QUERY_TOKENS
+
+
+def list_query_field_names(scope: str) -> tuple[str, ...]:
+    """Token names last-token completion offers for *scope*."""
+    return tuple(token.name for token in list_query_tokens(scope))
+
+
+def list_query_values(scope: str, name: str) -> tuple[str, ...]:
+    """Closed values for *name* in *scope*, or empty."""
+    for token in list_query_tokens(scope):
         if token.name == name:
             return token.values
     return ()
+
+
+def list_query_compare_fields(scope: str) -> tuple[str, ...]:
+    """Compare token names for *scope*."""
+    return tuple(token.name for token in list_query_tokens(scope) if token.compare)
+
+
+def all_query_field_names() -> tuple[str, ...]:
+    """Unique field names across catalog, Turns, and Timeline."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for scope in ("catalog", "turns", "timeline"):
+        for name in list_query_field_names(scope):
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+    return tuple(names)
 
 
 def catalog_query_has_count_fields() -> dict[str, str]:
@@ -140,30 +206,58 @@ def catalog_query_flag_count() -> dict[str, str]:
 
 
 def catalog_query_help_plain() -> str:
-    """Compact catalog-search help. Same tokens as ``catalogQuery``.
+    """Compact catalog-search help. Same tokens as ``catalogQuery``."""
+    return list_query_help_plain("catalog")
 
-    :returns: Wrapped plain lines for TUI ``?`` and the HUD cheatsheet.
+
+def list_query_help_plain(scope: str) -> str:
+    """Token legend for one search box (catalog, turns, or timeline).
+
+    :param scope: ``catalog``, ``turns``, or ``timeline``.
+    :returns: Wrapped plain lines for tests and fallbacks.
     """
-    lines = [
-        "Bare words match title, id, and label. Space is AND.",
-        "",
-    ]
+    lines = [_query_help_intro(scope)]
+    for label, body in list_query_help_pairs(scope):
+        joined = f"{label} {body}".strip()
+        if joined:
+            lines.extend(_wrap_words("", joined))
+    return "\n".join(lines)
+
+
+def list_query_help_intro(scope: str) -> str:
+    """One-line lead for a search-box tooltip."""
+    return _query_help_intro(scope)
+
+
+def list_query_help_pairs(scope: str) -> tuple[tuple[str, str], ...]:
+    """``(token, meaning)`` rows for one search box."""
+    tokens = list_query_tokens(scope)
+    rows: list[tuple[str, str]] = []
     compare: list[str] = []
-    for token in CATALOG_QUERY_TOKENS:
+    for token in tokens:
         if token.values:
-            lines.extend(_wrap_csv(f"{token.name}: ", token.values))
-            if token.count_fields:
-                pairs = [f"has:{flag} {count}:>=N" for flag, count, _w in CATALOG_QUERY_COUNTS]
-                lines.extend(_wrap_csv("", pairs))
+            rows.append((f"{token.name}:", ", ".join(token.values)))
+            if token.count_fields and scope == "catalog":
+                pairs = ", ".join(
+                    f"has:{flag} {count}:>=N" for flag, count, _w in CATALOG_QUERY_COUNTS
+                )
+                rows.append(("", pairs))
         elif token.compare:
             compare.append(f"{token.name}:")
         else:
-            lines.extend(_wrap_words(f"{token.name}: ", token.role.rstrip(".")))
+            rows.append((f"{token.name}:", token.role.rstrip(".")))
     if compare:
-        lines.extend(_wrap_csv("", compare))
-        lines.append("  ".join(CATALOG_QUERY_COMPARE))
-    lines.append("  ".join((*CATALOG_QUERY_OPERATORS, "(", ")")))
-    return "\n".join(lines)
+        rows.append((" ".join(compare), "  ".join(CATALOG_QUERY_COMPARE)))
+    rows.append(("  ".join((*CATALOG_QUERY_OPERATORS, "(", ")")), ""))
+    return tuple(rows)
+
+
+def _query_help_intro(scope: str) -> str:
+    if scope == "turns":
+        return "Bare words match the turn label and prompt. Space is AND."
+    if scope == "timeline":
+        return "Bare words match type, tool, and body. Space is AND."
+    return "Bare words match title, id, and label. Space is AND."
 
 
 def _wrap_csv(prefix: str, items: Sequence[str], width: int = 68) -> list[str]:
@@ -192,6 +286,20 @@ def _wrap_parts(prefix: str, items: Sequence[str], sep: str, width: int) -> list
     return out
 
 
+def _query_token_mapping(token: CatalogQueryToken) -> JsonObject:
+    return {
+        "name": token.name,
+        "role": token.role,
+        "values": list(token.values),
+        "compare": token.compare,
+        **(
+            {"countFields": {name: wire for name, wire in token.count_fields}}
+            if token.count_fields
+            else {}
+        ),
+    }
+
+
 def catalog_query_mapping() -> JsonObject:
     """JSON for the published schema and the HUD token file."""
     return {
@@ -203,20 +311,13 @@ def catalog_query_mapping() -> JsonObject:
             {"flag": flag, "count": count, "field": wire}
             for flag, count, wire in CATALOG_QUERY_COUNTS
         ],
-        "tokens": [
-            {
-                "name": token.name,
-                "role": token.role,
-                "values": list(token.values),
-                "compare": token.compare,
-                **(
-                    {"countFields": {name: wire for name, wire in token.count_fields}}
-                    if token.count_fields
-                    else {}
-                ),
-            }
-            for token in CATALOG_QUERY_TOKENS
-        ],
+        "tokens": [_query_token_mapping(token) for token in CATALOG_QUERY_TOKENS],
+        "scopes": {
+            "turns": {"tokens": [_query_token_mapping(token) for token in TURNS_QUERY_TOKENS]},
+            "timeline": {
+                "tokens": [_query_token_mapping(token) for token in TIMELINE_QUERY_TOKENS]
+            },
+        },
     }
 
 
@@ -430,7 +531,10 @@ METHODS: tuple[MethodSpec, ...] = (
         name="session/turns",
         role="Turn segments plus `subagentRuns` (turn-scoped child runs; "
         "`openable` + `childPath`).",
-        params=(_SESSION,),
+        params=(
+            _SESSION,
+            FieldSpec("query", "Turns query language (same tokens as the Turns search box)."),
+        ),
     ),
     MethodSpec(
         name="session/usage",
@@ -834,6 +938,8 @@ __all__ = (
     "CATALOG_QUERY_ASSET",
     "CATALOG_QUERY_COMPARE",
     "CATALOG_QUERY_TOKENS",
+    "TURNS_QUERY_TOKENS",
+    "TIMELINE_QUERY_TOKENS",
     "CatalogQueryToken",
     "catalog_query_compare_fields",
     "catalog_query_field_names",
@@ -841,8 +947,16 @@ __all__ = (
     "catalog_query_flag_count",
     "catalog_query_has_count_fields",
     "catalog_query_help_plain",
+    "list_query_help_plain",
+    "list_query_help_intro",
+    "list_query_help_pairs",
     "catalog_query_mapping",
     "catalog_query_values",
+    "all_query_field_names",
+    "list_query_compare_fields",
+    "list_query_field_names",
+    "list_query_tokens",
+    "list_query_values",
     "emit_catalog_query_asset",
     "FieldSpec",
     "InventorySnapshot",

@@ -1,8 +1,11 @@
 //! Palette layout.
 
-use iced::widget::{column, container, image, mouse_area, responsive, row, stack, text, Space};
+use iced::widget::{
+    column, container, image, mouse_area, responsive, row, stack, text, tooltip, Space,
+};
 use iced::{Alignment, Color, Element, Length, Padding};
 use icedtea::a11y::{A11y, Role};
+use icedtea::icon::Icon;
 use icedtea::toast::ToastKind;
 use icedtea::variant::Variant;
 
@@ -31,7 +34,7 @@ use crate::live::{
 };
 use crate::model::{DiffContext, KindFilter, OverviewSection, SchemaField, Tab};
 use crate::motion::PageLayer;
-use crate::query::{highlight_query_spans, QuerySpanKind};
+use crate::query::{highlight_query_spans, QueryScope, QuerySpanKind};
 use crate::typo;
 use crate::wire::{NoteRow, TimelineEvent, TurnRow, WorkflowChildRow};
 
@@ -46,6 +49,51 @@ fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
             icedtea::widget::FieldRun::new(mark.start, mark.end, catalog_query_ink(mark.kind))
         })
         .collect()
+}
+
+fn query_help_tooltip<'a>(
+    child: Element<'a, Message>,
+    scope: QueryScope,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    let mut col = column![].spacing(4);
+    for row in crate::query::query_help_rows(scope) {
+        if row.label.is_empty() {
+            if !row.body.is_empty() {
+                col = col.push(text(row.body).size(tea.meta()).color(tea.muted));
+            }
+            continue;
+        }
+        if row.body.is_empty() {
+            col = col.push(text(row.label).size(tea.meta()).color(tea.text));
+            continue;
+        }
+        col = col.push(
+            row![
+                text(row.label)
+                    .size(tea.meta())
+                    .color(tea.muted)
+                    .width(Length::Fixed(96.0)),
+                text(row.body).size(tea.meta()).color(tea.text),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Start),
+        );
+    }
+    let tip = container(col)
+        .padding(tea.density.inset())
+        .max_width(420.0)
+        .style(move |_| icedtea::style::tooltip(tea));
+    tooltip(child, tip, tooltip::Position::FollowCursor).into()
+}
+
+fn query_hint_line(hints: Vec<String>, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let line = hints.into_iter().take(8).collect::<Vec<_>>().join("   ");
+    if line.is_empty() {
+        Space::new().height(0).into()
+    } else {
+        text(line).size(tea.meta()).color(tea.muted).into()
+    }
 }
 
 fn catalog_query_ink(kind: QuerySpanKind) -> icedtea::widget::FieldInk {
@@ -373,15 +421,19 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::button("Session list"),
         ),
-        icedtea::widget::search_input(
-            hud.query(),
-            Message::SearchChanged,
-            Some(Message::SearchChanged(String::new())),
-            Some(Message::ActivateSelected),
+        query_help_tooltip(
+            icedtea::widget::search_input(
+                hud.query(),
+                Message::SearchChanged,
+                Some(Message::SearchChanged(String::new())),
+                Some(Message::ActivateSelected),
+                tea,
+                A11y::new("Search sessions", Role::TextBox),
+                Some(hud.search_id()),
+                &catalog_query_runs(hud.query()),
+            ),
+            QueryScope::Catalog,
             tea,
-            A11y::new("Search sessions", Role::TextBox),
-            Some(hud.search_id()),
-            &catalog_query_runs(hud.query()),
         ),
     ]
     .spacing(12)
@@ -390,14 +442,9 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         search = search.push(pop_out_control(tok, tea));
     }
     let hints = hud.query_hints();
-    let hint_line = hints.into_iter().take(8).collect::<Vec<_>>().join("   ");
     // Keep this column always so the search field is not remounted when
     // hints appear (that drop of focus eats the next keystrokes).
-    let hint: Element<'_, Message> = if hint_line.is_empty() {
-        Space::new().height(0).into()
-    } else {
-        text(hint_line).size(tea.meta()).color(tea.muted).into()
-    };
+    let hint: Element<'_, Message> = query_hint_line(hints, tea);
     let search: Element<'_, Message> = column![search, hint]
         .spacing(tea.density.gap() / 2.0)
         .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
@@ -693,6 +740,9 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     if hud.tab() == Tab::Timeline && hud.overview().is_some() && hud.timeline_open().is_none() {
         stack = stack.push(timeline_filter(hud));
     }
+    if hud.tab() == Tab::Turns && hud.overview().is_some() {
+        stack = stack.push(turns_filter(hud));
+    }
     let body: Element<'_, Message> = if hud.overview().is_none() {
         if !hud.overview_pending().is_empty() {
             busy_pane()
@@ -845,6 +895,26 @@ fn browse_session_bar<'a>(
     )
 }
 
+fn timeline_tail_toggle(hud: &Hud) -> Element<'_, Message> {
+    // Compact meta + track. icedtea `widget::switch` is a form row (Fill)
+    // and stretches across the picks bar.
+    let tea = hud.tokens();
+    let on = hud.timeline_follow_tail();
+    let knob = iced::widget::toggler(on)
+        .style(icedtea::style::switch_style(tea))
+        .on_toggle(Message::TimelineTail);
+    icedtea::a11y::attach(
+        row![
+            icedtea::widget::meta("Tail", tea, A11y::new("Tail", Role::Header)),
+            knob,
+        ]
+        .spacing(tea.density.gap())
+        .align_y(Alignment::Center)
+        .into(),
+        &A11y::new("Tail", Role::Switch).with_checked(on),
+    )
+}
+
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     // Two rows: picks + optional range; full-width search below so it never
@@ -878,18 +948,12 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         icedtea::widget::ControlSize::Default,
         A11y::new("Filter", Role::ComboBox),
     ));
-    if hud.show_timeline_tail() {
-        picks = picks.push(icedtea::widget::switch(
-            "Tail",
-            hud.timeline_follow_tail(),
-            Message::TimelineTail,
-            tea,
-            A11y::new("Tail", Role::Switch).with_checked(hud.timeline_follow_tail()),
-        ));
-    }
     picks = picks
         .push(Space::new().width(Length::Fill))
         .width(Length::Fill);
+    if hud.show_timeline_tail() {
+        picks = picks.push(timeline_tail_toggle(hud));
+    }
     if let Some(cap) = timeline_count_caption(&hud.timeline_meta()) {
         picks = picks.push(icedtea::widget::meta(
             cap.to_string(),
@@ -897,18 +961,23 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             A11y::new(cap.to_string(), Role::Status),
         ));
     }
-    let search = container(icedtea::widget::search_input(
-        hud.timeline_query_draft(),
-        Message::TimelineQuery,
-        Some(Message::TimelineQuery(String::new())),
-        None,
+    let search = container(query_help_tooltip(
+        icedtea::widget::search_input(
+            hud.timeline_query_draft(),
+            Message::TimelineQuery,
+            Some(Message::TimelineQuery(String::new())),
+            None,
+            tea,
+            A11y::new("Search events…", Role::TextBox),
+            Some(hud.tl_search_id()),
+            &catalog_query_runs(hud.timeline_query_draft()),
+        ),
+        QueryScope::Timeline,
         tea,
-        A11y::new("Search events…", Role::TextBox),
-        Some(hud.tl_search_id()),
-        &catalog_query_runs(hud.timeline_query_draft()),
     ))
     .width(Length::Fill);
-    column![picks, search]
+    let hint = query_hint_line(hud.timeline_query_hints(), tea);
+    column![picks, search, hint]
         .spacing(tea.density.gap())
         .width(Length::Fill)
         .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
@@ -1295,16 +1364,26 @@ fn event_type_paint(ev: &TimelineEvent) -> Option<(String, BrandRole)> {
     }
     Some((
         human,
-        event_brand_role(&ev.event_type, &ev.kind, ev.is_error),
+        event_brand_role(&ev.event_type, &ev.kind, type_badge_is_error(ev)),
     ))
 }
 
+fn type_badge_is_error(ev: &TimelineEvent) -> bool {
+    ev.kind == "error" || ev.event_type.ends_with("_error") || ev.event_type == "error"
+}
+
 fn event_tool_role(ev: &TimelineEvent) -> BrandRole {
-    if ev.is_error {
-        BrandRole::Failed
-    } else {
-        tool_brand_role(&ev.tool_name, false).unwrap_or(BrandRole::Cancelled)
-    }
+    tool_brand_role(&ev.tool_name, false).unwrap_or(BrandRole::Cancelled)
+}
+
+fn event_error_icon(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+    let mut scheme = tea.scheme();
+    scheme.on_surface = tea.danger;
+    icedtea::widget::icon_svg(
+        Icon::Error,
+        icedtea::theme::Tokens::from(scheme),
+        A11y::new("error", Role::Image),
+    )
 }
 
 /// ``#index`` + type badge on one row (turn / time muted after).
@@ -1323,6 +1402,9 @@ fn event_list_heading(
         if !name.is_empty() {
             head = head.push(label_badge(name, event_tool_role(ev), tea));
         }
+    }
+    if ev.is_error {
+        head = head.push(event_error_icon(tea));
     }
     if let Some(turn) = ev.turn_index {
         head = head.push(status_chip(format!("turn {turn}"), "", tea));
@@ -1645,32 +1727,45 @@ fn turn_list_card(
 
 fn turns_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
-    container(icedtea::widget::search_input(
-        hud.turns_query(),
-        Message::TurnsQuery,
-        Some(Message::TurnsQuery(String::new())),
-        None,
+    let search = query_help_tooltip(
+        icedtea::widget::search_input(
+            hud.turns_query_draft(),
+            Message::TurnsQuery,
+            Some(Message::TurnsQuery(String::new())),
+            None,
+            tea,
+            A11y::new("Search turns", Role::TextBox),
+            Some(hud.turns_search_id()),
+            &catalog_query_runs(hud.turns_query_draft()),
+        ),
+        QueryScope::Turns,
         tea,
-        A11y::new("Search turns", Role::TextBox),
-        Some(hud.turns_search_id()),
-        &catalog_query_runs(hud.turns_query()),
-    ))
-    .width(Length::Fill)
-    .padding(Padding {
-        top: 0.0,
-        right: 0.0,
-        bottom: 8.0,
-        left: 0.0,
-    })
-    .into()
+    );
+    let hint = query_hint_line(hud.turns_query_hints(), tea);
+    column![search, hint]
+        .spacing(tea.density.gap() / 2.0)
+        .width(Length::Fill)
+        .padding(Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: 8.0,
+            left: 0.0,
+        })
+        .into()
 }
 
 fn turns_tab(hud: &Hud) -> Element<'_, Message> {
-    let o = hud.overview().unwrap();
-    let turns: &[TurnRow] = &o.turns.turns;
+    let turns: &[TurnRow] = hud.displayed_turns();
     let tea = hud.body_tokens();
-    if turns.is_empty() {
+    let source_empty = hud
+        .overview()
+        .map(|o| o.turns.turns.is_empty())
+        .unwrap_or(true);
+    if source_empty {
         return kit::status_empty("No turns", "Nothing segmented yet.", tea);
+    }
+    if turns.is_empty() {
+        return kit::status_empty("No matches", "No turns match this search.", tea);
     }
     let idxs = hud.filtered_turn_indices();
     let list = if idxs.is_empty() {
@@ -1706,10 +1801,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
             A11y::new("Turns", Role::List),
         )
     };
-    column![turns_filter(hud), list]
-        .spacing(0)
-        .height(Length::Fill)
-        .into()
+    list
 }
 
 fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
@@ -2823,6 +2915,9 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
                 tok,
             ));
         }
+        if ev.is_error {
+            chips = chips.push(event_error_icon(tok));
+        }
         if !call_id.is_empty() {
             chips = chips.push(icedtea::widget::meta(
                 call_id,
@@ -3183,11 +3278,23 @@ mod tests {
             ..TimelineEvent::default()
         };
         assert_eq!(event_tool_role(&tool), BrandRole::Cream);
+        let failed = TimelineEvent {
+            is_error: true,
+            ..tool.clone()
+        };
+        assert_eq!(event_tool_role(&failed), BrandRole::Cream);
+        assert_eq!(
+            event_type_paint(&failed).map(|p| p.1),
+            event_type_paint(&tool).map(|p| p.1)
+        );
+        let _ = event_list_heading(&failed, tea());
         assert_eq!(event_list_title(&tool), "src/app.rs");
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
             .next()
             .expect("prod");
+        assert!(prod.contains("fn event_error_icon"));
+        assert!(prod.contains("Icon::Error"));
         let body = prod
             .split("fn event_body")
             .nth(1)
@@ -3214,9 +3321,17 @@ mod tests {
             .next()
             .expect("turns body");
         assert!(turns.contains("turn_list_card"));
-        assert!(turns.contains("turns_filter"));
+        assert!(!turns.contains("turns_filter("));
         assert!(!turns.contains("expand_card"));
         assert!(!turns.contains("fn turn_body"));
+        let detail = prod
+            .split("fn detail_pane")
+            .nth(1)
+            .expect("detail_pane")
+            .split("fn browse_session_bar")
+            .next()
+            .expect("detail");
+        assert!(detail.contains("turns_filter(hud)"));
     }
 
     #[test]
@@ -3310,7 +3425,7 @@ mod tests {
             .next()
             .unwrap_or("");
         assert!(
-            filter_src.contains("column![picks, search]"),
+            filter_src.contains("column![picks, search, hint]"),
             "search must not share the picks row"
         );
         assert!(
@@ -3318,8 +3433,12 @@ mod tests {
             "empty range must not paint a11y name"
         );
         assert!(
-            filter_src.contains("widget::switch"),
-            "live Tail switch sits on the Timeline filter bar"
+            filter_src.contains("timeline_tail_toggle"),
+            "live Tail sits on the Timeline filter bar"
+        );
+        assert!(
+            !filter_src.contains("widget::switch"),
+            "form-row switch fills the picks row"
         );
         assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
     }
@@ -3439,6 +3558,7 @@ mod tests {
         assert!(!prod.contains("pattern::list_detail"));
         assert!(prod.contains("widget::rule_h"));
         assert!(prod.contains("widget::tooltip_wrap"));
+        assert!(prod.contains("fn query_help_tooltip"));
         assert!(prod.contains("ControlSize::Default"));
         assert!(prod.contains("icedtea::widget::pick_list"));
         assert!(prod.contains("TreeFace::Files"));

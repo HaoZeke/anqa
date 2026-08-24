@@ -12,6 +12,8 @@ that work ships (or when the changelog line is no longer true).
 - icedtea `markdown_view` leaves fence ticks on a code block. HUD notes
   paint a whole-field fence with `highlighted_code` until icedtea
   renders fences cleanly.
+- icedtea `widget::switch` is a full-width form row. Timeline Tail
+  composes `meta` + `toggler` until icedtea has a compact toolbar switch.
 
 ## Always on (`just ci` / `just lint`)
 

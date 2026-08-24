@@ -20,9 +20,22 @@ is tagged.
   Everforest, Kanagawa, and others) and a drop-in `~/.groket/themes/`
   file pin a colorway on both clients. Status uses success / caution /
   danger / quiet — not a brand cream overlay.
-- Timeline search accepts `tool:`, `turn:`, and `user:` as well as
-  `is:` / `has:error`. Turns and Timeline show last-token hints.
-  Typing in those boxes keeps the caret (no remount / loading flash).
+- Timeline search accepts `tool:`, `turn:`, `user:`, and `duration:`
+  (same seconds as Dur) as well as `is:` / `has:error`. Turns and
+  Timeline show last-token hints. The terminal search box is a
+  full-width row under Filter / Turn / Tail. Typing in those boxes
+  keeps the caret (no remount / loading flash).
+- Catalog and the desktop Timeline / Turns search apply after 0.28s
+  idle. The palette sends the committed query to `groket serve`.
+  `AND` clause order does not change the match.
+- A failed Timeline tool keeps its family color. Failure is a mark after
+  the name (terminal warning sign, desktop icedtea error icon).
+- Terminal Timeline search updates as soon as the matcher answers.
+  Structured tokens (`is:`, `has:`, `tool:`, `turn:`) do not wait on
+  full-text. Unfinished `AND` / `is:err` keep the last complete clause.
+  A zero-hit desktop search shows an empty list, not a spinner.
+- Search tokens for the current list are on the box tooltip. Last-token
+  completions still appear while you type. `?` no longer lists every token.
 - Catalog search understands a query language (`is:host`,
   `has:plan`, `plans:>=2`, `errors:>=5`, `goals:2`, `in:~/path`,
   `AND` / `OR`). `has:` is presence. Counts use a written pair
@@ -50,8 +63,9 @@ is tagged.
   Live append keeps the filter. HUD turn pick keeps Filter and search.
 - Diff lists rewind snapshots, Prompt/Assistant tabs, and a files/hunk
   split on both surfaces. ``/`` finds path or hunk text.
-- Live Timeline has a Tail switch. Opening an event asks for the
-  50,000-character body, including the paired tool result.
+- Live Timeline has a Tail switch on the trailing end of the Filter
+  row (compact label + track on both clients). Opening an event asks
+  for the 50,000-character body, including the paired tool result.
 - Report keeps flags and notes. Session export writes the trace, notes,
   and flags.
 - Every note write needs a `source`. Clients may send fields that are

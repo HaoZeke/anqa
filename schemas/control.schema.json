@@ -282,7 +282,109 @@
             "values": [],
             "compare": false
           }
-        ]
+        ],
+        "scopes": {
+          "turns": {
+            "tokens": [
+              {
+                "name": "has",
+                "role": "Presence on this turn.",
+                "values": [
+                  "error",
+                  "subagent"
+                ],
+                "compare": false
+              },
+              {
+                "name": "errors",
+                "role": "Error count.",
+                "values": [],
+                "compare": true
+              },
+              {
+                "name": "tools",
+                "role": "Tool-call count.",
+                "values": [],
+                "compare": true
+              },
+              {
+                "name": "events",
+                "role": "Event count.",
+                "values": [],
+                "compare": true
+              },
+              {
+                "name": "duration",
+                "role": "Turn length (1h, 30m).",
+                "values": [],
+                "compare": true
+              },
+              {
+                "name": "subagents",
+                "role": "Child count.",
+                "values": [],
+                "compare": true
+              }
+            ]
+          },
+          "timeline": {
+            "tokens": [
+              {
+                "name": "is",
+                "role": "Event kind.",
+                "values": [
+                  "tool",
+                  "user",
+                  "assistant",
+                  "error",
+                  "session",
+                  "subagent",
+                  "background",
+                  "workflow"
+                ],
+                "compare": false
+              },
+              {
+                "name": "has",
+                "role": "Presence on this event.",
+                "values": [
+                  "error"
+                ],
+                "compare": false
+              },
+              {
+                "name": "tool",
+                "role": "Tool name substring.",
+                "values": [],
+                "compare": false
+              },
+              {
+                "name": "turn",
+                "role": "Turn number.",
+                "values": [],
+                "compare": true
+              },
+              {
+                "name": "user",
+                "role": "User-message text substring.",
+                "values": [],
+                "compare": false
+              },
+              {
+                "name": "errors",
+                "role": "This event is an error (0 or 1).",
+                "values": [],
+                "compare": true
+              },
+              {
+                "name": "duration",
+                "role": "Time on this event (Dur; 1h, 30s).",
+                "values": [],
+                "compare": true
+              }
+            ]
+          }
+        }
       }
     },
     "protocolVersion": {
@@ -577,6 +679,10 @@
               "properties": {
                 "session": {
                   "description": "Session id or path.",
+                  "type": "string"
+                },
+                "query": {
+                  "description": "Turns query language (same tokens as the Turns search box).",
                   "type": "string"
                 }
               },

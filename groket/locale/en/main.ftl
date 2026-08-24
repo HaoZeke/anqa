@@ -546,7 +546,8 @@ jobs-tab = Jobs
 
 keyboard-help-title = groket {$version}
 
-keyboard-help-search = Catalog search
+keyboard-help-search = Search
+search-help-under-box = Hover the search box for tokens on this list.
 
 help-brand-name = groket
 
@@ -724,7 +725,7 @@ save-failed = Save failed: { $exc }
 
 search = Search
 
-search-events-placeholder = Search events…  (/)
+search-events-placeholder = Search…  is:tool  tool:read_file  turn:2
 
 search-sessions-placeholder = Search…  is:host  has:goal  has:subagent  errors:>=5
 

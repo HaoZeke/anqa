@@ -164,7 +164,8 @@ groket/
   session/               # turns, turn_gate, usage_stats, workspace_diff,
                          #   context_samples, models_catalog, export_bundle,
                          #   sources, catalog (domain session list for control),
-                         #   jobs (background / monitor / schedule merge)
+                         #   jobs (background / monitor / schedule merge),
+                         #   query (luqum), event_search (Timeline store)
   notes.py               # configurable operator notes (TOML schema + session store)
   integrations/          # control Unix JSON-RPC, daemon (``groket serve``),
                          #   control_contract, ControlClient, emacs/vim packages
@@ -755,7 +756,9 @@ One rule on both surfaces. Stored ids stay snake_case; the list never shows them
 **Label.** Underscores become spaces (``read_file`` → ``read file``). Marketplace
 ids are ``server · method``. Same words as event types (``tool call``).
 
-**Color the name by action family** (one role each). Error is danger and wins.
+**Color the name by action family** (one role each). A failed tool keeps
+that family color. Failure is a mark after the name (terminal ``⚠``,
+desktop icedtea ``Icon::Error``), not a recolor of the type or tool badge.
 
 | Family | Role | Members |
 |--------|------|---------|

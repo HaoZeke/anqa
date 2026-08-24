@@ -83,6 +83,7 @@ from .data_table import (
 from .i18n import setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
+from .query_legend import search_tooltip
 from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .screens.run_configs import RunConfigsScreen
@@ -422,6 +423,8 @@ class TraceEvalApp(App):
         self._pending_sessions_reload_quiet: bool = False
         self._selected: set[str] = set()
         self._session_search: str = ""
+        self._session_search_applied: str = ""
+        self._session_search_debounce: Timer | None = None
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
         self._delete_row_keys_snapshot: list[str] | None = None
@@ -451,6 +454,7 @@ class TraceEvalApp(App):
                     id="session-search-input",
                     highlighter=CatalogQueryHighlighter(),
                     suggester=SessionQuerySuggester(self),
+                    tooltip=search_tooltip("catalog"),
                 )
             yield Static("", id="session-query-hints", classes="session-query-hints")
             yield DataTable(id="session-table")
@@ -757,6 +761,7 @@ class TraceEvalApp(App):
             (self.work_dir / "runs" / "traces").mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
+        self._refresh_query_hints()
         self._update_session_paths_banner()
         work = self._runner_traces_root()
         try:
@@ -1710,7 +1715,7 @@ class TraceEvalApp(App):
     def _filtered_session_rows(self) -> list[tuple[SessionMeta, str]]:
         from ..session_inflight import session_dir_key
 
-        search_q = (self._session_search or "").strip()
+        search_q = (self._session_search_applied or "").strip()
         seen_keys: set[str] = set()
         rows: list[tuple[SessionMeta, str]] = []
         for meta, label in self._meta_only:
@@ -1824,6 +1829,9 @@ class TraceEvalApp(App):
             table = self.query_one("#session-table", DataTable)
         except NoMatches:
             return
+        keep_search = False
+        with suppress(Exception):
+            keep_search = bool(self.query_one("#session-search-input", Input).has_focus)
         if restore_key is None:
             restore_key = self._session_row_key_at_cursor(table)
         rows = self._filtered_session_rows()
@@ -1850,6 +1858,9 @@ class TraceEvalApp(App):
         elif not self._sessions_table_primed:
             focus_primary_list(table)
             self._sessions_table_primed = True
+        if keep_search:
+            with suppress(Exception):
+                self.query_one("#session-search-input", Input).focus()
         self._update_summary_lazy(len(self._meta_only))
         with suppress(Exception):
             self.refresh_bindings()
@@ -1945,19 +1956,38 @@ class TraceEvalApp(App):
 
     @on(Input.Changed, "#session-search-input")
     def _on_session_search_changed(self, event: Input.Changed) -> None:
-        """Filter the sessions table as you type (no Enter required)."""
+        """Hold the draft; apply the matcher after the shared idle gap."""
         self._session_search = event.value or ""
         self._refresh_query_hints()
-        self._populate_session_table(force=True)
+        self._arm_session_search_debounce()
 
     @on(Input.Submitted, "#session-search-input")
     def _on_session_search_submitted(self, event: Input.Submitted) -> None:
-        """Keep filter on Enter; move focus back to the session list."""
+        """Apply the filter now and move focus back to the session list."""
         self._session_search = event.value or ""
         self._refresh_query_hints()
-        self._populate_session_table(force=True)
+        self._apply_debounced_session_search()
         with suppress(Exception):
             focus_primary_list(self.query_one("#session-table", DataTable))
+
+    def _arm_session_search_debounce(self) -> None:
+        if self._session_search_debounce is not None:
+            try:
+                self._session_search_debounce.stop()
+            except Exception:
+                pass
+            self._session_search_debounce = None
+        from ..constants import TIMELINE_SEARCH_DEBOUNCE_S
+
+        self._session_search_debounce = self.set_timer(
+            TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_session_search
+        )
+
+    def _apply_debounced_session_search(self) -> None:
+        """Commit the search box and rebuild the sessions table."""
+        self._session_search_debounce = None
+        self._session_search_applied = self._session_search
+        self._populate_session_table(force=True)
 
     def _refresh_query_hints(self) -> None:
         """Paint last-token completions under the search box."""
@@ -1978,12 +2008,12 @@ class TraceEvalApp(App):
         hint.update("  ".join(hits[:8]))
 
     def _set_session_query(self, query: str) -> None:
-        """Write the search box and refresh the list."""
+        """Write the search box and apply the matcher now."""
         self._session_search = query
         with suppress(Exception):
             self.query_one("#session-search-input", Input).value = query
         self._refresh_query_hints()
-        self._populate_session_table(force=True)
+        self._apply_debounced_session_search()
 
     def _cursor_session_meta(self) -> SessionMeta | None:
         """SessionMeta for the sessions-home table cursor, or None."""

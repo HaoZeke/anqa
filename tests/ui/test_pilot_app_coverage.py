@@ -788,14 +788,15 @@ async def test_session_search_filters_as_you_type(tmp_path: Path) -> None:
         inp = app.query_one("#session-search-input", Input)
         inp.value = "model:alpha"
         app._on_session_search_changed(Input.Changed(inp, "model:alpha"))
-        await pilot.pause()
-        assert table.row_count == 1
+        assert table.row_count >= 3
+        app._apply_debounced_session_search()
+        await wait_until(pilot, lambda: table.row_count == 1, description="search applied")
 
         inp.value = ""
         app._on_session_search_changed(Input.Changed(inp, ""))
-        await pilot.pause()
-        assert table.row_count >= 3
-        await pilot.pause()
+        assert table.row_count == 1
+        app._apply_debounced_session_search()
+        await wait_until(pilot, lambda: table.row_count >= 3, description="search cleared")
 
 
 @pytest.mark.asyncio

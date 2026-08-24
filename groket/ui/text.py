@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import re
 
-from groket.integrations.control_contract import catalog_query_help_plain
-
 from .i18n import ngettext, t
 
 # Message body: ``id = ...`` (value may continue on following indented lines).
@@ -80,7 +78,8 @@ def help_markup() -> str:
     heading = t("keyboard-help-title", version=__version__)
     body = load_text_resource("help.rich.txt")
     search_heading = t("keyboard-help-search")
-    search = f"[bold]{search_heading}[/bold]\n{catalog_query_help_plain()}"
+    search_body = t("search-help-under-box")
+    search = f"[bold]{search_heading}[/bold]\n{search_body}"
     if "%%catalog-query%%" in body:
         body = body.replace("%%catalog-query%%", search)
     else:

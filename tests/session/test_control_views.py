@@ -153,6 +153,10 @@ def test_timeline_prompt_index_returns_whole_turn(tmp_path: Path) -> None:
 def test_build_session_turns(tmp_path: Path) -> None:
     sd = _write_session(tmp_path, "sess-turns")
     turns = build_session_turns(sd)
+    by_query = build_session_turns(sd, query="hello")
+    assert by_query["turns"]
+    missing = build_session_turns(sd, query="no-such-turn-text")
+    assert missing["turns"] == []
     assert turns["sessionId"] == "sess-turns"
     assert turns["total"] >= 1
     assert turns["turns"]
@@ -1113,6 +1117,16 @@ def test_timeline_system_reminder_not_labeled_user() -> None:
     assert real["kind"] == "user"
     assert real["heading"] == "User"
     assert real["harnessChrome"] is False
+
+
+def test_warm_timeline_search_then_query(tmp_path: Path) -> None:
+    sd = _write_session(tmp_path, "sess-warm")
+    from groket.session.control_views import warm_timeline_search
+
+    warm_timeline_search(sd)
+    hit = build_session_timeline(sd, offset=0, limit=50, query="hello user")
+    assert hit["total"] >= 1
+    assert any("hello" in str(ev.get("content") or "").lower() for ev in hit["events"])
 
 
 def test_timeline_query_page_matches_full_fixture_prefix(tmp_path: Path) -> None:

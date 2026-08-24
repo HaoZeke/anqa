@@ -623,6 +623,35 @@ async def test_timeline_filter_search_query() -> None:
 
 
 @pytest.mark.asyncio
+async def test_timeline_is_assistant_filters_loaded_events() -> None:
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = _basic_events()
+        tl.load_events(events)
+        tl.apply_filter(search_query="is:assistant")
+        kinds = {ev.event_type for ev in tl.visible_events()}
+        assert kinds
+        assert all(
+            ev.event_type in {"agent_message_chunk", "agent_thought_chunk"}
+            or "agent" in ev.event_type
+            or "assistant" in ev.event_type
+            for ev in tl.visible_events()
+        )
+        assert tl.row_count < len(events)
+
+
+@pytest.mark.asyncio
+async def test_timeline_caches_unique_tool_names() -> None:
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        tl.load_events(_basic_events())
+        assert "read_file" in tl.tool_names
+        assert tl.tool_names.count("read_file") == 1
+
+
+@pytest.mark.asyncio
 async def test_timeline_filter_tool_name() -> None:
     app = _TimelineApp()
     async with app.run_test():
@@ -776,7 +805,7 @@ async def test_timeline_medium_duration_yellow() -> None:
 
 @pytest.mark.asyncio
 async def test_timeline_tool_error_non_tool_column() -> None:
-    """Tool error with empty tool name renders without markup prefix."""
+    """Tool error with empty tool name still paints the failure mark."""
     app = _TimelineApp()
     async with app.run_test():
         tl = app.query_one("#timeline-list", TimelineTable)
@@ -784,13 +813,41 @@ async def test_timeline_tool_error_non_tool_column() -> None:
             make_trace_event(
                 index=0,
                 event_type="tool_call",
-                tool_name="",  # Empty tool name → empty tool_col
+                tool_name="",  # Empty tool name → mark only
                 is_error=True,
                 timestamp=1000,
             ),
         ]
         tl.load_events(events)
         assert tl.row_count == 1
+        cells = tl._compute_row_cells(events[0])
+        assert "⚠" in cells[5]
+
+
+@pytest.mark.asyncio
+async def test_timeline_failed_tool_keeps_family_color() -> None:
+    """Failed tool call keeps type/name color; error is a mark after the name."""
+    from groket.ui.styles import TOOL_ERROR_MARK
+
+    app = _TimelineApp()
+    async with app.run_test():
+        tl = app.query_one("#timeline-list", TimelineTable)
+        events = [
+            make_trace_event(
+                index=0,
+                event_type="tool_call",
+                tool_name="read_file",
+                is_error=True,
+                timestamp=1000,
+            ),
+        ]
+        tl.load_events(events)
+        cells = tl._compute_row_cells(events[0])
+        type_cell, tool_cell = cells[4], cells[5]
+        assert "red bold underline" not in type_cell
+        assert "tool call" in type_cell
+        assert TOOL_ERROR_MARK in tool_cell
+        assert "read file" in tool_cell.replace("[", " ").replace("]", " ")
 
 
 @pytest.mark.asyncio

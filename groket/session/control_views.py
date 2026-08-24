@@ -48,8 +48,9 @@ from ..tool_display import (
     tool_input_fields,
 )
 from .catalog import session_catalog_row
+from .event_search import ensure_indexed, matching_indexes
 from .jobs import SessionJobs, job_input_stamp
-from .query import event_matches_query
+from .query import turn_matches_query
 from .subagents import (
     SubagentRun,
     event_child_session_id,
@@ -711,6 +712,17 @@ def build_session_timeline(
     if prompt_index is not None:
         prompt_indexes = TurnSegment.indexes_for_prompt(_segs, int(prompt_index))
     type_filter = (event_type or "").strip().casefold()
+    query_hits: set[int] | None = None
+    if query.strip():
+        query_hits = set(
+            matching_indexes(
+                events,
+                query,
+                key=str(sd.resolve()),
+                stamp=session_timeline_stamp(sd),
+                turns=turn_by_index,
+            )
+        )
     filtered: list[TraceEvent] = []
     for ev in events:
         if type_filter and type_filter not in (ev.event_type or "").casefold():
@@ -718,7 +730,7 @@ def build_session_timeline(
                 continue
         if not event_matches_timeline_kind(ev, kind):
             continue
-        if query.strip() and not event_matches_query(ev, query):
+        if query_hits is not None and int(ev.index) not in query_hits:
             continue
         if prompt_indexes is not None and int(ev.index) not in prompt_indexes:
             continue
@@ -794,18 +806,37 @@ def build_session_timeline(
     }
 
 
-def build_session_turns(session_dir: Path) -> JsonObject:
+def build_session_turns(session_dir: Path, *, query: str = "") -> JsonObject:
     """Turn segments for ``session/turns``."""
     sd = Path(session_dir)
     events = parse_timeline(sd)
     segs, turn_map = SessionOverview.turn_view(sd, events)
     runs = subagent_runs_for_session(sd, events, segs, turn_map)
+    needle = (query or "").strip()
+    if needle:
+        segs = [seg for seg in segs if _turn_segment_matches(seg, runs, needle)]
     return {
         "sessionId": sd.name,
         "total": len(segs),
         "turns": [turn_segment_mapping(s, subagent_runs=runs) for s in segs],
         "subagentRuns": [subagent_run_mapping(r) for r in runs],
     }
+
+
+def _turn_segment_matches(seg: TurnSegment, runs: list[SubagentRun], query: str) -> bool:
+    summary, _idx = seg.user_prompt_preview()
+    kids = sum(1 for run in runs if run.parent_turn_index == seg.turn_index)
+    return turn_matches_query(
+        label=seg.label,
+        summary=summary,
+        outcome=seg.outcome or "",
+        error_count=int(seg.error_event_count) + int(seg.tool_error_count),
+        tool_count=int(seg.tool_call_count),
+        event_count=int(seg.event_count),
+        duration_seconds=int(seg.duration_seconds() or 0),
+        subagent_count=kids,
+        query=query,
+    )
 
 
 def build_session_diff(session_dir: Path) -> JsonObject:
@@ -851,6 +882,19 @@ def build_session_diff(session_dir: Path) -> JsonObject:
     }
 
 
+def warm_timeline_search(session_dir: Path) -> None:
+    """Index *session_dir* so later ``session/timeline`` queries only read."""
+    sd = Path(session_dir)
+    events = parse_timeline(sd)
+    _segs, turns = SessionOverview.turn_view(sd, events)
+    ensure_indexed(
+        events,
+        key=str(sd.resolve()),
+        stamp=session_timeline_stamp(sd),
+        turns=turns,
+    )
+
+
 def build_session_usage(session_dir: Path) -> JsonObject:
     """Usage summary for ``session/usage``."""
     events = parse_timeline(Path(session_dir))
@@ -871,6 +915,7 @@ __all__ = [
     "build_session_timeline",
     "build_session_turns",
     "build_session_usage",
+    "warm_timeline_search",
     "SessionOverview",
     "timeline_query_hit",
     "session_meta_mapping",

@@ -89,6 +89,10 @@ EVENT_TYPE_LABEL: dict[str, str] = {
     k: f"[{v}]{k.replace('_', ' ')}[/]" for k, v in EVENT_TYPE_STYLE.items()
 }
 
+# Failed tool call — sits after the family-colored name (not a recolor).
+TOOL_ERROR_MARK = "⚠"
+
+
 # Action family → role (scannable, not a rainbow).
 TOOL_FAMILY_STYLE: dict[str, str] = {
     "read": EMPHASIS,

@@ -245,9 +245,9 @@ class LocalSessionAccess:
             content_chars=cc,
         )
 
-    def session_turns(self, session: str) -> JsonObject:
+    def session_turns(self, session: str, query: str = "") -> JsonObject:
         """Turn segments."""
-        return build_session_turns(self.require_session(session))
+        return build_session_turns(self.require_session(session), query=query)
 
     def session_usage(self, session: str) -> JsonObject:
         """Usage summary."""
@@ -371,8 +371,8 @@ class RemoteSessionAccess:
             content_chars=content_chars,
         )
 
-    async def session_turns(self, session: str) -> JsonObject:
-        return await self._client.session_turns(session)
+    async def session_turns(self, session: str, query: str = "") -> JsonObject:
+        return await self._client.session_turns(session, query=query)
 
     async def session_usage(self, session: str) -> JsonObject:
         return await self._client.session_usage(session)

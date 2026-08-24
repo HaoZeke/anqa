@@ -3317,6 +3317,52 @@ def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
     assert id(msgs2[0]) == first_id
 
 
+def test_parse_timeline_stamp_hit_does_not_reread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Second parse_timeline on an unchanged stamp skips the file body."""
+    import json
+
+    import groket.parser as parser_mod
+    from groket.parser import parse_timeline
+
+    sd = tmp_path / "cached"
+    sd.mkdir()
+    (sd / "events.jsonl").write_text(
+        json.dumps({"ts": 1000, "type": "turn_started", "turn_number": 0}) + "\n",
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1001,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "hi"},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    parser_mod._timeline_cache.clear()
+    first = parse_timeline(sd)
+    assert first
+    called: list[int] = []
+    orig = parser_mod._parse_timeline_body
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        called.append(1)
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(parser_mod, "_parse_timeline_body", _boom)
+    second = parse_timeline(sd)
+    assert called == []
+    assert second is first
+
+
 def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -> None:
     """Parallel parse_timeline for the same session runs the body once."""
     import json

@@ -26,6 +26,7 @@ from ..session.access import LocalSessionAccess, notes_snapshot_mapping
 
 # Re-export catalog filter for existing importers (TUI, tests).
 from ..session.access import filter_session_catalog as filter_session_catalog
+from ..session.control_views import warm_timeline_search
 from .control_contract import (
     MIN_PROTOCOL_VERSION,
     NOTIFY_NOTES_CHANGED,
@@ -326,6 +327,7 @@ class ControlServer:
         # Cap concurrent disk-heavy access work so many open clients cannot
         # stampede multi‑MB parses (single-flight still joins per session).
         self._heavy_sem = asyncio.Semaphore(HEAVY_IO_CONCURRENCY)
+        self._search_warm_inflight: set[Path] = set()
 
     async def start(self) -> None:
         """Bind the configured socket and begin accepting connections."""
@@ -685,6 +687,31 @@ class ControlServer:
         mark = getattr(apply, "mark_open", None)
         if callable(mark):
             mark(session)
+        self._schedule_search_warm(session)
+
+    def _schedule_search_warm(self, session: Path) -> None:
+        """Fill the event store after open so Timeline search is a read."""
+        try:
+            key = session.resolve()
+        except OSError:
+            key = Path(session)
+        if key in self._search_warm_inflight:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._search_warm_inflight.add(key)
+
+        async def _run() -> None:
+            try:
+                await asyncio.to_thread(warm_timeline_search, key)
+            except Exception:
+                logger.exception("timeline search index failed for %s", key)
+            finally:
+                self._search_warm_inflight.discard(key)
+
+        loop.create_task(_run())
 
     async def _access_call(
         self,
@@ -789,7 +816,12 @@ class ControlServer:
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
     ) -> JsonValue:
         ref = self._session_ref(params)
-        return await self._access_call(ref, self._access.session_turns, ref)
+        return await self._access_call(
+            ref,
+            self._access.session_turns,
+            ref,
+            query=json_as_str(params.get("query")),
+        )
 
     @_rpc("session/usage")
     async def _rpc_session_usage(

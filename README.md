@@ -237,7 +237,7 @@ openable child. Exporting an opened child is that child only.
 
 ### Catalog search
 
-`/` on the session list. `?` lists the same tokens. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title).
+`/` on the session list. Hover the box for that list's tokens. Last-token completions appear while you type. `?` is keys only. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `groket serve`.
 
 | Token | Matches |
 |-------|---------|
@@ -261,6 +261,8 @@ openable child. Exporting an opened child is that child only.
 | `notes:>=2 AND after:yesterday` | Recently updated, more than one note |
 | `has:subagent OR has:workflow` | Spawned a child or a workflow |
 | `in:~/src/app AND after:yesterday` | This repo, updated since yesterday |
+
+Timeline search (same `AND` / `OR` / `NOT`) also takes `is:tool` (or `user`, `assistant`, `error`, `session`, `subagent`, `background`, `workflow`), `has:error`, `tool:read_file`, `turn:2`, `user:hello`, and `duration:>=2` (the Dur column: tool call to result, or time to the next event). Turns search (desktop) takes `has:error`, `has:subagent`, `tools:>=5`, `errors:>=2`, `events:>=20`, and `duration:>1m` (turn wall time). Last-token hints appear under the box. The Filter and Turn dropdowns stay. The Timeline search box is a full-width row under Filter / Turn / Tail.
 
 ## Desktop HUD
 

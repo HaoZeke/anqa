@@ -22,6 +22,7 @@ from groket.ui.bindings import focus_primary_list
 from groket.ui.data_table import cursor_row_key
 from groket.ui.screens.browser import BrowserScreen
 from groket.ui.selectable_static import SelectableStatic
+from groket.ui.widgets.controls import FILTER_LABEL_CLASS
 from groket.ui.widgets.timeline import TimelineTable
 from textual.widgets import Input, Static, Switch, TabbedContent
 
@@ -1062,23 +1063,32 @@ async def test_browser_first_paint_defers_summary_and_notes(tmp_path: Path) -> N
         tl = screen.query_one("#timeline-list", TimelineTable)
         assert tl.row_count > 0
         bar = screen.query_one("#filter-bar")
-        slot = screen.query_one("#timeline-tail-slot")
+        grow = screen.query_one("#timeline-filter-grow")
+        cluster = screen.query_one("#timeline-tail-cluster")
         tail = screen.query_one("#timeline-tail", Switch)
         label = screen.query_one("#timeline-tail-label", Static)
         filt = screen.query_one("#filter-view-label", Static)
+        view = screen.query_one("#timeline-view-select")
         search = screen.query_one("#search-input", Input)
-        assert slot.display
+        assert not list(screen.query("#timeline-tail-slot"))
+        assert cluster.display
         assert label.display
+        assert tail.display
+        assert FILTER_LABEL_CLASS in label.classes
         assert "Tail" in static_plain(label)
         assert tail.value is False
         shown = [c for c in bar.children if c.display]
-        assert shown[-2] is label
-        assert shown[-1] is slot
-        assert label.region.x > search.region.x
-        assert slot.region.x > label.region.x
-        assert label.region.y == filt.region.y
-        assert slot.region.y == filt.region.y
+        assert shown[-2] is grow
+        assert shown[-1] is cluster
+        assert search not in bar.children
+        assert search.region.y > filt.region.y
+        assert grow.region.x > view.region.x
+        assert cluster.region.x > grow.region.x
+        assert tail.region.x > label.region.x
+        assert cluster.region.y == filt.region.y
+        assert cluster.region.height == filt.region.height
         assert tail.region.center[1] == label.region.center[1]
+        assert tail.region.center[1] == cluster.region.center[1]
         await pilot.click("#timeline-tail-label")
         await wait_until(
             pilot,
@@ -1137,7 +1147,7 @@ async def test_browser_tab_bar_fills_summary_and_notes(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_browser_search_debounce_applies_final_query(tmp_path: Path) -> None:
-    """Rapid search keys rebuild the table once, for the last needle."""
+    """Typing does not rebuild the table on the input handler."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -1162,15 +1172,52 @@ async def test_browser_search_debounce_applies_final_query(tmp_path: Path) -> No
         await wait_until(
             pilot,
             lambda: rebuilds["n"] >= 1,
-            description="debounced timeline search rebuild",
+            description="worker timeline search rebuilt the table",
         )
-        assert rebuilds["n"] == 1
         filtered = tl.row_count
         tl._refresh_rows = orig  # type: ignore[method-assign]
         screen._timeline_search = "ech"
         screen._apply_timeline_filters()
         await pilot.pause()
         assert tl.row_count == filtered
+
+
+@pytest.mark.asyncio
+async def test_timeline_search_sits_on_its_own_row(tmp_path: Path) -> None:
+    """Filter/Turn/Tail stay on one row; search is full-width below (like the HUD)."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(80, 40)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        bar = screen.query_one("#filter-bar")
+        filt = screen.query_one("#filter-view-label", Static)
+        search = screen.query_one("#search-input", Input)
+        assert search not in bar.children
+        assert search.region.y > filt.region.y
+        assert search.region.width >= filt.region.width
+
+
+@pytest.mark.asyncio
+async def test_timeline_search_keeps_input_focus(tmp_path: Path) -> None:
+    """Typing in Timeline search must not move focus to the event list."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        inp = screen.query_one("#search-input", Input)
+        inp.focus()
+        await pilot.pause()
+        assert inp.has_focus
+        inp.value = "hello"
+        screen._on_search_changed(Input.Changed(inp, "hello"))
+        await pilot.pause()
+        assert inp.has_focus
 
 
 @pytest.mark.asyncio
