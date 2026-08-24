@@ -260,7 +260,7 @@ def list_session_catalog(
             )
         )
     if effective_include_host(include_host):
-        rows.extend(_foreign_host_catalog_rows())
+        rows.extend(_adapter_host_catalog_rows())
     rows.sort(
         key=lambda r: (
             -catalog_row_sort_epoch(r),
@@ -997,14 +997,33 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     return meta
 
 
-def _foreign_host_catalog_rows() -> list[JsonObject]:
-    """Native non-Grok stores (OpenCode sqlite, …)."""
+def _adapter_host_catalog_rows() -> list[JsonObject]:
+    """Host rows from adapters not already collected by the directory walk.
+
+    The stamp-gated walk covers session-directory trees in
+    ``session_scan_roots``. Other stores append ``discover()`` rows.
+    """
     from ..harness.registry import enabled_host_adapters
     from ..harness.views import catalog_row_from_ref
+    from .sources import host_grok_sessions_root
+
+    walked: set[str] = set()
+    host_tree = host_grok_sessions_root()
+    try:
+        walked.add(str(host_tree.expanduser().resolve()))
+    except OSError:
+        walked.add(str(host_tree))
 
     rows: list[JsonObject] = []
     for item in enabled_host_adapters():
-        if item.id == "grok":
+        item_roots: set[str] = set()
+        for raw in item.default_host_roots():
+            root = Path(raw).expanduser()
+            try:
+                item_roots.add(str(root.resolve()))
+            except OSError:
+                item_roots.add(str(root))
+        if item_roots and item_roots <= walked:
             continue
         for ref in item.discover():
             row = catalog_row_from_ref(ref)

@@ -30,6 +30,9 @@ class HarnessAdapter(Protocol):
     def looks_like(self, ref: SessionRef | Path | str) -> bool:
         """True when *ref* belongs to this harness."""
 
+    def bind_locator(self, locator: Path) -> SessionRef | None:
+        """Session ref when *locator* is one session this adapter can reopen."""
+
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
         """List-grade metadata. Sets ``harness``."""
 

@@ -152,6 +152,12 @@ class GrokAdapter:
             return ref.harness == GROK_HARNESS_ID and looks_like(ref.locator)
         return looks_like(ref)
 
+    def bind_locator(self, locator: Path) -> SessionRef | None:
+        path = Path(locator).expanduser()
+        if not looks_like(path):
+            return None
+        return _ref_for_dir(path)
+
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
         if isinstance(ref, SessionRef):
             return load_meta(ref.locator)
@@ -163,6 +169,12 @@ class GrokAdapter:
         return parse_timeline(ref)
 
     def ref_for_id(self, session_id: str) -> SessionRef | None:
+        sid = (session_id or "").strip()
+        if not sid:
+            return None
+        for ref in self.discover():
+            if ref.session_id == sid:
+                return ref
         return None
 
     def watch_hints(self) -> tuple[str, ...]:

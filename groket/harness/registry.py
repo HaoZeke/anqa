@@ -62,10 +62,10 @@ def resolve_session_ref(
     """Map a control ``session`` argument to a :class:`SessionRef`.
 
     Order: ``harness:id`` → each adapter ``ref_for_id`` → directory path
-    (Grok).
+    via ``bind_locator``.
 
     :param reference: Session id, directory, or ``harness:id``.
-    :param path_resolve: Optional Grok directory resolver (catalog cache).
+    :param path_resolve: Optional directory resolver (catalog cache).
     :returns: Locator, or None when nothing matches.
     """
     raw = (reference or "").strip()
@@ -85,43 +85,31 @@ def resolve_session_ref(
     if path_resolve is not None:
         path = path_resolve(raw)
         if path is not None and path.is_dir():
-            return grok_ref_from_path(path)
+            bound = ref_from_path(path)
+            if bound is not None:
+                return bound
     candidate = Path(raw).expanduser()
     if candidate.is_dir():
-        grok = adapter("grok")
-        if grok is not None and grok.looks_like(candidate):
-            return grok_ref_from_path(candidate)
+        return ref_from_path(candidate)
     return None
 
 
-def grok_ref_from_path(path: Path, *, origin: str | None = None) -> SessionRef:
-    """Build a Grok :class:`SessionRef` from a session directory."""
-    from ..session.sources import ORIGIN_HOST, ORIGIN_WORK, is_under_host_grok_sessions
-    from .grok import GROK_HARNESS_ID
-
+def ref_from_path(path: Path) -> SessionRef | None:
+    """Ask each adapter to bind *path* as one session."""
     loc = Path(path).expanduser()
-    try:
-        loc = loc.resolve()
-    except OSError:
-        pass
-    if origin is None:
-        origin = ORIGIN_HOST if is_under_host_grok_sessions(loc) else ORIGIN_WORK
-    return SessionRef(
-        harness=GROK_HARNESS_ID,
-        session_id=loc.name,
-        origin=origin,
-        locator=loc,
-    )
+    for item in adapters():
+        hit = item.bind_locator(loc)
+        if hit is not None:
+            return hit
+    return None
 
 
 __all__ = [
-    "OPENCODE_HARNESS_ID",
-    "PI_HARNESS_ID",
     "adapter",
     "adapters",
     "enabled_host_adapters",
     "enabled_host_ids",
-    "grok_ref_from_path",
     "host_adapters",
+    "ref_from_path",
     "resolve_session_ref",
 ]

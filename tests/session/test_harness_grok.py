@@ -8,6 +8,7 @@ from pathlib import Path
 
 from groket.harness import (
     GROK_HARNESS_ID,
+    GrokAdapter,
     discover,
     load_meta,
     looks_like,
@@ -79,6 +80,22 @@ def test_parse_timeline_minimal_session() -> None:
 
 def test_watch_hints_include_updates_jsonl() -> None:
     assert "updates.jsonl" in watch_hints()
+
+
+def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
+    host = tmp_path / "sessions"
+    sess = _write_summary_session(host / "%2Fproj", "host-sid")
+    monkeypatch.setattr("groket.harness.grok.host_grok_sessions_root", lambda: host)
+    adapter = GrokAdapter()
+    bound = adapter.bind_locator(sess)
+    assert bound is not None
+    assert bound.session_id == "host-sid"
+    assert bound.locator.resolve() == sess.resolve()
+    assert adapter.bind_locator(tmp_path) is None
+    found = adapter.ref_for_id("host-sid")
+    assert found is not None
+    assert found.locator.resolve() == sess.resolve()
+    assert adapter.ref_for_id("missing") is None
 
 
 def test_importing_grok_adapter_does_not_import_ui() -> None:

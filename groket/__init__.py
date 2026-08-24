@@ -1,4 +1,4 @@
-"""groket — Trace evaluation for hunting bad model behaviors.
+"""groket — inspect coding-agent harness sessions.
 
 * Root: ``models``, ``config``, ``parser``, ``paths``, ``constants``, ``utils``, ``flags``, ``cli``
 * ``runs/`` — personas, run configs, batch, background manager, shares, log services

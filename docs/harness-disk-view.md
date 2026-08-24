@@ -1,11 +1,11 @@
-# Groket multi-harness disk view — rewrite brief
+# Host harness stores
 
-This document is the sole brief for a later full-parity rewrite: groket
-becomes a catalog, timeline, and (where the product allows)
-launch/control tool for every listed coding-agent harness. Disk-based view
-is the first contract. Launch and mid-session control exist only when the
-product exposes an equivalent. Automedon live `parse_line` is contrast only
-— it is not the disk adapter.
+Notes from probing coding-agent session trees on disk. Groket’s shipped
+adapter is Grok Build; this file records other stores so a later adapter
+can be written from observed keys. Disk-based view is the contract.
+Launch and mid-session control exist only when the product exposes an
+equivalent. Automedon live `parse_line` is contrast only — it is not the
+disk adapter.
 
 Observed host trees and field names were taken from a Linux workstation
 (2026-08-08) and a Darwin workstation (2026-08-09), plus groket source and
@@ -19,14 +19,11 @@ them. Schemas drift; adapters must tolerate extra keys.
 
 ## 1. What groket does today
 
-Groket is a Grok Build evaluation product. It discovers session directories,
-parses a Grok on-disk dialect into `TraceEvent` / `SessionMeta`, watches
-those files live, and launches isolated Grok evals in Docker. Operator
-notes, flags, export, HUD,
-and the Unix control socket all assume that same Grok directory.
-
-After the rewrite, those outcomes stay. The Grok directory layout becomes
-one adapter. Other harness stores implement the same outcomes.
+Groket inspects coding-agent harness sessions. The shipped adapter is
+Grok Build: session directories, `TraceEvent` / `SessionMeta`, live watch,
+and isolated Docker evals. Operator notes, flags, export, HUD, and the
+Unix control socket use `SessionRef`. Other stores implement the same
+inspect outcomes.
 
 ---
 

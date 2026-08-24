@@ -1,12 +1,13 @@
 # Host harness adapters
 
-Groket’s home catalog can list native coding-agent stores on this machine
-next to Docker eval traces. Each store is one adapter under
-`groket/harness/`. The catalog row carries `harness` and, when the store
-records it, `harnessVersion`.
+Groket inspects coding-agent harness sessions. Each store is one adapter
+under `groket/harness/`. The catalog, timeline, notes, desktop HUD, and
+control clients use the same `SessionRef` (harness + session id + locator).
+The catalog row carries `harness` and, when the store records it,
+`harnessVersion`.
 
-Eval launches stay Grok-only (Docker, follow-up, Done, fork, rewind,
-context meter).
+Grok Build is the shipped adapter. Docker evals, follow-up, Done, fork,
+rewind, and the context meter are capabilities of that store.
 
 ## Config
 
@@ -17,9 +18,9 @@ context meter).
 host = ["grok"]
 ```
 
-`H` still means “include the host catalog.” The `host` list is which
-adapters that catalog scans. Omit an id to skip that store. Eval traces
-under `work/runs/traces` are always Grok and ignore this list.
+`H` includes the host catalog. The `host` list is which adapters that
+catalog scans. Omit an id to skip that store. Eval traces under
+`work/runs/traces` are sessions this tool launched and ignore this list.
 
 ## Shipped adapters
 
@@ -30,18 +31,12 @@ under `work/runs/traces` are always Grok and ignore this list.
 Supported version is the product we last parsed and tested. A session may
 carry a different `harnessVersion` from its own files.
 
-Notes for non-directory stores live under
-`~/.groket/notes/<harness>/<session_id>/`.
+Directory locators keep notes in the session tree. File or database
+locators use `~/.groket/notes/<harness>/<session_id>/`.
 
 ## Filter
 
-`harness:opencode`, `harness:pi`, `harness:grok`, plus `is:host`.
-
-## Non-goals
-
-Launch, follow-up, Done, fork, Docker isolation, and `grok trace --local`
-for non-Grok stores. Live watch of sqlite/jsonl host trees (catalog
-rebuild / refresh lists them).
+`harness:grok` and `is:host`.
 
 ## Adding an adapter
 

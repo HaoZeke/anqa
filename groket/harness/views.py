@@ -1,4 +1,4 @@
-"""Control-plane views for non-directory harness sessions."""
+"""Control-plane views for sessions whose locator is not a directory."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _empty_presence() -> dict[str, bool | int]:
 
 
 def catalog_row_from_ref(ref: SessionRef) -> JsonObject | None:
-    """Wire catalog row for a non-Grok session ref."""
+    """Wire catalog row for an adapter session ref."""
     impl = adapter(ref.harness)
     if impl is None:
         return None

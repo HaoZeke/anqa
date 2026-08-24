@@ -1,10 +1,12 @@
 # AGENTS.md — groket
 
-Groket is a [Textual](https://github.com/Textualize/textual) TUI for evaluating
-Grok Build sessions (Python 3.13+). Similar in spirit to
+Groket is a [Textual](https://github.com/Textualize/textual) TUI that
+inspects coding-agent harness sessions (Python 3.13+). Similar in spirit to
 [posting](https://github.com/darrenburns/posting),
 [harlequin](https://github.com/tconbeer/harlequin), and
 [toolong](https://github.com/Textualize/toolong).
+Grok Build is the shipped adapter; Docker evals and personas stay
+available for that store.
 
 Operators read traces and paste prompts, replies, and tool output into
 notes. Every body that is useful to quote must be selectable on both
@@ -234,10 +236,10 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
   Docker). **Host** catalog = native stores enabled in
-  ``config.toml`` ``[harness].host`` (Grok ``~/.grok/sessions``, OpenCode
-  sqlite, Pi jsonl). ``H`` / ``is:host``; ``harness:<id>`` filters. Non-Grok
-  rows use catalog path ``harness:<session_id>``. Contract:
-  ``docs/harness-adapters.md``. New or bumped adapters go through
+  ``config.toml`` ``[harness].host`` (shipped: Grok ``~/.grok/sessions``).
+  ``H`` / ``is:host``; ``harness:<id>`` filters. Directory locators use
+  the session path; file or database locators use ``harness:<session_id>``.
+  Contract: ``docs/harness-adapters.md``. New or bumped adapters go through
   ``.grok/skills/harness-adapter-qa`` and ``scripts/check_harness_adapters.py``.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as

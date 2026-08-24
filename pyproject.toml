@@ -1,7 +1,7 @@
 [project]
 name = "groket"
 version = "0.1.0"
-description = "Groket — Grok session trace evaluation TUI"
+description = "Groket — inspect coding-agent harness sessions"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"

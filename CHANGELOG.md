@@ -5,8 +5,9 @@ is tagged. This section is the product as it ships.
 
 ## Unreleased
 
-First release. Groket evaluates Grok Build sessions: timeline,
-workspace diffs, Docker evals, and personas.
+First release. Groket inspects coding-agent harness sessions: timeline,
+notes, workspace diffs, and a desktop palette. Grok Build is the first
+shipped adapter; Docker evals and personas stay available for that store.
 
 ### Install
 
@@ -54,7 +55,7 @@ workspace diffs, Docker evals, and personas.
 
 ### Terminal app
 
-- `groket` / `groket tui` is the full eval client: session list,
+- `groket` / `groket tui` is the session client: session list,
   browser, runner, recipes, personas, and export.
 - Browser panes are Timeline, Summary, Diff, and Report.
 - Timeline Filter and Turn stack; Tail follows a live session.

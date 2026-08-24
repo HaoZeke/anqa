@@ -1,7 +1,6 @@
 """Per-harness disk adapters.
 
-``grok`` (session directories) ships today. Other stores register the same
-contract in later commits.
+Each store implements the same contract. ``grok`` is the shipped adapter.
 """
 
 from __future__ import annotations

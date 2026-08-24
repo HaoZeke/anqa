@@ -75,8 +75,8 @@ def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
 
 
 def test_harness_host_normalizes_ids() -> None:
-    cfg = parse_app_config({"harness": {"host": ["OpenCode", "opencode", "pi"]}})
-    assert cfg.harness.host == ["opencode", "pi"]
+    cfg = parse_app_config({"harness": {"host": ["Grok", "grok", "demo"]}})
+    assert cfg.harness.host == ["grok", "demo"]
 
 
 def test_dump_roundtrip() -> None:

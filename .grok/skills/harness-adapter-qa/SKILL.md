@@ -1,11 +1,10 @@
 ---
 name: harness-adapter-qa
 description: >
-  Gate for adding or re-verifying a groket host harness adapter (Grok,
-  OpenCode, Pi, later Claude/Codex/…). Use when adding a harness, when
-  a product version changes, or when the user asks to QA / certify a
-  store. Enforces the adapter contract, fixtures, version pin, and
-  docs. Slash: /harness-adapter-qa
+  Gate for adding or re-verifying a groket host harness adapter. Use
+  when adding a harness, when a product version changes, or when the
+  user asks to QA / certify a store. Enforces the adapter contract,
+  fixtures, version pin, and docs. Slash: /harness-adapter-qa
 metadata:
   short-description: "Harness adapter completeness + version QA"
 ---
@@ -30,7 +29,8 @@ without query/`harness:<id>`.
    `id`, `product`, `supported_version` (the CLI/app version you
    actually ran), `default_host_roots`, `discover`, `looks_like`,
    `load_meta` (sets `harness`, and `harness_version` when the store
-   has a product version), `parse_timeline`, `ref_for_id`, `watch_hints`.
+   has a product version), `parse_timeline`, `bind_locator`,
+   `ref_for_id`, `watch_hints`.
 2. Register in `groket/harness/registry.py` `adapters()`.
 3. Add the id to `HARNESS_IDS` in `groket/harness/ref.py` if new.
 4. Add the id to the `harness` query token in
@@ -50,9 +50,9 @@ On this machine, find the default root, list a real session, and write
 the adapter from **observed keys**. Disk ≠ live child stdout. Do not
 reuse Automedon `parse_line` on disk files.
 
-Record `supported_version` from `opencode --version` / `pi --version` /
-`grok --version` (or the product’s own about string). If the session
-row also stores a version, map that to `SessionMeta.harness_version`.
+Record `supported_version` from the product CLI (`grok --version`, or
+that store’s own about string). If the session row also stores a
+version, map that to `SessionMeta.harness_version`.
 
 ### Run the gate
 

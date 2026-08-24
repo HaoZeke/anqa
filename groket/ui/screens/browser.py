@@ -1841,14 +1841,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             self.notify(t("ui-subagent-opened"))
             return
         child = (run.child_session_id or "").strip()
-        harness = "grok"
-        if self.meta is not None and (self.meta.harness or "grok") != "grok":
-            harness = self.meta.harness
-        else:
-            parsed = parse_session_ref_string(str(self.session_dir))
-            if parsed is not None:
-                harness = parsed[0]
-        if child and harness != "grok":
+        parsed = parse_session_ref_string(str(self.session_dir))
+        harness = parsed[0] if parsed is not None else ""
+        if not harness and self.meta is not None:
+            harness = (self.meta.harness or "").strip()
+        if child and parsed is not None:
             opener(Path(f"{harness}:{child}"))
             self.notify(t("ui-subagent-opened"))
             return

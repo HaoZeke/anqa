@@ -322,19 +322,7 @@ fn is_harness_ref(path: &str) -> bool {
     if tail.is_empty() {
         return false;
     }
-    matches!(
-        head,
-        "grok"
-            | "opencode"
-            | "claude"
-            | "codex"
-            | "gemini"
-            | "cursor"
-            | "aider"
-            | "pi"
-            | "copilot"
-            | "kimi"
-    )
+    matches!(head, "grok")
 }
 
 /// Event pages load whenever the Events pane is active (with a session).
@@ -1571,10 +1559,7 @@ mod tests {
             "uuid"
         );
         assert_eq!(session_rpc_ref("", "uuid"), "uuid");
-        assert_eq!(
-            session_rpc_ref("opencode:ses_abc", "ses_abc"),
-            "opencode:ses_abc"
-        );
+        assert_eq!(session_rpc_ref("grok:ses_abc", "ses_abc"), "grok:ses_abc");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

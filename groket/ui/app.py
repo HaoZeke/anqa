@@ -222,7 +222,7 @@ def first_home_list_fetch() -> dict[str, int | bool]:
 
 
 class TraceEvalApp(App):
-    """groket — Trace evaluation TUI for hunting bad model behaviors."""
+    """groket — inspect coding-agent harness sessions."""
 
     TITLE = "groket"
     SUB_TITLE = ""

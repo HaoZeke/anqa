@@ -11,8 +11,10 @@
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**groket** evaluates [Grok Build](https://docs.x.ai/build/overview)
-sessions: timeline, workspace diffs, Docker evals, and personas.
+**groket** inspects coding-agent harness sessions: timeline, notes,
+workspace diffs, and a summonable desktop palette.
+[Grok Build](https://docs.x.ai/build/overview) is the first shipped
+store; Docker evals and personas stay available there.
 
 Four clients talk to [`groket serve`](#control).
 
@@ -114,11 +116,12 @@ groket keys --check      # exit 1 on overlay errors
 
 **Eval** sessions are Docker launches under `work/runs/traces`. **Host**
 sessions are native stores enabled in `~/.groket/config.toml`
-`[harness] host = […]` (`H` includes that catalog). Stock default is Grok
+`[harness] host = […]` (`H` includes that catalog). Stock default is `grok`
 at `~/.grok/sessions`. Filter with `is:host` / `harness:grok`. See
 `docs/harness-adapters.md`. `groket -P ~/.grok/sessions` browses Host while
-keeping the default work root for new runs. Notes on Host sessions write
-under `~/.groket/notes/<session_id>/`. Every note has a `source` (who
+keeping the default work root for new runs. Directory stores keep notes
+in the session tree; file or database stores use
+`~/.groket/notes/<harness>/<session_id>/`. Every note has a `source` (who
 wrote it). Control `notes/upsert` accepts any field bag plus that
 source. A new note uses `~/.groket/notes_schema.toml`. Editing a note
 also shows extra stored fields as free-text. Notes, the edit form,
@@ -136,7 +139,7 @@ which is Docker / serve / container logs.
 
 ## Terminal app
 
-`groket` (or `groket tui`) is the eval client: session list, browser
+`groket` (or `groket tui`) is the session client: session list, browser
 panes, runner, recipes, personas, and export. Diff lists Grok
 rewind snapshots (or approximate `search_replace` edits) with Prompt and
 Assistant tabs above a files and hunk split.

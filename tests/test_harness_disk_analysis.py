@@ -1,4 +1,4 @@
-"""The multi-harness disk-view brief stays complete and matches shipped groket."""
+"""Host-store notes stay complete and match shipped groket symbols."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ REQUIRED_HEADINGS = (
 
 
 def _brief() -> str:
-    assert BRIEF.is_file(), f"missing rewrite brief {BRIEF}"
+    assert BRIEF.is_file(), f"missing host-store notes {BRIEF}"
     text = BRIEF.read_text(encoding="utf-8")
     assert "TBD" not in text
     return text

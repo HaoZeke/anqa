@@ -170,24 +170,22 @@ class LocalSessionAccess:
         return found
 
     def require_session(self, reference: str) -> Path:
-        """Resolve *reference* to a Grok session directory.
+        """Resolve *reference* to the notes / control directory.
 
-        OpenCode and other non-directory stores use :meth:`require_ref`.
-        Notes for those stores use the groket overlay directory.
+        Directory locators are the session tree. File or database locators
+        use the groket overlay directory.
         """
         found = resolve_session_ref(reference, path_resolve=self._resolve)
         if found is None:
             raise FileNotFoundError(f"session not found: {reference}")
-        if found.harness != "grok":
-            overlay = found.overlay_dir()
-            overlay.mkdir(parents=True, exist_ok=True)
-            return overlay
         if found.locator.is_dir():
             return found.locator
-        raise FileNotFoundError(f"session not found: {reference}")
+        overlay = found.overlay_dir()
+        overlay.mkdir(parents=True, exist_ok=True)
+        return overlay
 
-    def _is_grok(self, ref: SessionRef) -> bool:
-        return ref.harness == "grok"
+    def _directory_session(self, ref: SessionRef) -> bool:
+        return ref.locator.is_dir()
 
     def list_sessions(
         self,
@@ -221,7 +219,7 @@ class LocalSessionAccess:
     def session_get(self, session: str) -> JsonObject:
         """Rich session metadata."""
         ref = self.require_ref(session)
-        if self._is_grok(ref):
+        if self._directory_session(ref):
             return build_session_get(ref.locator, work_dir=self._work_dir)
         return harness_views.session_get(ref)
 
@@ -231,7 +229,7 @@ class LocalSessionAccess:
     ) -> JsonObject:
         """Meta + turns + notes (timeline rows via session/timeline)."""
         ref = self.require_ref(session)
-        if self._is_grok(ref):
+        if self._directory_session(ref):
             return build_session_overview(ref.locator, work_dir=self._work_dir)
         return harness_views.session_overview(ref)
 
@@ -259,7 +257,7 @@ class LocalSessionAccess:
             if content_chars is None
             else max(0, min(int(content_chars), MAX_CONTENT_CHARS))
         )
-        if not self._is_grok(ref):
+        if not self._directory_session(ref):
             return harness_views.session_timeline(
                 ref,
                 offset=max(0, int(offset)),
@@ -288,21 +286,21 @@ class LocalSessionAccess:
     def session_turns(self, session: str, query: str = "") -> JsonObject:
         """Turn segments."""
         ref = self.require_ref(session)
-        if self._is_grok(ref):
+        if self._directory_session(ref):
             return build_session_turns(ref.locator, query=query)
         return harness_views.session_turns(ref, query=query)
 
     def session_usage(self, session: str) -> JsonObject:
         """Usage summary."""
         ref = self.require_ref(session)
-        if self._is_grok(ref):
+        if self._directory_session(ref):
             return build_session_usage(ref.locator)
         return harness_views.session_usage(ref)
 
     def session_diff(self, session: str) -> JsonObject:
         """Rewind snapshots or approximate ``search_replace`` edits."""
         ref = self.require_ref(session)
-        if self._is_grok(ref):
+        if self._directory_session(ref):
             return build_session_diff(ref.locator)
         return harness_views.session_diff(ref)
 

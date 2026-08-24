@@ -43,9 +43,9 @@ def main() -> int:
             errs.append(f"{hid}: desktop/src/live.rs is_harness_ref omits this id")
         if f'"{hid}"' not in contract and f"({hid}" not in contract:
             errs.append(f"{hid}: control_contract harness token omits this id")
-        if hid != "grok" and hid not in readme:
+        if hid not in readme:
             errs.append(f"{hid}: README does not mention this adapter")
-        if hid != "grok" and hid not in docs:
+        if hid not in docs:
             errs.append(f"{hid}: docs/harness-adapters.md does not mention this adapter")
     if not registered:
         errs.append("no adapters registered")

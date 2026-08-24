@@ -1,7 +1,9 @@
 """Session locator that is not always a directory.
 
-Grok sessions are directories. OpenCode (and later Copilot) sessions live in
-SQLite. Catalog ``path`` for a non-directory store is ``harness:session_id``.
+A directory locator is the session (catalog path is that directory; notes
+live in-tree). A file or database locator is a store the adapter reads
+(catalog path is ``harness:session_id``; notes live under
+``~/.groket/notes/<harness>/<session_id>/``).
 """
 
 from __future__ import annotations
@@ -11,21 +13,8 @@ from pathlib import Path
 
 from ..paths import APP_HOME
 
-# Known ids from docs/harness-disk-view.md. Parse does not import the registry.
-HARNESS_IDS: frozenset[str] = frozenset(
-    {
-        "grok",
-        "claude",
-        "codex",
-        "gemini",
-        "opencode",
-        "cursor",
-        "aider",
-        "pi",
-        "copilot",
-        "kimi",
-    }
-)
+# Shipped adapter ids. Parse does not import the registry.
+HARNESS_IDS: frozenset[str] = frozenset({"grok"})
 
 ORIGIN_WORK = "work"
 ORIGIN_HOST = "host"
@@ -35,10 +24,10 @@ ORIGIN_HOST = "host"
 class SessionRef:
     """One session the catalog or control plane can reopen.
 
-    :ivar harness: Adapter id (``grok``, ``opencode``, …).
-    :ivar session_id: Stable product id (directory name or sqlite row id).
+    :ivar harness: Adapter id.
+    :ivar session_id: Stable product id (directory name or store row id).
     :ivar origin: ``work`` (groket-launched) or ``host`` (native store).
-    :ivar locator: Directory (Grok) or database/file the adapter reads.
+    :ivar locator: Directory, transcript file, or database the adapter reads.
     :ivar cwd: Workspace path when the store recorded one.
     """
 
@@ -50,7 +39,7 @@ class SessionRef:
 
     def ref_string(self) -> str:
         """Control / catalog path: resolved directory, or ``harness:id``."""
-        if self.harness == "grok":
+        if self.locator.is_dir():
             try:
                 return str(self.locator.expanduser().resolve())
             except OSError:
@@ -58,8 +47,8 @@ class SessionRef:
         return f"{self.harness}:{self.session_id}"
 
     def overlay_dir(self) -> Path:
-        """Groket-owned notes directory (never a foreign sqlite tree)."""
-        if self.harness == "grok":
+        """Operator notes. Directory locators keep notes in the session tree."""
+        if self.locator.is_dir():
             return self.locator
         return APP_HOME / "notes" / self.harness / self.session_id
 

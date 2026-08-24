@@ -143,15 +143,7 @@
       "name": "harness",
       "role": "Disk adapter id.",
       "values": [
-        "grok",
-        "opencode",
-        "claude",
-        "codex",
-        "gemini",
-        "cursor",
-        "aider",
-        "pi",
-        "copilot"
+        "grok"
       ],
       "compare": false
     },
