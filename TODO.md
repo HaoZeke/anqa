@@ -3,9 +3,9 @@
 Contract for humans and agents. Prefer fixing debt **when editing** the
 module that owns it; do not open a speculative “cleanup epic.”
 
-Keep this file and ``CHANGELOG.md`` in step. A CHANGELOG Unreleased
-bullet that still has open work is listed here; remove the TODO when
-that work ships (or when the changelog line is no longer true).
+Keep this file and ``CHANGELOG.md`` in step. Open work against the
+first-release product notes lives here; remove the TODO when that
+work ships.
 
 ## Unreleased (see CHANGELOG.md)
 
