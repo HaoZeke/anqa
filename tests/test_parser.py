@@ -3624,6 +3624,29 @@ def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -
     assert load_host_list_meta(sd).list_status_label() == "complete"
 
 
+def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> None:
+    """A host session with chat history but no turn close is cancelled, not —."""
+    import time
+
+    from groket.parser import load_host_list_meta, load_session_meta
+
+    sd = tmp_path / "host-empty-ev"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"","num_messages":1}',
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text("", encoding="utf-8")
+    (sd / "chat_history.jsonl").write_text("x" * 400, encoding="utf-8")
+    old = time.time() - (20 * 60)
+    for name in ("summary.json", "events.jsonl", "chat_history.jsonl"):
+        os.utime(sd / name, (old, old))
+    cheap = load_host_list_meta(sd)
+    full = load_session_meta(sd, include_timeline_count=False)
+    assert cheap.list_status_label() == "cancelled"
+    assert cheap.list_status_label() == full.list_status_label()
+
+
 def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     """Host list meta must not require events.jsonl (catalog speed)."""
     from groket.parser import load_session_meta_list

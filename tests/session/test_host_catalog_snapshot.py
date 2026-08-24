@@ -7,7 +7,7 @@ from pathlib import Path
 
 from groket.parser import load_host_list_meta
 from groket.session.catalog import list_session_catalog, session_catalog_row
-from groket.session.mtime_export import write_host_catalog_export
+from groket.session.mtime_export import HOST_CATALOG_SNAPSHOT_VERSION, write_host_catalog_export
 
 
 def _host_session(
@@ -102,6 +102,23 @@ def test_host_export_is_stamp_gated(tmp_path: Path) -> None:
     second = write_host_catalog_export(dest, host_root=host)
     assert second == dest
     assert dest.stat().st_mtime == mtime1
+    assert json.loads(dest.read_text(encoding="utf-8"))["version"] == HOST_CATALOG_SNAPSHOT_VERSION
+
+
+def test_host_export_rebuilds_when_snapshot_version_changes(tmp_path: Path) -> None:
+    """A snapshot written before a status-rule bump must not be reused."""
+    host = tmp_path / "host"
+    _host_session(host, "019ffff-1111-2222-3333-444444444444", title="Old snap")
+    dest = tmp_path / "out" / "host.json"
+    write_host_catalog_export(dest, host_root=host)
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    payload["version"] = 1
+    payload["sessions"][0]["status"] = "—"
+    dest.write_text(json.dumps(payload), encoding="utf-8")
+    write_host_catalog_export(dest, host_root=host)
+    rebuilt = json.loads(dest.read_text(encoding="utf-8"))
+    assert rebuilt["version"] == HOST_CATALOG_SNAPSHOT_VERSION
+    assert rebuilt["sessions"][0]["status"] != "—"
 
 
 def test_host_export_rebuilds_when_stamps_unreadable(tmp_path: Path) -> None:

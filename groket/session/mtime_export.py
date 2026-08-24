@@ -19,6 +19,9 @@ from .sources import host_grok_sessions_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
+# Bump when host list row fields or status rules change so a live
+# snapshot rebuilds instead of serving stale ``—`` badges.
+HOST_CATALOG_SNAPSHOT_VERSION = 2
 
 
 def _mtime_ns(path: Path) -> int:
@@ -55,6 +58,8 @@ def export_is_stale(stamps: list[tuple[str, int, int, int]], dest: Path) -> bool
     """True when *dest* is missing or its stored stamps do not match *stamps*."""
     cached = _read_payload(dest)
     if cached is None:
+        return True
+    if cached.get("version") != HOST_CATALOG_SNAPSHOT_VERSION:
         return True
     raw = cached.get("stamps")
     if not isinstance(raw, list):
@@ -104,7 +109,12 @@ def load_or_rebuild_host_catalog(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_text(
         json.dumps(
-            {"root": str(root), "stamps": [list(s) for s in stamps], "sessions": rows},
+            {
+                "version": HOST_CATALOG_SNAPSHOT_VERSION,
+                "root": str(root),
+                "stamps": [list(s) for s in stamps],
+                "sessions": rows,
+            },
             indent=2,
         )
         + "\n",

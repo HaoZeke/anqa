@@ -20,6 +20,9 @@ is tagged.
   Everforest, Kanagawa, and others) and a drop-in `~/.groket/themes/`
   file pin a colorway on both clients. Status uses success / caution /
   danger / quiet — not a brand cream overlay.
+- Timeline search accepts `tool:`, `turn:`, and `user:` as well as
+  `is:` / `has:error`. Turns and Timeline show last-token hints.
+  Typing in those boxes keeps the caret (no remount / loading flash).
 - Catalog search understands a query language (`is:host`,
   `has:plan`, `plans:>=2`, `errors:>=5`, `goals:2`, `in:~/path`,
   `AND` / `OR`). `has:` is presence. Counts use a written pair
@@ -61,6 +64,9 @@ is tagged.
 - Host session list status uses the updates tail (`session_recap`,
   `turn_completed`) and the same cheap turn markers as Summary, so
   finished host rows show `complete` without opening the session.
+- Host catalog snapshot version 2 rebuilds cached `—` rows after a
+  status-rule change. A host session with chat history but no turn
+  close lists as cancelled.
 - The desktop session list applies `after:` / `before:` locally
   (`yesterday`, `2d`, `2 days ago`), same as the terminal list.
 - A forked child that replays parent tools keeps the continuation on

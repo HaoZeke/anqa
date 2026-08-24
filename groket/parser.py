@@ -2181,8 +2181,12 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
             meta.turn_outcome = "running"
     elif last in _HOST_LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh):
         meta.turn_outcome = "completed"
-    elif fresh:
-        meta.turn_outcome = "running"
+    else:
+        inferred = _infer_incomplete_turn_outcome(session_dir, origin="host")
+        if inferred:
+            meta.turn_outcome = inferred
+        elif fresh:
+            meta.turn_outcome = "running"
     return meta
 
 
