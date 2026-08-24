@@ -2155,11 +2155,11 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
     """Host home-list meta from summary, signals, and the updates tail.
 
     Reads ``summary.json``, ``signals.json``, and the 64 KiB
-    ``updates.jsonl`` tail for live status. When that tail has no
-    ``turn_completed`` / ``session_recap``, a marker pass on
-    ``events.jsonl`` fills the same turn status Summary uses. Does not
-    infer a title from the trace. Opening a session still uses
-    :func:`load_session_meta`.
+    ``updates.jsonl`` tail for live status. A completed, stale tail
+    does not open ``events.jsonl``. When the tail has no close, a
+    marker pass on ``events.jsonl`` fills the same turn status Summary
+    uses. Does not infer a title from the trace. Opening a session
+    still uses :func:`load_session_meta`.
     """
     meta = SessionMeta(
         session_id=session_dir.name,
@@ -2172,6 +2172,10 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
         meta.num_events = int(meta.num_messages)
     last, terminal = _updates_tail_status(session_dir)
     fresh = _traces_are_fresh(session_dir, origin="host")
+    closed = last in _HOST_LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh)
+    if closed and not fresh:
+        meta.turn_outcome = "completed"
+        return meta
     outcome, loop_count, open_after = _list_runtime_status(session_dir)
     if loop_count:
         meta.loop_count = loop_count
@@ -2179,7 +2183,7 @@ def load_host_list_meta(session_dir: Path) -> SessionMeta:
         meta.turn_outcome = outcome
         if open_after and fresh:
             meta.turn_outcome = "running"
-    elif last in _HOST_LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh):
+    elif closed:
         meta.turn_outcome = "completed"
     else:
         inferred = _infer_incomplete_turn_outcome(session_dir, origin="host")

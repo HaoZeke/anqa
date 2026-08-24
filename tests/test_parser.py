@@ -3590,6 +3590,38 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
     )
 
 
+def test_load_host_list_meta_closed_tail_does_not_open_events(tmp_path: Path, monkeypatch) -> None:
+    import time
+
+    from groket.parser import load_host_list_meta
+
+    sd = tmp_path / "host-closed"
+    sd.mkdir()
+    (sd / "summary.json").write_text(
+        '{"generated_title":"Done","num_messages":2}',
+        encoding="utf-8",
+    )
+    (sd / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_completed"}}}) + "\n",
+        encoding="utf-8",
+    )
+    (sd / "events.jsonl").write_text('{"type":"turn_started"}\n' * 200, encoding="utf-8")
+    old = time.time() - (20 * 60)
+    for name in ("summary.json", "updates.jsonl", "events.jsonl"):
+        os.utime(sd / name, (old, old))
+    opened: list[str] = []
+    real_open = Path.open
+
+    def track_open(self: Path, *args: object, **kwargs: object) -> object:
+        opened.append(self.name)
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", track_open)
+    meta = load_host_list_meta(sd)
+    assert meta.list_status_label() == "complete"
+    assert "events.jsonl" not in opened
+
+
 def test_load_host_list_meta_skips_events_and_title_infer(tmp_path: Path) -> None:
     """Host catalog rows read summary + signals, not events.jsonl."""
     from groket.parser import load_host_list_meta

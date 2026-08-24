@@ -1,7 +1,7 @@
 """Non-recursive plane watch for live session / timeline refresh.
 
-Uses :mod:`watchfiles` on membership directories and the four session-plane
-files. ``workspace/`` is never subscribed.
+Uses :mod:`watchfiles` on membership directories and session directories.
+Plane writes land in those directories. ``workspace/`` is never subscribed.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from pathlib import Path
 from .session.watch import (
     PLANE_FILE_NAMES,
     plane_event_path,
-    plane_file_paths,
     session_dirs_under,
     watch_target_paths,
 )
@@ -22,7 +21,7 @@ from .session.watch import (
 logger = logging.getLogger(__name__)
 
 # Basenames that should reload a Grok session (harness + tests).
-# Owner watch still subscribes only PLANE_FILE_NAMES.
+# The owner watches session directories; these names classify events.
 TRACE_FILE_HINTS: tuple[str, ...] = (
     "updates.jsonl",
     "events.jsonl",
@@ -54,9 +53,11 @@ class TraceTreeWatch:
         debounce_s: float = 0.05,
         on_paths: Callable[[list[str]], None] | None = None,
         session_dir: Path | None = None,
+        host_root: Path | None = None,
     ) -> None:
         self._root = Path(root)
         self._session_dir = Path(session_dir) if session_dir is not None else None
+        self._host_root = Path(host_root) if host_root is not None else None
         self._on_change = on_change
         self._on_paths = on_paths
         self._debounce_s = max(0.0, float(debounce_s))
@@ -80,24 +81,18 @@ class TraceTreeWatch:
 
     def _collect_paths(self) -> list[Path]:
         if self._session_dir is not None:
-            sessions = [self._session_dir]
-            dirs = watch_target_paths([self._session_dir], sessions)
-        else:
-            sessions = session_dirs_under([self._root])
-            dirs = watch_target_paths([self._root], sessions)
-        files = [p for session in sessions for p in plane_file_paths(session) if p.is_file()]
-        return dirs + files
+            return watch_target_paths([self._session_dir], [self._session_dir])
+        sessions = session_dirs_under([self._root], host_root=self._host_root)
+        return watch_target_paths([self._root], sessions)
 
     def start(self) -> bool:
-        """Start watching. Returns False if *root* is missing or watch fails."""
+        """Start watching. True when the watch thread is up.
+
+        Ready is set after path collect, before ``watchfiles`` arms, so a
+        large tree cannot make ``start()`` return false.
+        """
         if not self._root.is_dir() and self._session_dir is None:
             return False
-        self._paths = [p for p in self._collect_paths() if p.exists() or p.is_dir()]
-        if not self._paths:
-            if self._root.is_dir():
-                self._paths = [self._root]
-            else:
-                return False
         self._stop.clear()
         self._ready.clear()
         thread = threading.Thread(target=self._run, name="groket-plane-watch", daemon=True)
@@ -114,15 +109,15 @@ class TraceTreeWatch:
             return
         debounce_ms = int(self._debounce_s * 1000)
         while not self._stop.is_set():
-            paths = [p for p in self._collect_paths() if p.exists()]
+            paths = self._collect_paths()
             if not paths:
                 self._ready.set()
                 if self._stop.wait(0.25):
                     return
                 continue
             self._paths = paths
+            self._ready.set()
             try:
-                armed = False
                 for changes in watch(
                     *paths,
                     recursive=False,
@@ -132,28 +127,40 @@ class TraceTreeWatch:
                     rust_timeout=200,
                     step=50,
                 ):
-                    if not armed:
-                        self._ready.set()
-                        armed = True
                     if self._stop.is_set():
                         return
                     if not changes:
                         continue
-                    fired = [
-                        path
-                        for _kind, path in changes
-                        if plane_event_path(Path(path)) and "workspace" not in Path(path).parts
-                    ]
+                    fired = [path for kind, path in changes if self._keep_event(kind, path)]
                     if fired:
                         self._emit(fired)
-                    nxt = [p for p in self._collect_paths() if p.exists()]
+                    if not any(self._membership_event(kind, path) for kind, path in changes):
+                        continue
+                    nxt = self._collect_paths()
                     if {str(p) for p in nxt} != {str(p) for p in paths}:
-                        # New or gone session: drop this watch() and resubscribe.
                         break
             except Exception:
                 logger.debug("FS watch iteration failed", exc_info=True)
                 if self._stop.wait(0.25):
                     return
+
+    def _membership_event(self, kind: object, path: str) -> bool:
+        """True for directory add/delete (not a plane-file write)."""
+        if Path(path).name in PLANE_FILE_NAMES:
+            return False
+        return isinstance(kind, int) and kind != 2
+
+    def _keep_event(self, kind: object, path: str) -> bool:
+        p = Path(path)
+        if any(part.casefold() == "workspace" for part in p.parts):
+            return False
+        if p.name in PLANE_FILE_NAMES:
+            return True
+        if self._session_dir is not None:
+            return False
+        if not isinstance(kind, int):
+            return False
+        return plane_event_path(p, kind=kind)
 
     def _emit(self, paths: list[str]) -> None:
         try:

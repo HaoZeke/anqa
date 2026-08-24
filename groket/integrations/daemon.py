@@ -583,7 +583,6 @@ async def serve_control_forever(
 
         asyncio.create_task(asyncio.to_thread(_warm))
 
-    # FS watch: membership + plane files; session/changed on apply.
     watches: list[TraceTreeWatch] = []
     loop = asyncio.get_running_loop()
     uniq_roots: list[Path] = []
@@ -608,15 +607,25 @@ async def serve_control_forever(
         loop=loop,
     )
     server._catalog_apply = apply  # type: ignore[attr-defined]
-    for root in uniq_roots:
+
+    async def _arm_watch(root: Path) -> None:
         watch = TraceTreeWatch(
             root,
             on_change=lambda: None,
             on_paths=apply.enqueue,
+            host_root=cache._host_root if isinstance(cache, SessionCatalogCache) else None,
         )
-        if watch.start():
+        ok = await asyncio.to_thread(watch.start)
+        if ok:
             watches.append(watch)
             logger.info("control FS watch on %s", root)
+        else:
+            logger.warning("control FS watch failed on %s", root)
+
+    watch_tasks = [
+        asyncio.create_task(_arm_watch(root), name=f"control-fs-watch-{root.name}")
+        for root in uniq_roots
+    ]
 
     try:
         assert server._server is not None
@@ -626,6 +635,10 @@ async def serve_control_forever(
         for watch in watches:
             with suppress(Exception):
                 watch.stop()
+        for task in watch_tasks:
+            task.cancel()
+        if watch_tasks:
+            await asyncio.gather(*watch_tasks, return_exceptions=True)
         if warm_task is not None:
             warm_task.cancel()
             with suppress(asyncio.CancelledError, Exception):

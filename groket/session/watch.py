@@ -1,6 +1,7 @@
-"""Non-recursive catalog watch: membership dirs and four plane files.
+"""Non-recursive catalog watch: membership dirs and session dirs.
 
-``workspace/`` is never subscribed. ``groket serve`` and the TUI share this path set.
+Plane writes show up as children of the session directory. ``workspace/``
+is never subscribed. ``groket serve`` and the TUI share this path set.
 """
 
 from __future__ import annotations
@@ -8,11 +9,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from ..parser import find_sessions
 from .sources import (
+    host_grok_sessions_root,
     is_encoded_cwd_name,
     is_host_skip_dir_name,
     list_host_session_dirs,
 )
+from .subagents import drop_subagent_sessions
 
 PLANE_FILE_NAMES: tuple[str, ...] = (
     "summary.json",
@@ -57,15 +61,36 @@ def membership_watch_dirs(roots: list[Path]) -> list[Path]:
     return out
 
 
-def session_dirs_under(roots: list[Path]) -> list[Path]:
-    """Listed session directories under catalog *roots* (no workspace descent)."""
+def _is_named_host_root(root: Path, host_root: Path) -> bool:
+    """True when *root* is the named host sessions tree (not a %2F sniff)."""
+    try:
+        return root.expanduser().resolve() == host_root.expanduser().resolve()
+    except OSError:
+        return False
+
+
+def session_dirs_under(
+    roots: list[Path],
+    *,
+    host_root: Path | None = None,
+) -> list[Path]:
+    """Listed session directories under catalog *roots* (no workspace descent).
+
+    The named host root uses the shallow host lister. Every other root uses
+    :func:`find_sessions` so nested eval sessions are included.
+    """
+    host = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
     found: list[Path] = []
     seen: set[str] = set()
     for raw in roots:
         root = Path(raw).expanduser()
         if not root.is_dir():
             continue
-        for session in list_host_session_dirs(root):
+        listed = (
+            list_host_session_dirs(root) if _is_named_host_root(root, host) else find_sessions(root)
+        )
+        listed = drop_subagent_sessions(listed)
+        for session in listed:
             key = str(session)
             if key in seen:
                 continue
@@ -107,30 +132,25 @@ def watch_target_paths(roots: list[Path], session_dirs: list[Path]) -> list[Path
 
 
 def catalog_subscribe_paths(roots: list[Path], session_dirs: list[Path]) -> list[Path]:
-    """Membership dirs plus four plane files. Never includes ``workspace/``."""
-    out = watch_target_paths(roots, session_dirs)
-    seen = {str(p) for p in out}
-    for session in session_dirs:
-        sd = Path(session)
-        if not _no_workspace(sd):
-            continue
-        for plane in plane_file_paths(sd):
-            key = str(plane)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(plane)
-    return out
+    """Membership dirs and session dirs. Never includes ``workspace/``."""
+    return watch_target_paths(roots, session_dirs)
 
 
-def plane_event_path(path: Path) -> bool:
-    """True when *path* is a plane file or a membership directory event."""
+# watchfiles.Change.modified — nested writes often report the session dir.
+_WATCH_MODIFIED = 2
+
+
+def plane_event_path(path: Path, *, kind: int | None = None) -> bool:
+    """True when *path* is a plane file or a membership add/delete."""
     if not _no_workspace(path):
         return False
     if path.name.casefold() == "workspace":
         return False
     if path.name in PLANE_FILE_NAMES:
         return True
+    if kind == _WATCH_MODIFIED:
+        # Nested plane writes often report the session directory.
+        return path.is_dir() and any((path / name).is_file() for name in PLANE_FILE_NAMES)
     return path.is_dir() or not path.suffix
 
 

@@ -245,7 +245,7 @@ openable child. Exporting an opened child is that child only.
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
 | `is:host` `is:eval` | Origin |
-| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:2`). Both words are listed in the schema; nothing is pluralized. `has:goal` is distinct goal ids in the trace. `has:plan` is times plan mode was entered. `has:task` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
+| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
 | `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
 | `in:~/path` | Directory the session was run in |

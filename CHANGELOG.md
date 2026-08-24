@@ -83,6 +83,10 @@ workspace diffs, Docker evals, and personas.
 
 - `groket serve` owns the per-user Unix socket. The four clients
   attach: terminal app, desktop HUD, Emacs, and Neovim.
+- Serve arms each catalog root watch off the serve loop. The watch
+  covers membership directories and session directories (not each
+  plane file). Catalog ``has:goal`` / ``has:plan`` follow the goal
+  and plan files on disk.
 - Bare `groket` and `groket hud` detach-start serve when the socket is
   free. Quitting a client leaves serve running.
 - `protocolVersion` is semver (`1.0.0`), independent of the product

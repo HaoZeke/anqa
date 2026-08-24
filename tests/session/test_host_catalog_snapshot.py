@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from groket.integrations.control_contract import PROTOCOL_VERSION
 from groket.parser import load_host_list_meta
 from groket.session.catalog import list_session_catalog, session_catalog_row
-from groket.session.mtime_export import HOST_CATALOG_SNAPSHOT_VERSION, write_host_catalog_export
+from groket.session.mtime_export import write_host_catalog_export
 
 
 def _host_session(
@@ -102,7 +103,7 @@ def test_host_export_is_stamp_gated(tmp_path: Path) -> None:
     second = write_host_catalog_export(dest, host_root=host)
     assert second == dest
     assert dest.stat().st_mtime == mtime1
-    assert json.loads(dest.read_text(encoding="utf-8"))["version"] == HOST_CATALOG_SNAPSHOT_VERSION
+    assert json.loads(dest.read_text(encoding="utf-8"))["version"] == PROTOCOL_VERSION
 
 
 def test_host_export_rebuilds_when_snapshot_version_changes(tmp_path: Path) -> None:
@@ -117,7 +118,7 @@ def test_host_export_rebuilds_when_snapshot_version_changes(tmp_path: Path) -> N
     dest.write_text(json.dumps(payload), encoding="utf-8")
     write_host_catalog_export(dest, host_root=host)
     rebuilt = json.loads(dest.read_text(encoding="utf-8"))
-    assert rebuilt["version"] == HOST_CATALOG_SNAPSHOT_VERSION
+    assert rebuilt["version"] == PROTOCOL_VERSION
     assert rebuilt["sessions"][0]["status"] != "—"
 
 
@@ -195,3 +196,31 @@ def test_list_session_catalog_events_growth_does_not_open_events(
     monkeypatch.setattr(Path, "open", track_open)
     list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
     assert not any(name.endswith("events.jsonl") for name in opened)
+
+
+def test_list_session_catalog_rebuilds_only_changed_host_row(tmp_path: Path, monkeypatch) -> None:
+    work = tmp_path / "work"
+    (work / "runs" / "traces").mkdir(parents=True)
+    host = tmp_path / "host"
+    _host_session(host, "still-sess", title="Still")
+    live = _host_session(host, "live-sess", title="Live", updates=_chunk_line())
+    dest = tmp_path / "snap.json"
+    rows1 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    by_id = {str(r["sessionId"]): r for r in rows1}
+    assert by_id["still-sess"]["status"] == "running"
+    assert by_id["live-sess"]["status"] == "running"
+    (live / "updates.jsonl").write_text(_turn_completed_line(), encoding="utf-8")
+
+    built: list[str] = []
+    real_row = session_catalog_row
+
+    def track_row(session_dir: Path, *, origin: str = "work", label: str | None = None) -> object:
+        built.append(session_dir.name)
+        return real_row(session_dir, origin=origin, label=label)
+
+    monkeypatch.setattr("groket.session.catalog.session_catalog_row", track_row)
+    rows2 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    by_id = {str(r["sessionId"]): r for r in rows2}
+    assert by_id["live-sess"]["status"] == "complete"
+    assert by_id["still-sess"]["title"] == "Still"
+    assert built == ["live-sess"]

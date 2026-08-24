@@ -319,41 +319,19 @@ def test_has_goals_quantity() -> None:
     assert not row_matches_query(row, "has:goal:2")
 
 
-def test_catalog_counts_goals_and_plans_created(tmp_path: Path) -> None:
-    import json
-
+def test_catalog_counts_goals_and_plans_from_side_files(tmp_path: Path) -> None:
     sess = tmp_path / "traced"
     sess.mkdir()
     (sess / "goal").mkdir()
     (sess / "goal" / "state.json").write_text('{"goal_id": "a"}', encoding="utf-8")
     (sess / "plan.json").write_text('{"todos": {}}', encoding="utf-8")
-    rows = [
-        {"params": {"update": {"sessionUpdate": "goal_updated", "goal_id": "a"}}},
-        {"params": {"update": {"sessionUpdate": "goal_updated", "goal_id": "a"}}},
-        {"params": {"update": {"sessionUpdate": "goal_updated", "goal_id": "b"}}},
-        {"params": {"update": {"sessionUpdate": "tool_call", "title": "enter_plan_mode"}}},
-        {"params": {"update": {"sessionUpdate": "plan", "entries": [{"content": "x"}]}}},
-        {"params": {"update": {"sessionUpdate": "tool_call", "title": "enter_plan_mode"}}},
-        {
-            "params": {
-                "update": {
-                    "sessionUpdate": "tool_call",
-                    "title": "grep",
-                    "rawInput": {"pattern": "enter_plan_mode"},
-                }
-            }
-        },
-    ]
-    (sess / "updates.jsonl").write_text(
-        "\n".join(json.dumps(row) for row in rows) + "\n",
-        encoding="utf-8",
-    )
-    assert catalog_goal_count(sess) == 2
-    assert catalog_plan_count(sess) == 2
-    row = CatalogQueryRow(has_goals=True, has_plan=True, counts={"goals": 2, "plans": 2})
-    assert row_matches_query(row, "goals:2")
-    assert row_matches_query(row, "plans:2")
-    assert not row_matches_query(row, "goals:3")
+    (sess / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    assert catalog_goal_count(sess) == 1
+    assert catalog_plan_count(sess) == 1
+    row = CatalogQueryRow(has_goals=True, has_plan=True, counts={"goals": 1, "plans": 1})
+    assert row_matches_query(row, "goals:1")
+    assert row_matches_query(row, "plans:1")
+    assert not row_matches_query(row, "goals:2")
     assert not row_matches_query(row, "has:goal:2")
     assert not row_matches_query(row, "has:plans")
 

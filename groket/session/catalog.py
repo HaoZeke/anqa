@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 from ..models import JsonObject, JsonValue, SessionMeta
-from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
-from .mtime_export import default_host_catalog_cache, load_or_rebuild_host_catalog
+from ..parser import find_sessions, load_host_list_meta, load_session_meta_list, session_trace_mtime
+from .mtime_export import default_catalog_snapshot, load_or_rebuild_catalog
 from .query import apply_catalog_presence_row, catalog_presence
 from .sources import (
     ORIGIN_HOST,
@@ -200,9 +199,9 @@ def list_session_catalog(
 ) -> list[JsonObject]:
     """Scan catalog roots and return wire-shaped rows for ``session/list``.
 
-    Work/eval rows load list-meta in a small thread pool. Host rows use
-    :func:`load_host_list_meta` (summary, signals, updates tail) and a
-    stamp-gated snapshot so a second list does not reopen those files.
+    Each scan root uses a stamp-gated snapshot so a second list rebuilds
+    only sessions whose ``summary.json`` / ``signals.json`` /
+    ``updates.jsonl`` mtimes changed.
 
     :param work_dir: Work root owning eval traces.
     :param traces_path: Optional traces path override.
@@ -219,18 +218,21 @@ def list_session_catalog(
     )
     work_roots = [root for root in roots if root.origin != ORIGIN_HOST]
     host_paths = [root.path for root in roots if root.origin == ORIGIN_HOST]
-    work_dirs = list(collect_session_dirs(work_roots)) if work_roots else []
     rows: list[JsonObject] = []
-    if work_dirs:
-        workers = min(4, max(1, len(work_dirs)))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            built = list(
-                pool.map(
-                    lambda item: session_catalog_row(item[0], origin=item[1]),
-                    work_dirs,
-                )
+    seen_work: set[str] = set()
+    for wroot in work_roots:
+        key = str(wroot.path)
+        if key in seen_work:
+            continue
+        seen_work.add(key)
+        rows.extend(
+            load_or_rebuild_catalog(
+                wroot.path,
+                dest=default_catalog_snapshot(wroot.path),
+                list_dirs=find_sessions,
+                build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_WORK),
             )
-        rows.extend(row for row in built if row is not None)
+        )
     seen_host: set[str] = set()
     for hroot in host_paths:
         key = str(hroot)
@@ -240,10 +242,10 @@ def list_session_catalog(
         dest = (
             host_catalog_cache
             if host_catalog_cache is not None
-            else default_host_catalog_cache(hroot)
+            else default_catalog_snapshot(hroot)
         )
         rows.extend(
-            load_or_rebuild_host_catalog(
+            load_or_rebuild_catalog(
                 hroot,
                 dest=dest,
                 build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_HOST),

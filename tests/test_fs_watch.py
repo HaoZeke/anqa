@@ -10,6 +10,7 @@ from groket.fs_watch import TraceTreeWatch
 from groket.session.watch import (
     JournalTail,
     catalog_subscribe_paths,
+    plane_event_path,
     plane_file_paths,
     session_dirs_under,
 )
@@ -26,15 +27,25 @@ def _write_session(root: Path, name: str) -> Path:
     return session
 
 
-def test_subscribe_paths_are_membership_and_plane_files(tmp_path: Path) -> None:
+def test_subscribe_paths_are_membership_and_session_dirs(tmp_path: Path) -> None:
     traces = tmp_path / "traces"
     session = _write_session(traces, "sess")
     paths = catalog_subscribe_paths([traces], [session])
-    names = {p.name for p in paths}
     assert traces in paths
     assert session in paths
-    assert {"summary.json", "signals.json", "updates.jsonl", "operator_notes.toml"} <= names
+    assert all(p.is_dir() for p in paths)
+    assert not any(
+        p.name in {"summary.json", "signals.json", "updates.jsonl", "operator_notes.toml"}
+        for p in paths
+    )
     assert not any("workspace" in p.parts for p in paths)
+
+
+def test_plane_event_keeps_modified_session_dir(tmp_path: Path) -> None:
+    session = _write_session(tmp_path, "live")
+    assert plane_event_path(session / "updates.jsonl") is True
+    assert plane_event_path(session, kind=2) is True
+    assert plane_event_path(tmp_path, kind=2) is False
 
 
 def test_path_relevant_ignores_workspace() -> None:
@@ -72,6 +83,8 @@ def test_watch_workspace_write_does_not_fire(tmp_path: Path) -> None:
     )
     assert w.start() is True
     try:
+        time.sleep(0.3)
+        hits.clear()
         (session / "workspace" / "src" / "a.py").write_text("print(2)\n", encoding="utf-8")
         time.sleep(0.3)
         assert hits == []
@@ -101,24 +114,21 @@ def test_journal_tail_second_append_does_not_reread(tmp_path: Path) -> None:
 def test_watch_resubscribes_plane_files_of_session_created_after_start(
     tmp_path: Path,
 ) -> None:
-    """A session mkdir after start must subscribe its plane files."""
+    """A session mkdir after start must subscribe that session directory."""
     traces = tmp_path / "traces"
     traces.mkdir()
     hits: list[list[str]] = []
     w = TraceTreeWatch(traces, lambda: None, on_paths=lambda paths: hits.append(list(paths)))
     assert w.start() is True
     try:
-        assert not any(p.name == "summary.json" for p in w.subscribed_paths())
+        assert not any(p.name == "late-sess" for p in w.subscribed_paths())
         session = traces / "late-sess"
         session.mkdir()
         (session / "summary.json").write_text("{}", encoding="utf-8")
         (session / "updates.jsonl").write_text("{}\n", encoding="utf-8")
         wait_until_sync(
-            lambda: any(
-                p.name == "summary.json" and p.parent.name == "late-sess"
-                for p in w.subscribed_paths()
-            ),
-            description="new session plane file subscribed after mkdir",
+            lambda: any(p.name == "late-sess" and p.is_dir() for p in w.subscribed_paths()),
+            description="new session directory subscribed after mkdir",
         )
         hits.clear()
         (session / "summary.json").write_text('{"title": "late"}\n', encoding="utf-8")
@@ -145,3 +155,107 @@ def test_session_dirs_under_skips_workspace(tmp_path: Path) -> None:
     found = session_dirs_under([traces])
     assert [p.resolve() for p in found] == [session.resolve()]
     assert plane_file_paths(session)[-1].name == "operator_notes.toml"
+
+
+def test_session_dirs_under_finds_work_nested_session(tmp_path: Path) -> None:
+    traces = tmp_path / "traces"
+    session = traces / "groket-abc" / "%2Fworkspace" / "sid"
+    session.mkdir(parents=True)
+    (session / "summary.json").write_text("{}", encoding="utf-8")
+    (session / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    found = session_dirs_under([traces])
+    assert [p.resolve() for p in found] == [session.resolve()]
+
+
+def test_session_dirs_under_drops_subagent(tmp_path: Path) -> None:
+    traces = tmp_path / "traces"
+    parent = _write_session(traces, "parent")
+    child = _write_session(traces, "child-sub")
+    (child / "summary.json").write_text(
+        '{"info":{"id":"child-sub"},"session_kind":"subagent"}',
+        encoding="utf-8",
+    )
+    (parent / "subagents" / "child-sub").mkdir(parents=True)
+    found = {p.name for p in session_dirs_under([traces])}
+    assert found == {"parent"}
+
+
+def test_start_is_true_when_watch_never_yields(tmp_path: Path, monkeypatch) -> None:
+    _write_session(tmp_path, "sess")
+
+    def never_yield(*_args: object, **kwargs: object):
+        stop = kwargs.get("stop_event")
+        if stop is not None:
+            stop.wait(30)
+        if False:
+            yield set()
+
+    monkeypatch.setattr("watchfiles.watch", never_yield)
+    w = TraceTreeWatch(tmp_path, lambda: None)
+    t0 = time.perf_counter()
+    assert w.start() is True
+    assert time.perf_counter() - t0 < 1.0
+    w.stop()
+
+
+def test_session_dirs_under_uses_named_host_root(tmp_path: Path) -> None:
+    host = tmp_path / "sessions"
+    nested = host / "%2Fproj" / "sid"
+    nested.mkdir(parents=True)
+    (nested / "summary.json").write_text("{}", encoding="utf-8")
+    junk = host / "%2Fproj" / "sid" / "workspace" / "deep"
+    junk.mkdir(parents=True)
+    (junk / "summary.json").write_text("{}", encoding="utf-8")
+    found = session_dirs_under([host], host_root=host)
+    assert [p.resolve() for p in found] == [nested.resolve()]
+
+
+def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
+    session = _write_session(tmp_path, "sess")
+    hits: list[int] = []
+    w = TraceTreeWatch(tmp_path, lambda: hits.append(1), session_dir=session)
+    assert w.start() is True
+    collects = {"n": 0}
+    real = w._collect_paths
+
+    def counted() -> list[Path]:
+        collects["n"] += 1
+        return real()
+
+    w._collect_paths = counted
+    try:
+        before = collects["n"]
+        (session / "summary.json").write_text('{"title": "x"}\n', encoding="utf-8")
+        wait_until_sync(lambda: bool(hits), description="plane write fires")
+        assert collects["n"] == before
+    finally:
+        w.stop()
+
+
+def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path) -> None:
+    host = tmp_path / "sessions"
+    bucket = host / "%2Fproj"
+    bucket.mkdir(parents=True)
+    hits: list[list[str]] = []
+    w = TraceTreeWatch(
+        host,
+        lambda: None,
+        on_paths=lambda paths: hits.append(list(paths)),
+        host_root=host,
+    )
+    assert w.start() is True
+    try:
+        session = bucket / "late-host"
+        session.mkdir()
+        (session / "summary.json").write_text("{}", encoding="utf-8")
+        (session / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+        wait_until_sync(
+            lambda: any(p.resolve() == session.resolve() for p in w.subscribed_paths()),
+            description="new host session dir subscribed after mkdir",
+        )
+        hits.clear()
+        (session / "summary.json").write_text('{"title": "late"}\n', encoding="utf-8")
+        wait_until_sync(lambda: bool(hits), description="plane write on new host session")
+    finally:
+        w.stop()
+    assert any(Path(p).name == "summary.json" for batch in hits for p in batch)

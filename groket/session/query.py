@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -886,43 +886,8 @@ def catalog_has_notes(session_dir: Path) -> bool:
     return catalog_note_count(session_dir) > 0
 
 
-def _session_updates(session_dir: Path, needles: tuple[str, ...]) -> Iterator[JsonObject]:
-    """Yield ``params.update`` objects from ``updates.jsonl`` matching *needles*."""
-    path = Path(session_dir) / "updates.jsonl"
-    if not path.is_file():
-        return
-    try:
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                if not any(needle in line for needle in needles):
-                    continue
-                try:
-                    raw = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(raw, dict):
-                    continue
-                params = raw.get("params")
-                if not isinstance(params, dict):
-                    continue
-                update = params.get("update")
-                if isinstance(update, dict):
-                    yield update
-    except OSError:
-        return
-
-
 def catalog_goal_count(session_dir: Path) -> int:
-    """Distinct ``goal_id`` values from ``goal_updated`` (else 1 if the file exists)."""
-    ids: set[str] = set()
-    for update in _session_updates(session_dir, ("goal_updated",)):
-        if update.get("sessionUpdate") != "goal_updated":
-            continue
-        gid = json_as_str(update.get("goal_id") or update.get("goalId")).strip()
-        if gid:
-            ids.add(gid)
-    if ids:
-        return len(ids)
+    """1 when ``goal/state.json`` is present, else 0."""
     return 1 if _is_file(Path(session_dir) / "goal" / "state.json") else 0
 
 
@@ -1002,15 +967,7 @@ def _plan_files_present(session_dir: Path) -> bool:
 
 
 def catalog_plan_count(session_dir: Path) -> int:
-    """Times plan mode was entered (``enter_plan_mode``), else 1 if a plan file exists."""
-    n = 0
-    for update in _session_updates(session_dir, ("enter_plan_mode",)):
-        if update.get("sessionUpdate") != "tool_call":
-            continue
-        if str(update.get("title") or "") == "enter_plan_mode":
-            n += 1
-    if n:
-        return n
+    """1 when a plan file exists, else 0."""
     return 1 if _plan_files_present(session_dir) else 0
 
 
