@@ -13,8 +13,8 @@ uv run anqa keys --check
 ```
 
 `colemak.toml` is a home-row nav map plus leader verbs, not a full
-layout emulator. `n`/`e` move the list; follow-up and Done are `; n`
-and `; e`. Space stays select. `g` stays HUD Turns to Timeline. The
+layout emulator. `n`/`e` move the list; next prompt and end session
+are `; n` and `; e`. Space stays select. `g` stays HUD Turns to Timeline. The
 recommended leader is `;`. Product default is no leader.
 
 A bad overlay is refused in full (`anqa keys --check` exits 1) and

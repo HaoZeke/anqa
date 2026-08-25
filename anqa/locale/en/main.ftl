@@ -1658,11 +1658,11 @@ status-complete = complete
 status-waiting-prompt = awaiting
 status-unknown = —
 
-# Follow-up shortcut (sessions home + browser)
-bind-next-prompt = Follow-up
-bind-end-session = Done
+# Next prompt / end session (sessions home + browser; off the footer rail)
+bind-next-prompt = Next prompt
+bind-end-session = End session
 cmd-next-prompt = Next prompt
-cmd-next-prompt-help = Send follow-up to awaiting sessions
+cmd-next-prompt-help = Send the next prompt to awaiting sessions
 cmd-end-session = End session
 cmd-end-session-help = Mark awaiting sessions done
 turn-filter-all = All turns

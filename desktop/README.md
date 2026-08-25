@@ -3,9 +3,8 @@
 Summonable session palette for anqa. The idle list is **Recent**
 (latest eight). Scroll down or press `j` at the bottom for the next
 eight. Type `/` to search the whole catalog. Open a session for Overview,
-Turns, Timeline, Diff, and Notes. Follow-up and Done when a session
-is awaiting. Notes use the same schema as the [terminal
-app](../README.md#terminal-app).
+Turns, Timeline, Diff, and Notes. Notes use the same schema as the
+[terminal app](../README.md#terminal-app).
 
 It attaches to [`anqa serve`](../docs/control.md) — same socket as the
 [terminal app](../README.md#terminal-app), [Emacs](../README.md#emacs),
@@ -53,7 +52,7 @@ hidden overlay does not poll; control notifies still refresh the
 catalog and fire desktop notifications. Press **?** for the shortcut
 cheatsheet and the same catalog search tokens as the terminal app.
 Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
-`h`/`l` for Timeline turns and Diff snapshots, `n`/`e` `N`); panes are Tab and Ctrl+1–5 except on Notes, where Tab walks the note fields. `u` or the logo leaves an
+`h`/`l` for Timeline turns and Diff snapshots, `N`); panes are Tab and Ctrl+1–5 except on Notes, where Tab walks the note fields. `u` or the logo leaves an
 open session for the session list (`Esc` still hides, or steps out of
 Timeline detail / a child first). `g` on Turns opens Timeline for that
 turn. Enter opens (or edits the focused note). A `keys.toml` remap applies on both

@@ -20,8 +20,9 @@ A shipped adapter does all of this:
 6. **Notes** on the session: in-tree for a directory locator, or
    `~/.anqa/notes/<harness>/<session_id>/` for a file or database.
 
-Follow-up, Done, rewind, and the context meter appear when that store
-writes the files those actions read. Missing product data stays unset.
+Next prompt, end session, rewind, and the context meter appear when
+that store writes the files those actions read. Missing product data
+stays unset.
 
 Adding an adapter: `.grok/skills/harness-adapter-qa/SKILL.md`.
 `just lint` runs `scripts/check_harness_adapters.py`.

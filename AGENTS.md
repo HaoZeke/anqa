@@ -617,13 +617,11 @@ Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
 ``h`` / ``l`` (and Left / Right)
 next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend, or the focused note;
-``n``/``e`` follow-up/Done when awaiting;
 ``x`` deletes the focused note (double-press);
 session delete is on the session list; ``N`` new note;
 ``E`` export. ``harness:<id>`` filters the catalog.
 
-Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
-(double-press). All adapter stores load.
+Sessions home also: ``x`` delete (double-press). All adapter stores load.
 
 ### 6.10 TUI and HUD: same action, same key
 
@@ -658,7 +656,7 @@ against the catalog.
 | ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
 | ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
-| ``n`` / ``e`` | Follow-up / Done while awaiting |
+| ``n`` / ``e`` | Next prompt / end session while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 

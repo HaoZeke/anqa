@@ -40,7 +40,6 @@ def _ctrl_s(action: str, description: str = t("ui-save"), *, id: str, show: bool
 APP_GLOBAL_PRIORITY: tuple[Binding, ...] = ()
 
 # Footer: Help · Back (pushed screens) · this screen's primary actions · Quit.
-# Jobs stays on the sessions-home rail (``J`` still works on every screen).
 # F5 / Ctrl+R refresh without a footer slot. Home-only actions are gated in
 # AnqaApp.check_action so they do not leak into pushed-screen footers.
 # Quit is global (not priority): works on every screen; Input/TextArea still
@@ -58,7 +57,7 @@ LIST_SELECT: tuple[Binding, ...] = (
 LIST_SELECT_ALL: tuple[Binding, ...] = (
     _b("S", "select_all_toggle", U.bind_select_all(), id="list.select_all", show=False),
 )
-# Sessions home only — order: Help/Jobs chrome, primary list actions, Quit last.
+# Sessions home only — order: Help, primary list actions, Quit last.
 APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("enter", "open_session", U.bind_open(), id="session.open", show=True),
     _b("slash", "search_sessions", U.bind_search(), id="search.focus", show=True),
@@ -66,10 +65,10 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("S", "select_all", U.bind_select_all(), id="list.select_all", show=False),
     _b("x,delete", "delete_sessions", U.bind_delete(), id="session.delete", show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), id="session.export", show=False),
-    _b("n", "follow_up_sessions", U.bind_next_prompt(), id="session.follow", show=True),
-    _b("e", "mark_sessions_done", U.bind_end_session(), id="session.done", show=True),
+    _b("n", "follow_up_sessions", U.bind_next_prompt(), id="session.follow", show=False),
+    _b("e", "mark_sessions_done", U.bind_end_session(), id="session.done", show=False),
 )
-# Pushed screens: Help · Back · Quit. Jobs / refresh stay bound, not in the rail.
+# Pushed screens: Help · Back · Quit. Refresh stays bound, not in the rail.
 SCREEN_CHROME: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), id="help.toggle", show=True),
     _b("escape", "go_back", U.bind_back(), id="overlay.hide", show=True),
@@ -154,8 +153,8 @@ BROWSER: tuple[Binding, ...] = (
             priority=True,
         ),
         _b("E", "export_bundle", U.bind_export_bundle(), id="session.export", show=True),
-        _b("n", "focus_follow_up", U.bind_next_prompt(), id="session.follow", show=True),
-        _b("e", "mark_session_done", U.bind_end_session(), id="session.done", show=True),
+        _b("n", "focus_follow_up", U.bind_next_prompt(), id="session.follow", show=False),
+        _b("e", "mark_session_done", U.bind_end_session(), id="session.done", show=False),
     )
 )
 CAPABILITY_PICKER: tuple[Binding, ...] = (
@@ -204,7 +203,7 @@ from .quit_actions import QuitActions
 
 
 class ChromeActions(QuitActions, Screen):
-    """Base for screens using SCREEN_CHROME (Esc / help / refresh / jobs / quit).
+    """Base for screens using SCREEN_CHROME (Esc / help / refresh / quit).
 
     **Esc** blurs a focused Input / TextArea / Select first; then, if
     :meth:`form_is_dirty` is true, asks to discard edits; otherwise leaves.

@@ -53,6 +53,15 @@ def test_readme_has_four_client_headings() -> None:
         assert heading in text, heading
 
 
+def test_help_rich_omits_eval_era_follow_up_label() -> None:
+    help_text = HELP.read_text(encoding="utf-8")
+    readme = README.read_text(encoding="utf-8")
+    assert "Follow-up" not in help_text
+    assert "follow-up" not in help_text
+    assert "Follow-up" not in readme
+    assert "| n / e |" not in readme
+
+
 def test_help_rich_actions_appear_in_readme_key_table() -> None:
     readme = README.read_text(encoding="utf-8")
     rows = _help_rows()

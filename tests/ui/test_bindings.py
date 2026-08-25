@@ -49,30 +49,32 @@ class TestBindingTuples:
         assert "quit" in shown
         assert "refresh_context" not in shown
         assert "open_session" in shown
-        assert "open_runner" not in shown
+        assert "follow_up_sessions" not in shown
+        assert "mark_sessions_done" not in shown
+        assert any(b.action == "follow_up_sessions" for b in APP_SESSIONS)
+        assert any(b.action == "mark_sessions_done" for b in APP_SESSIONS)
 
     def test_footer_chrome_order_pushed_screens(self) -> None:
-        """Pushed screens: Help then Back then Quit. Jobs stays bound, off the rail."""
+        """Pushed screens: Help then Back then Quit. Refresh stays bound, off the rail."""
         shown = _shown_actions(SCREEN_CHROME)
         assert shown == ["show_help", "go_back", "quit"]
-        assert "open_jobs" not in shown
         assert "refresh_context" not in shown
-        assert not any(b.action == "open_jobs" for b in SCREEN_CHROME)
 
     def test_browser_footer_is_session_actions(self) -> None:
-        """Session rail: note, delete, copy, export — not jobs or analyze."""
+        """Session rail: note, delete, copy, export — not next prompt or end session."""
         shown = set(_shown_actions(BROWSER))
-        assert "open_jobs" not in shown
         assert "delete_session" in shown
         assert "edit_operator_note" not in shown
         assert "toggle_event_reader" in shown
-        assert "analyze" not in shown
         assert "show_help" in shown
         assert "go_back" in shown
-        assert "flag_event" not in shown
         assert "operator_note" in shown
         assert "copy_detail" in shown
         assert "export_bundle" in shown
+        assert "focus_follow_up" not in shown
+        assert "mark_session_done" not in shown
+        assert any(b.action == "focus_follow_up" for b in BROWSER)
+        assert any(b.action == "mark_session_done" for b in BROWSER)
 
     def test_browser_binds_four_pane_digits(self) -> None:
         actions = {b.action for b in BROWSER}
@@ -85,10 +87,10 @@ class TestBindingTuples:
 
     def test_session_home_actions_covers_list_bindings(self) -> None:
         assert "quit" not in SESSION_HOME_ACTIONS  # global, not home-gated
-        assert "open_runner" not in SESSION_HOME_ACTIONS
         assert "open_session" in SESSION_HOME_ACTIONS
         assert "show_help" not in SESSION_HOME_ACTIONS
-        assert "open_jobs" not in SESSION_HOME_ACTIONS
+        assert "follow_up_sessions" in SESSION_HOME_ACTIONS
+        assert "mark_sessions_done" in SESSION_HOME_ACTIONS
 
 
 class TestFocusPrimaryList:

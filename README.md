@@ -101,8 +101,8 @@ A missing file keeps the catalog defaults. Esc, Enter, Tab, Shift+Tab, and
 `?` are not remappable. The product default has no leader. An overlay may
 set one printable leader (recommended Colemak: `;`) and bind `leader+X`
 for one extra letter. Copy [`examples/keys/colemak.toml`](examples/keys/colemak.toml)
-to `~/.anqa/keys.toml` for home-row `n`/`e` nav with follow-up and Done
-behind the leader. The TUI and HUD both use the resolved map for footer,
+to `~/.anqa/keys.toml` for home-row `n`/`e` list motion (leader then
+letter). The TUI and HUD both use the resolved map for footer,
 help, and dispatch. The footer shows the leader while it is armed.
 
 ```bash
@@ -120,7 +120,7 @@ desktop HUD, and control clients all treat that store the same way:
 discover sessions, load list meta and a timeline, watch the store for
 changes, and filter with `harness:<id>`.
 
-What you can *do* in a session (follow-up, Done, rewind, context meter)
+What you can *do* in a session (next prompt, end session, rewind, context meter)
 comes from files that store writes. An adapter never invents those.
 
 | Id | Product | Store | Catalog path |
@@ -155,7 +155,7 @@ Failed runs are listed on Summary.
 ## Terminal app
 
 `anqa` (or `anqa tui`) is the session client: session list, browser
-panes, follow-up, notes, and export. Diff lists rewind
+panes, notes, and export. Diff lists rewind
 snapshots (or approximate `search_replace` edits) with Prompt and
 Assistant tabs above a files and hunk split.
 The footer lists the keys that apply now; `?` is the full list.
@@ -176,7 +176,6 @@ The footer lists the keys that apply now; `?` is the full list.
 | s / Space | sessions | Select (also Space) |
 | S | sessions | Select all |
 | E | sessions | Export a session bundle |
-| n / e | sessions | Follow-up / Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
@@ -190,13 +189,12 @@ The footer lists the keys that apply now; `?` is the full list.
 | s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
 | x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session |
-| n / e | browser / HUD | Follow-up / Done while awaiting |
 | s | pickers | Select |
 | Ctrl+S | pickers | Apply the selection |
 | Esc | pickers | Cancel |
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
-/ `h` `l` (Timeline turns while All turns is selected) / `n` `e` (awaiting) / `N`. HUD panes are Tab
+/ `h` `l` (Timeline turns while All turns is selected) / `N`. HUD panes are Tab
 and Ctrl+1–5 except on Notes, where Tab walks the note fields and
 Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
 `]` / `h` `l` jump to the next or previous turn that still matches
@@ -243,8 +241,7 @@ Timeline search (same `AND` / `OR` / `NOT`) also takes `is:tool` (or `user`, `as
 Summonable palette: Recent sessions (scroll or `j` for more), catalog
 search (same query language as the terminal list), then Overview /
 Turns / Timeline / Diff / Notes. `u` or the logo
-returns to the session list. Follow-up and Done
-when awaiting.
+returns to the session list.
 Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash

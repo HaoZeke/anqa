@@ -45,7 +45,8 @@ harness store. Grok Build (`grok`) is registered today.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
-- Follow-up (`n`) and Done (`e`) apply while a session is awaiting.
+- Next prompt (`n`) and end session (`e`) apply while a session is
+  awaiting. Those keys stay off the footer and `?` tables.
 - Every note has a `source`. Extra field keys are stored as sent.
   Report and HUD Notes show the writer badge and the stored fields.
 
