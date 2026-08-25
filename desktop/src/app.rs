@@ -5595,7 +5595,11 @@ impl Hud {
         self.follow_id.clone()
     }
     pub fn selected_awaiting(&self) -> bool {
-        false
+        crate::live::is_live_status(&self.selected_status())
+            && self
+                .selected_status()
+                .to_ascii_lowercase()
+                .contains("await")
     }
 
     fn send_follow(&mut self) -> Task<Message> {

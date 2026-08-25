@@ -1056,10 +1056,10 @@ mod tests {
     fn remap_list_down_requires_moving_follow() {
         let refused = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n");
         assert!(refused.is_none());
-        let ok = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"search.focus\" = \"z\"\n")
+        let ok = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n")
             .expect("valid swap");
         assert_eq!(ok.chord("list.down", "j"), "n");
-        assert_eq!(ok.chord("search.focus", "n"), "z");
+        assert_eq!(ok.chord("session.follow", "n"), "z");
         assert_eq!(ok.chord("list.up", "k"), "k");
     }
 
@@ -1083,21 +1083,21 @@ mod tests {
             "[home]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"search.focus\" = \"leader+n\"\n",
+            "\"session.follow\" = \"leader+n\"\n",
             "\"session.done\" = \"leader+e\"\n",
             "[browser]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"search.focus\" = \"leader+n\"\n",
+            "\"session.follow\" = \"leader+n\"\n",
             "\"session.done\" = \"leader+e\"\n",
         );
         let overlay = KeyOverlay::parse(text).expect("colemak overlay");
         assert_eq!(overlay.leader(), Some(";"));
         assert_eq!(overlay.leader_timeout_ms(), 800);
         assert_eq!(overlay.chord("list.down", "j"), "n");
-        assert_eq!(overlay.chord("search.focus", "n"), "leader+n");
+        assert_eq!(overlay.chord("session.follow", "n"), "leader+n");
         assert!(!overlay.matches(
-            "search.focus",
+            "session.follow",
             "n",
             &Key::Character("n".into()),
             KeyMods::empty()
@@ -1105,14 +1105,14 @@ mod tests {
         assert!(overlay.is_leader_key(&Key::Character(";".into()), KeyMods::empty()));
         assert_eq!(
             overlay.lookup_sequence(&Key::Character("n".into()), KeyMods::empty()),
-            Some("search.focus")
+            Some("session.follow")
         );
         assert_eq!(
             overlay.lookup_sequence(&Key::Character("e".into()), KeyMods::empty()),
             Some("session.done")
         );
         assert_eq!(
-            overlay.sequence_display("search.focus", "n").as_deref(),
+            overlay.sequence_display("session.follow", "n").as_deref(),
             Some("; n")
         );
         assert_eq!(
@@ -1124,7 +1124,8 @@ mod tests {
     #[test]
     fn matches_remapped_n_like_default_j() {
         let overlay =
-            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"search.focus\" = \"z\"\n").unwrap();
+            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n")
+                .unwrap();
         assert!(overlay.matches(
             "list.down",
             "j",
@@ -1225,7 +1226,7 @@ mod tests {
             "../../tests/keys/fixtures/overlay_single_quote.toml"
         ))
         .expect("single-quoted remap");
-        assert_eq!(quoted.chord("search.focus", "n"), "z");
+        assert_eq!(quoted.chord("session.follow", "n"), "z");
     }
 
     #[test]

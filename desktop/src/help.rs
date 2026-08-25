@@ -960,7 +960,7 @@ mod tests {
     #[test]
     fn armed_leader_shows_in_footer() {
         let overlay = crate::keys::KeyOverlay::parse(
-            "leader = \";\"\n[home]\n\"search.focus\" = \"leader+slash\"\n\"list.down\" = \"n\"\n",
+            "leader = \";\"\n[home]\n\"search.focus\" = \"leader+slash\"\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
         )
         .expect("leader overlay");
         let scope = KeyScope {
@@ -993,12 +993,10 @@ mod tests {
         let overlay = crate::keys::KeyOverlay::parse(concat!(
             "leader = \";\"\n",
             "[home]\n",
-            "\"list.down\" = \"n\"\n",
-            "\"list.up\" = \"e\"\n",
-            "\"search.focus\" = \"leader+slash\"\n",
+            "\"session.follow\" = \"leader+n\"\n",
             "\"sessions.home\" = \"leader+u\"\n",
         ))
-        .expect("colemak");
+        .expect("sequence overlay");
         let scope = KeyScope {
             browse: true,
             help_open: false,
@@ -1016,20 +1014,22 @@ mod tests {
         };
         let hints = footer_table_for(scope, &overlay).footer_hints();
         let blob = hints.join("  ·  ");
-        assert!(blob.contains("; /") || blob.contains("; slash"), "{blob}");
+        assert!(blob.contains("; u"), "{blob}");
         let help = help_table_for(scope, &overlay);
-        let search = help.get("search.focus").expect("search");
-        let chord = search.shortcut.as_ref().map(ToString::to_string);
+        let home = help.get("sessions.home").expect("sessions.home");
+        let chord = home.shortcut.as_ref().map(ToString::to_string);
         assert!(
-            chord.as_deref() == Some("; /") || chord.as_deref() == Some("; slash"),
+            chord.as_deref() == Some("; u") || chord.as_deref() == Some(";u"),
             "{chord:?}"
         );
     }
 
     #[test]
     fn overlay_remap_shows_in_footer_and_help() {
-        let overlay = crate::keys::KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n")
-            .expect("valid overlay");
+        let overlay = crate::keys::KeyOverlay::parse(
+            "[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
+        )
+        .expect("valid overlay");
         let hints = footer_table_for(picker(), &overlay).footer_hints();
         let blob = hints.join("  ·  ");
         assert!(blob.contains("n down"), "{blob}");
