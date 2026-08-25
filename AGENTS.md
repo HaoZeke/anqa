@@ -62,8 +62,10 @@ Before **any** agent commit:
 2. **Owning tests** for the files you touched green (see §11.6).
 3. **`git status`** — stage intended files only; no secrets.
 4. Commit with a clear imperative message (why, not only what).
-5. If GPG signing fails non-interactively:
-   ``git -c commit.gpgsign=false commit …`` and note it.
+5. Sign every commit (``git commit -S`` / ``commit.gpgsign=true``).
+   If there is no TTY, pop a macOS passphrase dialog (or open
+   Terminal so pinentry can run) and sign in that same turn.
+   Never ``git -c commit.gpgsign=false``.
 
 Re-run those owning tests after the final diff for that commit.
 ``just test`` / ``just ci`` (and HUD ``just hud-check``) are the publish
