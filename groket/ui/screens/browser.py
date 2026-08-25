@@ -861,7 +861,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         (sibling sessions, seed trees) and freezes the TUI mid-run. Turn-gate
         transitions are polled on the snapshot / pending-bar path instead.
 
-        Host Grok session dirs (and any symlink) are resolved so the OS watch
+        Host session dirs (and any symlink) are resolved so the OS watch
         sees real file writes under ``~/.grok/sessions``.
         """
         root = Path(self.session_dir)

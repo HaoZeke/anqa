@@ -26,7 +26,7 @@ setup_i18n()
 app = typer.Typer(
     name="groket",
     help=(
-        "Session eval for Grok traces.\n\n"
+        "Inspect harness sessions.\n\n"
         "With no command: open the TUI "
         "([cyan]PATH[/cyan] or [cyan]-P PATH[/cyan] = work root, traces, or session; "
         "default [cyan]~/.groket/work[/cyan]).\n\n"

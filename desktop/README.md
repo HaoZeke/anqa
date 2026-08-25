@@ -78,7 +78,7 @@ without taking keyboard focus. **Quit groket** exits the palette
 only; serve stays up.
 
 Desktop notifications fire for eval sessions groket launched (awaiting,
-complete, cancelled, failed). Host Grok chats already notify on their
+complete, cancelled, failed). Host chats already notify on their
 own; groket does not repeat those.
 Linux uses the 64px
 tray tile; macOS and Windows use the square app icon

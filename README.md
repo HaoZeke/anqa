@@ -141,8 +141,8 @@ which is Docker / serve / container logs.
 ## Terminal app
 
 `groket` (or `groket tui`) is the session client: session list, browser
-panes, runner, recipes, personas, and export. Diff lists Grok
-rewind snapshots (or approximate `search_replace` edits) with Prompt and
+panes, runner, recipes, personas, and export. Diff lists rewind
+snapshots (or approximate `search_replace` edits) with Prompt and
 Assistant tabs above a files and hunk split.
 The footer lists the keys that apply now; `?` is the full list.
 
@@ -218,7 +218,7 @@ turn. Enter opens (or edits the focused note).
 
 | Path | When | What happens |
 |------|------|----------------|
-| Follow-up (`n`) | Container still running and awaiting | Same Grok session; next prompt on the turn gate |
+| Follow-up (`n`) | Container still running and awaiting | Same session; next prompt on the turn gate |
 | Done (`e`) | Awaiting | Mark done; list may show **ending** until shutdown finishes |
 | Fork (`f`) | Session has *ended* | New Docker launch; parent history seeded; new session id |
 | Re-run (`R`) | Any listed session | New launch from the same recipe fields |
@@ -279,7 +279,7 @@ search (same query language as the terminal list), then Overview /
 Turns / Timeline / Diff / Notes. `u` or the logo
 returns to the session list. Follow-up and Done
 when awaiting. It does not launch evals. Desktop notices are for eval
-sessions; Host Grok chats already notify on their own.
+sessions; host chats already notify on their own.
 Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash

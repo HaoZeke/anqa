@@ -1,6 +1,6 @@
 # Groket performance goals
 
-Groket is a keyboard-first monitor for Grok Build sessions: a home list of
+Groket is a keyboard-first monitor for harness sessions: a home list of
 sessions, live status, and inspection of **one** open session (timeline,
 overview, notes, report). It should feel light to open and to leave
 running. Heavy work belongs on `groket serve` and on the one session the

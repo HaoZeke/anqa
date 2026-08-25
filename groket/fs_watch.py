@@ -20,7 +20,7 @@ from .session.watch import (
 
 logger = logging.getLogger(__name__)
 
-# Basenames that should reload a Grok session (harness + tests).
+# Basenames that should reload a directory session (harness + tests).
 # The owner watches session directories; these names classify events.
 TRACE_FILE_HINTS: tuple[str, ...] = (
     "updates.jsonl",

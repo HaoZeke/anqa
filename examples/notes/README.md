@@ -26,9 +26,11 @@ Existing schemas without `choices` keep working as free text.
 Notes are stored as `<session_dir>/operator_notes.toml` (fallback:
 `~/.groket/notes/<session_id>/operator_notes.toml`).
 
-Host Grok sessions (optional **Host** catalog / `H` on the sessions list) use
-the same notes flow; notes always write under
-`~/.groket/notes/<session_id>/` so the live `~/.grok/sessions` tree is not
+Host sessions (optional **Host** catalog / `H` on the sessions list) use
+the same notes flow. Directory stores keep notes in the session tree;
+file or database stores write under
+`~/.groket/notes/<harness>/<session_id>/`. Host Grok trees under
+`~/.grok/sessions` still use the fallback so that live store is not
 modified.
 
 ## TUI

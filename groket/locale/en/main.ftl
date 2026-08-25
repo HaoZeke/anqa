@@ -543,7 +543,7 @@ search-help-under-box = Tokens appear under the box as you type. Tab completes t
 
 help-brand-name = groket
 
-help-brand-tagline = Evaluate Grok Build sessions
+help-brand-tagline = Inspect harness sessions
 
 chrome-folder = { $label }  { $path }
 
@@ -1783,6 +1783,6 @@ ui-origin-host = Host
 ui-control-socket-attach-failed = Control owner not reachable
 
 ui-control-owner-stale = control owner is older · run: groket serve restart
-notify-host-sessions-on = Host sessions shown (native ~/.grok/sessions)
+notify-host-sessions-on = Host sessions shown
 notify-host-sessions-off = Host sessions hidden
 

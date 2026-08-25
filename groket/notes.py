@@ -4,9 +4,9 @@ Schema: ``~/.groket/notes_schema.toml`` (default fields: summary, detail)
 is the in-app form layout only. Every write must include a non-empty
 ``source``. Extra field keys are stored as sent. Session file:
 ``<session_dir>/operator_notes.toml``, fallback under
-``~/.groket/notes/<session_id>/``. Host Grok sessions under ``~/.grok/sessions``
-(and any symlinked session dir) always write the fallback so the live host
-tree stays clean.
+``~/.groket/notes/<session_id>/``. Host trees under ``~/.grok/sessions``
+(and any symlinked session dir) always write the fallback so the live
+Grok store stays clean.
 """
 
 from __future__ import annotations
@@ -475,7 +475,7 @@ def _load_notes_source(session_dir: Path) -> tuple[NotesDoc, Path | None]:
 def load_notes(session_dir: Path) -> NotesDoc:
     """Load notes for *session_dir*; prefer newer of primary vs fallback.
 
-    :param session_dir: Grok session directory.
+    :param session_dir: Session directory.
     :returns: Parsed :class:`NotesDoc` (may be empty).
     """
     return _load_notes_source(Path(session_dir))[0]
@@ -552,7 +552,7 @@ def notes_mtime(session_dir: Path) -> float:
 
     Callers re-read notes when this mtime moves.
 
-    :param session_dir: Grok session directory.
+    :param session_dir: Session directory.
     :returns: Unix mtime, or ``0.0`` when no notes file exists.
     """
     primary, fallback = _notes_paths(Path(session_dir))
@@ -562,8 +562,8 @@ def notes_mtime(session_dir: Path) -> float:
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     """Write *doc* beside the session; fall back under ``~/.groket/notes``.
 
-    Host Grok sessions and symlinked session dirs skip the primary path so
-    ``~/.grok/sessions`` is not modified.
+    Host trees under ``~/.grok/sessions`` and symlinked session dirs skip
+    the primary path so that live store is not modified.
 
     :raises OSError: When both primary and fallback writes fail.
     """

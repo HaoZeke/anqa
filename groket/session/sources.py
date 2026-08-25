@@ -1,7 +1,7 @@
-"""Session catalog roots: eval (Docker) traces and optional host Grok sessions.
+"""Session catalog roots: eval (Docker) traces and optional host stores.
 
 Eval catalog (always): ``<work>/runs/traces`` — sessions launched by groket.
-Host catalog (optional): ``~/.grok/sessions`` — native Grok Build sessions.
+Host catalog (optional): native stores (shipped walk: ``~/.grok/sessions``).
 
 On-disk origin codes remain ``work`` / ``host``; the TUI labels them Eval / Host.
 """
@@ -119,7 +119,7 @@ def session_scan_roots(
     """Roots for the sessions home list.
 
     Always includes the work traces tree. When *include_host* is true, also
-    includes the host Grok sessions root. An explicit *traces_path* that is
+    includes the host sessions root. An explicit *traces_path* that is
     not already covered is added with a classified origin.
     """
     work = work_traces_root(work_dir)

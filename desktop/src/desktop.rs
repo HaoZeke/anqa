@@ -107,7 +107,7 @@ pub fn notice_row_key(origin: &str, sid: &str) -> String {
     }
 }
 
-/// Host Grok already posts turn / session bubbles; groket must not repeat them.
+/// Host chats already post turn / session bubbles; groket must not repeat them.
 fn is_host_notice_key(key: &str) -> bool {
     key.split_once(':')
         .is_some_and(|(origin, _)| origin == "host")

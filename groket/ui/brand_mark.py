@@ -45,7 +45,7 @@ def paths_banner(work: Path, host: Path | None = None) -> str:
     """Eval / optional Host folder line.
 
     :param work: Eval traces root.
-    :param host: Optional host Grok sessions root.
+    :param host: Optional host sessions root.
     :returns: Rich markup for the banner Static.
     """
     eval_bit = t("chrome-folder", label=t("ui-origin-work"), path=str(work))

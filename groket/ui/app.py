@@ -465,7 +465,7 @@ class TraceEvalApp(App):
         return Path(self.work_dir).expanduser() / "runs" / "traces"
 
     def _update_session_paths_banner(self) -> None:
-        """Work traces and host Grok sessions (``is:host`` filters the list)."""
+        """Work traces and host sessions (``is:host`` filters the list)."""
         try:
             banner = self.query_one("#session-paths", Static)
         except Exception:

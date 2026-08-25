@@ -22,7 +22,7 @@ def export_session_with_notify(
     Call from a worker thread (``@work``). Uses :func:`call_ui` for notifications.
 
     :param owner: Screen or app that owns ``notify`` (and ``app`` when a screen).
-    :param session_dir: Grok session directory to export.
+    :param session_dir: Session directory to export.
     :param profile: Export profile id; default profile when omitted.
     """
     from ..session.export_bundle import export_session_bundle

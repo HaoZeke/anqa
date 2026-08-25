@@ -1973,7 +1973,7 @@ fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     let files_body: Element<'_, Message> = if files.is_empty() {
         kit::status_empty(
             "No file changes",
-            "Grok rewind snapshots or search_replace edits for this session.",
+            "Rewind snapshots or search_replace edits for this session.",
             tea,
         )
     } else {

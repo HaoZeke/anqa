@@ -210,7 +210,7 @@ def resolve_work_and_traces(path: Path | str | None = None) -> tuple[Path, Path]
                 return parent.parent, parent
             return parent, parent
 
-        # Host Grok sessions tree: browse in place; runner still uses default work root.
+        # Host sessions tree: browse in place; runner still uses default work root.
         if p.name == "sessions" and p.parent.name == ".grok":
             wd = default_work_dir()
             try:

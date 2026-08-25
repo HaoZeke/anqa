@@ -104,7 +104,7 @@ def catalog_scan_roots(
 
     :param work_dir: Work root (``runs/traces`` lives under this).
     :param traces_path: Optional extra traces path (CLI ``-P`` override).
-    :param include_host: When true, include host Grok sessions; when false,
+    :param include_host: When true, include host native stores; when false,
         work only; when None, include host (``is:host`` filters the list).
     :param host_root: Override for the host sessions root (tests).
     :returns: Ordered scan roots (work first).
