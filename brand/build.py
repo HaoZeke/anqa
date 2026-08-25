@@ -340,6 +340,7 @@ def main() -> None:
     save_png(to_image(remap_duo(bird)), "anqa-mark-duo.png")
     save_png(to_image(remap_mono(bird, bird_origin)), "anqa-mark-mono.png")
     rev = to_image(remap_reverse(bird))
+    save_png(rev, "anqa-mark-on-dark.png")
     rev_on_ink = Image.new("RGBA", rev.size, (*INK_RGB, 255))
     rev_on_ink.alpha_composite(rev)
     save_png(rev_on_ink, "anqa-mark-reverse.png")
