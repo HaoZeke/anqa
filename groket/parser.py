@@ -2267,7 +2267,7 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
     start with the operator-selected model and effort). Older traces without
     that file fall back to ``run.json`` mapping and directory-name inference.
     """
-    from .runs.launch_meta import apply_launch_meta, read_launch_meta
+    from .session.launch_meta import apply_launch_meta, read_launch_meta
 
     launch = read_launch_meta(session_dir)
     if launch is not None:
@@ -2297,7 +2297,7 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
             if launch is None:
                 resolved = _model_from_run_json(session_dir, run_data)
                 if resolved:
-                    from .runs.batch import split_model_effort
+                    from .session.models_catalog import split_model_effort
 
                     mid, eff = split_model_effort(resolved)
                     meta.model_id = mid or resolved
@@ -2648,7 +2648,7 @@ def _match_model_to_container(container_name: str, models: list[str]) -> str:
     Runner names containers ``groket-{run_id}-{modelTail}`` or
     ``groket-{run_id}-{modelTail}-{effortPrefix}`` when effort is set.
     """
-    from .runs.batch import split_model_effort
+    from .session.models_catalog import split_model_effort
 
     cname = _strip_container_name_disambiguator(container_name)
     best = ""
@@ -2695,7 +2695,7 @@ def _strip_container_name_disambiguator(name: str) -> str:
 
 def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
     """Infer effort from a ``groket-{run_id}-{slug}`` parent (effort suffix in slug)."""
-    from .runs.batch import REASONING_EFFORTS
+    from .session.models_catalog import REASONING_EFFORTS
 
     # Longest names first so ``xhigh`` wins over ``high``.
     efforts = sorted(REASONING_EFFORTS, key=len, reverse=True)
@@ -2726,7 +2726,7 @@ def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
 
 def _reasoning_effort_from_run_config(session_dir: Path) -> str:
     """Read ``default_reasoning_effort`` from a run ``*config.toml`` if present."""
-    from .runs.batch import REASONING_EFFORTS
+    from .session.models_catalog import REASONING_EFFORTS
 
     names = ("gte-config.toml", "groket-config.toml", "config.toml")
     candidates: list[Path] = [session_dir / n for n in names]

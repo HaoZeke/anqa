@@ -50,7 +50,7 @@ def test_list_session_catalog_discovers_work_traces(tmp_path: Path) -> None:
     assert row["sessionId"] == "session-catalog-a"
     assert row["path"] == str(sess.resolve())
     assert row["title"] == "Alpha review"
-    assert row["origin"] == "work"
+    assert row["origin"] == "host"
     assert "status" in row
     assert "model" in row
 

@@ -7,23 +7,9 @@ them. Copy into `~/.groket/` or pass paths explicitly. Nothing under
 | Pack | What it teaches | Install / use |
 |------|-----------------|---------------|
 | [`config/`](config/) | Prefs TOML (`config.toml`) | `~/.groket/config.toml` |
-| [`tasks/`](tasks/) | Batch task catalogs | `groket batch -t <file>` |
-| [`personas/`](personas/) | Persona JSON (e.g. marketplace plugins) | `~/.groket/personas/` |
 | [`notes/`](notes/) | In-app notes form schema (`source` is required on every write; extra fields are kept) | `~/.groket/notes_schema.toml` |
 | [`keys/`](keys/) | Key overlay (`colemak.toml`) | `~/.groket/keys.toml` |
 | [`themes/`](themes/) | Named colorway (`paper.toml`) | `~/.groket/themes/` |
-
-## Start here
-
-| Goal | Open / run |
-|------|------------|
-| Batch tasks | [`tasks/demo_tasks.yaml`](tasks/demo_tasks.yaml) |
-
-```bash
-uv run groket batch validate examples/tasks/demo_tasks.yaml
-uv run groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
-uv run groket gen tasks
-```
 
 ## Contract
 
@@ -31,5 +17,5 @@ uv run groket gen tasks
 just examples-check   # or: uv run python scripts/check_examples.py
 ```
 
-Validates: task YAML schemas, persona JSON, keys overlays
-(`groket keys --check`), pack READMEs. Part of `just ci`.
+Validates keys overlays (`groket keys --check`), prefs, notes schema,
+and pack READMEs. Part of `just ci`.

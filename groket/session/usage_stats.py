@@ -152,7 +152,7 @@ def _find_run_parent(session_dir: Path) -> Path | None:
 
 def _load_run_manifest(session_dir: Path) -> JsonObject:
     """Load launch recipe (session, traces volume, or fork parent seed)."""
-    from ..runs.run_recipe import load_run_recipe
+    from .recipe import load_run_recipe
 
     return load_run_recipe(session_dir)
 

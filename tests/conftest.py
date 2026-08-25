@@ -453,12 +453,3 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     if hasattr(ui_app, "APP_HOME"):
         monkeypatch.setattr(ui_app, "APP_HOME", app_home)
 
-    import groket.runs.batch as batch_mod
-
-    monkeypatch.setattr(batch_mod, "WORK_DIR", work_root)
-    monkeypatch.setattr(batch_mod, "AUTH_JSON", grok_home / "auth.json")
-    monkeypatch.setattr(batch_mod, "GROK_CONFIG", grok_home / "config.toml")
-    if hasattr(batch_mod, "_GROK_MODELS_CACHE"):
-        monkeypatch.setattr(batch_mod, "_GROK_MODELS_CACHE", grok_home / "models_cache.json")
-    if hasattr(batch_mod, "_USER_MODELS_PATH"):
-        monkeypatch.setattr(batch_mod, "_USER_MODELS_PATH", app_home / "models.yaml")

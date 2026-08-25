@@ -8,7 +8,7 @@ from pathlib import Path
 
 @lru_cache(maxsize=1)
 def assets_root() -> Path:
-    """Return assets root containing ``docker/`` and ``config/``.
+    """Return assets root (repo ``assets/`` or embedded copy).
 
     :raises FileNotFoundError: If neither checkout nor embedded layout exists.
     """

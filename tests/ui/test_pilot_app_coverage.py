@@ -1173,73 +1173,6 @@ def test_scan_live_sessions_busy_guard(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_notify_run_finished_quiet(tmp_path: Path) -> None:
-    """Quiet/batch run finish does not toast."""
-    from groket.models import EvalRun
-    from groket.runs.run_manager import BackgroundRun
-
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        run = BackgroundRun(
-            run_id="r-quiet",
-            eval_run=EvalRun(run_id="r-quiet", prompt="test", status="completed"),
-            configs=[],
-            quiet=True,
-        )
-        # Should not crash
-        app._notify_run_finished(run)
-        await pilot.pause()
-
-
-@pytest.mark.asyncio
-async def test_notify_run_finished_error(tmp_path: Path) -> None:
-    """Run finish with error shows error toast."""
-    from groket.models import EvalRun
-    from groket.runs.run_manager import BackgroundRun
-
-    app, _, traces = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        run = BackgroundRun(
-            run_id="r-err",
-            eval_run=EvalRun(run_id="r-err", prompt="test", status="failed"),
-            configs=[],
-            error="Docker build failed",
-        )
-        app._notify_run_finished(run)
-        await pilot.pause()
-
-
-@pytest.mark.asyncio
-async def test_notify_run_finished_with_failures(tmp_path: Path) -> None:
-    """Run finish with mixed results shows failure count."""
-    from groket.docker.orchestrator import ContainerConfig, ContainerStatus
-    from groket.models import EvalRun
-    from groket.runs.run_manager import BackgroundRun
-
-    app, _, traces = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        cfg = ContainerConfig(model="m1", prompt="test", container_name="c1")
-        status_ok = ContainerStatus(container_name="c1", model="m1", status="completed")
-        status_fail = ContainerStatus(container_name="c2", model="m1", status="failed")
-        run = BackgroundRun(
-            run_id="r-mixed",
-            eval_run=EvalRun(run_id="r-mixed", prompt="test", status="completed"),
-            configs=[cfg],
-            results=[status_ok, status_fail],
-        )
-        app._notify_run_finished(run)
-        await pilot.pause()
-
-
-def test_request_live_share_no_share(tmp_path: Path) -> None:
-    """_request_live_share with no share file is a no-op."""
-    app, _, traces = _make_app(tmp_path, n_sessions=1)
-    app._request_live_share(traces / "sess-000")
-
-
 def test_query_model_values(tmp_path: Path) -> None:
     """query_model_values lists loaded model ids."""
     app, _, traces = _make_app(
@@ -1285,33 +1218,6 @@ async def test_load_sessions_from_subdirs(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_background_run_status_session_discovered(tmp_path: Path) -> None:
-    """_on_background_run_status dispatches live session merge."""
-    from groket.docker.orchestrator import ContainerStatus as CS
-
-    app, _, traces = _make_app(tmp_path, n_sessions=1)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
-        new_sd = _write_session(traces, "sess-live-status")
-        status = CS(container_name="c1", model="m1")
-        status.session_dir = new_sd
-        app._on_live_session_discovered(status)
-        await pilot.pause()
-
-
-@pytest.mark.asyncio
-async def test_on_background_run_status_no_session_dir(tmp_path: Path) -> None:
-    """_on_live_session_discovered with no session_dir is ignored."""
-    from groket.docker.orchestrator import ContainerStatus as CS
-
-    app, _, _ = _make_app(tmp_path, n_sessions=0)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        status = CS(container_name="c1", model="m1")
-        app._on_live_session_discovered(status)
-        await pilot.pause()
-
-
 def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
     """_update_session_paths_banner is a no-op when the banner is not mounted."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)

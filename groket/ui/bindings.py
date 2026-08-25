@@ -49,7 +49,6 @@ APP_GLOBAL_PRIORITY: tuple[Binding, ...] = ()
 GLOBAL_ALWAYS: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), id="help.toggle", show=True),
     _b("f5,ctrl+r", "refresh_context", U.bind_refresh(), id="app.refresh", show=False),
-    _b("J", "open_jobs", U.bind_jobs(), id="app.jobs", show=True),
     _b("ctrl+t", "self_test", t("ui-self-test"), id="app.self_test", show=False),
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
 )
@@ -75,7 +74,6 @@ SCREEN_CHROME: tuple[Binding, ...] = (
     _b("?", "show_help", U.bind_help(), id="help.toggle", show=True),
     _b("escape", "go_back", U.bind_back(), id="overlay.hide", show=True),
     _b("f5,ctrl+r", "refresh_context", U.bind_refresh(), id="app.refresh", show=False),
-    _b("J", "open_jobs", U.bind_jobs(), id="app.jobs", show=False),
     _b("ctrl+t", "self_test", t("ui-self-test"), id="app.self_test", show=False),
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
 )
@@ -173,22 +171,10 @@ MODAL_CANCEL_QUIT: tuple[Binding, ...] = (
 FORM_SAVE: tuple[Binding, ...] = MODAL_CANCEL_QUIT + (
     _ctrl_s("save", U.bind_save(), id="edit.save", show=True),
 )
-PERSONA_EDITOR: tuple[Binding, ...] = FORM_SAVE + tab_nav_bindings(6)
 MODAL_DISMISS: tuple[Binding, ...] = (
     _b("escape", "dismiss", U.bind_cancel(), id="overlay.hide", show=True),
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
 )
-JOBS_MODAL: tuple[Binding, ...] = (
-    _b("?", "show_help", U.bind_help(), id="help.toggle", show=True),
-    _b("escape", "dismiss_modal", U.bind_close(), id="overlay.hide", show=True),
-    _b("J", "dismiss_modal", U.bind_close(), id="jobs.close", show=False),
-    _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
-    _b("f5,ctrl+r", "refresh", U.bind_refresh(), id="app.refresh", show=False),
-    _b("enter", "open_session", U.bind_open(), id="session.open", show=True),
-    _b("o", "open_session", U.bind_open(), id="jobs.open", show=False),
-    _b("s", "open_share", U.bind_share(), id="session.share", show=True),
-    _b("c", "clear_logs", U.bind_clear_logs(), id="jobs.clear_logs", show=True),
-) + tab_nav_bindings(3)
 
 
 def blur_focused_edit(screen: Screen) -> bool:
@@ -228,9 +214,6 @@ class ChromeActions(QuitActions, Screen):
 
     def action_show_help(self) -> None:
         notify_help(self)
-
-    def action_open_jobs(self) -> None:
-        open_jobs_on_app(self)
 
     def action_self_test(self) -> None:
         fn = getattr(self.app, "action_self_test", None)
@@ -277,12 +260,6 @@ class ChromeActions(QuitActions, Screen):
         with suppress(Exception):
             if len(self.app.screen_stack) > 1:
                 self.app.pop_screen()
-
-
-def open_jobs_on_app(screen: Screen) -> None:
-    fn = getattr(screen.app, "action_open_jobs", None)
-    if callable(fn):
-        fn()
 
 
 def dismiss_after_blur(screen: Screen, result: object = None) -> None:

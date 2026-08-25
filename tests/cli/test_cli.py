@@ -29,9 +29,7 @@ def test_help_lists_main_commands() -> None:
     out = result.stdout or result.output or ""
     assert "-V" in out
     assert "product version" in out
-    assert "gen" in out
     assert "doctor" in out
-    assert "batch" in out
     assert "serve" in out
     assert "hud" in out
     assert "tui" in out
@@ -43,8 +41,6 @@ def test_help_lists_main_commands() -> None:
     assert "emacs-path" not in out or "editor" in out
     assert "generator" not in out
     assert "audit" not in out
-    assert runner.invoke(app, ["gen", "--help"]).exit_code == 0
-    assert runner.invoke(app, ["batch", "--help"]).exit_code == 0
     assert runner.invoke(app, ["serve", "--help"]).exit_code == 0
     assert runner.invoke(app, ["editor", "--help"]).exit_code == 0
     assert runner.invoke(app, ["keys", "--help"]).exit_code == 0
@@ -53,8 +49,6 @@ def test_help_lists_main_commands() -> None:
 def test_tool_commands() -> None:
     assert TOOL_COMMANDS == frozenset(
         {
-            "gen",
-            "batch",
             "serve",
             "hud",
             "tui",
@@ -376,28 +370,7 @@ class TestMainEntryArgv:
             mock_app.assert_called_once()
 
 
-class TestBatchCommands:
-    def test_batch_validate_ok(self, tmp_path: Path) -> None:
-        demo = Path("examples/tasks/demo_tasks.yaml")
-        if not demo.is_file():
-            pytest.skip("demo tasks missing")
-        result = runner.invoke(app, ["batch", "validate", str(demo)])
-        assert result.exit_code == 0
-        out = result.stdout or result.output or ""
-        assert "OK" in out
-
-    def test_batch_validate_bad(self, tmp_path: Path) -> None:
-        bad = tmp_path / "bad.yaml"
-        bad.write_text("tasks: []\n", encoding="utf-8")
-        result = runner.invoke(app, ["batch", "validate", str(bad)])
-        assert result.exit_code == 2
-
-    def test_batch_schema_stdout(self) -> None:
-        result = runner.invoke(app, ["batch", "schema"])
-        assert result.exit_code == 0
-        out = result.stdout or result.output or ""
-        assert "tasks.schema.json" in out or "TaskDefinition" in out or "$id" in out
-
+class TestConfigCommands:
     def test_config_schema_stdout(self) -> None:
         result = runner.invoke(app, ["config", "schema"])
         assert result.exit_code == 0
@@ -428,18 +401,8 @@ class TestBatchCommands:
         err = result.stderr or result.output or ""
         assert "error" in err.lower() or "invalid" in err.lower()
 
-    def test_batch_not_rewritten_as_path(self) -> None:
+    def test_config_not_rewritten_as_path(self) -> None:
         with patch("groket.cli.app") as mock_app:
-            main(argv=["batch", "validate", "x.yaml"])
+            main(argv=["config", "validate"])
             args = mock_app.call_args.kwargs.get("args") or mock_app.call_args[1].get("args", [])
-            assert args[0] == "batch"
-
-
-class TestGenCommands:
-    def test_gen_tasks(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        dest = tmp_path / "example_tasks.yaml"
-        result = runner.invoke(app, ["gen", "tasks", str(dest), "-f"])
-        assert result.exit_code == 0
-        out = result.stdout or result.output or ""
-        assert "Wrote tasks file" in out
-        assert dest.is_file()
+            assert args[0] == "config"

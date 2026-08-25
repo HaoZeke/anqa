@@ -61,7 +61,7 @@ def _row(
     path: str = "/mnt/dev/_git/fubar/sess-1",
     git_repo: str = "/mnt/dev/_git/fubar",
     run_dir: str = "/mnt/dev/_git/fubar",
-    origin: str = "work",
+    origin: str = "host",
     error_count: int = 3,
     duration_seconds: int = 0,
     updated_at: str = "2026-08-10T12:00:00+00:00",
@@ -108,10 +108,10 @@ def test_bare_words_match_title_and_id_not_path() -> None:
 
 def test_implicit_and_and_or() -> None:
     row = _row()
-    assert row_matches_query(row, "has:workflow is:eval")
+    assert row_matches_query(row, "has:workflow is:host")
     assert row_matches_query(row, "has:workflow AND errors:>2")
-    assert row_matches_query(row, "(is:host OR is:eval) AND errors:>0")
-    assert not row_matches_query(row, "is:host AND has:workflow")
+    assert row_matches_query(row, "is:host AND errors:>0")
+    assert not row_matches_query(row, "is:eval AND has:workflow")
 
 
 def test_has_and_numeric_and_in_path() -> None:
@@ -140,14 +140,11 @@ def test_suggest_in_uses_run_directories() -> None:
     ]
 
 
-def test_is_host_eval_and_not() -> None:
-    work = _row(origin="work")
-    host = _row(origin="host", title="Host session")
-    assert row_matches_query(work, "is:eval")
-    assert not row_matches_query(work, "is:host")
-    assert row_matches_query(host, "is:host")
-    assert row_matches_query(work, "NOT is:host")
-    assert row_matches_query(work, "-is:host")
+def test_is_host_matches_every_row() -> None:
+    row = _row()
+    assert row_matches_query(row, "is:host")
+    assert not row_matches_query(row, "is:eval")
+    assert not row_matches_query(row, "NOT is:host")
 
 
 def test_model_task_dates() -> None:

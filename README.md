@@ -112,15 +112,12 @@ groket keys --occupancy  # taken chords per scope
 groket keys --check      # exit 1 on overlay errors
 ```
 
-## Eval and Host
+## Catalog
 
-**Eval** sessions are Docker launches under `work/runs/traces`. **Host**
-sessions are native stores (`H` includes that catalog). Every shipped
-adapter is listed; filter with `is:host` / `harness:grok`.
-`[catalog] ignore` drops a store. `[catalog.roots]` overrides a
-non-default path. See `docs/harness-adapters.md`.
-`groket -P ~/.grok/sessions` browses Host while
-keeping the default work root for new runs. Directory stores keep notes
+The list is every enabled adapter store plus leftover traces under the
+work root. Filter with `harness:grok`. `[catalog] ignore` drops a store.
+`[catalog.roots]` overrides a path. See `docs/harness-adapters.md`.
+`groket -P ~/.grok/sessions` browses that tree. Directory stores keep notes
 in the session tree; file or database stores use
 `~/.groket/notes/<harness>/<session_id>/`. Every note has a `source` (who
 wrote it). Control `notes/upsert` accepts any field bag plus that
@@ -204,7 +201,6 @@ openable child. Exporting an opened child is that child only.
 | Token | Matches |
 |-------|---------|
 | `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
-| `is:host` `is:eval` | Origin |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
 | `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
@@ -219,7 +215,7 @@ openable child. Exporting an opened child is that child only.
 | `is:complete AND NOT has:note` | Finished sessions you have not written up |
 | `has:error OR has:failure` | Tool errors or a failed child |
 | `workflows:>=2 AND NOT is:complete` | Multi-workflow sessions still going |
-| `is:eval AND errors:>=5 AND NOT has:note` | Noisy evals you have not written up |
+| `errors:>=5 AND NOT has:note` | Noisy sessions you have not written up |
 | `notes:>=2 AND after:yesterday` | Recently updated, more than one note |
 | `has:subagent OR has:workflow` | Spawned a child or a workflow |
 | `in:~/src/app AND after:yesterday` | This repo, updated since yesterday |
@@ -303,37 +299,13 @@ require("groket").setup()
 Sessions open as Markdown. Start serve (or the terminal app) so the
 socket exists.
 
-## Batch
-
-Headless Docker from task YAML (`examples/tasks/`).
-
-| Field | Role |
-|-------|------|
-| `repo_url` / `repo_branch` | Git clone into `runs/checkouts/` |
-| `repo_path:` | Host directory bind-mounted as `/workspace` |
-| `yolo:` | `grok --yolo` when true |
-| `turns:` | Scripted follow-ups on a **new** session |
-| `resume_session_dir:` | Fork an *ended* session (same as terminal `f`) |
-| `resume_session_id:` | Optional parent id (directory basename by default) |
-| `max_turns:` | Grok `--max-turns` per prompt (default **50**) |
-
-```bash
-groket batch validate examples/tasks/demo_tasks.yaml
-groket batch run -t examples/tasks/demo_tasks.yaml -m <model-id>
-```
-
-Schemas: [tasks](https://indynull.github.io/groket/schemas/tasks.schema.json),
-[config](https://indynull.github.io/groket/schemas/config.schema.json),
+Schemas: [config](https://indynull.github.io/groket/schemas/config.schema.json),
 [control](https://indynull.github.io/groket/schemas/control.schema.json).
 
 ## Examples
 
 Supported packs under [`examples/`](examples/README.md) — copy into
 `~/.groket/` or pass paths. Not auto-loaded.
-
-| Goal | Start here |
-|------|------------|
-| Batch tasks | [`examples/tasks/demo_tasks.yaml`](examples/tasks/demo_tasks.yaml) |
 
 ```bash
 just examples-check

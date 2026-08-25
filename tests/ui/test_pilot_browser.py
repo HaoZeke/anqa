@@ -11,7 +11,6 @@ import threading
 from pathlib import Path
 
 import pytest
-from groket.runs.run_manager import RunManager
 from groket.session.turn_gate import (
     list_queued_follow_ups,
     read_turn_gate_status,
@@ -132,7 +131,6 @@ def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-p
 
 def _host_app(work: Path, traces: Path) -> TraceEvalApp:
     app = TraceEvalApp(work_dir=work, traces_path=traces)
-    assert isinstance(app.run_manager, RunManager)
     return app
 
 

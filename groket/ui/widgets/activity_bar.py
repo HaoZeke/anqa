@@ -149,32 +149,8 @@ if TYPE_CHECKING:
     from textual.app import App
 
 
-def _status_counts_from_run_manager(rm: object) -> dict[str, int]:
-    """Tally container phases from active launches (or a status_counts() helper)."""
-    fn = getattr(rm, "active_status_counts", None)
-    if callable(fn):
-        raw = fn()
-        if isinstance(raw, dict):
-            return {str(k).lower(): int(v or 0) for k, v in raw.items()}
-    # Fallback: walk BackgroundRun.statuses when the helper is absent (tests).
-    out: dict[str, int] = {}
-    active = getattr(rm, "list_active", None)
-    runs = active() if callable(active) else []
-    for bg in runs or []:
-        statuses = getattr(bg, "statuses", None) or {}
-        if statuses:
-            for st in statuses.values():
-                key = str(getattr(st, "status", None) or "pending").lower()
-                out[key] = out.get(key, 0) + 1
-        else:
-            configs = getattr(bg, "configs", None) or []
-            n = len(configs) if configs else 1
-            out["pending"] = out.get("pending", 0) + n
-    return out
-
-
 def activity_counters_from_app(app: App) -> dict[str, int]:
-    """Lifecycle and catalog counters for the activity bar.
+    """Catalog counters for the activity bar.
 
     Keys: ``pending``, ``building``, ``running``, ``ending``, ``extracting``,
     ``awaiting``, ``refresh``, ``sessions``.
@@ -189,21 +165,8 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
         "refresh": 0,
         "sessions": 0,
     }
-    rm = getattr(app, "run_manager", None)
-    if rm is not None:
-        for key, n in _status_counts_from_run_manager(rm).items():
-            if key in counts:
-                counts[key] = max(counts[key], int(n or 0))
-            elif key in ("completed", "failed", "idle", "awaiting_follow_up"):
-                if key == "awaiting_follow_up":
-                    counts["awaiting"] = counts["awaiting"] + int(n or 0)
-                continue
-            else:
-                # Unknown non-terminal phase → pending (not running) to avoid
-                # yellow/cyan flicker from mis-mapped statuses.
-                counts["pending"] = counts["pending"] + int(n or 0)
 
-    # Sessions home Turn column (running / ending / awaiting) — authoritative
+    # Sessions home Turn column (running / ending / awaiting).
     # for interactive wait so we do not flash Running from stale launch statuses.
     meta_only = getattr(app, "_meta_only", None) or []
     meta_running = 0

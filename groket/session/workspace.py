@@ -87,7 +87,7 @@ def cow_copy_tree(src: Path, dest: Path, *, require_reflink: bool = False) -> st
         raise FileNotFoundError(f"checkout source not found: {source}")
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        from ..runs.run_configs import rmtree_robust
+        from .delete import rmtree_robust
 
         rmtree_robust(target)
     flag = "--reflink=always" if require_reflink else "--reflink=auto"
@@ -220,7 +220,7 @@ def _materialize_fork_from_parent(
         )
         # Explicit full recursive copy — do not claim CoW.
         if dest.exists():
-            from ..runs.run_configs import rmtree_robust
+            from .delete import rmtree_robust
 
             rmtree_robust(dest)
         shutil.copytree(parent, dest, symlinks=True)
@@ -276,7 +276,7 @@ def prepare_host_checkout(
     if dest.exists():
         # Prior runs bind-mount this tree into the container; root-owned files
         # (e.g. eval_notes/) need the same robust remove as traces.
-        from ..runs.run_configs import rmtree_robust
+        from .delete import rmtree_robust
 
         rmtree_robust(dest)
 
@@ -305,7 +305,7 @@ def prepare_host_checkout(
         except (OSError, subprocess.CalledProcessError) as exc:
             logger.warning("Host git clone failed for %s: %s", url, exc)
             if dest.exists():
-                from ..runs.run_configs import rmtree_robust
+                from .delete import rmtree_robust
 
                 try:
                     rmtree_robust(dest)

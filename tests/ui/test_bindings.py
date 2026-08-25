@@ -1,8 +1,7 @@
-"""Bindings module: ChromeActions, focus_primary_list, open_jobs_on_app."""
+"""Bindings module: ChromeActions, focus_primary_list."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -13,7 +12,6 @@ from groket.ui.bindings import (
     CAPABILITY_PICKER,
     FORM_SAVE,
     GLOBAL_ALWAYS,
-    JOBS_MODAL,
     LIST_SELECT,
     MODAL_CANCEL_QUIT,
     MODAL_DISMISS,
@@ -21,7 +19,6 @@ from groket.ui.bindings import (
     SESSION_HOME_ACTIONS,
     ChromeActions,
     focus_primary_list,
-    open_jobs_on_app,
 )
 from textual.app import App, ComposeResult
 from textual.widgets import Static
@@ -41,7 +38,6 @@ class TestBindingTuples:
             ("FORM_SAVE", FORM_SAVE),
             ("MODAL_CANCEL_QUIT", MODAL_CANCEL_QUIT),
             ("MODAL_DISMISS", MODAL_DISMISS),
-            ("JOBS_MODAL", JOBS_MODAL),
             ("LIST_SELECT", LIST_SELECT),
         ]:
             assert len(tup) > 0, f"{name} should not be empty"
@@ -61,7 +57,7 @@ class TestBindingTuples:
         assert shown == ["show_help", "go_back", "quit"]
         assert "open_jobs" not in shown
         assert "refresh_context" not in shown
-        assert any(b.action == "open_jobs" for b in SCREEN_CHROME)
+        assert not any(b.action == "open_jobs" for b in SCREEN_CHROME)
 
     def test_browser_footer_is_session_actions(self) -> None:
         """Session rail: note, delete, copy, export — not jobs or analyze."""
@@ -160,18 +156,6 @@ class TestFocusPrimaryList:
         widget.move_cursor.assert_called()
 
 
-class TestOpenJobsOnApp:
-    def test_with_action(self) -> None:
-        mock_fn = MagicMock()
-        screen = SimpleNamespace(app=SimpleNamespace(action_open_jobs=mock_fn))
-        open_jobs_on_app(screen)  # type: ignore[arg-type]  # stub for test
-        mock_fn.assert_called_once()
-
-    def test_without_action(self) -> None:
-        screen = SimpleNamespace(app=SimpleNamespace())
-        open_jobs_on_app(screen)  # type: ignore[arg-type]  # stub for test
-
-
 class TestChromeActions:
     @pytest.mark.asyncio
     async def test_action_show_help(self) -> None:
@@ -215,26 +199,6 @@ class TestChromeActions:
             ca = ChromeActions.__dict__["action_self_test"]
             ca(screen)
             assert called
-
-    @pytest.mark.asyncio
-    async def test_action_open_jobs_callable(self) -> None:
-        """action_open_jobs delegates to app."""
-        called = []
-
-        class JobsApp(App):
-            def compose(self) -> ComposeResult:
-                yield Static("hi")
-
-            def action_open_jobs(self) -> None:
-                called.append(True)
-
-        app = JobsApp()
-        async with app.run_test():
-            screen = app.screen
-            ca = ChromeActions.__dict__["action_open_jobs"]
-            ca(screen)
-            assert called
-
 
 class TestFocusPrimaryListCursorReassert:
     def test_valid_cursor_reasserted(self) -> None:

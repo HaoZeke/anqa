@@ -7,7 +7,6 @@ import shutil
 from pathlib import Path
 
 import pytest
-from groket.runs.launch_meta import LAUNCH_META_FILENAME
 from groket.session.resume import (
     RESUME_SEED_DIRNAME,
     can_resume_session,
@@ -177,7 +176,7 @@ def _write_completed_turn(
 
 
 def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
-    from groket.runs.launch_meta import build_launch_meta, write_launch_meta
+    from groket.session.launch_meta import build_launch_meta, write_launch_meta
 
     source = _fake_session(tmp_path, sid="parent-1")
     (source / "events.jsonl").write_text("{}\n", encoding="utf-8")
@@ -207,7 +206,7 @@ def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
 def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
     """Fork child with only turn_number=1 still shows parent turn 0 in the timeline."""
     from groket.parser import parse_timeline
-    from groket.runs.launch_meta import build_launch_meta, write_launch_meta
+    from groket.session.launch_meta import build_launch_meta, write_launch_meta
     from groket.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-turns")
@@ -256,7 +255,7 @@ def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
 def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> None:
     """Child updates replaying parent tools must not appear again under turn 1."""
     from groket.parser import parse_timeline
-    from groket.runs.launch_meta import build_launch_meta, write_launch_meta
+    from groket.session.launch_meta import build_launch_meta, write_launch_meta
     from groket.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-replay")
@@ -411,7 +410,7 @@ def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> N
 def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> None:
     """Child with empty events and re-stamped updates does not collapse parent turns."""
     from groket.parser import parse_timeline
-    from groket.runs.launch_meta import build_launch_meta, write_launch_meta
+    from groket.session.launch_meta import build_launch_meta, write_launch_meta
     from groket.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-multi")
@@ -503,168 +502,3 @@ def test_seed_empty_session_id_raises(tmp_path: Path, monkeypatch: pytest.Monkey
     )
     with pytest.raises(ValueError, match="empty session id"):
         seed_resume_into_traces_vol(tmp_path / "vol", source)
-
-
-def test_start_container_seed_failure_propagates(tmp_path: Path) -> None:
-    from groket.docker.orchestrator import ContainerConfig, DockerOrchestrator
-
-    class FakeDocker:
-        def run(self, *a, **k):
-            raise AssertionError("should not run")
-
-    o = DockerOrchestrator(tmp_path / "runs")
-    o._docker = FakeDocker()  # type: ignore[assignment]
-    auth = tmp_path / "auth.json"
-    auth.write_text("{}", encoding="utf-8")
-    cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text("[cli]\n", encoding="utf-8")
-    cfg = ContainerConfig(
-        model="v9",
-        prompt="x",
-        container_name="groket-resume-fail",
-        resume_source_dir=str(tmp_path / "missing-session"),
-    )
-    with pytest.raises(FileNotFoundError):
-        o.start_container(cfg, "fake-image:tag", auth, cfg_path)
-
-
-def test_start_container_sets_restore_and_commit_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Fork/resume injects RESTORE_CODE and REPO_COMMIT for workspace restore."""
-    from unittest.mock import MagicMock
-
-    from groket.docker.orchestrator import ContainerConfig, DockerOrchestrator
-
-    o = DockerOrchestrator.__new__(DockerOrchestrator)
-    o.work_dir = tmp_path / "runs"
-    o.work_dir.mkdir(parents=True)
-    o._build_dir = o.work_dir / "docker-build"
-    o._docker = MagicMock()
-    o._docker.run.return_value = type("C", (), {"id": "deadbeefcafebabe"})()
-    o.containers = {}
-    auth = tmp_path / "a.json"
-    auth.write_text("{}", encoding="utf-8")
-    gc = tmp_path / "c.toml"
-    gc.write_text("[cli]\n", encoding="utf-8")
-    # Bypass image/build; call start_container with seeded resume fields.
-    source = tmp_path / "parent-sess"
-    source.mkdir()
-    (source / "chat_history.jsonl").write_text("{}\n", encoding="utf-8")
-    cfg = ContainerConfig(
-        model="v9",
-        prompt="continue",
-        container_name="groket-restore-env",
-        repo_url="",
-        repo_branch="",
-        repo_commit="deadbeef",
-        restore_code=True,
-        resume_source_dir=str(source),
-        resume_session_id="parent-sess",
-        resume_fork_session_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    )
-    # Seed resume so start_container does not fail
-    from groket.session.resume import seed_resume_into_traces_vol
-
-    traces = o.work_dir / "traces" / cfg.container_name
-    traces.mkdir(parents=True)
-    seed_resume_into_traces_vol(traces, source)
-    o.start_container(cfg, "img:tag", auth, gc)
-    assert o._docker.run.called
-    kwargs = o._docker.run.call_args.kwargs
-    envs = kwargs.get("envs") or {}
-    assert envs.get("RESTORE_CODE") == "1"
-    assert envs.get("REPO_COMMIT") == "deadbeef"
-    assert envs.get("RESUME_FORK") == "1"
-    # Host checkout bind-mounted as /workspace
-    vols = kwargs.get("volumes") or []
-    assert any(
-        str(v[1]) == "/workspace" for v in vols if isinstance(v, (list, tuple)) and len(v) >= 2
-    )
-
-
-def test_start_container_sets_resume_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from groket.docker import orchestrator as orch_mod
-    from groket.docker.orchestrator import ContainerConfig, DockerOrchestrator
-
-    source = _fake_session(tmp_path)
-    captured: dict = {}
-
-    class FakeDocker:
-        def run(self, *a, **k):
-            captured["envs"] = k.get("envs") or {}
-
-            class C:
-                id = "deadbeefdead"
-
-            return C()
-
-    o = DockerOrchestrator(tmp_path / "runs")
-    o._docker = FakeDocker()  # type: ignore[assignment]
-    auth = tmp_path / "auth.json"
-    auth.write_text("{}", encoding="utf-8")
-    cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text("[cli]\n", encoding="utf-8")
-    monkeypatch.setattr(orch_mod, "share_once_py", lambda: "")
-    monkeypatch.setattr(orch_mod, "entrypoint_sh", lambda: "#!/bin/bash\n")
-    monkeypatch.setattr(orch_mod, "empty_setup_sh", lambda: "#!/bin/bash\n")
-
-    cfg = ContainerConfig(
-        model="v9",
-        prompt="continue please",
-        container_name="groket-resume-test",
-        interactive=True,
-        resume_source_dir=str(source),
-        resume_session_id="sess-abc",
-        resume_fork_session_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        run_id="rid1",
-    )
-    o.start_container(cfg, "fake-image:tag", auth, cfg_path)
-    assert captured["envs"].get("RESUME_SESSION_ID") == "sess-abc"
-    assert captured["envs"].get("RESUME_FORK") == "1"
-    assert captured["envs"].get("FORK_SESSION_ID") == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-    traces = tmp_path / "runs" / "traces" / "groket-resume-test"
-    seed = traces / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
-    live = traces / "%2Fworkspace" / "sess-abc"
-    assert (seed / "chat_history.jsonl").is_file()
-    assert live.is_symlink()
-    assert "continue please" in (traces / "groket-prompt.txt").read_text(encoding="utf-8")
-    launch = json.loads((traces / LAUNCH_META_FILENAME).read_text(encoding="utf-8"))
-    assert launch["resume_parent_session_id"] == "sess-abc"
-
-
-def test_collect_installed_plugin_dir_aliases(tmp_path: Path) -> None:
-    """Parent traces that hardcode installed-plugins paths yield aliases."""
-    from groket.session.resume import collect_installed_plugin_dir_aliases
-
-    sess = tmp_path / "sess"
-    sess.mkdir()
-    (sess / "chat_history.jsonl").write_text(
-        json.dumps(
-            {
-                "role": "assistant",
-                "content": "see /root/.grok/installed-plugins/src-3b9c6c63/skills/using-superpowers/SKILL.md",
-            }
-        )
-        + "\n"
-        + json.dumps(
-            {
-                "role": "user",
-                "content": "also /root/.grok/installed-plugins/src-3b9c6c63/skills/brainstorming/",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (sess / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    aliases = collect_installed_plugin_dir_aliases(sess)
-    assert aliases == ["src-3b9c6c63"]
-
-
-def test_collect_installed_plugin_dir_aliases_empty(tmp_path: Path) -> None:
-    from groket.session.resume import collect_installed_plugin_dir_aliases
-
-    sess = tmp_path / "empty"
-    sess.mkdir()
-    (sess / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    assert collect_installed_plugin_dir_aliases(sess) == []

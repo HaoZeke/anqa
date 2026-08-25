@@ -78,7 +78,7 @@ def fork_parent_session_dir(session_dir: Path) -> Path | None:
     :returns: Parent seed path when *session_dir* is the forked child and the
         seed exists; otherwise ``None``.
     """
-    from ..runs.launch_meta import find_launch_meta_file, read_launch_meta
+    from .launch_meta import find_launch_meta_file, read_launch_meta
 
     sd = Path(session_dir)
     launch = read_launch_meta(sd)

@@ -1,4 +1,4 @@
-"""Host self-test checks (Docker faked; no live daemon required)."""
+"""Host self-test checks."""
 
 from __future__ import annotations
 
@@ -13,22 +13,18 @@ from groket.diagnostics.self_test import CheckResult, SelfTestReport, run_self_t
 def test_work_dir_writable(tmp_path: Path):
     wd = tmp_path / "groket-home"
     with (
-        patch("groket.diagnostics.self_test._check_docker") as d,
         patch("groket.diagnostics.self_test._check_auth_json") as a,
         patch("groket.diagnostics.self_test._check_grok_config") as c,
         patch("groket.diagnostics.self_test._check_grok_cli") as g,
         patch("groket.diagnostics.self_test._check_models_cache") as m,
-        patch("groket.diagnostics.self_test._check_share_capability") as sh,
         patch("groket.diagnostics.self_test._check_session_display") as sd,
         patch("groket.diagnostics.self_test._check_sway_socket") as sw,
         patch("groket.diagnostics.self_test._check_hud_summon_socket") as hs,
     ):
-        d.return_value = CheckResult("docker", "Docker", True)
         a.return_value = CheckResult("grok_auth", "Auth", True)
         c.return_value = CheckResult("grok_config", "Cfg", True, required=False)
         g.return_value = CheckResult("grok_cli", "CLI", True, required=False)
         m.return_value = CheckResult("models_cache", "Models", True, required=False)
-        sh.return_value = CheckResult("grok_share", "Share", True, required=False)
         sd.return_value = CheckResult("session_display", "Display", True, required=False)
         sw.return_value = CheckResult("sway_socket", "Sway", True, required=False)
         hs.return_value = CheckResult("hud_summon", "Summon", True, required=False)
@@ -123,59 +119,6 @@ def test_report_lines_and_fail():
     assert CheckResult("z", "Z", False, required=True).level == "error"
 
 
-def test_docker_ok(tmp_path: Path):
-    fake = MagicMock()
-    fake.check_docker_available.return_value = True
-    with patch("groket.docker.orchestrator.DockerOrchestrator", return_value=fake):
-        from groket.diagnostics import self_test as st
-
-        r = st._check_docker(tmp_path)
-    assert r.ok is True
-
-
-def test_docker_unavailable(tmp_path: Path):
-    fake = MagicMock()
-    fake.check_docker_available.return_value = False
-    with patch("groket.docker.orchestrator.DockerOrchestrator", return_value=fake):
-        from groket.diagnostics import self_test as st
-
-        r = st._check_docker(tmp_path)
-    assert r.ok is False
-
-
-def test_docker_exception(tmp_path: Path):
-    with patch(
-        "groket.docker.orchestrator.DockerOrchestrator",
-        side_effect=RuntimeError("boom"),
-    ):
-        from groket.diagnostics import self_test as st
-
-        r = st._check_docker(tmp_path)
-    assert r.ok is False
-    assert "boom" in r.detail
-
-
-def test_docker_timeout(tmp_path: Path):
-    class FakeThread:
-        def __init__(self, target=None, name=None, daemon=None):
-            self._target = target
-
-        def start(self) -> None:
-            return None
-
-        def join(self, timeout: float | None = None) -> None:
-            return None
-
-        def is_alive(self) -> bool:
-            return True
-
-    with patch.object(threading, "Thread", FakeThread):
-        from groket.diagnostics import self_test as st
-
-        r = st._check_docker(tmp_path)
-    assert r.ok is False
-    assert "timed out" in r.detail.lower()
-
 
 def test_grok_config_cli_models(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
@@ -269,7 +212,6 @@ def test_models_cache_bad_json(tmp_path: Path, monkeypatch):
 
 def test_hud_summon_doctor_ok_when_fake_server_accepts(tmp_path: Path, monkeypatch):
     import socket
-    import threading
 
     path = tmp_path / "hud-summon.sock"
     monkeypatch.setenv("GROKET_HUD_SUMMON_SOCKET", str(path))

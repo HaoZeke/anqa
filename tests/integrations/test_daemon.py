@@ -915,7 +915,9 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     _write_session(traces, "work-sess")
-    extra = tmp_path / "adapter.db"
+    store_dir = tmp_path / "other-store"
+    store_dir.mkdir()
+    extra = store_dir / "adapter.db"
     extra.write_bytes(b"")
     cache = SessionCatalogCache(work, traces_path=traces, include_host=False)
     monkeypatch.setattr(
@@ -926,5 +928,5 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     by_path = {path.resolve(): only for path, only in specs}
     assert traces.resolve() in by_path
     assert by_path[traces.resolve()] is False
-    assert extra.parent.resolve() in by_path
-    assert by_path[extra.parent.resolve()] is True
+    assert store_dir.resolve() in by_path
+    assert by_path[store_dir.resolve()] is True

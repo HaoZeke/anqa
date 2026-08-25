@@ -184,7 +184,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("sessions.home", ActionScope.HOME, "u", ActionSurface.HUD),
     # TUI chrome (every screen).
     _row("app.refresh", ActionScope.GLOBAL, "f5,ctrl+r", ActionSurface.TUI),
-    _row("app.jobs", ActionScope.GLOBAL, "J", ActionSurface.TUI),
     _row("app.self_test", ActionScope.GLOBAL, "ctrl+t", ActionSurface.TUI),
     _row("app.quit", ActionScope.GLOBAL, "q", ActionSurface.TUI),
     # TUI pane digits / [ ] (not HUD pane.* / events.*).
@@ -209,10 +208,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("browser.clear_filters", ActionScope.BROWSER, "c", ActionSurface.TUI),
     _row("session.share", ActionScope.BROWSER, "s", ActionSurface.TUI),
     _row("edit.save", ActionScope.MODAL, "ctrl+s", ActionSurface.TUI),
-    # Jobs modal.
-    _row("jobs.close", ActionScope.JOBS, "J", ActionSurface.TUI),
-    _row("jobs.open", ActionScope.JOBS, "o", ActionSurface.TUI),
-    _row("jobs.clear_logs", ActionScope.JOBS, "c", ActionSurface.TUI),
     # Generic modal / picker.
     _row("modal.submit", ActionScope.MODAL, "ctrl+r", ActionSurface.TUI),
     _row("modal.submit_enter", ActionScope.MODAL, "enter", ActionSurface.TUI),

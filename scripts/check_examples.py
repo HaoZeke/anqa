@@ -8,7 +8,6 @@ contract that copy/paste references do not rot.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -35,62 +34,9 @@ def _repo_rel(path: Path) -> str:
         return str(path)
 
 
-# ── tasks ────────────────────────────────────────────────────────────────────
-
-
-def check_tasks() -> None:
-    from groket.runs.task_schema import load_task_file
-
-    tasks_dir = EXAMPLES / "tasks"
-    files = sorted(tasks_dir.glob("*.yaml")) + sorted(tasks_dir.glob("*.yml"))
-    if not files:
-        _err(tasks_dir, "no task YAML files")
-    for path in files:
-        try:
-            doc = load_task_file(path)
-        except Exception as exc:
-            _err(path, f"schema invalid: {exc}")
-        n = len(doc.resolved_tasks())
-        if n < 1:
-            _err(path, "no resolved tasks")
-        _ok(f"{_repo_rel(path)}  ({n} task(s), schema_version={doc.schema_version})")
-
-
-# ── personas ─────────────────────────────────────────────────────────────────
-
-
-def check_personas() -> None:
-    from groket.runs.personas import Persona
-
-    personas_dir = EXAMPLES / "personas"
-    if not personas_dir.is_dir():
-        return
-    files = sorted(personas_dir.glob("*.json"))
-    if not files:
-        _err(personas_dir, "empty personas dir")
-    for path in files:
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            _err(path, f"invalid JSON: {exc}")
-        if not isinstance(raw, dict):
-            _err(path, "root must be an object")
-        try:
-            p = Persona.from_dict(raw)  # type: ignore[arg-type]
-        except Exception as exc:
-            _err(path, f"Persona.from_dict failed: {exc}")
-        if not (p.persona_id or "").strip():
-            _err(path, "persona_id empty")
-        _ok(f"{_repo_rel(path)}  persona_id={p.persona_id}")
-
-
-# ── docs presence ────────────────────────────────────────────────────────────
-
-
 def check_readmes() -> None:
     required = [
         EXAMPLES / "README.md",
-        EXAMPLES / "tasks" / "README.md",
         EXAMPLES / "notes" / "README.md",
         EXAMPLES / "keys" / "README.md",
         EXAMPLES / "config" / "README.md",
@@ -184,8 +130,6 @@ def main() -> int:
         return 1
     try:
         check_readmes()
-        check_tasks()
-        check_personas()
         check_notes_schema()
         check_keys_overlay()
         check_app_config()

@@ -11,7 +11,7 @@ rewind, and the context meter are capabilities of that store.
 
 ## Config
 
-The host catalog lists every shipped adapter. Narrow with `is:host` /
+The catalog lists every shipped adapter. Narrow with
 `harness:<id>` (and the rest of the query language). Opt out of a store
 in `~/.groket/config.toml`:
 
@@ -44,7 +44,7 @@ locators use `~/.groket/notes/<harness>/<session_id>/`.
 
 ## Filter
 
-`harness:grok` and `is:host`.
+`harness:grok`.
 
 ## Adding an adapter
 

@@ -7,7 +7,7 @@ is tagged. This section is the product as it ships.
 
 First release. Groket is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. Grok Build is the first shipped
-adapter. It does not launch evals.
+adapter. It does not launch evals. The catalog is one host list.
 
 ### Install
 

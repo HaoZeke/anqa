@@ -530,7 +530,7 @@ def write_done_for_session(session_dir: Path) -> None:
     Does **not** rewrite ``status.json``. While the agent is still mid-turn,
     :func:`lifecycle_state` reports ``ending``. After the container stops, the
     host must call :func:`finalize_session_gate` (see
-    :meth:`~groket.runs.run_manager.RunManager.stop_session_container`).
+    the session traces).
     """
     dirs = _ensure_gate_dirs(session_dir)
     for gate in dirs:

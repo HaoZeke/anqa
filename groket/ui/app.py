@@ -1,7 +1,6 @@
 """Main Textual application for groket.
 
-UI entry point only: domain work goes through ``services``,
-``run_manager``, ``personas`` — not embedded business logic in screens.
+UI entry point only: catalog, notes, and control attach.
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.message import Message
 from textual.screen import ModalScreen, Screen
 from textual.suggester import Suggester
 from textual.theme import Theme
@@ -48,7 +46,6 @@ from ..integrations.control_client import (
 from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
 from ..parser import find_sessions, load_session_meta
 from ..paths import app_config_path
-from ..runs.run_manager import BackgroundRun, RunManager
 from ..session.access import (
     DEFAULT_SESSION_LIST_LIMIT,
     RemoteSessionAccess,
@@ -328,20 +325,6 @@ class TraceEvalApp(App):
                 )
                 return
 
-    class _BgStatus(Message):
-        """Worker → UI: container status with a session_dir (thread-safe via post_message)."""
-
-        def __init__(self, status: object) -> None:
-            super().__init__()
-            self.status = status
-
-    class _BgFinished(Message):
-        """Worker → UI: background run finished."""
-
-        def __init__(self, run: BackgroundRun) -> None:
-            super().__init__()
-            self.run = run
-
     def __init__(
         self,
         traces_path: Path | None = None,
@@ -372,9 +355,6 @@ class TraceEvalApp(App):
             self.work_dir = default_work_dir()
             self.traces_path = None
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        self.run_manager = RunManager(self.work_dir)
-        self.run_manager.add_finished_listener(self._on_background_run_finished)
-        self.run_manager.add_status_listener(self._on_background_run_status)
         self._run_status_timer: Timer | None = None
         self._live_sessions_timer: Timer | None = None
         self._live_sessions_heartbeat_timer: Timer | None = None
@@ -2169,13 +2149,6 @@ class TraceEvalApp(App):
             except Exception:
                 errors += 1
                 logger.debug(t("ui-mark-done-failed-for-s"), path, exc_info=True)
-                continue
-            rm = self.run_manager
-            if hasattr(rm, "stop_session_container"):
-                try:
-                    rm.stop_session_container(path)
-                except Exception:
-                    pass
         return errors
 
     def _awaiting_targets_or_toast(self) -> list[Path]:
@@ -2258,7 +2231,7 @@ class TraceEvalApp(App):
     ) -> None:
         if not targets:
             return
-        from ..runs.run_configs import delete_session_dirs, session_dirs_for_delete
+        from ..session.delete import delete_session_dirs, session_dirs_for_delete
 
         paths = session_dirs_for_delete(targets)
         stats = delete_session_dirs(paths, traces_root=self.traces_path, prune_empty_parents=True)
@@ -2482,19 +2455,6 @@ class TraceEvalApp(App):
         self._pause_home_traces_watch(pause=True)
         self.push_screen(BrowserScreen(session_path, prompt_index=prompt_index))
 
-    def action_open_jobs(self) -> None:
-        """Open background jobs + container logs modal (runner stays quiet by default)."""
-        from .screens.jobs import JobsModal
-
-        self.push_screen(JobsModal(self.run_manager, work_dir=self.work_dir))
-
-    def _run_manager_batch_ids(self) -> list[str]:
-        return self.run_manager.active_batch_ids
-
-    def _subtitle_run_status(self) -> None:
-        """Alias used by run-config screens to refresh the header run badge."""
-        self.update_run_status()
-
     def update_run_status(self) -> None:
         """Keep the window title as the wordmark; the activity strip owns status."""
         self.title = t("help-brand-name")
@@ -2713,88 +2673,11 @@ class TraceEvalApp(App):
         finally:
             self._live_sessions_busy = False
 
-    def _on_background_run_status(self, status) -> None:
-        """Worker-thread status callback: session_dir may appear mid-run."""
-        if self._exiting or self.run_manager.ui_detached:
-            return
-        try:
-            if getattr(status, "session_dir", None) is None:
-                return
-            if not self.is_running:
-                return
-            # post_message is thread-safe; call_from_thread raises if already on the app thread
-            # (e.g. quit/cancel races).
-            self.post_message(self._BgStatus(status))
-        except Exception:
-            pass
-
-    def on_trace_eval_app__bg_status(self, event: _BgStatus) -> None:
-        if self._exiting or self.run_manager.ui_detached:
-            return
-        with suppress(Exception):
-            self._on_live_session_discovered(event.status)
-
-    def _on_live_session_discovered(self, status) -> None:
-        """UI-thread: ensure a mid-run session is in the sessions list."""
-        self._schedule_run_status_update()
-        sd = getattr(status, "session_dir", None)
-        if sd is None:
-            return
-        try:
-            sd_path = Path(sd)
-        except Exception:
-            return
-        if not sd_path.is_dir():
-            return
-        runner_traces = self._runner_traces_root()
-        try:
-            if not self.traces_path or not Path(self.traces_path).exists():
-                self.traces_path = runner_traces
-                self._update_session_paths_banner()
-        except Exception:
-            pass
-        # Coalesce with the interval scan — do not spawn extra workers per status.
-        if not self._live_sessions_busy:
-            self._live_sessions_busy = True
-            self._scan_live_sessions_worker()
-        try:
-            self._request_live_share(sd_path, status=status)
-        except Exception:
-            pass
-
-    def _request_live_share(self, session_dir: Path, *, status=None, force: bool = False) -> None:
-        """Re-read groket-share.json (written in-container via ``grok share`` only)."""
-        from ..runs.live_share import get_share_url, refresh_share_from_disk
-
-        sd = Path(session_dir)
-        _ = force
-        url = refresh_share_from_disk(sd) or get_share_url(sd)
-        if not url:
-            return
-        if status is not None:
-            try:
-                status.share_url = url
-            except Exception:
-                pass
-        self._maybe_notify_share_url(sd, url)
-
-    def _maybe_notify_share_url(self, session_dir: Path, share_url: str) -> None:
-        """Share updates are normal workflow (Jobs/Browser/s key); no toast spam."""
-        _ = (session_dir, share_url)
-
     def _scan_live_sessions_into_table(self) -> None:
-        """Background-only: discover new sessions + refresh turn status for live ones.
+        """Discover new sessions and refresh turn status.
 
-        Rules (keep this boring and cheap):
-        - While runs are active: only dirs we already know from ``BackgroundRun``
-          statuses (or one shallow peek per container). **No** full traces walk.
-        - Idle: full ``find_sessions`` at most every ``LIVE_POLL_FULL_WALK_INTERVAL``.
-        - Known sessions: update ``turn_outcome`` only (gate files), never re-parse
-          ``updates.jsonl`` on the list poll.
-        - New sessions only: ``load_session_meta`` once.
-        - UI: one ``call_ui`` apply if anything actually changed — no share spam.
-        - Attach client: quiet ``session/list`` refresh (min_gap).
-        - Skip entirely while a catalog reload is in flight (toggle/F5 owns the list).
+        Attach: quiet ``session/list``. Offline: ``find_sessions`` at most
+        every ``LIVE_POLL_FULL_WALK_INTERVAL``.
         """
         import time
 
@@ -2806,8 +2689,6 @@ class TraceEvalApp(App):
             return
 
         now = time.time()
-        active_n = int(self.run_manager.active_count or 0)
-        # Product path: quiet session/list only (no local full-walk thrash).
         if self._control_socket is not None:
             if not self._control_attached:
                 return
@@ -2822,7 +2703,6 @@ class TraceEvalApp(App):
                 pass
             return
 
-        # Offline (--no-serve): local traces scan only.
         min_gap = LIVE_POLL_ACTIVE_INTERVAL
         if now - self._live_sessions_last_scan < min_gap:
             return
@@ -2833,46 +2713,7 @@ class TraceEvalApp(App):
             return
 
         found: list[Path] = []
-        if active_n:
-            try:
-                for bg in self.run_manager.list_active():
-                    for cfg in bg.configs:
-                        sd: Path | None = None
-                        try:
-                            st = bg.statuses.get(cfg.container_name)
-                            if st is not None and st.session_dir is not None:
-                                p = Path(st.session_dir)
-                                if p.is_dir():
-                                    sd = p
-                        except Exception:
-                            sd = None
-                        if sd is None:
-                            try:
-                                traces_dir = (
-                                    self.run_manager.orchestrator.work_dir
-                                    / "traces"
-                                    / cfg.container_name
-                                )
-                                if traces_dir.is_dir():
-                                    # Pruned walk for one container (skips *.stage / plugins).
-                                    sessions = find_sessions(traces_dir)
-                                    if sessions:
-                                        from ..parser import session_trace_mtime
-
-                                        sd = max(sessions, key=session_trace_mtime)
-                            except Exception:
-                                sd = None
-                        if sd is not None:
-                            found.append(sd)
-                            try:
-                                st = bg.statuses.get(cfg.container_name)
-                                if st is not None and st.session_dir is None:
-                                    st.session_dir = sd
-                            except Exception:
-                                pass
-            except Exception:
-                pass
-        elif now - self._live_full_walk_last >= LIVE_POLL_FULL_WALK_INTERVAL:
+        if now - self._live_full_walk_last >= LIVE_POLL_FULL_WALK_INTERVAL:
             self._live_full_walk_last = now
             try:
                 found.extend(find_sessions(runner_traces))
@@ -3082,30 +2923,8 @@ class TraceEvalApp(App):
             with suppress(Exception):
                 self._populate_session_table(force=True)
 
-    def _on_background_run_finished(self, run: BackgroundRun) -> None:
-        """Notify from worker thread when a backgrounded eval completes."""
-        if self._exiting or self.run_manager.ui_detached:
-            return
-        try:
-            if not self.is_running:
-                return
-            self.post_message(self._BgFinished(run))
-        except Exception:
-            pass
-
-    def on_trace_eval_app__bg_finished(self, event: _BgFinished) -> None:
-        if self._exiting or self.run_manager.ui_detached:
-            return
-        with suppress(Exception):
-            self._notify_run_finished(event.run)
-
     def _prepare_clean_exit(self) -> None:
-        """Detach UI from background jobs so ``q`` returns promptly.
-
-        Docker containers and daemon worker threads keep running under dockerd
-        (interactive sessions stay resumable on reopen). We only stop timers and
-        UI callbacks that would block Textual shutdown via ``call_from_thread``.
-        """
+        """Stop timers and watches so ``q`` returns promptly."""
         self._exiting = True
         stop = self._control_notify_stop
         if stop is not None:
@@ -3138,10 +2957,6 @@ class TraceEvalApp(App):
         except Exception:
             logger.debug(t("ui-stop-live-refresh-on-quit-failed"), exc_info=True)
         try:
-            self.run_manager.detach_ui()
-        except Exception:
-            logger.debug(t("ui-detach-ui-on-quit-failed"), exc_info=True)
-        try:
             workers_cancel = getattr(self, "workers", None)
             if workers_cancel is not None and hasattr(workers_cancel, "cancel_all"):
                 workers_cancel.cancel_all()
@@ -3149,58 +2964,9 @@ class TraceEvalApp(App):
             logger.debug(t("ui-workers-cancel-on-quit-failed"), exc_info=True)
 
     async def action_quit(self) -> None:
-        """Quit the TUI without waiting for in-flight eval containers."""
+        """Quit the TUI."""
         self._prepare_clean_exit()
         self.exit()
-
-    def _notify_run_finished(self, run: BackgroundRun) -> None:
-        from ..utils import fmt_duration
-
-        self._schedule_run_status_update()
-        try:
-            self._scan_live_sessions_into_table()
-        except Exception:
-            pass
-        if run.quiet or run.batch_id:
-            return
-        if self.run_manager.batch_active:
-            return
-        if self._run_manager_batch_ids():
-            return
-        elapsed = fmt_duration(run.elapsed_s)
-        if run.error:
-            self.notify(
-                t(
-                    "notify-run-failed",
-                    id=run.run_id,
-                    elapsed=elapsed,
-                    error=run.error[:120],
-                ),
-                severity="error",
-                timeout=12,
-            )
-            return
-        completed = sum(1 for r in run.results if r.status == "completed")
-        failed = sum(1 for r in run.results if r.status == "failed")
-        total = len(run.results) or len(run.configs)
-        if failed:
-            self.notify(
-                t(
-                    "notify-run-finished",
-                    id=run.run_id,
-                    elapsed=elapsed,
-                    ok=completed,
-                    total=total,
-                    failed=failed,
-                ),
-                severity="error",
-                timeout=12,
-            )
-        try:
-            self._load_sessions(quiet=True)
-            self._update_session_paths_banner()
-        except Exception:
-            pass
 
     def action_refresh_context(self) -> None:
         """Refresh whatever screen/context is active (F5 / Ctrl+R globally)."""

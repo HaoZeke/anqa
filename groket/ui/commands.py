@@ -50,7 +50,6 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
 
     for method, th in (
         ("action_refresh_context", U.cmd_refresh()),
-        ("action_open_jobs", U.cmd_jobs_logs()),
         (
             "action_self_test",
             (t("ui-self-test"), "Check work dir, serve, and host paths"),

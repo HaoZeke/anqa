@@ -32,10 +32,8 @@ just ci             # lint + schema-check + hud-check + examples-check + test (l
 | ``groket`` / ``groket tui`` / ``groket PATH`` | Interactive TUI (control client) |
 | ``groket serve`` | Control owner (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
 | ``groket hud`` | Desktop palette (iced; control client) |
-| ``groket doctor`` | Host checks (Docker, Grok auth, paths) — no TUI |
+| ``groket doctor`` | Host checks (Grok auth, paths) — no TUI |
 | ``groket editor …`` | Packaged Emacs / Neovim client paths |
-| ``groket gen …`` | Scaffold under ``~/.groket/`` (tasks) |
-| ``groket batch …`` | Headless Docker from task YAML (``examples/tasks/``) |
 
 Prefer **`uv run …`** so tools match the lockfile.
 
@@ -49,8 +47,7 @@ second library that duplicates an existing choice.
 | TUI | **Textual** (+ **Rich**) | Screens, widgets, themes |
 | CLI | **Typer** (+ Click, shellingham) | Subcommands, help, completion |
 | i18n | **fluent.runtime** | ``locale/<lang>/main.ftl`` |
-| Data | **Pydantic v2**, **PyYAML** | Config / models; task YAML |
-| Docker | **python-on-whales** | Container orchestration |
+| Data | **Pydantic v2**, **PyYAML** | Config / models |
 
 ---
 
@@ -160,8 +157,6 @@ groket/
   scan.py                # session walk + updates.jsonl keep/skip (Python + groket._scan)
   keys/                  # action catalog + keys.toml overlay
   harness/               # disk adapters (see docs/harness-adapters.md)
-  runs/                  # personas, run_configs, run_manager, batch, live_share,
-                         #   launch_meta, services, task_schema
   session/               # turns, turn_gate, usage_stats, workspace_diff,
                          #   context_samples, models_catalog, export_bundle,
                          #   sources, catalog (domain session list for control),
@@ -230,12 +225,11 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.toml``, ``hud.log``, personas, tasks scaffolds, reports, notes_schema.toml, notes fallback, optional ``models.yaml`` |
-| **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
+| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback, optional ``models.yaml`` |
+| **Work dir** | ``~/.groket/work`` (CLI path overrides) | leftover traces under ``runs/traces/``, notes cache |
 
-- TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
-  Docker). **Host** catalog = every shipped native store (Grok
-  ``~/.grok/sessions``). ``H`` / ``is:host``; ``harness:<id>`` filters.
+- Catalog = leftover work traces plus every enabled adapter store (Grok
+  ``~/.grok/sessions``). ``harness:<id>`` filters.
   ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
   Directory locators use the session path; file or database locators use
   ``harness:<session_id>``. Contract: ``docs/harness-adapters.md``. New or
@@ -648,10 +642,10 @@ or a child from a spawn/finish bookend, or the focused note;
 ``n``/``e`` follow-up/Done when awaiting;
 ``x`` deletes the focused note (double-press);
 session delete is on the session list; ``N`` new note;
-``E`` export. Host sessions filter with ``is:host`` in catalog search.
+``E`` export. ``harness:<id>`` filters the catalog.
 
 Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
-(double-press). Host sessions always load; ``is:host`` filters the list.
+(double-press). All adapter stores load.
 
 ### 6.10 TUI and HUD: same action, same key
 

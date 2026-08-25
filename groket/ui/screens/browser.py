@@ -789,12 +789,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         try:
             write_done_for_session(self.session_dir)
-            rm = getattr(self.app, "run_manager", None)
-            if rm is not None and hasattr(rm, "stop_session_container"):
-                try:
-                    rm.stop_session_container(self.session_dir)
-                except Exception:
-                    pass
             self.notify(t("mark-done-requested"))
         except Exception as exc:
             self.notify(U.mark_session_done_failed(exc), severity="error")
@@ -2664,7 +2658,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def action_open_share(self) -> None:
         """Open Grok share URL for this session (from groket-share.json) in the browser."""
         try:
-            from ...runs.live_share import get_share_display, refresh_share_from_disk
+            from ...session.share import get_share_display, refresh_share_from_disk
 
             url = refresh_share_from_disk(self.session_dir)
             info = get_share_display(self.session_dir)
@@ -3788,7 +3782,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
         self._delete_pending = False
         self._stop_live_refresh()
-        from ...runs.run_configs import delete_session_dirs, session_dirs_for_delete
+        from ...session.delete import delete_session_dirs, session_dirs_for_delete
 
         paths = session_dirs_for_delete([self.session_dir])
         traces_root = getattr(self.app, "traces_path", None)

@@ -61,57 +61,6 @@ class SelfTestReport:
         return out
 
 
-def _check_docker(work_dir: Path | None) -> CheckResult:
-    """Docker info can hang if the socket is wedged — bound with a short timeout."""
-    import threading
-
-    result_box: list[CheckResult | None] = [None]
-
-    def _run() -> None:
-        try:
-            from ..docker.orchestrator import DockerOrchestrator
-            from ..paths import default_work_dir
-
-            root = Path(work_dir).expanduser() if work_dir else default_work_dir()
-            orch = DockerOrchestrator(root / "runs")
-            if orch.check_docker_available():
-                result_box[0] = CheckResult(
-                    id="docker",
-                    name="Docker daemon",
-                    ok=True,
-                    detail="reachable (docker info)",
-                )
-            else:
-                result_box[0] = CheckResult(
-                    id="docker",
-                    name="Docker daemon",
-                    ok=False,
-                    detail="not reachable — start Docker or fix DOCKER_HOST",
-                    required=True,
-                )
-        except Exception as exc:
-            result_box[0] = CheckResult(
-                id="docker",
-                name="Docker daemon",
-                ok=False,
-                detail=str(exc)[:200],
-                required=True,
-            )
-
-    th = threading.Thread(target=_run, name="groket-selftest-docker", daemon=True)
-    th.start()
-    th.join(timeout=8.0)
-    if th.is_alive() or result_box[0] is None:
-        return CheckResult(
-            id="docker",
-            name="Docker daemon",
-            ok=False,
-            detail="timed out after 8s — daemon stuck or socket blocked",
-            required=True,
-        )
-    return result_box[0]
-
-
 def _check_auth_json() -> CheckResult:
     auth = Path.home() / ".grok" / "auth.json"
     if not auth.is_file():
@@ -275,37 +224,6 @@ def _check_models_cache() -> CheckResult:
         )
 
 
-def _check_share_capability() -> CheckResult:
-    """Advisory: whether ``grok share`` is entitled on this host account."""
-    try:
-        from ..runs.live_share import probe_host_share_capability
-
-        cap = probe_host_share_capability()
-    except Exception as exc:
-        return CheckResult(
-            id="grok_share",
-            name="Grok session sharing",
-            ok=False,
-            detail=f"probe failed: {exc}"[:160],
-            required=False,
-        )
-    if cap.available:
-        return CheckResult(
-            id="grok_share",
-            name="Grok session sharing",
-            ok=True,
-            detail=f"available ({cap.reason})",
-            required=False,
-        )
-    return CheckResult(
-        id="grok_share",
-        name="Grok session sharing",
-        ok=False,
-        detail=f"unavailable ({cap.reason}) — eval containers set SHARE_DISABLE=1"[:200],
-        required=False,
-    )
-
-
 def _check_session_display() -> CheckResult:
     """Advisory: which display protocol the seat is using."""
     import os
@@ -426,12 +344,10 @@ def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
         _check_work_dir(work_dir),
-        _check_docker(work_dir),
         _check_auth_json(),
         _check_grok_config(),
         _check_grok_cli(),
         _check_models_cache(),
-        _check_share_capability(),
         _check_session_display(),
         _check_sway_socket(),
         _check_hud_summon_socket(),

@@ -104,8 +104,8 @@ def catalog_scan_roots(
 
     :param work_dir: Work root (``runs/traces`` lives under this).
     :param traces_path: Optional extra traces path (CLI ``-P`` override).
-    :param include_host: When true, include host native stores; when false,
-        work only; when None, include host (``is:host`` filters the list).
+    :param include_host: When false, skip adapter host stores (tests).
+        Product paths always include them.
     :param host_root: Override for the host sessions root (tests).
     :returns: Ordered scan roots (work first).
     """
@@ -165,11 +165,11 @@ def session_catalog_row(
         if origin == ORIGIN_HOST:
             meta = load_host_list_meta(session_dir)
         else:
-            meta = load_session_meta_list(session_dir, origin=origin)
+            meta = load_session_meta_list(session_dir, origin=ORIGIN_HOST)
     except OSError:
         logger.debug("catalog meta failed for %s", session_dir, exc_info=True)
         return None
-    meta.origin = origin
+    meta.origin = ORIGIN_HOST
     meta.run_dir = session_run_dir(session_dir)
     session_id = (meta.session_id or session_dir.name).strip()
     try:
@@ -197,7 +197,7 @@ def session_catalog_row(
         "model": meta.model_display,
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
-        "origin": meta.origin or origin,
+        "origin": ORIGIN_HOST,
         "harness": (meta.harness or "grok").strip() or "grok",
         "harnessVersion": (meta.harness_version or "").strip(),
         # Home-list columns for attach-mode TUI (and any rich client).
@@ -264,6 +264,7 @@ def list_session_catalog(
                 dest=default_catalog_snapshot(wroot.path),
                 list_dirs=find_sessions,
                 build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_WORK),
+                # ORIGIN_WORK here only selects find_sessions + full list-meta.
             )
         )
     seen_host: set[str] = set()

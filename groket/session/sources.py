@@ -1,9 +1,8 @@
-"""Session catalog roots: eval (Docker) traces and optional host stores.
+"""Session catalog roots: leftover work traces and adapter host stores.
 
-Eval catalog (always): ``<work>/runs/traces`` — sessions launched by groket.
-Host catalog (optional): native stores (shipped walk: ``~/.grok/sessions``).
-
-On-disk origin codes remain ``work`` / ``host``; the TUI labels them Eval / Host.
+Work traces (``<work>/runs/traces``) stay listed so old eval trees remain
+visible. Native stores (``~/.grok/sessions`` and ``[catalog.roots]``) are
+always included. Rows on the wire use origin ``host``.
 """
 
 from __future__ import annotations
@@ -196,7 +195,7 @@ def session_run_dir(session_dir: Path) -> str:
         decoded = unquote(parent)
         if decoded and decoded not in {"/workspace", "workspace"}:
             return decoded
-    from ..runs.run_recipe import load_run_recipe
+    from .recipe import load_run_recipe
 
     raw = str(load_run_recipe(session_dir).get("repo_path") or "").strip()
     if not raw:

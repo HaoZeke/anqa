@@ -4,7 +4,7 @@ Default: interactive TUI. Optional path (``-P`` or leading argument) selects
 work root, traces tree, or session (default ``~/.groket/work``).
 
 Commands: ``serve`` (control owner), ``hud``, ``doctor``, ``editor``,
-``keys``, ``export-host``.
+``keys``, ``config``, ``export-host``.
 
 Shell completion: ``uv run groket --install-completion``
 """
@@ -42,24 +42,6 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-gen_app = typer.Typer(
-    name="gen",
-    help=("Scaffold user extensions under [cyan]~/.groket/[/cyan] (example tasks)."),
-    no_args_is_help=True,
-)
-app.add_typer(gen_app, name="gen")
-
-batch_app = typer.Typer(
-    name="batch",
-    help=(
-        "Run task YAML catalogs through Docker (headless). "
-        "See [cyan]examples/tasks/[/cyan] and "
-        "[cyan]https://indynull.github.io/groket/schemas/tasks.schema.json[/cyan]."
-    ),
-    no_args_is_help=True,
-)
-app.add_typer(batch_app, name="batch")
-
 config_app = typer.Typer(
     name="config",
     help=(
@@ -94,8 +76,6 @@ app.add_typer(editor_app, name="editor")
 # Subcommand names — must not be consumed as a TUI path positional.
 TOOL_COMMANDS = frozenset(
     {
-        "gen",
-        "batch",
         "serve",
         "hud",
         "tui",
@@ -331,13 +311,6 @@ _ServeSocket = Annotated[
         show_default=False,
     ),
 ]
-_ServeHost = Annotated[
-    bool | None,
-    typer.Option(
-        "--host/--no-host",
-        help=("Include ~/.grok/sessions in session/list. Default: include host."),
-    ),
-]
 _ServeDaemon = Annotated[
     bool,
     typer.Option(
@@ -368,7 +341,6 @@ def _run_serve_start(
     *,
     path: Path | None,
     control_socket: Path | None,
-    include_host: bool | None,
     daemonize: bool,
 ) -> int:
     """Start the control owner (foreground or detached)."""
@@ -383,7 +355,7 @@ def _run_serve_start(
             socket_path=sock,
             work_dir=None,
             traces_path=path,
-            include_host=include_host,
+            include_host=None,
         )
         if result.already_running and result.ok:
             typer.echo(f"already running  pid={result.pid}  socket={sock}", err=True)
@@ -397,7 +369,7 @@ def _run_serve_start(
         socket_path=sock,
         work_dir=None,
         traces_path=path,
-        include_host=include_host,
+        include_host=None,
     )
 
 
@@ -412,7 +384,6 @@ def _run_serve_restart(
     *,
     path: Path | None,
     control_socket: Path | None,
-    include_host: bool | None,
     daemonize: bool,
     timeout: float,
 ) -> int:
@@ -430,7 +401,6 @@ def _run_serve_restart(
     return _run_serve_start(
         path=path,
         control_socket=control_socket,
-        include_host=include_host,
         daemonize=daemonize,
     )
 
@@ -440,7 +410,6 @@ def serve_callback(
     ctx: typer.Context,
     path: _ServePath = None,
     control_socket: _ServeSocket = None,
-    include_host: _ServeHost = None,
     daemonize: _ServeDaemon = False,
 ) -> None:
     """With no subcommand: start the control owner (foreground unless ``-d``)."""
@@ -450,7 +419,6 @@ def serve_callback(
         _run_serve_start(
             path=path,
             control_socket=control_socket,
-            include_host=include_host,
             daemonize=daemonize,
         )
     )
@@ -469,7 +437,6 @@ def serve_stop(
 def serve_restart(
     path: _ServePath = None,
     control_socket: _ServeSocket = None,
-    include_host: _ServeHost = None,
     daemonize: _ServeDaemon = True,
     timeout: _ServeTimeout = 5.0,
 ) -> None:
@@ -478,7 +445,6 @@ def serve_restart(
         _run_serve_restart(
             path=path,
             control_socket=control_socket,
-            include_host=include_host,
             daemonize=daemonize,
             timeout=timeout,
         )
@@ -657,146 +623,6 @@ def cmd_tui(
     _tui_options(path, config, socket, not no_socket, ensure_serve, prompt_index)
 
 
-@batch_app.command("run")
-def cmd_batch_run(
-    tasks: Annotated[
-        Path,
-        typer.Option(
-            "-t",
-            "--tasks",
-            exists=True,
-            dir_okay=False,
-            readable=True,
-            help="Tasks YAML file (schema: schemas/tasks.schema.json).",
-        ),
-    ],
-    path: Annotated[
-        Path | None,
-        typer.Option(
-            "-P",
-            "--path",
-            help="Work root for traces and Docker builds (default ~/.groket/work).",
-            show_default=False,
-        ),
-    ] = None,
-    category: Annotated[
-        str | None,
-        typer.Option(
-            "-C",
-            "--category",
-            help="Only tasks with this category field.",
-        ),
-    ] = None,
-    task_id: Annotated[
-        list[str] | None,
-        typer.Option("-i", "--task-id", help="Only these task ids (repeatable)."),
-    ] = None,
-    models: Annotated[
-        list[str] | None,
-        typer.Option(
-            "-m",
-            "--models",
-            help=(
-                "Model ids (default: host Grok models catalog). "
-                "Tasks that set models: in YAML use that list instead."
-            ),
-        ),
-    ] = None,
-    parallelism: Annotated[
-        int,
-        typer.Option("-p", "--parallelism", min=1, help="Concurrent (task, model) jobs."),
-    ] = 1,
-) -> None:
-    """Validate tasks YAML and run each task × model through Docker."""
-    from .paths import resolve_work_and_traces
-    from .runs.batch import load_models, load_tasks, run_batch
-    from .runs.task_schema import load_task_file
-
-    try:
-        load_task_file(tasks)  # fail fast with Pydantic errors before Docker
-        loaded = load_tasks(tasks, category)
-    except FileNotFoundError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    except (ValueError, Exception) as exc:
-        # Pydantic ValidationError subclasses Exception
-        typer.echo(f"error: invalid tasks file: {exc}", err=True)
-        raise typer.Exit(2) from exc
-
-    if task_id:
-        wanted = set(task_id)
-        loaded = [t for t in loaded if t.task_id in wanted]
-    if not loaded:
-        typer.echo("No tasks matched filters.", err=True)
-        raise typer.Exit(0)
-
-    wd, _tr = resolve_work_and_traces(path)
-    typer.echo(f"batch: work_dir={wd}", err=True)
-    batch_models = models or load_models()
-    typer.echo(
-        f"  tasks={len(loaded)}  batch_models={batch_models} "
-        f"(per-task models: in YAML override when set)",
-        err=True,
-    )
-    results = run_batch(
-        loaded,
-        work_dir=wd,
-        models=batch_models,
-        parallelism=parallelism,
-    )
-    failed = sum(1 for r in results if (r.get("status") or "") != "completed")
-    raise typer.Exit(1 if failed else 0)
-
-
-@batch_app.command("validate")
-def cmd_batch_validate(
-    tasks: Annotated[
-        Path,
-        typer.Argument(
-            exists=True,
-            dir_okay=False,
-            readable=True,
-            help="Tasks YAML file to validate.",
-        ),
-    ],
-) -> None:
-    """Validate a tasks YAML file against the Pydantic / JSON Schema model."""
-    from .runs.task_schema import load_task_file
-
-    try:
-        doc = load_task_file(tasks)
-    except FileNotFoundError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    except Exception as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    typer.echo(
-        f"OK  {tasks}  ({len(doc.resolved_tasks())} task(s), schema_version={doc.schema_version})"
-    )
-
-
-@batch_app.command("schema")
-def cmd_batch_schema(
-    out: Annotated[
-        Path | None,
-        typer.Option(
-            "-o",
-            "--out",
-            help="Write JSON Schema to this path (default: stdout).",
-        ),
-    ] = None,
-) -> None:
-    """Emit JSON Schema for tasks YAML (same as ``just schema`` / Pages publish)."""
-    from .runs.task_schema import emit_tasks_schema
-
-    text = emit_tasks_schema(out)
-    if out is None:
-        typer.echo(text, nl=False)
-    else:
-        typer.echo(f"Wrote {out}")
-
-
 @config_app.command("validate")
 def cmd_config_validate(
     path: Annotated[
@@ -958,26 +784,6 @@ def cmd_doctor(
             typer.echo(line)
     raise typer.Exit(0 if report.ok else 1)
 
-
-@gen_app.command("tasks")
-def gen_tasks(
-    path: Annotated[
-        Path | None,
-        typer.Argument(help="Output path (default: ~/.groket/tasks/example_tasks.yaml)."),
-    ] = None,
-    force: Annotated[bool, typer.Option("-f", "--force")] = False,
-) -> None:
-    """Write an example tasks YAML under ``~/.groket/tasks/`` (or *path*)."""
-    from .extensions.scaffold import write_tasks_file
-    from .paths import ensure_user_extension_dirs
-
-    ensure_user_extension_dirs()
-    try:
-        out = write_tasks_file(path, force=force)
-    except FileExistsError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    typer.echo(f"Wrote tasks file: {out}")
 
 
 def main(argv: list[str] | None = None) -> None:

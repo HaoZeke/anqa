@@ -173,12 +173,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "app.jobs",
-        scope: "global",
-        default: "J",
-        remappable: true,
-    },
-    CatalogRow {
         id: "app.self_test",
         scope: "global",
         default: "ctrl+t",
@@ -317,24 +311,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "jobs.close",
-        scope: "jobs",
-        default: "J",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "jobs.open",
-        scope: "jobs",
-        default: "o",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "jobs.clear_logs",
-        scope: "jobs",
-        default: "c",
-        remappable: true,
-    },
-    CatalogRow {
         id: "modal.submit",
         scope: "modal",
         default: "ctrl+r",
@@ -379,7 +355,7 @@ const ACTIONS: &[CatalogRow] = &[
 ];
 
 const KNOWN_SCOPES: &[&str] = &[
-    "global", "home", "browser", "jobs", "modal",
+    "global", "home", "browser", "modal",
 ];
 
 const RESERVED: &[&str] = &["escape", "enter", "tab", "shift+tab", "?"];

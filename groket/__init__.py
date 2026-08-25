@@ -1,13 +1,11 @@
 """groket — inspect coding-agent harness sessions.
 
-* Root: ``models``, ``config``, ``parser``, ``paths``, ``constants``, ``utils``, ``flags``, ``cli``
-* ``runs/`` — personas, run configs, batch, background manager, shares, log services
-* ``session/`` — usage stats and workspace diffs
-* ``capabilities/``, ``docker/``
-* ``extensions/`` — ``groket gen`` scaffolding
+* Root: ``models``, ``config``, ``parser``, ``paths``, ``constants``, ``utils``, ``cli``
+* ``session/`` — catalog, notes helpers, usage, diffs, launch-record readers
+* ``harness/`` — adapter protocol
 * ``ui/`` — Textual presentation
 
-Data flow: models/parser → runs|session → ui.
+Data flow: models/parser → session → ui.
 """
 
 from __future__ import annotations

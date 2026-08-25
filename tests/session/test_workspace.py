@@ -176,7 +176,7 @@ def test_prepare_uses_rmtree_robust_on_permission_error(
 
         shutil.rmtree(path)
 
-    monkeypatch.setattr("groket.runs.run_configs.rmtree_robust", fake_robust)
+    monkeypatch.setattr("groket.session.delete.rmtree_robust", fake_robust)
     out = prepare_host_checkout(runs, "groket-rooty")
     assert calls and calls[0] == dest
     assert out.is_dir()
