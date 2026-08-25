@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 from ..harness import views as harness_views
 from ..harness.ref import SessionRef
 from ..harness.registry import resolve_session_ref
-from ..integrations.editor import SUPPORTED_FORMATS, render_editor_document
 from ..models import JsonObject, JsonValue
 from ..notes import (
     NoteEntry,
@@ -40,6 +39,7 @@ from ..session.control_views import (
     build_session_usage,
 )
 from ..session.turn_gate import write_done_for_session, write_follow_up_for_session
+from .document import SUPPORTED_FORMATS, render_editor_document
 
 if TYPE_CHECKING:
     from ..control.client import ControlClient

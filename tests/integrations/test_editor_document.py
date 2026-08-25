@@ -10,7 +10,7 @@ from anqa.notes import NoteEntry, NotesDoc, save_notes
 
 
 def _render_editor_document(session_dir: Path, *, format: str = "org"):
-    module = import_module("anqa.integrations.editor")
+    module = import_module("anqa.session.document")
     return module.render_editor_document(session_dir, format=format)
 
 
@@ -367,7 +367,7 @@ def test_render_rejects_unknown_format(tmp_path: Path) -> None:
     session_dir = tmp_path / "session-bad"
     session_dir.mkdir()
     _write_session(session_dir)
-    module = import_module("anqa.integrations.editor")
+    module = import_module("anqa.session.document")
     try:
         module.render_editor_document(session_dir, format="rtf")
         raise AssertionError("expected ValueError")

@@ -14,7 +14,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..integrations.editor import SUPPORTED_FORMATS
 from ..models import JsonObject, JsonValue, as_json_object, json_as_int, json_as_str
 from ..notes import (
     NoteEntry,
@@ -28,6 +27,7 @@ from ..session.access import LocalSessionAccess, notes_snapshot_mapping
 # Re-export catalog filter for existing importers (TUI, tests).
 from ..session.access import filter_session_catalog as filter_session_catalog
 from ..session.control_views import warm_timeline_search
+from ..session.document import SUPPORTED_FORMATS
 from .contract import (
     MIN_PROTOCOL_VERSION,
     NOTIFY_NOTES_CHANGED,

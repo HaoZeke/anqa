@@ -4,5 +4,5 @@ Complements :mod:`anqa.parser` (raw timeline/tool extraction) with higher-level
 aggregates used by the session Summary pane — still UI-agnostic.
 
 Import from the owning submodule (``export_bundle``, ``usage_stats``,
-``sources``, ``workspace_diff``, ``workflows``).
+``sources``, ``workspace_diff``, ``workflows``, ``document``).
 """

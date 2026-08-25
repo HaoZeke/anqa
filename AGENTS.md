@@ -156,7 +156,7 @@ anqa/
                          #   query (luqum), event_search (Timeline store)
   notes.py               # configurable operator notes (TOML schema + session store)
   control/               # contract, server, client, serve (``anqa serve``)
-  integrations/          # Emacs / Neovim packs + editor document projection
+  integrations/          # Emacs / Neovim packs (not the control owner)
   hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
 # Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), scan/ (anqa._scan)

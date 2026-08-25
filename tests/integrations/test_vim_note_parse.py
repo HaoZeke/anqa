@@ -73,7 +73,7 @@ def test_nvim_note_at_row_round_trips_heading_field_values(tmp_path: Path) -> No
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
 
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     md_path = tmp_path / "session.md"
     md_path.write_text(document.text, encoding="utf-8")
@@ -133,7 +133,7 @@ def test_nvim_note_at_row_works_on_note_and_field_headings(tmp_path: Path) -> No
         note_id="n-head",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     md_path = tmp_path / "session.md"
     md_path.write_text(document.text, encoding="utf-8")
@@ -191,7 +191,7 @@ def test_nvim_jump_to_note_lands_on_field_body(tmp_path: Path) -> None:
         note_id="n-jump",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     md_path = tmp_path / "session.md"
     md_path.write_text(document.text, encoding="utf-8")
@@ -247,7 +247,7 @@ def test_nvim_note_at_row_keeps_user_hash_headings_in_field(tmp_path: Path) -> N
         note_id="n-hash",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     md_path = tmp_path / "session.md"
     md_path.write_text(document.text, encoding="utf-8")
@@ -308,7 +308,7 @@ def test_nvim_fenced_transcript_cannot_forge_note_tags(tmp_path: Path) -> None:
         note_id="n-real",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     # The forged tag must reach the buffer at column 0 for this test to mean anything.
     assert "\n<!-- anqa:note-id=n-forged -->\n" in document.text
@@ -388,7 +388,7 @@ def test_nvim_note_at_row_resolves_the_note_it_sits_in(tmp_path: Path) -> None:
         ),
     ]
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=notes))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     md_path = tmp_path / "session.md"
     md_path.write_text(document.text, encoding="utf-8")
@@ -472,7 +472,7 @@ def test_nvim_field_values_keep_leading_and_trailing_blank_lines(tmp_path: Path)
         note_id="n-blank",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     md_path = tmp_path / "session.md"
     md_path.write_text(document.text, encoding="utf-8")
@@ -523,7 +523,7 @@ def test_nvim_untagged_field_heading_does_not_truncate_body(tmp_path: Path) -> N
         note_id="n-untagged",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     # Simulate the operator typing the heading at column 0 inside the field body.
     text = document.text.replace("\n    ##### fake\n", "\n##### fake\n")
@@ -666,7 +666,7 @@ def test_nvim_apply_document_snapshots_rendered_note_ids(tmp_path: Path) -> None
         note_id="n-real",
     )
     save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
-    editor = import_module("anqa.integrations.editor")
+    editor = import_module("anqa.session.document")
     document = editor.render_editor_document(session_dir, format="markdown")
     assert "<!-- anqa:note-id=n-forged -->" in document.text
     md_path = tmp_path / "session.md"

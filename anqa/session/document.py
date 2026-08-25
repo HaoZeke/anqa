@@ -12,12 +12,12 @@ from .. import event_types as et
 from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
 from ..parser import load_session_meta, parse_timeline
-from ..session.subagents import (
+from .subagents import (
     SubagentRun,
     subagent_run_mapping,
     subagent_runs_for_session,
 )
-from ..session.turns import (
+from .turns import (
     TurnSegment,
     event_display_turn_map,
     is_operator_user_event,

@@ -1,3 +1,3 @@
-"""Emacs and Neovim packs, plus session document projection for those clients."""
+"""Emacs and Neovim packs. Not the control owner."""
 
 from __future__ import annotations
