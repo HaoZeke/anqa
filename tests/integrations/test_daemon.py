@@ -903,3 +903,28 @@ async def test_serve_watch_apply_runs_off_observer_timer(
     assert "TraceTreeWatch._fire" not in stack
     assert "fs_watch.py" not in stack
     assert apply_hits[0]["ident"] != loop_thread.ident
+
+
+def test_control_watch_specs_mark_extra_stores_membership_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catalog trees list sessions; extra adapter stores do not."""
+    from groket.integrations.daemon import control_watch_specs
+    from groket.session.catalog import SessionCatalogCache
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    _write_session(traces, "work-sess")
+    extra = tmp_path / "adapter.db"
+    extra.write_bytes(b"")
+    cache = SessionCatalogCache(work, traces_path=traces, include_host=False)
+    monkeypatch.setattr(
+        "groket.harness.registry.adapter_store_watch_paths",
+        lambda: [extra],
+    )
+    specs = control_watch_specs(cache)
+    by_path = {path.resolve(): only for path, only in specs}
+    assert traces.resolve() in by_path
+    assert by_path[traces.resolve()] is False
+    assert extra.parent.resolve() in by_path
+    assert by_path[extra.parent.resolve()] is True

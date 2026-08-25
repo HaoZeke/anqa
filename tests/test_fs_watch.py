@@ -232,6 +232,77 @@ def test_plane_write_does_not_recollect_watch_paths(tmp_path: Path) -> None:
         w.stop()
 
 
+def test_session_dirs_under_membership_only_skips_find_sessions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Extra adapter stores must not walk the tree looking for session dirs."""
+    from groket.parser import find_sessions as real_find
+
+    store = tmp_path / "extra.db"
+    store.write_bytes(b"")
+    junk = tmp_path / "deep" / "nested"
+    junk.mkdir(parents=True)
+    (junk / "summary.json").write_text("{}", encoding="utf-8")
+    (junk / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    walked: list[str] = []
+
+    def tracked(root: Path) -> list[Path]:
+        walked.append(str(root))
+        return real_find(root)
+
+    monkeypatch.setattr("groket.session.watch.find_sessions", tracked)
+    assert session_dirs_under([tmp_path], list_sessions=False) == []
+    assert walked == []
+
+
+def test_membership_only_watch_does_not_subscribe_sibling_dirs(tmp_path: Path) -> None:
+    """A sqlite store's parent is watched; sibling project trees are not."""
+    store = tmp_path / "sessions.db"
+    store.write_bytes(b"")
+    for i in range(40):
+        child = tmp_path / f"proj-{i:02d}"
+        child.mkdir()
+        (child / "workspace").mkdir()
+        (child / "workspace" / "a.py").write_text("x\n", encoding="utf-8")
+    w = TraceTreeWatch(store, lambda: None)
+    assert w._membership_only is True
+    assert w.root == tmp_path
+    paths = w._collect_paths()
+    assert tmp_path in paths
+    assert all(p == tmp_path or p.name.startswith("%2") for p in paths)
+    assert not any(p.name.startswith("proj-") for p in paths)
+    assert not any("workspace" in p.parts for p in paths)
+
+
+def test_membership_only_dir_does_not_expand_children(tmp_path: Path, monkeypatch) -> None:
+    """Jsonl / extra dir stores subscribe the membership dir only."""
+    extra = tmp_path / "jsonl-store"
+    extra.mkdir()
+    for i in range(30):
+        (extra / f"bucket-{i:02d}").mkdir()
+    walked: list[str] = []
+
+    def boom(root: Path) -> list[Path]:
+        walked.append(str(root))
+        raise AssertionError("find_sessions must not run for membership-only")
+
+    monkeypatch.setattr("groket.session.watch.find_sessions", boom)
+    w = TraceTreeWatch(extra, lambda: None, membership_only=True)
+    paths = w._collect_paths()
+    assert walked == []
+    assert extra in paths
+    assert not any(p.name.startswith("bucket-") for p in paths)
+
+
+def test_file_membership_watch_dirs_is_parent_only(tmp_path: Path) -> None:
+    from groket.session.watch import membership_watch_dirs
+
+    store = tmp_path / "store.sqlite"
+    store.write_bytes(b"")
+    (tmp_path / "other").mkdir()
+    assert membership_watch_dirs([store]) == [tmp_path]
+
+
 def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path) -> None:
     host = tmp_path / "sessions"
     bucket = host / "%2Fproj"

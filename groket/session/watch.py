@@ -33,11 +33,21 @@ def plane_file_paths(session_dir: Path) -> list[Path]:
 
 
 def membership_watch_dirs(roots: list[Path]) -> list[Path]:
-    """Directories whose direct children appearing or vanishing change membership."""
+    """Directories whose direct children appearing or vanishing change membership.
+
+    A file root (sqlite store) contributes only its parent directory.
+    """
     out: list[Path] = []
     seen: set[str] = set()
     for raw in roots:
         root = Path(raw).expanduser()
+        if root.is_file():
+            parent = root.parent
+            key = str(parent)
+            if parent.is_dir() and key not in seen:
+                seen.add(key)
+                out.append(parent)
+            continue
         if not root.is_dir():
             continue
         key = str(root)
@@ -73,12 +83,17 @@ def session_dirs_under(
     roots: list[Path],
     *,
     host_root: Path | None = None,
+    list_sessions: bool = True,
 ) -> list[Path]:
     """Listed session directories under catalog *roots* (no workspace descent).
 
-    The named host root uses the shallow host lister. Every other root uses
-    :func:`find_sessions` so nested eval sessions are included.
+    The named host root uses the shallow host lister. Other *directory
+    session* roots use :func:`find_sessions`. Extra adapter stores
+    (``list_sessions=False``) contribute no session dirs — membership
+    watch only, never a recursive walk.
     """
+    if not list_sessions:
+        return []
     host = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
     found: list[Path] = []
     seen: set[str] = set()
@@ -103,8 +118,18 @@ def _no_workspace(path: Path) -> bool:
     return all(part.casefold() != "workspace" for part in path.parts)
 
 
-def watch_target_paths(roots: list[Path], session_dirs: list[Path]) -> list[Path]:
-    """Directories passed to watchfiles (non-recursive). Never ``workspace/``."""
+def watch_target_paths(
+    roots: list[Path],
+    session_dirs: list[Path],
+    *,
+    expand_children: bool = True,
+) -> list[Path]:
+    """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
+
+    *expand_children* is the Grok directory-session path: one extra
+    level so new session dirs are subscribed. Extra adapter stores
+    (sqlite / jsonl) pass ``False`` and watch membership dirs only.
+    """
     out: list[Path] = []
     seen: set[str] = set()
 
@@ -119,6 +144,8 @@ def watch_target_paths(roots: list[Path], session_dirs: list[Path]) -> list[Path
 
     for path in membership_watch_dirs(roots):
         _add(path)
+        if not expand_children:
+            continue
         try:
             children = list(path.iterdir())
         except OSError:

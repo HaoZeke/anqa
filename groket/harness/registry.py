@@ -60,6 +60,35 @@ def adapter_host_roots(item: HarnessAdapter) -> list[Path]:
     return item.default_host_roots()
 
 
+def adapter_store_watch_paths() -> list[Path]:
+    """Enabled adapter stores that are not the Grok directory walk.
+
+    Files (sqlite) and extra dirs are membership-only watch targets.
+    They must never be passed to :func:`~groket.parser.find_sessions`.
+    """
+    grok = adapter("grok")
+    walked: set[str] = set()
+    if grok is not None:
+        for raw in adapter_host_roots(grok):
+            path = Path(raw).expanduser()
+            try:
+                walked.add(str(path.resolve()))
+            except OSError:
+                walked.add(str(path))
+    extra: list[Path] = []
+    for item in enabled_host_adapters():
+        for raw in adapter_host_roots(item):
+            path = Path(raw).expanduser()
+            try:
+                key = str(path.resolve())
+            except OSError:
+                key = str(path)
+            if key in walked:
+                continue
+            extra.append(path)
+    return extra
+
+
 def host_adapters() -> tuple[HarnessAdapter, ...]:
     """Adapters that contribute native (non-eval) catalog rows."""
     return enabled_host_adapters()
@@ -121,6 +150,7 @@ def ref_from_path(path: Path) -> SessionRef | None:
 __all__ = [
     "adapter",
     "adapter_host_roots",
+    "adapter_store_watch_paths",
     "adapters",
     "enabled_host_adapters",
     "enabled_host_ids",

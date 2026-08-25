@@ -175,6 +175,62 @@ def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:
     assert cache.resolve("missing") is None
 
 
+def test_catalog_scan_roots_includes_every_grok_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``[catalog.roots] grok`` may list several directory trees."""
+    from groket.config import invalidate_config_cache, parse_app_config
+    from groket.session.catalog import catalog_scan_roots
+    from groket.session.sources import ORIGIN_HOST
+
+    work = tmp_path / "work"
+    (work / "runs" / "traces").mkdir(parents=True)
+    first = tmp_path / "grok-a"
+    second = tmp_path / "grok-b"
+    first.mkdir()
+    second.mkdir()
+    cfg = parse_app_config({"catalog": {"roots": {"grok": [str(first), str(second)]}}})
+    monkeypatch.setattr("groket.config.load_app_config", lambda: cfg)
+    invalidate_config_cache()
+    roots = catalog_scan_roots(work)
+    host_paths = [r.path.resolve() for r in roots if r.origin == ORIGIN_HOST]
+    assert first.resolve() in host_paths
+    assert second.resolve() in host_paths
+
+
+def test_adapter_store_watch_paths_skip_grok_walk(tmp_path: Path, monkeypatch) -> None:
+    """Sqlite / extra dirs are watch membership targets, not find_sessions trees."""
+    from groket.harness import registry
+    from groket.harness.registry import adapter_store_watch_paths
+
+    grok_root = tmp_path / "grok-sessions"
+    extra_file = tmp_path / "other" / "store.db"
+    extra_dir = tmp_path / "jsonl"
+    grok_root.mkdir()
+    extra_file.parent.mkdir()
+    extra_file.write_bytes(b"")
+    extra_dir.mkdir()
+
+    class _Extra:
+        id = "demo"
+
+        def default_host_roots(self) -> list[Path]:
+            return [extra_file, extra_dir]
+
+    grok = registry.adapter("grok")
+    assert grok is not None
+    monkeypatch.setattr(
+        registry,
+        "adapter_host_roots",
+        lambda item: [grok_root] if item.id == "grok" else item.default_host_roots(),
+    )
+    monkeypatch.setattr(registry, "enabled_host_adapters", lambda: (grok, _Extra()))
+    extras = adapter_store_watch_paths()
+    assert grok_root not in extras
+    assert extra_file in extras
+    assert extra_dir in extras
+
+
 def test_session_catalog_row_none_on_bad_dir(tmp_path: Path) -> None:
     empty = tmp_path / "not-a-session"
     empty.mkdir()

@@ -54,10 +54,15 @@ class TraceTreeWatch:
         on_paths: Callable[[list[str]], None] | None = None,
         session_dir: Path | None = None,
         host_root: Path | None = None,
+        membership_only: bool = False,
     ) -> None:
         self._root = Path(root)
         self._session_dir = Path(session_dir) if session_dir is not None else None
         self._host_root = Path(host_root) if host_root is not None else None
+        self._membership_only = bool(membership_only)
+        if self._session_dir is None and self._root.is_file():
+            self._root = self._root.parent
+            self._membership_only = True
         self._on_change = on_change
         self._on_paths = on_paths
         self._debounce_s = max(0.0, float(debounce_s))
@@ -82,8 +87,16 @@ class TraceTreeWatch:
     def _collect_paths(self) -> list[Path]:
         if self._session_dir is not None:
             return watch_target_paths([self._session_dir], [self._session_dir])
-        sessions = session_dirs_under([self._root], host_root=self._host_root)
-        return watch_target_paths([self._root], sessions)
+        sessions = session_dirs_under(
+            [self._root],
+            host_root=self._host_root,
+            list_sessions=not self._membership_only,
+        )
+        return watch_target_paths(
+            [self._root],
+            sessions,
+            expand_children=not self._membership_only,
+        )
 
     def start(self) -> bool:
         """Start watching. True when the watch thread is up.

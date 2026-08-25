@@ -322,6 +322,40 @@ def control_watch_roots(cache: SessionCatalogCache) -> list[Path]:
     return out
 
 
+def control_watch_specs(cache: SessionCatalogCache) -> list[tuple[Path, bool]]:
+    """Watch targets: ``(path, membership_only)``.
+
+    Catalog directory trees list session dirs. Extra adapter stores
+    (sqlite files, jsonl trees) are membership-only — never
+    :func:`~groket.parser.find_sessions`.
+    """
+    from ..harness.registry import adapter_store_watch_paths
+
+    specs: list[tuple[Path, bool]] = []
+    seen: set[str] = set()
+    for path in control_watch_roots(cache):
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        specs.append((path, False))
+    for raw in adapter_store_watch_paths():
+        path = Path(raw).expanduser()
+        target = path if path.is_dir() else path.parent
+        try:
+            key = str(target.resolve())
+        except OSError:
+            key = str(target)
+        if key in seen:
+            continue
+        seen.add(key)
+        specs.append((target, True))
+    return specs
+
+
 # Catalog list rows only care about plane files (and notes). Workspace
 # is never subscribed; events.jsonl must not rebuild the list.
 _CATALOG_LIST_FILE_NAMES = frozenset(PLANE_FILE_NAMES)
@@ -585,9 +619,9 @@ async def serve_control_forever(
 
     watches: list[TraceTreeWatch] = []
     loop = asyncio.get_running_loop()
-    uniq_roots: list[Path] = []
+    uniq_specs: list[tuple[Path, bool]] = []
     if isinstance(cache, SessionCatalogCache):
-        uniq_roots = control_watch_roots(cache)
+        uniq_specs = control_watch_specs(cache)
 
         def _catalog_ready() -> None:
             async def _pub() -> None:
@@ -603,17 +637,18 @@ async def serve_control_forever(
     apply = CatalogWatchApply(
         server=server,
         cache=cache if isinstance(cache, SessionCatalogCache) else None,
-        roots=uniq_roots,
+        roots=[path for path, _only in uniq_specs],
         loop=loop,
     )
     server._catalog_apply = apply  # type: ignore[attr-defined]
 
-    async def _arm_watch(root: Path) -> None:
+    async def _arm_watch(root: Path, *, membership_only: bool) -> None:
         watch = TraceTreeWatch(
             root,
             on_change=lambda: None,
             on_paths=apply.enqueue,
             host_root=cache._host_root if isinstance(cache, SessionCatalogCache) else None,
+            membership_only=membership_only,
         )
         ok = await asyncio.to_thread(watch.start)
         if ok:
@@ -623,8 +658,11 @@ async def serve_control_forever(
             logger.warning("control FS watch failed on %s", root)
 
     watch_tasks = [
-        asyncio.create_task(_arm_watch(root), name=f"control-fs-watch-{root.name}")
-        for root in uniq_roots
+        asyncio.create_task(
+            _arm_watch(root, membership_only=membership_only),
+            name=f"control-fs-watch-{root.name}",
+        )
+        for root, membership_only in uniq_specs
     ]
 
     try:
