@@ -16,6 +16,7 @@
   s               Select (also Space)
   S               Select all
   E               Export a session bundle
+  n / e           Follow-up / Done while awaiting
   x               Delete (press twice)
 
 %%catalog-query%%
@@ -32,27 +33,7 @@
   s               Open the share link when the session has one
   E               Export a session bundle
   x               Delete (press twice)
-
-[bold]Runner[/bold]
-  Ctrl+Enter      Launch
-  Ctrl+S          Save recipe
-  T               Export this form as task YAML
-  [ ]  1-3        Recipe, Runtime, Extras
-
-[bold]Recipes[/bold]
-  Enter           Open in the runner
-  l               Launch
-  L               Launch selected
-  s               Select
-  n               New
-  x               Delete
-  T               Export as task YAML
-
-[bold]Personas[/bold]
-  Enter           Edit
-  n               New
-  x               Delete
-  Ctrl+S          Save in the editor
+  n / e           Follow-up / Done while awaiting
 
 [bold]Pickers[/bold]
   s               Select

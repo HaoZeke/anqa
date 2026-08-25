@@ -52,17 +52,13 @@ class TestYieldAppCommands:
             action_self_test=MagicMock(),
             action_show_help=MagicMock(),
             action_quit=MagicMock(),
-            action_open_runner=MagicMock(),
-            action_open_run_configs=MagicMock(),
-            action_open_personas=MagicMock(),
             action_refresh_everything=MagicMock(),
             action_search_sessions=MagicMock(),
             action_toggle_select=MagicMock(),
             action_select_all=MagicMock(),
-            action_rerun_session=MagicMock(),
-            action_resume_session=MagicMock(),
-            action_save_session_config=MagicMock(),
             action_delete_sessions=MagicMock(),
+            action_follow_up_sessions=MagicMock(),
+            action_mark_sessions_done=MagicMock(),
         )
 
     def test_default_screen_yields_app_commands(self) -> None:

@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from groket.session.turn_gate import read_turn_gate_status, session_awaits_follow_up
 from groket.ui.app import TraceEvalApp
-from groket.ui.screens.runner import RunnerScreen
 from textual.widgets import DataTable
 
 from .pilot_helpers import wait_until
@@ -58,7 +57,7 @@ async def test_overlay_remap_updates_footer_binding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     keys = tmp_path / "keys.toml"
-    keys.write_text('[home]\n"home.runner" = "z"\n', encoding="utf-8")
+    keys.write_text('[home]\n"search.focus" = "z"\n', encoding="utf-8")
     monkeypatch.setenv("GROKET_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
@@ -67,21 +66,15 @@ async def test_overlay_remap_updates_footer_binding(
         await wait_until(
             pilot,
             lambda: (
-                "z" in _binding_keys(app, "home.runner")
+                "z" in _binding_keys(app, "search.focus")
                 and any(d == "z" for d in _footer_key_displays(app))
             ),
-            description="home.runner remapped to z in bindings and footer",
+            description="search.focus remapped to z in bindings and footer",
         )
-        assert _binding_keys(app, "home.runner") == {"z"}
+        assert _binding_keys(app, "search.focus") == {"z"}
         displays = _footer_key_displays(app)
         assert any(d == "z" for d in displays)
-        assert not any(d == "r" for d in displays)
-        await pilot.press("z")
-        await wait_until(
-            pilot,
-            lambda: any(isinstance(s, RunnerScreen) for s in app.screen_stack),
-            description="remapped z opens runner",
-        )
+        assert not any(d == "/" or d == "slash" for d in displays)
 
 
 @pytest.mark.asyncio
@@ -134,10 +127,10 @@ async def test_default_keymap_footer_unchanged(tmp_path: Path) -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
-            lambda: "r" in _binding_keys(app, "home.runner"),
-            description="home.runner default r",
+            lambda: "slash" in _binding_keys(app, "search.focus"),
+            description="search.focus default slash",
         )
-        assert _binding_keys(app, "home.runner") == {"r"}
+        assert _binding_keys(app, "search.focus") == {"slash"}
         help_keys = _binding_keys(app, "help.toggle")
         assert help_keys, "help.toggle stays bound"
         assert "z" not in help_keys

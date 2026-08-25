@@ -19,16 +19,19 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.message import Message
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.suggester import Suggester
 from textual.theme import Theme
 from textual.timer import Timer
 from textual.widgets import (
+    Button,
+    Checkbox,
     DataTable,
     Input,
+    Label,
     Static,
     TextArea,
 )
@@ -43,7 +46,7 @@ from ..integrations.control_client import (
     listen_control_notifications,
 )
 from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
-from ..parser import extract_prompt, find_sessions, load_session_meta
+from ..parser import find_sessions, load_session_meta
 from ..paths import app_config_path
 from ..runs.run_manager import BackgroundRun, RunManager
 from ..session.access import (
@@ -62,6 +65,7 @@ from . import text as U
 from .appearance import Appearance, appearance, tui_appearance
 from .bindings import (
     APP_SESSIONS,
+    FORM_SAVE,
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
@@ -78,6 +82,7 @@ from .data_table import (
 from .i18n import setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
+from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .theme import (
     AUTO_NAMES,
@@ -108,6 +113,72 @@ def _coerce_select_value(value, *, default=None):
     if not isinstance(value, (str, int, float, bool)):
         return default
     return value
+
+
+class InteractiveSessionsModal(QuitActions, ModalScreen[tuple[str, bool] | None]):
+    """Prompt for a follow-up on awaiting sessions (sessions home).
+
+    Dismisses with ``(prompt, final_turn)`` or ``None`` on cancel. When
+    *final_turn* is true, the gate runs this turn then stops awaiting
+    (same as the browser pending bar). Mark-done (``e``) remains separate.
+    """
+
+    BINDINGS = list(FORM_SAVE)
+
+    def __init__(self, *, n_awaiting: int) -> None:
+        super().__init__()
+        self._n = max(1, int(n_awaiting))
+
+    def compose(self) -> ComposeResult:
+        with Container(id="interactive-sessions-modal"):
+            yield Label(U.interactive_modal_title(self._n), id="interactive-modal-title")
+            yield Input(placeholder=U.follow_up_placeholder(), id="interactive-follow-input")
+            yield Checkbox(
+                t("follow-up-last-turn"),
+                id="interactive-follow-last-turn",
+                value=False,
+            )
+            with Horizontal(id="interactive-modal-actions", classes="modal-footer"):
+                yield Button(U.send(), variant="primary", id="interactive-send")
+                yield Button(U.cancel(), id="interactive-cancel")
+
+    def on_mount(self) -> None:
+        with suppress(Exception):
+            self.query_one("#interactive-follow-input", Input).focus()
+
+    def action_save(self) -> None:
+        self._submit_follow()
+
+    def action_cancel(self) -> None:
+        from .bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)
+
+    @on(Button.Pressed, "#interactive-send")
+    def _on_send(self) -> None:
+        self._submit_follow()
+
+    @on(Button.Pressed, "#interactive-cancel")
+    def _on_cancel_btn(self) -> None:
+        self.dismiss(None)
+
+    @on(Input.Submitted, "#interactive-follow-input")
+    def _on_submit_input(self) -> None:
+        self._submit_follow()
+
+    def _submit_follow(self) -> None:
+        try:
+            text = self.query_one("#interactive-follow-input", Input).value.strip()
+        except Exception:
+            text = ""
+        if not text:
+            with suppress(Exception):
+                self.notify(U.follow_up_empty(), severity="warning", timeout=2)
+            return
+        final = False
+        with suppress(Exception):
+            final = bool(self.query_one("#interactive-follow-last-turn", Checkbox).value)
+        self.dismiss((text, final))
 
 
 def _attach_catalog_flags(meta: SessionMeta) -> None:
@@ -1950,128 +2021,54 @@ class TraceEvalApp(App):
                 return m
         return None
 
-    def action_rerun_session(self) -> None:
-        return
-
-    def action_resume_session(self) -> None:
-        return
-
-    def _do_resume(self, meta: SessionMeta | None = None) -> None:
-        return
-
-    def action_save_session_config(self) -> None:
-        return
-
-    def _do_save_session_config(self, meta: SessionMeta | None = None) -> None:
-        return
-
-    def _runner_active(self) -> bool:
-        return False
-
-    def action_launch_from_runner(self) -> None:
-        return
-
     def action_mark_sessions_done(self) -> None:
-        return
+        """``e`` — end awaiting sessions (mark done)."""
+        targets = self._awaiting_targets_or_toast()
+        if not targets:
+            return
+        errors = self._apply_done_to_paths(targets)
+        self._refresh_session_meta_rows(targets)
+        self.refresh_bindings()
+        if errors:
+            self._toast(
+                t("notify-failed-for", errors=errors, total=len(targets)),
+                severity="warning",
+                timeout=3.0,
+            )
+        else:
+            self._toast(
+                t("mark-sessions-done-requested", n=len(targets)),
+                severity="information",
+                timeout=3.0,
+            )
 
     def action_follow_up_sessions(self) -> None:
-        return
+        """``n`` — next prompt for awaiting selection."""
+        targets = self._awaiting_targets_or_toast()
+        if not targets:
+            return
 
-    def action_open_run_configs(self) -> None:
-        return
+        def _apply(result: tuple[str, bool] | None) -> None:
+            if not result:
+                return
+            prompt, final = result
+            errors = self._apply_follow_up_to_paths(targets, prompt, final=final)
+            self._refresh_session_meta_rows(targets)
+            self.refresh_bindings()
+            if errors:
+                self._toast(
+                    t("notify-failed-for", errors=errors, total=len(targets)),
+                    severity="warning",
+                    timeout=3.0,
+                )
+            elif final:
+                self._toast(
+                    t("follow-up-sent-final-n", n=len(targets)),
+                    severity="information",
+                    timeout=2.5,
+                )
 
-    def _push_runner_with_prefill(self, prefill: object) -> None:
-        return
-
-    def action_open_runner(self) -> None:
-        return
-
-    def action_open_personas(self) -> None:
-        return
-
-    def _extract_session_launch_params(self, meta: SessionMeta) -> dict:
-        """Extract launch parameters from a session's run recipe and task catalog.
-
-        Prefers ``run.json`` on the session, its traces volume (written at
-        container start), or the fork parent seed when the child never got a
-        recipe. Returns keys: prompt, setup_instructions, docker_image,
-        repo_url, repo_branch, repo_path, models, persona_id, run_plugins,
-        run_skills, run_mcp_servers.
-        """
-        from ..constants import DEFAULT_DOCKER_IMAGE, DEFAULT_MODEL_ID
-        from ..runs.run_recipe import load_run_recipe
-
-        prompt = extract_prompt(meta.session_dir)
-        setup = ""
-        docker_image = DEFAULT_DOCKER_IMAGE
-        repo_url = meta.git_repo
-        repo_branch = meta.git_branch
-        repo_path = ""
-        persona_id = ""
-        run_plugins: list[str] = []
-        run_skills: list[str] = []
-        run_mcp: list[str] = []
-        models_list: list[str] = []
-        run_data = load_run_recipe(meta.session_dir)
-        if run_data:
-            repo_url = repo_url or str(run_data.get("repo_url") or "")
-            repo_branch = repo_branch or str(run_data.get("repo_branch") or "")
-            repo_path = str(run_data.get("repo_path") or "").strip()
-            setup = str(run_data.get("setup_instructions") or setup or "")
-            docker_image = str(run_data.get("docker_image") or docker_image)
-            persona_id = str(run_data.get("persona_id") or "").strip()
-            # Run-only extras (not merged persona caps).
-            plugins = run_data.get("run_plugins") or []
-            if isinstance(plugins, list):
-                run_plugins = [str(x) for x in plugins if str(x).strip()]
-            skills = run_data.get("run_skills") or []
-            if isinstance(skills, list):
-                run_skills = [str(x) for x in skills if str(x).strip()]
-            mcps = run_data.get("run_mcp_servers") or []
-            if isinstance(mcps, list):
-                run_mcp = [str(x) for x in mcps if str(x).strip()]
-            models_from_run = run_data.get("models") or []
-            if isinstance(models_from_run, list) and models_from_run:
-                models_list = [str(x) for x in models_from_run if str(x).strip()]
-        if not models_list:
-            models_list = (
-                [meta.model_id] if meta.model_id and meta.model_id != DEFAULT_MODEL_ID else []
-            )
-        # Prefer launch meta model:effort when present on the traces volume.
-        try:
-            from ..runs.launch_meta import read_launch_meta
-
-            lm = read_launch_meta(meta.session_dir)
-            if lm is not None and (lm.display_token or "").strip():
-                models_list = [lm.display_token]
-        except Exception:
-            logger.debug("launch meta lookup failed for resume/rerun", exc_info=True)
-        # Summary often has remotes/branch when run.json never stored repo_url.
-        if not (repo_url or "").strip():
-            repo_url = (meta.git_repo or "").strip()
-        if not (repo_branch or "").strip():
-            repo_branch = (meta.git_branch or "").strip()
-        repo_commit = (getattr(meta, "git_commit", None) or "").strip()
-        return {
-            "prompt": prompt,
-            "setup_instructions": setup,
-            "docker_image": docker_image,
-            "repo_url": repo_url,
-            "repo_branch": repo_branch,
-            "repo_path": repo_path,
-            "models": models_list,
-            "persona_id": persona_id,
-            "run_plugins": run_plugins,
-            "run_skills": run_skills,
-            "run_mcp_servers": run_mcp,
-            "repo_commit": repo_commit,
-        }
-
-    def _do_rerun(self, meta: SessionMeta | None = None) -> None:
-        return
-
-    def _do_resume_launch(self, meta: SessionMeta | None = None) -> None:
-        return
+        self.push_screen(InteractiveSessionsModal(n_awaiting=len(targets)), _apply)
 
     def _toast(
         self,
@@ -2198,9 +2195,6 @@ class TraceEvalApp(App):
         except Exception:
             return True
 
-    def _runner_active(self) -> bool:
-        return False
-
     def check_action(
         self,
         action: str,
@@ -2214,6 +2208,8 @@ class TraceEvalApp(App):
             return bool(self._leader_armed)
         if action in SESSION_HOME_ACTIONS and not self._sessions_home_active():
             return False
+        if action in ("follow_up_sessions", "mark_sessions_done"):
+            return bool(self._awaiting_session_targets())
         return True
 
     def action_delete_sessions(self) -> None:

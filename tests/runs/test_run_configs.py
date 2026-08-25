@@ -99,11 +99,6 @@ class TestRunConfigModel:
         d = cfg.to_dict()
         assert d["config_id"] == "c1"
         assert d["max_turns"] == 120
-        pre = cfg.to_runner_prefill(models_override=["m2"])
-        assert pre.models == ["m2"]
-        assert pre.prompt == "do it"
-        assert pre.max_turns == 120
-        assert pre.run_inline_skills == [("hint", "---\nname: hint\n---\n")]
         # Missing max_turns defaults to 50
         bare = rc.RunConfig.from_dict({"config_id": "c2", "prompt": "x"})
         assert bare.max_turns == 50

@@ -180,7 +180,7 @@ groket/
   locale/                # Fluent .ftl + help.rich.txt
   ui/                    # Textual UI
     app.py               # TraceEvalApp — sessions home
-    screens/             # browser, runner, jobs, personas, run_configs
+    screens/             # browser, jobs
     widgets/             # timeline, detail, help_modal, controls, activity_bar, …
     bindings.py, commands.py, i18n.py, text.py, styles.py, prefs.py
     data_table.py, panel_render.py, render_detail.py, forms.py, fuzzy.py
@@ -532,7 +532,6 @@ list.
 | Layer | Example | Keys |
 |-------|---------|------|
 | Browser panes | Timeline … Notes | ``[`` ``]`` ``1``–``4`` |
-| Persona / runner panes | Identity … / Recipe … | ``[`` ``]`` + digits |
 | Timeline filter | All / Tools / … | ``v`` → Select |
 | Multi-select | Sessions, configs, pickers | ``s`` / ``space`` → green ``*`` col 0 |
 
@@ -543,7 +542,7 @@ list.
 
 ### 6.3a Destructive delete (``x``)
 
-Double-press ``x`` (and Delete where bound) on sessions, run configs, personas.
+Double-press ``x`` (and Delete where bound) on sessions and notes.
 First press arms; second with the **same** target set commits. Shared helper:
 :func:`groket.ui.delete_confirm.second_press_armed`.
 
@@ -646,12 +645,13 @@ Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
 ``h`` / ``l`` (and Left / Right)
 next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend, or the focused note;
+``n``/``e`` follow-up/Done when awaiting;
 ``x`` deletes the focused note (double-press);
 session delete is on the session list; ``N`` new note;
 ``E`` export. Host sessions filter with ``is:host`` in catalog search.
 
-Sessions home also: ``x`` delete (double-press).
-Host sessions always load; ``is:host`` filters the list.
+Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
+(double-press). Host sessions always load; ``is:host`` filters the list.
 
 ### 6.10 TUI and HUD: same action, same key
 
@@ -686,6 +686,7 @@ against the catalog.
 | ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
 | ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
+| ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 

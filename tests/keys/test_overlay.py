@@ -113,7 +113,7 @@ def test_wrong_scope_table_is_unknown_id(tmp_path: Path, monkeypatch) -> None:
         tmp_path / "keys.toml",
         """
 [browser]
-"home.runner" = "z"
+"ghost.action" = "z"
 """,
     )
     monkeypatch.setenv(KEYS_ENV, str(path))

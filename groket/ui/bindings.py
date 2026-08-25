@@ -67,6 +67,8 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("S", "select_all", U.bind_select_all(), id="list.select_all", show=False),
     _b("x,delete", "delete_sessions", U.bind_delete(), id="session.delete", show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), id="session.export", show=False),
+    _b("n", "follow_up_sessions", U.bind_next_prompt(), id="session.follow", show=True),
+    _b("e", "mark_sessions_done", U.bind_end_session(), id="session.done", show=True),
 )
 # Pushed screens: Help · Back · Quit. Jobs / refresh stay bound, not in the rail.
 SCREEN_CHROME: tuple[Binding, ...] = (
@@ -87,6 +89,8 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "select_all",
         "delete_sessions",
         "export_session_bundle",
+        "follow_up_sessions",
+        "mark_sessions_done",
     }
 )
 # Pane counts must match TabPaneNavigation.TAB_PANES on each screen/modal.
@@ -152,6 +156,8 @@ BROWSER: tuple[Binding, ...] = (
             priority=True,
         ),
         _b("E", "export_bundle", U.bind_export_bundle(), id="session.export", show=True),
+        _b("n", "focus_follow_up", U.bind_next_prompt(), id="session.follow", show=True),
+        _b("e", "mark_session_done", U.bind_end_session(), id="session.done", show=True),
     )
 )
 CAPABILITY_PICKER: tuple[Binding, ...] = (

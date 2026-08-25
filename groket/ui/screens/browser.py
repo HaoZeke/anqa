@@ -30,6 +30,7 @@ from textual.events import Click
 from textual.timer import Timer
 from textual.widgets import (
     Button,
+    Checkbox,
     DataTable,
     Input,
     Select,
@@ -99,6 +100,7 @@ from ..control_notice import control_operator_text
 from ..panel_render import (
     EmptyState,
     format_stamp,
+    status_chip,
 )
 from ..query_highlight import CatalogQueryHighlighter
 from ..selectable_static import SelectableStatic, is_extractable_static
@@ -281,6 +283,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         from ..brand_mark import AppChrome, AppFooter
 
         yield AppChrome()
+        with Vertical(id="session-pending-bar"):
+            yield Static("", id="session-pending-status")
+            yield Static("", id="session-pending-queue")
+            yield Input(placeholder=U.follow_up_placeholder_send(), id="session-follow-input")
+            yield Checkbox(
+                t("follow-up-last-turn"),
+                id="session-follow-last-turn",
+                value=False,
+            )
+            with Horizontal(id="session-pending-actions"):
+                yield Button(
+                    U.follow_up_btn_send(), id="session-follow-send-btn", variant="primary"
+                )
+                yield Button(U.follow_up_btn_done(), id="session-follow-done-btn")
         with TabbedContent(id="browser-tabs"):
             with TabPane(U.tab_timeline(), id="tab-timeline"):
                 with Horizontal(id="browser-layout"):
@@ -574,13 +590,217 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._needs_live_timeline_valid = False
 
     def _refresh_session_pending_bar(self) -> None:
-        return
+        from ...session.turn_gate import (
+            drain_queued_follow_up,
+            final_turn_requested,
+            host_requested_done,
+            list_queued_follow_ups,
+            read_staged_follow_up,
+            read_turn_gate_status,
+            session_pending_label,
+        )
+        from ..session_status import localize_session_pending_label
+
+        # Always re-probe gates when painting the bar (not the check_action cache).
+        self._invalidate_pending_cache()
+        show = self._session_is_pending()
+        if show:
+            try:
+                drained = drain_queued_follow_up(self.session_dir)
+                if drained:
+                    preview = drained if len(drained) <= 48 else drained[:48] + "…"
+                    self.notify(t("notify-queued-follow-up-sent", preview=preview))
+            except Exception:
+                pass
+
+        meta = self.meta
+        label = ""
+        if show:
+            try:
+                label = session_pending_label(
+                    self.session_dir,
+                    turn_in_progress=bool(meta and meta.turn_in_progress),
+                )
+            except Exception:
+                label = ""
+            if not label and meta and meta.turn_in_progress:
+                oc = (meta.turn_outcome or "").lower().replace(" ", "_")
+                label = "ending_done" if oc in ("ending", "finishing") else "turn in progress"
+
+        st: dict = {}
+        try:
+            st = read_turn_gate_status(self.session_dir)
+        except Exception:
+            pass
+        queued: list[str] = []
+        staged: tuple[str, bool] | None = None
+        if show:
+            try:
+                queued = list_queued_follow_ups(self.session_dir)
+            except Exception:
+                queued = []
+            try:
+                staged = read_staged_follow_up(self.session_dir)
+            except Exception:
+                staged = None
+
+        staged_fp: tuple[str, bool] | None = (
+            (staged[0][:80], staged[1]) if staged is not None else None
+        )
+
+        try:
+            bar = self.query_one("#session-pending-bar")
+            bar.display = show
+        except Exception:
+            pass
+        if not show:
+            try:
+                self.refresh_bindings()
+            except Exception:
+                pass
+            return
+
+        try:
+            status = self.query_one("#session-pending-status", Static)
+            if label:
+                chip_label, chip_kind = localize_session_pending_label(label)
+            else:
+                chip_label, chip_kind = t("browser-status-idle"), "unknown"
+            chip = status_chip(chip_label, kind=chip_kind)
+            sid = str(st.get("session_id") or (meta.session_id if meta else ""))
+            turn = st.get("turn", "")
+            bits: list[str] = []
+            if sid:
+                bits.append(t("ui-session-prefix", id=sid))
+            if turn != "" and turn is not None:
+                bits.append(t("ui-turn-number", turn=turn))
+            if staged is not None:
+                bits.append(t("ui-staged-last-turn") if staged[1] else t("ui-staged-follow-up"))
+            if queued:
+                bits.append(t("ui-queued-count", n=len(queued)))
+            extra = ("  ·  " + "  ·  ".join(bits)) if bits else ""
+            status_fp = (chip_label, extra, staged_fp, tuple(queued[:5]), len(queued))
+            if status_fp != getattr(self, "_pending_status_fp", None):
+                self._pending_status_fp = status_fp
+                if not self._widget_has_text_selection(status):
+                    status.update(Text.assemble(chip, Text(extra, style="dim")))
+        except Exception:
+            pass
+        try:
+            q_widget = self.query_one("#session-pending-queue", Static)
+            q_fp = (staged_fp, tuple(queued))
+            if q_fp != getattr(self, "_pending_queue_fp", None):
+                self._pending_queue_fp = q_fp
+                lines: list[str] = []
+                if staged is not None:
+                    preview = staged[0].replace("\n", " ")
+                    if len(preview) > 72:
+                        preview = preview[:69] + "…"
+                    head = (
+                        t("browser-follow-up-staged-final")
+                        if staged[1]
+                        else t("browser-follow-up-staged")
+                    )
+                    lines.append(head)
+                    lines.append(f"  {preview}")
+                if queued:
+                    lines.append(t("browser-follow-ups-pending", n=len(queued)))
+                    for i, p in enumerate(queued[:5], start=1):
+                        preview = p.replace("\n", " ")
+                        if len(preview) > 72:
+                            preview = preview[:69] + "…"
+                        lines.append(f"  {i}. {preview}")
+                    if len(queued) > 5:
+                        lines.append(t("browser-more-queued", n=len(queued) - 5))
+                if lines:
+                    if not self._widget_has_text_selection(q_widget):
+                        q_widget.update("\n".join(lines))
+                    q_widget.display = True
+                else:
+                    if not self._widget_has_text_selection(q_widget):
+                        q_widget.update("")
+                    q_widget.display = False
+        except Exception:
+            pass
+
+        finishing = host_requested_done(self.session_dir) or final_turn_requested(self.session_dir)
+        meta_ending = bool(
+            meta and (meta.turn_outcome or "").lower().replace(" ", "_") in ("ending", "finishing")
+        )
+        finishing = finishing or meta_ending
+        awaiting = str(st.get("state") or "") == "awaiting_follow_up" and not finishing
+        can_send = show and not finishing
+        try:
+            self.query_one("#session-follow-send-btn", Button).disabled = not can_send
+            self.query_one("#session-follow-done-btn", Button).disabled = not show or finishing
+        except Exception:
+            pass
+        try:
+            hint = self.query_one("#session-follow-input", Input)
+            if finishing:
+                hint.placeholder = t("status-ending")
+            elif awaiting:
+                hint.placeholder = U.follow_up_placeholder_awaiting()
+            elif can_send:
+                hint.placeholder = U.follow_up_placeholder_queue()
+            hint.disabled = not can_send
+        except Exception:
+            pass
+        try:
+            self.query_one("#session-follow-last-turn", Checkbox).disabled = not can_send
+        except Exception:
+            pass
+        self._sync_timeline_tail_checkbox()
+        try:
+            self.refresh_bindings()
+        except Exception:
+            pass
 
     def _session_follow_send(self) -> None:
-        return
+        from ...session.turn_gate import write_follow_up_for_session
+
+        try:
+            text = self.query_one("#session-follow-input", Input).value.strip()
+        except Exception:
+            text = ""
+        if not text:
+            self.notify(U.follow_up_empty(), severity="warning")
+            return
+        final = False
+        with suppress(Exception):
+            final = bool(self.query_one("#session-follow-last-turn", Checkbox).value)
+        try:
+            how = write_follow_up_for_session(self.session_dir, text, final=final)
+            self.query_one("#session-follow-input", Input).value = ""
+            with suppress(Exception):
+                self.query_one("#session-follow-last-turn", Checkbox).value = False
+            if how == "queued":
+                self.notify(t("follow-up-queued-final") if final else U.follow_up_queued())
+            else:
+                self.notify(t("follow-up-sent-final") if final else U.follow_up_sent())
+        except Exception as exc:
+            self.notify(U.follow_up_failed(exc), severity="error")
+        self._invalidate_pending_cache()
+        self._refresh_session_pending_bar()
+        self._schedule_live_refresh()
 
     def _session_follow_done(self) -> None:
-        return
+        from ...session.turn_gate import write_done_for_session
+
+        try:
+            write_done_for_session(self.session_dir)
+            rm = getattr(self.app, "run_manager", None)
+            if rm is not None and hasattr(rm, "stop_session_container"):
+                try:
+                    rm.stop_session_container(self.session_dir)
+                except Exception:
+                    pass
+            self.notify(t("mark-done-requested"))
+        except Exception as exc:
+            self.notify(U.mark_session_done_failed(exc), severity="error")
+        self._invalidate_pending_cache()
+        self._refresh_session_pending_bar()
+        self._schedule_live_refresh()
 
     @on(Button.Pressed, "#session-follow-send-btn")
     def _on_session_follow_send_btn(self) -> None:
@@ -3173,7 +3393,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if action == "edit_operator_note":
             return self._focused_note() is not None
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
-            return False
+            if not self._pending_cache_valid:
+                self._recompute_session_pending()
+            return self._pending_actions_enabled
         if action in ("prev_turn", "next_turn"):
             focused = self.focused
             if isinstance(focused, (Input, Select)):

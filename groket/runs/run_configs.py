@@ -223,29 +223,6 @@ class RunConfig:
             launch_count=json_as_int(data.get("launch_count"), 0),
         )
 
-    def to_runner_prefill(self, models_override: list[str] | None = None):
-        from groket.ui.screens.runner import RunnerPrefill
-
-        inline = normalize_run_inline_skills(self.run_inline_skills)
-        return RunnerPrefill(
-            prompt=self.prompt,
-            setup_instructions=self.setup_instructions,
-            docker_image=self.docker_image or "fully-loaded",
-            repo_url=self.repo_url,
-            repo_branch=self.repo_branch,
-            repo_path=self.repo_path,
-            models=list(models_override if models_override is not None else self.models),
-            persona_id=self.persona_id or "",
-            run_mcp_servers=list(self.run_mcp_servers),
-            run_mcp_definitions=list(self.run_mcp_definitions),
-            run_skills=list(self.run_skills),
-            run_plugins=list(self.run_plugins),
-            run_env_vars=dict(self.run_env_vars),
-            run_inline_skills=[(str(x["id"]), str(x.get("content") or "")) for x in inline],
-            max_turns=normalize_max_turns(self.max_turns, default=DEFAULT_MAX_TURNS),
-            yolo=bool(self.yolo),
-        )
-
 
 class RunConfigStore:
     """CRUD for run configs under a work_dir."""

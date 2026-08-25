@@ -141,7 +141,7 @@ which is Docker / serve / container logs.
 ## Terminal app
 
 `groket` (or `groket tui`) is the session client: session list, browser
-panes, runner, recipes, personas, and export. Diff lists rewind
+panes, follow-up, notes, and export. Diff lists rewind
 snapshots (or approximate `search_replace` edits) with Prompt and
 Assistant tabs above a files and hunk split.
 The footer lists the keys that apply now; `?` is the full list.
@@ -163,6 +163,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | s / Space | sessions | Select (also Space) |
 | S | sessions | Select all |
 | E | sessions | Export a session bundle |
+| n / e | sessions | Follow-up / Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
@@ -176,21 +177,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | s | browser | Open the share link when the session has one |
 | E | browser | Export a session bundle |
 | x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session |
-| Ctrl+Enter | runner | Launch |
-| Ctrl+S | runner | Save recipe |
-| T | runner | Export this form as task YAML |
-| [ ]  1-3 | runner | Recipe, Runtime, Extras |
-| Enter | recipes | Open in the runner |
-| l | recipes | Launch |
-| L | recipes | Launch selected |
-| s | recipes | Select |
-| n | recipes | New |
-| x | recipes | Delete |
-| T | recipes | Export as task YAML |
-| Enter | personas | Edit |
-| n | personas | New |
-| x | personas | Delete |
-| Ctrl+S | personas | Save in the editor |
+| n / e | browser / HUD | Follow-up / Done while awaiting |
 | s | pickers | Select |
 | Ctrl+S | pickers | Apply the selection |
 | Esc | pickers | Cancel |
