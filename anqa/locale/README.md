@@ -6,8 +6,8 @@ Anqa uses **[Fluent](https://projectfluent.org/)** (`.ftl` files), not gettext/P
 |------|------|
 | `en/main.ftl` | Source language (English) message catalog |
 | `fr/main.ftl` | Example: copy `en/main.ftl` and translate values |
-| `../i18n.py` | `setup_i18n()`, `t("message-id", **vars)` |
-| `../ui_text.py` | Named helpers → Fluent IDs (`save` → `t("save")`) |
+| `anqa/ui/i18n.py` | `setup_i18n()`, `t("message-id", **vars)` |
+| `anqa/ui/text.py` | Named helpers → Fluent IDs (`save` → `t("save")`) |
 
 ## Language selection
 
@@ -27,8 +27,8 @@ help-markup =
 In Python:
 
 ```python
-from anqa.i18n import t
-from anqa import ui_text as U
+from anqa.ui.i18n import t
+from anqa.ui import text as U
 
 U.save()  # t("save")
 t("model-filter-notify", label="gpt")
