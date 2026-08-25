@@ -99,6 +99,9 @@ def resolve_session_ref(
             bound = ref_from_path(path)
             if bound is not None:
                 return bound
+            from .grok import _ref_for_dir
+
+            return _ref_for_dir(path)
     candidate = Path(raw).expanduser()
     if candidate.is_dir():
         return ref_from_path(candidate)

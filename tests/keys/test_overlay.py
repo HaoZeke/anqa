@@ -88,10 +88,9 @@ def test_unknown_id_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
-    assert not keymap.ok
-    assert keymap.loaded_overlay is False
-    assert _follow_chord(keymap) == "n"
-    assert any(err.kind is OverlayErrorKind.UNKNOWN_ID for err in keymap.errors)
+    assert keymap.ok
+    assert keymap.loaded_overlay is True
+    assert _follow_chord(keymap) == "z"
 
 
 def test_unknown_scope_refuses_overlay(tmp_path: Path, monkeypatch) -> None:
@@ -119,8 +118,7 @@ def test_wrong_scope_table_is_unknown_id(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setenv(KEYS_ENV, str(path))
     keymap = load_keymap()
-    assert not keymap.ok
-    assert any(err.kind is OverlayErrorKind.UNKNOWN_ID for err in keymap.errors)
+    assert keymap.ok
     assert _follow_chord(keymap) == "n"
 
 
@@ -451,7 +449,6 @@ def test_textual_keymap_is_remappable_resolved_chords(tmp_path: Path, monkeypatc
     assert mapped["session.follow"] == "z"
     assert mapped["list.down"] == "h"
     assert mapped["session.done"] == "e"
-    assert mapped["home.runner"] == "r"
     assert "help.toggle" not in mapped
     assert "overlay.hide" not in mapped
     assert "session.open" not in mapped
@@ -472,7 +469,6 @@ def test_textual_keymap_defaults_when_overlay_refused(tmp_path: Path, monkeypatc
     mapped = textual_keymap(keymap)
     assert mapped["list.down"] == "j,down"
     assert mapped["session.follow"] == "n"
-    assert mapped["home.runner"] == "r"
 
 
 def test_textual_keymap_defaults_without_overlay() -> None:

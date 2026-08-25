@@ -226,6 +226,8 @@ def test_hud_named_ids_present() -> None:
         "pane.5",
         "edit.copy",
         "edit.copy_chord",
+        "session.follow",
+        "session.done",
         "pane.notes",
         "events.prev_turn",
         "events.next_turn",

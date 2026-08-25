@@ -111,22 +111,20 @@ def catalog_scan_roots(
     """
     want_host = effective_include_host(include_host)
     include_grok_host = want_host
-    walk_host = host_root
     if want_host:
-        from ..harness.registry import adapter, adapter_host_roots, enabled_host_ids
+        from ..config import load_app_config
+        from ..harness.registry import enabled_host_ids
 
         include_grok_host = "grok" in enabled_host_ids()
-        if include_grok_host and walk_host is None:
-            grok = adapter("grok")
-            if grok is not None:
-                roots = adapter_host_roots(grok)
-                if roots:
-                    walk_host = roots[0]
+        if include_grok_host and host_root is None:
+            override = load_app_config().catalog.roots.get("grok")
+            if override:
+                host_root = Path(override[0]).expanduser()
     return session_scan_roots(
         work_dir,
         traces_path=traces_path,
         include_host=include_grok_host,
-        host_root=walk_host,
+        host_root=host_root,
     )
 
 

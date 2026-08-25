@@ -354,6 +354,8 @@ def _parse_scope_table(
             continue
         problem = _validate_remap(scope, action_id, chord)
         if problem is not None:
+            if problem.kind == OverlayErrorKind.UNKNOWN_ID:
+                continue
             errors.append(problem)
             continue
         remaps.append(OverlayRemap(scope=scope, action_id=action_id, chord=str(chord).strip()))

@@ -71,6 +71,18 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
+        id: "session.follow",
+        scope: "home",
+        default: "n",
+        remappable: true,
+    },
+    CatalogRow {
+        id: "session.done",
+        scope: "home",
+        default: "e",
+        remappable: true,
+    },
+    CatalogRow {
         id: "pane.notes",
         scope: "browser",
         default: "N",
@@ -698,7 +710,7 @@ fn overlay_scope_ok(row: &CatalogRow, scope: &str) -> bool {
     matches!(
         (row.id, scope),
         (
-            "list.down" | "list.up",
+            "list.down" | "list.up" | "session.follow" | "session.done",
             "browser"
         )
     )
