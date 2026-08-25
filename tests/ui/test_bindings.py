@@ -17,10 +17,6 @@ from groket.ui.bindings import (
     LIST_SELECT,
     MODAL_CANCEL_QUIT,
     MODAL_DISMISS,
-    PERSONA_EDITOR,
-    PERSONAS,
-    RUN_CONFIGS,
-    RUNNER,
     SCREEN_CHROME,
     SESSION_HOME_ACTIONS,
     ChromeActions,
@@ -41,11 +37,7 @@ class TestBindingTuples:
             ("GLOBAL_ALWAYS", GLOBAL_ALWAYS),
             ("APP_SESSIONS", APP_SESSIONS),
             ("BROWSER", BROWSER),
-            ("RUNNER", RUNNER),
-            ("RUN_CONFIGS", RUN_CONFIGS),
             ("CAPABILITY_PICKER", CAPABILITY_PICKER),
-            ("PERSONAS", PERSONAS),
-            ("PERSONA_EDITOR", PERSONA_EDITOR),
             ("FORM_SAVE", FORM_SAVE),
             ("MODAL_CANCEL_QUIT", MODAL_CANCEL_QUIT),
             ("MODAL_DISMISS", MODAL_DISMISS),
@@ -61,7 +53,7 @@ class TestBindingTuples:
         assert "quit" in shown
         assert "refresh_context" not in shown
         assert "open_session" in shown
-        assert "open_runner" in shown
+        assert "open_runner" not in shown
 
     def test_footer_chrome_order_pushed_screens(self) -> None:
         """Pushed screens: Help then Back then Quit. Jobs stays bound, off the rail."""
@@ -95,34 +87,9 @@ class TestBindingTuples:
     def test_global_always_includes_quit(self) -> None:
         assert "quit" in _shown_actions(GLOBAL_ALWAYS)
 
-    def test_runner_footer_has_no_session_list_actions(self) -> None:
-        shown = set(_shown_actions(RUNNER))
-        for action in (
-            "open_session",
-            "search_sessions",
-            "open_runner",
-            "toggle_select",
-        ):
-            assert action not in shown
-        assert "show_help" in shown
-        assert "go_back" in shown
-        assert "run_evaluation" in shown
-        assert "open_jobs" not in shown
-
-    def test_launch_priority_keys_include_ctrl_j(self) -> None:
-        """Ctrl+Enter often arrives as ctrl+j in terminals — both must be bound."""
-        from groket.ui.bindings import APP_GLOBAL_PRIORITY
-
-        keys = " ".join(b.key for b in APP_GLOBAL_PRIORITY)
-        assert "ctrl+enter" in keys
-        assert "ctrl+j" in keys
-        launch = [b for b in RUNNER if b.action == "run_evaluation"]
-        assert launch
-        assert "ctrl+j" in launch[0].key
-
     def test_session_home_actions_covers_list_bindings(self) -> None:
         assert "quit" not in SESSION_HOME_ACTIONS  # global, not home-gated
-        assert "open_runner" in SESSION_HOME_ACTIONS
+        assert "open_runner" not in SESSION_HOME_ACTIONS
         assert "open_session" in SESSION_HOME_ACTIONS
         assert "show_help" not in SESSION_HOME_ACTIONS
         assert "open_jobs" not in SESSION_HOME_ACTIONS
@@ -282,80 +249,3 @@ class TestFocusPrimaryListCursorReassert:
         )
         focus_primary_list(widget)  # type: ignore[arg-type]  # stub for test
         widget.move_cursor.assert_called_with(row=2, column=0)
-
-
-@pytest.mark.asyncio
-async def test_session_home_bindings_hidden_when_runner_pushed(tmp_path: Path) -> None:
-    """App session-list bindings must not appear while Runner is the top screen."""
-    from groket.ui.app import TraceEvalApp
-    from groket.ui.screens.runner import RunnerScreen
-
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    traces.mkdir(parents=True)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        assert app._sessions_home_active() is True
-        assert app.check_action("open_runner", ()) is not False
-        assert app.check_action("quit", ()) is not False
-        app.push_screen(RunnerScreen(work, run_manager=app.run_manager))
-        await pilot.pause()
-        assert app._sessions_home_active() is False
-        for action in ("open_runner", "open_session", "search_sessions"):
-            assert app.check_action(action, ()) is False
-        # Quit stays available on pushed screens.
-        assert app.check_action("quit", ()) is not False
-        shown = {
-            ab.binding.action
-            for ab in app.screen.active_bindings.values()
-            if ab.binding.show and ab.enabled
-        }
-        for action in ("open_runner", "open_session", "search_sessions"):
-            assert action not in shown
-        # Focus may sit in a TextArea (consumes some keys); chrome still includes Back.
-        assert "go_back" in shown
-        # Quit must remain actionable on pushed screens (footer may hide some keys).
-        assert app.check_action("quit", ()) is not False
-        assert hasattr(app.screen, "action_quit")
-
-
-@pytest.mark.asyncio
-async def test_ctrl_enter_launches_from_prompt_textarea(tmp_path: Path) -> None:
-    """Priority launch fires while focus is in the runner prompt TextArea."""
-    from groket.ui.app import TraceEvalApp
-    from groket.ui.screens.runner import RunnerScreen
-    from textual.widgets import TextArea
-
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    traces.mkdir(parents=True)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
-    launched: list[int] = []
-
-    async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.pause()
-        app.push_screen(RunnerScreen(work, run_manager=app.run_manager))
-        await pilot.pause()
-        scr = app.screen
-        assert isinstance(scr, RunnerScreen)
-        orig = scr.action_run_evaluation
-
-        def _track() -> None:
-            launched.append(1)
-
-        scr.action_run_evaluation = _track  # type: ignore[method-assign]
-        try:
-            ta = scr.query_one("#prompt-input", TextArea)
-            ta.focus()
-            await pilot.pause()
-            assert app.check_action("launch_from_runner", ()) is True
-            await pilot.press("ctrl+enter")
-            await pilot.pause()
-            assert launched == [1]
-            launched.clear()
-            await pilot.press("ctrl+j")
-            await pilot.pause()
-            assert launched == [1]
-        finally:
-            scr.action_run_evaluation = orig  # type: ignore[method-assign]

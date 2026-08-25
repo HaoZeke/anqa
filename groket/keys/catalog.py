@@ -38,9 +38,6 @@ class ActionScope(str, Enum):
     GLOBAL = "global"
     HOME = "home"
     BROWSER = "browser"
-    RUNNER = "runner"
-    PERSONAS = "personas"
-    CONFIGS = "configs"
     JOBS = "jobs"
     MODAL = "modal"
 
@@ -160,20 +157,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     ),
     _row("edit.copy", ActionScope.BROWSER, "y", ActionSurface.SHARED),
     _row("edit.copy_chord", ActionScope.BROWSER, "ctrl+shift+c", ActionSurface.SHARED),
-    _row(
-        "session.follow",
-        ActionScope.HOME,
-        "n",
-        ActionSurface.SHARED,
-        overlay_scopes=_NAV,
-    ),
-    _row(
-        "session.done",
-        ActionScope.HOME,
-        "e",
-        ActionSurface.SHARED,
-        overlay_scopes=_NAV,
-    ),
     _row("pane.notes", ActionScope.BROWSER, "N", ActionSurface.SHARED),
     _row("events.prev_turn", ActionScope.BROWSER, "h,left", ActionSurface.SHARED),
     _row("events.next_turn", ActionScope.BROWSER, "l,right", ActionSurface.SHARED),
@@ -197,12 +180,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     # Sessions home.
     _row("list.select", ActionScope.HOME, "s,space", ActionSurface.TUI),
     _row("list.select_all", ActionScope.HOME, "S", ActionSurface.TUI),
-    _row("home.runner", ActionScope.HOME, "r", ActionSurface.TUI),
-    _row("home.configs", ActionScope.HOME, "C", ActionSurface.TUI),
-    _row("home.personas", ActionScope.HOME, "P", ActionSurface.TUI),
-    _row("session.rerun", ActionScope.HOME, "R", ActionSurface.TUI),
-    _row("session.resume", ActionScope.HOME, "f", ActionSurface.TUI),
-    _row("session.save_config", ActionScope.HOME, "ctrl+s", ActionSurface.TUI),
     _row("session.delete", ActionScope.HOME, "x,delete", ActionSurface.TUI),
     _row(
         "session.export",
@@ -217,24 +194,7 @@ ACTIONS: tuple[KeyAction, ...] = (
     _row("session.note_edit", ActionScope.BROWSER, "O", ActionSurface.SHARED),
     _row("browser.clear_filters", ActionScope.BROWSER, "c", ActionSurface.TUI),
     _row("session.share", ActionScope.BROWSER, "s", ActionSurface.TUI),
-    # Runner.
-    _row("runner.launch", ActionScope.RUNNER, "ctrl+enter,ctrl+j", ActionSurface.TUI),
     _row("edit.save", ActionScope.MODAL, "ctrl+s", ActionSurface.TUI),
-    _row("runner.export_task", ActionScope.RUNNER, "T", ActionSurface.TUI),
-    _row("runner.new_persona", ActionScope.RUNNER, "n", ActionSurface.TUI),
-    _row("runner.personas", ActionScope.RUNNER, "p", ActionSurface.TUI),
-    _row("runner.docker", ActionScope.RUNNER, "d", ActionSurface.TUI),
-    # Run configs.
-    _row("configs.open", ActionScope.CONFIGS, "enter", ActionSurface.TUI),
-    _row("configs.launch", ActionScope.CONFIGS, "l", ActionSurface.TUI),
-    _row("configs.launch_selected", ActionScope.CONFIGS, "L", ActionSurface.TUI),
-    _row("configs.delete", ActionScope.CONFIGS, "x", ActionSurface.TUI),
-    _row("configs.new", ActionScope.CONFIGS, "n", ActionSurface.TUI),
-    # Personas.
-    _row("personas.open", ActionScope.PERSONAS, "enter", ActionSurface.TUI),
-    _row("personas.new", ActionScope.PERSONAS, "n", ActionSurface.TUI),
-    _row("personas.edit", ActionScope.PERSONAS, "e", ActionSurface.TUI),
-    _row("personas.delete", ActionScope.PERSONAS, "x,delete", ActionSurface.TUI),
     # Jobs modal.
     _row("jobs.close", ActionScope.JOBS, "J", ActionSurface.TUI),
     _row("jobs.open", ActionScope.JOBS, "o", ActionSurface.TUI),

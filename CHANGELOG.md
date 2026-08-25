@@ -5,9 +5,9 @@ is tagged. This section is the product as it ships.
 
 ## Unreleased
 
-First release. Groket inspects coding-agent harness sessions: timeline,
-notes, workspace diffs, and a desktop palette. Grok Build is the first
-shipped adapter; Docker evals and personas stay available for that store.
+First release. Groket is a session review tool: timeline, notes,
+workspace diffs, and a desktop palette. Grok Build is the first shipped
+adapter. It does not launch evals.
 
 ### Install
 

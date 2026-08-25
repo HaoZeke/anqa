@@ -13,17 +13,9 @@
 
 [bold]Sessions[/bold]
   /               Search (Tab completes the last token)
-  r               New run
-  C               Recipes
-  P               Personas
   s               Select (also Space)
   S               Select all
-  R               Re-run the highlighted recipe as a new session
-  f               Fork an ended session into a new multi-turn
-  Ctrl+S          Save the row as a recipe
   E               Export a session bundle
-  n               Follow-up while awaiting
-  e               Done while awaiting
   x               Delete (press twice)
 
 %%catalog-query%%
@@ -35,8 +27,6 @@
   v               Filter (Subagents, Background, Workflows)
   Enter           Open a Timeline event or child; edit the focused note
   N               New note
-  n               Follow-up while awaiting
-  e               Done while awaiting
   y               Copy the selection or the focused / primary pane body
   Ctrl+Shift+C    Same as y
   s               Open the share link when the session has one

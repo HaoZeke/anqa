@@ -5595,11 +5595,7 @@ impl Hud {
         self.follow_id.clone()
     }
     pub fn selected_awaiting(&self) -> bool {
-        crate::live::is_live_status(&self.selected_status())
-            && self
-                .selected_status()
-                .to_ascii_lowercase()
-                .contains("await")
+        false
     }
 
     fn send_follow(&mut self) -> Task<Message> {
@@ -5716,10 +5712,6 @@ impl Hud {
 
     fn dispatch_catalog_id(&mut self, id: &str) -> Task<Message> {
         match id {
-            "session.follow" if self.browse_mode() && self.selected_awaiting() => {
-                operation::focus(self.follow_id.clone())
-            }
-            "session.done" if self.browse_mode() && self.selected_awaiting() => self.mark_done(),
             "list.down" => self.nav_step(1),
             "list.up" => self.nav_step(-1),
             "session.note_edit" if self.tab == Tab::Notes && !self.composing_note() => {
@@ -5807,14 +5799,6 @@ impl Hud {
         }
         if self.browse_mode() && self.key_is("pane.notes", "shift+n", &key, modifiers) {
             return self.update(Message::SetTab(Tab::Notes));
-        }
-        if self.browse_mode() && self.selected_awaiting() {
-            if self.key_is("session.follow", "n", &key, modifiers) {
-                return operation::focus(self.follow_id.clone());
-            }
-            if self.key_is("session.done", "e", &key, modifiers) {
-                return self.mark_done();
-            }
         }
         if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();

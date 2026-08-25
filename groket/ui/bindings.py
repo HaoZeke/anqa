@@ -37,18 +37,7 @@ def _ctrl_s(action: str, description: str = t("ui-save"), *, id: str, show: bool
     return _b("ctrl+s", action, description, id=id, show=show, priority=True)
 
 
-# Priority hotkeys checked app-down before focused widgets (TextArea / Input).
-# Ctrl+Enter often arrives as ctrl+j in terminals; bind both for launch while Runner is top.
-APP_GLOBAL_PRIORITY: tuple[Binding, ...] = (
-    _b(
-        "ctrl+enter,ctrl+j",
-        "launch_from_runner",
-        U.bind_launch(),
-        id="runner.launch",
-        show=False,
-        priority=True,
-    ),
-)
+APP_GLOBAL_PRIORITY: tuple[Binding, ...] = ()
 
 # Footer: Help · Back (pushed screens) · this screen's primary actions · Quit.
 # Jobs stays on the sessions-home rail (``J`` still works on every screen).
@@ -74,18 +63,10 @@ LIST_SELECT_ALL: tuple[Binding, ...] = (
 APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("enter", "open_session", U.bind_open(), id="session.open", show=True),
     _b("slash", "search_sessions", U.bind_search(), id="search.focus", show=True),
-    _b("r", "open_runner", U.bind_runner(), id="home.runner", show=True),
-    _b("C", "open_run_configs", U.bind_configs(), id="home.configs", show=True),
-    _b("P", "open_personas", U.bind_personas(), id="home.personas", show=True),
     _b("s,space", "toggle_select", U.bind_select(), id="list.select", show=True),
     _b("S", "select_all", U.bind_select_all(), id="list.select_all", show=False),
-    _b("R", "rerun_session", U.bind_rerun(), id="session.rerun", show=False),
-    _b("f", "resume_session", U.bind_resume(), id="session.resume", show=True),
-    _ctrl_s("save_session_config", U.bind_save_cfg(), id="session.save_config", show=True),
     _b("x,delete", "delete_sessions", U.bind_delete(), id="session.delete", show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), id="session.export", show=False),
-    _b("n", "follow_up_sessions", U.bind_next_prompt(), id="session.follow", show=True),
-    _b("e", "mark_sessions_done", U.bind_end_session(), id="session.done", show=True),
 )
 # Pushed screens: Help · Back · Quit. Jobs / refresh stay bound, not in the rail.
 SCREEN_CHROME: tuple[Binding, ...] = (
@@ -97,23 +78,15 @@ SCREEN_CHROME: tuple[Binding, ...] = (
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
 )
 # App-level actions that only apply on the sessions home screen (not inherited UI).
-# Quit is intentionally *not* here — it must work from Browser / Runner / etc.
+# Quit is intentionally *not* here — it must work from Browser / etc.
 SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
     {
-        "open_runner",
-        "open_run_configs",
-        "open_personas",
         "search_sessions",
         "open_session",
         "toggle_select",
         "select_all",
-        "rerun_session",
-        "resume_session",
-        "save_session_config",
         "delete_sessions",
         "export_session_bundle",
-        "follow_up_sessions",
-        "mark_sessions_done",
     }
 )
 # Pane counts must match TabPaneNavigation.TAB_PANES on each screen/modal.
@@ -179,57 +152,6 @@ BROWSER: tuple[Binding, ...] = (
             priority=True,
         ),
         _b("E", "export_bundle", U.bind_export_bundle(), id="session.export", show=True),
-        # n = type next prompt (focus input); Enter in input sends; e = end session.
-        _b("n", "focus_follow_up", U.bind_next_prompt(), id="session.follow", show=True),
-        _b("e", "mark_session_done", U.bind_end_session(), id="session.done", show=True),
-    )
-)
-RUNNER: tuple[Binding, ...] = (
-    SCREEN_CHROME
-    + (
-        # Priority + ctrl+j: many terminals map Ctrl+Enter to ctrl+j (or plain enter).
-        # App also binds launch_from_runner with priority so TextArea cannot swallow it.
-        _b(
-            "ctrl+enter,ctrl+j",
-            "run_evaluation",
-            U.bind_launch(),
-            id="runner.launch",
-            show=True,
-            priority=True,
-        ),
-        _ctrl_s("save_config_only", U.bind_save(), id="edit.save", show=True),
-        _b("T", "export_task_yaml", U.bind_export_task(), id="runner.export_task", show=True),
-        _b(
-            "n",
-            "new_persona_from_runner",
-            U.bind_new_persona(),
-            id="runner.new_persona",
-            show=False,
-        ),
-        _b("p", "open_persona_builder", U.bind_personas(), id="runner.personas", show=False),
-        _b("d", "check_docker", U.bind_docker(), id="runner.docker", show=False),
-    )
-    + tab_nav_bindings(3)
-)
-RUN_CONFIGS: tuple[Binding, ...] = (
-    SCREEN_CHROME
-    + (
-        _b("enter", "open_in_runner", U.bind_open(), id="configs.open", show=True),
-        _b("l", "launch_config", U.bind_launch(), id="configs.launch", show=True),
-        _b(
-            "L",
-            "launch_selected",
-            U.bind_launch_selected(),
-            id="configs.launch_selected",
-            show=True,
-        ),
-        _b("T", "export_task_yaml", U.bind_export_task(), id="runner.export_task", show=True),
-    )
-    + LIST_SELECT
-    + LIST_SELECT_ALL
-    + (
-        _b("x", "delete_config", U.bind_delete(), id="configs.delete", show=False),
-        _b("n", "new_blank", U.bind_new(), id="configs.new", show=False),
     )
 )
 CAPABILITY_PICKER: tuple[Binding, ...] = (
@@ -237,12 +159,6 @@ CAPABILITY_PICKER: tuple[Binding, ...] = (
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
     _b("s,space", "toggle_select", U.bind_select(), id="list.select", show=True),
     _ctrl_s("done", U.bind_done(), id="edit.save", show=True),
-)
-PERSONAS: tuple[Binding, ...] = SCREEN_CHROME + (
-    _b("n", "new_persona", U.bind_new(), id="personas.new", show=True),
-    _b("enter", "edit_persona", U.bind_edit(), id="personas.open", show=True),
-    _b("e", "edit_persona", U.bind_edit(), id="personas.edit", show=False),
-    _b("x,delete", "delete_persona", U.bind_delete(), id="personas.delete", show=True),
 )
 MODAL_CANCEL_QUIT: tuple[Binding, ...] = (
     _b("escape", "cancel", U.bind_cancel(), id="overlay.hide", show=True),

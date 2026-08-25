@@ -11,16 +11,16 @@
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**groket** inspects coding-agent harness sessions: timeline, notes,
-workspace diffs, and a summonable desktop palette.
+**groket** is a session review tool: timeline, notes, workspace diffs,
+and a summonable desktop palette.
 [Grok Build](https://docs.x.ai/build/overview) is the first shipped
-store; Docker evals and personas stay available there.
+store. It does not launch evals.
 
 Four clients talk to [`groket serve`](#control).
 
 | Client | What it does |
 |--------|----------------|
-| [Terminal app](#terminal-app) | Browse sessions, launch evals, export |
+| [Terminal app](#terminal-app) | Browse sessions, export |
 | [Desktop HUD](#desktop-hud) | Summonable session palette |
 | [Emacs](#emacs) | Org buffer |
 | [Neovim](#neovim-09) | Markdown buffer |
@@ -160,17 +160,9 @@ The footer lists the keys that apply now; `?` is the full list.
 | J | everywhere | Jobs and logs |
 | q | everywhere | Quit when no field is focused |
 | / | sessions | Search (Tab completes the last token) |
-| r | sessions | New run |
-| C | sessions | Recipes |
-| P | sessions | Personas |
 | s / Space | sessions | Select (also Space) |
 | S | sessions | Select all |
-| R | sessions | Re-run the highlighted recipe as a new session |
-| f | sessions | Fork an ended session into a new multi-turn |
-| Ctrl+S | sessions | Save the row as a recipe |
 | E | sessions | Export a session bundle |
-| n | sessions | Follow-up while awaiting |
-| e | sessions | Done while awaiting |
 | x | sessions | Delete (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
@@ -179,8 +171,6 @@ The footer lists the keys that apply now; `?` is the full list.
 | Enter | browser / HUD | Open a Timeline event or child; edit the focused note |
 
 | N | browser / HUD | New note (TUI Notes); Notes pane (HUD) |
-| n | browser | Follow-up while awaiting |
-| e | browser | Done while awaiting |
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
 | Ctrl+Shift+C | browser | Same as y |
 | s | browser | Open the share link when the session has one |
@@ -214,35 +204,12 @@ Filter, only while All turns is selected. `u` or the logo leaves the
 open session for the session list. `g` on Turns opens Timeline for that
 turn. Enter opens (or edits the focused note).
 
-### Follow-up, fork, and re-run
-
-| Path | When | What happens |
-|------|------|----------------|
-| Follow-up (`n`) | Container still running and awaiting | Same session; next prompt on the turn gate |
-| Done (`e`) | Awaiting | Mark done; list may show **ending** until shutdown finishes |
-| Fork (`f`) | Session has *ended* | New Docker launch; parent history seeded; new session id |
-| Re-run (`R`) | Any listed session | New launch from the same recipe fields |
-
-While a session is live, use follow-up, not fork.
-
-### Runner
-
-Docker evals from a recipe (prompt, models, persona, repo, extras).
-**Ctrl+Enter** launches, **Ctrl+S** saves, `[` / `]` switches panes.
-Optional git URL clones into `runs/checkouts/`; a local path bind-mounts
-as `/workspace` (one model). Default permission is `--always-approve`;
-YOLO mode uses `grok --yolo`. Max turns (default **50**) is Grok
-`--max-turns` per prompt.
-
 ### Export
 
 `E` on the list or browser writes a session bundle under
 `~/.groket/reports/` (profile in `export.default_profile`, or pick once).
 A parent bundle includes `children/<id>/grok-trace.tar.gz` for each
 openable child. Exporting an opened child is that child only.
-`T` on the runner or recipes writes a batch task YAML under
-`~/.groket/tasks/`.
-
 ### Catalog search
 
 `/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `groket serve`.

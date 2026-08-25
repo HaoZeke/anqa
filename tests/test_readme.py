@@ -36,7 +36,7 @@ def _help_rows() -> list[tuple[str, str]]:
 def test_readme_opens_with_what_groket_does() -> None:
     text = README.read_text(encoding="utf-8")
     head = "\n".join(text.splitlines()[:20])
-    assert "inspects" in head
+    assert "review" in head
     assert "Grok Build" in head
     assert "it is not the Grok" not in head.lower()
 

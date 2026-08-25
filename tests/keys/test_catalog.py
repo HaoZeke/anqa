@@ -35,18 +35,13 @@ _PUSH = re.compile(
 )
 
 _BINDING_TUPLES: tuple[tuple[Binding, ...], ...] = (
-    B.APP_GLOBAL_PRIORITY,
     B.GLOBAL_ALWAYS,
     B.LIST_SELECT,
     B.LIST_SELECT_ALL,
     B.APP_SESSIONS,
     B.SCREEN_CHROME,
     B.BROWSER,
-    B.RUNNER,
-    B.RUN_CONFIGS,
     B.CAPABILITY_PICKER,
-    B.PERSONAS,
-    B.PERSONA_EDITOR,
     B.MODAL_CANCEL_QUIT,
     B.FORM_SAVE,
     B.MODAL_DISMISS,
@@ -145,8 +140,7 @@ def test_normalize_chord_textual_and_hud() -> None:
 
 
 def test_default_chords_match_today() -> None:
-    assert action_by_id("session.follow").default == "n"
-    assert action_by_id("session.done").default == "e"
+    assert action_by_id("search.focus").default == "slash"
     assert action_by_id("edit.copy").default == "y"
     assert action_by_id("help.toggle").default == "?"
     assert action_by_id("list.down").default == "j,down"
@@ -191,7 +185,7 @@ def test_every_screen_binding_has_catalog_id() -> None:
 
 
 def test_same_id_alternatives_are_one_binding() -> None:
-    for name in ("app.refresh", "list.select", "session.delete", "personas.delete"):
+    for name in ("app.refresh", "list.select", "session.delete"):
         hits = [b for tup in _BINDING_TUPLES for b in tup if b.id == name]
         keys = {b.key for b in hits}
         assert all("," in k or k == ACTIONS_BY_ID[name].default for k in keys), (name, keys)
@@ -232,8 +226,6 @@ def test_hud_named_ids_present() -> None:
         "pane.5",
         "edit.copy",
         "edit.copy_chord",
-        "session.follow",
-        "session.done",
         "pane.notes",
         "events.prev_turn",
         "events.next_turn",
@@ -304,9 +296,9 @@ def test_hud_overlay_catalog_matches_python() -> None:
 
 
 def test_action_by_id_roundtrip() -> None:
-    row = action_by_id("session.follow")
+    row = action_by_id("search.focus")
     assert isinstance(row, KeyAction)
-    assert row is ACTIONS_BY_ID["session.follow"]
+    assert row is ACTIONS_BY_ID["search.focus"]
     with pytest.raises(KeyError):
         action_by_id("not.an.action")
 
@@ -315,10 +307,6 @@ def test_session_open_is_only_open_session() -> None:
     hits = [b for tup in _BINDING_TUPLES for b in tup if b.id == "session.open"]
     assert hits
     assert {b.action for b in hits} == {"open_session"}
-    assert action_by_id("configs.open").default == "enter"
-    assert action_by_id("personas.open").default == "enter"
-    assert action_by_id("configs.open").surfaces is ActionSurface.TUI
-    assert action_by_id("personas.open").surfaces is ActionSurface.TUI
 
 
 def test_host_sessions_has_no_toggle_action() -> None:

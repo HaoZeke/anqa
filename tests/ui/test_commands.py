@@ -83,30 +83,6 @@ class TestYieldAppCommands:
         titles = [c[0] for c in cmds]
         assert any("export" in t.lower() for t in titles)
 
-    def test_runner_screen_commands(self) -> None:
-        from groket.ui.screens.runner import RunnerScreen
-
-        app = self._make_app()
-        screen = RunnerScreen.__new__(RunnerScreen)
-        cmds = list(yield_app_commands(app, screen))  # type: ignore[arg-type]  # stub for test
-        assert len(cmds) > 5
-
-    def test_personas_screen_commands(self) -> None:
-        from groket.ui.screens.personas import PersonasScreen
-
-        app = self._make_app()
-        screen = PersonasScreen.__new__(PersonasScreen)
-        cmds = list(yield_app_commands(app, screen))  # type: ignore[arg-type]  # stub for test
-        assert len(cmds) > 5
-
-    def test_run_configs_screen_commands(self) -> None:
-        from groket.ui.screens.run_configs import RunConfigsScreen
-
-        app = self._make_app()
-        screen = RunConfigsScreen.__new__(RunConfigsScreen)
-        cmds = list(yield_app_commands(app, screen))  # type: ignore[arg-type]  # stub for test
-        assert len(cmds) > 5
-
     def test_callbacks_are_callable(self) -> None:
         app = self._make_app()
         screen = SimpleNamespace()

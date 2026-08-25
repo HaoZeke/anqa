@@ -91,39 +91,6 @@ fn select_session(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     )
 }
 
-fn awaiting_banner(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    column![
-        icedtea::widget::banner(
-            "Session is awaiting a follow-up",
-            Some(("Done".into(), Message::MarkDone)),
-            tea,
-            A11y::new("awaiting", Role::Status),
-        ),
-        container(icedtea::widget::text_input(
-            "Follow-up prompt",
-            hud.follow_draft(),
-            Message::FollowDraft,
-            Some(Message::SendFollow),
-            icedtea::widget::FieldOpts::NONE,
-            tea,
-            A11y::new("follow-up", Role::TextBox),
-            Some(hud.follow_id()),
-        ))
-        .width(Length::Fill),
-        icedtea::widget::button(
-            "Send follow-up",
-            Some(Message::SendFollow),
-            tea,
-            Variant::Primary,
-            icedtea::icon::Icons::NONE,
-            icedtea::widget::ButtonOpts::SHRINK,
-            A11y::button("Send follow-up"),
-        ),
-    ]
-    .spacing(tea.density.gap())
-    .into()
-}
-
 #[allow(dead_code)] // kept for footer status chrome; exercised in tests
 fn status_copy(text: &str, err: bool, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let a11y = A11y::new(text.to_string(), Role::Status);
@@ -984,9 +951,7 @@ fn overview_session(hud: &Hud) -> Element<'_, Message> {
     if ctx_frac > 0.0 {
         col = col.push(kit::context_progress(ctx_frac, tea));
     }
-    if hud.selected_awaiting() {
-        col = col.push(awaiting_banner(hud, tea));
-    }
+
     if o.notes.count > 0 {
         col = col.push(icedtea::widget::banner(
             format!("{} notes — open the Notes pane", o.notes.count),

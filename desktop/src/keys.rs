@@ -71,18 +71,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "session.follow",
-        scope: "home",
-        default: "n",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "session.done",
-        scope: "home",
-        default: "e",
-        remappable: true,
-    },
-    CatalogRow {
         id: "pane.notes",
         scope: "browser",
         default: "N",
@@ -269,42 +257,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "home.runner",
-        scope: "home",
-        default: "r",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "home.configs",
-        scope: "home",
-        default: "C",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "home.personas",
-        scope: "home",
-        default: "P",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "session.rerun",
-        scope: "home",
-        default: "R",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "session.resume",
-        scope: "home",
-        default: "f",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "session.save_config",
-        scope: "home",
-        default: "ctrl+s",
-        remappable: true,
-    },
-    CatalogRow {
         id: "session.delete",
         scope: "home",
         default: "x,delete",
@@ -347,93 +299,9 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
-        id: "runner.launch",
-        scope: "runner",
-        default: "ctrl+enter,ctrl+j",
-        remappable: true,
-    },
-    CatalogRow {
         id: "edit.save",
         scope: "modal",
         default: "ctrl+s",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "runner.export_task",
-        scope: "runner",
-        default: "T",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "runner.new_persona",
-        scope: "runner",
-        default: "n",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "runner.personas",
-        scope: "runner",
-        default: "p",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "runner.docker",
-        scope: "runner",
-        default: "d",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "configs.open",
-        scope: "configs",
-        default: "enter",
-        remappable: false,
-    },
-    CatalogRow {
-        id: "configs.launch",
-        scope: "configs",
-        default: "l",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "configs.launch_selected",
-        scope: "configs",
-        default: "L",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "configs.delete",
-        scope: "configs",
-        default: "x",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "configs.new",
-        scope: "configs",
-        default: "n",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "personas.open",
-        scope: "personas",
-        default: "enter",
-        remappable: false,
-    },
-    CatalogRow {
-        id: "personas.new",
-        scope: "personas",
-        default: "n",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "personas.edit",
-        scope: "personas",
-        default: "e",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "personas.delete",
-        scope: "personas",
-        default: "x,delete",
         remappable: true,
     },
     CatalogRow {
@@ -499,7 +367,7 @@ const ACTIONS: &[CatalogRow] = &[
 ];
 
 const KNOWN_SCOPES: &[&str] = &[
-    "global", "home", "browser", "runner", "personas", "configs", "jobs", "modal",
+    "global", "home", "browser", "jobs", "modal",
 ];
 
 const RESERVED: &[&str] = &["escape", "enter", "tab", "shift+tab", "?"];
@@ -830,7 +698,7 @@ fn overlay_scope_ok(row: &CatalogRow, scope: &str) -> bool {
     matches!(
         (row.id, scope),
         (
-            "list.down" | "list.up" | "session.follow" | "session.done",
+            "list.down" | "list.up",
             "browser"
         )
     )
@@ -1202,10 +1070,10 @@ mod tests {
     fn remap_list_down_requires_moving_follow() {
         let refused = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n");
         assert!(refused.is_none());
-        let ok = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n")
+        let ok = KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"search.focus\" = \"z\"\n")
             .expect("valid swap");
         assert_eq!(ok.chord("list.down", "j"), "n");
-        assert_eq!(ok.chord("session.follow", "n"), "z");
+        assert_eq!(ok.chord("search.focus", "n"), "z");
         assert_eq!(ok.chord("list.up", "k"), "k");
     }
 
@@ -1213,7 +1081,7 @@ mod tests {
     fn reserved_and_sequence_refuse() {
         assert!(KeyOverlay::parse("[global]\n\"help.toggle\" = \"x\"\n").is_none());
         assert!(KeyOverlay::parse("[home]\n\"list.down\" = \"escape\"\n").is_none());
-        assert!(KeyOverlay::parse("[home]\n\"session.follow\" = \"leader+n\"\n").is_none());
+        assert!(KeyOverlay::parse("[home]\n\"search.focus\" = \"leader+n\"\n").is_none());
         assert!(
             KeyOverlay::parse("leader = \";\"\n[home]\n\"list.down\" = \"leader+j\"\n").is_none()
         );
@@ -1229,21 +1097,21 @@ mod tests {
             "[home]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"session.follow\" = \"leader+n\"\n",
+            "\"search.focus\" = \"leader+n\"\n",
             "\"session.done\" = \"leader+e\"\n",
             "[browser]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"session.follow\" = \"leader+n\"\n",
+            "\"search.focus\" = \"leader+n\"\n",
             "\"session.done\" = \"leader+e\"\n",
         );
         let overlay = KeyOverlay::parse(text).expect("colemak overlay");
         assert_eq!(overlay.leader(), Some(";"));
         assert_eq!(overlay.leader_timeout_ms(), 800);
         assert_eq!(overlay.chord("list.down", "j"), "n");
-        assert_eq!(overlay.chord("session.follow", "n"), "leader+n");
+        assert_eq!(overlay.chord("search.focus", "n"), "leader+n");
         assert!(!overlay.matches(
-            "session.follow",
+            "search.focus",
             "n",
             &Key::Character("n".into()),
             KeyMods::empty()
@@ -1251,14 +1119,14 @@ mod tests {
         assert!(overlay.is_leader_key(&Key::Character(";".into()), KeyMods::empty()));
         assert_eq!(
             overlay.lookup_sequence(&Key::Character("n".into()), KeyMods::empty()),
-            Some("session.follow")
+            Some("search.focus")
         );
         assert_eq!(
             overlay.lookup_sequence(&Key::Character("e".into()), KeyMods::empty()),
             Some("session.done")
         );
         assert_eq!(
-            overlay.sequence_display("session.follow", "n").as_deref(),
+            overlay.sequence_display("search.focus", "n").as_deref(),
             Some("; n")
         );
         assert_eq!(
@@ -1270,7 +1138,7 @@ mod tests {
     #[test]
     fn matches_remapped_n_like_default_j() {
         let overlay =
-            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n")
+            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"search.focus\" = \"z\"\n")
                 .unwrap();
         assert!(overlay.matches(
             "list.down",
@@ -1327,7 +1195,7 @@ mod tests {
         for id in [
             "list.down",
             "list.up",
-            "session.follow",
+            "search.focus",
             "session.done",
             "edit.copy",
             "pane.notes",
@@ -1372,7 +1240,7 @@ mod tests {
             "../../tests/keys/fixtures/overlay_single_quote.toml"
         ))
         .expect("single-quoted remap");
-        assert_eq!(quoted.chord("session.follow", "n"), "z");
+        assert_eq!(quoted.chord("search.focus", "n"), "z");
     }
 
     #[test]

@@ -3,8 +3,8 @@
 Default: interactive TUI. Optional path (``-P`` or leading argument) selects
 work root, traces tree, or session (default ``~/.groket/work``).
 
-Commands: ``serve`` (control owner), ``hud``, ``batch``,
-``gen``, ``doctor``, ``editor``, ``keys``, ``export-host``.
+Commands: ``serve`` (control owner), ``hud``, ``doctor``, ``editor``,
+``keys``, ``export-host``.
 
 Shell completion: ``uv run groket --install-completion``
 """
@@ -32,8 +32,6 @@ app = typer.Typer(
         "default [cyan]~/.groket/work[/cyan]).\n\n"
         "[cyan]serve[/cyan] owns the control socket · "
         "[cyan]hud[/cyan] palette · "
-        "[cyan]batch[/cyan] headless tasks · "
-        "[cyan]gen[/cyan] scaffolds · "
         "[cyan]doctor[/cyan] host checks · "
         "[cyan]editor[/cyan] Emacs/Neovim pack paths · "
         "[cyan]keys[/cyan] resolved bindings."

@@ -283,20 +283,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         from ..brand_mark import AppChrome, AppFooter
 
         yield AppChrome()
-        with Vertical(id="session-pending-bar"):
-            yield Static("", id="session-pending-status")
-            yield Static("", id="session-pending-queue")
-            yield Input(placeholder=U.follow_up_placeholder_send(), id="session-follow-input")
-            yield Checkbox(
-                t("follow-up-last-turn"),
-                id="session-follow-last-turn",
-                value=False,
-            )
-            with Horizontal(id="session-pending-actions"):
-                yield Button(
-                    U.follow_up_btn_send(), id="session-follow-send-btn", variant="primary"
-                )
-                yield Button(U.follow_up_btn_done(), id="session-follow-done-btn")
         with TabbedContent(id="browser-tabs"):
             with TabPane(U.tab_timeline(), id="tab-timeline"):
                 with Horizontal(id="browser-layout"):
@@ -3401,10 +3387,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if action == "edit_operator_note":
             return self._focused_note() is not None
         if action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
-            # O(1) cache; refreshed by pending bar / live poll / gate writes.
-            if not self._pending_cache_valid:
-                self._recompute_session_pending()
-            return self._pending_actions_enabled
+            return False
         if action in ("prev_turn", "next_turn"):
             focused = self.focused
             if isinstance(focused, (Input, Select)):

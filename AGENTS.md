@@ -5,8 +5,7 @@ inspects coding-agent harness sessions (Python 3.13+). Similar in spirit to
 [posting](https://github.com/darrenburns/posting),
 [harlequin](https://github.com/tconbeer/harlequin), and
 [toolong](https://github.com/Textualize/toolong).
-Grok Build is the shipped adapter; Docker evals and personas stay
-available for that store.
+Grok Build is the shipped adapter. Groket does not launch evals.
 
 Operators read traces and paste prompts, replies, and tool output into
 notes. Every body that is useful to quote must be selectable on both
@@ -647,13 +646,11 @@ Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
 ``h`` / ``l`` (and Left / Right)
 next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend, or the focused note;
-``n``/``e`` follow-up/Done
-when awaiting; ``x`` deletes the focused note (double-press);
+``x`` deletes the focused note (double-press);
 session delete is on the session list; ``N`` new note;
 ``E`` export. Host sessions filter with ``is:host`` in catalog search.
 
-Sessions home also: ``n``/``e`` follow-up/Done when awaiting; ``x`` delete
-(double-press); ``r``/``C``/``P`` runner/recipes/personas.
+Sessions home also: ``x`` delete (double-press).
 Host sessions always load; ``is:host`` filters the list.
 
 ### 6.10 TUI and HUD: same action, same key
@@ -672,7 +669,7 @@ action.
 :mod:`groket.keys.catalog` defaults and the operator ``keys.toml`` overlay.
 TUI: ``Binding.show`` + ``check_action``. HUD: ``footer_table(KeyScope)``
 in ``desktop/src/help.rs``. Same catalog id and default on both surfaces
-for a shared action. Follow-up and Done appear only while awaiting.
+for a shared action.
 Adding or changing a key updates the catalog row, the TUI binding and/or
 HUD ``on_key``, and the footer / ``?`` tables for every screen that can
 run it. ``tests/keys/test_catalog.py`` checks HUD ``help.rs`` push specs
@@ -689,13 +686,12 @@ against the catalog.
 | ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
 | ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
-| ``n`` / ``e`` | Follow-up / Done while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 
 
-**TUI only** — the HUD is a session palette (follow-up, Done, notes). It
-does not launch evals, open Jobs, or export.
+**TUI only** — the HUD is a session palette (notes, timeline). It
+does not open Jobs or export.
 
 | Key | Action |
 |-----|--------|
@@ -705,9 +701,7 @@ does not launch evals, open Jobs, or export.
 | ``F5`` / ``Ctrl+R`` | Refresh |
 | ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–5**) |
 | ``E`` | Export bundle |
-| ``f`` | Fork (sessions home) |
-| ``x`` | Delete a session / persona / recipe (double-press) |
-| ``r`` / ``C`` / ``P`` | Runner / recipes / personas |
+| ``x`` | Delete a session (double-press) |
 | ``s`` / ``space`` | Multi-select |
 
 **HUD only** — ``[`` / ``]`` are Timeline turn scope, so they cannot be

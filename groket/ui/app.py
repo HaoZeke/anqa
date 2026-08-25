@@ -19,19 +19,16 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.message import Message
-from textual.screen import ModalScreen, Screen
+from textual.screen import Screen
 from textual.suggester import Suggester
 from textual.theme import Theme
 from textual.timer import Timer
 from textual.widgets import (
-    Button,
-    Checkbox,
     DataTable,
     Input,
-    Label,
     Static,
     TextArea,
 )
@@ -64,9 +61,7 @@ from ..session.query import (
 from . import text as U
 from .appearance import Appearance, appearance, tui_appearance
 from .bindings import (
-    APP_GLOBAL_PRIORITY,
     APP_SESSIONS,
-    FORM_SAVE,
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
@@ -83,10 +78,7 @@ from .data_table import (
 from .i18n import setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
-from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
-from .screens.run_configs import RunConfigsScreen
-from .screens.runner import RunnerPrefill, RunnerScreen
 from .theme import (
     AUTO_NAMES,
     family_of_theme,
@@ -116,72 +108,6 @@ def _coerce_select_value(value, *, default=None):
     if not isinstance(value, (str, int, float, bool)):
         return default
     return value
-
-
-class InteractiveSessionsModal(QuitActions, ModalScreen[tuple[str, bool] | None]):
-    """Prompt for a follow-up on awaiting sessions (sessions home).
-
-    Dismisses with ``(prompt, final_turn)`` or ``None`` on cancel. When
-    *final_turn* is true, the gate runs this turn then stops awaiting
-    (same as the browser pending bar). Mark-done (``e``) remains separate.
-    """
-
-    BINDINGS = list(FORM_SAVE)
-
-    def __init__(self, *, n_awaiting: int) -> None:
-        super().__init__()
-        self._n = max(1, int(n_awaiting))
-
-    def compose(self) -> ComposeResult:
-        with Container(id="interactive-sessions-modal"):
-            yield Label(U.interactive_modal_title(self._n), id="interactive-modal-title")
-            yield Input(placeholder=U.follow_up_placeholder(), id="interactive-follow-input")
-            yield Checkbox(
-                t("follow-up-last-turn"),
-                id="interactive-follow-last-turn",
-                value=False,
-            )
-            with Horizontal(id="interactive-modal-actions", classes="modal-footer"):
-                yield Button(U.send(), variant="primary", id="interactive-send")
-                yield Button(U.cancel(), id="interactive-cancel")
-
-    def on_mount(self) -> None:
-        with suppress(Exception):
-            self.query_one("#interactive-follow-input", Input).focus()
-
-    def action_save(self) -> None:
-        self._submit_follow()
-
-    def action_cancel(self) -> None:
-        from .bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
-
-    @on(Button.Pressed, "#interactive-send")
-    def _on_send(self) -> None:
-        self._submit_follow()
-
-    @on(Button.Pressed, "#interactive-cancel")
-    def _on_cancel_btn(self) -> None:
-        self.dismiss(None)
-
-    @on(Input.Submitted, "#interactive-follow-input")
-    def _on_submit_input(self) -> None:
-        self._submit_follow()
-
-    def _submit_follow(self) -> None:
-        try:
-            text = self.query_one("#interactive-follow-input", Input).value.strip()
-        except Exception:
-            text = ""
-        if not text:
-            with suppress(Exception):
-                self.notify(U.follow_up_empty(), severity="warning", timeout=2)
-            return
-        final = False
-        with suppress(Exception):
-            final = bool(self.query_one("#interactive-follow-last-turn", Checkbox).value)
-        self.dismiss((text, final))
 
 
 def _attach_catalog_flags(meta: SessionMeta) -> None:
@@ -227,7 +153,7 @@ class TraceEvalApp(App):
     TITLE = "groket"
     SUB_TITLE = ""
     CSS_PATH = "app.tcss"
-    BINDINGS = [*APP_GLOBAL_PRIORITY, *APP_SESSIONS]
+    BINDINGS = [*APP_SESSIONS]
     COMMAND_PALETTE_DISPLAY = "Ctrl+P"
     # Textual text selection (drag) + OSC 52 copy; default is True but be explicit.
     ALLOW_SELECT = True
@@ -740,12 +666,6 @@ class TraceEvalApp(App):
 
     def on_mount(self) -> None:
         self._apply_resolved_keymap()
-        try:
-            from ..runs.personas import PersonaStore
-
-            PersonaStore(self.work_dir).ensure_defaults()
-        except Exception:
-            logger.debug(t("ui-personastore-initialization-failed"), exc_info=True)
         self.apply_saved_theme(save=False)
         self.call_after_refresh(self._enable_theme_persist)
         table = self.query_one("#session-table", DataTable)
@@ -2031,34 +1951,43 @@ class TraceEvalApp(App):
         return None
 
     def action_rerun_session(self) -> None:
-        """Open the runner pre-filled with the current session's details."""
-        meta = self._cursor_session_meta()
-        if meta is None:
-            self.notify(U.select_session_first(), severity="warning")
-            return
-        self._do_rerun(meta)
+        return
 
     def action_resume_session(self) -> None:
-        """Open runner to continue an ended session as a new interactive multi-turn."""
-        meta = self._cursor_session_meta()
-        if meta is None:
-            self.notify(U.select_session_first(), severity="warning")
-            return
-        from ..session.resume import can_resume_session
-        from ..session.turn_gate import read_turn_gate_status
+        return
 
-        if not can_resume_session(meta.session_dir):
-            self.notify(t("resume-session-no-artifacts"), severity="warning")
-            return
-        try:
-            st = read_turn_gate_status(meta.session_dir)
-            state = str(st.get("state") or "").strip().lower()
-        except Exception:
-            state = ""
-        if state in ("awaiting_follow_up", "running"):
-            self.notify(t("resume-session-still-live"), severity="warning")
-            return
-        self._do_resume(meta)
+    def _do_resume(self, meta: SessionMeta | None = None) -> None:
+        return
+
+    def action_save_session_config(self) -> None:
+        return
+
+    def _do_save_session_config(self, meta: SessionMeta | None = None) -> None:
+        return
+
+    def _runner_active(self) -> bool:
+        return False
+
+    def action_launch_from_runner(self) -> None:
+        return
+
+    def action_mark_sessions_done(self) -> None:
+        return
+
+    def action_follow_up_sessions(self) -> None:
+        return
+
+    def action_open_run_configs(self) -> None:
+        return
+
+    def _push_runner_with_prefill(self, prefill: object) -> None:
+        return
+
+    def action_open_runner(self) -> None:
+        return
+
+    def action_open_personas(self) -> None:
+        return
 
     def _extract_session_launch_params(self, meta: SessionMeta) -> dict:
         """Extract launch parameters from a session's run recipe and task catalog.
@@ -2138,104 +2067,11 @@ class TraceEvalApp(App):
             "repo_commit": repo_commit,
         }
 
-    @work(thread=True)
     def _do_rerun(self, meta: SessionMeta | None = None) -> None:
-        """Extract session details and open runner with prefill."""
-        if not isinstance(meta, SessionMeta):
-            return
-        params = self._extract_session_launch_params(meta)
-        prefill = RunnerPrefill(**params)
-        call_ui(self, self._push_runner_with_prefill, prefill)
+        return
 
-    @work(thread=True)
-    def _do_resume(self, meta: SessionMeta | None = None) -> None:
-        """Open runner to continue *meta* via grok --resume in a new interactive run."""
-        if not isinstance(meta, SessionMeta):
-            return
-        from ..session.resume import resume_session_id
-
-        params = self._extract_session_launch_params(meta)
-        # First message is the continuation, not a replay of the original prompt.
-        params["prompt"] = ""
-        sid = resume_session_id(meta.session_dir)
-        repo_commit = str(params.pop("repo_commit", "") or meta.git_commit or "").strip()
-        prefill = RunnerPrefill(
-            **params,
-            interactive=True,
-            resume_session_id=sid,
-            resume_source_dir=str(meta.session_dir),
-            repo_commit=repo_commit,
-            restore_code=True,
-        )
-        call_ui(self, self._push_runner_with_prefill, prefill)
-
-    def action_save_session_config(self) -> None:
-        """Save the highlighted (or first selected) session as a reusable run config."""
-        meta = None
-        if self._selected:
-            key = next(iter(self._selected))
-            for m, _ in self._meta_only:
-                if str(m.session_dir) == key:
-                    meta = m
-                    break
-        if meta is None:
-            table = self.query_one("#session-table", DataTable)
-            if table.row_count == 0:
-                self.notify(U.no_session_to_save(), severity="warning")
-                return
-            try:
-                row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
-                path = str(row_key.value) if row_key else ""
-            except Exception:
-                path = ""
-            for m, _ in self._meta_only:
-                if str(m.session_dir) == path:
-                    meta = m
-                    break
-        if meta is None:
-            self.notify(U.session_not_found(), severity="error")
-            return
-        self._do_save_session_config(meta)
-
-    @work(thread=True)
-    def _do_save_session_config(self, meta: SessionMeta | None = None) -> None:
-        if not isinstance(meta, SessionMeta):
-            return
-        from ..runs.run_configs import RunConfigStore
-
-        params = self._extract_session_launch_params(meta)
-        try:
-            store = RunConfigStore(self.work_dir)
-            cfg = store.from_session_fields(
-                prompt=params["prompt"] or t("ui-no-prompt-extracted"),
-                setup_instructions=params["setup_instructions"],
-                docker_image=params["docker_image"],
-                repo_url=params["repo_url"],
-                repo_branch=params["repo_branch"],
-                repo_path=str(params.get("repo_path") or ""),
-                models=params["models"],
-                session_id=meta.session_id,
-                session_dir=str(meta.session_dir),
-                name=meta.task_id or meta.label or meta.session_id[:12],
-            )
-            call_ui(
-                self,
-                self.notify,
-                t(
-                    "notify-saved-run-config",
-                    id=cfg.config_id,
-                    name=cfg.display_name(),
-                ),
-                severity="information",
-                timeout=10,
-            )
-        except Exception as exc:
-            call_ui(
-                self,
-                self.notify,
-                t("notify-save-config-failed", exc=str(exc)),
-                severity="error",
-            )
+    def _do_resume_launch(self, meta: SessionMeta | None = None) -> None:
+        return
 
     def _toast(
         self,
@@ -2363,10 +2199,7 @@ class TraceEvalApp(App):
             return True
 
     def _runner_active(self) -> bool:
-        """True when the evaluation runner form is the top screen."""
-        from .screens.runner import RunnerScreen
-
-        return isinstance(self.screen, RunnerScreen)
+        return False
 
     def check_action(
         self,
@@ -2379,70 +2212,9 @@ class TraceEvalApp(App):
         """
         if action == "leader_idle":
             return bool(self._leader_armed)
-        if action == "launch_from_runner":
-            return self._runner_active()
         if action in SESSION_HOME_ACTIONS and not self._sessions_home_active():
             return False
-        if action in ("follow_up_sessions", "mark_sessions_done"):
-            return bool(self._awaiting_session_targets())
         return True
-
-    def action_launch_from_runner(self) -> None:
-        """Priority hotkey: launch eval when Runner is the active screen."""
-        from .screens.runner import RunnerScreen
-
-        screen = self.screen
-        if isinstance(screen, RunnerScreen):
-            screen.action_run_evaluation()
-
-    def action_mark_sessions_done(self) -> None:
-        """``e`` — end awaiting sessions (mark done)."""
-        targets = self._awaiting_targets_or_toast()
-        if not targets:
-            return
-        errors = self._apply_done_to_paths(targets)
-        self._refresh_session_meta_rows(targets)
-        self.refresh_bindings()
-        if errors:
-            self._toast(
-                t("notify-failed-for", errors=errors, total=len(targets)),
-                severity="warning",
-                timeout=3.0,
-            )
-        else:
-            self._toast(
-                t("mark-sessions-done-requested", n=len(targets)),
-                severity="information",
-                timeout=3.0,
-            )
-
-    def action_follow_up_sessions(self) -> None:
-        """``n`` — next prompt for awaiting selection."""
-        targets = self._awaiting_targets_or_toast()
-        if not targets:
-            return
-
-        def _apply(result: tuple[str, bool] | None) -> None:
-            if not result:
-                return
-            prompt, final = result
-            errors = self._apply_follow_up_to_paths(targets, prompt, final=final)
-            self._refresh_session_meta_rows(targets)
-            self.refresh_bindings()
-            if errors:
-                self._toast(
-                    t("notify-failed-for", errors=errors, total=len(targets)),
-                    severity="warning",
-                    timeout=3.0,
-                )
-            elif final:
-                self._toast(
-                    t("follow-up-sent-final-n", n=len(targets)),
-                    severity="information",
-                    timeout=2.5,
-                )
-
-        self.push_screen(InteractiveSessionsModal(n_awaiting=len(targets)), _apply)
 
     def action_delete_sessions(self) -> None:
         """Delete selected sessions (or current row if none selected). Removes traces only."""
@@ -2540,10 +2312,6 @@ class TraceEvalApp(App):
             )
 
         call_ui(self, _refresh)
-
-    def action_open_run_configs(self) -> None:
-        """Browse reusable run configs (launch again with new models)."""
-        self.push_screen(RunConfigsScreen(self.work_dir, run_manager=self.run_manager))
 
     def action_refresh_everything(self) -> None:
         """Full refresh: rescan traces and rebuild the session list."""
@@ -2705,9 +2473,8 @@ class TraceEvalApp(App):
         if notify_control:
             self.control_session_selected(session_path, prompt_index)
 
-    def _push_runner_with_prefill(self, prefill: RunnerPrefill) -> None:
-        """Construct and push RunnerScreen on the main thread."""
-        self.push_screen(RunnerScreen(self.work_dir, run_manager=self.run_manager, prefill=prefill))
+    def _push_runner_with_prefill(self, prefill: object) -> None:
+        return
 
     def _push_browser(
         self,
@@ -2718,15 +2485,6 @@ class TraceEvalApp(App):
         """Construct and push BrowserScreen on the main thread."""
         self._pause_home_traces_watch(pause=True)
         self.push_screen(BrowserScreen(session_path, prompt_index=prompt_index))
-
-    def action_open_runner(self) -> None:
-        self.push_screen(RunnerScreen(self.work_dir, run_manager=self.run_manager))
-
-    def action_open_personas(self) -> None:
-        """Persona builder: create/edit/delete personas under runs/personas/."""
-        from .screens.personas import PersonasScreen
-
-        self.push_screen(PersonasScreen(self.work_dir))
 
     def action_open_jobs(self) -> None:
         """Open background jobs + container logs modal (runner stays quiet by default)."""
@@ -3451,21 +3209,9 @@ class TraceEvalApp(App):
     def action_refresh_context(self) -> None:
         """Refresh whatever screen/context is active (F5 / Ctrl+R globally)."""
         from .screens.browser import BrowserScreen
-        from .screens.personas import PersonasScreen
-        from .screens.run_configs import RunConfigsScreen
-        from .screens.runner import RunnerScreen
 
         screen = self.screen
         if isinstance(screen, BrowserScreen):
-            screen.action_refresh_context()
-            return
-        if isinstance(screen, RunConfigsScreen):
-            screen.action_refresh_context()
-            return
-        if isinstance(screen, PersonasScreen):
-            screen.action_refresh_context()
-            return
-        if isinstance(screen, RunnerScreen):
             screen.action_refresh_context()
             return
         self._refresh_sessions_list()

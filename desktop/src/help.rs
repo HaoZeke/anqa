@@ -296,24 +296,6 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
             Message::SetTab(Tab::Notes),
         );
     }
-    if scope.awaiting {
-        push(
-            &mut table,
-            overlay,
-            "session.follow",
-            "Follow-up",
-            "n",
-            Message::Noop,
-        );
-        push(
-            &mut table,
-            overlay,
-            "session.done",
-            "Done",
-            "e",
-            Message::MarkDone,
-        );
-    }
     table
 }
 
@@ -456,24 +438,6 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             "Session list",
             "u",
             Message::SessionsHome,
-        );
-    }
-    if scope.browse && scope.awaiting {
-        push(
-            &mut table,
-            overlay,
-            "session.follow",
-            "Follow-up",
-            "n",
-            Message::Noop,
-        );
-        push(
-            &mut table,
-            overlay,
-            "session.done",
-            "Done",
-            "e",
-            Message::MarkDone,
         );
     }
     if scope.browse && scope.tab != Tab::Notes {
@@ -836,8 +800,8 @@ mod tests {
         })
         .footer_hints();
         let blob = hints.join("  ·  ");
-        assert!(blob.contains("n follow"));
-        assert!(blob.contains("e done"));
+        assert!(!blob.contains("follow"), "{blob}");
+        assert!(!blob.contains(" done"), "{blob}");
         let sheet = help_table(KeyScope {
             browse: true,
             help_open: false,
@@ -853,8 +817,8 @@ mod tests {
             note_focused: false,
             notes_composing: false,
         });
-        assert!(sheet.get("session.follow").is_some());
-        assert!(sheet.get("session.done").is_some());
+        assert!(sheet.get("session.follow").is_none());
+        assert!(sheet.get("session.done").is_none());
         assert!(sheet.get("pane.notes").is_some());
         assert!(sheet.get("events.next_turn").is_some());
         assert!(sheet.get("events.scope_next").is_some());
@@ -996,7 +960,7 @@ mod tests {
     #[test]
     fn armed_leader_shows_in_footer() {
         let overlay = crate::keys::KeyOverlay::parse(
-            "leader = \";\"\n[home]\n\"session.follow\" = \"leader+n\"\n\"list.down\" = \"n\"\n",
+            "leader = \";\"\n[home]\n\"search.focus\" = \"leader+slash\"\n\"list.down\" = \"n\"\n",
         )
         .expect("leader overlay");
         let scope = KeyScope {
@@ -1031,8 +995,8 @@ mod tests {
             "[home]\n",
             "\"list.down\" = \"n\"\n",
             "\"list.up\" = \"e\"\n",
-            "\"session.follow\" = \"leader+n\"\n",
-            "\"session.done\" = \"leader+e\"\n",
+            "\"search.focus\" = \"leader+slash\"\n",
+            "\"sessions.home\" = \"leader+u\"\n",
         ))
         .expect("colemak");
         let scope = KeyScope {
@@ -1052,27 +1016,20 @@ mod tests {
         };
         let hints = footer_table_for(scope, &overlay).footer_hints();
         let blob = hints.join("  ·  ");
-        assert!(blob.contains("; n"), "{blob}");
-        assert!(blob.contains("; e"), "{blob}");
+        assert!(blob.contains("; /") || blob.contains("; slash"), "{blob}");
         let help = help_table_for(scope, &overlay);
-        let follow = help.get("session.follow").expect("follow");
-        assert_eq!(
-            follow.shortcut.as_ref().map(ToString::to_string).as_deref(),
-            Some("; n")
-        );
-        let done = help.get("session.done").expect("done");
-        assert_eq!(
-            done.shortcut.as_ref().map(ToString::to_string).as_deref(),
-            Some("; e")
+        let search = help.get("search.focus").expect("search");
+        let chord = search.shortcut.as_ref().map(ToString::to_string);
+        assert!(
+            chord.as_deref() == Some("; /") || chord.as_deref() == Some("; slash"),
+            "{chord:?}"
         );
     }
 
     #[test]
     fn overlay_remap_shows_in_footer_and_help() {
-        let overlay = crate::keys::KeyOverlay::parse(
-            "[home]\n\"list.down\" = \"n\"\n\"session.follow\" = \"z\"\n",
-        )
-        .expect("valid overlay");
+        let overlay = crate::keys::KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n")
+            .expect("valid overlay");
         let hints = footer_table_for(picker(), &overlay).footer_hints();
         let blob = hints.join("  ·  ");
         assert!(blob.contains("n down"), "{blob}");
@@ -1096,6 +1053,5 @@ mod tests {
         let hints = help.footer_hints();
         let blob = hints.join("  ·  ");
         assert!(blob.contains("n "), "{blob}");
-        assert!(blob.contains("z "), "{blob}");
     }
 }
