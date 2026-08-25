@@ -1,42 +1,24 @@
-# groket identity 1.2
+# anqa identity 2.0
 
-Three-bar rocket for the groket product. Each bar is a turn; the cap is
-that turn’s status. The nose sits on the complete (green) bar so the
-rocket flies toward success. The short bar is running (yellow); the
-other long bar is failed (red). The **small mark** is that rocket without
-needles: a 7×3 character grid so a terminal and a browser tab match.
-Open **[guidelines.html](guidelines.html)** for colour, type, sizes, and
-which file to use.
-
-The approved still is `source/approved.jpg`. The shippable mark is the
-SVG drawn by `build.py` — not a tracing of the still.
+Truck-art mark for the anqa name. The bird is the approved painting in
+`source/approved.jpg` — not a geometric redraw. The word is Fira Sans
+ExtraBold. Open **[guidelines.html](guidelines.html)** for colour, type,
+sizes, and use cases.
 
 ## Quick use
 
 | Job | File |
 |-----|------|
-| README / site header (light) | `png/groket-mark.png` |
-| README / site header (dark) | `png/groket-mark-reverse.png` |
-| Poster / merch | `png/groket-lockup-stacked.png` |
-| Dock / ``groket hud --install-desktop`` | `png/groket-app-icon-{256,512,1024}.png` (square rocket) |
-| Dark dock | `png/groket-app-icon-dark-1024.png` |
-| HUD window / tray | `png/groket-tray-{32,48,64,128}.png` (cream plate, ink rim, three bars; 128 window, 64 tray) |
-| HUD desktop notify | Linux: tray 64px. macOS / Windows: `png/groket-app-icon-256.png` (Notification Center / toast) |
-| Favicon (browser tab) | `png/groket-favicon-32.png` |
-| HUD search bar (light) | `png/groket-mark.png` (32px tall) |
-| HUD search bar (dark) | `png/groket-mark-reverse.png` |
-| TUI header | wordmark + folders when wide + activity |
-| TUI help | three equal slats with status tips |
-| One-colour print | `png/groket-mark-mono.png` |
+| Site / README header | `png/anqa-lockup-horizontal.png` |
+| Poster / merch | `png/anqa-lockup-stacked.png` |
+| Dock / HUD icon | `png/anqa-app-icon-1024.png` |
+| Favicon | `png/anqa-favicon-32.png` |
+| One-colour print | `png/anqa-mark-mono.png` |
 
-Wordmark type is **Fira Sans ExtraBold 800**, tracking −0.04 em,
-lowercase `groket`. Files and SIL license in `fonts/` (same family as
-the HUD UI face).
+Wordmark type (when setting the name in product chrome) is **Fira Sans ExtraBold 800**, tracking −0.04 em, lowercase only. Files and SIL license in `fonts/`. The decorated letters under the bird live in `source/word-ornament.png`.
 
-Rebuild (fonttools, pillow from the `brand` uv group; `rsvg-convert` from
-librsvg):
+Rebuild after replacing `source/approved.jpg` or `source/word-ornament.png` (fonttools, numpy, pillow):
 
 ```bash
-just brand
-# or: uv run --group brand python brand/build.py
+uv run --with fonttools --with numpy --with pillow python build.py
 ```

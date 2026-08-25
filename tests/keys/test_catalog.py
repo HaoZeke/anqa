@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
-from groket.keys.catalog import (
+from anqa.keys.catalog import (
     ACTIONS,
     ACTIONS_BY_ID,
     RESERVED_KEYS,
@@ -20,9 +20,9 @@ from groket.keys.catalog import (
     chord_is_reserved,
     normalize_chord,
 )
-from groket.ui import bindings as B
-from groket.ui.confirm_modal import DiscardConfirmModal
-from groket.ui.tab_panes import tab_nav_bindings
+from anqa.ui import bindings as B
+from anqa.ui.confirm_modal import DiscardConfirmModal
+from anqa.ui.tab_panes import tab_nav_bindings
 from textual.binding import Binding
 from textual.screen import Screen
 
@@ -74,7 +74,7 @@ def _declared_bindings(raw: object) -> list[Binding]:
 
 
 def _import_ui_package() -> None:
-    import groket.ui as ui_pkg
+    import anqa.ui as ui_pkg
 
     for info in pkgutil.walk_packages(ui_pkg.__path__, ui_pkg.__name__ + "."):
         importlib.import_module(info.name)
@@ -90,7 +90,7 @@ def _local_screens() -> list[type[Screen]]:
             continue
         seen.add(cls)
         stack.extend(cls.__subclasses__())
-    return [cls for cls in seen if cls.__module__.startswith("groket.")]
+    return [cls for cls in seen if cls.__module__.startswith("anqa.")]
 
 
 def test_catalog_ids_are_globally_unique() -> None:
@@ -239,7 +239,7 @@ def test_hud_named_ids_present() -> None:
 
 
 def test_list_nav_is_shared_table_binding() -> None:
-    from groket.ui.data_table import style_data_table
+    from anqa.ui.data_table import style_data_table
     from textual.widgets import DataTable
 
     down = action_by_id("list.down")

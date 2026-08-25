@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.integrations.control_contract import PROTOCOL_VERSION
-from groket.parser import load_host_list_meta
-from groket.session.catalog import list_session_catalog, session_catalog_row
-from groket.session.mtime_export import write_host_catalog_export
+from anqa.integrations.control_contract import PROTOCOL_VERSION
+from anqa.parser import load_host_list_meta
+from anqa.session.catalog import list_session_catalog, session_catalog_row
+from anqa.session.mtime_export import write_host_catalog_export
 
 
 def _host_session(
@@ -49,7 +49,7 @@ def _chunk_line() -> str:
 
 
 def test_host_catalog_row_skips_full_timeline_parse(tmp_path: Path, monkeypatch) -> None:
-    import groket.parser as parser_mod
+    import anqa.parser as parser_mod
 
     sd = _host_session(
         tmp_path / "host",
@@ -218,7 +218,7 @@ def test_list_session_catalog_rebuilds_only_changed_host_row(tmp_path: Path, mon
         built.append(session_dir.name)
         return real_row(session_dir, origin=origin, label=label)
 
-    monkeypatch.setattr("groket.session.catalog.session_catalog_row", track_row)
+    monkeypatch.setattr("anqa.session.catalog.session_catalog_row", track_row)
     rows2 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
     by_id = {str(r["sessionId"]): r for r in rows2}
     assert by_id["live-sess"]["status"] == "complete"

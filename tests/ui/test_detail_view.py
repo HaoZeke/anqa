@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from anqa.ui.widgets.detail_view import DetailView
 from conftest import make_trace_event
-from groket.ui.widgets.detail_view import DetailView
 from textual.app import App, ComposeResult
 
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.models import TraceEvent
-from groket.ui.screens.browser import BrowserScreen
-from groket.ui.widgets.timeline import TimelineTable
+from anqa.models import TraceEvent
+from anqa.ui.screens.browser import BrowserScreen
+from anqa.ui.widgets.timeline import TimelineTable
 
 
 def _ev(index: int, event_type: str, content: str = "", **kw) -> TraceEvent:
@@ -284,7 +284,7 @@ def test_prev_turn_from_all_opens_last() -> None:
 
 def test_timeline_table_does_not_override_column_arrows() -> None:
     """h / Left step turns via the screen catalog binding, not the table."""
-    from groket.ui.widgets.timeline import TimelineTable
+    from anqa.ui.widgets.timeline import TimelineTable
     from textual.widgets import DataTable
 
     assert TimelineTable.action_cursor_left is DataTable.action_cursor_left
@@ -309,7 +309,7 @@ def test_land_target_is_visible_row_not_hidden_first_event() -> None:
     hidden = screen._land_target(tl, keep=False)
     assert hidden is not None
     assert hidden.index in {1, 3}
-    from groket.ui.data_table import restore_cursor
+    from anqa.ui.data_table import restore_cursor
 
     assert restore_cursor(tl, "0", scroll=False) is False
     prev = screen._current_event

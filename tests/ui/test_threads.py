@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from groket.ui.threads import call_ui, resolve_ui_app
+from anqa.ui.threads import call_ui, resolve_ui_app
 from textual.app import App
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.session.export_render import (
+from anqa.session.export_render import (
     BUILTIN_RENDERERS,
     SessionSummaryData,
     report_file_extension,

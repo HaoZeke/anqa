@@ -1,4 +1,4 @@
-//! Append-only HUD log at ``~/.groket/hud.log`` (override: ``GROKET_HUD_LOG``).
+//! Append-only HUD log at ``~/.anqa/hud.log`` (override: ``ANQA_HUD_LOG``).
 
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -11,14 +11,14 @@ static LAST: Mutex<String> = Mutex::new(String::new());
 
 /// Default and override path for the HUD log.
 pub fn path() -> PathBuf {
-    if let Ok(raw) = env::var("GROKET_HUD_LOG") {
+    if let Ok(raw) = env::var("ANQA_HUD_LOG") {
         let t = raw.trim();
         if !t.is_empty() {
             return PathBuf::from(t);
         }
     }
     env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join(".groket").join("hud.log"))
+        .map(|h| PathBuf::from(h).join(".anqa").join("hud.log"))
         .unwrap_or_else(|| PathBuf::from("hud.log"))
 }
 
@@ -128,11 +128,11 @@ mod tests {
     fn write_appends_and_dedupes() {
         let _guard = ENV.lock().expect("env lock");
         let n = N.fetch_add(1, Ordering::SeqCst);
-        let dir = env::temp_dir().join(format!("groket-hud-log-{n}"));
+        let dir = env::temp_dir().join(format!("anqa-hud-log-{n}"));
         let _ = fs::create_dir_all(&dir);
         let file = dir.join("hud.log");
         let _ = fs::remove_file(&file);
-        env::set_var("GROKET_HUD_LOG", &file);
+        env::set_var("ANQA_HUD_LOG", &file);
         if let Ok(mut last) = LAST.lock() {
             last.clear();
         }
@@ -144,14 +144,14 @@ mod tests {
         assert!(text.contains(" other\n"));
         assert!(text.contains(" error boom\n"));
         let _ = fs::remove_file(&file);
-        env::remove_var("GROKET_HUD_LOG");
+        env::remove_var("ANQA_HUD_LOG");
     }
 
     #[test]
     fn path_honors_override() {
         let _guard = ENV.lock().expect("env lock");
-        env::set_var("GROKET_HUD_LOG", "/tmp/custom-hud.log");
+        env::set_var("ANQA_HUD_LOG", "/tmp/custom-hud.log");
         assert_eq!(path(), PathBuf::from("/tmp/custom-hud.log"));
-        env::remove_var("GROKET_HUD_LOG");
+        env::remove_var("ANQA_HUD_LOG");
     }
 }

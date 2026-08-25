@@ -1,11 +1,11 @@
-# AGENTS.md — groket
+# AGENTS.md — anqa
 
-Groket is a [Textual](https://github.com/Textualize/textual) TUI that
+Anqa is a [Textual](https://github.com/Textualize/textual) TUI that
 inspects coding-agent harness sessions (Python 3.13+). Similar in spirit to
 [posting](https://github.com/darrenburns/posting),
 [harlequin](https://github.com/tconbeer/harlequin), and
 [toolong](https://github.com/Textualize/toolong).
-Grok Build is the shipped adapter. Groket does not launch evals.
+Grok Build is the shipped adapter. Anqa does not launch evals.
 
 Operators read traces and paste prompts, replies, and tool output into
 notes. Every body that is useful to quote must be selectable on both
@@ -20,7 +20,7 @@ rejected-design narration.
 ## 1. Quick start
 
 ```bash
-uv tool install --editable .    # ``groket`` + ``groket-hud`` on PATH (needs Rust)
+uv tool install --editable .    # ``anqa`` + ``anqa-hud`` on PATH (needs Rust)
 just install        # .venv (test+dev) for lint/test
 just test           # pytest (default unit suite; no Docker daemon)
 just lint           # ruff + mypy + fluent/typing + harness adapter check
@@ -29,11 +29,11 @@ just ci             # lint + schema-check + hud-check + examples-check + test (l
 
 | CLI | Role |
 |-----|------|
-| ``groket`` / ``groket tui`` / ``groket PATH`` | Interactive TUI (control client) |
-| ``groket serve`` | Control owner (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
-| ``groket hud`` | Desktop palette (iced; control client) |
-| ``groket doctor`` | Host checks (Grok auth, paths) — no TUI |
-| ``groket editor …`` | Packaged Emacs / Neovim client paths |
+| ``anqa`` / ``anqa tui`` / ``anqa PATH`` | Interactive TUI (control client) |
+| ``anqa serve`` | Control owner (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
+| ``anqa hud`` | Desktop palette (iced; control client) |
+| ``anqa doctor`` | Host checks (Grok auth, paths) — no TUI |
+| ``anqa editor …`` | Packaged Emacs / Neovim client paths |
 
 Prefer **`uv run …`** so tools match the lockfile.
 
@@ -70,7 +70,7 @@ Re-run those owning tests after the final diff for that commit.
 pass: run them when pushing to a remote or opening a pull request.
 
 Coverage: ``pyproject.toml`` sets ``fail_under = 100`` when coverage runs
-(``just test-cov`` or ``pytest --cov=groket``). Default ``just test`` does
+(``just test-cov`` or ``pytest --cov=anqa``). Default ``just test`` does
 not pass ``--cov``. The Actions **Test Python** job writes ``coverage.xml``
 and uploads it to Codecov (OIDC, ``python`` flag; ``fail_under`` is not
 applied on that upload). The Linux **HUD** job writes
@@ -112,7 +112,7 @@ later.”
 **Parity rules**
 
 1. **One implementation, many front doors.** Runner, run configs, and
-   ``groket batch`` call the same launch/merge/orchestrator code. Do not
+   ``anqa batch`` call the same launch/merge/orchestrator code. Do not
    reimplement resume, caps, or Docker env in a screen only.
 2. **If a surface intentionally cannot do X**, say so in **README** (and
    Fluent help if it is a TUI action). Example: TUI **fork** continues an
@@ -147,14 +147,14 @@ later.”
 Root modules are **foundational**. Domain logic lives in packages.
 
 ```
-groket/
+anqa/
   cli.py, models.py, config.py, parser.py, paths.py, constants.py, utils.py
   event_types.py         # event type sets for filters / segmentation
   fs_watch.py            # TraceTreeWatch (live session / trace FS events)
   job_pools.py           # live-refresh worker pool
   session_inflight.py    # per-session inflight locks (refresh)
   assets_loader.py       # repo assets/ or wheel-embedded templates
-  scan.py                # session walk + updates.jsonl keep/skip (Python + groket._scan)
+  scan.py                # session walk + updates.jsonl keep/skip (Python + anqa._scan)
   keys/                  # action catalog + keys.toml overlay
   harness/               # disk adapters (see docs/harness-adapters.md)
   session/               # turns, turn_gate, usage_stats, workspace_diff,
@@ -163,18 +163,18 @@ groket/
                          #   jobs (background / monitor / schedule merge),
                          #   query (luqum), event_search (Timeline store)
   notes.py               # configurable operator notes (TOML schema + session store)
-  integrations/          # control Unix JSON-RPC, daemon (``groket serve``),
+  integrations/          # control Unix JSON-RPC, daemon (``anqa serve``),
                          #   control_contract, ControlClient, emacs/vim packages
   hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
-# Sibling crates (Cargo workspace): desktop/ (binary groket-hud), scan/ (groket._scan)
-  diagnostics/           # host checks (``groket doctor`` + in-app self-test)
+# Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), scan/ (anqa._scan)
+  diagnostics/           # host checks (``anqa doctor`` + in-app self-test)
   capabilities/          # MCP / skills / Grok Build marketplace plugins
   docker/                # orchestrator, base_profiles, resources
-  extensions/            # groket gen scaffolds
+  extensions/            # anqa gen scaffolds
   locale/                # Fluent .ftl + help.rich.txt
   ui/                    # Textual UI
-    app.py               # TraceEvalApp — sessions home
+    app.py               # AnqaApp — sessions home
     screens/             # browser, jobs
     widgets/             # timeline, detail, help_modal, controls, activity_bar, …
     bindings.py, commands.py, i18n.py, text.py, styles.py, prefs.py
@@ -188,7 +188,7 @@ assets/                  # non-Python templates (not coverage source)
 
 examples/                # supported reference packs (CI: just examples-check) — not auto-loaded
 schemas/                 # committed JSON Schema (tasks, config)
-Optional wheel mirror: groket/_embedded_assets/
+Optional wheel mirror: anqa/_embedded_assets/
 ```
 
 **Data flow:** ``parser`` / ``models`` → ``runs`` | ``session`` →
@@ -196,7 +196,7 @@ Optional wheel mirror: groket/_embedded_assets/
 UI may schedule **read-only** live reloads (meta / signals / light timeline) on
 worker pools; it must not start eval containers from widgets.
 
-**Local control plane:** headless ``groket serve`` is the sole owner of the
+**Local control plane:** headless ``anqa serve`` is the sole owner of the
 per-user Unix socket (JSON-RPC for Emacs/Neovim/HUD/TUI). Lifecycle: bare
 ``serve`` starts (foreground; ``-d`` detaches); ``serve stop`` /
 ``restart`` / ``status``. Domain path: ``session/access`` +
@@ -219,14 +219,14 @@ Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). D
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
 
-Static Docker/YAML templates load via :mod:`groket.assets_loader`.
+Static Docker/YAML templates load via :mod:`anqa.assets_loader`.
 
 ### 3.0 Path layout (product contract)
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.groket`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback, optional ``models.yaml`` |
-| **Work dir** | ``~/.groket/work`` (CLI path overrides) | leftover traces under ``runs/traces/``, notes cache |
+| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback, optional ``models.yaml`` |
+| **Work dir** | ``~/.anqa/work`` (CLI path overrides) | leftover traces under ``runs/traces/``, notes cache |
 
 - Catalog = leftover work traces plus every enabled adapter store (Grok
   ``~/.grok/sessions``). ``harness:<id>`` filters.
@@ -236,7 +236,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
   bumped adapters go through ``.grok/skills/harness-adapter-qa`` and
   ``scripts/check_harness_adapters.py``.
 - CLI path chooses work root / traces root and, for a work root, where new runs
-  go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
+  go (:func:`anqa.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.
 - Gitignored trees under a checkout (``/runs/``, ``/config.toml``,
   ``/_meta_cache.json``) are **local leftovers**, not the install layout.
@@ -253,7 +253,7 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 - **Single-flight refresh** per session via ``session_inflight.KIND_REFRESH`` +
   the live-refresh pool; coalesced reruns when events stack.
 - **Turn status** on the home list: ``running`` | ``awaiting`` | ``ending`` |
-  ``complete`` | ``cancelled`` | ``—`` (:meth:`~groket.models.SessionMeta.list_status_label`).
+  ``complete`` | ``cancelled`` | ``—`` (:meth:`~anqa.models.SessionMeta.list_status_label`).
   **ending** = Done (``e``) or last-turn follow-up still finishing.
 - **Context** columns / Summary use session snapshot fields from signals;
   optional in-memory per-turn samples while a browser is open
@@ -276,7 +276,7 @@ Default language: ``en``.
 
 ### 3.3 Zero hardcoded user-facing UI strings
 
-Under ``groket/ui/``: **no** hardcoded operator-facing English (or other
+Under ``anqa/ui/``: **no** hardcoded operator-facing English (or other
 language) in Python. Add/reuse Fluent ids; call via ``t("…")`` or ``ui.text`` /
 ``U.*``.
 
@@ -315,10 +315,10 @@ Python Rich styles on a full ``t(...)`` result.
 - **No ``Any`` / ``object`` value bags** for our JSON, tools, UI state, configs.
   Use ``JsonValue`` / ``JsonObject``, ``ParamBag`` / ``ToolInputBag``,
   concrete types, ``Protocol``, ``TypedDict`` + ``Unpack``.
-  Gates: ``mypy groket`` + ``scripts/check_typing_policy.py``.
+  Gates: ``mypy anqa`` + ``scripts/check_typing_policy.py``.
   Forced third-party signatures: one-line library comment (e.g. ``# Textual``).
 - Recursive JSON: PEP 695 ``type`` aliases (3.13+). Prefer
-  :func:`~groket.models.as_json_object` when building mappings.
+  :func:`~anqa.models.as_json_object` when building mappings.
 - ``logger = logging.getLogger(__name__)``. ``print`` / ``typer.echo`` only in
   ``cli.py``.
 - Init all instance attrs in ``__init__``. Delete dead code.
@@ -350,7 +350,7 @@ Public callables: short summary + reST field lists (``:param:``, ``:returns:``,
 | ``just ci`` | Local full gate: ``lint`` + ``schema-check`` + ``hud-check`` + ``examples-check`` + ``test`` |
 | ``just hud-themes`` | Regenerate ``desktop/assets/textual-themes.json`` |
 | ``just hud-check`` | Theme map + rustfmt + clippy ``-D warnings`` + HUD cargo test (+ llvm-cov fail-under when installed). Clippy/test/cov set ``CARGO_INCREMENTAL=0``. ``hud-cov`` writes ``desktop/lcov.info`` and deletes ``target/llvm-cov-target``. |
-| ``just scan-check`` | ``cargo test`` the ``groket-scan`` crate (walk + updates filter) |
+| ``just scan-check`` | ``cargo test`` the ``anqa-scan`` crate (walk + updates filter) |
 | ``just wheel`` | ``uv build --wheel`` (this platform; needs Rust) |
 | ``just wheels`` | ``uvx cibuildwheel`` (this host; Linux needs Docker) |
 | ``just sdist`` | ``uv build --sdist`` |
@@ -364,16 +364,16 @@ for those notes live in [TODO.md](TODO.md). Keep the two files in step.
 GitHub Actions (``.github/workflows/ci.yml``) runs those as separate jobs: **Lint Python**, **Test Python**, **HUD** on Linux (full ``just hud-check``), macOS, and Windows (fmt/clippy/test/release build). Pushes to ``main``, version tags, and workflow dispatch also run **cibuildwheel** (Linux x64/arm64, macOS arm64/Intel, Windows x64/arm64) and **Source distribution** artifacts. A version tag or workflow dispatch uploads those files to TestPyPI (``testpypi`` environment).
 
 HUD Cargo trees: ``just hud-cov`` writes ``desktop/lcov.info`` and deletes
-``target/llvm-cov-target``. ``groket hud`` deletes coverage leftovers under
+``target/llvm-cov-target``. ``anqa hud`` deletes coverage leftovers under
 ``target/`` and keeps the debug and release graphs so iced does not rebuild
 from scratch. ``just clean`` runs ``cargo clean``.
 
 Published schemas (also under ``schemas/``; GitHub Pages via
 ``.github/workflows/pages.yml``):
 
-- https://indynull.github.io/groket/schemas/tasks.schema.json  
-- https://indynull.github.io/groket/schemas/config.schema.json  
-- https://indynull.github.io/groket/schemas/control.schema.json  
+- https://indynull.github.io/anqa/schemas/tasks.schema.json  
+- https://indynull.github.io/anqa/schemas/config.schema.json  
+- https://indynull.github.io/anqa/schemas/control.schema.json  
 
 ### 4.3 Module purity
 
@@ -398,7 +398,7 @@ Module-level imports at top (stdlib → third party → local) after
 Do not use function-level imports to hide cycles — break cycles with leaf
 modules and ``TYPE_CHECKING``. Rare exceptions (CLI defers TUI for light
 ``--help``; dynamic plugin ``importlib``) need one factual comment.
-``groket.session`` package init is import-light so ``parser`` can load
+``anqa.session`` package init is import-light so ``parser`` can load
 ``session.workflows``. Import from the owning submodule.
 
 ### 4.5 Error handling
@@ -489,9 +489,9 @@ read path: shared actions use the **same key** as the TUI (§6.10).
 
 | File | Role |
 |------|------|
-| [`ui/bindings.py`](groket/ui/bindings.py) | TUI bindings |
-| [`ui/keys.py`](groket/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+G``) |
-| [`ui/commands.py`](groket/ui/commands.py) | Ctrl+P palette |
+| [`ui/bindings.py`](anqa/ui/bindings.py) | TUI bindings |
+| [`ui/keys.py`](anqa/ui/keys.py) | Display chords (``Ctrl+S``, ``Cmd+Shift+G``) |
+| [`ui/commands.py`](anqa/ui/commands.py) | Ctrl+P palette |
 | Fluent / ``ui/text`` / ``help.rich.txt`` | TUI labels and ``?`` help |
 | [`desktop/src/help.rs`](desktop/src/help.rs) | HUD footer + ``?`` cheatsheet |
 | [`desktop/src/app.rs`](desktop/src/app.rs) ``on_key`` | HUD key handling |
@@ -538,7 +538,7 @@ list.
 
 Double-press ``x`` (and Delete where bound) on sessions and notes.
 First press arms; second with the **same** target set commits. Shared helper:
-:func:`groket.ui.delete_confirm.second_press_armed`.
+:func:`anqa.ui.delete_confirm.second_press_armed`.
 
 ### 6.4 DataTable
 
@@ -549,7 +549,7 @@ First press arms; second with the **same** target set commits. Shared helper:
 
 | Role | Widget / place | Notes |
 |------|----------------|--------|
-| Empty pane | :class:`~groket.ui.panel_render.EmptyState` | Dim one-line, no border; only when section empty |
+| Empty pane | :class:`~anqa.ui.panel_render.EmptyState` | Dim one-line, no border; only when section empty |
 | Keys / how-to | Footer, ``?`` help, Ctrl+P | Not in-pane boxes |
 
 ### 6.5a Extractable / copyable body content (mandatory)
@@ -564,12 +564,12 @@ drag-select) for the same bodies.
 
 | Use | Widget |
 |-----|--------|
-| Body content a human may extract | TUI :class:`~groket.ui.selectable_static.SelectableStatic`; HUD ``icedtea::widget::selectable`` / ``highlighted_code`` |
-| Chrome only (labels, filter bar, empty-state) | TUI plain ``Static`` / :class:`~groket.ui.panel_render.EmptyState`; HUD ``text`` / ``meta`` |
+| Body content a human may extract | TUI :class:`~anqa.ui.selectable_static.SelectableStatic`; HUD ``icedtea::widget::selectable`` / ``highlighted_code`` |
+| Chrome only (labels, filter bar, empty-state) | TUI plain ``Static`` / :class:`~anqa.ui.panel_render.EmptyState`; HUD ``text`` / ``meta`` |
 
 **Rules**
 
-1. **New extractable bodies** mount :class:`~groket.ui.selectable_static.SelectableStatic`
+1. **New extractable bodies** mount :class:`~anqa.ui.selectable_static.SelectableStatic`
    (not plain ``Static``) in the TUI, or bind an icedtea selectable /
    highlighted_code buffer in the HUD. Display the real Rich renderable via
    ``update()``; keep plain cache for selection/yank — do **not** pre-bake
@@ -591,7 +591,7 @@ drag-select) for the same bodies.
    major extractable surface; Fluent notify ids
    (``ui-copied-selection`` / ``ui-copied-detail`` / ``ui-copied-content``).
 
-Helper: :func:`~groket.ui.selectable_static.is_extractable_static`.
+Helper: :func:`~anqa.ui.selectable_static.is_extractable_static`.
 
 ### 6.6 Context-sensitive shortcuts
 
@@ -604,7 +604,7 @@ Stable globals: ``?``, ``F5``/``Ctrl+R``, ``J``, ``Esc``, ``Ctrl+P``, ``q``
 2. ``?`` help  
 3. Ctrl+P palette  
 
-Add a key: catalog row in ``groket/keys/catalog.py`` (and HUD
+Add a key: catalog row in ``anqa/keys/catalog.py`` (and HUD
 ``desktop/src/keys.rs`` ``ACTIONS``) → TUI ``bindings.py`` + ``action_*``
 → HUD ``help.rs`` + ``on_key`` when the HUD does the job → footer and
 ``?`` on every screen that can run it → ``help.rich.txt`` if major. A
@@ -660,7 +660,7 @@ listed below (and in README). Do not invent a second chord for a shared
 action.
 
 **Footer.** The rail is the actions this screen can run right now, from
-:mod:`groket.keys.catalog` defaults and the operator ``keys.toml`` overlay.
+:mod:`anqa.keys.catalog` defaults and the operator ``keys.toml`` overlay.
 TUI: ``Binding.show`` + ``check_action``. HUD: ``footer_table(KeyScope)``
 in ``desktop/src/help.rs``. Same catalog id and default on both surfaces
 for a shared action.
@@ -690,7 +690,7 @@ does not open Jobs or export.
 
 | Key | Action |
 |-----|--------|
-| ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit groket** exits the process) |
+| ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit anqa** exits the process) |
 | ``J`` | Jobs / logs |
 | ``Ctrl+P`` | Command palette |
 | ``F5`` / ``Ctrl+R`` | Refresh |
@@ -782,7 +782,7 @@ Workflows, Errors only.
 **Turns.** Turn tables and turn pickers are chronological (turn 0 first).
 Session catalog stays newest activity first.
 
-Domain: ``groket.tool_display.tool_family`` / ``format_tool_display``. HUD:
+Domain: ``anqa.tool_display.tool_family`` / ``format_tool_display``. HUD:
 ``format.rs`` same tables.
 
 ---
@@ -804,15 +804,15 @@ Enter edits; double-press ``x`` deletes.
 
 ## 10. Plugins and capabilities
 
-Extend without editing package source: ``~/.groket/`` + ``groket gen …``.
+Extend without editing package source: ``~/.anqa/`` + ``anqa gen …``.
 
 | Path | Purpose |
 |------|---------|
-| ``~/.groket/tasks/*.yaml`` | Optional task lists (never auto-loaded) |
-| ``~/.groket/config.toml`` | Prefs |
+| ``~/.anqa/tasks/*.yaml`` | Optional task lists (never auto-loaded) |
+| ``~/.anqa/config.toml`` | Prefs |
 
 ```bash
-uv run groket gen tasks
+uv run anqa gen tasks
 ```
 
 **``examples/`` is a hard contract** (``just examples-check`` / CI):
@@ -824,7 +824,7 @@ Grok Build plugins are persona / run ``plugins`` (marketplace names →
 ``plugins-manifest.json`` at launch).
 
 **MCP** and **skills** are separate persona fields. MCP may create a hidden
-companion skill (``use-<server>-mcp``, ``x-groket: groket-mcp-companion``).
+companion skill (``use-<server>-mcp``, ``x-anqa: anqa-mcp-companion``).
 
 ---
 
@@ -844,12 +844,12 @@ tests/
   runs/  session/  ui/  fixtures/
 ```
 
-Isolate ``APP_HOME`` in tests so developer ``~/.groket`` never leaks in.
+Isolate ``APP_HOME`` in tests so developer ``~/.anqa`` never leaks in.
 
 ### 11.2 Mock boundaries only
 
 - Fake Docker / python-on-whales, network, interactive git, wall-clock when needed.
-- Do **not** mock internal ``groket`` modules against each other for coverage.
+- Do **not** mock internal ``anqa`` modules against each other for coverage.
 - Default suite: **no** live Docker daemon or network ``git clone``.
 
 ### 11.3 Style
@@ -859,7 +859,7 @@ user-visible text; small focused tests.
 
 ### 11.4 Coverage
 
-When measuring (``just test-cov`` / ``--cov=groket``), ``fail_under = 100``
+When measuring (``just test-cov`` / ``--cov=anqa``), ``fail_under = 100``
 applies. Meet it with real domain tests; delete dead code rather than
 pragma/omit. Default CI/``just test`` do not fail on coverage percentage.
 
@@ -879,8 +879,8 @@ Name the test files that cover the modules you edited. Examples:
 
 | Touch | Run |
 |-------|-----|
-| ``groket/session/query.py`` | ``uv run pytest tests/session/test_query.py -q`` |
-| ``groket/ui/theme.py`` | ``uv run pytest tests/ui/test_theme.py -q`` |
+| ``anqa/session/query.py`` | ``uv run pytest tests/session/test_query.py -q`` |
+| ``anqa/ui/theme.py`` | ``uv run pytest tests/ui/test_theme.py -q`` |
 | ``desktop/src/theme.rs`` | ``cargo test --manifest-path desktop/Cargo.toml --lib theme`` |
 | Control contract / schema | ``just schema-check`` plus the contract tests you changed |
 

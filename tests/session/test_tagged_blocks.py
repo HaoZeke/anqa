@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.session.tagged_blocks import (
+from anqa.session.tagged_blocks import (
     extract_user_query,
     harness_user_chrome_heading,
     is_harness_user_chrome,
@@ -66,7 +66,7 @@ def test_angle_brackets_in_code_not_outer_harness() -> None:
 
 
 def test_unwrap_strips_system_reminder_tags() -> None:
-    from groket.session.tagged_blocks import unwrap_for_display
+    from anqa.session.tagged_blocks import unwrap_for_display
 
     raw = (
         "<system-reminder>\n"

@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from groket.hud import launch as launch_mod
-from groket.hud.launch import (
+from anqa.hud import launch as launch_mod
+from anqa.hud.launch import (
     find_hud_binary,
     hud_binary_is_stale,
     hud_checkout_dir,
 )
+
+
+def _short_sock(name: str) -> Path:
+    """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
+    return Path(tempfile.mkdtemp(prefix="anqa-hud-")) / name
 
 
 class _Proc:
@@ -24,10 +30,10 @@ class _Proc:
 def test_find_hud_binary_release_or_none() -> None:
     """When the release binary is built, it is discoverable."""
     found = find_hud_binary()
-    release = Path(__file__).resolve().parents[2] / "target" / "release" / "groket-hud"
+    release = Path(__file__).resolve().parents[2] / "target" / "release" / "anqa-hud"
     if release.is_file():
         assert found is not None
-        assert found.name == "groket-hud"
+        assert found.name == "anqa-hud"
         assert found.is_file()
     else:
         assert found is None or found.is_file()
@@ -36,11 +42,11 @@ def test_find_hud_binary_release_or_none() -> None:
 def test_find_hud_binary_prefers_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    exe = bin_dir / "groket-hud"
+    exe = bin_dir / "anqa-hud"
     exe.write_text("#!/bin/sh\n", encoding="utf-8")
     exe.chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
-    monkeypatch.delenv("GROKET_HUD_BIN", raising=False)
+    monkeypatch.delenv("ANQA_HUD_BIN", raising=False)
     assert find_hud_binary() == exe
 
 
@@ -48,31 +54,31 @@ def test_ensure_hud_binary_rejects_non_executable_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     missing = tmp_path / "missing-hud"
-    monkeypatch.setenv("GROKET_HUD_BIN", str(missing))
+    monkeypatch.setenv("ANQA_HUD_BIN", str(missing))
     assert launch_mod.ensure_hud_binary() is None
-    assert "GROKET_HUD_BIN not executable" in capsys.readouterr().err
+    assert "ANQA_HUD_BIN not executable" in capsys.readouterr().err
 
 
 def test_find_hud_binary_prefers_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    path_exe = bin_dir / "groket-hud"
+    path_exe = bin_dir / "anqa-hud"
     path_exe.write_text("#!/bin/sh\n", encoding="utf-8")
     path_exe.chmod(0o755)
     env_exe = tmp_path / "custom-hud"
     env_exe.write_text("#!/bin/sh\n", encoding="utf-8")
     env_exe.chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
-    monkeypatch.setenv("GROKET_HUD_BIN", str(env_exe))
+    monkeypatch.setenv("ANQA_HUD_BIN", str(env_exe))
     assert find_hud_binary() == env_exe
 
 
 def test_ensure_hud_binary_prefers_path(tmp_path: Path) -> None:
-    installed = tmp_path / "bin" / "groket-hud"
+    installed = tmp_path / "bin" / "anqa-hud"
     installed.parent.mkdir()
     installed.write_text("installed", encoding="utf-8")
     installed.chmod(0o755)
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
@@ -83,23 +89,23 @@ def test_ensure_hud_binary_prefers_path(tmp_path: Path) -> None:
         patch.object(launch_mod, "build_hud") as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
-        os.environ.pop("GROKET_HUD_BIN", None)
+        os.environ.pop("ANQA_HUD_BIN", None)
         out = launch_mod.ensure_hud_binary()
     assert out == installed
     mock_build.assert_not_called()
 
 
 def test_ensure_hud_binary_rebuild_uses_checkout(tmp_path: Path) -> None:
-    installed = tmp_path / "bin" / "groket-hud"
+    installed = tmp_path / "bin" / "anqa-hud"
     installed.parent.mkdir()
     installed.write_text("installed", encoding="utf-8")
     installed.chmod(0o755)
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     (src / "main.rs").write_text("x", encoding="utf-8")
-    built = checkout / "target" / "release" / "groket-hud"
+    built = checkout / "target" / "release" / "anqa-hud"
     built.parent.mkdir(parents=True)
 
     def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
@@ -115,7 +121,7 @@ def test_ensure_hud_binary_rebuild_uses_checkout(tmp_path: Path) -> None:
         patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
-        os.environ.pop("GROKET_HUD_BIN", None)
+        os.environ.pop("ANQA_HUD_BIN", None)
         out = launch_mod.ensure_hud_binary(rebuild=True)
     assert out == built
     mock_build.assert_called_once()
@@ -129,11 +135,11 @@ def test_hud_checkout_dir_in_repo() -> None:
 
 
 def test_hud_binary_is_stale_when_source_newer(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (src / "main.rs").write_text("// old\n", encoding="utf-8")
-    binary = checkout / "target" / "debug" / "groket-hud"
+    binary = checkout / "target" / "debug" / "anqa-hud"
     binary.parent.mkdir(parents=True)
     binary.write_text("bin", encoding="utf-8")
     binary.chmod(0o755)
@@ -146,12 +152,12 @@ def test_hud_binary_is_stale_when_source_newer(tmp_path: Path) -> None:
 
 
 def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     (src / "main.rs").write_text("x", encoding="utf-8")
-    built = checkout / "target" / "release" / "groket-hud"
+    built = checkout / "target" / "release" / "anqa-hud"
     built.parent.mkdir(parents=True)
 
     def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
@@ -166,7 +172,7 @@ def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
         patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
-        os.environ.pop("GROKET_HUD_BIN", None)
+        os.environ.pop("ANQA_HUD_BIN", None)
         out = launch_mod.ensure_hud_binary()
     assert out == built
     mock_build.assert_called_once()
@@ -174,12 +180,12 @@ def test_ensure_hud_binary_rebuilds_release_when_stale(tmp_path: Path) -> None:
 
 
 def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     (src / "main.rs").write_text("x", encoding="utf-8")
-    built = checkout / "target" / "debug" / "groket-hud"
+    built = checkout / "target" / "debug" / "anqa-hud"
     built.parent.mkdir(parents=True)
 
     def fake_build(root: Path | None = None, *, debug: bool = False) -> Path | None:
@@ -194,7 +200,7 @@ def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
         patch.object(launch_mod, "build_hud", side_effect=fake_build) as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
-        os.environ.pop("GROKET_HUD_BIN", None)
+        os.environ.pop("ANQA_HUD_BIN", None)
         out = launch_mod.ensure_hud_binary(debug=True)
     assert out == built
     mock_build.assert_called_once()
@@ -202,7 +208,7 @@ def test_ensure_hud_binary_debug_profile(tmp_path: Path) -> None:
 
 
 def test_install_desktop_runs_binary_flag(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -223,19 +229,19 @@ def test_install_desktop_missing_binary() -> None:
 
 def test_default_summon_socket_path_runtime(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-    monkeypatch.delenv("GROKET_HUD_SUMMON_SOCKET", raising=False)
+    monkeypatch.delenv("ANQA_HUD_SUMMON_SOCKET", raising=False)
     p = launch_mod.default_summon_socket_path()
-    assert p == tmp_path / "run" / "groket" / "hud-summon.sock"
+    assert p == tmp_path / "run" / "anqa" / "hud-summon.sock"
 
 
 def test_default_summon_socket_path_override(monkeypatch, tmp_path: Path) -> None:
     custom = tmp_path / "custom.sock"
-    monkeypatch.setenv("GROKET_HUD_SUMMON_SOCKET", str(custom))
+    monkeypatch.setenv("ANQA_HUD_SUMMON_SOCKET", str(custom))
     assert launch_mod.default_summon_socket_path() == custom
 
 
 def test_send_summon_command_runs_binary_flag(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -252,13 +258,13 @@ def test_send_summon_command_rejects_unknown() -> None:
 
 
 def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
-    from groket.hud import app as hud_app
-    from groket.integrations.daemon import EnsureDaemonResult
+    from anqa.hud import app as hud_app
+    from anqa.integrations.daemon import EnsureDaemonResult
 
     sock = tmp_path / "control.sock"
     with (
-        patch("groket.hud.launch.summon_socket_accepts", return_value=False),
-        patch("groket.hud.launch.hud_process_running", return_value=False),
+        patch("anqa.hud.launch.summon_socket_accepts", return_value=False),
+        patch("anqa.hud.launch.hud_process_running", return_value=False),
         patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
         patch.object(hud_app, "control_socket_accepts", return_value=True),
         patch.object(hud_app, "wait_until_control_accepts", return_value=True),
@@ -274,19 +280,19 @@ def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
             socket_path=sock,
             error="",
         )
-        os.environ.pop("GROKET_HUD_SHOW_ON_START", None)
+        os.environ.pop("ANQA_HUD_SHOW_ON_START", None)
         code = hud_app.run_hud(summon="show", auto_serve=True, socket_path=sock)
         assert code == 0
-        assert os.environ.get("GROKET_HUD_SHOW_ON_START") == "1"
+        assert os.environ.get("ANQA_HUD_SHOW_ON_START") == "1"
         mock_launch.assert_called_once()
 
 
 def test_run_hud_summon_toggle_when_socket_live() -> None:
-    from groket.hud import app as hud_app
+    from anqa.hud import app as hud_app
 
     with (
-        patch("groket.hud.launch.summon_socket_accepts", return_value=True),
-        patch("groket.hud.launch.send_summon_command", return_value=0) as mock_send,
+        patch("anqa.hud.launch.summon_socket_accepts", return_value=True),
+        patch("anqa.hud.launch.send_summon_command", return_value=0) as mock_send,
         patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
         patch.object(hud_app, "launch_hud") as mock_launch,
     ):
@@ -298,11 +304,11 @@ def test_run_hud_summon_toggle_when_socket_live() -> None:
 
 
 def test_run_hud_install_desktop_skips_serve(tmp_path: Path) -> None:
-    from groket.hud import app as hud_app
+    from anqa.hud import app as hud_app
 
     with (
         patch.object(hud_app, "ensure_control_daemon") as mock_daemon,
-        patch("groket.hud.launch.install_desktop", return_value=0) as mock_install,
+        patch("anqa.hud.launch.install_desktop", return_value=0) as mock_install,
         patch.object(hud_app, "launch_hud") as mock_launch,
     ):
         code = hud_app.run_hud(install_desktop=True, rebuild=False, debug=True)
@@ -313,7 +319,7 @@ def test_run_hud_install_desktop_skips_serve(tmp_path: Path) -> None:
 
 
 def test_launch_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -333,7 +339,7 @@ def test_launch_hud_passes_debug_to_ensure(tmp_path: Path) -> None:
 
 def test_launch_hud_detaches_by_default(tmp_path: Path) -> None:
     """Default path spawns the binary in a new session and returns without waiting."""
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     binary.chmod(0o755)
     sock = tmp_path / "control.sock"
@@ -353,7 +359,7 @@ def test_launch_hud_detaches_by_default(tmp_path: Path) -> None:
 
 
 def test_launch_hud_shows_when_summon_socket_live(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -370,7 +376,7 @@ def test_launch_hud_shows_when_summon_socket_live(tmp_path: Path) -> None:
 
 
 def test_launch_hud_shows_when_already_running(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -387,7 +393,7 @@ def test_launch_hud_shows_when_already_running(tmp_path: Path) -> None:
 
 
 def test_launch_hud_replaces_process_when_summon_socket_dead(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -405,7 +411,7 @@ def test_launch_hud_replaces_process_when_summon_socket_dead(tmp_path: Path) -> 
 
 
 def test_launch_hud_foreground_waits(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -425,7 +431,7 @@ def test_launch_hud_foreground_waits(tmp_path: Path) -> None:
 
 
 def test_launch_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
-    binary = tmp_path / "groket-hud"
+    binary = tmp_path / "anqa-hud"
     binary.write_text("x", encoding="utf-8")
     binary.chmod(0o755)
     with (
@@ -446,7 +452,7 @@ def test_launch_hud_restart_stops_then_spawns(tmp_path: Path) -> None:
 
 
 def test_launch_hud_dev_restart_stops_then_runs_cargo(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     checkout.mkdir()
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     with (
@@ -469,7 +475,7 @@ def test_launch_hud_dev_restart_stops_then_runs_cargo(tmp_path: Path) -> None:
 
 
 def test_launch_hud_dev_shows_when_summon_socket_live(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     checkout.mkdir()
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     with (
@@ -485,7 +491,7 @@ def test_launch_hud_dev_shows_when_summon_socket_live(tmp_path: Path) -> None:
 
 
 def test_launch_hud_dev_runs_cargo(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     checkout.mkdir()
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     (checkout / "src").mkdir()
@@ -506,15 +512,15 @@ def test_launch_hud_dev_runs_cargo(tmp_path: Path) -> None:
     assert cmd[0] == "/usr/bin/cargo"
     assert cmd[1:3] == ["run", "--manifest-path"]
     env = mock_run.call_args.kwargs["env"]
-    assert env["GROKET_CONTROL_SOCKET"] == str(sock)
+    assert env["ANQA_CONTROL_SOCKET"] == str(sock)
 
 
 def test_build_hud_runs_cargo_only(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
-    binary = checkout / "target" / "release" / "groket-hud"
+    binary = checkout / "target" / "release" / "anqa-hud"
     binary.parent.mkdir(parents=True)
 
     def fake_cargo(cmd: list[str], **kwargs: object) -> _Proc:
@@ -533,11 +539,11 @@ def test_build_hud_runs_cargo_only(tmp_path: Path) -> None:
 
 
 def test_build_hud_release_keeps_debug_drops_coverage_trees(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
-    binary = checkout / "target" / "release" / "groket-hud"
+    binary = checkout / "target" / "release" / "anqa-hud"
     binary.parent.mkdir(parents=True)
     debug_obj = checkout / "target" / "debug" / "deps" / "old.rlib"
     debug_obj.parent.mkdir(parents=True)
@@ -564,11 +570,11 @@ def test_build_hud_release_keeps_debug_drops_coverage_trees(tmp_path: Path) -> N
 
 
 def test_build_hud_debug_keeps_debug_drops_coverage(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
-    binary = checkout / "target" / "debug" / "groket-hud"
+    binary = checkout / "target" / "debug" / "anqa-hud"
     binary.parent.mkdir(parents=True)
     cov = checkout / "target" / "llvm-cov-target" / "debug"
     cov.mkdir(parents=True)
@@ -591,12 +597,12 @@ def test_build_hud_debug_keeps_debug_drops_coverage(tmp_path: Path) -> None:
 
 
 def test_ensure_hud_binary_keeps_debug_when_release_is_fresh(tmp_path: Path) -> None:
-    checkout = tmp_path / "groket-hud"
+    checkout = tmp_path / "anqa-hud"
     src = checkout / "src"
     src.mkdir(parents=True)
     (checkout / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     (src / "main.rs").write_text("x", encoding="utf-8")
-    built = checkout / "target" / "release" / "groket-hud"
+    built = checkout / "target" / "release" / "anqa-hud"
     built.parent.mkdir(parents=True)
     built.write_text("fresh", encoding="utf-8")
     built.chmod(0o755)
@@ -610,18 +616,18 @@ def test_ensure_hud_binary_keeps_debug_when_release_is_fresh(tmp_path: Path) -> 
         patch.object(launch_mod, "build_hud") as mock_build,
         patch.dict(os.environ, {}, clear=False),
     ):
-        os.environ.pop("GROKET_HUD_BIN", None)
+        os.environ.pop("ANQA_HUD_BIN", None)
         out = launch_mod.ensure_hud_binary()
     assert out == built
     mock_build.assert_not_called()
     assert debug_obj.is_file()
 
 
-def test_summon_socket_accepts_live_unix_listener(tmp_path: Path) -> None:
+def test_summon_socket_accepts_live_unix_listener() -> None:
     import socket
     import threading
 
-    path = tmp_path / "hud-summon.sock"
+    path = _short_sock("hud-summon.sock")
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(path))
     server.listen(1)
@@ -647,11 +653,11 @@ def test_summon_socket_accepts_rejects_stale_path(tmp_path: Path) -> None:
     assert launch_mod.summon_socket_accepts(plain) is False
 
 
-def test_summon_protocol_line_received_by_fake_server(tmp_path: Path) -> None:
+def test_summon_protocol_line_received_by_fake_server() -> None:
     import socket
     import threading
 
-    path = tmp_path / "hud-summon.sock"
+    path = _short_sock("hud-summon.sock")
     got: list[str] = []
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(path))

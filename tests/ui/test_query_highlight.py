@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from groket.ui.query_highlight import CatalogQueryHighlighter
-from groket.ui.styles import CAUTION, DANGER, SUCCESS
+from anqa.ui.query_highlight import CatalogQueryHighlighter
+from anqa.ui.styles import CAUTION, DANGER, SUCCESS
 
 
 def test_highlighter_colors_closed_value_and_unknown() -> None:

@@ -231,7 +231,7 @@ fn catalog_colors(name: &str) -> Option<Value> {
 fn is_auto(pref: &str) -> bool {
     matches!(
         pref.trim().to_ascii_lowercase().as_str(),
-        "" | "auto" | "system" | "default" | "groket" | "groket-light"
+        "" | "auto" | "system" | "default" | "anqa" | "anqa-light"
     )
 }
 
@@ -375,7 +375,7 @@ pub fn resolve_name(pref: &str, appearance: icedtea::theme::Appearance, follow: 
     hud_face(&member)
 }
 
-/// Tokens for ``theme`` in ``~/.groket/config.toml``.
+/// Tokens for ``theme`` in ``~/.anqa/config.toml``.
 ///
 /// Default density is pad and control height. Type scale is 1.0
 /// (Material body). The F12 Look drawer changes scale live.
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(resolve_name("", Appearance::Dark, false), "dark");
         assert_eq!(resolve_name("system", Appearance::Light, true), "light");
         assert_eq!(resolve_name("default", Appearance::Dark, false), "dark");
-        assert_eq!(resolve_name("groket", Appearance::Light, false), "light");
+        assert_eq!(resolve_name("anqa", Appearance::Light, false), "light");
     }
 
     #[test]

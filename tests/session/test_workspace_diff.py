@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.session.workspace_diff import (
+from anqa.session.workspace_diff import (
     _snap_map,
     _unified_diff,
     format_diff_meta_line,
@@ -208,7 +208,7 @@ class TestLoadWorkspaceDiff:
         def _boom(_path: Path) -> list:
             raise AssertionError("parse_timeline must not run when timeline is passed")
 
-        monkeypatch.setattr("groket.parser.parse_timeline", _boom)
+        monkeypatch.setattr("anqa.parser.parse_timeline", _boom)
         doc = load_workspace_diff_doc(sd, timeline=[])
         assert len(doc.points) == 1
         assert doc.points[0].files[0].path == "a.py"
@@ -354,7 +354,7 @@ class TestLoadWorkspaceDiff:
 
     def test_updates_oserror(self, tmp_path: Path):
         """_iter_updates handles OSError by returning empty."""
-        from groket.session.workspace_diff import _iter_updates
+        from anqa.session.workspace_diff import _iter_updates
 
         sd = tmp_path / "session"
         sd.mkdir()

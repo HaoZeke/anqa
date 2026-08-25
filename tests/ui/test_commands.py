@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from groket.ui.commands import (
+from anqa.ui.commands import (
     invoke_app_action,
     invoke_screen_action,
     palette_command,
@@ -70,7 +70,7 @@ class TestYieldAppCommands:
         assert any("Refresh" in t or "refresh" in t.lower() for t in titles)
 
     def test_browser_screen_commands(self) -> None:
-        from groket.ui.screens.browser import BrowserScreen
+        from anqa.ui.screens.browser import BrowserScreen
 
         app = self._make_app()
         screen = BrowserScreen.__new__(BrowserScreen)
@@ -89,7 +89,7 @@ class TestYieldAppCommands:
 
     def test_screen_action_callback_invoked(self) -> None:
         """Screen-action callback invokes invoke_screen_action."""
-        from groket.ui.screens.browser import BrowserScreen
+        from anqa.ui.screens.browser import BrowserScreen
 
         app = self._make_app()
         screen = BrowserScreen.__new__(BrowserScreen)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from groket.models import (
+from anqa.models import (
     EvalRun,
     SessionMeta,
     ToolCall,
@@ -220,7 +220,7 @@ class TestEvalRun:
 # --- merged ---
 
 
-from groket.models import (
+from anqa.models import (
     ParamBag,
     ToolInputBag,
     as_json_object,
@@ -355,7 +355,7 @@ class TestToolCallAndTraceEventEdges:
 
     def test_tool_call_inputs_dict_and_fallback(self):
         """inputs() dict and non-dict branches via __setattr__ bypass (lines 350-352)."""
-        from groket.models import ToolInputBag
+        from anqa.models import ToolInputBag
 
         tc = ToolCall(call_id="c", tool_name="t", raw_input={})
         # Force raw_input to a plain dict (bypass __post_init__)

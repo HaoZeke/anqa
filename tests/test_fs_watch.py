@@ -5,15 +5,15 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from async_wait import wait_until_sync
-from groket.fs_watch import TraceTreeWatch
-from groket.session.watch import (
+from anqa.fs_watch import TraceTreeWatch
+from anqa.session.watch import (
     JournalTail,
     catalog_subscribe_paths,
     plane_event_path,
     plane_file_paths,
     session_dirs_under,
 )
+from async_wait import wait_until_sync
 
 
 def _write_session(root: Path, name: str) -> Path:
@@ -140,7 +140,7 @@ def test_watch_resubscribes_plane_files_of_session_created_after_start(
 
 
 def test_owner_serve_source_has_no_watchdog_or_warm_timer() -> None:
-    from groket.integrations import daemon
+    from anqa.integrations import daemon
 
     src = Path(daemon.__file__).read_text(encoding="utf-8")
     assert "watchdog" not in src
@@ -159,7 +159,7 @@ def test_session_dirs_under_skips_workspace(tmp_path: Path) -> None:
 
 def test_session_dirs_under_finds_work_nested_session(tmp_path: Path) -> None:
     traces = tmp_path / "traces"
-    session = traces / "groket-abc" / "%2Fworkspace" / "sid"
+    session = traces / "anqa-abc" / "%2Fworkspace" / "sid"
     session.mkdir(parents=True)
     (session / "summary.json").write_text("{}", encoding="utf-8")
     (session / "updates.jsonl").write_text("{}\n", encoding="utf-8")
@@ -236,7 +236,7 @@ def test_session_dirs_under_membership_only_skips_find_sessions(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Extra adapter stores must not walk the tree looking for session dirs."""
-    from groket.parser import find_sessions as real_find
+    from anqa.parser import find_sessions as real_find
 
     store = tmp_path / "extra.db"
     store.write_bytes(b"")
@@ -250,7 +250,7 @@ def test_session_dirs_under_membership_only_skips_find_sessions(
         walked.append(str(root))
         return real_find(root)
 
-    monkeypatch.setattr("groket.session.watch.find_sessions", tracked)
+    monkeypatch.setattr("anqa.session.watch.find_sessions", tracked)
     assert session_dirs_under([tmp_path], list_sessions=False) == []
     assert walked == []
 
@@ -286,7 +286,7 @@ def test_membership_only_dir_does_not_expand_children(tmp_path: Path, monkeypatc
         walked.append(str(root))
         raise AssertionError("find_sessions must not run for membership-only")
 
-    monkeypatch.setattr("groket.session.watch.find_sessions", boom)
+    monkeypatch.setattr("anqa.session.watch.find_sessions", boom)
     w = TraceTreeWatch(extra, lambda: None, membership_only=True)
     paths = w._collect_paths()
     assert walked == []
@@ -295,7 +295,7 @@ def test_membership_only_dir_does_not_expand_children(tmp_path: Path, monkeypatc
 
 
 def test_file_membership_watch_dirs_is_parent_only(tmp_path: Path) -> None:
-    from groket.session.watch import membership_watch_dirs
+    from anqa.session.watch import membership_watch_dirs
 
     store = tmp_path / "store.sqlite"
     store.write_bytes(b"")

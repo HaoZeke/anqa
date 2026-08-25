@@ -1,10 +1,10 @@
-"""updates.jsonl keep/skip (same results with or without groket._scan)."""
+"""updates.jsonl keep/skip (same results with or without anqa._scan)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from groket.scan import (
+from anqa.scan import (
     filter_updates,
     keep_updates_line,
     scan_forced_off,
@@ -80,7 +80,7 @@ def test_scan_flag_is_consistent() -> None:
     if scan_forced_off():
         assert using_scan() is False
     else:
-        import groket._scan as ext
+        import anqa._scan as ext
 
         assert using_scan() is True
         assert ext.keep_updates_line(STREAMING) is False

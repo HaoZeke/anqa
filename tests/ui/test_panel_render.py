@@ -9,7 +9,7 @@ from .pilot_helpers import assert_rich_contains, rich_plain
 
 
 def test_empty_state_quiet_chrome():
-    from groket.ui.panel_render import EMPTY_STATE_CLASS, EmptyState
+    from anqa.ui.panel_render import EMPTY_STATE_CLASS, EmptyState
 
     empty = EmptyState("No flags yet", id="es")
     assert EMPTY_STATE_CLASS in empty.classes
@@ -22,7 +22,7 @@ def test_empty_state_quiet_chrome():
 
 # ── Rich text helpers ─────────────────────────────────────────────────────
 
-from groket.ui.panel_render import (
+from anqa.ui.panel_render import (
     bullet,
     content_block,
     dim_rule,
@@ -85,7 +85,7 @@ class TestMdContent:
         assert_rich_contains(r, "hello")
 
     def test_headings_stay_left(self):
-        from groket.ui.panel_render import LeftMarkdown, _LeftHeading
+        from anqa.ui.panel_render import LeftMarkdown, _LeftHeading
 
         r = md_content("# Title", indent=0)
         assert isinstance(r, LeftMarkdown)
@@ -237,7 +237,7 @@ class TestMdContentExceptionFallback:
         """Markdown parse exception falls back to plain Text."""
         from unittest.mock import patch
 
-        with patch("groket.ui.panel_render.LeftMarkdown", side_effect=ValueError("bad")):
+        with patch("anqa.ui.panel_render.LeftMarkdown", side_effect=ValueError("bad")):
             r = md_content("# Title")
             assert_rich_contains(r, "Title")
 
@@ -248,7 +248,7 @@ class TestFooterKeyRichStyle:
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from groket.ui.panel_render import _footer_key_rich_style
+        from anqa.ui.panel_render import _footer_key_rich_style
 
         css_vars = {"footer-key-foreground": "#aabbcc"}
         app = SimpleNamespace(
@@ -266,7 +266,7 @@ class TestFooterKeyRichStyle:
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from groket.ui.panel_render import _footer_key_rich_style
+        from anqa.ui.panel_render import _footer_key_rich_style
 
         app = SimpleNamespace(
             get_css_variables=lambda: {"accent": "#112233"},
@@ -282,7 +282,7 @@ class TestFooterKeyRichStyle:
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from groket.ui.panel_render import _footer_key_rich_style
+        from anqa.ui.panel_render import _footer_key_rich_style
 
         app = SimpleNamespace(
             get_css_variables=lambda: {"primary": "#334455"},
@@ -298,7 +298,7 @@ class TestFooterKeyRichStyle:
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from groket.ui.panel_render import _footer_key_rich_style
+        from anqa.ui.panel_render import _footer_key_rich_style
 
         app = SimpleNamespace(
             get_css_variables=lambda: {},
@@ -314,7 +314,7 @@ class TestFooterKeyRichStyle:
         from types import SimpleNamespace
         from unittest.mock import patch
 
-        from groket.ui.panel_render import _footer_key_rich_style
+        from anqa.ui.panel_render import _footer_key_rich_style
 
         # Make get_css_variables raise inside the try block
         app = SimpleNamespace(
@@ -335,7 +335,7 @@ class TestFooterKeyRichStyle:
 class TestAppendTipBodyEmpty:
     def test_empty_message_returns_early(self):
         """_append_tip_body is a no-op for empty messages."""
-        from groket.ui.panel_render import _append_tip_body
+        from anqa.ui.panel_render import _append_tip_body
 
         t = Text()
         _append_tip_body(t, "")

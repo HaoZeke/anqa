@@ -25,7 +25,7 @@ pub fn resolve_summon_shortcut() -> (HotKey, String) {
             Ok((sc, label)) => (sc, label),
             Err(err) => {
                 eprintln!(
-                    "groket-hud: invalid global_shortcut {raw:?} ({err}); using default {}",
+                    "anqa-hud: invalid global_shortcut {raw:?} ({err}); using default {}",
                     default_shortcut_label()
                 );
                 (default_hotkey(), default_shortcut_label().to_string())
@@ -36,7 +36,7 @@ pub fn resolve_summon_shortcut() -> (HotKey, String) {
 }
 
 fn load_override_string() -> Option<String> {
-    if let Ok(s) = env::var("GROKET_HUD_SHORTCUT") {
+    if let Ok(s) = env::var("ANQA_HUD_SHORTCUT") {
         let t = s.trim();
         if !t.is_empty() {
             return Some(t.to_string());

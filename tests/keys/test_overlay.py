@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.keys.catalog import action_by_id, normalize_chord
-from groket.keys.overlay import (
+from anqa.keys.catalog import action_by_id, normalize_chord
+from anqa.keys.overlay import (
     KEYS_ENV,
     Keymap,
     OverlayErrorKind,
@@ -18,7 +18,7 @@ from groket.keys.overlay import (
     resolve_keys_path,
     textual_keymap,
 )
-from groket.paths import user_keys_path
+from anqa.paths import user_keys_path
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -52,7 +52,7 @@ def test_missing_app_home_file_is_defaults() -> None:
     assert resolve_keys_path() == user_keys_path()
 
 
-def test_empty_and_unset_groket_keys_use_app_home(monkeypatch) -> None:
+def test_empty_and_unset_anqa_keys_use_app_home(monkeypatch) -> None:
     monkeypatch.delenv(KEYS_ENV, raising=False)
     assert resolve_keys_path() == user_keys_path()
     monkeypatch.setenv(KEYS_ENV, "")
@@ -296,7 +296,7 @@ leader = "j"
 
 
 def test_colemak_example_is_clean(monkeypatch) -> None:
-    from groket.cli import app
+    from anqa.cli import app
 
     root = Path(__file__).resolve().parents[2]
     path = root / "examples" / "keys" / "colemak.toml"
@@ -358,7 +358,7 @@ def test_occupancy_lists_remapped_keys(tmp_path: Path, monkeypatch) -> None:
 def test_default_check_is_clean() -> None:
     keymap = load_keymap()
     assert keymap.ok
-    from groket.cli import app
+    from anqa.cli import app
 
     result = runner.invoke(app, ["keys", "--check"])
     assert result.exit_code == 0
@@ -367,7 +367,7 @@ def test_default_check_is_clean() -> None:
 
 
 def test_cli_prints_resolved_table() -> None:
-    from groket.cli import app
+    from anqa.cli import app
 
     result = runner.invoke(app, ["keys"])
     assert result.exit_code == 0
@@ -381,7 +381,7 @@ def test_cli_prints_resolved_table() -> None:
 
 
 def test_cli_occupancy_and_check_conflict(tmp_path: Path, monkeypatch) -> None:
-    from groket.cli import app
+    from anqa.cli import app
 
     path = _write(
         tmp_path / "keys.toml",
@@ -410,7 +410,7 @@ def test_cli_occupancy_and_check_conflict(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_cli_check_ok_after_remap(tmp_path: Path, monkeypatch) -> None:
-    from groket.cli import app
+    from anqa.cli import app
 
     path = _write(
         tmp_path / "keys.toml",

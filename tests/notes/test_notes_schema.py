@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.notes import (
+from anqa.notes import (
     PICK_MANY,
     PICK_ONE_OF,
     decode_many_choices,
@@ -38,7 +38,7 @@ def test_form_field_specs_appends_extra_keys() -> None:
 
 
 def test_load_schema_missing_uses_default(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("groket.notes.app_home", lambda: tmp_path)
+    monkeypatch.setattr("anqa.notes.app_home", lambda: tmp_path)
     s = load_schema()
     assert s.schema_id == "default"
     assert [f.id for f in s.fields] == ["summary", "detail"]

@@ -1,4 +1,4 @@
-//! Session walk + ``updates.jsonl`` prefilter as ``groket._scan``.
+//! Session walk + ``updates.jsonl`` prefilter as ``anqa._scan``.
 
 mod scan;
 mod walk;

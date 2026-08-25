@@ -52,7 +52,7 @@ pub fn set_desktop_app(desktop: bool) {
 }
 
 /// Process name plus accessory. Call before iced so Command-Tab does not
-/// inherit ``groket-hud``; iced/winit may reset the policy — re-apply after.
+/// inherit ``anqa-hud``; iced/winit may reset the policy — re-apply after.
 pub fn prepare_host() {
     #[cfg(target_os = "macos")]
     {
@@ -118,7 +118,7 @@ fn set_activation_macos(desktop: bool) {
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
     let Some(mtm) = MainThreadMarker::new() else {
-        eprintln!("groket: activation policy skipped (not on main thread)");
+        eprintln!("anqa: activation policy skipped (not on main thread)");
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
@@ -129,7 +129,7 @@ fn set_activation_macos(desktop: bool) {
     };
     if !app.setActivationPolicy(policy) {
         eprintln!(
-            "groket: setActivationPolicy({}) failed",
+            "anqa: setActivationPolicy({}) failed",
             if desktop { "Regular" } else { "Accessory" }
         );
     }
@@ -140,7 +140,7 @@ fn set_activation_macos(desktop: bool) {
 /// (Cmd+W) sends ``performClose:`` to the key window, which becomes
 /// iced ``CloseRequested`` — the same path as the title-bar close.
 ///
-/// Called from desktop chrome apply (pop-out and ``GROKET_HUD_WINDOW``),
+/// Called from desktop chrome apply (pop-out and ``ANQA_HUD_WINDOW``),
 /// not activation policy: window-mode boot never calls ``set_desktop_app``.
 #[cfg(target_os = "macos")]
 fn install_file_close_menu(app: &objc2_app_kit::NSApplication, mtm: objc2::MainThreadMarker) {
@@ -182,7 +182,7 @@ fn set_app_icon_macos(app: &objc2_app_kit::NSApplication) {
 
     let data = NSData::with_bytes(crate::brand::APP_ICON_PNG);
     let Some(img) = NSImage::initWithData(NSImage::alloc(), &data) else {
-        eprintln!("groket: NSImage from groket app icon failed");
+        eprintln!("anqa: NSImage from anqa app icon failed");
         return;
     };
     // SAFETY: NSApplication is on the main thread; icon is retained by AppKit.

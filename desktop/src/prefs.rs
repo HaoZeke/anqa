@@ -1,4 +1,4 @@
-//! Read ``~/.groket/config.toml`` (same shape as Python ``groket.config``).
+//! Read ``~/.anqa/config.toml`` (same shape as Python ``anqa.config``).
 
 use serde::Deserialize;
 use std::env;
@@ -8,7 +8,7 @@ use toml_edit::{value, DocumentMut};
 
 fn config_path() -> Option<PathBuf> {
     let home = env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".groket").join("config.toml"))
+    Some(PathBuf::from(home).join(".anqa").join("config.toml"))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -69,10 +69,10 @@ pub fn theme_name() -> String {
         .to_string()
 }
 
-/// ``~/.groket/themes`` drop-in colorways.
+/// ``~/.anqa/themes`` drop-in colorways.
 pub fn themes_dir() -> Option<PathBuf> {
     let home = env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".groket").join("themes"))
+    Some(PathBuf::from(home).join(".anqa").join("themes"))
 }
 
 /// HUD summon chord from ``hud.global_shortcut`` (empty = binary default).

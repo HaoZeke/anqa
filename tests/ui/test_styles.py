@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from groket.ui.styles import (
+from anqa.ui.styles import (
     SEVERITY_LABEL,
     SEVERITY_STYLE,
     TOOL_FAMILY_STYLE,
@@ -100,7 +100,7 @@ class TestToolLabel:
         assert "read file" in label
 
     def test_mcp_uses_middle_dot(self) -> None:
-        from groket.ui.styles import format_tool_display
+        from anqa.ui.styles import format_tool_display
 
         assert format_tool_display("playwright__browser_navigate") == (
             "playwright · browser navigate"
@@ -131,7 +131,7 @@ class TestSeverityStyle:
 
 class TestLightFaces:
     def test_user_and_read_use_emphasis_not_hex(self) -> None:
-        from groket.ui.styles import event_type_markup
+        from anqa.ui.styles import event_type_markup
 
         user = event_type_markup("user_message_chunk", light=True)
         read = tool_style("read_file", light=True)

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from groket.ui.i18n import setup_i18n, t
+from anqa.ui.i18n import setup_i18n, t
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -51,24 +51,24 @@ def test_check_fluent_flags_rich_tags_fed_to_text_append() -> None:
     bad = cf.check_markup_into_text(
         'head.append(t("x", d="e"), style="bold yellow")\n',
         marked,
-        "groket/ui/screens/browser.py",
+        "anqa/ui/screens/browser.py",
     )
     assert bad and "x" in bad[0]
     ok_static = cf.check_markup_into_text(
         'widget.update(t("x", d="e"))\n',
         marked,
-        "groket/ui/screens/browser.py",
+        "anqa/ui/screens/browser.py",
     )
     assert ok_static == []
     ok_list = cf.check_markup_into_text(
         'lines.append(t("x", d="e"))\n',
         marked,
-        "groket/ui/screens/jobs.py",
+        "anqa/ui/screens/jobs.py",
     )
     assert ok_list == []
     ok_plain = cf.check_markup_into_text(
         'head.append(t("plain"), style="bold")\n',
         marked,
-        "groket/ui/screens/browser.py",
+        "anqa/ui/screens/browser.py",
     )
     assert ok_plain == []

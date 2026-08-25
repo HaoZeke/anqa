@@ -20,7 +20,7 @@ from async_wait import wait_until, wait_until_sync
 
 
 def _short_sock(name: str) -> Path:
-    root = Path(tempfile.mkdtemp(prefix="groket-daemon-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-daemon-"))
     return root / name
 
 
@@ -52,8 +52,8 @@ def _write_session(traces: Path, name: str) -> Path:
 
 @pytest.mark.asyncio
 async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
-    daemon = import_module("groket.integrations.daemon")
-    client_mod = import_module("groket.integrations.control_client")
+    daemon = import_module("anqa.integrations.daemon")
+    client_mod = import_module("anqa.integrations.control_client")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     session_dir = _write_session(traces, "session-daemon-1")
@@ -69,7 +69,7 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
         client = client_mod.ControlClient(sock, client_name="test-daemon")
         init = await client.initialize()
         assert (
-            init["protocolVersion"] == import_module("groket.integrations.control").PROTOCOL_VERSION
+            init["protocolVersion"] == import_module("anqa.integrations.control").PROTOCOL_VERSION
         )
         assert "session/list" in init["capabilities"]
         assert "notes/upsert" in init["capabilities"]
@@ -109,10 +109,10 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_second_domain_server_raises_in_use() -> None:
-    daemon = import_module("groket.integrations.daemon")
-    control = import_module("groket.integrations.control")
+    daemon = import_module("anqa.integrations.daemon")
+    control = import_module("anqa.integrations.control")
     sock = _short_sock("singleton-domain.sock")
-    work = Path(tempfile.mkdtemp(prefix="groket-wd-"))
+    work = Path(tempfile.mkdtemp(prefix="anqa-wd-"))
     first = daemon.build_domain_control_server(socket_path=sock, work_dir=work)
     second = daemon.build_domain_control_server(socket_path=sock, work_dir=work)
     await first.start()
@@ -125,7 +125,7 @@ async def test_second_domain_server_raises_in_use() -> None:
 
 @pytest.mark.asyncio
 async def test_serve_control_forever_writes_and_clears_pid(tmp_path: Path) -> None:
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     sock = _short_sock("pid.sock")
     work = tmp_path / "work"
     work.mkdir()
@@ -153,7 +153,7 @@ async def test_serve_control_forever_writes_and_clears_pid(tmp_path: Path) -> No
 
 
 def test_control_daemon_status_and_stop_helpers(tmp_path: Path) -> None:
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     sock = tmp_path / "status.sock"
     status = daemon.control_daemon_status(sock)
     assert status.live is False
@@ -170,8 +170,8 @@ async def test_stop_kills_zombie_lock_holder_without_pid_or_socket() -> None:
     import subprocess
     import sys
 
-    daemon = import_module("groket.integrations.daemon")
-    control = import_module("groket.integrations.control")
+    daemon = import_module("anqa.integrations.daemon")
+    control = import_module("anqa.integrations.control")
     sock = _short_sock("zombie.sock")
     lock = daemon.control_lock_path(sock)
     # Child holds exclusive flock like ControlServer, then drops the socket path
@@ -227,8 +227,8 @@ time.sleep(30)
 @pytest.mark.asyncio
 async def test_stop_does_not_unlink_live_socket_without_pid() -> None:
     """TUI-as-owner (no pid file): serve stop must not destroy the public path."""
-    daemon = import_module("groket.integrations.daemon")
-    control = import_module("groket.integrations.control")
+    daemon = import_module("anqa.integrations.daemon")
+    control = import_module("anqa.integrations.control")
     sock = _short_sock("tui-owner.sock")
     owner = control.ControlServer(socket_path=sock)
     await owner.start()
@@ -257,7 +257,7 @@ async def test_stop_does_not_unlink_live_socket_without_pid() -> None:
 @pytest.mark.asyncio
 async def test_stop_unlinks_only_dead_stale_socket_file() -> None:
     """Stale socket file (closed bind, no listen): stop may clean the path."""
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     sock = _short_sock("stale-file.sock")
     holder = __import__("socket").socket(
         __import__("socket").AF_UNIX, __import__("socket").SOCK_STREAM
@@ -275,7 +275,7 @@ async def test_stop_unlinks_only_dead_stale_socket_file() -> None:
 
 @pytest.mark.asyncio
 async def test_status_live_requires_accept_not_mere_path() -> None:
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     sock = _short_sock("dead-path.sock")
     sock.write_text("", encoding="utf-8")  # file exists but is not a live AF_UNIX server
     status = daemon.control_daemon_status(sock)
@@ -302,7 +302,7 @@ def _scratch() -> Path:
         root = Path(override)
         root.mkdir(parents=True, exist_ok=True)
         return root
-    return Path(tempfile.mkdtemp(prefix="groket-daemon-scratch-"))
+    return Path(tempfile.mkdtemp(prefix="anqa-daemon-scratch-"))
 
 
 def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
@@ -315,11 +315,11 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
     log1 = scratch / "serve-lifecycle.log"
     log2 = scratch / "daemon-second.log"
 
-    # Console script entry (same as installed ``groket``).
+    # Console script entry (same as installed ``anqa``).
     cmd_base = [
         sys.executable,
         "-c",
-        "from groket.cli import main; main()",
+        "from anqa.cli import main; main()",
         "serve",
         "-P",
         str(work),
@@ -348,7 +348,7 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
         transcript: list[dict] = []
 
         async def _rpc_roundtrip() -> None:
-            client_mod = import_module("groket.integrations.control_client")
+            client_mod = import_module("anqa.integrations.control_client")
             client = client_mod.ControlClient(sock, client_name="verify")
             init = await client.initialize()
             transcript.append({"initialize": init})
@@ -398,7 +398,7 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
         rpc_log.write_text(json.dumps(transcript, indent=2), encoding="utf-8")
         assert (
             transcript[0]["initialize"]["protocolVersion"]
-            == import_module("groket.integrations.control").PROTOCOL_VERSION
+            == import_module("anqa.integrations.control").PROTOCOL_VERSION
         )
         assert any(
             row["sessionId"] == "session-cli-serve"
@@ -432,8 +432,8 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_tui_attaches_as_client_to_daemon_owner(tmp_path: Path) -> None:
-    daemon = import_module("groket.integrations.daemon")
-    from groket.ui.app import TraceEvalApp
+    daemon = import_module("anqa.integrations.daemon")
+    from anqa.ui.app import AnqaApp
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -446,7 +446,7 @@ async def test_tui_attaches_as_client_to_daemon_owner(tmp_path: Path) -> None:
     )
     await owner.start()
     try:
-        app = TraceEvalApp(
+        app = AnqaApp(
             work_dir=work,
             traces_path=traces,
             control_socket=sock,
@@ -476,11 +476,11 @@ async def test_tui_attaches_as_client_to_daemon_owner(tmp_path: Path) -> None:
 def test_stop_terminates_foreground_pid_file_owner(tmp_path: Path) -> None:
     """serve stop must kill a pid-file owner that is NOT a session leader.
 
-    Foreground ``groket serve`` writes a pid file but does not call
+    Foreground ``anqa serve`` writes a pid file but does not call
     start_new_session; killpg(pid) raises ESRCH for that process. Stop must
     fall through to kill(pid) and actually terminate the owner.
     """
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -540,7 +540,7 @@ def test_stop_terminates_foreground_pid_file_owner(tmp_path: Path) -> None:
 
 def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
     """Detached start returns; status live; stop tears down only that owner."""
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     _write_session(traces, "session-detach")
@@ -616,7 +616,7 @@ def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
 
 def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
     """CLI ``serve -d`` detaches and status is live."""
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     _write_session(traces, "session-cli-d")
@@ -626,7 +626,7 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
     cmd = [
         sys.executable,
         "-c",
-        "from groket.cli import main; main()",
+        "from anqa.cli import main; main()",
         "serve",
         "-d",
         "-P",
@@ -650,7 +650,7 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
         status_cmd = [
             sys.executable,
             "-c",
-            "from groket.cli import main; main()",
+            "from anqa.cli import main; main()",
             "serve",
             "status",
             "-s",
@@ -670,7 +670,7 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
             [
                 sys.executable,
                 "-c",
-                "from groket.cli import main; main()",
+                "from anqa.cli import main; main()",
                 "serve",
                 "stop",
                 "-s",
@@ -696,8 +696,8 @@ def test_cli_serve_daemon_flag(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
     """Auto-start ensures detached owner; TUI is client; exit leaves owner live."""
-    daemon = import_module("groket.integrations.daemon")
-    from groket.ui.app import TraceEvalApp
+    daemon = import_module("anqa.integrations.daemon")
+    from anqa.ui.app import AnqaApp
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -716,7 +716,7 @@ async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
     lines.append(f"ensure={result}")
     assert result.ok, result.error
     try:
-        app = TraceEvalApp(
+        app = AnqaApp(
             work_dir=work,
             traces_path=traces,
             control_socket=sock,
@@ -749,8 +749,8 @@ async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
 
 def test_launch_tui_ensure_serve_sets_attach_only(tmp_path: Path) -> None:
     """Shipped launch_tui with ensure_serve starts daemon and attaches."""
-    from groket.cli import launch_tui
-    from groket.integrations import daemon as daemon_mod
+    from anqa.cli import launch_tui
+    from anqa.integrations import daemon as daemon_mod
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -766,9 +766,7 @@ def test_launch_tui_ensure_serve_sets_attach_only(tmp_path: Path) -> None:
             pass
 
     try:
-        with __import__("unittest.mock", fromlist=["patch"]).patch(
-            "groket.ui.app.TraceEvalApp", FakeApp
-        ):
+        with __import__("unittest.mock", fromlist=["patch"]).patch("anqa.ui.app.AnqaApp", FakeApp):
             launch_tui(
                 path=work,
                 config=None,
@@ -784,8 +782,8 @@ def test_launch_tui_ensure_serve_sets_attach_only(tmp_path: Path) -> None:
 
 
 def test_launch_tui_no_serve_does_not_spawn(tmp_path: Path) -> None:
-    from groket.cli import launch_tui
-    from groket.integrations import daemon as daemon_mod
+    from anqa.cli import launch_tui
+    from anqa.integrations import daemon as daemon_mod
 
     work = tmp_path / "work"
     work.mkdir()
@@ -799,9 +797,7 @@ def test_launch_tui_no_serve_does_not_spawn(tmp_path: Path) -> None:
         def run(self) -> None:
             pass
 
-    with __import__("unittest.mock", fromlist=["patch"]).patch(
-        "groket.ui.app.TraceEvalApp", FakeApp
-    ):
+    with __import__("unittest.mock", fromlist=["patch"]).patch("anqa.ui.app.AnqaApp", FakeApp):
         launch_tui(
             path=work,
             config=None,
@@ -818,7 +814,7 @@ def test_ensure_does_not_stop_owner_when_protocol_probe_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failed initialize must not SIGTERM an accepting owner."""
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     sock = tmp_path / "probe.sock"
     stopped: list[Path] = []
 
@@ -847,8 +843,8 @@ async def test_serve_watch_apply_runs_off_observer_timer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A live watch fire must apply catalog rows on a worker, not Timer."""
-    daemon = import_module("groket.integrations.daemon")
-    client_mod = import_module("groket.integrations.control_client")
+    daemon = import_module("anqa.integrations.daemon")
+    client_mod = import_module("anqa.integrations.control_client")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     session_dir = _write_session(traces, "watch-apply")
@@ -909,8 +905,8 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catalog trees list sessions; extra adapter stores do not."""
-    from groket.integrations.daemon import control_watch_specs
-    from groket.session.catalog import SessionCatalogCache
+    from anqa.integrations.daemon import control_watch_specs
+    from anqa.session.catalog import SessionCatalogCache
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -921,7 +917,7 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     extra.write_bytes(b"")
     cache = SessionCatalogCache(work, traces_path=traces, include_host=False)
     monkeypatch.setattr(
-        "groket.harness.registry.adapter_store_watch_paths",
+        "anqa.harness.registry.adapter_store_watch_paths",
         lambda: [extra],
     )
     specs = control_watch_specs(cache)

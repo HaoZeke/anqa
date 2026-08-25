@@ -1,7 +1,7 @@
 ---
 name: harness-adapter-qa
 description: >
-  Gate for adding or re-verifying a groket host harness adapter. Use
+  Gate for adding or re-verifying a anqa host harness adapter. Use
   when adding a harness, when a product version changes, or when the
   user asks to QA / certify a store. Enforces the adapter contract,
   fixtures, version pin, and docs. Slash: /harness-adapter-qa
@@ -11,11 +11,11 @@ metadata:
 
 # Harness adapter QA
 
-Groket lists native coding-agent stores through `groket/harness/`.
+Anqa lists native coding-agent stores through `anqa/harness/`.
 This skill is the gate before a new id ships and when a shipped
 product version moves.
 
-Contract: `docs/harness-adapters.md`. Interface: `groket/harness/types.py`.
+Contract: `docs/harness-adapters.md`. Interface: `anqa/harness/types.py`.
 
 ## When a new adapter is the work
 
@@ -25,16 +25,16 @@ without query/`harness:<id>`.
 
 ### Must ship together
 
-1. `groket/harness/<id>.py` implementing `HarnessAdapter`:
+1. `anqa/harness/<id>.py` implementing `HarnessAdapter`:
    `id`, `product`, `supported_version` (the CLI/app version you
    actually ran), `default_host_roots`, `discover`, `looks_like`,
    `load_meta` (sets `harness`, and `harness_version` when the store
    has a product version), `parse_timeline`, `bind_locator`,
    `ref_for_id`, `watch_hints`.
-2. Register in `groket/harness/registry.py` `adapters()`.
-3. Add the id to `HARNESS_IDS` in `groket/harness/ref.py` if new.
+2. Register in `anqa/harness/registry.py` `adapters()`.
+3. Add the id to `HARNESS_IDS` in `anqa/harness/ref.py` if new.
 4. Add the id to the `harness` query token in
-   `groket/integrations/control_contract.py`.
+   `anqa/integrations/control_contract.py`.
 5. Add the id to HUD `is_harness_ref` in `desktop/src/live.rs`.
 6. `tests/session/test_harness_<id>.py` with **invented** fixtures
    (never copy real session text). Cover discover, meta, timeline

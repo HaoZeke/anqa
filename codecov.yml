@@ -2,7 +2,7 @@ flag_management:
   individual_flags:
     - name: python
       paths:
-        - groket/
+        - anqa/
     - name: rust
       paths:
         - desktop/
@@ -12,7 +12,7 @@ component_management:
     - component_id: python
       name: python
       paths:
-        - groket/**
+        - anqa/**
     - component_id: rust
       name: rust
       paths:

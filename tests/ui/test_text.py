@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import inspect
 
-from groket.ui import text as ui_text
-from groket.ui.i18n import setup_i18n
+from anqa.ui import text as ui_text
+from anqa.ui.i18n import setup_i18n
 
 
 def test_all_ui_text_callables():

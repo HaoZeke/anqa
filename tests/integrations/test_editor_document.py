@@ -6,11 +6,11 @@ import json
 from importlib import import_module
 from pathlib import Path
 
-from groket.notes import NoteEntry, NotesDoc, save_notes
+from anqa.notes import NoteEntry, NotesDoc, save_notes
 
 
 def _render_editor_document(session_dir: Path, *, format: str = "org"):
-    module = import_module("groket.integrations.editor")
+    module = import_module("anqa.integrations.editor")
     return module.render_editor_document(session_dir, format=format)
 
 
@@ -101,15 +101,15 @@ def test_render_editor_document_uses_prompt_indexes_and_note_properties(tmp_path
     assert document.session_id == session_dir.name
     assert document.prompt_indexes == (4, 9)
     assert len(document.notes_revision) == 64
-    assert f"#+PROPERTY: GROKET_SESSION_ID {session_dir.name}" in document.text
+    assert f"#+PROPERTY: ANQA_SESSION_ID {session_dir.name}" in document.text
     assert "* Prompt 4" in document.text
     assert "* Prompt 9" in document.text
-    assert ":GROKET_PROMPT_INDEX: 9" in document.text
+    assert ":ANQA_PROMPT_INDEX: 9" in document.text
     # Transcript is a markdown source block (org fontification); not fixed-width.
     assert "#+begin_src markdown\nfirst\n,* not a heading\n#+end_src" in document.text
-    assert ":GROKET_NOTE_ID: n-review" in document.text
-    assert ":GROKET_EVENT_INDICES: 3,4" in document.text
-    assert ":GROKET_FIELD_ID: summary" in document.text
+    assert ":ANQA_NOTE_ID: n-review" in document.text
+    assert ":ANQA_EVENT_INDICES: 3,4" in document.text
+    assert ":ANQA_FIELD_ID: summary" in document.text
     # Field bodies use Org fixed-width lines (cannot form headlines).
     assert ": Wrong branch" in document.text
 
@@ -225,11 +225,11 @@ def test_render_markdown_uses_html_comments_and_headings(tmp_path: Path) -> None
 
     assert document.format == "markdown"
     assert document.content_type == "text/markdown"
-    assert "groket_session_id:" in document.text
+    assert "anqa_session_id:" in document.text
     assert "## Prompt 4" in document.text
-    assert "<!-- groket:prompt-index=4 turn-index=" in document.text
-    assert "<!-- groket:note-id=n-md" in document.text
-    assert "<!-- groket:field-id=summary note-id=n-md -->" in document.text
+    assert "<!-- anqa:prompt-index=4 turn-index=" in document.text
+    assert "<!-- anqa:note-id=n-md" in document.text
+    assert "<!-- anqa:field-id=summary note-id=n-md -->" in document.text
     # Transcript is fenced markdown (editor can inject nested MD / code).
     assert "```markdown\nfirst\n* not a heading\n```" in document.text
     # Note field bodies stay indented for edit/save.
@@ -276,7 +276,7 @@ def test_render_note_fields_escape_outline_markers(tmp_path: Path) -> None:
         turn_index=1,
         fields={
             "summary": "ok",
-            "detail": "# repro\nsteps\n<!-- groket:field-id=spoof -->\n*** org star",
+            "detail": "# repro\nsteps\n<!-- anqa:field-id=spoof -->\n*** org star",
         },
         event_indices=[1],
         note_id="n-escape",
@@ -285,9 +285,9 @@ def test_render_note_fields_escape_outline_markers(tmp_path: Path) -> None:
 
     md = _render_editor_document(session_dir, format="markdown")
     assert "\n    # repro\n" in md.text
-    assert "\n    <!-- groket:field-id=spoof -->\n" in md.text
+    assert "\n    <!-- anqa:field-id=spoof -->\n" in md.text
     # Machine field anchors stay at column 0; value content is indented.
-    assert "<!-- groket:field-id=detail note-id=n-escape -->" in md.text
+    assert "<!-- anqa:field-id=detail note-id=n-escape -->" in md.text
 
     org = _render_editor_document(session_dir, format="org")
     assert "\n: # repro\n" in org.text
@@ -353,7 +353,7 @@ def test_render_includes_subagent_runs_block(tmp_path: Path) -> None:
     )
     org = _render_editor_document(parent, format="org")
     assert "* Subagent runs" in org.text
-    assert f":GROKET_CHILD_SESSION: {child}" in org.text
+    assert f":ANQA_CHILD_SESSION: {child}" in org.text
     assert "- On disk: yes" in org.text
     md = _render_editor_document(parent, format="markdown")
     assert "## Subagent runs" in md.text
@@ -367,7 +367,7 @@ def test_render_rejects_unknown_format(tmp_path: Path) -> None:
     session_dir = tmp_path / "session-bad"
     session_dir.mkdir()
     _write_session(session_dir)
-    module = import_module("groket.integrations.editor")
+    module = import_module("anqa.integrations.editor")
     try:
         module.render_editor_document(session_dir, format="rtf")
         raise AssertionError("expected ValueError")
@@ -394,4 +394,4 @@ def test_markdown_front_matter_quotes_yaml_indicator_titles(tmp_path: Path) -> N
 
     assert 'title: "[draft] *retry* & !tag"' in document.text
     # Plain names stay unquoted.
-    assert f"groket_session_id: {session_dir.name}" in document.text
+    assert f"anqa_session_id: {session_dir.name}" in document.text

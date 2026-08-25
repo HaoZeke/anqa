@@ -2266,7 +2266,7 @@ pub fn is_unknown_method(err: &str) -> bool {
 pub fn control_down_message(err: &str) -> String {
     let s = err.trim();
     if is_unknown_method(s) {
-        return "control owner is older · run: groket serve restart".into();
+        return "control owner is older · run: anqa serve restart".into();
     }
     let short = if s.len() > 140 {
         format!("{}…", &s[..137])
@@ -2286,7 +2286,7 @@ pub fn control_down_message(err: &str) -> String {
         || low.contains("resource temporarily unavailable")
         || low.contains("os error 35")
     {
-        "control socket down · run: groket serve -d".into()
+        "control socket down · run: anqa serve -d".into()
     } else {
         format!("control error · {short}")
     }
@@ -2600,15 +2600,15 @@ mod tests {
     fn soft_control_down_copy() {
         assert_eq!(
             control_down_message("connection refused"),
-            "control socket down · run: groket serve -d"
+            "control socket down · run: anqa serve -d"
         );
         assert_eq!(
             control_down_message("method not found"),
-            "control owner is older · run: groket serve restart"
+            "control owner is older · run: anqa serve restart"
         );
         assert_ne!(
             control_down_message("method not found"),
-            "control socket down · run: groket serve -d"
+            "control socket down · run: anqa serve -d"
         );
     }
 
@@ -2722,7 +2722,7 @@ mod tests {
             path: "/tmp/s1".into(),
             tool_call_count: 4,
             error_count: 1,
-            git_repo: "groket".into(),
+            git_repo: "anqa".into(),
             git_branch: "hudv2".into(),
             created_at: "2026-08-08T12:00:00Z".into(),
             context_usage_compact: "12%".into(),
@@ -2987,7 +2987,7 @@ mod tests {
     #[test]
     fn job_inspect_reads_command_and_caps_log() {
         let dir = std::env::temp_dir();
-        let path = dir.join("groket-hud-job-inspect.log");
+        let path = dir.join("anqa-hud-job-inspect.log");
         let mut body = String::new();
         for i in 0..400 {
             body.push_str(&format!("line {i} xxxxxxxxxxxxxxxxxxxxxxxxx\n"));
@@ -3006,7 +3006,7 @@ mod tests {
         assert!(tail.contains("DONE"));
         assert!(tail.contains("line 399"));
         assert!(!tail.contains("line 0"));
-        let sess = dir.join("groket-hud-job-sess");
+        let sess = dir.join("anqa-hud-job-sess");
         let term = sess.join("terminal");
         std::fs::create_dir_all(&term).expect("terminal");
         let host = term.join("call-inspect.log");
@@ -3393,7 +3393,7 @@ mod tests {
             BodyPaint::Code
         );
         assert_eq!(syntax_for_path("src/app.py"), "py");
-        assert_eq!(syntax_for_path("groket-hud/src/app.rs"), "rs");
+        assert_eq!(syntax_for_path("anqa-hud/src/app.rs"), "rs");
         assert_eq!(syntax_for_tool_field("command", "", "echo hi"), "bash");
         assert_eq!(
             syntax_for_tool_field("old_string", "pkg/main.py", "x = 1"),

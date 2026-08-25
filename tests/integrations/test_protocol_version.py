@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.integrations.control import (
+from anqa.integrations.control import (
     PROTOCOL_VERSION,
     parse_protocol_version,
     protocol_compatible,

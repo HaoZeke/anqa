@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from groket.models import (
+from anqa.models import (
     ToolCall,
     TraceEvent,
 )
@@ -372,7 +372,7 @@ def sample_tool_calls() -> list[ToolCall]:
 
 @pytest.fixture(autouse=True)
 def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
-    """Every test uses a fresh temp tree for app + Grok CLI config (never ~/.groket / ~/groket).
+    """Every test uses a fresh temp tree for app + Grok CLI config (never ~/.anqa / ~/anqa).
 
     Isolates personas, tasks, prefs, work dir,
     and ``Path.home()``-based ``~/.grok`` (models cache, installed-plugins, auth)
@@ -380,9 +380,9 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     """
     from pathlib import Path as _Path
 
-    root = tmp_path_factory.mktemp("groket_test_root")
+    root = tmp_path_factory.mktemp("anqa_test_root")
     user_home = root / "home"
-    app_home = user_home / ".groket"
+    app_home = user_home / ".anqa"
     work_root = root / "work"
     grok_home = user_home / ".grok"
     for d in (
@@ -403,13 +403,13 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
     monkeypatch.setenv("GIT_ASKPASS", "echo")
     monkeypatch.setenv("GCM_INTERACTIVE", "never")
-    monkeypatch.delenv("GROKET_KEYS", raising=False)
+    monkeypatch.delenv("ANQA_KEYS", raising=False)
 
     # pathlib.Path.home() — used widely for ~/.grok and fallbacks
     monkeypatch.setattr(_Path, "home", classmethod(lambda cls: user_home))
 
-    from groket import paths
-    from groket.config import invalidate_config_cache
+    from anqa import paths
+    from anqa.config import invalidate_config_cache
 
     invalidate_config_cache()
     monkeypatch.setattr(paths, "APP_HOME", app_home)
@@ -434,7 +434,7 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     cache_dir = _subdir("cache")
     monkeypatch.setattr(paths, "cache_dir", cache_dir)
     # mtime_export binds cache_dir at import; patch that name too.
-    import groket.session.mtime_export as mtime_export
+    import anqa.session.mtime_export as mtime_export
 
     monkeypatch.setattr(mtime_export, "cache_dir", cache_dir)
 
@@ -448,8 +448,7 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(paths, "reports_dir", _subdir("reports"))
     monkeypatch.setattr(paths, "user_models_path", lambda: app_home / "models.yaml")
 
-    import groket.ui.app as ui_app
+    import anqa.ui.app as ui_app
 
     if hasattr(ui_app, "APP_HOME"):
         monkeypatch.setattr(ui_app, "APP_HOME", app_home)
-

@@ -10,31 +10,31 @@ install:
 
 # ruff + format check + mypy + fluent + typing policy.
 lint:
-    uv run ruff check --select I groket tests
-    uv run ruff check groket tests
-    uv run ruff format --check groket tests
-    uv run mypy groket
+    uv run ruff check --select I anqa tests
+    uv run ruff check anqa tests
+    uv run ruff format --check anqa tests
+    uv run mypy anqa
     uv run python scripts/check_fluent.py
     uv run python scripts/check_typing_policy.py
     uv run python scripts/check_harness_adapters.py
 
 # Autofix ruff + format + mypy.
 lint-fix:
-    uv run ruff check --select I --fix groket tests
-    uv run ruff check --fix groket tests
-    uv run ruff format groket tests
-    uv run mypy groket
+    uv run ruff check --select I --fix anqa tests
+    uv run ruff check --fix anqa tests
+    uv run ruff format anqa tests
+    uv run mypy anqa
 
 # Size-limit report only (AGENTS §4.6). Not part of just lint / CI.
 lint-complexity:
     uv run ruff check --preview \
         --select PLR0911,PLR0912,PLR0913,PLR0915,PLR0904 \
-        groket
+        anqa
 
 # Regenerate schemas/*.schema.json from Pydantic.
 schema:
-    uv run python -c "from pathlib import Path; from groket.config import emit_config_schema; emit_config_schema(Path('schemas/config.schema.json'))"
-    uv run python -c "from pathlib import Path; from groket.integrations.control_contract import emit_control_schema, emit_control_doc, emit_catalog_query_asset; emit_control_schema(Path('schemas/control.schema.json')); emit_control_doc(Path('docs/control.md')); emit_catalog_query_asset(Path('desktop/assets/catalog-query.json'))"
+    uv run python -c "from pathlib import Path; from anqa.config import emit_config_schema; emit_config_schema(Path('schemas/config.schema.json'))"
+    uv run python -c "from pathlib import Path; from anqa.integrations.control_contract import emit_control_schema, emit_control_doc, emit_catalog_query_asset; emit_control_schema(Path('schemas/control.schema.json')); emit_control_doc(Path('docs/control.md')); emit_catalog_query_asset(Path('desktop/assets/catalog-query.json'))"
 
 # Fail if committed schemas are out of date.
 schema-check:
@@ -52,10 +52,10 @@ schema-check:
       fi
       rm -f "$tmp"
     }
-    check 'from pathlib import Path; from groket.config import emit_config_schema; import sys; emit_config_schema(Path(sys.argv[1]))' schemas/config.schema.json
-    check 'from pathlib import Path; from groket.integrations.control_contract import emit_control_schema; import sys; emit_control_schema(Path(sys.argv[1]))' schemas/control.schema.json
-    check 'from pathlib import Path; from groket.integrations.control_contract import emit_control_doc; import sys; emit_control_doc(Path(sys.argv[1]))' docs/control.md
-    check 'from pathlib import Path; from groket.integrations.control_contract import emit_catalog_query_asset; import sys; emit_catalog_query_asset(Path(sys.argv[1]))' desktop/assets/catalog-query.json
+    check 'from pathlib import Path; from anqa.config import emit_config_schema; import sys; emit_config_schema(Path(sys.argv[1]))' schemas/config.schema.json
+    check 'from pathlib import Path; from anqa.integrations.control_contract import emit_control_schema; import sys; emit_control_schema(Path(sys.argv[1]))' schemas/control.schema.json
+    check 'from pathlib import Path; from anqa.integrations.control_contract import emit_control_doc; import sys; emit_control_doc(Path(sys.argv[1]))' docs/control.md
+    check 'from pathlib import Path; from anqa.integrations.control_contract import emit_catalog_query_asset; import sys; emit_catalog_query_asset(Path(sys.argv[1]))' desktop/assets/catalog-query.json
 
 # Validate examples/ packs.
 examples-check:
@@ -122,7 +122,7 @@ test:
 
 # pytest with coverage report (`fail_under` applies).
 test-cov:
-    uv run pytest tests/ --cov=groket --cov-report=term-missing --cov-report=html
+    uv run pytest tests/ --cov=anqa --cov-report=term-missing --cov-report=html
 
 # Set the product version in pyproject, __init__, and both crates.
 bump version:

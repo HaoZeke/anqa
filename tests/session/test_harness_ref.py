@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.harness.ref import SessionRef, parse_session_ref_string
-from groket.harness.registry import resolve_session_ref
+from anqa.harness.ref import SessionRef, parse_session_ref_string
+from anqa.harness.registry import resolve_session_ref
 
 
 def test_parse_harness_id() -> None:

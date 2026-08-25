@@ -15,7 +15,7 @@ from async_wait import wait_until
 
 
 def _short_sock(name: str) -> Path:
-    root = Path(tempfile.mkdtemp(prefix="groket-ctl-conc-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-ctl-conc-"))
     return root / name
 
 
@@ -45,8 +45,8 @@ def _write_session(session_dir: Path) -> None:
 @pytest.mark.asyncio
 async def test_heavy_io_semaphore_caps_concurrent_access_threads(tmp_path: Path) -> None:
     """Many concurrent overview RPCs share HEAVY_IO_CONCURRENCY worker slots."""
-    control = import_module("groket.integrations.control")
-    client_mod = import_module("groket.integrations.control_client")
+    control = import_module("anqa.integrations.control")
+    client_mod = import_module("anqa.integrations.control_client")
 
     sessions: dict[str, Path] = {}
     for i in range(8):
@@ -99,8 +99,8 @@ async def test_heavy_io_semaphore_caps_concurrent_access_threads(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_notes_upsert_notifies_second_client(tmp_path: Path) -> None:
     """Writer client upsert → second client receives notes/changed with new revision."""
-    control = import_module("groket.integrations.control")
-    client_mod = import_module("groket.integrations.control_client")
+    control = import_module("anqa.integrations.control")
+    client_mod = import_module("anqa.integrations.control_client")
 
     session_dir = tmp_path / "note-fanout"
     _write_session(session_dir)

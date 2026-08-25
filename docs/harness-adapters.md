@@ -1,7 +1,7 @@
 # Host harness adapters
 
-Groket inspects coding-agent harness sessions. Each store is one adapter
-under `groket/harness/`. The catalog, timeline, notes, desktop HUD, and
+Anqa inspects coding-agent harness sessions. Each store is one adapter
+under `anqa/harness/`. The catalog, timeline, notes, desktop HUD, and
 control clients use the same `SessionRef` (harness + session id + locator).
 The catalog row carries `harness` and, when the store records it,
 `harnessVersion`.
@@ -13,7 +13,7 @@ rewind, and the context meter are capabilities of that store.
 
 The catalog lists every shipped adapter. Narrow with
 `harness:<id>` (and the rest of the query language). Opt out of a store
-in `~/.groket/config.toml`:
+in `~/.anqa/config.toml`:
 
 ```toml
 [catalog]
@@ -40,7 +40,7 @@ Supported version is the product we last parsed and tested. A session may
 carry a different `harnessVersion` from its own files.
 
 Directory locators keep notes in the session tree. File or database
-locators use `~/.groket/notes/<harness>/<session_id>/`.
+locators use `~/.anqa/notes/<harness>/<session_id>/`.
 
 ## Filter
 

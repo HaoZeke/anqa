@@ -1,8 +1,8 @@
-"""Unknown-method errors mean a stale groket serve, not a dead socket."""
+"""Unknown-method errors mean a stale anqa serve, not a dead socket."""
 
 from __future__ import annotations
 
-from groket.integrations.control import ControlError, is_unknown_method
+from anqa.integrations.control import ControlError, is_unknown_method
 
 
 def test_unknown_method_from_code() -> None:

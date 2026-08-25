@@ -1,4 +1,4 @@
-//! fzf-style fuzzy match (ported from groket.ui.fuzzy).
+//! fzf-style fuzzy match (ported from anqa.ui.fuzzy).
 //!
 //! Session catalog ranking is **ours** ([`session_search_score`]): title-first,
 //! not a single bag-of-fields haystack and not icedtea.
@@ -131,7 +131,7 @@ pub fn mark_unified_hit(unified: &str, hit_line: Option<usize>) -> Vec<String> {
         .collect()
 }
 
-/// Filter Diff files by path, then unified body (same order as ``groket.ui.fuzzy``).
+/// Filter Diff files by path, then unified body (same order as ``anqa.ui.fuzzy``).
 ///
 /// Returns ``(index, line)`` where *line* is the first matching unified line
 /// for a body-only hit.
@@ -308,8 +308,8 @@ mod tests {
 
     #[test]
     fn matches_subsequence() {
-        assert!(fzf_score("hud", "groket-hud palette") > 0);
-        assert_eq!(fzf_score("zzz", "groket"), 0);
+        assert!(fzf_score("hud", "anqa-hud palette") > 0);
+        assert_eq!(fzf_score("zzz", "anqa"), 0);
     }
 
     #[test]

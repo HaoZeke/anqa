@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.parser import parse_timeline, parse_tool_calls
-from groket.session.control_views import timeline_event_mapping
-from groket.tool_display import (
+from anqa.parser import parse_timeline, parse_tool_calls
+from anqa.session.control_views import timeline_event_mapping
+from anqa.tool_display import (
     display_tool_output,
     format_tool_display,
     image_result_path,
@@ -40,7 +40,7 @@ def test_list_event_preview_keeps_path_underscores_and_hyphens() -> None:
 
 
 def test_use_tool_preview_humanizes_marketplace_id() -> None:
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     ev = TraceEvent(
         index=0,
@@ -285,7 +285,7 @@ def test_parse_timeline_open_page_url(tmp_path: Path) -> None:
 
 
 def test_timeline_mapping_strips_prefixes_and_exposes_fields(tmp_path: Path) -> None:
-    from groket.models import ToolInputBag, TraceEvent
+    from anqa.models import ToolInputBag, TraceEvent
 
     ev = TraceEvent(
         index=3,
@@ -306,7 +306,7 @@ def test_timeline_mapping_strips_prefixes_and_exposes_fields(tmp_path: Path) -> 
 
 
 def test_timeline_mapping_image_path(tmp_path: Path) -> None:
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     ev = TraceEvent(
         index=1,
@@ -327,13 +327,13 @@ def test_timeline_mapping_image_path(tmp_path: Path) -> None:
 def test_job_list_preview_is_command_not_event_type() -> None:
     dump = (
         "task_backgrounded  tool_call_id=call-1  task_id=job-1  "
-        "command=cd /mnt/dev/_git/groket && just lint  cwd=/mnt/dev/_git/groket"
+        "command=cd /mnt/dev/_git/anqa && just lint  cwd=/mnt/dev/_git/anqa"
     )
     fields = task_fields_from_content(dump)
-    assert fields["command"].startswith("cd /mnt/dev/_git/groket")
-    assert fields["cwd"] == "/mnt/dev/_git/groket"
+    assert fields["command"].startswith("cd /mnt/dev/_git/anqa")
+    assert fields["cwd"] == "/mnt/dev/_git/anqa"
     preview = job_list_preview("task_backgrounded", {}, dump)
-    assert preview.startswith("$ cd /mnt/dev/_git/groket")
+    assert preview.startswith("$ cd /mnt/dev/_git/anqa")
     assert "task_backgrounded" not in preview
     structured = job_list_preview(
         "task_backgrounded",
@@ -357,7 +357,7 @@ def test_job_list_preview_is_command_not_event_type() -> None:
 
 
 def test_clip_preview_ellipsis_and_short() -> None:
-    from groket.tool_display import clip_preview
+    from anqa.tool_display import clip_preview
 
     assert clip_preview("short", 80) == "short"
     assert clip_preview("abcdefgh", 4) == "abc…"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail on disallowed Any / object *value bags* in groket/ (AGENTS.md §4.1).
+"""Fail on disallowed Any / object *value bags* in anqa/ (AGENTS.md §4.1).
 
 - Explicit ``Any`` is banned (also mypy ``disallow_any_explicit``).
 - ``object`` is banned only as a *container* value type (``dict[…, object]``,
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PY_ROOT = ROOT / "groket"
+PY_ROOT = ROOT / "anqa"
 
 _ANY_IN_CODE = re.compile(r"\bAny\b")
 _OBJECT_BAG = re.compile(

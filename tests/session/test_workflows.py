@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from conftest import make_trace_event
-from groket.models import ToolInputBag
-from groket.session.jobs import load_session_jobs
-from groket.session.workflows import (
+from anqa.models import ToolInputBag
+from anqa.session.jobs import load_session_jobs
+from anqa.session.workflows import (
     WorkflowRun,
     load_session_workflows,
     workflow_event_index,
@@ -16,6 +15,7 @@ from groket.session.workflows import (
     workflow_list_preview,
     workflow_name_from_raw,
 )
+from conftest import make_trace_event
 
 
 def _write_run(
@@ -192,9 +192,9 @@ def test_workflow_event_index_prefers_run_id_over_earlier_name() -> None:
 
 def test_workflow_inspect_uses_result_run_id_not_later_sprint(tmp_path: Path) -> None:
     """Completed workflow rawOutput.run_id selects that run, not the latest name."""
-    from groket.parser import parse_timeline
-    from groket.ui.render_detail import render_event_detail
-    from groket.ui.selectable_static import plain_from_renderable
+    from anqa.parser import parse_timeline
+    from anqa.ui.render_detail import render_event_detail
+    from anqa.ui.selectable_static import plain_from_renderable
 
     sd = tmp_path / "sess-wf-result-id"
     sd.mkdir()
@@ -327,9 +327,9 @@ def test_merge_output_ids_ignores_non_mapping_output() -> None:
 
 
 def test_workflow_status_word_and_child_session_path(tmp_path: Path) -> None:
-    from groket.session.workflows import WorkflowChild, workflow_status_word
-    from groket.ui.render_detail import render_workflow_detail
-    from groket.ui.selectable_static import plain_from_renderable
+    from anqa.session.workflows import WorkflowChild, workflow_status_word
+    from anqa.ui.render_detail import render_workflow_detail
+    from anqa.ui.selectable_static import plain_from_renderable
 
     assert workflow_status_word("failed") == "failed"
     assert workflow_status_word("completed") == "complete"
@@ -379,7 +379,7 @@ def test_workflow_status_word_and_child_session_path(tmp_path: Path) -> None:
 
 
 def test_overview_rows_include_child_session_path(tmp_path: Path) -> None:
-    from groket.session.jobs import SessionJobs
+    from anqa.session.jobs import SessionJobs
 
     sd = tmp_path / "sess"
     sd.mkdir()

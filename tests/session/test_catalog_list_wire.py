@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.session.catalog import session_catalog_row, session_meta_from_catalog_row
-from groket.session.query import CatalogQueryRow, row_matches_query
+from anqa.session.catalog import session_catalog_row, session_meta_from_catalog_row
+from anqa.session.query import CatalogQueryRow, row_matches_query
 
 
 def _write_list_fixture(
@@ -54,7 +54,7 @@ def test_list_session_catalog_newest_first(tmp_path: Path) -> None:
     import os
     import time
 
-    from groket.session.catalog import list_session_catalog
+    from anqa.session.catalog import list_session_catalog
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"

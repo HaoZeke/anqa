@@ -1,16 +1,16 @@
 [package]
-name = "groket-hud"
+name = "anqa-hud"
 version = "0.1.0"
 edition = "2021"
-description = "Sol-style session palette for the groket control plane"
+description = "Sol-style session palette for the anqa control plane"
 authors = ["Ali-Akber Saifee"]
 
 [lib]
-name = "groket_hud"
+name = "anqa_hud"
 path = "src/lib.rs"
 
 [[bin]]
-name = "groket-hud"
+name = "anqa-hud"
 path = "src/main.rs"
 
 [dependencies]

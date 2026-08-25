@@ -9,8 +9,8 @@ on:
     branches: [main, master]
     paths:
       - "schemas/**"
-      - "groket/config.py"
-      - "groket/integrations/control_contract.py"
+      - "anqa/config.py"
+      - "anqa/integrations/control_contract.py"
       - ".github/workflows/pages.yml"
       - "justfile"
   workflow_dispatch:
@@ -51,28 +51,28 @@ jobs:
           <html lang="en">
           <head>
             <meta charset="utf-8" />
-            <title>groket schemas</title>
+            <title>anqa schemas</title>
             <style>
               body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
               code { background: #f4f4f5; padding: 0.1em 0.35em; border-radius: 4px; }
             </style>
           </head>
           <body>
-            <h1>groket schemas</h1>
+            <h1>anqa schemas</h1>
             <p>JSON Schema artifacts for editor validation and tooling.</p>
             <ul>
               <li>
               <li>
                 <a href="schemas/config.schema.json"><code>config.schema.json</code></a>
-                — app prefs TOML (<code>~/.groket/config.toml</code>)
+                — app prefs TOML (<code>~/.anqa/config.toml</code>)
                 (<code>$id</code>:
-                <code>https://indynull.github.io/groket/schemas/config.schema.json</code>)
+                <code>https://indynull.github.io/anqa/schemas/config.schema.json</code>)
               </li>
               <li>
                 <a href="schemas/control.schema.json"><code>control.schema.json</code></a>
                 — control JSON-RPC contract
                 (<code>$id</code>:
-                <code>https://indynull.github.io/groket/schemas/control.schema.json</code>)
+                <code>https://indynull.github.io/anqa/schemas/control.schema.json</code>)
               </li>
             </ul>
             <p>Regenerate locally with <code>just schema</code>; CI fails on drift via <code>just schema-check</code>.</p>

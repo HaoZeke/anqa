@@ -11,7 +11,7 @@ import pytest
 
 
 def _short_sock(name: str) -> Path:
-    root = Path(tempfile.mkdtemp(prefix="groket-rich-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-rich-"))
     return root / name
 
 
@@ -55,8 +55,8 @@ def _write_session(tmp_path: Path) -> Path:
 
 @pytest.mark.asyncio
 async def test_control_session_get_timeline_turns_usage(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
-    client_mod = import_module("groket.integrations.control_client")
+    control = import_module("anqa.integrations.control")
+    client_mod = import_module("anqa.integrations.control_client")
     session_dir = _write_session(tmp_path)
     sock = _short_sock("rich.sock")
     server = control.ControlServer(

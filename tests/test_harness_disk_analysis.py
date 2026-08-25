@@ -1,20 +1,20 @@
-"""Host-store notes stay complete and match shipped groket symbols."""
+"""Host-store notes stay complete and match shipped anqa symbols."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import groket.event_types as et
-from groket.constants import INTERRUPTED_MARKER_FILENAME
-from groket.notes import NOTES_FILENAME
-from groket.parser import find_sessions
-from groket.session.catalog import session_catalog_row
-from groket.session.export_bundle import _GROK_TRACE_CORE_FILES
-from groket.session.resume import can_resume_session
-from groket.session.sources import host_grok_sessions_root, work_traces_root
-from groket.session.turn_gate import TURN_GATE_NAME
-from groket.session.turns import segment_timeline_turns
-from groket.session.workspace_diff import load_workspace_diff
+import anqa.event_types as et
+from anqa.constants import INTERRUPTED_MARKER_FILENAME
+from anqa.notes import NOTES_FILENAME
+from anqa.parser import find_sessions
+from anqa.session.catalog import session_catalog_row
+from anqa.session.export_bundle import _GROK_TRACE_CORE_FILES
+from anqa.session.resume import can_resume_session
+from anqa.session.sources import host_grok_sessions_root, work_traces_root
+from anqa.session.turn_gate import TURN_GATE_NAME
+from anqa.session.turns import segment_timeline_turns
+from anqa.session.workspace_diff import load_workspace_diff
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIEF = ROOT / "docs" / "harness-disk-view.md"
@@ -48,8 +48,8 @@ FEATURE_FAMILIES = (
 )
 
 REQUIRED_HEADINGS = (
-    "## 1. What groket does today",
-    "## 2. Groket feature → Grok artifact inventory",
+    "## 1. What anqa does today",
+    "## 2. Anqa feature → Grok artifact inventory",
     "## 3. Abstract disk-view contract",
     "## 4. Per-harness disk specifications",
     "## 5. Feature × harness matrix",
@@ -79,7 +79,7 @@ def test_brief_has_required_sections_and_harness_ids() -> None:
     assert "parse_line" in text
     assert "signals.json" in text
     assert "rewind_points.jsonl" in text
-    assert ".groket-turn" in text
+    assert ".anqa-turn" in text
 
 
 def test_brief_matrix_does_not_mark_grok_only_control_full_elsewhere() -> None:
@@ -126,13 +126,13 @@ def test_brief_matrix_does_not_mark_grok_only_control_full_elsewhere() -> None:
     assert "Linux" in cursor_catalog or "absent" in cursor_catalog
 
 
-def test_cited_groket_disk_symbols_still_exist(tmp_path: Path) -> None:
+def test_cited_anqa_disk_symbols_still_exist(tmp_path: Path) -> None:
     """Brief cites real modules — import and touch the disk entry points."""
     assert host_grok_sessions_root().name == "sessions"
     assert work_traces_root(tmp_path) == tmp_path / "runs" / "traces"
-    assert TURN_GATE_NAME == ".groket-turn"
+    assert TURN_GATE_NAME == ".anqa-turn"
     assert NOTES_FILENAME == "operator_notes.toml"
-    assert INTERRUPTED_MARKER_FILENAME == "groket-interrupted.json"
+    assert INTERRUPTED_MARKER_FILENAME == "anqa-interrupted.json"
     assert "summary.json" in _GROK_TRACE_CORE_FILES
     assert "events.jsonl" in _GROK_TRACE_CORE_FILES
     assert et.USER_MESSAGE_CHUNK == "user_message_chunk"
@@ -142,7 +142,7 @@ def test_cited_groket_disk_symbols_still_exist(tmp_path: Path) -> None:
     assert callable(segment_timeline_turns)
     assert callable(load_workspace_diff)
     assert callable(can_resume_session)
-    from groket.fs_watch import _TRACE_NAME_HINTS
+    from anqa.fs_watch import _TRACE_NAME_HINTS
 
     assert "updates.jsonl" in _TRACE_NAME_HINTS
     assert "signals.json" in _TRACE_NAME_HINTS

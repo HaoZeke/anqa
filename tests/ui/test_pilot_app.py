@@ -9,14 +9,14 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.diagnostics.self_test import CheckResult, SelfTestReport
-from groket.ui.app import TraceEvalApp
-from groket.ui.widgets.activity_bar import (
+from anqa.diagnostics.self_test import CheckResult, SelfTestReport
+from anqa.ui.app import AnqaApp
+from anqa.ui.widgets.activity_bar import (
     ActivityBar,
     activity_counters_from_app,
     build_activity_line,
 )
-from groket.ui.widgets.self_test_modal import SelfTestModal
+from anqa.ui.widgets.self_test_modal import SelfTestModal
 
 from .pilot_helpers import wait_until
 
@@ -51,7 +51,7 @@ def _minimal_traces(work: Path) -> Path:
 async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -80,7 +80,7 @@ async def test_self_test_modal_applies_report(tmp_path: Path) -> None:
     work = tmp_path / "w"
     work.mkdir()
     (work / "runs" / "traces").mkdir(parents=True)
-    app = TraceEvalApp(work_dir=work, traces_path=work / "runs" / "traces")
+    app = AnqaApp(work_dir=work, traces_path=work / "runs" / "traces")
     report = SelfTestReport(
         checks=[
             CheckResult("docker", "Docker daemon", True, "reachable"),

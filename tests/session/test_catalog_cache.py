@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from groket.session.catalog import (
+from anqa.session.catalog import (
     SessionCatalogCache,
     session_meta_from_catalog_row,
 )
@@ -27,7 +27,7 @@ def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
 
 def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypatch) -> None:
     """First session/list must not wait for a cold full tree scan."""
-    import groket.session.catalog as catalog_mod
+    import anqa.session.catalog as catalog_mod
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -148,7 +148,7 @@ def test_catalog_cache_single_flight(tmp_path: Path) -> None:
 
 def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
     """Watch callback patches the dirty session instead of a full catalog scan."""
-    from groket.integrations.daemon import apply_fs_catalog_events
+    from anqa.integrations.daemon import apply_fs_catalog_events
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -172,7 +172,7 @@ def test_open_journal_second_apply_reads_from_offset(tmp_path: Path) -> None:
     """An open session's second updates.jsonl apply tails from the first offset."""
     import asyncio
 
-    from groket.integrations.daemon import CatalogWatchApply
+    from anqa.integrations.daemon import CatalogWatchApply
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -203,7 +203,7 @@ def test_open_journal_second_apply_reads_from_offset(tmp_path: Path) -> None:
 
 def test_apply_fs_catalog_events_append_marks_list_unchanged(tmp_path: Path) -> None:
     """An updates.jsonl append that leaves painted fields sets listChanged false."""
-    from groket.integrations.daemon import apply_fs_catalog_events
+    from anqa.integrations.daemon import apply_fs_catalog_events
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -223,7 +223,7 @@ def test_apply_fs_catalog_events_refresh_error_marks_list_changed(
     """A failed incremental refresh reports list change without a second scan."""
     from unittest.mock import patch
 
-    from groket.integrations.daemon import apply_fs_catalog_events
+    from anqa.integrations.daemon import apply_fs_catalog_events
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -244,10 +244,10 @@ def test_apply_fs_catalog_events_refresh_error_marks_list_changed(
 
 
 def test_event_paths_skip_encoded_cwd_bucket(tmp_path: Path) -> None:
-    from groket.integrations.daemon import CatalogWatchApply
+    from anqa.integrations.daemon import CatalogWatchApply
 
     traces = tmp_path / "sessions"
-    bucket = traces / "%2FUsers%2Fali%2F_dev%2F_git%2Fgroket"
+    bucket = traces / "%2FUsers%2Fali%2F_dev%2F_git%2Fanqa"
     sess = bucket / "019abc"
     sess.mkdir(parents=True)
     (sess / "summary.json").write_text("{}", encoding="utf-8")
@@ -489,7 +489,7 @@ def test_apply_fs_catalog_events_noise_does_not_open_events_or_bump(
     """Growing events.jsonl or writing under workspace/ is not a list rebuild."""
     from unittest.mock import patch
 
-    from groket.integrations.daemon import apply_fs_catalog_events
+    from anqa.integrations.daemon import apply_fs_catalog_events
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -528,7 +528,7 @@ def test_apply_fs_catalog_events_noise_does_not_open_events_or_bump(
 
 def test_apply_fs_workflow_and_job_files_leave_list_still(tmp_path: Path) -> None:
     """Workflow state and job logs do not rebuild painted catalog fields."""
-    from groket.integrations.daemon import apply_fs_catalog_events
+    from anqa.integrations.daemon import apply_fs_catalog_events
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -609,7 +609,7 @@ def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> 
     host = tmp_path / "sessions"
     sess = host / "%2Fproj" / "019fe503-d45c-7320-904e-cfa8836c361c"
     sess.mkdir(parents=True)
-    monkeypatch.setattr("groket.session.sources.host_grok_sessions_root", lambda: host)
+    monkeypatch.setattr("anqa.session.sources.host_grok_sessions_root", lambda: host)
     meta = session_meta_from_catalog_row(
         {
             "sessionId": "019fe503-d45c-7320-904e-cfa8836c361c",

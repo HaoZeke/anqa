@@ -1,6 +1,6 @@
 //! Load `keys.toml` overlays for HUD dispatch and shortcut tables.
 //!
-//! Same path family as the TUI (`GROKET_KEYS` or `~/.groket/keys.toml`).
+//! Same path family as the TUI (`ANQA_KEYS` or `~/.anqa/keys.toml`).
 //! A missing or refused file keeps catalog defaults. A printable ``leader``
 //! plus ``leader+X`` sequences are accepted and dispatched by the HUD.
 
@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-const KEYS_ENV: &str = "GROKET_KEYS";
+const KEYS_ENV: &str = "ANQA_KEYS";
 
-/// Catalog row used to validate and merge overlays (mirrors `groket.keys.catalog`).
+/// Catalog row used to validate and merge overlays (mirrors `anqa.keys.catalog`).
 #[derive(Clone, Copy)]
 struct CatalogRow {
     id: &'static str,
@@ -354,9 +354,7 @@ const ACTIONS: &[CatalogRow] = &[
     },
 ];
 
-const KNOWN_SCOPES: &[&str] = &[
-    "global", "home", "browser", "modal",
-];
+const KNOWN_SCOPES: &[&str] = &["global", "home", "browser", "modal"];
 
 const RESERVED: &[&str] = &["escape", "enter", "tab", "shift+tab", "?"];
 
@@ -391,7 +389,7 @@ pub fn install_process_overlay(overlay: KeyOverlay) {
 }
 
 impl KeyOverlay {
-    /// Load `GROKET_KEYS` or `~/.groket/keys.toml`. Missing/refused → defaults.
+    /// Load `ANQA_KEYS` or `~/.anqa/keys.toml`. Missing/refused → defaults.
     pub fn load() -> Self {
         Self::load_from(&resolve_keys_path())
     }
@@ -500,7 +498,7 @@ fn resolve_keys_path() -> PathBuf {
         }
     }
     let home = std::env::var_os("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".groket").join("keys.toml")
+    PathBuf::from(home).join(".anqa").join("keys.toml")
 }
 
 fn action_by_id(id: &str) -> Option<&'static CatalogRow> {
@@ -1126,8 +1124,7 @@ mod tests {
     #[test]
     fn matches_remapped_n_like_default_j() {
         let overlay =
-            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"search.focus\" = \"z\"\n")
-                .unwrap();
+            KeyOverlay::parse("[home]\n\"list.down\" = \"n\"\n\"search.focus\" = \"z\"\n").unwrap();
         assert!(overlay.matches(
             "list.down",
             "j",
@@ -1232,11 +1229,11 @@ mod tests {
     }
 
     #[test]
-    fn groket_keys_expands_tilde() {
+    fn anqa_keys_expands_tilde() {
         let home = std::env::var_os("HOME").unwrap_or_default();
         assert_eq!(
-            expand_user("~/.groket/keys.toml"),
-            PathBuf::from(&home).join(".groket").join("keys.toml")
+            expand_user("~/.anqa/keys.toml"),
+            PathBuf::from(&home).join(".anqa").join("keys.toml")
         );
         assert_eq!(expand_user("~"), PathBuf::from(&home));
         assert_eq!(

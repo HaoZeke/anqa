@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from conftest import make_trace_event
-from groket.models import SessionMeta
-from groket.ui.session_summary import (
+from anqa.models import SessionMeta
+from anqa.ui.session_summary import (
     assistant_text_from_timeline,
     build_session_summary,
     render_session_summary,
 )
+from conftest import make_trace_event
 
 from .pilot_helpers import assert_rich_contains, rich_plain
 
@@ -310,14 +310,14 @@ class TestBuildSessionSummary:
 
 # ── append_usage_rich ─────────────────────────────────────────────────────
 
-from groket.session.usage_stats import (
+from anqa.session.usage_stats import (
     McpMethodUsage,
     McpServerUsage,
     SessionUsageStats,
     SkillUsageRow,
     ToolUsageRow,
 )
-from groket.ui.session_summary import append_usage_rich
+from anqa.ui.session_summary import append_usage_rich
 from rich.text import Text
 
 
@@ -415,7 +415,7 @@ class TestBuildSessionSummaryException:
             title="My Title",
         )
         with patch(
-            "groket.ui.session_summary.render_session_summary",
+            "anqa.ui.session_summary.render_session_summary",
             side_effect=RuntimeError("boom"),
         ):
             result = build_session_summary(meta, [])
@@ -433,7 +433,7 @@ class TestSessionSummaryPendingLabel:
             turn_outcome="success",
         )
         with patch(
-            "groket.session.turn_gate.session_pending_label",
+            "anqa.session.turn_gate.session_pending_label",
             side_effect=ImportError("no module"),
         ):
             result = render_session_summary(meta, [])
@@ -453,7 +453,7 @@ class TestSessionSummaryTurnSegmentationFail:
         )
         timeline = [make_trace_event(index=0, event_type="user_message_chunk", content="hi")]
         with patch(
-            "groket.session.turns.segment_timeline_turns",
+            "anqa.session.turns.segment_timeline_turns",
             side_effect=RuntimeError("fail"),
         ):
             result = render_session_summary(meta, timeline)
@@ -466,7 +466,7 @@ class TestSessionSummaryShareDisplay:
         """Share URL is included in the session summary."""
         import json
 
-        (session_dir / "groket-share.json").write_text(
+        (session_dir / "anqa-share.json").write_text(
             json.dumps({"share_url": "https://share.example.com/abc", "session_id": "test"}),
         )
         meta = SessionMeta(
@@ -481,7 +481,7 @@ class TestSessionSummaryShareDisplay:
         """Pending share state is represented in the summary."""
         import json
 
-        (session_dir / "groket-share.json").write_text(
+        (session_dir / "anqa-share.json").write_text(
             json.dumps({"source": "pending", "session_id": "test"}),
         )
         meta = SessionMeta(
@@ -502,7 +502,7 @@ class TestSessionSummaryShareDisplay:
         """Failed share state is represented in the summary."""
         import json
 
-        (session_dir / "groket-share.json").write_text(
+        (session_dir / "anqa-share.json").write_text(
             json.dumps({"error": "no messages to share", "session_id": "test"}),
         )
         meta = SessionMeta(
@@ -560,7 +560,7 @@ class TestSessionSummaryShareSection:
         """Share section with error and no URL renders without crash."""
         import json
 
-        (session_dir / "groket-share.json").write_text(
+        (session_dir / "anqa-share.json").write_text(
             json.dumps({"error": "auth failed", "session_id": "test", "snapshot_n": 2}),
         )
         meta = SessionMeta(

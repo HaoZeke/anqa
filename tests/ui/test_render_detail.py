@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from groket.ui.render_detail import (
+from anqa.ui.render_detail import (
     _guess_lexer,
     _lang_from_path,
     _looks_like_console_output,
@@ -134,13 +134,13 @@ class TestTruncateMid:
 
 # ── Event and tool detail rendering ───────────────────────────────────────
 
-from conftest import make_trace_event
-from groket.ui.render_detail import (
+from anqa.ui.render_detail import (
     event_detail_sections,
     render_event_detail,
     render_tool_detail,
 )
-from groket.ui.styles import tool_label as tool_markup
+from anqa.ui.styles import tool_label as tool_markup
+from conftest import make_trace_event
 from rich.console import Group
 from rich.text import Text
 
@@ -377,7 +377,7 @@ class TestRenderEventDetail:
         )
         result = render_event_detail(ev)
         assert_rich_contains(result, "I need to think about this")
-        from groket.ui.i18n import t
+        from anqa.ui.i18n import t
 
         assert_rich_contains(result, t("ui-thought"))
 
@@ -413,7 +413,7 @@ class TestRenderEventDetail:
                 "durationMs": 96555,
             },
         )
-        from groket.session.subagents import SubagentRun
+        from anqa.session.subagents import SubagentRun
 
         run = SubagentRun(
             subagent_id="sa-1",
@@ -520,7 +520,7 @@ class TestRenderEventDetail:
 
     def test_job_and_subagent_inspect_keep_selectable_line_breaks(self):
         """SelectableStatic concatenates Group children — fields must not glue."""
-        from groket.ui.selectable_static import plain_from_renderable
+        from anqa.ui.selectable_static import plain_from_renderable
 
         start = make_trace_event(
             index=1,
@@ -546,7 +546,7 @@ class TestRenderEventDetail:
             content="Investigate the bug",
             raw_input={"subagentType": "coder", "description": "Investigate the bug"},
         )
-        from groket.session.subagents import SubagentRun
+        from anqa.session.subagents import SubagentRun
 
         run = SubagentRun(
             subagent_id="sa",
@@ -571,8 +571,8 @@ class TestRenderEventDetail:
         assert "Investigate the bug" in sub_plain
 
     def test_workflow_inspect_uses_merged_run_not_script(self, tmp_path):
-        from groket.session.workflows import load_session_workflows
-        from groket.ui.render_detail import render_event_detail
+        from anqa.session.workflows import load_session_workflows
+        from anqa.ui.render_detail import render_event_detail
 
         sd = tmp_path / "sess-wf-inspect"
         sd.mkdir()
@@ -614,7 +614,7 @@ class TestRenderEventDetail:
                 "script_path": "/repo/.grok/workflows/sprint.rhai",
             },
         )
-        from groket.ui.selectable_static import plain_from_renderable
+        from anqa.ui.selectable_static import plain_from_renderable
 
         plain = plain_from_renderable(render_event_detail(ev, workflow=run), full=False)
         assert "sprint-8" in plain
@@ -638,9 +638,9 @@ class TestRenderEventDetail:
         assert "No workflow run on disk" in bare or "workflow" in bare.lower()
 
     def test_schedule_inspect_uses_merged_last_fire(self, tmp_path):
-        from groket.parser import parse_timeline
-        from groket.session.jobs import load_session_jobs, schedule_for_event
-        from groket.ui.render_detail import render_event_detail
+        from anqa.parser import parse_timeline
+        from anqa.session.jobs import load_session_jobs, schedule_for_event
+        from anqa.ui.render_detail import render_event_detail
 
         sd = tmp_path / "sess-sched-inspect"
         sd.mkdir()
@@ -656,7 +656,7 @@ class TestRenderEventDetail:
                         "update": {
                             "sessionUpdate": "scheduled_task_created",
                             "task_id": "sched-1",
-                            "prompt": "Watch the groket board every hour.",
+                            "prompt": "Watch the anqa board every hour.",
                             "human_schedule": "every 1 hour",
                             "next_fire_at": "2026-08-18T23:05:45Z",
                         }
@@ -675,7 +675,7 @@ class TestRenderEventDetail:
                                 {
                                     "id": "sched-1",
                                     "intervalSecs": 3600,
-                                    "prompt": "Watch the groket board every hour.",
+                                    "prompt": "Watch the anqa board every hour.",
                                     "recurring": True,
                                     "durable": True,
                                     "lastFiredAt": "2026-08-18T22:05:45Z",
@@ -901,7 +901,7 @@ class TestRenderToolInputBranches:
 
 # ── render_tool_detail_from_event ─────────────────────────────────────────
 
-from groket.ui.render_detail import (
+from anqa.ui.render_detail import (
     _content_str,
     render_markdown_doc,
     render_tool_detail_from_event,
@@ -991,7 +991,7 @@ class TestRenderMarkdownDoc:
         """Markdown parse exception falls back to plain Text."""
         from unittest.mock import patch
 
-        with patch("groket.ui.render_detail.Markdown", side_effect=ValueError("parse error")):
+        with patch("anqa.ui.render_detail.Markdown", side_effect=ValueError("parse error")):
             r = render_markdown_doc("# Title\n\nBody")
             assert_rich_contains(r, "Title")
 
@@ -1053,7 +1053,7 @@ class TestSetStaticRenderableException:
 class TestLooksDiff:
     def test_not_diff(self):
         """_looks_diff returns False for non-diff text."""
-        from groket.ui.render_detail import _looks_diff
+        from anqa.ui.render_detail import _looks_diff
 
         assert _looks_diff("just some normal text\nwith lines") is False
         assert _looks_diff("") is False
@@ -1199,7 +1199,7 @@ class TestRenderToolOutputBranches:
                 return ""
             return "fallback-content"
 
-        with patch("groket.ui.render_detail.sanitize_console_text", side_effect=fake_sanitize):
+        with patch("anqa.ui.render_detail.sanitize_console_text", side_effect=fake_sanitize):
             result = render_tool_detail(
                 index=0,
                 tool_name="monitor",

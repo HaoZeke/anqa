@@ -59,7 +59,7 @@ def check_readmes() -> None:
 
 def check_keys_overlay() -> None:
     """Validate examples/keys overlays load cleanly."""
-    from groket.keys import load_keymap
+    from anqa.keys import load_keymap
 
     keys_dir = EXAMPLES / "keys"
     files = sorted(keys_dir.glob("*.toml"))
@@ -77,7 +77,7 @@ def check_keys_overlay() -> None:
 
 def check_app_config() -> None:
     """Validate examples/config/config.toml against AppConfig."""
-    from groket.config import SCHEMA_ID, validate_config_file
+    from anqa.config import SCHEMA_ID, validate_config_file
 
     path = EXAMPLES / "config" / "config.toml"
     if not path.is_file():
@@ -96,7 +96,7 @@ def check_app_config() -> None:
 
 def check_user_theme() -> None:
     """Validate examples/themes/*.toml load as catalog themes."""
-    from groket.ui.theme import load_user_themes
+    from anqa.ui.theme import load_user_themes
 
     folder = EXAMPLES / "themes"
     themes = load_user_themes(folder)
@@ -110,7 +110,7 @@ def check_user_theme() -> None:
 
 def check_notes_schema() -> None:
     """Validate examples/notes schema example loads with non-empty fields."""
-    from groket.notes import load_schema
+    from anqa.notes import load_schema
 
     path = EXAMPLES / "notes" / "notes_schema.example.toml"
     if not path.is_file():

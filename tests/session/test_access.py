@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from groket.session.access import (
+from anqa.session.access import (
     LocalSessionAccess,
     catalog_list_next_offset,
     filter_session_catalog,
@@ -178,7 +178,7 @@ def test_local_access_follow_up_and_done(tmp_path: Path) -> None:
     sess = vol / "%2Fworkspace" / "sess-follow"
     sess.mkdir(parents=True)
     (sess / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": "sess-follow", "turn": 1}) + "\n",

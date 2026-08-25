@@ -1,10 +1,10 @@
 # Prefs example
 
-Copy [`config.toml`](config.toml) to `~/.groket/config.toml`.
+Copy [`config.toml`](config.toml) to `~/.anqa/config.toml`.
 
-Schema: https://indynull.github.io/groket/schemas/config.schema.json
+Schema: https://indynull.github.io/anqa/schemas/config.schema.json
 
 ```bash
-groket config validate
-groket config schema
+anqa config validate
+anqa config schema
 ```

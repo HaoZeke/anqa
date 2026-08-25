@@ -194,7 +194,7 @@ pub fn retune_overlay(
 
 /// Env / GTK animation off. Tests set [`crate::app::Hud`] directly.
 pub fn detect_reduced_motion() -> bool {
-    match std::env::var("GROKET_HUD_REDUCED_MOTION") {
+    match std::env::var("ANQA_HUD_REDUCED_MOTION") {
         Ok(v) => matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
         Err(_) => std::env::var("GTK_ENABLE_ANIMATIONS").is_ok_and(|v| v == "0"),
     }

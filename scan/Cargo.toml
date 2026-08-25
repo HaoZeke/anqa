@@ -1,8 +1,8 @@
 [package]
-name = "groket-scan"
+name = "anqa-scan"
 version = "0.1.0"
 edition = "2021"
-description = "Session walk and updates.jsonl prefilter (groket.scan / groket._scan)"
+description = "Session walk and updates.jsonl prefilter (anqa.scan / anqa._scan)"
 license = "MIT"
 publish = false
 

@@ -7,13 +7,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from groket.integrations import daemon as daemon_mod
-from groket.integrations.control_client import ControlClient
-from groket.session.catalog import SessionCatalogCache
+from anqa.integrations import daemon as daemon_mod
+from anqa.integrations.control_client import ControlClient
+from anqa.session.catalog import SessionCatalogCache
 
 
 def _short_sock(name: str) -> Path:
-    return Path(tempfile.mkdtemp(prefix="groket-delta-")) / name
+    return Path(tempfile.mkdtemp(prefix="anqa-delta-")) / name
 
 
 def _write_sess(root: Path, name: str, title: str) -> Path:

@@ -1,14 +1,14 @@
-"""Groket event search store: luqum tree against indexed TraceEvent rows."""
+"""Anqa event search store: luqum tree against indexed TraceEvent rows."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from groket.models import TraceEvent
-from groket.parser import TimelineStamp
-from groket.session.control_views import build_session_timeline
-from groket.session.event_search import (
+from anqa.models import TraceEvent
+from anqa.parser import TimelineStamp
+from anqa.session.control_views import build_session_timeline
+from anqa.session.event_search import (
     ensure_indexed,
     index_covers,
     index_stats,
@@ -16,7 +16,7 @@ from groket.session.event_search import (
     reset_indexes,
     scan_index,
 )
-from groket.session.query import event_matches_query
+from anqa.session.query import event_matches_query
 
 _STAMP: TimelineStamp = (1.0, 1, 0, 0)
 
@@ -142,7 +142,7 @@ def _timed_events() -> list[TraceEvent]:
 
 
 def test_timeline_duration_is_pair_seconds() -> None:
-    from groket.session.event_search import event_durations
+    from anqa.session.event_search import event_durations
 
     events = _timed_events()
     durs = event_durations(events)

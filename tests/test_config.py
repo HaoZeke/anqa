@@ -1,4 +1,4 @@
-"""Canonical ``~/.groket/config.toml`` load, save, and comment keep."""
+"""Canonical ``~/.anqa/config.toml`` load, save, and comment keep."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 import tomlkit
-from groket.config import (
+from anqa.config import (
     SCHEMA_ID,
     config_dump,
     emit_config_schema,
@@ -21,7 +21,7 @@ from groket.config import (
 
 @pytest.fixture(autouse=True)
 def _iso(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: tmp_path / "config.toml")
+    monkeypatch.setattr("anqa.paths.app_config_path", lambda: tmp_path / "config.toml")
     invalidate_config_cache()
     yield
     invalidate_config_cache()
@@ -82,7 +82,7 @@ def test_catalog_ignore_omits_host_adapter(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     invalidate_config_cache()
-    from groket.harness.registry import adapter, adapter_host_roots, enabled_host_ids
+    from anqa.harness.registry import adapter, adapter_host_roots, enabled_host_ids
 
     assert "grok" not in enabled_host_ids()
     grok = adapter("grok")
@@ -96,7 +96,7 @@ def test_catalog_roots_override_store_path(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     invalidate_config_cache()
-    from groket.harness.registry import adapter, adapter_host_roots
+    from anqa.harness.registry import adapter, adapter_host_roots
 
     grok = adapter("grok")
     assert grok is not None

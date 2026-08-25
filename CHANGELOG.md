@@ -1,24 +1,24 @@
 # Changelog
 
-Notable product state for groket. One first-release section until 0.1.0
+Notable product state for anqa. One first-release section until 0.1.0
 is tagged. This section is the product as it ships.
 
 ## Unreleased
 
-First release. Groket is a session review tool: timeline, notes,
+First release. Anqa is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. Grok Build is the first shipped
 adapter. It does not launch evals. The catalog is one host list.
 
 ### Install
 
-- `uv tool install --editable .` builds `groket` and `groket-hud` (needs Rust).
-- `uv tool install git+https://github.com/indynull/groket` installs from git.
-- `uv tool install groket` is the package name on the Python package index.
-- `groket --version` (`-V`) prints the product version (`0.1.0`).
+- `uv tool install --editable .` builds `anqa` and `anqa-hud` (needs Rust).
+- `uv tool install git+https://github.com/indynull/anqa` installs from git.
+- `uv tool install anqa` is the package name on the Python package index.
+- `anqa --version` (`-V`) prints the product version (`0.1.0`).
 - The same version appears on the terminal `?` heading, the desktop
-  palette window and `?` sheet, and `groket-hud --version`.
-- One product version across the Python package, `groket-hud`, and
-  `groket-scan`.
+  palette window and `?` sheet, and `anqa-hud --version`.
+- One product version across the Python package, `anqa-hud`, and
+  `anqa-scan`.
 - Pushes to `main`, version tags, and workflow dispatch build Linux,
   macOS, and Windows wheels plus a source distribution.
 - A version tag or manual workflow dispatch uploads those files to
@@ -26,15 +26,15 @@ adapter. It does not launch evals. The catalog is one host list.
 
 ### Paths and config
 
-- Config home is `~/.groket` (`config.toml`, personas, optional `keys.toml`).
-- Work root is `~/.groket/work` (`runs/traces/`, recipes, Docker
+- Config home is `~/.anqa` (`config.toml`, personas, optional `keys.toml`).
+- Work root is `~/.anqa/work` (`runs/traces/`, recipes, Docker
   contexts, batch results).
-- `~/.groket/config.toml` is the only prefs file (terminal app and
+- `~/.anqa/config.toml` is the only prefs file (terminal app and
   desktop HUD). Default look is `theme = "auto"`: the terminal follows
   the terminal then the desktop; the desktop palette follows the
   system pair and system paper when the OS reports it. Named catalog
-  themes and `~/.groket/themes/` pin a colorway on both clients.
-- Optional `~/.groket/keys.toml` remaps chords (`groket keys`). Footer
+  themes and `~/.anqa/themes/` pin a colorway on both clients.
+- Optional `~/.anqa/keys.toml` remaps chords (`anqa keys`). Footer
   and `?` use the same action words on both clients.
 
 ### Sessions
@@ -56,7 +56,7 @@ adapter. It does not launch evals. The catalog is one host list.
 
 ### Terminal app
 
-- `groket` / `groket tui` is the session client: session list,
+- `anqa` / `anqa tui` is the session client: session list,
   browser, runner, recipes, personas, and export.
 - Browser panes are Timeline, Summary, Diff, and Report.
 - Timeline Filter and Turn stack; Tail follows a live session.
@@ -67,29 +67,29 @@ adapter. It does not launch evals. The catalog is one host list.
 - Diff lists rewind snapshots, Prompt/Assistant tabs, and a files/hunk
   split. `/` finds path or hunk text.
 - `y` copies the selection or the pane body.
-- `E` writes a session bundle under `~/.groket/reports/`.
+- `E` writes a session bundle under `~/.anqa/reports/`.
 - Runner launches Docker evals from a recipe (Ctrl+Enter).
 
 ### Desktop HUD
 
-- `groket hud` is the summonable session palette (Overview, Turns,
+- `anqa hud` is the summonable session palette (Overview, Turns,
   Timeline, Diff, Notes).
-- It runs `groket-hud` from `GROKET_HUD_BIN` or `PATH`; `--rebuild`
+- It runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`; `--rebuild`
   cargo-builds this checkout.
 - Default hotkey is Cmd+Shift+G (macOS) / Ctrl+Shift+G (Windows and
-  X11). On Wayland bind `groket hud --toggle`.
+  X11). On Wayland bind `anqa hud --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
-  groket.
+  anqa.
 
 ### Control
 
-- `groket serve` owns the per-user Unix socket. The four clients
+- `anqa serve` owns the per-user Unix socket. The four clients
   attach: terminal app, desktop HUD, Emacs, and Neovim.
 - Serve arms each catalog root watch off the serve loop. The watch
   covers membership directories and session directories (not each
   plane file). Catalog ``has:goal`` / ``has:plan`` follow the goal
   and plan files on disk.
-- Bare `groket` and `groket hud` detach-start serve when the socket is
+- Bare `anqa` and `anqa hud` detach-start serve when the socket is
   free. Quitting a client leaves serve running.
 - `protocolVersion` is semver (`1.0.0`), independent of the product
   version. Same major keeps a live owner; a major bump is the only
@@ -98,9 +98,9 @@ adapter. It does not launch evals. The catalog is one host list.
 
 ### Batch and examples
 
-- `groket batch` runs headless Docker from task YAML
+- `anqa batch` runs headless Docker from task YAML
   (`examples/tasks/`).
-- `groket gen` scaffolds task lists under `~/.groket/`.
+- `anqa gen` scaffolds task lists under `~/.anqa/`.
 - Supported packs live in `examples/` (not auto-loaded).
 
 ### Development
@@ -109,4 +109,4 @@ adapter. It does not launch evals. The catalog is one host list.
   `just ci`).
 - `just bump 0.1.1` sets every product version declaration and
   promotes this file.
-- `groket doctor` checks the host (Docker, Grok auth, paths).
+- `anqa doctor` checks the host (Docker, Grok auth, paths).

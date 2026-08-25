@@ -8,12 +8,12 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from groket.integrations.control import (
+from anqa.integrations.control import (
     PROTOCOL_VERSION,
     ControlServer,
     dispatched_method_names,
 )
-from groket.integrations.control_contract import (
+from anqa.integrations.control_contract import (
     InventorySnapshot,
     capability_names,
     control_json_schema,
@@ -34,7 +34,7 @@ CONTROL_SCHEMA = ROOT / "schemas" / "control.schema.json"
 
 
 def _short_sock(name: str) -> Path:
-    return Path(tempfile.mkdtemp(prefix="groket-ctl-")) / name
+    return Path(tempfile.mkdtemp(prefix="anqa-ctl-")) / name
 
 
 async def _initialize(server: ControlServer) -> dict[str, object]:
@@ -161,8 +161,8 @@ def test_emit_doc_contains_version_methods_framing() -> None:
         assert f"`{name}`" in text, name
     for name in REQUIRED_NOTIFICATIONS:
         assert f"`{name}`" in text, name
-    assert "groket serve" in text
-    assert "GROKET_CONTROL_SOCKET" in text
+    assert "anqa serve" in text
+    assert "ANQA_CONTROL_SOCKET" in text
     assert "Content-Length" in text
     assert "control_contract.py" in text
 

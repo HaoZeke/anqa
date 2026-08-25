@@ -1,6 +1,6 @@
 # Host harness stores
 
-Notes from probing coding-agent session trees on disk. Groket’s shipped
+Notes from probing coding-agent session trees on disk. Anqa’s shipped
 adapter is Grok Build; this file records other stores so a later adapter
 can be written from observed keys. Disk-based view is the contract.
 Launch and mid-session control exist only when the product exposes an
@@ -8,7 +8,7 @@ equivalent. Automedon live `parse_line` is contrast only — it is not the
 disk adapter.
 
 Observed host trees and field names were taken from a Linux workstation
-(2026-08-08) and a Darwin workstation (2026-08-09), plus groket source and
+(2026-08-08) and a Darwin workstation (2026-08-09), plus anqa source and
 Automedon adapter recordings. Linux lacked Cursor transcripts; Darwin had
 them. Schemas drift; adapters must tolerate extra keys.
 
@@ -17,9 +17,9 @@ them. Schemas drift; adapters must tolerate extra keys.
 
 ---
 
-## 1. What groket does today
+## 1. What anqa does today
 
-Groket inspects coding-agent harness sessions. The shipped adapter is
+Anqa inspects coding-agent harness sessions. The shipped adapter is
 Grok Build: session directories, `TraceEvent` / `SessionMeta`, live watch,
 and isolated Docker evals. Operator notes, flags, export, HUD, and the
 Unix control socket use `SessionRef`. Other stores implement the same
@@ -27,17 +27,17 @@ inspect outcomes.
 
 ---
 
-## 2. Groket feature → Grok artifact inventory
+## 2. Anqa feature → Grok artifact inventory
 
 Every operator-visible capability that reads or writes session or eval disk
-state. Cite is the groket module that owns the path.
+state. Cite is the anqa module that owns the path.
 
 ### 2.1 Catalog discovery
 
 | Outcome | Grok artifact | Module |
 |---|---|---|
-| Find session dirs | Recurse; treat as session if `updates.jsonl` or `summary.json` present, or non-empty `events.jsonl`. Skip subagents, resume seeds, `*.stage`, `groket-plugins`. | `groket/parser.py` `find_sessions`, `_looks_like_session_dir` |
-| Eval root | `<work>/runs/traces` | `groket/session/sources.py` `work_traces_root` |
+| Find session dirs | Recurse; treat as session if `updates.jsonl` or `summary.json` present, or non-empty `events.jsonl`. Skip subagents, resume seeds, `*.stage`, `anqa-plugins`. | `anqa/parser.py` `find_sessions`, `_looks_like_session_dir` |
+| Eval root | `<work>/runs/traces` | `anqa/session/sources.py` `work_traces_root` |
 | Host root | `~/.grok/sessions` (always loaded; `is:host` filters) | `sources.host_grok_sessions_root` |
 | Catalog row | `sessionId`, `path`, `title`, `model`, `status`, `origin` (`work`/`host`), times, context, event count | `session/catalog.py` `session_catalog_row` |
 | List meta | Host: `summary.json` + `signals.json` only. Eval: those plus turn markers / gate. | `parser.load_session_meta_list` |
@@ -48,7 +48,7 @@ state. Cite is the groket module that owns the path.
 |---|---|---|
 | Linear timeline | `updates.jsonl` rows `{method, params, timestamp}` with `params.update.sessionUpdate` | `parser.parse_timeline`, `_consume_updates_line` |
 | Runtime markers | `events.jsonl` `type` (`turn_started`, `turn_ended`, …) | `parser.parse_runtime_markers` |
-| Event type names | Grok `sessionUpdate` + events `type`; groket-only `system` from `system_prompt.txt` | `groket/event_types.py` |
+| Event type names | Grok `sessionUpdate` + events `type`; anqa-only `system` from `system_prompt.txt` | `anqa/event_types.py` |
 | Tool coalesce | Streaming `tool_call_update` → one result row per `toolCallId` | `parser._coalesce_tool_result` |
 | Live incremental scan | Cache keyed by mtime/size of `updates.jsonl` + `events.jsonl` (not `signals.json`) | `parser.session_timeline_stamp` |
 
@@ -64,7 +64,7 @@ Observed `sessionUpdate` values: `user_message_chunk`, `agent_thought_chunk`,
 `task_backgrounded` has `task_id`, `tool_call_id`, `command`, `cwd`,
 `output_file`, `description` (and often `monitor_description`).
 `task_completed` has `will_wake` plus `task_snapshot` (`task_id`, command,
-cwd, output path, times, output excerpt, `kind`). Groket flattens those
+cwd, output path, times, output excerpt, `kind`). Anqa flattens those
 onto `TraceEvent.raw_input` and does not map them to subagent types.
 
 `user_message_chunk.content` is `{type: "text", text: "…"}`; `_meta` has
@@ -89,14 +89,14 @@ Home-list labels (`SessionMeta.list_status_label`): `running` | `ending` |
 | Input | Artifact | Module |
 |---|---|---|
 | Harness outcome | Last `events.jsonl` `turn_ended.outcome` (`completed`, …) | `parser.parse_runtime_markers` |
-| Incomplete | Fresh mtime of trace files vs `INCOMPLETE_STALE_SECONDS` (20 min); `groket-interrupted.json` | `parser._infer_incomplete_turn_outcome`, `constants.INTERRUPTED_MARKER_FILENAME` |
-| Interactive override | `.groket-turn/status.json` `state` (`awaiting_follow_up`, `done`, …) | `parser._gate_override_turn_outcome`, `session/turn_gate.py` |
-| Live watch | inotify on `updates.jsonl`, `events.jsonl`, `summary.json`, `signals.json`, `chat_history.jsonl`, `groket-interrupted.json`, `status.json`, `command`, `operator_notes.toml` | `groket/fs_watch.py` `_TRACE_NAME_HINTS` |
+| Incomplete | Fresh mtime of trace files vs `INCOMPLETE_STALE_SECONDS` (20 min); `anqa-interrupted.json` | `parser._infer_incomplete_turn_outcome`, `constants.INTERRUPTED_MARKER_FILENAME` |
+| Interactive override | `.anqa-turn/status.json` `state` (`awaiting_follow_up`, `done`, …) | `parser._gate_override_turn_outcome`, `session/turn_gate.py` |
+| Live watch | inotify on `updates.jsonl`, `events.jsonl`, `summary.json`, `signals.json`, `chat_history.jsonl`, `anqa-interrupted.json`, `status.json`, `command`, `operator_notes.toml` | `anqa/fs_watch.py` `_TRACE_NAME_HINTS` |
 | Heartbeat | Re-read `signals.json` every 60s without re-parsing timeline | `constants.LIVE_POLL_HEARTBEAT_INTERVAL` |
 
 ### 2.5 Turn-gate follow-up and Done
 
-Eval-only. Volume `…/runs/traces/<container>/`. Gate dir `.groket-turn/`.
+Eval-only. Volume `…/runs/traces/<container>/`. Gate dir `.anqa-turn/`.
 
 | File | Role |
 |---|---|
@@ -116,8 +116,8 @@ no gate.
 | Outcome | Artifact | Module |
 |---|---|---|
 | Can resume? | `chat_history.jsonl` or `summary.json` or `events.jsonl` | `session/resume.py` `can_resume_session` |
-| Seed parent | `.groket-resume-seed/<cwd-token>/<parent_id>/` + symlink for `grok --resume --fork-session` | `resume.py` |
-| Launch record | `groket-launch.json` `resume_parent_session_id`, `resume_fork_session_id` | eval volume; `runs/run_manager.py` |
+| Seed parent | `.anqa-resume-seed/<cwd-token>/<parent_id>/` + symlink for `grok --resume --fork-session` | `resume.py` |
+| Launch record | `anqa-launch.json` `resume_parent_session_id`, `resume_fork_session_id` | eval volume; `runs/run_manager.py` |
 | Task YAML | `resume_session_dir` | `runs/task_schema.py` |
 
 Requires the `grok` binary `--resume` / `--fork-session`.
@@ -146,15 +146,15 @@ in-memory (`session/context_samples.py`).
 
 | Overlay | Path | Module |
 |---|---|---|
-| Notes | `<session_dir>/operator_notes.toml`; host Grok always uses `~/.groket/notes/<session_id>/` | `groket/notes.py` |
-| Schema | `~/.groket/notes_schema.toml` | same |
+| Notes | `<session_dir>/operator_notes.toml`; host Grok always uses `~/.anqa/notes/<session_id>/` | `anqa/notes.py` |
+| Schema | `~/.anqa/notes_schema.toml` | same |
 
-These are groket-owned. A rewrite keeps them keyed by harness + session id,
+These are anqa-owned. A rewrite keeps them keyed by harness + session id,
 never written into a foreign host tree unless the operator opts in.
 
 ### 2.10 Export
 
-`session/export_bundle.py`: outer tarball / dir under `~/.groket/reports/`.
+`session/export_bundle.py`: outer tarball / dir under `~/.anqa/reports/`.
 Units: official `grok trace --local` archive (core files
 `export_metadata.json`, `trace_config.json`, `summary.json`, `events.jsonl`,
 `chat_history.jsonl`, `prompt_context.json`, `system_prompt.txt`), eval
@@ -177,7 +177,7 @@ HUD and editors consume this. A rewrite keeps the method names; rows gain
 |---|---|---|
 | `<work>/runs/traces/<container>/` | Bind-mounted Grok sessions home + gate | `docker/orchestrator.py` |
 | `%2Fworkspace/<session_id>/` | Primary session (cwd token) | `session/resume.py` `_DEFAULT_CWD_TOKEN` |
-| `groket-launch.json`, `run.json`, `groket-prompt.txt`, `groket-config.toml` | Recipe / prompt / persona / MCP / skills / plugins | orchestrator + `runs/batch.py` |
+| `anqa-launch.json`, `run.json`, `anqa-prompt.txt`, `anqa-config.toml` | Recipe / prompt / persona / MCP / skills / plugins | orchestrator + `runs/batch.py` |
 | `session_search.sqlite` | Grok search index (skip on export) | `export_bundle._RUN_SKIP_NAMES` |
 | Task YAML | `runs/task_schema.py`, `schemas/tasks.schema.json` | batch |
 
@@ -202,7 +202,7 @@ A harness adapter implements these outcomes. Missing product data is
 - `session_id`: stable string the product uses to resume when it can.
 - `session_ref`: locator the adapter can reopen (directory, jsonl path,
   sqlite row id, markdown path).
-- `origin`: `work` (groket-launched) or `host` (native product store).
+- `origin`: `work` (anqa-launched) or `host` (native product store).
 - `cwd` / workspace path when known.
 
 ### 3.2 Catalog row
@@ -213,7 +213,7 @@ Must fill: `harness`, `sessionId`, `path` (or ref string), `title`/`label`,
 effort), `toolCallCount`, `errorCount`. Optional: context compact string,
 `taskId`, duration, git repo/branch.
 
-Discovery: adapter lists default roots and returns `session_ref`s. Groket
+Discovery: adapter lists default roots and returns `session_ref`s. Anqa
 does not assume one directory = one session.
 
 ### 3.3 Linear timeline
@@ -275,7 +275,7 @@ counts. Any missing field stays unset (Grok context meter is
 
 ### 3.9 Operator overlay
 
-Notes and flags attach to `(harness, session_id)` in groket config-home
+Notes and flags attach to `(harness, session_id)` in anqa config-home
 when the host tree is not writable or is a database. Same TUI keys.
 
 ### 3.10 Live watch
@@ -287,7 +287,7 @@ the db file mtime (and `-wal`). Markdown watches the history file.
 
 Only when the product has a real equivalent:
 
-| Groket action | Required product capability |
+| Anqa action | Required product capability |
 |---|---|
 | New eval | Headless prompt + writable workspace |
 | Follow-up (`n`) | Multi-turn resume by session id **or** a gate file |
@@ -300,7 +300,7 @@ Capability bits stay fail-closed (same idea as Automedon `Capabilities`).
 ### 3.12 Adapter interface (rewrite shape)
 
 One Python module per harness id under something like
-`groket/harness/<id>.py`:
+`anqa/harness/<id>.py`:
 
 - `discover(roots) -> list[SessionRef]`
 - `looks_like(ref) -> bool`
@@ -342,7 +342,7 @@ encoded path.
 `lastSubagentId`). `state["grok_build.ReportedTaskCompletions"].reported`
 is task ids already pushed to the agent. Manifest rows have `task_id`,
 `kind` (`bash` or `monitor`), `command`, `cwd`, `output_file`,
-`description`. Groket merges those in `session/jobs.py` for Summary and
+`description`. Anqa merges those in `session/jobs.py` for Summary and
 HUD Overview (not the TUI Jobs `J` modal). Long Darwin sessions also
 had `plan.json` (`todos`), `plan_mode.json` (`state`,
 `awaiting_plan_approval`), `goal/` (`state.json`, `plan.md`),
@@ -350,8 +350,8 @@ had `plan.json` (`todos`), `plan_mode.json` (`state`,
 (`meta.json`: `parent_session_id`, `child_session_id`, `subagent_type`,
 `status`, `tool_calls`, `turns`, `effective_model_id`; `output.json`).
 
-**Eval volume extras:** `.groket-turn/`, `groket-launch.json`, `run.json`,
-`groket-prompt.txt`, `groket-config.toml`, `session_search.sqlite`.
+**Eval volume extras:** `.anqa-turn/`, `anqa-launch.json`, `run.json`,
+`anqa-prompt.txt`, `anqa-config.toml`, `session_search.sqlite`.
 
 **`summary.json` keys:** `agent_name`, `chat_format_version`, `created_at`,
 `updated_at`, `last_active_at`, `current_model_id`, `reasoning_effort`,
@@ -370,7 +370,7 @@ had `plan.json` (`todos`), `plan_mode.json` (`state`,
 `model_id`, `yolo_mode`, `conversation_message_count`,
 `session_relationship`, `schema_version`, `ts`), `turn_ended` (`outcome`,
 `ts`), `loop_started`, `phase_changed`, `first_token`, `tool_started`,
-`tool_completed`, `permission_requested`, `permission_resolved`. Groket
+`tool_completed`, `permission_requested`, `permission_resolved`. Anqa
 timeline uses turn/error markers; phases are telemetry.
 
 **`chat_history.jsonl` `type`:** `system` | `user` | `assistant` |
@@ -387,7 +387,7 @@ parser stays `parser.py`. Stream parser is Automedon `adapters/grok.py`.
 **Subagents:** `session_relationship`, `subagents/` dirs, `subagent_*`
 updates. Catalog hides them (`parser._drop_subagent_mirror_sessions`).
 
-**Resume:** session id + `chat_history.jsonl`; fork via groket seed +
+**Resume:** session id + `chat_history.jsonl`; fork via anqa seed +
 `grok --resume --fork-session`.
 
 **Watch:** §2.4 filename list.
@@ -433,7 +433,7 @@ row `timestamp`; git branch field `gitBranch`.
 `content_block_delta`. Disk is append-only jsonl with `queue-operation` +
 full messages — **do not** run Automedon `parse_line` on the project file.
 
-**Resume:** `claude --resume <sessionId>`. No groket turn gate. No
+**Resume:** `claude --resume <sessionId>`. No anqa turn gate. No
 `signals.json`. No rewind snapshots. Workspace: reconstruct from
 `tool_use` (`Write` / `Edit` / `Bash`) when present.
 
@@ -573,7 +573,7 @@ export those tables.
   `~/.cursor/chats/<hash>/<uuid>/{meta.json, store.db}` —
   `meta.json` `{schemaVersion, createdAtMs, updatedAtMs, hasConversation, cwd}`.
   Sample `store.db` had no tables (empty shell; transcript is the jsonl).
-- Linux (this groket host): `~/.cursor/projects/<slug>/` were **empty**
+- Linux (this anqa host): `~/.cursor/projects/<slug>/` were **empty**
   automedon temp dirs; no `agent-transcripts`.
 - Config only: `~/.cursor/cli-config.json`, `agent-cli-state.json`.
 - `~/.local/share/cursor-agent/` is the binary install (`versions/<ver>/`),
@@ -743,7 +743,7 @@ outcome. **partial** = usable subset / needs launch-time capture.
 | Status running/complete/cancelled | full | partial | partial | partial | partial (`time_archived`, compacting) | partial `turn_ended.status` | partial | partial | partial |
 | Status `awaiting` | full eval gate only | absent (headless exits) | absent | absent | absent | absent | absent | absent | absent |
 | Status `ending` | full gate `command=done` | absent | absent | absent | absent | absent | absent | absent | absent |
-| Follow-up `n` | full eval `.groket-turn` | partial product `--resume` if groket launches | partial `exec resume` | partial `-r` | partial `--session` | partial `--resume` if launching | partial restore history | partial `--session-id` | partial `--resume=` |
+| Follow-up `n` | full eval `.anqa-turn` | partial product `--resume` if anqa launches | partial `exec resume` | partial `-r` | partial `--session` | partial `--resume` if launching | partial restore history | partial `--session-id` | partial `--resume=` |
 | Done `e` | full gate `command=done` | absent | absent | absent | absent | absent | absent | absent | absent |
 | Fork `f` | full `grok --resume --fork-session` + seed | absent (new session only) | absent | absent | absent (`parent_id` unused here) | absent | absent | absent | absent |
 | Workspace diff | full rewind + search_replace | partial reconstruct tools | full `patch_apply_end.changes` | absent | partial `summary_diffs` / git snapshot | partial reconstruct Write/StrReplace | partial git if enabled | partial bash/file tools | partial `session_files` / rewind-file-snapshots stub |
@@ -752,9 +752,9 @@ outcome. **partial** = usable subset / needs launch-time capture.
 | Git repo/branch | full summary remotes | partial `gitBranch` | partial world_state git_attribution | partial `.project_root` | full project.worktree / workspace.branch | partial `meta.json.cwd` | partial | `cwd` only | `sessions.repository/branch` |
 | Subagents | full hide/filter + `subagents/meta.json` | partial `isSidechain` | partial multi_agent flags / `thread_spawn_edges` | `kind: main` only | partial `parent_id` | absent | absent | absent | absent |
 | Live watch | full named files | full jsonl | full jsonl + `state_5.sqlite` | full jsonl | full sqlite mtime | full Darwin jsonl mtime | full md mtime | full jsonl | full db + events.jsonl |
-| Notes / flags overlay | full | full (groket side store) | full | full | full | full | full | full | full |
+| Notes / flags overlay | full | full (anqa side store) | full | full | full | full | full | full | full |
 | Export `grok trace --local` | full | absent | absent | absent | absent | absent | absent | absent | absent |
-| Export groket bundle (timeline+notes) | full | full after adapter | full | full | full | full after adapter | full | full | full |
+| Export anqa bundle (timeline+notes) | full | full after adapter | full | full | full | full after adapter | full | full | full |
 | Docker personas/plugins entrypoint | full Grok marketplace | absent | absent | absent | absent | absent | absent | absent | absent |
 | Control `session/*` views | full | full once adapter fills timeline | full | full | full | partial | full | full | full |
 
@@ -764,7 +764,7 @@ outcome. **partial** = usable subset / needs launch-time capture.
 
 1. **Live stream ≠ disk store.** Automedon `parse_line` is for child
    stdout / Agent Client Protocol. Every id except maybe a future
-   groket-canonical jsonl needs a **second** reader. Evidence: grok live
+   anqa-canonical jsonl needs a **second** reader. Evidence: grok live
    `{type:text}` vs disk `method: session/update`; claude live
    `stream-json` vs disk `queue-operation`; copilot live
    `tool.execution_start` vs disk `events.jsonl` `user.message`; opencode
@@ -779,15 +779,15 @@ outcome. **partial** = usable subset / needs launch-time capture.
 
 3. **Cursor disk is host-dependent.** Darwin:
    `~/.cursor/projects/<cwd>/agent-transcripts/<uuid>/<uuid>.jsonl` with
-   tools. Linux groket host: empty project dirs — catalog empty there,
+   tools. Linux anqa host: empty project dirs — catalog empty there,
    not a missing schema. Probe before marking the machine empty.
 
 4. **Grok-only control and telemetry** — never mark **full** on others
    without an equivalent:
-   - `.groket-turn` follow-up / Done / `ending` / `awaiting`
+   - `.anqa-turn` follow-up / Done / `ending` / `awaiting`
    - `signals.json` context percent + doom-loop + line counts
    - `rewind_points.jsonl` file snapshots
-   - `grok --resume --fork-session` + `.groket-resume-seed`
+   - `grok --resume --fork-session` + `.anqa-resume-seed`
    - Docker entrypoint Grok plugin/skill marketplace
    - `grok trace --local` export
    - `tagged_blocks` Grok XML chrome (other harnesses have their own
@@ -805,7 +805,7 @@ outcome. **partial** = usable subset / needs launch-time capture.
 
 7. **Operator overlay must not corrupt host DBs.** Write notes/flags next
    to a jsonl/dir when safe; for SQLite/host trees use
-   `~/.groket/notes/<harness>/<session_id>/` (same reason host Grok
+   `~/.anqa/notes/<harness>/<session_id>/` (same reason host Grok
    already uses the fallback).
 
 8. **Secrets.** OpenCode `account.access_token` / `credential.value` and
@@ -846,7 +846,7 @@ without a probed store. Kimi is the only extra with a session index.
 ## 8. Suggested rewrite slices (for the implementing agent)
 
 1. Introduce `harness` on `SessionMeta` / catalog rows / control payloads.
-   Extract `grok` disk code from `parser.py` into `groket/harness/grok.py`
+   Extract `grok` disk code from `parser.py` into `anqa/harness/grok.py`
    with the interface in §3.12. UI and `session/list` keep working.
 
 2. Generic discovery: list of `(harness, root)` instead of only work+host
@@ -872,7 +872,7 @@ without a probed store. Kimi is the only extra with a session index.
 8. Launch/control: host-local resume flags per matrix **partial** cells.
    Keep turn-gate + Docker personas as the Grok eval profile.
 
-9. Export: groket bundle from adapted timeline for all; `grok trace
+9. Export: anqa bundle from adapted timeline for all; `grok trace
    --local` remains Grok-only.
 
 10. Watch hints per adapter; SQLite WAL included.

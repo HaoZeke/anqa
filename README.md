@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="brand/png/groket-mark.png#gh-light-mode-only" alt="groket" width="400" />
-  <img src="brand/png/groket-mark-reverse.png#gh-dark-mode-only" alt="groket" width="400" />
+  <img src="brand/png/anqa-mark.png#gh-light-mode-only" alt="anqa" width="400" />
+  <img src="brand/png/anqa-mark-reverse.png#gh-dark-mode-only" alt="anqa" width="400" />
 </p>
 
-# groket
+# anqa
 
-[![CI](https://github.com/indynull/groket/actions/workflows/ci.yml/badge.svg)](https://github.com/indynull/groket/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/gh/indynull/groket/graph/badge.svg)](https://codecov.io/gh/indynull/groket)
-[![Docs](https://img.shields.io/badge/docs-pages-0A66C2)](https://indynull.github.io/groket/)
+[![CI](https://github.com/indynull/anqa/actions/workflows/ci.yml/badge.svg)](https://github.com/indynull/anqa/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/indynull/anqa/graph/badge.svg)](https://codecov.io/gh/indynull/anqa)
+[![Docs](https://img.shields.io/badge/docs-pages-0A66C2)](https://indynull.github.io/anqa/)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**groket** is a session review tool: timeline, notes, workspace diffs,
+**anqa** is a session review tool: timeline, notes, workspace diffs,
 and a summonable desktop palette.
 [Grok Build](https://docs.x.ai/build/overview) is the first shipped
 store. It does not launch evals.
 
-Four clients talk to [`groket serve`](#control).
+Four clients talk to [`anqa serve`](#control).
 
 | Client | What it does |
 |--------|----------------|
@@ -28,47 +28,47 @@ Four clients talk to [`groket serve`](#control).
 ## Install
 
 ```bash
-uv tool install --editable .    # clone: groket + groket-hud on PATH (needs Rust)
-groket                          # terminal app
-groket hud                      # desktop palette
+uv tool install --editable .    # clone: anqa + anqa-hud on PATH (needs Rust)
+anqa                          # terminal app
+anqa hud                      # desktop palette
 ```
 
 ```bash
-uv tool install git+https://github.com/indynull/groket
-groket
-groket hud
-uv tool upgrade groket
+uv tool install git+https://github.com/indynull/anqa
+anqa
+anqa hud
+uv tool upgrade anqa
 ```
 
 ```bash
 uv tool install --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ groket
-groket --version
+  --extra-index-url https://pypi.org/simple/ anqa
+anqa --version
 ```
 
 Wheels for Linux, macOS, and Windows (Intel and ARM) are on
-[TestPyPI](https://test.pypi.org/project/groket/).
+[TestPyPI](https://test.pypi.org/project/anqa/).
 
 ## Paths
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.groket` | `config.toml`, personas, optional `keys.toml` |
-| Work root | `~/.groket/work` | `runs/traces/`, recipes, Docker contexts, batch results |
+| Config home | `~/.anqa` | `config.toml`, personas, optional `keys.toml` |
+| Work root | `~/.anqa/work` | `runs/traces/`, recipes, Docker contexts, batch results |
 
 ```bash
-groket                      # default work root
-groket /path/to/work        # work root, traces tree, or one session dir
+anqa                      # default work root
+anqa /path/to/work        # work root, traces tree, or one session dir
 ```
 
-`~/.groket/config.toml` is the only prefs file (terminal app and desktop HUD).
+`~/.anqa/config.toml` is the only prefs file (terminal app and desktop HUD).
 Missing keys use defaults. Saves keep comments on keys they do not change.
-Schema: [config](https://indynull.github.io/groket/schemas/config.schema.json)
-(`groket config validate`, `just schema`). Copy
+Schema: [config](https://indynull.github.io/anqa/schemas/config.schema.json)
+(`anqa config validate`, `just schema`). Copy
 [`examples/config/config.toml`](examples/config/config.toml).
 
 ```toml
-#:schema https://indynull.github.io/groket/schemas/config.schema.json
+#:schema https://indynull.github.io/anqa/schemas/config.schema.json
 
 theme = "auto"
 follow_os = false
@@ -90,26 +90,26 @@ then the desktop) and paints the host pair paper (`ansi-light` /
 and, when the OS reports it, system paper and ink. Picking any member
 of a named pair (`gruvbox` or `gruvbox-light`) stores the family and
 sets `follow_os = true`; both clients apply the desktop member. An
-unpaired name (`nord`) pins both clients. Aliases `groket` and
-`groket-light` mean `auto`. Drop a TOML file in `~/.groket/themes/`
+unpaired name (`nord`) pins both clients. Aliases `anqa` and
+`anqa-light` mean `auto`. Drop a TOML file in `~/.anqa/themes/`
 (see [`examples/themes/`](examples/themes/)) and point `theme` at its
 stem.
 
 Key remaps stay in `keys.toml` (below), not in this file.
 
-Optional key diffs: `~/.groket/keys.toml` (`GROKET_KEYS` overrides the path).
+Optional key diffs: `~/.anqa/keys.toml` (`ANQA_KEYS` overrides the path).
 A missing file keeps the catalog defaults. Esc, Enter, Tab, Shift+Tab, and
 `?` are not remappable. The product default has no leader. An overlay may
 set one printable leader (recommended Colemak: `;`) and bind `leader+X`
 for one extra letter. Copy [`examples/keys/colemak.toml`](examples/keys/colemak.toml)
-to `~/.groket/keys.toml` for home-row `n`/`e` nav with follow-up and Done
+to `~/.anqa/keys.toml` for home-row `n`/`e` nav with follow-up and Done
 behind the leader. The TUI and HUD both use the resolved map for footer,
 help, and dispatch. The footer shows the leader while it is armed.
 
 ```bash
-groket keys              # resolved table (scope, id, chord, surface)
-groket keys --occupancy  # taken chords per scope
-groket keys --check      # exit 1 on overlay errors
+anqa keys              # resolved table (scope, id, chord, surface)
+anqa keys --occupancy  # taken chords per scope
+anqa keys --check      # exit 1 on overlay errors
 ```
 
 ## Catalog
@@ -117,11 +117,11 @@ groket keys --check      # exit 1 on overlay errors
 The list is every enabled adapter store plus leftover traces under the
 work root. Filter with `harness:grok`. `[catalog] ignore` drops a store.
 `[catalog.roots]` overrides a path. See `docs/harness-adapters.md`.
-`groket -P ~/.grok/sessions` browses that tree. Directory stores keep notes
+`anqa -P ~/.grok/sessions` browses that tree. Directory stores keep notes
 in the session tree; file or database stores use
-`~/.groket/notes/<harness>/<session_id>/`. Every note has a `source` (who
+`~/.anqa/notes/<harness>/<session_id>/`. Every note has a `source` (who
 wrote it). Control `notes/upsert` accepts any field bag plus that
-source. A new note uses `~/.groket/notes_schema.toml`. Editing a note
+source. A new note uses `~/.anqa/notes_schema.toml`. Editing a note
 also shows extra stored fields as free-text. Notes, the edit form,
 and HUD Notes show a source badge plus the stored fields. Subagent runs stay off the top
 list; open them from the parent (Summary run table, or Timeline
@@ -137,7 +137,7 @@ which is Docker / serve / container logs.
 
 ## Terminal app
 
-`groket` (or `groket tui`) is the session client: session list, browser
+`anqa` (or `anqa tui`) is the session client: session list, browser
 panes, follow-up, notes, and export. Diff lists rewind
 snapshots (or approximate `search_replace` edits) with Prompt and
 Assistant tabs above a files and hunk split.
@@ -191,16 +191,16 @@ turn. Enter opens (or edits the focused note).
 ### Export
 
 `E` on the list or browser writes a session bundle under
-`~/.groket/reports/` (profile in `export.default_profile`, or pick once).
+`~/.anqa/reports/` (profile in `export.default_profile`, or pick once).
 A parent bundle includes `children/<id>/grok-trace.tar.gz` for each
 openable child. Exporting an opened child is that child only.
 ### Catalog search
 
-`/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `groket serve`.
+`/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `anqa serve`.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
 | `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
@@ -233,49 +233,49 @@ sessions; host chats already notify on their own.
 Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash
-groket serve -d        # or let the client start serve
-groket hud             # PATH binary from uv tool install; one process + tray
-groket hud --toggle    # show or hide (Wayland bind this)
-groket hud --restart   # replace the running palette
-groket hud --rebuild   # cargo-build this checkout, then launch
+anqa serve -d        # or let the client start serve
+anqa hud             # PATH binary from uv tool install; one process + tray
+anqa hud --toggle    # show or hide (Wayland bind this)
+anqa hud --restart   # replace the running palette
+anqa hud --rebuild   # cargo-build this checkout, then launch
 ```
 
-`groket hud` runs `groket-hud` from `GROKET_HUD_BIN` or `PATH`. From a
+`anqa hud` runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`. From a
 checkout, `--rebuild` builds this tree; `--debug` is the unoptimized
 binary; `--dev` is `cargo run`.
 
 Default hotkey **Cmd+Shift+G** (macOS) / **Ctrl+Shift+G** (Windows and
 X11 Linux). Override with `hud.global_shortcut` in
-`~/.groket/config.toml` or `GROKET_HUD_SHORTCUT`. On Wayland bind
-`groket hud --toggle`: a compositor bind forwards an activation token so
+`~/.anqa/config.toml` or `ANQA_HUD_SHORTCUT`. On Wayland bind
+`anqa hud --toggle`: a compositor bind forwards an activation token so
 you can type immediately; tray **Show** or a terminal `--toggle`
 does not steal the keyboard. Sway places the overlay (float/center);
 focus is that token. While the overlay is on screen, a live poll
 re-reads overview about every **3 seconds** (idle sessions slower).
 An unfocused pop-out or hidden overlay waits on control notifies instead.
 
-`groket hud --install-desktop` writes user-local icons and a launcher
-named **groket** (Linux `.desktop` `Exec` uses `--show`, macOS
-`~/Applications/groket.app`, Windows Start Menu). Re-run after moving
-the binary or to refresh the launcher. Tray **Quit groket** exits the
+`anqa hud --install-desktop` writes user-local icons and a launcher
+named **anqa** (Linux `.desktop` `Exec` uses `--show`, macOS
+`~/Applications/anqa.app`, Windows Start Menu). Re-run after moving
+the binary or to refresh the launcher. Tray **Quit anqa** exits the
 palette only. [Emacs](#emacs) and
 [Neovim](#neovim-09) attach to the same [control](#control) socket.
 
 ## Control
 
-`groket serve` owns the per-user Unix socket. The four clients attach.
+`anqa serve` owns the per-user Unix socket. The four clients attach.
 
 ```bash
-groket serve -d
-groket serve status
-groket serve stop
-groket export-host -o host-catalog.json
+anqa serve -d
+anqa serve status
+anqa serve stop
+anqa export-host -o host-catalog.json
 ```
 
 `export-host` writes the host catalog snapshot serve uses (summary,
 signals, and list status from the updates tail). It does not start serve.
 
-Bare `groket` and `groket hud` detach-start serve when the socket is
+Bare `anqa` and `anqa hud` detach-start serve when the socket is
 free (`--no-serve` attaches only). Quitting a client leaves serve
 running. Methods, framing, and notifications:
 [docs/control.md](docs/control.md).
@@ -283,7 +283,7 @@ running. Methods, framing, and notifications:
 ## Emacs
 
 ```elisp
-(load (string-trim (shell-command-to-string "groket editor emacs-path")))
+(load (string-trim (shell-command-to-string "anqa editor emacs-path")))
 ```
 
 Sessions open as Org. Same [control](#control) socket as the
@@ -292,20 +292,20 @@ Sessions open as Org. Same [control](#control) socket as the
 ## Neovim (0.9+)
 
 ```lua
-vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "groket", "editor", "vim-path" })))
-require("groket").setup()
+vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "anqa", "editor", "vim-path" })))
+require("anqa").setup()
 ```
 
 Sessions open as Markdown. Start serve (or the terminal app) so the
 socket exists.
 
-Schemas: [config](https://indynull.github.io/groket/schemas/config.schema.json),
-[control](https://indynull.github.io/groket/schemas/control.schema.json).
+Schemas: [config](https://indynull.github.io/anqa/schemas/config.schema.json),
+[control](https://indynull.github.io/anqa/schemas/control.schema.json).
 
 ## Examples
 
 Supported packs under [`examples/`](examples/README.md) — copy into
-`~/.groket/` or pass paths. Not auto-loaded.
+`~/.anqa/` or pass paths. Not auto-loaded.
 
 ```bash
 just examples-check
@@ -321,4 +321,4 @@ just ci              # lint + schema-check + hud-check + examples-check + test
 just bump 0.1.1      # version strings + CHANGELOG.md
 ```
 
-Also: `groket doctor`, `groket gen …`, `groket keys`.
+Also: `anqa doctor`, `anqa gen …`, `anqa keys`.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.ui.keys import format_key_chord
+from anqa.ui.keys import format_key_chord
 
 
 def test_format_key_chord_modifiers_and_letters() -> None:

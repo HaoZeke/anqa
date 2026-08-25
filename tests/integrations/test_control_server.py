@@ -9,13 +9,13 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from anqa.integrations.control import PROTOCOL_VERSION
 from async_wait import wait_until
-from groket.integrations.control import PROTOCOL_VERSION
 
 
 def _short_sock(name: str) -> Path:
     """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
-    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-ctl-"))
     return root / name
 
 
@@ -94,7 +94,7 @@ def _write_session(session_dir: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_initializes_renders_and_opens_session(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-control"
     _write_session(session_dir)
     opened: list[tuple[Path, int | None]] = []
@@ -155,7 +155,7 @@ async def test_control_server_initializes_renders_and_opens_session(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_control_server_supports_emacs_jsonrpc_framing(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("emacs.sock"))
     await server.start()
     try:
@@ -177,7 +177,7 @@ async def test_control_server_supports_emacs_jsonrpc_framing(tmp_path: Path) -> 
 @pytest.mark.asyncio
 async def test_initialize_accepts_same_major_newer_minor(tmp_path: Path) -> None:
     """A 1.x client keeps a 1.0.0 owner (additive only)."""
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("minor-init.sock"))
     await server.start()
     try:
@@ -199,7 +199,7 @@ async def test_initialize_accepts_same_major_newer_minor(tmp_path: Path) -> None
 
 @pytest.mark.asyncio
 async def test_initialize_rejects_newer_client_version(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("future-init.sock"))
     await server.start()
     try:
@@ -223,7 +223,7 @@ async def test_initialize_rejects_newer_client_version(tmp_path: Path) -> None:
 async def test_control_server_does_not_chmod_existing_socket_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     socket_path = _short_sock("existing-parent.sock")
     original_chmod = Path.chmod
 
@@ -243,7 +243,7 @@ async def test_control_server_does_not_chmod_existing_socket_parent(
 
 @pytest.mark.asyncio
 async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-tui-change"
     _write_session(session_dir)
     server = control.ControlServer(socket_path=_short_sock("changes.sock"))
@@ -287,7 +287,7 @@ async def test_control_server_publishes_tui_changes(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_first_rpc_result_is_not_a_broadcast(tmp_path: Path) -> None:
     """One-shot HUD sockets must not see session/changed before their reply."""
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-oneshot"
     _write_session(session_dir)
     server = control.ControlServer(socket_path=_short_sock("oneshot.sock"))
@@ -334,7 +334,7 @@ async def test_first_rpc_result_is_not_a_broadcast(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-notes"
     _write_session(session_dir)
     server = control.ControlServer(
@@ -420,7 +420,7 @@ async def test_control_server_rejects_stale_note_mutation(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_control_server_rejects_unroundtrippable_note_tokens(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-tokens"
     _write_session(session_dir)
     server = control.ControlServer(
@@ -465,7 +465,7 @@ async def test_control_server_rejects_unroundtrippable_note_tokens(tmp_path: Pat
 async def test_control_notes_upsert_requires_source_and_keeps_foreign_fields(
     tmp_path: Path,
 ) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-foreign"
     _write_session(session_dir)
     server = control.ControlServer(
@@ -538,7 +538,7 @@ async def test_control_notes_upsert_requires_source_and_keeps_foreign_fields(
 
 @pytest.mark.asyncio
 async def test_control_server_accepts_content_type_first_framing(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("ctype.sock"))
     await server.start()
     try:
@@ -572,7 +572,7 @@ async def test_control_server_accepts_content_type_first_framing(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_control_server_defers_broadcasts_until_first_frame(tmp_path: Path) -> None:
     """Accepted client with no first request must not receive session/changed."""
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     session_dir = tmp_path / "session-quiet"
     _write_session(session_dir)
     server = control.ControlServer(socket_path=_short_sock("quiet.sock"))
@@ -618,7 +618,7 @@ async def test_control_server_drops_stalled_clients_from_broadcasts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     monkeypatch.setattr(control, "NOTIFY_TIMEOUT_SECONDS", 0.1)
     session_dir = tmp_path / "session-stalled"
     _write_session(session_dir)
@@ -655,7 +655,7 @@ async def test_control_server_drops_stalled_clients_from_broadcasts(
 
 @pytest.mark.asyncio
 async def test_control_server_returns_jsonrpc_errors(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("errors.sock"))
     await server.start()
     try:
@@ -675,7 +675,7 @@ async def test_control_server_returns_jsonrpc_errors(tmp_path: Path) -> None:
 
 def test_peer_gone_treats_reset_and_groups_as_disconnect() -> None:
     """RST and exception groups of RST are a gone peer, not a server fault."""
-    from groket.integrations.control import _peer_gone
+    from anqa.integrations.control import _peer_gone
 
     assert _peer_gone(ConnectionResetError(104, "Connection reset by peer"))
     assert _peer_gone(BrokenPipeError())
@@ -687,7 +687,7 @@ def test_peer_gone_treats_reset_and_groups_as_disconnect() -> None:
 @pytest.mark.asyncio
 async def test_control_server_peer_reset_stays_up() -> None:
     """A client that resets the socket must not take down the owner."""
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("rst.sock"))
     await server.start()
     try:

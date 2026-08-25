@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from groket.ui.app import TraceEvalApp
-from groket.ui.brand_mark import (
+from anqa.ui.app import AnqaApp
+from anqa.ui.brand_mark import (
     COMPLETE,
     FAILED,
     RUNNING,
@@ -15,8 +15,8 @@ from groket.ui.brand_mark import (
     help_mark,
     paths_banner,
 )
-from groket.ui.widgets.activity_bar import ActivityBar
-from groket.ui.widgets.help_modal import HelpModal
+from anqa.ui.widgets.activity_bar import ActivityBar
+from anqa.ui.widgets.help_modal import HelpModal
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
@@ -47,11 +47,11 @@ def test_help_mark_is_three_slats() -> None:
     assert RUNNING in styles
 
 
-def _make_app(tmp_path: Path) -> TraceEvalApp:
+def _make_app(tmp_path: Path) -> AnqaApp:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    return TraceEvalApp(work_dir=work, traces_path=traces)
+    return AnqaApp(work_dir=work, traces_path=traces)
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,7 @@ async def test_home_chrome_is_one_row(tmp_path: Path) -> None:
         await pilot.pause()
         chrome = app.query_one(AppChrome)
         assert chrome.size.height == 1
-        assert "groket" in static_plain(chrome.query_one("#app-chrome-title", Static)).lower()
+        assert "anqa" in static_plain(chrome.query_one("#app-chrome-title", Static)).lower()
         assert chrome.query_one(ActivityBar)
         footer = app.query_one(AppFooter)
         assert footer.has_class("-compact")

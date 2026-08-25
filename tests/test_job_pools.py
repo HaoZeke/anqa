@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from groket.job_pools import (
+from anqa.job_pools import (
     ActivityLog,
     JobPool,
     configure_job_pools,

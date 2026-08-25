@@ -77,7 +77,7 @@ def bump(root: Path, new: str, date: str) -> None:
         raise SystemExit(f"already at {new}")
     replace_assignment(root / "pyproject.toml", old, new, template='version = "{}"')
     replace_assignment(
-        root / "groket" / "__init__.py",
+        root / "anqa" / "__init__.py",
         old,
         new,
         template='__version__ = "{}"',
@@ -94,8 +94,8 @@ def bump(root: Path, new: str, date: str) -> None:
         new,
         template='version = "{}"',
     )
-    replace_crate_lock(root, "groket-hud", old, new)
-    replace_crate_lock(root, "groket-scan", old, new)
+    replace_crate_lock(root, "anqa-hud", old, new)
+    replace_crate_lock(root, "anqa-scan", old, new)
     log = root / "CHANGELOG.md"
     log.write_text(
         promote_changelog(log.read_text(encoding="utf-8"), new, date),

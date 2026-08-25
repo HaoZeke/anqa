@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.models import TraceEvent
-from groket.ui.screens.browser import BrowserScreen
-from groket.ui.widgets.timeline import TimelineTable
+from anqa.models import TraceEvent
+from anqa.ui.screens.browser import BrowserScreen
+from anqa.ui.widgets.timeline import TimelineTable
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Static
 from textual.widgets.data_table import RowKey

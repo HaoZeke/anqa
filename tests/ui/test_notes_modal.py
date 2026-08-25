@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from groket.notes import (
+from anqa.notes import (
     PICK_MANY,
     PICK_ONE_OF,
     FieldSpec,
@@ -11,9 +11,9 @@ from groket.notes import (
     NotesSchema,
     default_schema,
 )
-from groket.ui.i18n import setup_i18n
-from groket.ui.panel_render import LeftMarkdown
-from groket.ui.widgets.notes_modal import (
+from anqa.ui.i18n import setup_i18n
+from anqa.ui.panel_render import LeftMarkdown
+from anqa.ui.widgets.notes_modal import (
     NotesModal,
     NotesPickModal,
     _note_preview_label,
@@ -420,7 +420,7 @@ async def test_notes_modal_create_with_one_of_blank_severity() -> None:
         )
         sev = app.screen.query_one("#note-field-severity", Select)
         # Unselected one-of is legal (NULL), not bool False.
-        from groket.ui.forms import select_is_blank
+        from anqa.ui.forms import select_is_blank
 
         assert select_is_blank(sev.value)
         summary = app.screen.query_one("#note-field-summary", TextArea)

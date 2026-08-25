@@ -8,8 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from groket.models import JsonValue
-from groket.parser import (
+from anqa.models import JsonValue
+from anqa.parser import (
     extract_prompt,
     find_sessions,
     load_session_meta,
@@ -131,7 +131,7 @@ class TestParseRuntimeMarkers:
 
     def test_runtime_markers_cache_by_mtime(self, tmp_path):
         """Live light refresh must not re-read events.jsonl when unchanged."""
-        from groket import parser as parser_mod
+        from anqa import parser as parser_mod
 
         sd = tmp_path / "cached-events"
         sd.mkdir()
@@ -490,10 +490,10 @@ class TestFindSessions:
         sessions = find_sessions(root)
         assert len(sessions) == 2
 
-    def test_skips_groket_staging(self, tmp_path):
+    def test_skips_anqa_staging(self, tmp_path):
         """Marketplace plugin trees must not be walked or listed as sessions."""
-        run = tmp_path / "traces" / "groket-abc-model"
-        plug = run / "groket-plugins" / "superpowers" / "docs"
+        run = tmp_path / "traces" / "anqa-abc-model"
+        plug = run / "anqa-plugins" / "superpowers" / "docs"
         plug.mkdir(parents=True)
         (plug / "summary.json").write_text("{}", encoding="utf-8")
         sess = run / "%2Fworkspace" / "019f-session-id"
@@ -501,7 +501,7 @@ class TestFindSessions:
         (sess / "updates.jsonl").write_text("{}\n", encoding="utf-8")
         found = find_sessions(tmp_path / "traces")
         assert sess in found
-        assert not any("groket-plugins" in str(p) for p in found)
+        assert not any("anqa-plugins" in str(p) for p in found)
 
 
 # ── extract_prompt ────────────────────────────────────────────────────────
@@ -531,7 +531,7 @@ class TestParseChatHistory:
         assert messages == []
 
 
-from groket.parser import (
+from anqa.parser import (
     _as_epoch_ts,
     _extract_message_text,
     _extract_tool_update_text,
@@ -709,8 +709,8 @@ def test_model_helpers(tmp_path: Path):
     )
     data = json.loads((sd / "run.json").read_text())
     _model_from_run_json(sd, data)
-    _match_model_to_container("groket-task-dietcoke", ["v9-dietcoke", "x"])
-    parent = tmp_path / "groket-task-dietcoke"
+    _match_model_to_container("anqa-task-dietcoke", ["v9-dietcoke", "x"])
+    parent = tmp_path / "anqa-task-dietcoke"
     parent.mkdir()
     nested = parent / "sid"
     nested.mkdir()
@@ -800,7 +800,7 @@ def test_runtime_markers_turn_ended_extra_fields(tmp_path: Path):
 
 def test_extract_raw_output_mcp_okay_output() -> None:
     """MCP tools store body under rawOutput.output.OkayOutput (content is null)."""
-    from groket.parser import _extract_raw_output_text
+    from anqa.parser import _extract_raw_output_text
 
     text = _extract_raw_output_text(
         {
@@ -892,8 +892,8 @@ def test_timeline_does_not_copy_run_id_onto_non_workflow(tmp_path: Path) -> None
 
 def test_coalesce_tool_result_from_mcp_raw_output() -> None:
     """tool_call_update with only MCP rawOutput still yields a tool_result row."""
-    from groket.models import TraceEvent
-    from groket.parser import _coalesce_tool_result
+    from anqa.models import TraceEvent
+    from anqa.parser import _coalesce_tool_result
 
     pending = {
         "call-1": TraceEvent(
@@ -929,8 +929,8 @@ def test_coalesce_tool_result_from_mcp_raw_output() -> None:
 
 def test_apply_tool_result_meta_output_for_prompt_replacement(tmp_path: Path):
     """rawOutput.output_for_prompt with exit: prefix replaces existing content."""
-    from groket.models import ToolCall, ToolInputBag
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall, ToolInputBag
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(
         call_id="c1",
@@ -949,8 +949,8 @@ def test_apply_tool_result_meta_output_for_prompt_replacement(tmp_path: Path):
 
 
 def test_apply_tool_result_meta_signal_sets_error():
-    from groket.models import ToolCall, ToolInputBag
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall, ToolInputBag
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(
@@ -965,8 +965,8 @@ def test_apply_tool_result_meta_signal_sets_error():
 
 def test_apply_tool_result_meta_exit_code_1_not_error():
     """exit_code=1 is benign for terminal commands (grep no-match)."""
-    from groket.models import ToolCall, ToolInputBag
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall, ToolInputBag
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(
@@ -1047,7 +1047,7 @@ def test_timeline_scheduled_task_created_has_structured_fields(tmp_path: Path) -
             {
                 "sessionUpdate": "scheduled_task_created",
                 "task_id": "01a016e8b810",
-                "prompt": "Watch the groket board every hour and notify on change.",
+                "prompt": "Watch the anqa board every hour and notify on change.",
                 "human_schedule": "every 1 hour",
                 "next_fire_at": "2026-08-18T23:05:45.360458771+00:00",
             }
@@ -1059,7 +1059,7 @@ def test_timeline_scheduled_task_created_has_structured_fields(tmp_path: Path) -
     assert ev.raw_input.as_str("task_id") == "01a016e8b810"
     assert ev.raw_input.as_str("human_schedule") == "every 1 hour"
     assert ev.raw_input.as_str("next_fire_at").startswith("2026-08-18T23:05:45")
-    assert "Watch the groket board" in ev.raw_input.as_str("prompt")
+    assert "Watch the anqa board" in ev.raw_input.as_str("prompt")
     assert "every 1 hour" in ev.content
     assert ev.event_type != "subagent_spawned"
 
@@ -1100,11 +1100,11 @@ def test_timeline_task_backgrounded_fields_are_not_only_content(tmp_path: Path) 
                 "sessionUpdate": "task_backgrounded",
                 "tool_call_id": "call-abcb948b-1131-4adc-b6bf-ec687bb4dc7a-11",
                 "task_id": "01a016e8-b83c-7493-acb9-b9145526a4f8",
-                "command": "bash /home/ali/.groket/vissue-board-watch.sh",
-                "cwd": "/mnt/dev/_git/groket",
+                "command": "bash /home/ali/.anqa/vissue-board-watch.sh",
+                "cwd": "/mnt/dev/_git/anqa",
                 "output_file": "/tmp/monitor-call.log",
-                "description": "Live groket/icedtea vissue board watch",
-                "monitor_description": "Live groket/icedtea vissue board watch",
+                "description": "Live anqa/icedtea vissue board watch",
+                "monitor_description": "Live anqa/icedtea vissue board watch",
             }
         ],
     )
@@ -1112,9 +1112,9 @@ def test_timeline_task_backgrounded_fields_are_not_only_content(tmp_path: Path) 
     assert ev.tool_call_id == "call-abcb948b-1131-4adc-b6bf-ec687bb4dc7a-11"
     assert ev.raw_input.as_str("task_id") == "01a016e8-b83c-7493-acb9-b9145526a4f8"
     assert ev.raw_input.as_str("command").endswith("vissue-board-watch.sh")
-    assert ev.raw_input.as_str("cwd") == "/mnt/dev/_git/groket"
+    assert ev.raw_input.as_str("cwd") == "/mnt/dev/_git/anqa"
     assert ev.raw_input.as_str("output_file") == "/tmp/monitor-call.log"
-    assert ev.raw_input.as_str("description") == "Live groket/icedtea vissue board watch"
+    assert ev.raw_input.as_str("description") == "Live anqa/icedtea vissue board watch"
     assert ev.event_type != "subagent_spawned"
 
 
@@ -1130,9 +1130,9 @@ def test_timeline_task_completed_flattens_snapshot(tmp_path: Path) -> None:
                 "task_snapshot": {
                     "task_id": "01a016e8-b83c-7493-acb9-b9145526a4f8",
                     "command": "bash watch.sh",
-                    "cwd": "/mnt/dev/_git/groket",
+                    "cwd": "/mnt/dev/_git/anqa",
                     "output_file": "/tmp/monitor-call.log",
-                    "description": "Live groket/icedtea vissue board watch",
+                    "description": "Live anqa/icedtea vissue board watch",
                     "output": "DONE\n",
                     "start_time": {"secs_since_epoch": 1787090745, "nanos_since_epoch": 1},
                     "end_time": {"secs_since_epoch": 1787090763, "nanos_since_epoch": 2},
@@ -1145,9 +1145,9 @@ def test_timeline_task_completed_flattens_snapshot(tmp_path: Path) -> None:
     ev = next(e for e in parse_timeline(sd) if e.event_type == "task_completed")
     assert ev.raw_input.as_str("task_id") == "01a016e8-b83c-7493-acb9-b9145526a4f8"
     assert ev.raw_input.as_str("command") == "bash watch.sh"
-    assert ev.raw_input.as_str("cwd") == "/mnt/dev/_git/groket"
+    assert ev.raw_input.as_str("cwd") == "/mnt/dev/_git/anqa"
     assert ev.raw_input.as_str("output_file") == "/tmp/monitor-call.log"
-    assert ev.raw_input.as_str("description").startswith("Live groket")
+    assert ev.raw_input.as_str("description").startswith("Live anqa")
     assert "DONE" in ev.raw_input.as_str("output")
     assert ev.raw_input.get("start_time") is not None
     assert ev.raw_input.get("end_time") is not None
@@ -1605,7 +1605,7 @@ def test_session_trace_mtime_nonexistent(tmp_path: Path):
 
 
 def test_infer_interrupted_with_marker(tmp_path: Path):
-    from groket.constants import INTERRUPTED_MARKER_FILENAME
+    from anqa.constants import INTERRUPTED_MARKER_FILENAME
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -1637,8 +1637,8 @@ def test_infer_stale_body_returns_interrupted(tmp_path: Path):
 
 
 def test_load_summary_bad_json(tmp_path: Path):
-    from groket.models import SessionMeta
-    from groket.parser import _load_summary
+    from anqa.models import SessionMeta
+    from anqa.parser import _load_summary
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -1649,8 +1649,8 @@ def test_load_summary_bad_json(tmp_path: Path):
 
 
 def test_load_signals_bad_json(tmp_path: Path):
-    from groket.models import SessionMeta
-    from groket.parser import _load_signals
+    from anqa.models import SessionMeta
+    from anqa.parser import _load_signals
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -1664,7 +1664,7 @@ def test_load_signals_bad_json(tmp_path: Path):
 
 
 def test_find_container_exact_match(tmp_path: Path):
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "sess1"
     sd.mkdir()
@@ -1673,7 +1673,7 @@ def test_find_container_exact_match(tmp_path: Path):
 
 
 def test_find_container_by_name(tmp_path: Path):
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "sess1"
     sd.mkdir()
@@ -1682,7 +1682,7 @@ def test_find_container_by_name(tmp_path: Path):
 
 
 def test_find_container_no_match(tmp_path: Path):
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "sess1"
     sd.mkdir()
@@ -1691,22 +1691,22 @@ def test_find_container_no_match(tmp_path: Path):
 
 
 def test_find_container_run_parent(tmp_path: Path):
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
-    parent = tmp_path / "groket-abc-model"
+    parent = tmp_path / "anqa-abc-model"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     result = _find_container_for_session(sd, {})
-    assert result == "groket-abc-model"
+    assert result == "anqa-abc-model"
 
 
 def test_model_from_run_json_with_run_id_suffix(tmp_path: Path):
-    sd = tmp_path / "groket-abc123-mymodel" / "sess"
+    sd = tmp_path / "anqa-abc123-mymodel" / "sess"
     sd.mkdir(parents=True)
     data = {
         "run_id": "abc123",
         "models": [],
-        "sessions": {"groket-abc123-mymodel": str(sd)},
+        "sessions": {"anqa-abc123-mymodel": str(sd)},
     }
     result = _model_from_run_json(sd, data)
     assert result == "mymodel"
@@ -1721,7 +1721,7 @@ def test_model_from_run_parent_no_run_dir(tmp_path: Path):
 
 def test_model_from_run_parent_digit_suffix(tmp_path: Path):
     """When last part is a digit, use second-to-last."""
-    parent = tmp_path / "groket-abc-mymodel-1"
+    parent = tmp_path / "anqa-abc-mymodel-1"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     result = _model_from_run_parent(sd)
@@ -1729,8 +1729,8 @@ def test_model_from_run_parent_digit_suffix(tmp_path: Path):
 
 
 def test_model_from_run_parent_short_body(tmp_path: Path):
-    """groket-x (single part body) returns that part."""
-    parent = tmp_path / "groket-singlepart"
+    """anqa-x (single part body) returns that part."""
+    parent = tmp_path / "anqa-singlepart"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     result = _model_from_run_parent(sd)
@@ -1741,17 +1741,17 @@ def test_model_from_run_parent_short_body(tmp_path: Path):
 
 
 def test_match_model_v9_alias():
-    result = _match_model_to_container("groket-abc-bottlerock", ["v9-bottlerocket"])
+    result = _match_model_to_container("anqa-abc-bottlerock", ["v9-bottlerocket"])
     assert result == "v9-bottlerocket"
 
 
 def test_match_model_empty_model_skipped():
-    result = _match_model_to_container("groket-abc-model", ["", "v9-model"])
+    result = _match_model_to_container("anqa-abc-model", ["", "v9-model"])
     assert result == "v9-model"
 
 
 def test_match_model_full_name_in_container():
-    result = _match_model_to_container("groket-v9-dietcoke-run", ["v9-dietcoke"])
+    result = _match_model_to_container("anqa-v9-dietcoke-run", ["v9-dietcoke"])
     assert result == "v9-dietcoke"
 
 
@@ -1759,8 +1759,8 @@ def test_match_model_full_name_in_container():
 
 
 def test_load_session_meta_run_json_from_parent(tmp_path: Path):
-    """run.json in a groket-* parent dir is discovered."""
-    parent = tmp_path / "groket-abc-model"
+    """run.json in a anqa-* parent dir is discovered."""
+    parent = tmp_path / "anqa-abc-model"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text("{}", encoding="utf-8")
@@ -1769,7 +1769,7 @@ def test_load_session_meta_run_json_from_parent(tmp_path: Path):
             {
                 "run_id": "abc",
                 "models": ["v9-model"],
-                "sessions": {"groket-abc-model": str(sd)},
+                "sessions": {"anqa-abc-model": str(sd)},
             }
         ),
         encoding="utf-8",
@@ -1779,8 +1779,8 @@ def test_load_session_meta_run_json_from_parent(tmp_path: Path):
 
 
 def test_model_display_effort_from_run_dir_slug(tmp_path: Path) -> None:
-    """Session under groket-*-{effort} shows model:effort without config.toml effort."""
-    vol = tmp_path / "runs" / "traces" / "groket-abc123-xhigh"
+    """Session under anqa-*-{effort} shows model:effort without config.toml effort."""
+    vol = tmp_path / "runs" / "traces" / "anqa-abc123-xhigh"
     sd = vol / "%2Fworkspace" / "sess-eff"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text(
@@ -1793,18 +1793,18 @@ def test_model_display_effort_from_run_dir_slug(tmp_path: Path) -> None:
 
 
 def test_reasoning_effort_from_run_dir_max(tmp_path: Path) -> None:
-    from groket.parser import _reasoning_effort_from_run_dir
+    from anqa.parser import _reasoning_effort_from_run_dir
 
-    p = tmp_path / "groket-deadbeef-max" / "sess"
+    p = tmp_path / "anqa-deadbeef-max" / "sess"
     p.mkdir(parents=True)
     assert _reasoning_effort_from_run_dir(p) == "max"
 
 
 def test_reasoning_effort_from_run_dir_strips_x2_disambiguator(tmp_path: Path) -> None:
     """Collision suffix ``x2`` on an effort-only slug still yields xhigh."""
-    from groket.parser import _reasoning_effort_from_run_dir, load_session_meta
+    from anqa.parser import _reasoning_effort_from_run_dir, load_session_meta
 
-    vol = tmp_path / "traces" / "groket-49fdc12a916c-xhighx2"
+    vol = tmp_path / "traces" / "anqa-49fdc12a916c-xhighx2"
     sd = vol / "%2Fworkspace" / "019f-sess"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text(
@@ -1818,9 +1818,9 @@ def test_reasoning_effort_from_run_dir_strips_x2_disambiguator(tmp_path: Path) -
 
 
 def test_reasoning_effort_from_model_tail_slug(tmp_path: Path) -> None:
-    from groket.parser import _reasoning_effort_from_run_dir
+    from anqa.parser import _reasoning_effort_from_run_dir
 
-    p = tmp_path / "groket-abc123def456-goldbond-xhigh" / "sess"
+    p = tmp_path / "anqa-abc123def456-goldbond-xhigh" / "sess"
     p.mkdir(parents=True)
     assert _reasoning_effort_from_run_dir(p) == "xhigh"
 
@@ -1839,11 +1839,11 @@ def test_parse_timeline_prepends_system_prompt(tmp_path: Path) -> None:
 
 def test_load_session_meta_turn_gate_running(tmp_path: Path):
     """Gate state=running overrides turn_outcome."""
-    vol = tmp_path / "traces" / "groket-r-m"
+    vol = tmp_path / "traces" / "anqa-r-m"
     sess = vol / "%2F" / "sess-gate"
     sess.mkdir(parents=True)
     (sess / "summary.json").write_text("{}", encoding="utf-8")
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir()
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "sess-gate"}) + "\n",
@@ -1928,7 +1928,7 @@ def test_load_session_meta_timeline_exception(tmp_path: Path):
 def test_find_sessions_skips_stage_dirs(tmp_path: Path):
     """Directories ending with .stage are pruned from walk."""
     root = tmp_path / "traces"
-    stage = root / "groket-abc.stage" / "inner"
+    stage = root / "anqa-abc.stage" / "inner"
     stage.mkdir(parents=True)
     (stage / "updates.jsonl").write_text("{}\n")
     real = root / "real-session"
@@ -1941,7 +1941,7 @@ def test_find_sessions_skips_stage_dirs(tmp_path: Path):
 
 def test_find_sessions_skips_subagent_mirrors(tmp_path: Path) -> None:
     """Subagent trees and workspace sibling mirrors are not list rows."""
-    ws = tmp_path / "traces" / "groket-run-tomato-xhigh" / "%2Fworkspace"
+    ws = tmp_path / "traces" / "anqa-run-tomato-xhigh" / "%2Fworkspace"
     parent = ws / "019f-parent"
     parent.mkdir(parents=True)
     (parent / "summary.json").write_text("{}", encoding="utf-8")
@@ -1975,13 +1975,13 @@ def test_find_sessions_events_empty_file(tmp_path: Path):
 
 
 def test_prune_session_walk_dirs():
-    from groket.parser import _prune_session_walk_dirs
+    from anqa.parser import _prune_session_walk_dirs
 
     dirs = [
-        "groket-abc-model",
+        "anqa-abc-model",
         ".git",
         "node_modules",
-        "groket-x.stage",
+        "anqa-x.stage",
         "subagents",
         "real-dir",
     ]
@@ -1989,8 +1989,8 @@ def test_prune_session_walk_dirs():
     assert "subagents" not in dirs
     assert ".git" not in dirs
     assert "node_modules" not in dirs
-    assert "groket-x.stage" not in dirs
-    assert "groket-abc-model" in dirs
+    assert "anqa-x.stage" not in dirs
+    assert "anqa-abc-model" in dirs
     assert "real-dir" in dirs
 
 
@@ -2005,7 +2005,7 @@ def test_find_sessions_scan_drops_skipped_descendants(
     junk = root / "workspace" / "fake"
     junk.mkdir(parents=True)
     (junk / "summary.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr("groket.parser.walk_sessions", lambda _r: [keep, junk])
+    monkeypatch.setattr("anqa.parser.walk_sessions", lambda _r: [keep, junk])
     found = find_sessions(root)
     assert found == [keep]
 
@@ -2015,8 +2015,8 @@ def test_find_sessions_scan_drops_skipped_descendants(
 
 def test_apply_tool_result_meta_ofp_different_no_exit():
     """Longer / newer ofp body replaces prior content (MCP + host tools)."""
-    from groket.models import ToolCall, ToolInputBag
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall, ToolInputBag
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(
         call_id="c1", tool_name="grep", raw_input=ToolInputBag({}), result_content="original"
@@ -2032,8 +2032,8 @@ def test_apply_tool_result_meta_ofp_different_no_exit():
 
 def test_apply_tool_result_meta_exit_code_1_not_error_no_signal():
     """exit_code=1 for run_terminal_command with no signal → not error."""
-    from groket.models import ToolCall, ToolInputBag
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall, ToolInputBag
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(tc, {"rawOutput": {"exit_code": 0}})
@@ -2042,8 +2042,8 @@ def test_apply_tool_result_meta_exit_code_1_not_error_no_signal():
 
 def test_apply_tool_result_meta_exit_code_high():
     """exit_code >= 2 for terminal commands → is_error."""
-    from groket.models import ToolCall, ToolInputBag
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall, ToolInputBag
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(tc, {"rawOutput": {"exit_code": 2}})
@@ -2084,8 +2084,8 @@ def test_runtime_markers_oserror(tmp_path: Path):
 
 def test_coalesce_empty_content_no_error_no_terminal():
     """No content + no error + no terminal → skip, return same idx."""
-    from groket.models import TraceEvent as _TE
-    from groket.parser import _coalesce_tool_result
+    from anqa.models import TraceEvent as _TE
+    from anqa.parser import _coalesce_tool_result
 
     events: list[_TE] = []
     pending: dict[str, _TE] = {}
@@ -2105,8 +2105,8 @@ def test_coalesce_empty_content_no_error_no_terminal():
 
 def test_coalesce_existing_result_error_flag():
     """Second update marks existing result as error."""
-    from groket.models import TraceEvent as _TE
-    from groket.parser import _coalesce_tool_result
+    from anqa.models import TraceEvent as _TE
+    from anqa.parser import _coalesce_tool_result
 
     ev = _TE(index=0, event_type="tool_call_update", content="output", tool_call_id="t1")
     events: list[_TE] = [ev]
@@ -2126,8 +2126,8 @@ def test_coalesce_existing_result_error_flag():
 
 def test_coalesce_failed_no_text_creates_event():
     """Failed update with no text but isError=True creates error event."""
-    from groket.models import TraceEvent as _TE
-    from groket.parser import _coalesce_tool_result
+    from anqa.models import TraceEvent as _TE
+    from anqa.parser import _coalesce_tool_result
 
     events: list[_TE] = []
     result_by: dict[str, int] = {}
@@ -2183,7 +2183,7 @@ def test_infer_no_mtime_returns_interrupted(tmp_path: Path):
 
 def test_find_container_is_relative_to(tmp_path: Path):
     """Match via is_relative_to check."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     parent = tmp_path / "traces" / "c1"
     sd = parent / "workspace" / "sess"
@@ -2194,7 +2194,7 @@ def test_find_container_is_relative_to(tmp_path: Path):
 
 def test_find_container_sid_in_spath(tmp_path: Path):
     """Match via session id substring in session path."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "my-session-id"
     sd.mkdir()
@@ -2221,13 +2221,13 @@ def test_model_from_run_json_no_container_match(tmp_path: Path):
 
 def test_match_model_partial_short_in_cname():
     """Short model suffix found as substring in container name."""
-    result = _match_model_to_container("groket-abc-some-dc", ["v9-dc"])
+    result = _match_model_to_container("anqa-abc-some-dc", ["v9-dc"])
     assert result == "v9-dc"
 
 
 def test_match_model_full_in_cname():
     """Full model name found in container name."""
-    result = _match_model_to_container("groket-v9-dietcoke-stuff", ["v9-dietcoke"])
+    result = _match_model_to_container("anqa-v9-dietcoke-stuff", ["v9-dietcoke"])
     assert result == "v9-dietcoke"
 
 
@@ -2236,7 +2236,7 @@ def test_match_model_full_in_cname():
 
 def test_model_from_run_parent_build_suffix(tmp_path: Path):
     """'build', 'traces', 'workspace' suffixes skipped."""
-    parent = tmp_path / "groket-abc-build"
+    parent = tmp_path / "anqa-abc-build"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     result = _model_from_run_parent(sd)
@@ -2258,7 +2258,7 @@ def test_load_session_meta_run_json_bad(tmp_path: Path):
 
 def test_load_session_meta_infer_model_from_parent(tmp_path: Path):
     """Model inferred from run parent when summary model is 'unknown'."""
-    parent = tmp_path / "groket-abc-dietcoke"
+    parent = tmp_path / "anqa-abc-dietcoke"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text("{}", encoding="utf-8")
@@ -2272,7 +2272,7 @@ def test_load_session_meta_infer_model_from_parent(tmp_path: Path):
 
 def test_as_epoch_ts_non_primitive():
     """_as_epoch_ts returns None for non-primitive types like list or dict."""
-    from groket.parser import _as_epoch_ts
+    from anqa.parser import _as_epoch_ts
 
     assert _as_epoch_ts([1, 2, 3]) is None
     assert _as_epoch_ts({"key": "value"}) is None
@@ -2280,7 +2280,7 @@ def test_as_epoch_ts_non_primitive():
 
 def test_extract_message_text_list_content_json():
     """_extract_message_text dumps non-string/non-dict items as JSON."""
-    from groket.parser import _extract_message_text
+    from anqa.parser import _extract_message_text
 
     msg = {"content": [42, True, None]}
     text = _extract_message_text(msg)
@@ -2289,7 +2289,7 @@ def test_extract_message_text_list_content_json():
 
 def test_session_trace_mtime_fallback_to_dir(tmp_path: Path):
     """session_trace_mtime falls back to session_dir.stat() mtime."""
-    from groket.parser import session_trace_mtime
+    from anqa.parser import session_trace_mtime
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2300,7 +2300,7 @@ def test_session_trace_mtime_fallback_to_dir(tmp_path: Path):
 
 def test_infer_incomplete_no_body_returns_empty(tmp_path: Path):
     """_infer_incomplete returns '' when no substantial trace data exists."""
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "empty-sess"
     sd.mkdir()
@@ -2314,7 +2314,7 @@ def test_infer_incomplete_stale_returns_interrupted(tmp_path: Path):
     import os
     import time
 
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "stale-sess"
     sd.mkdir()
@@ -2346,7 +2346,7 @@ def test_find_sessions_empty_events_skipped(tmp_path: Path):
 
 def test_load_session_meta_turn_gate_awaiting(tmp_path: Path):
     """load_session_meta picks up 'awaiting_follow_up' from turn gate status."""
-    parent = tmp_path / "groket-run" / "traces"
+    parent = tmp_path / "anqa-run" / "traces"
     sd = parent / "sess"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text(json.dumps({"info": {"id": "sess"}}), encoding="utf-8")
@@ -2355,7 +2355,7 @@ def test_load_session_meta_turn_gate_awaiting(tmp_path: Path):
         encoding="utf-8",
     )
     # Create a turn gate with awaiting state
-    gate = parent / ".groket-turn"
+    gate = parent / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": "sess"}) + "\n",
@@ -2367,12 +2367,12 @@ def test_load_session_meta_turn_gate_awaiting(tmp_path: Path):
 
 def test_load_session_meta_gate_running_with_summary(tmp_path: Path):
     """load_session_meta picks up 'running' from turn gate status with summary."""
-    vol = tmp_path / "traces" / "groket-run"
+    vol = tmp_path / "traces" / "anqa-run"
     sd = vol / "%2Fworkspace" / "sess"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text(json.dumps({"info": {"id": "sess"}}), encoding="utf-8")
     (sd / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "sess"}) + "\n",
@@ -2384,34 +2384,34 @@ def test_load_session_meta_gate_running_with_summary(tmp_path: Path):
 
 def test_match_model_to_container_v9_alias():
     """_match_model_to_container matches v9-alias-style model ids."""
-    from groket.parser import _match_model_to_container
+    from anqa.parser import _match_model_to_container
 
-    result = _match_model_to_container("groket-abc-bottlerock", ["v9-bottlerocket"])
+    result = _match_model_to_container("anqa-abc-bottlerock", ["v9-bottlerocket"])
     assert result == "v9-bottlerocket" or result == ""
 
 
 def test_match_model_to_container_empty_model():
     """_match_model_to_container skips empty model strings."""
-    from groket.parser import _match_model_to_container
+    from anqa.parser import _match_model_to_container
 
-    result = _match_model_to_container("groket-abc-m1", ["", "m1"])
+    result = _match_model_to_container("anqa-abc-m1", ["", "m1"])
     assert result == "m1"
 
 
 def test_find_container_for_session_path_match(tmp_path: Path):
     """_find_container_for_session matches via path resolution."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
-    sd = tmp_path / "groket-run" / "sess-1"
+    sd = tmp_path / "anqa-run" / "sess-1"
     sd.mkdir(parents=True)
-    sessions_map = {"groket-run-m1": str(tmp_path / "groket-run")}
+    sessions_map = {"anqa-run-m1": str(tmp_path / "anqa-run")}
     result = _find_container_for_session(sd, sessions_map)
-    assert result == "groket-run-m1"
+    assert result == "anqa-run-m1"
 
 
 def test_find_container_for_session_sid_in_value(tmp_path: Path):
     """_find_container_for_session matches when session_id appears in value string."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "sess-1"
     sd.mkdir(parents=True)
@@ -2421,18 +2421,18 @@ def test_find_container_for_session_sid_in_value(tmp_path: Path):
 
 
 def test_find_container_walks_parents(tmp_path: Path):
-    """_find_container_for_session falls back to parent groket-* dir name."""
-    from groket.parser import _find_container_for_session
+    """_find_container_for_session falls back to parent anqa-* dir name."""
+    from anqa.parser import _find_container_for_session
 
-    sd = tmp_path / "groket-run123-m1" / "workspace" / "sess"
+    sd = tmp_path / "anqa-run123-m1" / "workspace" / "sess"
     sd.mkdir(parents=True)
     result = _find_container_for_session(sd, {})
-    assert result == "groket-run123-m1"
+    assert result == "anqa-run123-m1"
 
 
 def test_find_container_returns_empty_no_match(tmp_path: Path):
     """_find_container_for_session returns empty when nothing matches."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "plain" / "sess"
     sd.mkdir(parents=True)
@@ -2442,14 +2442,14 @@ def test_find_container_returns_empty_no_match(tmp_path: Path):
 
 def test_model_from_run_json_suffix_fallback(tmp_path: Path):
     """_model_from_run_json falls back to container suffix after run_id."""
-    from groket.parser import _model_from_run_json
+    from anqa.parser import _model_from_run_json
 
-    sd = tmp_path / "groket-abc123-mymodel" / "sess"
+    sd = tmp_path / "anqa-abc123-mymodel" / "sess"
     sd.mkdir(parents=True)
     run_data = {
         "run_id": "abc123",
         "models": [],
-        "sessions": {"groket-abc123-mymodel": str(sd)},
+        "sessions": {"anqa-abc123-mymodel": str(sd)},
     }
     result = _model_from_run_json(sd, run_data)
     assert result == "mymodel"
@@ -2457,7 +2457,7 @@ def test_model_from_run_json_suffix_fallback(tmp_path: Path):
 
 def test_model_from_run_json_no_match_returns_empty(tmp_path: Path):
     """_model_from_run_json returns empty when no container matches."""
-    from groket.parser import _model_from_run_json
+    from anqa.parser import _model_from_run_json
 
     sd = tmp_path / "sess"
     sd.mkdir(parents=True)
@@ -2468,7 +2468,7 @@ def test_model_from_run_json_no_match_returns_empty(tmp_path: Path):
 
 def test_model_from_run_json_empty_data():
     """_model_from_run_json returns empty for no models and no sessions."""
-    from groket.parser import _model_from_run_json
+    from anqa.parser import _model_from_run_json
 
     result = _model_from_run_json(Path("/x"), {})
     assert result == ""
@@ -2476,8 +2476,8 @@ def test_model_from_run_json_empty_data():
 
 def test_tool_call_update_replaces_result_with_exit_prefix():
     """_apply_tool_result_meta replaces result_content when rawOutput starts with exit:."""
-    from groket.models import ToolCall
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(
         call_id="tc1",
@@ -2494,7 +2494,7 @@ def test_tool_call_update_replaces_result_with_exit_prefix():
 
 def test_infer_incomplete_running_recent(tmp_path: Path):
     """_infer_incomplete returns running for recent trace data."""
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2508,7 +2508,7 @@ def test_infer_incomplete_interrupted_stale(tmp_path: Path):
     import os
     import time
 
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2521,7 +2521,7 @@ def test_infer_incomplete_interrupted_stale(tmp_path: Path):
 
 def test_session_trace_mtime_oserror(tmp_path: Path):
     """session_trace_mtime falls back to dir mtime when files raise OSError."""
-    from groket.parser import session_trace_mtime
+    from anqa.parser import session_trace_mtime
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2531,9 +2531,9 @@ def test_session_trace_mtime_oserror(tmp_path: Path):
 
 def test_find_sessions_events_only_oserror(tmp_path: Path):
     """find_sessions handles OSError when stating events.jsonl."""
-    from groket.parser import find_sessions
+    from anqa.parser import find_sessions
 
-    sd = tmp_path / "traces" / "groket-r" / "s1"
+    sd = tmp_path / "traces" / "anqa-r" / "s1"
     sd.mkdir(parents=True)
     (sd / "events.jsonl").write_text("", encoding="utf-8")  # 0 bytes
     sessions = find_sessions(tmp_path / "traces")
@@ -2543,7 +2543,7 @@ def test_find_sessions_events_only_oserror(tmp_path: Path):
 
 def test_load_session_meta_turn_gate_exception(tmp_path: Path):
     """load_session_meta handles turn_gate import exception gracefully."""
-    from groket.parser import load_session_meta
+    from anqa.parser import load_session_meta
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2558,17 +2558,17 @@ def test_load_session_meta_turn_gate_exception(tmp_path: Path):
 
 def test_match_model_full_name_in_cname():
     """_match_model_to_container matches full model name in container name."""
-    from groket.parser import _match_model_to_container
+    from anqa.parser import _match_model_to_container
 
-    result = _match_model_to_container("groket-abc-v9-pizzaparty", ["v9-pizzaparty"])
+    result = _match_model_to_container("anqa-abc-v9-pizzaparty", ["v9-pizzaparty"])
     assert result == "v9-pizzaparty"
 
 
 def test_match_model_short_in_cname():
     """_match_model_to_container matches short suffix in container name."""
-    from groket.parser import _match_model_to_container
+    from anqa.parser import _match_model_to_container
 
-    result = _match_model_to_container("groket-abc-dietcoke", ["v9-dietcoke"])
+    result = _match_model_to_container("anqa-abc-dietcoke", ["v9-dietcoke"])
     assert result == "v9-dietcoke"
 
 
@@ -2577,8 +2577,8 @@ def test_match_model_short_in_cname():
 
 def test_apply_tool_result_meta_empty_result_sets_content():
     """_apply_tool_result_meta sets result_content when empty."""
-    from groket.models import ToolCall
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="tc1", tool_name="read_file", raw_input={})
     tc.result_content = ""
@@ -2591,8 +2591,8 @@ def test_apply_tool_result_meta_empty_result_sets_content():
 
 def test_apply_tool_result_meta_exit_code_and_signal():
     """_apply_tool_result_meta sets exit_code and signal fields."""
-    from groket.models import ToolCall
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="tc2", tool_name="run_terminal_command", raw_input={})
     update: dict[str, object] = {
@@ -2605,8 +2605,8 @@ def test_apply_tool_result_meta_exit_code_and_signal():
 
 def test_apply_tool_result_meta_is_error():
     """_apply_tool_result_meta sets is_error from isError flag."""
-    from groket.models import ToolCall
-    from groket.parser import _apply_tool_result_meta
+    from anqa.models import ToolCall
+    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="tc3", tool_name="grep", raw_input={})
     update: dict[str, object] = {"isError": True}
@@ -2616,7 +2616,7 @@ def test_apply_tool_result_meta_is_error():
 
 def test_extract_message_text_list():
     """_extract_message_text handles list of mixed content blocks."""
-    from groket.parser import _extract_message_text
+    from anqa.parser import _extract_message_text
 
     result = _extract_message_text(
         [
@@ -2630,7 +2630,7 @@ def test_extract_message_text_list():
 
 def test_extract_message_text_dict():
     """_extract_message_text handles dict with type=text."""
-    from groket.parser import _extract_message_text
+    from anqa.parser import _extract_message_text
 
     result = _extract_message_text({"type": "text", "text": "content"})
     assert result == "content"
@@ -2638,7 +2638,7 @@ def test_extract_message_text_dict():
 
 def test_extract_message_text_non_text():
     """_extract_message_text JSON-dumps non-string/dict/list."""
-    from groket.parser import _extract_message_text
+    from anqa.parser import _extract_message_text
 
     result = _extract_message_text(42)
     assert "42" in result
@@ -2646,7 +2646,7 @@ def test_extract_message_text_non_text():
 
 def test_infer_incomplete_no_body(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns '' for session with no body."""
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2655,8 +2655,8 @@ def test_infer_incomplete_no_body(tmp_path: Path):
 
 def test_infer_incomplete_with_marker(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns 'interrupted' for marker file."""
-    from groket.constants import INTERRUPTED_MARKER_FILENAME
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.constants import INTERRUPTED_MARKER_FILENAME
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2669,7 +2669,7 @@ def test_infer_incomplete_stale_body(tmp_path: Path):
     import os
     import time
 
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2682,7 +2682,7 @@ def test_infer_incomplete_stale_body(tmp_path: Path):
 
 def test_session_trace_mtime_no_files(tmp_path: Path):
     """session_trace_mtime returns 0 for empty session dir."""
-    from groket.parser import session_trace_mtime
+    from anqa.parser import session_trace_mtime
 
     sd = tmp_path / "empty"
     sd.mkdir()
@@ -2690,22 +2690,22 @@ def test_session_trace_mtime_no_files(tmp_path: Path):
 
 
 def test_find_container_walks_parents_path_only():
-    """_find_container_for_session resolves parent groket-* dir from path."""
-    from groket.parser import _find_container_for_session
+    """_find_container_for_session resolves parent anqa-* dir from path."""
+    from anqa.parser import _find_container_for_session
 
-    sd = Path("/traces/groket-abc-model/%2Fworkspace/sess-id")
+    sd = Path("/traces/anqa-abc-model/%2Fworkspace/sess-id")
     result = _find_container_for_session(sd, {})
-    assert result == "groket-abc-model"
+    assert result == "anqa-abc-model"
 
 
 def test_find_container_sessions_map_match():
     """_find_container_for_session matches via sessions map value."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
-    sd = Path("/traces/groket-r1/sess-id")
-    sessions = {"groket-r1-model": str(sd)}
+    sd = Path("/traces/anqa-r1/sess-id")
+    sessions = {"anqa-r1-model": str(sd)}
     result = _find_container_for_session(sd, sessions)
-    assert result == "groket-r1-model"
+    assert result == "anqa-r1-model"
 
 
 # ── Deeper parser coverage ────────────────────────────────────────────────
@@ -2713,7 +2713,7 @@ def test_find_container_sessions_map_match():
 
 def test_session_trace_mtime_stat_oserror(tmp_path: Path):
     """session_trace_mtime handles stat OSError on individual files."""
-    from groket.parser import session_trace_mtime
+    from anqa.parser import session_trace_mtime
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2734,19 +2734,19 @@ def test_session_trace_mtime_stat_oserror(tmp_path: Path):
 
 def test_find_container_relative_to_match(tmp_path: Path):
     """_find_container_for_session matches via is_relative_to."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
-    parent = tmp_path / "groket-run" / "data"
+    parent = tmp_path / "anqa-run" / "data"
     sd = parent / "sess"
     sd.mkdir(parents=True)
-    sessions_map = {"groket-run-m1": str(parent)}
+    sessions_map = {"anqa-run-m1": str(parent)}
     result = _find_container_for_session(sd, sessions_map)
-    assert result == "groket-run-m1"
+    assert result == "anqa-run-m1"
 
 
 def test_find_container_oserror_in_loop(tmp_path: Path):
     """_find_container_for_session handles OSError in sessions_map loop."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2758,9 +2758,9 @@ def test_find_container_oserror_in_loop(tmp_path: Path):
 
 def test_model_from_run_json_resolve_error(tmp_path: Path):
     """_model_from_run_json handles resolve OSError."""
-    from groket.parser import _model_from_run_json
+    from anqa.parser import _model_from_run_json
 
-    sd = tmp_path / "groket-abc-model" / "sess"
+    sd = tmp_path / "anqa-abc-model" / "sess"
     sd.mkdir(parents=True)
     result = _model_from_run_json(sd, {"models": ["model"], "sessions": {}})
     # Should fall back to suffix extraction
@@ -2769,7 +2769,7 @@ def test_model_from_run_json_resolve_error(tmp_path: Path):
 
 def test_find_sessions_stat_oserror_on_events(tmp_path: Path):
     """find_sessions handles OSError on events.jsonl stat gracefully."""
-    from groket.scan import using_scan
+    from anqa.scan import using_scan
 
     if using_scan():
         pytest.skip("compiled walk does not use Path.stat")
@@ -2793,9 +2793,9 @@ def test_find_sessions_stat_oserror_on_events(tmp_path: Path):
 
 def test_find_container_resolve_oserror(tmp_path: Path):
     """_find_container_for_session handles resolve() OSError on session_dir."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
-    sd = tmp_path / "groket-abc-model" / "sess"
+    sd = tmp_path / "anqa-abc-model" / "sess"
     sd.mkdir(parents=True)
 
     orig_resolve = Path.resolve
@@ -2807,13 +2807,13 @@ def test_find_container_resolve_oserror(tmp_path: Path):
 
     with patch.object(Path, "resolve", _fail_resolve):
         result = _find_container_for_session(sd, {})
-    # Falls back to parent walk for groket-* name
-    assert result == "groket-abc-model"
+    # Falls back to parent walk for anqa-* name
+    assert result == "anqa-abc-model"
 
 
 def test_find_container_path_resolve_oserror(tmp_path: Path):
     """_find_container_for_session handles resolve() OSError on map path."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2824,9 +2824,9 @@ def test_find_container_path_resolve_oserror(tmp_path: Path):
 
 def test_find_container_is_relative_to_match(tmp_path: Path):
     """_find_container_for_session matches via is_relative_to."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
-    parent = tmp_path / "traces" / "groket-run-model"
+    parent = tmp_path / "traces" / "anqa-run-model"
     sd = parent / "workspace" / "sess"
     sd.mkdir(parents=True)
     # Map path is the parent dir
@@ -2837,7 +2837,7 @@ def test_find_container_is_relative_to_match(tmp_path: Path):
 
 def test_find_container_sid_in_spath_fallback(tmp_path: Path):
     """_find_container_for_session falls back to sid-in-spath match."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "mysession"
     sd.mkdir()
@@ -2849,7 +2849,7 @@ def test_find_container_sid_in_spath_fallback(tmp_path: Path):
 
 def test_find_container_no_match_returns_empty(tmp_path: Path):
     """_find_container_for_session returns empty string when nothing matches."""
-    from groket.parser import _find_container_for_session
+    from anqa.parser import _find_container_for_session
 
     sd = tmp_path / "unrelated"
     sd.mkdir()
@@ -2860,21 +2860,21 @@ def test_find_container_no_match_returns_empty(tmp_path: Path):
 
 def test_match_model_empty_string_skipped():
     """_match_model_to_container skips empty model strings."""
-    from groket.parser import _match_model_to_container
+    from anqa.parser import _match_model_to_container
 
-    result = _match_model_to_container("groket-abc-model", ["", "  ", "v9-model"])
+    result = _match_model_to_container("anqa-abc-model", ["", "  ", "v9-model"])
     assert result == "v9-model"
 
 
 def test_model_from_run_json_run_id_suffix(tmp_path: Path):
     """_model_from_run_json extracts model from container suffix after run_id."""
-    from groket.parser import _model_from_run_json
+    from anqa.parser import _model_from_run_json
 
-    sd = tmp_path / "groket-abc123def456-model" / "sess"
+    sd = tmp_path / "anqa-abc123def456-model" / "sess"
     sd.mkdir(parents=True)
     run_data = {
         "run_id": "abc123def456",
-        "sessions": {"groket-abc123def456-model": str(sd)},
+        "sessions": {"anqa-abc123def456-model": str(sd)},
     }
     result = _model_from_run_json(sd, run_data)
     assert isinstance(result, str)
@@ -2886,7 +2886,7 @@ def test_load_session_meta_gate_awaiting(tmp_path: Path):
     sd.mkdir()
     (sd / "updates.jsonl").write_text("", encoding="utf-8")
     # Create a gate with awaiting_follow_up state
-    gate = tmp_path / ".groket-turn"
+    gate = tmp_path / ".anqa-turn"
     gate.mkdir(parents=True)
     status = {"state": "awaiting_follow_up", "turn": 1}
     (gate / "status.json").write_text(json.dumps(status), encoding="utf-8")
@@ -2899,7 +2899,7 @@ def test_load_session_meta_gate_running_override(tmp_path: Path):
     sd = tmp_path / "sess"
     sd.mkdir()
     (sd / "updates.jsonl").write_text("", encoding="utf-8")
-    gate = tmp_path / ".groket-turn"
+    gate = tmp_path / ".anqa-turn"
     gate.mkdir(parents=True)
     status = {"state": "running", "turn": 2}
     (gate / "status.json").write_text(json.dumps(status), encoding="utf-8")
@@ -2909,20 +2909,20 @@ def test_load_session_meta_gate_running_override(tmp_path: Path):
 
 def test_infer_incomplete_mtime_zero(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns interrupted when mtime is zero."""
-    from groket.parser import _infer_incomplete_turn_outcome
+    from anqa.parser import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
     # Need a body file > 200 bytes to pass has_body check
     (sd / "events.jsonl").write_text("x" * 300, encoding="utf-8")
     # Patch session_trace_mtime to return 0
-    with patch("groket.parser.session_trace_mtime", return_value=0.0):
+    with patch("anqa.parser.session_trace_mtime", return_value=0.0):
         result = _infer_incomplete_turn_outcome(sd)
     assert result == "interrupted"
 
 
 def test_resolve_tool_display_name_use_tool_mcp():
-    from groket.parser import normalize_tool_id, resolve_tool_display_name
+    from anqa.parser import normalize_tool_id, resolve_tool_display_name
 
     assert (
         resolve_tool_display_name(
@@ -2948,7 +2948,7 @@ def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
     import json
     import time
 
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-done-stale"
@@ -2965,7 +2965,7 @@ def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
     import os
 
     os.utime(sess / "events.jsonl", (old, old))
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps(
@@ -2991,8 +2991,8 @@ def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
     Host docker-stop after End often leaves status=running; lifecycle uses the
     events contract, not mtimes.
     """
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
-    from groket.session.turn_gate import lifecycle_state, session_pending_label
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.session.turn_gate import lifecycle_state, session_pending_label
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-done-running"
@@ -3004,7 +3004,7 @@ def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps(
@@ -3028,8 +3028,8 @@ def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
 
 def test_host_done_open_turn_is_ending(tmp_path: Path) -> None:
     """command=done while turn_started is still open → ending (agent finishing)."""
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
-    from groket.session.turn_gate import lifecycle_state, session_pending_label
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.session.turn_gate import lifecycle_state, session_pending_label
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-done-open"
@@ -3039,7 +3039,7 @@ def test_host_done_open_turn_is_ending(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "019f-done-open", "turn": 1}) + "\n",
@@ -3058,7 +3058,7 @@ def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
     import os
     import time
 
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-final-stale"
@@ -3078,7 +3078,7 @@ def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
     old = time.time() - (21 * 60)
     os.utime(sess / "events.jsonl", (old, old))
     os.utime(sess / "updates.jsonl", (old, old))
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps(
@@ -3102,7 +3102,7 @@ def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
 
 def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None:
     """Closed last turn + final_turn settles without waiting for stale mtimes."""
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-final-fresh"
@@ -3119,7 +3119,7 @@ def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None
         encoding="utf-8",
     )
     (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "019f-final-fresh", "turn": 2}) + "\n",
@@ -3135,7 +3135,7 @@ def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None
 
 def test_final_turn_open_events_show_ending(tmp_path: Path) -> None:
     """Final turn still writing (open turn_started) shows ending."""
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-final-open"
@@ -3150,7 +3150,7 @@ def test_final_turn_open_events_show_ending(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (sess / "updates.jsonl").write_text('{"x":1}\n' * 50, encoding="utf-8")
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "running", "session_id": "019f-final-open", "turn": 2}) + "\n",
@@ -3167,7 +3167,7 @@ def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
     """command=done while gate was awaiting (no open turn) settles to complete."""
     import json
 
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-done-await"
@@ -3179,7 +3179,7 @@ def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    gate = vol / ".groket-turn"
+    gate = vol / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps(
@@ -3201,7 +3201,7 @@ def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
 
 def test_load_summary_git_remotes_and_head(tmp_path: Path) -> None:
     """summary.json git_remotes / head_* populate SessionMeta for fork prefill."""
-    from groket.parser import load_session_meta
+    from anqa.parser import load_session_meta
 
     sess = tmp_path / "sid"
     sess.mkdir()
@@ -3226,7 +3226,7 @@ def test_load_summary_git_remotes_and_head(tmp_path: Path) -> None:
 
 def test_list_turn_outcome_completed_not_running_when_fresh(tmp_path: Path) -> None:
     """Completed harness turn must not show running just because mtimes are young."""
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
 
     sess = tmp_path / "fresh-done"
     sess.mkdir()
@@ -3255,7 +3255,7 @@ def test_session_timeline_mtime_ignores_signals(tmp_path: Path) -> None:
     """signals.json must not change the timeline cache key."""
     import time
 
-    from groket.parser import session_timeline_mtime, session_trace_mtime
+    from anqa.parser import session_timeline_mtime, session_trace_mtime
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -3274,8 +3274,8 @@ def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
     """Growing updates.jsonl reuses the scan cursor (same event identities)."""
     import json
 
-    import groket.parser as parser_mod
-    from groket.parser import parse_timeline
+    import anqa.parser as parser_mod
+    from anqa.parser import parse_timeline
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -3323,8 +3323,8 @@ def test_parse_timeline_stamp_hit_does_not_reread(
     """Second parse_timeline on an unchanged stamp skips the file body."""
     import json
 
-    import groket.parser as parser_mod
-    from groket.parser import parse_timeline
+    import anqa.parser as parser_mod
+    from anqa.parser import parse_timeline
 
     sd = tmp_path / "cached"
     sd.mkdir()
@@ -3369,8 +3369,8 @@ def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    import groket.parser as parser_mod
-    from groket.parser import parse_timeline
+    import anqa.parser as parser_mod
+    from anqa.parser import parse_timeline
 
     sd = tmp_path / "flight"
     sd.mkdir()
@@ -3426,7 +3426,7 @@ def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -
 
 
 def test_live_browser_timeline_min_interval_scales() -> None:
-    from groket.constants import (
+    from anqa.constants import (
         LIVE_BROWSER_TIMELINE_MIN_INTERVAL,
         LIVE_BROWSER_TIMELINE_MIN_INTERVAL_HUGE,
         LIVE_BROWSER_TIMELINE_MIN_INTERVAL_LARGE,
@@ -3454,8 +3454,8 @@ def test_user_message_superseding_draft_coalesced(tmp_path: Path) -> None:
     """
     import json
 
-    import groket.parser as parser_mod
-    from groket.parser import parse_timeline
+    import anqa.parser as parser_mod
+    from anqa.parser import parse_timeline
 
     sd = tmp_path / "sess-draft"
     sd.mkdir()
@@ -3503,9 +3503,9 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
     """
     import json
 
-    import groket.parser as parser_mod
-    from groket.parser import parse_timeline
-    from groket.session.turns import segment_timeline_turns
+    import anqa.parser as parser_mod
+    from anqa.parser import parse_timeline
+    from anqa.session.turns import segment_timeline_turns
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -3593,7 +3593,7 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
 def test_load_host_list_meta_closed_tail_does_not_open_events(tmp_path: Path, monkeypatch) -> None:
     import time
 
-    from groket.parser import load_host_list_meta
+    from anqa.parser import load_host_list_meta
 
     sd = tmp_path / "host-closed"
     sd.mkdir()
@@ -3624,7 +3624,7 @@ def test_load_host_list_meta_closed_tail_does_not_open_events(tmp_path: Path, mo
 
 def test_load_host_list_meta_skips_events_and_title_infer(tmp_path: Path) -> None:
     """Host catalog rows read summary + signals, not events.jsonl."""
-    from groket.parser import load_host_list_meta
+    from anqa.parser import load_host_list_meta
 
     sd = tmp_path / "host-sess"
     sd.mkdir()
@@ -3645,7 +3645,7 @@ def test_load_host_list_meta_uses_turn_ended_when_tail_is_recap(tmp_path: Path) 
     """Host list status must match Summary when the updates tail is session_recap."""
     import time
 
-    from groket.parser import load_host_list_meta, load_session_meta
+    from anqa.parser import load_host_list_meta, load_session_meta
 
     sd = tmp_path / "host-recap"
     sd.mkdir()
@@ -3681,7 +3681,7 @@ def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -
     """A later agent chunk must not hide turn_completed once the traces are stale."""
     import time
 
-    from groket.parser import load_host_list_meta
+    from anqa.parser import load_host_list_meta
 
     sd = tmp_path / "host-chunk-after"
     sd.mkdir()
@@ -3706,7 +3706,7 @@ def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> 
     """A host session with chat history but no turn close is cancelled, not —."""
     import time
 
-    from groket.parser import load_host_list_meta, load_session_meta
+    from anqa.parser import load_host_list_meta, load_session_meta
 
     sd = tmp_path / "host-empty-ev"
     sd.mkdir()
@@ -3727,7 +3727,7 @@ def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> 
 
 def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     """Host list meta must not require events.jsonl (catalog speed)."""
-    from groket.parser import load_session_meta_list
+    from anqa.parser import load_session_meta_list
 
     sd = tmp_path / "host-sess"
     sd.mkdir()
@@ -3745,7 +3745,7 @@ def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
 
 def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) -> None:
     """Live host sessions without summary.json still get an Events column."""
-    from groket.parser import load_session_meta_list, parse_timeline
+    from anqa.parser import load_session_meta_list, parse_timeline
 
     sd = tmp_path / "live-host"
     sd.mkdir()
@@ -3783,7 +3783,7 @@ def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) ->
 
 def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
     """Host catalog rows must expose the same turn status as a full meta load."""
-    from groket.parser import load_session_meta, load_session_meta_list
+    from anqa.parser import load_session_meta, load_session_meta_list
 
     sd = tmp_path / "host-live"
     sd.mkdir()
@@ -3807,7 +3807,7 @@ def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
 
 def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> None:
     """Catalog status is running when a later turn_started has no turn_ended."""
-    from groket.parser import load_session_meta, load_session_meta_list
+    from anqa.parser import load_session_meta, load_session_meta_list
 
     sd = tmp_path / "host-next"
     sd.mkdir()
@@ -3836,7 +3836,7 @@ def test_load_session_meta_list_stale_open_turn_is_not_running(tmp_path: Path) -
     """A dangling turn_started after Grok exits must not stay running."""
     import time
 
-    from groket.parser import load_session_meta_list
+    from anqa.parser import load_session_meta_list
 
     sd = tmp_path / "host-stale-open"
     sd.mkdir()
@@ -3866,7 +3866,7 @@ def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> 
     """Host updates close the turn; missing events.jsonl must not become cancelled."""
     import time
 
-    from groket.parser import load_session_meta_list
+    from anqa.parser import load_session_meta_list
 
     sd = tmp_path / "host-updates-only"
     sd.mkdir()
@@ -3906,7 +3906,7 @@ def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> 
 
 def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> None:
     """A just-closed host turn is complete, not running, with no events.jsonl."""
-    from groket.parser import list_turn_outcome_for_dir, load_session_meta_list
+    from anqa.parser import list_turn_outcome_for_dir, load_session_meta_list
 
     sd = tmp_path / "host-just-closed"
     sd.mkdir()
@@ -3943,9 +3943,9 @@ def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> No
 
 def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
     """Eval list rows still honour an awaiting turn gate."""
-    from groket.parser import load_session_meta_list
+    from anqa.parser import load_session_meta_list
 
-    container = tmp_path / "groket-eval1"
+    container = tmp_path / "anqa-eval1"
     sd = container / "cwd" / "sess-gate"
     sd.mkdir(parents=True)
     (sd / "summary.json").write_text(
@@ -3959,7 +3959,7 @@ def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    gate = container / ".groket-turn"
+    gate = container / ".anqa-turn"
     gate.mkdir()
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": "sess-gate"}) + "\n",
@@ -3973,8 +3973,8 @@ def test_load_session_meta_list_skips_gate_when_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Home-list meta must not walk the turn gate when no gate directory exists."""
-    import groket.parser as parser_mod
-    from groket.parser import load_session_meta_list
+    import anqa.parser as parser_mod
+    from anqa.parser import load_session_meta_list
 
     sd = tmp_path / "host-nogate"
     sd.mkdir()
@@ -4008,7 +4008,7 @@ def test_load_session_meta_list_reads_events_jsonl_once(
     """Catalog list may read events.jsonl once; a second full parse is wasted."""
     import io
 
-    from groket.parser import load_session_meta_list
+    from anqa.parser import load_session_meta_list
 
     sd = tmp_path / "host-once"
     sd.mkdir()
@@ -4046,8 +4046,8 @@ def test_load_session_meta_list_skips_non_turn_event_payloads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Fat tool-call lines in events.jsonl must not be JSON-parsed for the list."""
-    import groket.parser as parser_mod
-    from groket.parser import load_session_meta_list
+    import anqa.parser as parser_mod
+    from anqa.parser import load_session_meta_list
 
     sd = tmp_path / "host-fat-line"
     sd.mkdir()

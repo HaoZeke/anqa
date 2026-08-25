@@ -5,19 +5,19 @@ app](../README.md#terminal-app), [Desktop HUD](../README.md#desktop-hud),
 [Emacs](../README.md#emacs), and [Neovim](../README.md#neovim-09) — attach
 and talk JSON-RPC 2.0. They never bind the socket.
 
-Implementation: `groket/integrations/control_contract.py` (contract),
-`groket/integrations/control.py` (owner),
-`groket/integrations/daemon.py` (`groket serve`),
-`groket/integrations/control_client.py` (Python attach).
+Implementation: `anqa/integrations/control_contract.py` (contract),
+`anqa/integrations/control.py` (owner),
+`anqa/integrations/daemon.py` (`anqa serve`),
+`anqa/integrations/control_client.py` (Python attach).
 
 ## Start and stop
 
 ```bash
-groket serve                 # foreground (Ctrl-C / SIGTERM)
-groket serve -d              # background; return when the socket accepts
-groket serve stop
-groket serve restart         # stop, then start -d
-groket serve status          # exit 0 if live
+anqa serve                 # foreground (Ctrl-C / SIGTERM)
+anqa serve -d              # background; return when the socket accepts
+anqa serve stop
+anqa serve restart         # stop, then start -d
+anqa serve status          # exit 0 if live
 ```
 
 A second `serve -d` reports already running. Quitting a client leaves the
@@ -25,16 +25,16 @@ owner up.
 
 ## Socket
 
-Default path: `$XDG_RUNTIME_DIR/groket/control.sock`, or
-`~/.groket/run/control.sock` when `XDG_RUNTIME_DIR` is unset.
+Default path: `$XDG_RUNTIME_DIR/anqa/control.sock`, or
+`~/.anqa/run/control.sock` when `XDG_RUNTIME_DIR` is unset.
 
 `-s` / `--socket PATH` on `serve` and on every client selects another
-path. The HUD also reads `GROKET_CONTROL_SOCKET` (the Python launcher sets
+path. The HUD also reads `ANQA_CONTROL_SOCKET` (the Python launcher sets
 this when it starts the palette).
 
 ```bash
-groket serve -d -s /path/to/control.sock
-groket -s /path/to/control.sock
+anqa serve -d -s /path/to/control.sock
+anqa -s /path/to/control.sock
 ```
 
 ## Framing
@@ -81,7 +81,7 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status. |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin. |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:compaction` `has:doom` `has:git` `has:context` | Presence (has:plan). Counts use the written pair (plans:>=2). |
 | `has:workflow` `workflows:>=N` `has:note` `notes:>=N` `has:goal` `goals:>=N` `has:plan` `plans:>=N` `has:subagent` `subagents:>=N` `has:task` `tasks:>=N` `has:job` `jobs:>=N` `has:schedule` `schedules:>=N` `has:error` `errors:>=N` `has:failure` `failures:>=N` `has:diff` `diff:>=N` `has:compaction` `compaction:>=N` `has:doom` `doom:>=N` | Presence and count (written pairs). |
 | `in:` | Directory the session was run in. |
@@ -129,7 +129,7 @@ drain pages until `matched` on first paint only.
 Every `notes/upsert` and `notes/delete` sends `expectedRevision`.
 A mismatch is a conflict; the client reloads and retries.
 Canonical store is `operator_notes.toml` (host sessions under
-`~/.groket/notes/`).
+`~/.anqa/notes/`).
 Every note must include a non-empty `source` (who wrote it).
 `fields` need not match the configured form schema; extra keys
 are stored as sent. The in-app form uses `notes_schema.toml`

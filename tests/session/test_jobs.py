@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.parser import parse_timeline
-from groket.session.jobs import job_mapping, load_session_jobs, schedule_mapping
+from anqa.parser import parse_timeline
+from anqa.session.jobs import job_mapping, load_session_jobs, schedule_mapping
 
 
 def _write_updates(sd: Path, updates: list[dict[str, object]]) -> None:
@@ -76,7 +76,7 @@ def test_load_session_jobs_merges_shell_monitor_and_schedule(tmp_path: Path) -> 
             {
                 "sessionUpdate": "scheduled_task_created",
                 "task_id": "sched-1",
-                "prompt": "Watch the groket board every hour.",
+                "prompt": "Watch the anqa board every hour.",
                 "human_schedule": "every 1 hour",
                 "next_fire_at": "2026-08-18T23:05:45Z",
             },
@@ -91,7 +91,7 @@ def test_load_session_jobs_merges_shell_monitor_and_schedule(tmp_path: Path) -> 
                             {
                                 "id": "sched-1",
                                 "intervalSecs": 3600,
-                                "prompt": "Watch the groket board every hour.",
+                                "prompt": "Watch the anqa board every hour.",
                                 "recurring": True,
                                 "durable": True,
                                 "lastFiredAt": "2026-08-18T22:05:45Z",
@@ -153,7 +153,7 @@ def test_load_session_jobs_merges_shell_monitor_and_schedule(tmp_path: Path) -> 
     assert sch.next_fire_at.startswith("2026-08-18T23:05:45")
     assert sch.last_fired_at.startswith("2026-08-18T22:05:45")
     assert sch.last_subagent_id == "sub-1"
-    assert "Watch the groket board" in sch.prompt_preview
+    assert "Watch the anqa board" in sch.prompt_preview
     assert sch.durable is True
     assert sch.recurring is True
 
@@ -253,8 +253,8 @@ def test_job_and_schedule_mappings_use_camel_case(tmp_path: Path) -> None:
 
 
 def test_job_status_for_event_uses_log_then_finish(tmp_path: Path) -> None:
-    from groket.models import ToolInputBag, TraceEvent
-    from groket.session.jobs import job_status_for_event
+    from anqa.models import ToolInputBag, TraceEvent
+    from anqa.session.jobs import job_status_for_event
 
     log = tmp_path / "monitor-call-live.log"
     log.write_text("still\nDONE\n", encoding="utf-8")
@@ -291,14 +291,14 @@ def test_job_status_for_event_uses_log_then_finish(tmp_path: Path) -> None:
 
 def test_set_bookend_indexes_matches_per_row_first_hits() -> None:
     """One walk agrees with per-row job and workflow bookend indexes."""
-    from conftest import make_trace_event
-    from groket.session.jobs import (
+    from anqa.session.jobs import (
         BackgroundJob,
         job_event_index,
         job_mapping,
         set_bookend_indexes,
     )
-    from groket.session.workflows import WorkflowRun, workflow_event_index, workflow_mapping
+    from anqa.session.workflows import WorkflowRun, workflow_event_index, workflow_mapping
+    from conftest import make_trace_event
 
     job = BackgroundJob(
         job_id="job-a",
@@ -363,9 +363,9 @@ def test_set_bookend_indexes_matches_per_row_first_hits() -> None:
 def test_jobs_from_overview_does_not_parse_timeline(tmp_path: Path) -> None:
     from unittest.mock import patch
 
-    from groket.parser import parse_timeline
-    from groket.session.control_views import build_session_overview
-    from groket.session.jobs import jobs_from_overview, session_jobs_for_view
+    from anqa.parser import parse_timeline
+    from anqa.session.control_views import build_session_overview
+    from anqa.session.jobs import jobs_from_overview, session_jobs_for_view
 
     sd = _session(tmp_path)
     term = sd / "terminal"
@@ -393,8 +393,8 @@ def test_jobs_from_overview_does_not_parse_timeline(tmp_path: Path) -> None:
         ],
     )
     ov = build_session_overview(sd)
-    with patch("groket.parser.parse_timeline", side_effect=AssertionError("disk parse")):
-        with patch("groket.session.jobs.parse_timeline", side_effect=AssertionError("disk parse")):
+    with patch("anqa.parser.parse_timeline", side_effect=AssertionError("disk parse")):
+        with patch("anqa.session.jobs.parse_timeline", side_effect=AssertionError("disk parse")):
             packed = session_jobs_for_view(ov, sd, None)
     assert [j.kind for j in packed.jobs] == ["monitor"]
     assert packed.jobs[0].status == "done"
@@ -410,7 +410,7 @@ def test_read_log_tail_reads_only_a_suffix(tmp_path: Path) -> None:
     """A fat monitor log is tailed from the end, not read in full."""
     from unittest.mock import patch
 
-    from groket.session.jobs import read_log_tail
+    from anqa.session.jobs import read_log_tail
 
     path = tmp_path / "monitor-call-fat.log"
     suffix = "UNIQUE_TAIL_XYZ\nDONE\n"
@@ -444,7 +444,7 @@ def test_read_log_tail_reads_only_a_suffix(tmp_path: Path) -> None:
 
 
 def test_log_file_prefers_session_terminal_basename(tmp_path: Path) -> None:
-    from groket.session.jobs import BackgroundJob
+    from anqa.session.jobs import BackgroundJob
 
     term = tmp_path / "terminal"
     term.mkdir()

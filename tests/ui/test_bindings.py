@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from groket.ui.bindings import (
+from anqa.ui.bindings import (
     APP_SESSIONS,
     BROWSER,
     CAPABILITY_PICKER,
@@ -199,6 +199,7 @@ class TestChromeActions:
             ca = ChromeActions.__dict__["action_self_test"]
             ca(screen)
             assert called
+
 
 class TestFocusPrimaryListCursorReassert:
     def test_valid_cursor_reasserted(self) -> None:

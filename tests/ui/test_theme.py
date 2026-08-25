@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from groket.ui.styles import status_rich_style, theme_is_light
-from groket.ui.theme import (
+from anqa.ui.styles import status_rich_style, theme_is_light
+from anqa.ui.theme import (
     THEME_FAMILIES,
     community_themes,
     family_of_theme,
@@ -21,8 +21,8 @@ def test_auto_uses_terminal_ansi_pair() -> None:
     assert resolve_theme("", "dark") == "ansi-dark"
     assert resolve_theme("system", "light") == "ansi-light"
     assert resolve_theme("default", "dark") == "ansi-dark"
-    assert resolve_theme("groket", "dark") == "ansi-dark"
-    assert resolve_theme("groket-light", "light") == "ansi-light"
+    assert resolve_theme("anqa", "dark") == "ansi-dark"
+    assert resolve_theme("anqa-light", "light") == "ansi-light"
 
 
 def test_ansi_pair_pins_unless_follow_os() -> None:
@@ -75,7 +75,7 @@ def test_register_catalog_includes_community() -> None:
     assert "everforest-light" in names
     assert "kanagawa-wave" in names
     assert "ansi-light" in names
-    assert "groket" not in names
+    assert "anqa" not in names
     assert {t.name for t in community_themes()} <= names
 
 

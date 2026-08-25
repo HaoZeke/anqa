@@ -3,10 +3,10 @@
 //! Streaming ``tool_call_update`` rows often *are* the multi-100MB file
 //! (cumulative shell output). Skip JSON parse unless the line looks terminal.
 
-/// Same needle as ``groket.scan``.
+/// Same needle as ``anqa.scan``.
 const TU_BYTES: &[u8] = b"tool_call_update";
 
-/// Same needles as ``groket.scan`` (spacing variants included).
+/// Same needles as ``anqa.scan`` (spacing variants included).
 const TERM_BYTES: &[&[u8]] = &[
     br#""status":"completed""#,
     br#""status": "completed""#,

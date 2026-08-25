@@ -1,89 +1,245 @@
 #!/usr/bin/env python3
-"""Build the groket pack from the geometric three-bar mark.
+"""Build the anqa pack from the approved truck-art painting.
 
-The approved still is ``source/approved.jpg``. The mark itself is drawn in
-SVG (needles, fins, three turn bars, three status caps). The wordmark is outlined Fira Sans ExtraBold (SIL OFL, Mozilla / Telefónica).
+The bird is cropped from ``source/approved.jpg``. The decorated word is
+``source/word-ornament.png``. The typeset wordmark is outlined Fira Sans
+ExtraBold (vector).
 """
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
 
+import numpy as np
 from fontTools.misc.transform import Transform
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "source" / "approved.jpg"
+SOURCE_WORD = ROOT / "source" / "word-ornament.png"
 SVG = ROOT / "svg"
 PNG = ROOT / "png"
 FONT = ROOT / "fonts" / "FiraSans-ExtraBold.ttf"
 
-INK = "#282828"
-CREAM = "#FBF1C7"
-GREEN = "#98971A"
-RED = "#CC241D"
-YELLOW = "#D79921"
-INK_RGB = (40, 40, 40)
-CREAM_RGB = (251, 241, 199)
+INK = "#0B0D0C"
+INK_RGB = (11, 13, 12)
+CREAM_RGB = (244, 239, 230)
+CYAN_RGB = (17, 203, 189)
+WHITE_RGB = (255, 255, 255)
 
-MARK_VB = (900, 380)
-# Drawn silhouette (needles + fins), not the empty viewBox.
-MARK_BOX = (12.0, 64.0, 872.0, 322.0)
-TILE = 1024
-TILE_PAD = 88
-TILE_RADIUS = 220
+# Split between bird (above) and painted word (below) on the 1024 master.
+WORD_SPLIT_Y = 630
+EYE_CENTER = (611.0, 230.0)
+EYE_RADIUS = 22.0
+PAPER_T0 = 22.0
+PAPER_T1 = 50.0
 
 
-def mark_group(ink: str, green: str, red: str, yellow: str) -> str:
-    """Needles, fins, three bars, three caps. ViewBox ``0 0 900 380``."""
-    # Tail/nose join the stack as a thin needle (half-height 14), not a
-    # shaft through the middle bar. The nose sits on the middle bar, so
-    # that cap is complete — the rocket flies toward success. Top is
-    # failed; the short bar is running.
-    return f"""\
-  <g id="groket-mark" fill="{ink}">
-    <polygon points="12,193 318,179 318,207"/>
-    <polygon points="570,179 570,207 872,193"/>
-    <polygon points="268,64 392,64 428,117 304,117"/>
-    <polygon points="268,322 392,322 428,269 304,269"/>
-    <rect x="318" y="117" width="208" height="44"/>
-    <rect x="318" y="171" width="208" height="44"/>
-    <rect x="318" y="225" width="156" height="44"/>
-  </g>
-  <g id="groket-caps">
-    <rect x="526" y="117" width="44" height="44" fill="{red}"/>
-    <rect x="526" y="171" width="44" height="44" fill="{green}"/>
-    <rect x="474" y="225" width="44" height="44" fill="{yellow}"/>
-  </g>"""
-
-
-def svg_doc(title: str, body: str, vb: tuple[int, int]) -> str:
-    w, h = vb
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
-        f'role="img" aria-label="{title}">\n'
-        f"  <title>{title}</title>\n"
-        f"{body}\n"
-        f"</svg>\n"
+def load_rgba() -> np.ndarray:
+    """Key the paper field and un-mix cream spill on the edge."""
+    rgb = np.asarray(Image.open(SOURCE).convert("RGB"), dtype=np.float32)
+    border = np.concatenate(
+        [
+            rgb[:12].reshape(-1, 3),
+            rgb[-12:].reshape(-1, 3),
+            rgb[:, :12].reshape(-1, 3),
+            rgb[:, -12:].reshape(-1, 3),
+        ]
     )
+    paper = np.median(border, axis=0)
+    dist = np.linalg.norm(rgb - paper, axis=2)
+    alpha = np.clip((dist - PAPER_T0) / (PAPER_T1 - PAPER_T0), 0.0, 1.0)
+    # JPEG speckle keys as faint ink; keep only large opaque islands.
+    coarse = dist > 40.0
+    keep = _large_islands(coarse, min_px=400)
+    alpha = np.where(keep, alpha, 0.0)
+    am = np.maximum(alpha, 1e-5)[..., None]
+    unmixed = np.clip((rgb - (1.0 - alpha)[..., None] * paper) / am, 0, 255)
+    rgba = np.zeros((*rgb.shape[:2], 4), dtype=np.uint8)
+    rgba[..., :3] = unmixed.astype(np.uint8)
+    rgba[..., 3] = np.round(alpha * 255).astype(np.uint8)
+    return rgba
 
 
-def write_svg(name: str, title: str, body: str, vb: tuple[int, int]) -> Path:
-    path = SVG / name
-    path.write_text(svg_doc(title, body, vb))
+def _large_islands(binary: np.ndarray, min_px: int) -> np.ndarray:
+    h, w = binary.shape
+    labels = np.zeros((h, w), dtype=np.int32)
+    lab = 0
+    keep_ids: list[int] = []
+    neigh = ((-1, 0), (1, 0), (0, -1), (0, 1))
+    for y in range(h):
+        for x in range(w):
+            if not binary[y, x] or labels[y, x]:
+                continue
+            lab += 1
+            stack = [(y, x)]
+            labels[y, x] = lab
+            count = 0
+            while stack:
+                cy, cx = stack.pop()
+                count += 1
+                for dy, dx in neigh:
+                    ny, nx = cy + dy, cx + dx
+                    if (
+                        0 <= ny < h
+                        and 0 <= nx < w
+                        and binary[ny, nx]
+                        and labels[ny, nx] == 0
+                    ):
+                        labels[ny, nx] = lab
+                        stack.append((ny, nx))
+            if count >= min_px:
+                keep_ids.append(lab)
+    if not keep_ids:
+        raise SystemExit("isolation found no paint islands")
+    return np.isin(labels, keep_ids)
+
+
+def bbox_alpha(alpha: np.ndarray, y0: int, y1: int) -> tuple[int, int, int, int]:
+    sl = alpha[y0:y1]
+    ys, xs = np.where(sl > 12)
+    if xs.size == 0:
+        raise SystemExit(f"no opaque pixels in y={y0}:{y1}")
+    return int(xs.min()), y0 + int(ys.min()), int(xs.max()) + 1, y0 + int(ys.max()) + 1
+
+
+def crop_pad(
+    rgba: np.ndarray, box: tuple[int, int, int, int], pad: int
+) -> tuple[np.ndarray, tuple[int, int]]:
+    x0, y0, x1, y1 = box
+    h, w = rgba.shape[:2]
+    x0 = max(0, x0 - pad)
+    y0 = max(0, y0 - pad)
+    x1 = min(w, x1 + pad)
+    y1 = min(h, y1 + pad)
+    return rgba[y0:y1, x0:x1].copy(), (x0, y0)
+
+
+def to_image(arr: np.ndarray) -> Image.Image:
+    return Image.fromarray(arr, "RGBA")
+
+
+def trim_image(img: Image.Image, pad: int = 4) -> Image.Image:
+    arr = np.asarray(img)
+    ys, xs = np.where(arr[..., 3] > 8)
+    if xs.size == 0:
+        return img
+    x0 = max(0, int(xs.min()) - pad)
+    y0 = max(0, int(ys.min()) - pad)
+    x1 = min(img.width, int(xs.max()) + 1 + pad)
+    y1 = min(img.height, int(ys.max()) + 1 + pad)
+    return img.crop((x0, y0, x1, y1))
+
+
+def save_png(img: Image.Image, name: str) -> Path:
+    path = PNG / name
+    img.save(path, "PNG", optimize=True)
     return path
 
 
-def word_paths(text: str, size: float, origin: tuple[float, float]) -> tuple[str, float]:
+def write_svg_wrapper(name: str, png_name: str, size: tuple[int, int]) -> None:
+    w, h = size
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+        f'role="img" aria-label="anqa">\n'
+        f"  <title>anqa</title>\n"
+        f'  <image href="../png/{png_name}" width="{w}" height="{h}" '
+        f'preserveAspectRatio="xMidYMid meet"/>\n'
+        f"</svg>\n"
+    )
+    (SVG / name).write_text(svg)
+
+
+def scale_to_width(img: Image.Image, width: int) -> Image.Image:
+    if img.width == width:
+        return img
+    height = max(1, round(img.height * (width / img.width)))
+    return img.resize((width, height), Image.Resampling.LANCZOS)
+
+
+def scale_to_height(img: Image.Image, height: int) -> Image.Image:
+    if img.height == height:
+        return img
+    width = max(1, round(img.width * (height / img.height)))
+    return img.resize((width, height), Image.Resampling.LANCZOS)
+
+
+def is_cyan(rgb: np.ndarray) -> np.ndarray:
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    return (g > 140) & (b > 120) & (g > r + 30)
+
+
+def is_ink(rgb: np.ndarray) -> np.ndarray:
+    return rgb.max(axis=2) < 48
+
+
+def eye_mask(shape: tuple[int, int], origin: tuple[int, int]) -> np.ndarray:
+    h, w = shape
+    yy, xx = np.ogrid[:h, :w]
+    cx = EYE_CENTER[0] - origin[0]
+    cy = EYE_CENTER[1] - origin[1]
+    return (xx - cx) ** 2 + (yy - cy) ** 2 <= EYE_RADIUS**2
+
+
+def remap_duo(rgba: np.ndarray) -> np.ndarray:
+    out = rgba.copy()
+    a = out[..., 3] > 12
+    cyan = is_cyan(out[..., :3]) & a
+    ink = a & ~cyan
+    out[ink, :3] = INK_RGB
+    out[cyan, :3] = CYAN_RGB
+    return out
+
+
+def remap_mono(rgba: np.ndarray, origin: tuple[int, int]) -> np.ndarray:
+    out = rgba.copy()
+    a = out[..., 3] > 12
+    eye = eye_mask(out.shape[:2], origin) & is_cyan(out[..., :3])
+    out[a, :3] = INK_RGB
+    out[eye, 3] = 0
+    return out
+
+
+def remap_reverse(rgba: np.ndarray) -> np.ndarray:
+    out = rgba.copy()
+    a = out[..., 3] > 12
+    ink = is_ink(out[..., :3]) & a
+    out[ink, :3] = WHITE_RGB
+    return out
+
+
+def rounded_canvas(size: int, fill: tuple[int, int, int], radius: int) -> Image.Image:
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rounded_rectangle(
+        (0, 0, size - 1, size - 1), radius=radius, fill=(*fill, 255)
+    )
+    return im
+
+
+def paste_centered(
+    base: Image.Image, mark: Image.Image, *, max_frac: float = 0.78
+) -> Image.Image:
+    box = int(base.width * max_frac)
+    scaled = mark.copy()
+    scaled.thumbnail((box, box), Image.Resampling.LANCZOS)
+    x = (base.width - scaled.width) // 2
+    y = (base.height - scaled.height) // 2
+    out = base.copy()
+    out.alpha_composite(scaled, (x, y))
+    return out
+
+
+def word_paths(
+    text: str, size: float, origin: tuple[float, float]
+) -> tuple[str, float]:
     font = TTFont(FONT)
     glyph_set = font.getGlyphSet()
     cmap = font.getBestCmap()
-    scale = size / font["head"].unitsPerEm
+    upem = font["head"].unitsPerEm
+    scale = size / upem
     x, y = origin
     tracking = -0.04 * size
     chunks: list[str] = []
@@ -96,308 +252,160 @@ def word_paths(text: str, size: float, origin: tuple[float, float]) -> tuple[str
         if i + 1 < len(text):
             adv += tracking
         x += adv
-    return "\n    ".join(chunks), x - origin[0]
+    return "\n".join(chunks), x - origin[0]
 
 
-def rsvg(src: Path, dest: Path, *, width: int | None = None, height: int | None = None) -> None:
-    bin_ = shutil.which("rsvg-convert")
-    if bin_ is None:
-        raise SystemExit("rsvg-convert not found (librsvg). On macOS: brew install librsvg")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [bin_]
-    if width is not None:
-        cmd.extend(["-w", str(width)])
-    if height is not None:
-        cmd.extend(["-h", str(height)])
-    cmd.extend([str(src), "-o", str(dest)])
-    subprocess.check_call(cmd)
-
-
-def tile_transform(tile: int, pad: int) -> tuple[float, float, float]:
-    """Scale the silhouette to ``tile - 2*pad`` wide and center it."""
-    x0, y0, x1, y1 = MARK_BOX
-    scale = (tile - 2 * pad) / (x1 - x0)
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    return tile / 2 - cx * scale, tile / 2 - cy * scale, scale
-
-
-def rounded_svg(fill: str, mark_fill: str, green: str, red: str, yellow: str) -> str:
-    """1024 tile. Silhouette centered, width-limited, even padding."""
-    tx, ty, scale = tile_transform(TILE, TILE_PAD)
-    inner = mark_group(mark_fill, green, red, yellow)
-    return (
-        f'  <rect width="{TILE}" height="{TILE}" rx="{TILE_RADIUS}" fill="{fill}"/>\n'
-        f'  <g transform="translate({tx:.2f} {ty:.2f}) scale({scale:.4f})">\n'
-        f"{inner}\n"
-        f"  </g>"
+def write_svg(name: str, body: str, vb: tuple[int, int]) -> Path:
+    w, h = vb
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+        f'role="img" aria-label="anqa">\n'
+        f"  <title>anqa</title>\n"
+        f"{body}\n"
+        f"</svg>\n"
     )
+    path = SVG / name
+    path.write_text(svg)
+    return path
 
 
-# Small mark lives on a terminal grid: 7 cells wide, 3 cells tall.
-# Long bars are 6 + cap; the running bar is 4 + cap. One cell = one █.
-SMALL_COLS = 7
-SMALL_ROWS = 3
-SMALL_LONG = 6
-SMALL_SHORT = 4
+def render_word(text: str, size: int) -> Image.Image:
+    """Rasterize the wordmark from the packed ExtraBold file."""
+    font = ImageFont.truetype(str(FONT), size)
+    tracking = -0.04 * size
+    widths: list[float] = []
+    for i, ch in enumerate(text):
+        box = font.getbbox(ch)
+        adv = float(box[2] - box[0])
+        if i + 1 < len(text):
+            adv += tracking
+        widths.append(adv)
+    ascent, descent = font.getmetrics()
+    pad = max(16, size // 20)
+    width = int(sum(widths)) + pad * 2
+    height = ascent + descent + pad * 2
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    x = float(pad)
+    y = float(pad)
+    for ch, adv in zip(text, widths):
+        draw.text((x, y), ch, font=font, fill=INK)
+        x += adv
+    return trim_image(img, pad=8)
 
 
-def small_group(ink: str, green: str, red: str, yellow: str, *, cell: float = 1.0) -> str:
-    """Three bars + caps on a 7×3 cell grid (TUI / CLI / favicon).
-
-    Same stack as the rocket: failed, complete (nose), running (short).
-    """
-    c = cell
-    long_w = SMALL_LONG * c
-    short_w = SMALL_SHORT * c
-    return f"""\
-  <g id="groket-small">
-    <rect x="0" y="0" width="{long_w}" height="{c}" fill="{ink}"/>
-    <rect x="{long_w}" y="0" width="{c}" height="{c}" fill="{red}"/>
-    <rect x="0" y="{c}" width="{long_w}" height="{c}" fill="{ink}"/>
-    <rect x="{long_w}" y="{c}" width="{c}" height="{c}" fill="{green}"/>
-    <rect x="0" y="{2 * c}" width="{short_w}" height="{c}" fill="{ink}"/>
-    <rect x="{short_w}" y="{2 * c}" width="{c}" height="{c}" fill="{yellow}"/>
-  </g>"""
+def compose_horizontal(mark: Image.Image, word: Image.Image, gap: int) -> Image.Image:
+    height = max(mark.height, word.height)
+    width = mark.width + gap + word.width
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(mark, (0, (height - mark.height) // 2))
+    canvas.alpha_composite(word, (mark.width + gap, (height - word.height) // 2))
+    return canvas
 
 
-def caps_group(green: str, red: str, yellow: str, *, cell: float = 1.0) -> str:
-    """Three cap squares with a one-cell gap (one terminal row)."""
-    c = cell
-    return f"""\
-  <g id="groket-caps-row">
-    <rect x="0" y="0" width="{c}" height="{c}" fill="{green}"/>
-    <rect x="{2 * c}" y="0" width="{c}" height="{c}" fill="{red}"/>
-    <rect x="{4 * c}" y="0" width="{c}" height="{c}" fill="{yellow}"/>
-  </g>"""
-
-
-def small_tile(ink: str, green: str, red: str, yellow: str, tile: int) -> str:
-    """Square favicon: 7×3 grid letterboxed, cell size limited by width."""
-    cell = tile / SMALL_COLS
-    mark_h = SMALL_ROWS * cell
-    ty = (tile - mark_h) / 2
-    return (
-        f'  <rect width="{tile}" height="{tile}" fill="none"/>\n'
-        f'  <g transform="translate(0 {ty:.4f})">\n'
-        f"{small_group(ink, green, red, yellow, cell=cell)}\n"
-        f"  </g>"
-    )
+def compose_stacked_clean(
+    mark: Image.Image, word: Image.Image, gap: int
+) -> Image.Image:
+    width = max(mark.width, word.width)
+    height = mark.height + gap + word.height
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(mark, ((width - mark.width) // 2, 0))
+    canvas.alpha_composite(word, ((width - word.width) // 2, mark.height + gap))
+    return canvas
 
 
 def main() -> None:
     if not SOURCE.is_file():
-        raise SystemExit(f"missing approved still: {SOURCE}")
+        raise SystemExit(f"missing approved painting: {SOURCE}")
+    if not SOURCE_WORD.is_file():
+        raise SystemExit(f"missing decorated word: {SOURCE_WORD}")
     if not FONT.is_file():
         raise SystemExit(f"missing wordmark font: {FONT}")
     PNG.mkdir(parents=True, exist_ok=True)
     SVG.mkdir(parents=True, exist_ok=True)
 
-    colour = mark_group(INK, GREEN, RED, YELLOW)
-    mono = mark_group(INK, INK, INK, INK)
-    reverse = mark_group(CREAM, GREEN, RED, YELLOW)
+    rgba = load_rgba()
+    alpha = rgba[..., 3]
+    bird_box = bbox_alpha(alpha, 0, WORD_SPLIT_Y)
+    head, _ = crop_pad(rgba, (520, 206, 766, 452), 8)
 
-    mark = write_svg("groket-mark.svg", "groket", colour, MARK_VB)
-    write_svg("groket-mark-mono.svg", "groket", mono, MARK_VB)
-    write_svg("groket-mark-reverse.svg", "groket", reverse, MARK_VB)
-    write_svg(
-        "groket-small.svg",
-        "groket",
-        small_group(INK, GREEN, RED, YELLOW),
-        (SMALL_COLS, SMALL_ROWS),
-    )
-    write_svg(
-        "groket-caps.svg",
-        "groket",
-        caps_group(GREEN, RED, YELLOW),
-        (5, 1),
-    )
-    write_svg(
-        "groket-favicon.svg",
-        "groket",
-        small_tile(INK, GREEN, RED, YELLOW, 32),
-        (32, 32),
-    )
-    write_svg(
-        "groket-app-icon.svg",
-        "groket",
-        rounded_svg(CREAM, INK, GREEN, RED, YELLOW),
-        (1024, 1024),
-    )
-    write_svg(
-        "groket-app-icon-dark.svg",
-        "groket",
-        rounded_svg(INK, CREAM, GREEN, RED, YELLOW),
-        (1024, 1024),
-    )
+    bird, bird_origin = crop_pad(rgba, bird_box, 16)
+    mark_img = to_image(bird)
+    painted_word_img = Image.open(SOURCE_WORD).convert("RGBA")
+    painted_word_img = trim_image(painted_word_img, pad=8)
+    head_img = to_image(head)
 
-    wp, ww = word_paths("groket", 72, (16, 78))
-    word = write_svg(
-        "groket-wordmark.svg",
-        "groket",
-        f'  <g fill="{INK}">\n    {wp}\n  </g>',
+    save_png(mark_img, "anqa-mark.png")
+    save_png(scale_to_width(mark_img, mark_img.width * 2), "anqa-mark@2x.png")
+    save_png(to_image(remap_duo(bird)), "anqa-mark-duo.png")
+    save_png(to_image(remap_mono(bird, bird_origin)), "anqa-mark-mono.png")
+    rev = to_image(remap_reverse(bird))
+    rev_on_ink = Image.new("RGBA", rev.size, (*INK_RGB, 255))
+    rev_on_ink.alpha_composite(rev)
+    save_png(rev_on_ink, "anqa-mark-reverse.png")
+    save_png(painted_word_img, "anqa-wordmark-ornament.png")
+
+    wp, ww = word_paths("anqa", 72, (16, 78))
+    write_svg(
+        "anqa-wordmark.svg",
+        f'  <g fill="{INK}">{wp}</g>',
         (int(ww) + 32, 100),
     )
-    word_rev = write_svg(
-        "groket-wordmark-reverse.svg",
-        "groket",
-        f'  <g fill="{CREAM}">\n    {wp}\n  </g>',
-        (int(ww) + 32, 100),
+    word_type = render_word("anqa", 720)
+    save_png(word_type, "anqa-wordmark.png")
+
+    mark_h = scale_to_height(mark_img, 520)
+    word_h = scale_to_width(word_type, int(mark_h.width * 0.92))
+    clean = compose_stacked_clean(mark_h, word_h, gap=36)
+    save_png(clean, "anqa-lockup-stacked-clean.png")
+
+    word_orn = scale_to_width(painted_word_img, int(mark_h.width * 0.98))
+    stacked_img = compose_stacked_clean(mark_h, word_orn, gap=28)
+    save_png(stacked_img, "anqa-lockup-stacked.png")
+
+    mark_row = scale_to_height(mark_img, 280)
+    word_row = scale_to_height(word_type, 72)
+    horizontal = compose_horizontal(mark_row, word_row, gap=28)
+    save_png(horizontal, "anqa-lockup-horizontal.png")
+
+    light = paste_centered(rounded_canvas(1024, CREAM_RGB, 220), mark_img)
+    dark_mark = to_image(remap_reverse(bird))
+    dark = paste_centered(rounded_canvas(1024, INK_RGB, 220), dark_mark)
+    save_png(light, "anqa-app-icon-1024.png")
+    save_png(
+        light.resize((512, 512), Image.Resampling.LANCZOS), "anqa-app-icon-512.png"
     )
-    cream_mark = write_svg("groket-mark-cream.svg", "groket", reverse, MARK_VB)
-
-    rsvg(mark, PNG / "groket-mark.png", width=1200)
-    rsvg(SVG / "groket-mark-mono.svg", PNG / "groket-mark-mono.png", width=1200)
-    rsvg(SVG / "groket-mark-reverse.svg", PNG / "groket-mark-reverse.png", width=1200)
-    rsvg(cream_mark, PNG / "groket-mark-cream.png", width=1200)
-    rsvg(mark, PNG / "groket-mark@2x.png", width=2400)
-    rsvg(word, PNG / "groket-wordmark.png", width=1200)
-    rsvg(word_rev, PNG / "groket-wordmark-reverse.png", width=1200)
-    _write_lockups(
-        Image.open(PNG / "groket-mark.png").convert("RGBA"),
-        Image.open(PNG / "groket-wordmark.png").convert("RGBA"),
+    save_png(
+        light.resize((256, 256), Image.Resampling.LANCZOS), "anqa-app-icon-256.png"
     )
-    _write_lockups(
-        Image.open(PNG / "groket-mark-cream.png").convert("RGBA"),
-        Image.open(PNG / "groket-wordmark-reverse.png").convert("RGBA"),
-        suffix="-reverse",
+    save_png(dark, "anqa-app-icon-dark-1024.png")
+
+    fav_base = paste_centered(
+        rounded_canvas(256, CREAM_RGB, 48), head_img, max_frac=0.86
     )
-    rsvg(SVG / "groket-app-icon.svg", PNG / "groket-app-icon-1024.png", width=1024)
-    for n in (512, 256):
-        _resize_square(PNG / "groket-app-icon-1024.png", PNG / f"groket-app-icon-{n}.png", n)
-    rsvg(SVG / "groket-app-icon-dark.svg", PNG / "groket-app-icon-dark-1024.png", width=1024)
-    rsvg(SVG / "groket-small.svg", PNG / "groket-small.png", width=224)
-    rsvg(SVG / "groket-caps.svg", PNG / "groket-caps.png", width=160)
-    rsvg(SVG / "groket-favicon.svg", PNG / "groket-favicon-64.png", width=64)
-    for n in (32, 16):
-        rsvg(SVG / "groket-favicon.svg", PNG / f"groket-favicon-{n}.png", width=n)
-    # Taskbar / tray / notify: dual-contrast badge (cream plate + ink rim +
-    # 7×3 three-bar small mark). Works on dark and light panels at 16–22px.
-    # Full rocket app icons collapse to mud; bare favicon ink vanishes on dark.
-    for n in (32, 48, 64, 128):
-        _write_tray_tile(PNG / f"groket-tray-{n}.png", n)
+    save_png(fav_base.resize((64, 64), Image.Resampling.LANCZOS), "anqa-favicon-64.png")
+    save_png(fav_base.resize((32, 32), Image.Resampling.LANCZOS), "anqa-favicon-32.png")
+    save_png(fav_base.resize((16, 16), Image.Resampling.LANCZOS), "anqa-favicon-16.png")
 
-
-def _write_lockups(mark: Image.Image, word: Image.Image, *, suffix: str = "") -> None:
-    mark_h = _scale_to_height(mark, 280)
-    word_h = _scale_to_height(word, 72)
-    horizontal = _compose_row(mark_h, word_h, gap=36)
-    h_name = f"groket-lockup-horizontal{suffix}.png"
-    horizontal.save(PNG / h_name, "PNG", optimize=True)
-    write_svg(
-        f"groket-lockup-horizontal{suffix}.svg",
-        "groket",
-        _image_href(h_name, horizontal.size),
-        horizontal.size,
-    )
-    mark_s = _scale_to_height(mark, 520)
-    word_s = _scale_to_width(word, int(mark_s.width * 0.72))
-    stacked = _compose_stack(mark_s, word_s, gap=28)
-    s_name = f"groket-lockup-stacked{suffix}.png"
-    stacked.save(PNG / s_name, "PNG", optimize=True)
-    write_svg(
-        f"groket-lockup-stacked{suffix}.svg",
-        "groket",
-        _image_href(s_name, stacked.size),
-        stacked.size,
-    )
-
-
-def _scale_to_height(img: Image.Image, height: int) -> Image.Image:
-    width = max(1, round(img.width * (height / img.height)))
-    return img.resize((width, height), Image.Resampling.LANCZOS)
-
-
-def _scale_to_width(img: Image.Image, width: int) -> Image.Image:
-    height = max(1, round(img.height * (width / img.width)))
-    return img.resize((width, height), Image.Resampling.LANCZOS)
-
-
-def _compose_row(mark: Image.Image, word: Image.Image, gap: int) -> Image.Image:
-    h = max(mark.height, word.height)
-    canvas = Image.new("RGBA", (mark.width + gap + word.width, h), (0, 0, 0, 0))
-    canvas.alpha_composite(mark, (0, (h - mark.height) // 2))
-    canvas.alpha_composite(word, (mark.width + gap, (h - word.height) // 2))
-    return canvas
-
-
-def _compose_stack(mark: Image.Image, word: Image.Image, gap: int) -> Image.Image:
-    w = max(mark.width, word.width)
-    canvas = Image.new("RGBA", (w, mark.height + gap + word.height), (0, 0, 0, 0))
-    canvas.alpha_composite(mark, ((w - mark.width) // 2, 0))
-    canvas.alpha_composite(word, ((w - word.width) // 2, mark.height + gap))
-    return canvas
-
-
-def _image_href(png_name: str, size: tuple[int, int]) -> str:
-    w, h = size
-    return (
-        f'  <image href="../png/{png_name}" width="{w}" height="{h}" '
-        f'preserveAspectRatio="xMidYMid meet"/>'
-    )
-
-
-def _resize_square(src: Path, dest: Path, size: int) -> None:
-    im = Image.open(src).convert("RGBA")
-    im.resize((size, size), Image.Resampling.LANCZOS).save(dest, "PNG", optimize=True)
-
-
-def _hex_rgba(hex_s: str) -> tuple[int, int, int, int]:
-    h = hex_s.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
-
-
-def _write_tray_tile(dest: Path, tile: int) -> None:
-    """Dual-contrast taskbar badge: cream plate, ink rim, 7×3 three-bar mark.
-
-    Dark desktops see the cream field. Light desktops see the ink rim + bars.
-    Bars fill most of the face (small pad) so 16–22px panel sizes stay legible.
-    """
-    from PIL import ImageDraw
-
-    cream = _hex_rgba(CREAM)
-    ink = _hex_rgba(INK)
-    red = _hex_rgba(RED)
-    green = _hex_rgba(GREEN)
-    yellow = _hex_rgba(YELLOW)
-
-    # Transparent corners; rounded cream face.
-    im = Image.new("RGBA", (tile, tile), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(im)
-    # Corner radius ~18% of edge (app-icon family).
-    radius = max(2, round(tile * 0.18))
-    # Border thick enough to survive downscale to ~16px.
-    border = max(1, round(tile / 32))
-    # Outer ink stroke, then cream inset (rim on light panels).
-    draw.rounded_rectangle([0, 0, tile - 1, tile - 1], radius=radius, fill=ink)
-    inset = border
-    draw.rounded_rectangle(
-        [inset, inset, tile - 1 - inset, tile - 1 - inset],
-        radius=max(1, radius - inset),
-        fill=cream,
-    )
-
-    # Three-bar grid: ~10% pad inside the cream face so cells stay chunky.
-    face = tile - 2 * (inset + max(2, tile // 10))
-    cell = max(2, face // SMALL_COLS)
-    # Prefer height fit for 3 rows if needed.
-    cell = min(cell, max(2, face // SMALL_ROWS))
-    mark_w = SMALL_COLS * cell
-    mark_h = SMALL_ROWS * cell
-    ox = (tile - mark_w) // 2
-    oy = (tile - mark_h) // 2
-    rows = [(SMALL_LONG, red), (SMALL_LONG, green), (SMALL_SHORT, yellow)]
-    for row, (bar_w, cap) in enumerate(rows):
-        y0 = oy + row * cell
-        y1 = y0 + cell - 1
-        # Tiny gap between rows (1px) so bars separate when downscaled.
-        if row > 0 and cell > 2:
-            y0 += 1
-        draw.rectangle([ox, y0, ox + bar_w * cell - 1, y1], fill=ink)
-        draw.rectangle(
-            [ox + bar_w * cell, y0, ox + (bar_w + 1) * cell - 1, y1],
-            fill=cap,
-        )
-    im.save(dest, "PNG", optimize=True)
+    wrappers = [
+        ("anqa-mark.svg", "anqa-mark.png", mark_img.size),
+        ("anqa-mark-duo.svg", "anqa-mark-duo.png", mark_img.size),
+        ("anqa-mark-mono.svg", "anqa-mark-mono.png", mark_img.size),
+        ("anqa-mark-reverse.svg", "anqa-mark-reverse.png", rev_on_ink.size),
+        ("anqa-lockup-stacked.svg", "anqa-lockup-stacked.png", stacked_img.size),
+        ("anqa-lockup-stacked-clean.svg", "anqa-lockup-stacked-clean.png", clean.size),
+        ("anqa-lockup-horizontal.svg", "anqa-lockup-horizontal.png", horizontal.size),
+        (
+            "anqa-wordmark-ornament.svg",
+            "anqa-wordmark-ornament.png",
+            painted_word_img.size,
+        ),
+        ("anqa-app-icon.svg", "anqa-app-icon-1024.png", (1024, 1024)),
+        ("anqa-app-icon-dark.svg", "anqa-app-icon-dark-1024.png", (1024, 1024)),
+        ("anqa-favicon.svg", "anqa-favicon-64.png", (64, 64)),
+    ]
+    for svg_name, png_name, size in wrappers:
+        write_svg_wrapper(svg_name, png_name, size)
 
 
 if __name__ == "__main__":

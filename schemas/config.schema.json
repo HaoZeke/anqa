@@ -65,11 +65,11 @@
       "type": "object"
     }
   },
-  "description": "Prefs file ~/.groket/config.toml. Authoring format is TOML; this schema describes the same keys for editors and groket config validate.",
+  "description": "Prefs file ~/.anqa/config.toml. Authoring format is TOML; this schema describes the same keys for editors and anqa config validate.",
   "properties": {
     "theme": {
       "default": "auto",
-      "description": "auto (terminal, then desktop) or a catalog / ~/.groket/themes name.",
+      "description": "auto (terminal, then desktop) or a catalog / ~/.anqa/themes name.",
       "title": "Theme",
       "type": "string"
     },
@@ -81,7 +81,7 @@
     },
     "auto_serve": {
       "default": true,
-      "description": "Detach-start groket serve when the control socket is free.",
+      "description": "Detach-start anqa serve when the control socket is free.",
       "title": "Auto Serve",
       "type": "boolean"
     },
@@ -102,8 +102,8 @@
       "$ref": "#/$defs/CatalogPrefs"
     }
   },
-  "title": "groket-config",
+  "title": "anqa-config",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://indynull.github.io/groket/schemas/config.schema.json"
+  "$id": "https://indynull.github.io/anqa/schemas/config.schema.json"
 }

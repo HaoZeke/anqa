@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from groket.ui.theme import community_themes, theme_family_pairs
+from anqa.ui.theme import community_themes, theme_family_pairs
 from textual.theme import BUILTIN_THEMES
 
 ROOT = Path(__file__).resolve().parents[1]

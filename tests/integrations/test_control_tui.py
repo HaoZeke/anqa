@@ -10,13 +10,13 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-from groket.ui.app import TraceEvalApp
+from anqa.ui.app import AnqaApp
 from textual.pilot import Pilot
 
 
 def _short_sock(name: str) -> Path:
     """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
-    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-ctl-"))
     return root / name
 
 
@@ -94,7 +94,7 @@ async def _rpc_call(
 
 @pytest.mark.asyncio
 async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> None:
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -107,7 +107,7 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
     )
     await owner.start()
     try:
-        app = TraceEvalApp(
+        app = AnqaApp(
             work_dir=work,
             traces_path=traces,
             control_socket=socket_path,
@@ -140,9 +140,9 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
 @pytest.mark.asyncio
 async def test_attach_copy_toasts_failure_only() -> None:
     """Success attach has no toast id; failure copy does not mention disk."""
-    from groket.ui.i18n import t
+    from anqa.ui.i18n import t
 
-    app_src = Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.py"
+    app_src = Path(__file__).resolve().parents[2] / "anqa" / "ui" / "app.py"
     text = app_src.read_text(encoding="utf-8")
     assert "ui-control-socket-attached" not in text
     assert "ui-control-socket-attach-failed" in text
@@ -152,7 +152,7 @@ async def test_attach_copy_toasts_failure_only() -> None:
 @pytest.mark.asyncio
 async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> None:
     """Attach catalog load must not toast ``Scanning control…`` (disk-scan copy)."""
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -165,7 +165,7 @@ async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> Non
     )
     await owner.start()
     try:
-        app = TraceEvalApp(
+        app = AnqaApp(
             work_dir=work,
             traces_path=traces,
             control_socket=socket_path,
@@ -204,7 +204,7 @@ def test_sessions_reload_loud_wins_over_quiet(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=None,
@@ -241,7 +241,7 @@ async def test_tui_dead_socket_does_not_claim_attach_or_disk_catalog(
     traces.mkdir(parents=True)
     _write_session(traces)
     dead_sock = _short_sock("dead.sock")
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=dead_sock,
@@ -267,7 +267,7 @@ async def test_tui_offline_no_socket_still_loads_disk_catalog(tmp_path: Path) ->
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     session_dir = _write_session(traces)
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=None,
@@ -293,9 +293,9 @@ async def test_browser_loads_timeline_via_control_when_attached(
     """Session browser hydrates timeline from control, not a private disk parse."""
     from unittest.mock import patch
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -308,7 +308,7 @@ async def test_browser_loads_timeline_via_control_when_attached(
     )
     await owner.start()
     try:
-        app = TraceEvalApp(
+        app = AnqaApp(
             work_dir=work,
             traces_path=traces,
             control_socket=socket_path,
@@ -317,7 +317,7 @@ async def test_browser_loads_timeline_via_control_when_attached(
         async with app.run_test(size=(120, 40)) as pilot:
             await _wait_until(pilot, app.is_control_client, description="attach")
             with patch(
-                "groket.ui.screens.browser.parse_timeline",
+                "anqa.ui.screens.browser.parse_timeline",
                 side_effect=AssertionError("disk parse forbidden when attached"),
             ):
                 app.open_session_path(session_dir)
@@ -347,7 +347,7 @@ async def test_confirm_control_attach_returns_false_on_dead_socket(
     tmp_path: Path,
 ) -> None:
     """Domain helper: initialize failure is a hard False, not silent success."""
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=tmp_path / "w",
         traces_path=tmp_path / "w" / "runs" / "traces",
         control_socket=_short_sock("missing.sock"),
@@ -360,7 +360,7 @@ async def test_confirm_control_attach_returns_false_on_dead_socket(
 
 @pytest.mark.asyncio
 async def test_tui_control_helpers_are_client_noops(tmp_path: Path) -> None:
-    app = TraceEvalApp.__new__(TraceEvalApp)
+    app = AnqaApp.__new__(AnqaApp)
     session = tmp_path / "session-publish"
     # Client path: no crash, no owner broadcast.
     app.control_session_selected(session, 9)

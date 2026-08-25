@@ -9,7 +9,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
-from groket.session.export_bundle import (
+from anqa.session.export_bundle import (
     GROK_TRACE_ARCHIVE_NAME,
     assert_grok_trace_archive_shape,
     build_grok_trace_archive,
@@ -35,8 +35,8 @@ SID = "019f-test-session"
 
 
 def _seed_session(root: Path) -> Path:
-    """Layout: runs/traces/groket-abc/%2Fworkspace/<sid>/…"""
-    run = root / "runs" / "traces" / "groket-abc-model"
+    """Layout: runs/traces/anqa-abc/%2Fworkspace/<sid>/…"""
+    run = root / "runs" / "traces" / "anqa-abc-model"
     sess = run / "%2Fworkspace" / SID
     sess.mkdir(parents=True)
     (sess / "events.jsonl").write_text('{"type":"x"}\n', encoding="utf-8")
@@ -45,10 +45,10 @@ def _seed_session(root: Path) -> Path:
     (sess / "prompt_context.json").write_text("{}\n", encoding="utf-8")
     (sess / "system_prompt.txt").write_text("sys\n", encoding="utf-8")
     (run / "run.json").write_text('{"run_id":"r1"}\n', encoding="utf-8")
-    (run / "groket-prompt.txt").write_text("hello\n", encoding="utf-8")
-    (run / "groket-launch.json").write_text("{}\n", encoding="utf-8")
+    (run / "anqa-prompt.txt").write_text("hello\n", encoding="utf-8")
+    (run / "anqa-launch.json").write_text("{}\n", encoding="utf-8")
     (run / "%2Fworkspace" / "prompt_history.jsonl").write_text("p\n", encoding="utf-8")
-    turn = run / ".groket-turn"
+    turn = run / ".anqa-turn"
     turn.mkdir()
     (turn / "scripted-turns.json").write_text("[]\n", encoding="utf-8")
     return sess
@@ -85,7 +85,7 @@ def _patch_cli(monkeypatch: pytest.MonkeyPatch, payload: bytes | None = None) ->
         out_tar.write_bytes(expected)
 
     monkeypatch.setattr(
-        "groket.session.export_bundle.build_grok_trace_archive",
+        "anqa.session.export_bundle.build_grok_trace_archive",
         _fake_cli,
     )
 
@@ -94,7 +94,7 @@ def test_run_volume_for_session(tmp_path: Path) -> None:
     sess = _seed_session(tmp_path)
     vol = run_volume_for_session(sess)
     assert vol is not None
-    assert vol.name == "groket-abc-model"
+    assert vol.name == "anqa-abc-model"
 
 
 def test_build_grok_trace_uses_cli_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,11 +108,11 @@ def test_build_grok_trace_uses_cli_bytes(tmp_path: Path, monkeypatch: pytest.Mon
         return CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(
-        "groket.session.export_bundle.which",
+        "anqa.session.export_bundle.which",
         lambda _name: "/usr/bin/grok",
     )
     monkeypatch.setattr(
-        "groket.session.export_bundle.subprocess.run",
+        "anqa.session.export_bundle.subprocess.run",
         _fake_run,
     )
     out = tmp_path / "from-cli.tar.gz"
@@ -125,7 +125,7 @@ def test_build_grok_trace_no_fallback_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sess = _seed_session(tmp_path)
-    monkeypatch.setattr("groket.session.export_bundle.which", lambda _name: None)
+    monkeypatch.setattr("anqa.session.export_bundle.which", lambda _name: None)
     with pytest.raises(RuntimeError, match="grok CLI not found"):
         build_grok_trace_archive(sess, tmp_path / "x.tar.gz")
 
@@ -183,7 +183,7 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     expected = _fake_cli_archive_bytes()
     _patch_cli(monkeypatch, expected)
 
-    from groket.notes import NoteEntry, NotesDoc, save_notes
+    from anqa.notes import NoteEntry, NotesDoc, save_notes
 
     notes_doc = NotesDoc(schema_id="default", session_id=SID)
     notes_doc.upsert(
@@ -230,9 +230,9 @@ def test_export_session_bundle_embeds_nested_grok_trace(
         assert f"{SID}/{core}" in nested_names
 
     assert "run/run.json" in names
-    assert "run/groket-prompt.txt" in names
+    assert "run/anqa-prompt.txt" in names
     assert "run/prompt_history.jsonl" in names
-    assert "run/.groket-turn/scripted-turns.json" in names
+    assert "run/.anqa-turn/scripted-turns.json" in names
     assert "human/summary.md" in names
     assert "notes/operator_notes.toml" in names
     assert "notes/schema.toml" not in names
@@ -262,7 +262,7 @@ def test_export_cli_failure_propagates(tmp_path: Path, monkeypatch: pytest.Monke
         raise RuntimeError("grok trace --local failed (rc=1): boom")
 
     monkeypatch.setattr(
-        "groket.session.export_bundle.build_grok_trace_archive",
+        "anqa.session.export_bundle.build_grok_trace_archive",
         _fail,
     )
     with pytest.raises(RuntimeError, match="grok trace --local failed"):
@@ -295,7 +295,7 @@ def test_export_trace_only_profile_skips_extras(
 
 
 def test_export_dir_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from groket.session.export_spec import ExportSpec, IncludeUnit, Packaging
+    from anqa.session.export_spec import ExportSpec, IncludeUnit, Packaging
 
     sess = _seed_session(tmp_path)
     _patch_cli(monkeypatch)

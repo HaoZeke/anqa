@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.models import SessionMeta
-from groket.ui.app import TraceEvalApp
+from anqa.models import SessionMeta
+from anqa.ui.app import AnqaApp
 
 
 def test_first_control_catalog_paint_requests_a_page() -> None:
     """Initial attach paint must request one page, not drain matched."""
-    from groket.session.access import DEFAULT_SESSION_LIST_LIMIT
-    from groket.ui.app import first_home_list_fetch
+    from anqa.session.access import DEFAULT_SESSION_LIST_LIMIT
+    from anqa.ui.app import first_home_list_fetch
 
     fetch = first_home_list_fetch()
     assert fetch["drain"] is False
@@ -22,13 +22,13 @@ def test_first_control_catalog_paint_requests_a_page() -> None:
 
 def test_initial_control_load_fetches_first_page_only(tmp_path: Path, monkeypatch) -> None:
     """First attach paint must not drain matched before the table is shown."""
-    from groket.session.access import DEFAULT_SESSION_LIST_LIMIT
+    from anqa.session.access import DEFAULT_SESSION_LIST_LIMIT
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=sock,
@@ -81,7 +81,7 @@ def test_initial_control_load_fetches_first_page_only(tmp_path: Path, monkeypatc
         }
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
-    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
     gen = app._begin_sessions_load()
     app._load_sessions_via_control(gen, quiet=False)
     assert fetches
@@ -93,13 +93,13 @@ def test_initial_control_load_fetches_first_page_only(tmp_path: Path, monkeypatc
 
 def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, monkeypatch) -> None:
     """First paint stays on one page even when ``matched`` is larger."""
-    from groket.session.access import DEFAULT_SESSION_LIST_LIMIT
+    from anqa.session.access import DEFAULT_SESSION_LIST_LIMIT
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=sock,
@@ -148,7 +148,7 @@ def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, m
         }
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
-    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
     gen = app._begin_sessions_load()
     app._load_sessions_via_control(gen, quiet=False)
     assert fetches == [
@@ -160,13 +160,13 @@ def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, m
 
 def test_first_attach_fills_later_pages_without_drain(tmp_path: Path, monkeypatch) -> None:
     """After first paint, remaining pages load with offset; never drain."""
-    from groket.session.access import DEFAULT_SESSION_LIST_LIMIT
+    from anqa.session.access import DEFAULT_SESSION_LIST_LIMIT
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=sock,
@@ -209,7 +209,7 @@ def test_first_attach_fills_later_pages_without_drain(tmp_path: Path, monkeypatc
         }
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
-    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
     gen = app._begin_sessions_load()
     app._load_sessions_via_control(gen, quiet=False)
     assert not any(f.get("drain") is True for f in fetches)
@@ -231,7 +231,7 @@ def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monke
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=sock,
@@ -281,8 +281,8 @@ def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monke
         }
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
-    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
-    monkeypatch.setattr("groket.ui.app.time.sleep", lambda _s: None)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
+    monkeypatch.setattr("anqa.ui.app.time.sleep", lambda _s: None)
     gen = app._begin_sessions_load()
     app._load_sessions_via_control(gen, quiet=False)
     assert len(fetches) >= 2
@@ -293,8 +293,8 @@ def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monke
 
 def test_browser_screen_init_sets_pending_and_live_attrs(tmp_path: Path) -> None:
     """BrowserScreen.__init__ must finish (check_action / pending bar need these)."""
-    from groket.session.context_samples import ContextSampleStore
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.session.context_samples import ContextSampleStore
+    from anqa.ui.screens.browser import BrowserScreen
 
     sess = tmp_path / "sess-init"
     sess.mkdir()
@@ -310,7 +310,7 @@ def test_browser_screen_init_sets_pending_and_live_attrs(tmp_path: Path) -> None
 
 
 def test_load_sessions_is_threaded_worker() -> None:
-    source = Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.py"
+    source = Path(__file__).resolve().parents[2] / "anqa" / "ui" / "app.py"
     text = source.read_text(encoding="utf-8")
     assert '@work(thread=True, exclusive=True, group="sessions-catalog")' in text
     assert "def _load_sessions(" in text
@@ -322,7 +322,7 @@ def test_quiet_unchanged_catalog_skips_table_rebuild(tmp_path: Path, monkeypatch
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=sock,
@@ -353,7 +353,7 @@ def test_quiet_unchanged_catalog_skips_table_rebuild(tmp_path: Path, monkeypatch
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
     monkeypatch.setattr(
-        "groket.ui.app.call_ui",
+        "anqa.ui.app.call_ui",
         lambda _app, cb, *a, **k: ui.append(getattr(cb, "__name__", str(cb))),
     )
     gen = app._begin_sessions_load()
@@ -370,7 +370,7 @@ def test_quiet_poll_drains_when_owner_returns_full_page(tmp_path: Path, monkeypa
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
-    app = TraceEvalApp(
+    app = AnqaApp(
         work_dir=work,
         traces_path=traces,
         control_socket=sock,
@@ -426,7 +426,7 @@ def test_quiet_poll_drains_when_owner_returns_full_page(tmp_path: Path, monkeypa
         }
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
-    monkeypatch.setattr("groket.ui.app.call_ui", lambda *_a, **_k: None)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
     gen = app._begin_sessions_load()
     app._load_sessions_via_control(gen, quiet=True)
     assert fetches[0] == {"since_revision": 1, "drain": False}

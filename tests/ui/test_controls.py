@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from groket.ui.widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
+from anqa.ui.widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 
 
 def test_filter_classes():

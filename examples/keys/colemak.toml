@@ -1,4 +1,4 @@
-# Colemak home-row nav. Copy to ~/.groket/keys.toml.
+# Colemak home-row nav. Copy to ~/.anqa/keys.toml.
 # Omitted ids keep catalog defaults (y copy, / search, h/l and Left/Right
 # turns). Left/Right are not letters. Next-turn is not remapped to i
 # (Colemak physical L) so i stays free.

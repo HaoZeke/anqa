@@ -1,4 +1,4 @@
-# Copy to ~/.groket/notes_schema.toml and edit field ids/labels for your workflow.
+# Copy to ~/.anqa/notes_schema.toml and edit field ids/labels for your workflow.
 # Field ids must match ^[A-Za-z_][A-Za-z0-9_-]*$
 # Labels are free-form (shown as-is in the TUI). Without this file, package
 # defaults use Fluent messages notes-field-summary / notes-field-detail.

@@ -5,13 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from conftest import make_trace_event
-from groket.ui.selectable_static import (
+from anqa.ui.selectable_static import (
     SelectableStatic,
     plain_from_renderable,
     to_display_content,
 )
-from groket.ui.widgets.detail_view import DetailView
+from anqa.ui.widgets.detail_view import DetailView
+from conftest import make_trace_event
 from rich.console import Group
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -41,7 +41,7 @@ def test_plain_from_renderable_markdown_fences_not_width_padded() -> None:
     """Rich Console pads Markdown to width with spaces — yank must use source."""
     import re
 
-    from groket.ui.panel_render import content_block
+    from anqa.ui.panel_render import content_block
 
     body = (
         "Where do you see it?\n\n"
@@ -110,7 +110,7 @@ def test_markdown_heading_bake_stays_card_width() -> None:
 
 def test_to_display_content_syntax_keeps_highlight_spans() -> None:
     """Tool Input/Output uses product Syntax highlight colors (not plain dump)."""
-    from groket.ui.render_detail import _syntax
+    from anqa.ui.render_detail import _syntax
 
     code = "def hello():\n    return 42\n"
     # Same constructor the detail pane uses (theme + word_wrap).
@@ -138,7 +138,7 @@ def test_to_display_content_syntax_keeps_highlight_spans() -> None:
 
 def test_prepare_body_syntax_keeps_line_longer_than_former_4k_cap() -> None:
     """Shipped prepare_body must not crop Syntax lines at a 4000-cell bake width."""
-    from groket.ui.selectable_static import prepare_body
+    from anqa.ui.selectable_static import prepare_body
 
     tail = "END_MARKER_LONG_SYNTAX_LINE"
     code = ("x" * 4500) + tail
@@ -164,7 +164,7 @@ def test_prepare_body_syntax_keeps_line_longer_than_former_4k_cap() -> None:
 @pytest.mark.asyncio
 async def test_tool_detail_selectable_static_keeps_long_syntax_tail() -> None:
     """Tool-detail body via SelectableStatic retains long command/output tails."""
-    from groket.ui.widgets.detail_view import DetailView
+    from anqa.ui.widgets.detail_view import DetailView
 
     tail = "END_TOOL_CMD_TAIL_9911"
     long_cmd = ("z" * 4500) + tail
@@ -194,9 +194,9 @@ def test_session_summary_chrome_keeps_short_rule_not_dash_flood() -> None:
     """Summary uses Rich Rule + Table — must not bake Rule at 10k width."""
     from pathlib import Path
 
-    from groket.models import SessionMeta
-    from groket.ui.selectable_static import prepare_body
-    from groket.ui.session_summary import render_session_summary
+    from anqa.models import SessionMeta
+    from anqa.ui.selectable_static import prepare_body
+    from anqa.ui.session_summary import render_session_summary
 
     meta = SessionMeta(
         session_id="s1",
@@ -216,8 +216,8 @@ def test_session_summary_chrome_keeps_short_rule_not_dash_flood() -> None:
 @pytest.mark.asyncio
 async def test_tool_detail_input_output_is_drag_selectable() -> None:
     """Tool Input/Output must be Content so partial drag-select works."""
-    from groket.ui.render_detail import render_event_detail
-    from groket.ui.widgets.detail_view import DetailView
+    from anqa.ui.render_detail import render_event_detail
+    from anqa.ui.widgets.detail_view import DetailView
 
     ev = make_trace_event(
         index=1,
@@ -369,7 +369,7 @@ async def test_action_copy_detail_yanks_soft_wrap_selection(width: int) -> None:
     """Browser copy path keeps the full logical span of a soft-wrapped line."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     app = _narrow_long_line_app(width)()
     async with app.run_test(size=(max(width + 10, 50), 24)):
@@ -464,7 +464,7 @@ async def test_selectable_static_markdown_partial_line_selection() -> None:
 
 def test_markdown_body_full_yank_keeps_source_heading() -> None:
     """Diff assistant / report MD: y pastes source ``##`` not rendered Heading only."""
-    from groket.ui.panel_render import md_content
+    from anqa.ui.panel_render import md_content
 
     body = SelectableStatic(md_content("## Heading\n\nok", indent=0))
     assert "## Heading" in body.get_plain_text()
@@ -476,8 +476,8 @@ def test_markdown_body_full_yank_keeps_source_heading() -> None:
 
 def test_system_detail_keeps_yellow_body_style() -> None:
     """System chrome body is Text(..., style=yellow) — base style must survive bake."""
-    from groket.ui.render_detail import render_event_detail
-    from groket.ui.styles import EVENT_TYPE_STYLE
+    from anqa.ui.render_detail import render_event_detail
+    from anqa.ui.styles import EVENT_TYPE_STYLE
 
     ev = make_trace_event(
         index=0,
@@ -546,7 +546,7 @@ async def test_detail_view_yank_keeps_full_tool_output_past_display_cap() -> Non
         yank = dv.get_plain_text()
         assert middle in yank
         # Display path may omit the middle when mid-truncated.
-        from groket.ui.i18n import t
+        from anqa.ui.i18n import t
 
         if t("truncate-marker") in display_plain:
             assert middle not in display_plain
@@ -591,7 +591,7 @@ async def test_action_copy_detail_yanks_full_body() -> None:
     """Browser y (copy_detail) puts detail plain text on the clipboard."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     class _BrowserCopyApp(App):
         def compose(self) -> ComposeResult:
@@ -631,7 +631,7 @@ def test_action_copy_detail_report_without_focus_is_nothing() -> None:
     """On Notes with no selection and no focused card, y does not join siblings."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     copied: list[str] = []
     notes: list[str] = []
@@ -653,7 +653,7 @@ def test_action_copy_detail_yanks_focused_report_pane() -> None:
     """Focused Notes card yanks only that card body."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     issue_body = (
         "What: Claimed MCP failed\n"
@@ -686,7 +686,7 @@ async def test_action_copy_detail_selection_exact_not_stripped() -> None:
     """Live selection is copied exactly (leading/trailing spaces kept)."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     copied: list[str] = []
     notes: list[str] = []
@@ -708,7 +708,7 @@ async def test_multipane_focused_only_via_real_widgets() -> None:
     """Two extractable panes: yank uses the focused body only."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     class _Multi(App):
         def compose(self) -> ComposeResult:
@@ -776,7 +776,7 @@ async def test_drag_selection_stays_inside_one_extractable_pane() -> None:
 
 
 def test_is_extractable_static() -> None:
-    from groket.ui.selectable_static import SelectableStatic, is_extractable_static
+    from anqa.ui.selectable_static import SelectableStatic, is_extractable_static
     from textual.widgets import Static
 
     assert is_extractable_static(SelectableStatic("x")) is True
@@ -789,7 +789,7 @@ async def test_multiline_selection_extract_and_copy() -> None:
     """Multi-line drag extract keeps newlines; y copies the full span."""
     from types import SimpleNamespace
 
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     class _MultiLine(App):
         def compose(self) -> ComposeResult:
@@ -831,21 +831,21 @@ async def test_multiline_selection_extract_and_copy() -> None:
 
 
 def _app_copy_host(**kwargs: object) -> SimpleNamespace:
-    """Minimal host with TraceEvalApp copy helpers bound for unit tests."""
-    from groket.ui.app import TraceEvalApp
+    """Minimal host with AnqaApp copy helpers bound for unit tests."""
+    from anqa.ui.app import AnqaApp
 
     host = SimpleNamespace(**kwargs)
     if not hasattr(host, "_copy_notify_at"):
         host._copy_notify_at = 0.0
         host._copy_notify_msg = ""
-    host.notify_copied = lambda msg: TraceEvalApp.notify_copied(host, msg)  # type: ignore[arg-type]
-    host._copy_live_selection = lambda: TraceEvalApp._copy_live_selection(host)  # type: ignore[arg-type]
+    host.notify_copied = lambda msg: AnqaApp.notify_copied(host, msg)  # type: ignore[arg-type]
+    host._copy_live_selection = lambda: AnqaApp._copy_live_selection(host)  # type: ignore[arg-type]
     return host
 
 
 def test_notify_copied_debounces_same_message() -> None:
     """Rapid same-message copy toasts must not stack."""
-    from groket.ui.app import TraceEvalApp
+    from anqa.ui.app import AnqaApp
 
     notes: list[str] = []
     host = SimpleNamespace(
@@ -853,11 +853,11 @@ def test_notify_copied_debounces_same_message() -> None:
         _copy_notify_msg="",
         notify=lambda msg, **kwargs: notes.append(str(msg)),
     )
-    TraceEvalApp.notify_copied(host, "Copied selection to clipboard")  # type: ignore[arg-type]
-    TraceEvalApp.notify_copied(host, "Copied selection to clipboard")  # type: ignore[arg-type]
+    AnqaApp.notify_copied(host, "Copied selection to clipboard")  # type: ignore[arg-type]
+    AnqaApp.notify_copied(host, "Copied selection to clipboard")  # type: ignore[arg-type]
     assert notes == ["Copied selection to clipboard"]
     # Different message still notifies.
-    TraceEvalApp.notify_copied(host, "Copied detail to clipboard")  # type: ignore[arg-type]
+    AnqaApp.notify_copied(host, "Copied detail to clipboard")  # type: ignore[arg-type]
     assert notes == ["Copied selection to clipboard", "Copied detail to clipboard"]
 
 
@@ -869,7 +869,7 @@ def test_selectable_static_does_not_focus_on_click() -> None:
 @pytest.mark.asyncio
 async def test_action_help_quit_copies_selection() -> None:
     """Ctrl+C copies selection when present instead of only showing quit hint."""
-    from groket.ui.app import TraceEvalApp
+    from anqa.ui.app import AnqaApp
 
     copied: list[str] = []
     notes: list[str] = []
@@ -883,14 +883,14 @@ async def test_action_help_quit_copies_selection() -> None:
     assert host._copy_live_selection() is True
     assert copied == ["selected-bit"]
     assert notes
-    TraceEvalApp.action_help_quit(host)  # type: ignore[arg-type]
+    AnqaApp.action_help_quit(host)  # type: ignore[arg-type]
     assert copied == ["selected-bit", "selected-bit"]
 
 
 @pytest.mark.asyncio
 async def test_text_selected_auto_copies_live_selection() -> None:
     """Mouse-up after a drag (TextSelected) copies without pressing y."""
-    from groket.ui.app import TraceEvalApp
+    from anqa.ui.app import AnqaApp
     from textual.events import TextSelected
 
     copied: list[str] = []
@@ -900,7 +900,7 @@ async def test_text_selected_auto_copies_live_selection() -> None:
         copy_to_clipboard=lambda text: copied.append(text),
         notify=lambda msg, **kwargs: notes.append(str(msg)),
     )
-    TraceEvalApp.on_text_selected(host, TextSelected())  # type: ignore[arg-type]
+    AnqaApp.on_text_selected(host, TextSelected())  # type: ignore[arg-type]
     assert copied == ["dragged multi\nline bit"]
     assert notes
 
@@ -908,7 +908,7 @@ async def test_text_selected_auto_copies_live_selection() -> None:
     copied.clear()
     notes.clear()
     host.screen = SimpleNamespace(get_selected_text=lambda: None)
-    TraceEvalApp.on_text_selected(host, TextSelected())  # type: ignore[arg-type]
+    AnqaApp.on_text_selected(host, TextSelected())  # type: ignore[arg-type]
     assert copied == []
     assert notes == []
 
@@ -916,7 +916,7 @@ async def test_text_selected_auto_copies_live_selection() -> None:
 @pytest.mark.asyncio
 async def test_action_help_quit_copies_focused_body() -> None:
     """Ctrl+C with no selection yanks the focused extractable body (like y)."""
-    from groket.ui.app import TraceEvalApp
+    from anqa.ui.app import AnqaApp
 
     class _FocusApp(App):
         def compose(self) -> ComposeResult:
@@ -944,5 +944,5 @@ async def test_action_help_quit_copies_focused_body() -> None:
             notify=lambda msg, **kwargs: notes.append(str(msg)),
             active_bindings={},
         )
-        TraceEvalApp.action_help_quit(host)  # type: ignore[arg-type]
+        AnqaApp.action_help_quit(host)  # type: ignore[arg-type]
         assert any("FOCUSED_BODY_PHRASE_42" in c for c in copied)

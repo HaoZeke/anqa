@@ -1,4 +1,4 @@
-"""Pilot-driven tests for :mod:`groket.ui.app`.
+"""Pilot-driven tests for :mod:`anqa.ui.app`.
 
 Exercises compose, mount, session loading, table population, filter cycling,
 multi-select, delete, rerun, save config, theme cycling, screen pushes,
@@ -11,10 +11,10 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.parser import load_session_meta
-from groket.session.query import CatalogQueryRow, row_matches_query
-from groket.ui.app import (
-    TraceEvalApp,
+from anqa.parser import load_session_meta
+from anqa.session.query import CatalogQueryRow, row_matches_query
+from anqa.ui.app import (
+    AnqaApp,
     _coerce_select_value,
 )
 from textual.widgets import DataTable, Input, Select
@@ -86,8 +86,8 @@ def _make_app(
     n_sessions: int = 2,
     model_ids: list[str] | None = None,
     task_ids: list[str] | None = None,
-) -> tuple[TraceEvalApp, Path, Path]:
-    """Build a :class:`TraceEvalApp` with *n_sessions* minimal sessions."""
+) -> tuple[AnqaApp, Path, Path]:
+    """Build a :class:`AnqaApp` with *n_sessions* minimal sessions."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True, exist_ok=True)
@@ -97,13 +97,13 @@ def _make_app(
         mid = models[i % len(models)]
         tid = tasks[i % len(tasks)]
         _write_session(traces, f"sess-{i:03d}", model_id=mid, task_id=tid)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     return app, work, traces
 
 
-def _prime_catalog(app: TraceEvalApp, traces: Path) -> None:
+def _prime_catalog(app: AnqaApp, traces: Path) -> None:
     """Load session metas into *app* without mounting Textual."""
-    from groket.parser import find_sessions
+    from anqa.parser import find_sessions
 
     rows: list[tuple[object, str]] = []
     for session_dir in find_sessions(traces):
@@ -148,56 +148,56 @@ class TestCoerceSelectValue:
 
 
 class TestCursorKeyAfterDeletes:
-    """Cover :meth:`TraceEvalApp._cursor_key_after_deletes` branch logic."""
+    """Cover :meth:`AnqaApp._cursor_key_after_deletes` branch logic."""
 
     def test_empty_list(self) -> None:
-        assert TraceEvalApp._cursor_key_after_deletes([], None, set()) is None
+        assert AnqaApp._cursor_key_after_deletes([], None, set()) is None
 
     def test_all_gone(self) -> None:
-        assert TraceEvalApp._cursor_key_after_deletes(["a", "b"], "a", {"a", "b"}) is None
+        assert AnqaApp._cursor_key_after_deletes(["a", "b"], "a", {"a", "b"}) is None
 
     def test_cursor_not_gone(self) -> None:
-        assert TraceEvalApp._cursor_key_after_deletes(["a", "b"], "a", {"b"}) == "a"
+        assert AnqaApp._cursor_key_after_deletes(["a", "b"], "a", {"b"}) == "a"
 
     def test_cursor_gone_picks_next(self) -> None:
-        assert TraceEvalApp._cursor_key_after_deletes(["a", "b", "c"], "a", {"a"}) == "b"
+        assert AnqaApp._cursor_key_after_deletes(["a", "b", "c"], "a", {"a"}) == "b"
 
     def test_cursor_gone_last_picks_prev(self) -> None:
-        assert TraceEvalApp._cursor_key_after_deletes(["a", "b", "c"], "c", {"c"}) == "b"
+        assert AnqaApp._cursor_key_after_deletes(["a", "b", "c"], "c", {"c"}) == "b"
 
     def test_cursor_none_picks_first_remaining(self) -> None:
-        result = TraceEvalApp._cursor_key_after_deletes(["a", "b"], None, {"a"})
+        result = AnqaApp._cursor_key_after_deletes(["a", "b"], None, {"a"})
         assert result == "b"
 
 
 class TestExtractTaskAndModel:
-    """Cover :meth:`TraceEvalApp._extract_task_and_model`."""
+    """Cover :meth:`AnqaApp._extract_task_and_model`."""
 
     def test_build_suffix(self) -> None:
-        assert TraceEvalApp._extract_task_and_model("groket-abc-build") == ("abc", "build")
+        assert AnqaApp._extract_task_and_model("anqa-abc-build") == ("abc", "build")
 
     def test_s80_suffix(self) -> None:
-        assert TraceEvalApp._extract_task_and_model("groket-abc-s80") == ("abc", "s80")
+        assert AnqaApp._extract_task_and_model("anqa-abc-s80") == ("abc", "s80")
 
     def test_s140_suffix(self) -> None:
-        assert TraceEvalApp._extract_task_and_model("groket-abc-s140") == ("abc", "s140")
+        assert AnqaApp._extract_task_and_model("anqa-abc-s140") == ("abc", "s140")
 
     def test_hyphen_fallback(self) -> None:
-        task, model = TraceEvalApp._extract_task_and_model("groket-task-custom")
+        task, model = AnqaApp._extract_task_and_model("anqa-task-custom")
         assert task == "task"
         assert model == "custom"
 
     def test_no_hyphen(self) -> None:
-        assert TraceEvalApp._extract_task_and_model("standalone") == ("standalone", "unknown")
+        assert AnqaApp._extract_task_and_model("standalone") == ("standalone", "unknown")
 
 
 class TestSessionSortTs:
-    """Cover :meth:`TraceEvalApp._session_sort_ts` branches."""
+    """Cover :meth:`AnqaApp._session_sort_ts` branches."""
 
     def test_iso_timestamp(self, tmp_path: Path) -> None:
         sd = _write_session(tmp_path / "t", "s1")
         meta = load_session_meta(sd)
-        ts = TraceEvalApp._session_sort_ts(meta)
+        ts = AnqaApp._session_sort_ts(meta)
         assert ts > 0
 
     def test_empty_timestamps_uses_mtime(self, tmp_path: Path) -> None:
@@ -205,7 +205,7 @@ class TestSessionSortTs:
         meta = load_session_meta(sd)
         meta.created_at = ""
         meta.updated_at = ""
-        ts = TraceEvalApp._session_sort_ts(meta)
+        ts = AnqaApp._session_sort_ts(meta)
         assert ts > 0
 
     def test_naive_datetime_handled(self, tmp_path: Path) -> None:
@@ -213,7 +213,7 @@ class TestSessionSortTs:
         meta = load_session_meta(sd)
         meta.created_at = "2026-01-01T00:00:00"
         meta.updated_at = ""
-        ts = TraceEvalApp._session_sort_ts(meta)
+        ts = AnqaApp._session_sort_ts(meta)
         assert ts > 0
 
 
@@ -298,7 +298,7 @@ async def test_model_token_filters_sessions(tmp_path: Path) -> None:
 async def test_auto_theme_is_not_pinned_to_ansi(tmp_path: Path) -> None:
     """Applying auto must not write ansi-light / ansi-dark into config.toml."""
     import tomlkit
-    from groket.paths import app_config_path
+    from anqa.paths import app_config_path
 
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     app._config["theme"] = "auto"
@@ -316,7 +316,7 @@ async def test_auto_theme_is_not_pinned_to_ansi(tmp_path: Path) -> None:
 async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
     """Setting ``App.theme`` (e.g. Ctrl+P Change theme) writes config.toml."""
     import tomlkit
-    from groket.paths import app_config_path
+    from anqa.paths import app_config_path
 
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -325,8 +325,8 @@ async def test_theme_change_via_reactive_persists(tmp_path: Path) -> None:
         names = app._theme_names()
         if len(names) < 2:
             return
-        from groket.ui.appearance import appearance
-        from groket.ui.theme import family_of_theme, resolve_theme
+        from anqa.ui.appearance import appearance
+        from anqa.ui.theme import family_of_theme, resolve_theme
 
         target = next(n for n in names if n != app.theme)
         family = family_of_theme(target)
@@ -377,9 +377,9 @@ async def test_pair_pick_stores_family_and_applies_desktop_member(
 ) -> None:
     """Picking gruvbox selects the family; the live face follows the desktop."""
     import tomlkit
-    from groket.paths import app_config_path
-    from groket.ui.appearance import appearance
-    from groket.ui.theme import resolve_theme
+    from anqa.paths import app_config_path
+    from anqa.ui.appearance import appearance
+    from anqa.ui.theme import resolve_theme
 
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -403,8 +403,8 @@ async def test_auto_theme_follows_terminal_not_desktop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``theme = auto`` takes COLORFGBG; a light desktop does not force ansi-light."""
-    monkeypatch.setattr("groket.ui.app.appearance", lambda: "light")
-    monkeypatch.setattr("groket.ui.appearance.appearance", lambda: "light")
+    monkeypatch.setattr("anqa.ui.app.appearance", lambda: "light")
+    monkeypatch.setattr("anqa.ui.appearance.appearance", lambda: "light")
     monkeypatch.setenv("COLORFGBG", "15;0")
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -422,10 +422,10 @@ async def test_named_follow_os_uses_desktop_not_terminal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A named pair with ``follow_os`` follows the desktop, not COLORFGBG."""
-    from groket.ui.theme import resolve_theme
+    from anqa.ui.theme import resolve_theme
 
-    monkeypatch.setattr("groket.ui.app.appearance", lambda: "light")
-    monkeypatch.setattr("groket.ui.appearance.appearance", lambda: "light")
+    monkeypatch.setattr("anqa.ui.app.appearance", lambda: "light")
+    monkeypatch.setattr("anqa.ui.appearance.appearance", lambda: "light")
     monkeypatch.setenv("COLORFGBG", "15;0")
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -440,8 +440,8 @@ async def test_named_follow_os_uses_desktop_not_terminal(
 @pytest.mark.asyncio
 async def test_follow_desktop_appearance(tmp_path: Path) -> None:
     """``follow_os`` re-resolves the colorway; a pinned pick stays put."""
-    from groket.ui.appearance import appearance
-    from groket.ui.theme import resolve_theme
+    from anqa.ui.appearance import appearance
+    from anqa.ui.theme import resolve_theme
 
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -465,7 +465,7 @@ async def test_follow_desktop_appearance(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_open_session_enter_key(tmp_path: Path) -> None:
     """action_open_session pushes BrowserScreen and cleans up safely."""
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     app, _, _ = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -624,13 +624,13 @@ async def test_session_search_filters_as_you_type(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_update_run_status_no_active_runs(tmp_path: Path) -> None:
-    """update_run_status with no active runs resets to 'groket'."""
+    """update_run_status with no active runs resets to 'anqa'."""
     app, _, _ = _make_app(tmp_path, n_sessions=0)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         app.update_run_status()
         await pilot.pause()
-        assert "groket" in app.title.lower()
+        assert "anqa" in app.title.lower()
 
 
 def test_config_save_and_load(tmp_path: Path) -> None:
@@ -676,7 +676,6 @@ async def test_action_quit_cleans_up(tmp_path: Path) -> None:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         app._prepare_clean_exit()
         assert app._exiting is True
-        assert app.run_manager.ui_detached
 
 
 @pytest.mark.asyncio
@@ -764,7 +763,7 @@ def test_merge_session_dirs_empty(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_open_session_path(tmp_path: Path) -> None:
     """open_session_path delegates to _open_session."""
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     app, _, traces = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -783,7 +782,7 @@ async def test_open_session_path(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_open_session_path_selects_real_prompt_index(tmp_path: Path) -> None:
     """Direct open waits for parsing and maps promptIndex to its timeline segment."""
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     app, _, traces = _make_app(tmp_path, n_sessions=1)
     sd = traces / "sess-000"
@@ -900,7 +899,7 @@ async def test_auto_load_default_traces_under_work_dir(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     _write_session(traces, "sess-auto")
-    from groket.ui.app import TraceEvalApp as _TEA
+    from anqa.ui.app import AnqaApp as _TEA
 
     app = _TEA(work_dir=work)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -929,7 +928,7 @@ async def test_schedule_live_sessions_poll_timer_when_watch_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When TraceTreeWatch.start fails, arm a slow timer poll."""
-    from groket.fs_watch import TraceTreeWatch
+    from anqa.fs_watch import TraceTreeWatch
 
     monkeypatch.setattr(TraceTreeWatch, "start", lambda self: False)
     app, _, _ = _make_app(tmp_path, n_sessions=0)
@@ -947,8 +946,8 @@ async def test_schedule_live_sessions_poll_timer_when_watch_fails(
 def test_dispatch_refresh_rerun_calls_open_browser(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from groket.ui.app import TraceEvalApp
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.app import AnqaApp
+    from anqa.ui.screens.browser import BrowserScreen
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -959,14 +958,14 @@ def test_dispatch_refresh_rerun_calls_open_browser(tmp_path: Path) -> None:
         lambda **kwargs: calls.append(bool(kwargs.get("heartbeat")))
     )
     host = SimpleNamespace(screen_stack=[screen])
-    TraceEvalApp._dispatch_refresh_rerun(host, sd)  # type: ignore[arg-type]
+    AnqaApp._dispatch_refresh_rerun(host, sd)  # type: ignore[arg-type]
     assert calls == [True]
 
 
 def test_dispatch_refresh_rerun_ignores_unrelated_screens(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from groket.ui.app import TraceEvalApp
+    from anqa.ui.app import AnqaApp
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -978,15 +977,15 @@ def test_dispatch_refresh_rerun_ignores_unrelated_screens(tmp_path: Path) -> Non
         _live_refresh_from_fs=lambda **kwargs: calls.append("hit"),
     )
     host = SimpleNamespace(screen_stack=[screen, SimpleNamespace()])
-    TraceEvalApp._dispatch_refresh_rerun(host, sd)  # type: ignore[arg-type]
+    AnqaApp._dispatch_refresh_rerun(host, sd)  # type: ignore[arg-type]
     assert calls == []
 
 
 def test_live_sessions_heartbeat_skips_when_busy_or_idle(tmp_path: Path) -> None:
-    from groket.models import SessionMeta
-    from groket.ui.app import TraceEvalApp
+    from anqa.models import SessionMeta
+    from anqa.ui.app import AnqaApp
 
-    app = TraceEvalApp.__new__(TraceEvalApp)
+    app = AnqaApp.__new__(AnqaApp)
     app._exiting = False
     app._live_meta_heartbeat_busy = True
     app._meta_only = []
@@ -1028,10 +1027,10 @@ def test_live_sessions_heartbeat_skips_when_busy_or_idle(tmp_path: Path) -> None
 def test_live_meta_heartbeat_worker_updates_and_dispatches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from groket.models import SessionMeta
-    from groket.session_inflight import KIND_REFRESH, clear, is_inflight, request_rerun, try_begin
-    from groket.ui import app as app_mod
-    from groket.ui.app import TraceEvalApp
+    from anqa.models import SessionMeta
+    from anqa.session_inflight import KIND_REFRESH, clear, is_inflight, request_rerun, try_begin
+    from anqa.ui import app as app_mod
+    from anqa.ui.app import AnqaApp
 
     clear(KIND_REFRESH)
     sd = tmp_path / "019f-live"
@@ -1053,7 +1052,7 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
         turn_outcome="running",
         num_events=1,
     )
-    app = TraceEvalApp.__new__(TraceEvalApp)
+    app = AnqaApp.__new__(AnqaApp)
     app._exiting = False
     app._live_meta_heartbeat_busy = True
     app._meta_only = [(meta, "run"), (locked_meta, "L")]
@@ -1074,11 +1073,11 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
         )
 
     monkeypatch.setattr(app_mod, "load_session_meta", _load)
-    monkeypatch.setattr("groket.parser.load_session_meta", _load)
+    monkeypatch.setattr("anqa.parser.load_session_meta", _load)
     monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
     assert try_begin(KIND_REFRESH, locked) is True
     # Run the underlying function body synchronously (skip @work decorator scheduling).
-    TraceEvalApp._live_meta_heartbeat_worker.__wrapped__(  # type: ignore[attr-defined]
+    AnqaApp._live_meta_heartbeat_worker.__wrapped__(  # type: ignore[attr-defined]
         app, [(meta, "run"), (locked_meta, "L")]
     )
     assert app._live_meta_heartbeat_busy is False
@@ -1096,12 +1095,6 @@ async def test_scan_live_sessions_into_table(
 ) -> None:
     """_scan_live_sessions_into_table detects new sessions."""
     app, work, traces = _make_app(tmp_path, n_sessions=1)
-    # Force idle full-walk path (host may have unrelated running eval containers).
-    monkeypatch.setattr(
-        type(app.run_manager),
-        "active_count",
-        property(lambda self: 0),
-    )
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
@@ -1126,11 +1119,6 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
 ) -> None:
     """After a closed turn (completed), the next follow-up must show running again."""
     app, work, traces = _make_app(tmp_path, n_sessions=1)
-    monkeypatch.setattr(
-        type(app.run_manager),
-        "active_count",
-        property(lambda self: 0),
-    )
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         await wait_until(
@@ -1146,7 +1134,7 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
         app._session_mtimes[key] = 1.0  # same mtime path still refreshes live outcomes
 
         monkeypatch.setattr(
-            "groket.parser.list_turn_outcome_for_dir",
+            "anqa.parser.list_turn_outcome_for_dir",
             lambda _sd: "running",
         )
         app._live_sessions_last_scan = 0.0
@@ -1207,7 +1195,7 @@ async def test_load_sessions_from_subdirs(tmp_path: Path) -> None:
     sub.mkdir(parents=True)
     _write_session(sub, "sess-sub-1")
 
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -1228,7 +1216,7 @@ def test_constructor_explicit_work_dir(tmp_path: Path) -> None:
     """Constructor with explicit work_dir sets paths correctly."""
     work = tmp_path / "explicit"
     work.mkdir()
-    app = TraceEvalApp(work_dir=work)
+    app = AnqaApp(work_dir=work)
     assert app.work_dir == work.resolve()
     assert app.traces_path == (work / "runs" / "traces").resolve()
 
@@ -1238,7 +1226,7 @@ def test_constructor_traces_path_only(tmp_path: Path) -> None:
     traces = tmp_path / "my-traces"
     traces.mkdir(parents=True)
     _write_session(traces, "s1")
-    app = TraceEvalApp(traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     assert app.traces_path is not None
 
 
@@ -1309,7 +1297,7 @@ async def test_meta_cache_corrupt_file(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_on_session_selected_opens_browser(tmp_path: Path) -> None:
     """DataTable.RowSelected event opens the session in BrowserScreen."""
-    from groket.ui.screens.browser import BrowserScreen
+    from anqa.ui.screens.browser import BrowserScreen
 
     app, _, _ = _make_app(tmp_path, n_sessions=1)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -1331,7 +1319,7 @@ async def test_on_session_selected_opens_browser(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_interactive_sessions_modal_last_turn(tmp_path: Path) -> None:
     """Sessions-home next-prompt modal returns (text, final) with last-turn checkbox."""
-    from groket.ui.app import InteractiveSessionsModal
+    from anqa.ui.app import InteractiveSessionsModal
     from textual.app import App
     from textual.widgets import Checkbox, Input
 

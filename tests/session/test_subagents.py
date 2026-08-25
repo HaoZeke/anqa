@@ -5,16 +5,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.models import ToolInputBag, TraceEvent
-from groket.parser import find_sessions, parse_timeline
-from groket.session.sources import (
+from anqa.models import ToolInputBag, TraceEvent
+from anqa.parser import find_sessions, parse_timeline
+from anqa.session.sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
     SessionScanRoot,
     collect_host_session_dirs,
     collect_session_dirs,
 )
-from groket.session.subagents import (
+from anqa.session.subagents import (
     compact_child_chrome,
     drop_subagent_sessions,
     is_nested_subagent_stub,
@@ -26,7 +26,7 @@ from groket.session.subagents import (
     session_changed_targets,
     subagent_runs_for_session,
 )
-from groket.session.turns import TurnSegment
+from anqa.session.turns import TurnSegment
 
 
 def _write_session(
@@ -299,7 +299,7 @@ def test_runs_share_parent_prompt_and_running_vs_done(tmp_path: Path) -> None:
 
 
 def test_control_turns_and_timeline_expose_runs(tmp_path: Path) -> None:
-    from groket.session.control_views import build_session_timeline, build_session_turns
+    from anqa.session.control_views import build_session_timeline, build_session_turns
 
     parent = _write_session(tmp_path / "parent")
     _write_session(tmp_path / "child-99")
@@ -368,8 +368,8 @@ def test_control_turns_and_timeline_expose_runs(tmp_path: Path) -> None:
 def test_subagent_runs_from_overview_skip_disk(tmp_path: Path) -> None:
     from unittest.mock import patch
 
-    from groket.session.control_views import build_session_overview
-    from groket.session.subagents import subagent_runs_for_view
+    from anqa.session.control_views import build_session_overview
+    from anqa.session.subagents import subagent_runs_for_view
 
     parent = _write_session(tmp_path / "parent-ov")
     _write_session(tmp_path / "child-99")
@@ -392,7 +392,7 @@ def test_subagent_runs_from_overview_skip_disk(tmp_path: Path) -> None:
     )
     ov = build_session_overview(parent)
     with patch(
-        "groket.session.subagents.subagent_runs_for_session",
+        "anqa.session.subagents.subagent_runs_for_session",
         side_effect=AssertionError("disk merge"),
     ):
         runs = subagent_runs_for_view(ov, parent, [], [], {})
@@ -402,7 +402,7 @@ def test_subagent_runs_from_overview_skip_disk(tmp_path: Path) -> None:
 
 
 def test_subagent_list_preview_is_not_the_dump() -> None:
-    from groket.session.subagents import subagent_list_preview
+    from anqa.session.subagents import subagent_list_preview
 
     dump = "Subagent finished  01a016d1-4df7-7d30-b99f-65289aa0b417  completed  duration_ms=96555"
     preview = subagent_list_preview("subagent_finished", {}, dump)
@@ -418,7 +418,7 @@ def test_subagent_list_preview_is_not_the_dump() -> None:
 
 
 def test_subagent_run_parses_spawn_and_finish_dump_lines() -> None:
-    from groket.session.subagents import SubagentRun
+    from anqa.session.subagents import SubagentRun
 
     spawn = SubagentRun.spawn_from_content("Spawned general-purpose: Investigate the bug")
     assert spawn["subagent_type"] == "general-purpose"

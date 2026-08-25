@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 HUD_README = ROOT / "desktop" / "README.md"
-HELP = ROOT / "groket" / "locale" / "en" / "help.rich.txt"
+HELP = ROOT / "anqa" / "locale" / "en" / "help.rich.txt"
 CONTROL = ROOT / "docs" / "control.md"
 AGENTS = ROOT / "AGENTS.md"
 
@@ -33,7 +33,7 @@ def _help_rows() -> list[tuple[str, str]]:
     return rows
 
 
-def test_readme_opens_with_what_groket_does() -> None:
+def test_readme_opens_with_what_anqa_does() -> None:
     text = README.read_text(encoding="utf-8")
     head = "\n".join(text.splitlines()[:20])
     assert "review" in head
@@ -79,7 +79,7 @@ def test_method_inventory_lives_only_in_control_doc() -> None:
     assert "notes/changed" in control
     assert "session/changed" in control
     assert "Content-Length" in control
-    assert "GROKET_CONTROL_SOCKET" in control
+    assert "ANQA_CONTROL_SOCKET" in control
     for path in (README, AGENTS):
         assert _METHODS.search(path.read_text(encoding="utf-8")) is None, path.name
     assert "docs/control.md" in AGENTS.read_text(encoding="utf-8")
@@ -103,9 +103,9 @@ def test_readme_has_no_html_heading_anchors() -> None:
 
 def test_readme_mark_switches_with_github_color_scheme() -> None:
     text = README.read_text(encoding="utf-8")
-    light = ROOT / "brand" / "png" / "groket-mark.png"
-    dark = ROOT / "brand" / "png" / "groket-mark-reverse.png"
+    light = ROOT / "brand" / "png" / "anqa-mark.png"
+    dark = ROOT / "brand" / "png" / "anqa-mark-reverse.png"
     assert light.is_file()
     assert dark.is_file()
-    assert "groket-mark.png#gh-light-mode-only" in text
-    assert "groket-mark-reverse.png#gh-dark-mode-only" in text
+    assert "anqa-mark.png#gh-light-mode-only" in text
+    assert "anqa-mark-reverse.png#gh-dark-mode-only" in text

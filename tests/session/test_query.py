@@ -6,15 +6,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from groket.integrations.control_contract import (
+from anqa.integrations.control_contract import (
     CATALOG_QUERY_COUNTS,
     catalog_query_count_fields,
     catalog_query_flag_count,
     catalog_query_has_count_fields,
     catalog_query_values,
 )
-from groket.models import SessionMeta
-from groket.session.query import (
+from anqa.models import SessionMeta
+from anqa.session.query import (
     HAS_VALUES,
     CatalogQueryRow,
     QuerySpan,
@@ -210,8 +210,8 @@ def test_and_clause_order_does_not_change_catalog_match() -> None:
 
 
 def test_and_clause_order_does_not_change_event_match() -> None:
-    from groket.models import TraceEvent
-    from groket.session.query import event_matches_query
+    from anqa.models import TraceEvent
+    from anqa.session.query import event_matches_query
 
     ev = TraceEvent(
         index=1,
@@ -241,11 +241,11 @@ def test_forgiving_unknown_and_incomplete() -> None:
 
 
 def test_catalog_query_help_lists_schema_tokens() -> None:
-    from groket.integrations.control_contract import catalog_query_help_plain
+    from anqa.integrations.control_contract import catalog_query_help_plain
 
     text = catalog_query_help_plain()
     assert "Bare words match title, id, and label" in text
-    from groket.integrations.control_contract import list_query_help_plain
+    from anqa.integrations.control_contract import list_query_help_plain
 
     timeline = list_query_help_plain("timeline")
     assert "tool:" in timeline
@@ -268,7 +268,7 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
     assert "\n" in text
     for line in text.splitlines():
         assert len(line) <= 72, line
-    from groket.integrations.control_contract import list_query_help_pairs
+    from anqa.integrations.control_contract import list_query_help_pairs
 
     pairs = list_query_help_pairs("timeline")
     assert any(label == "tool:" for label, _body in pairs)
@@ -358,7 +358,7 @@ def test_highlight_has_quantity_spans() -> None:
 
 
 def test_suggest_has_quantity_from_schema() -> None:
-    from groket.integrations.control_contract import (
+    from anqa.integrations.control_contract import (
         CATALOG_QUERY_COMPARE,
         catalog_query_count_fields,
     )
@@ -684,8 +684,8 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
 
 
 def test_event_and_turn_use_same_query_language() -> None:
-    from groket.models import TraceEvent
-    from groket.session.query import event_matches_query, turn_matches_query
+    from anqa.models import TraceEvent
+    from anqa.session.query import event_matches_query, turn_matches_query
 
     ev = TraceEvent(
         index=1,

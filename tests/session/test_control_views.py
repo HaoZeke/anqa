@@ -6,7 +6,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from groket.session.control_views import (
+from anqa.session.control_views import (
     build_session_diff,
     build_session_get,
     build_session_overview,
@@ -179,8 +179,8 @@ def test_build_session_usage(tmp_path: Path) -> None:
 def test_build_session_overview_notes_include_source_and_foreign_fields(
     tmp_path: Path,
 ) -> None:
-    from groket.notes import NoteEntry, notes_snapshot, upsert_note
-    from groket.session.control_views import build_session_overview
+    from anqa.notes import NoteEntry, notes_snapshot, upsert_note
+    from anqa.session.control_views import build_session_overview
 
     sd = _write_session(tmp_path, "sess-ov-notes")
     before = notes_snapshot(sd)
@@ -206,7 +206,7 @@ def test_build_session_overview_notes_include_source_and_foreign_fields(
 
 
 def test_build_session_overview_one_shot(tmp_path: Path) -> None:
-    from groket.session.control_views import build_session_overview
+    from anqa.session.control_views import build_session_overview
 
     sd = _write_session(tmp_path, "sess-ov")
     ov = build_session_overview(sd)
@@ -485,13 +485,13 @@ def test_timeline_kind_workflows_keeps_workflow_tools(tmp_path: Path) -> None:
 
 def test_overview_caps_assistant_preview_for_list(tmp_path: Path) -> None:
     """session/overview keeps short assistant previews; session/turns keeps long."""
-    from groket.parser import parse_timeline
-    from groket.session.control_views import (
+    from anqa.parser import parse_timeline
+    from anqa.session.control_views import (
         build_session_overview,
         build_session_turns,
         turn_segment_mapping,
     )
-    from groket.session.turns import segment_timeline_turns
+    from anqa.session.turns import segment_timeline_turns
 
     sd = _write_session(tmp_path, "sess-asst-cap")
     long_agent = "A" * 2000
@@ -520,8 +520,8 @@ def test_overview_caps_assistant_preview_for_list(tmp_path: Path) -> None:
 
 
 def test_timeline_event_kind_and_tool_family() -> None:
-    from groket.models import TraceEvent
-    from groket.session.control_views import timeline_event_mapping, tool_family
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import timeline_event_mapping, tool_family
 
     assert tool_family("read_file") == "read"
     assert tool_family("run_terminal_command") == "shell"
@@ -544,8 +544,8 @@ def test_timeline_event_kind_and_tool_family() -> None:
 
 
 def test_timeline_event_mapping_caps_huge_raw_input() -> None:
-    from groket.models import TraceEvent
-    from groket.session.control_views import timeline_event_mapping
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import timeline_event_mapping
 
     ev = TraceEvent(
         index=1,
@@ -564,7 +564,7 @@ def test_build_session_timeline_reuses_turn_view_on_warm_pages(tmp_path: Path) -
     """Second paged timeline call does not re-run full segment/map work."""
     from unittest.mock import patch
 
-    import groket.session.control_views as cv
+    import anqa.session.control_views as cv
 
     sd = _write_session(tmp_path, "sess-warm-tl")
     cv.SessionOverview._turn_cache.clear()
@@ -605,7 +605,7 @@ def test_build_session_overview_single_flight_and_cache(tmp_path: Path) -> None:
     from concurrent.futures import ThreadPoolExecutor
     from unittest.mock import patch
 
-    import groket.session.control_views as cv
+    import anqa.session.control_views as cv
 
     sd = _write_session(tmp_path, "sess-flight")
     cv.SessionOverview._cache.clear()
@@ -648,7 +648,7 @@ def test_overview_stamp_monitor_done_not_signals_or_shell_log(tmp_path: Path) ->
     """Monitor last-line status busts cache; signals.json and call-*.log do not."""
     from unittest.mock import patch
 
-    import groket.session.control_views as cv
+    import anqa.session.control_views as cv
 
     sd = tmp_path / "sess-stamp"
     sd.mkdir()
@@ -824,10 +824,10 @@ def _write_jobs_workflows_session(root: Path, name: str = "sess-reuse") -> Path:
 
 def test_overview_reuses_jobs_when_only_timeline_grows(tmp_path: Path) -> None:
     """Timeline-only append keeps prior job/workflow rows; bookends stay first hits."""
-    import groket.session.control_views as cv
-    from groket.parser import parse_timeline
-    from groket.session.jobs import SessionJobs, job_event_index, load_session_jobs
-    from groket.session.workflows import workflow_event_index
+    import anqa.session.control_views as cv
+    from anqa.parser import parse_timeline
+    from anqa.session.jobs import SessionJobs, job_event_index, load_session_jobs
+    from anqa.session.workflows import workflow_event_index
 
     sd = _write_jobs_workflows_session(tmp_path)
     cv.SessionOverview._cache.clear()
@@ -893,7 +893,7 @@ def test_overview_reuses_jobs_when_only_timeline_grows(tmp_path: Path) -> None:
 
 def test_overview_includes_new_timeline_job_after_first_build(tmp_path: Path) -> None:
     """A later task_backgrounded bookend must appear even when job files are still."""
-    import groket.session.control_views as cv
+    import anqa.session.control_views as cv
 
     sd = _write_session(tmp_path, "sess-new-job")
     term = sd / "terminal"
@@ -942,7 +942,7 @@ def test_overview_updates_job_status_when_timeline_gains_completed(
     tmp_path: Path,
 ) -> None:
     """A later task_completed bookend must refresh status when job files are still."""
-    import groket.session.control_views as cv
+    import anqa.session.control_views as cv
 
     sd = _write_session(tmp_path, "sess-finish-job")
     term = sd / "terminal"
@@ -1017,8 +1017,8 @@ def test_overview_updates_job_status_when_timeline_gains_completed(
 
 def test_overview_bookend_indexes_one_event_walk(tmp_path: Path) -> None:
     """Overview sets bookend indexes from one shared walk, not one scan per row."""
-    import groket.session.control_views as cv
-    from groket.session import jobs as jobs_mod
+    import anqa.session.control_views as cv
+    from anqa.session import jobs as jobs_mod
 
     sd = _write_jobs_workflows_session(tmp_path)
     cv.SessionOverview._cache.clear()
@@ -1041,7 +1041,7 @@ def test_overview_bookend_indexes_one_event_walk(tmp_path: Path) -> None:
 
     per_row = 0
     real_job_idx = jobs_mod.job_event_index
-    from groket.session import workflows as wf_mod
+    from anqa.session import workflows as wf_mod
 
     real_wf_idx = wf_mod.workflow_event_index
 
@@ -1082,8 +1082,8 @@ def test_overview_bookend_indexes_one_event_walk(tmp_path: Path) -> None:
 
 def test_timeline_system_reminder_not_labeled_user() -> None:
     """Harness user_message_chunk chrome must not paint as operator User."""
-    from groket.models import TraceEvent
-    from groket.session.control_views import timeline_event_mapping
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import timeline_event_mapping
 
     bg = (
         "<system-reminder>\nBackground task "
@@ -1121,7 +1121,7 @@ def test_timeline_system_reminder_not_labeled_user() -> None:
 
 def test_warm_timeline_search_then_query(tmp_path: Path) -> None:
     sd = _write_session(tmp_path, "sess-warm")
-    from groket.session.control_views import warm_timeline_search
+    from anqa.session.control_views import warm_timeline_search
 
     warm_timeline_search(sd)
     hit = build_session_timeline(sd, offset=0, limit=50, query="hello user")
@@ -1192,9 +1192,9 @@ def test_build_session_diff_lists_rewind_files(tmp_path: Path) -> None:
 
 def test_timeline_kind_chrome_is_session_not_user() -> None:
     """Harness user-chrome is Session on both the TUI view check and the wire filter."""
+    from anqa.session.turns import event_matches_timeline_kind
+    from anqa.ui.screens.browser import BrowserScreen
     from conftest import make_trace_event
-    from groket.session.turns import event_matches_timeline_kind
-    from groket.ui.screens.browser import BrowserScreen
 
     chrome = make_trace_event(
         index=0,

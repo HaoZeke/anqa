@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.ui.delete_confirm import second_press_armed
+from anqa.ui.delete_confirm import second_press_armed
 
 
 def test_first_press_arms_pending() -> None:

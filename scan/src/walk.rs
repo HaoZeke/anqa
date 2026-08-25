@@ -1,9 +1,11 @@
-//! Portable session-directory walk (same rules as ``groket.scan``).
+//! Portable session-directory walk (same rules as ``anqa.scan``).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const SKIP_DIRS: &[&str] = &[
+    "anqa-plugins",
+    "anqa-skills",
     "groket-plugins",
     "groket-skills",
     "subagents",
@@ -17,6 +19,8 @@ const SKIP_DIRS: &[&str] = &[
     "build",
     ".cache",
     ".tox",
+    ".anqa-resume-seed",
+    ".anqa-workspace-seed",
     ".groket-resume-seed",
     ".groket-workspace-seed",
     "workspace",
@@ -103,7 +107,7 @@ mod tests {
 
     #[test]
     fn looks_like_summary_and_empty_events() {
-        let dir = std::env::temp_dir().join(format!("groket-walk-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("anqa-walk-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("summary.json"), b"{}").unwrap();

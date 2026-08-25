@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.session_inflight import KIND_REFRESH, clear, try_begin
-from groket.ui.screens.browser import BrowserScreen
+from anqa.session_inflight import KIND_REFRESH, clear, try_begin
+from anqa.ui.screens.browser import BrowserScreen
 
 
 def setup_function() -> None:
@@ -20,7 +20,7 @@ def test_live_watch_root_is_session_dir(tmp_path: Path) -> None:
     """Watch only the session dir (not the whole traces volume)."""
     vol = tmp_path / "traces" / "ctr"
     vol.mkdir(parents=True)
-    (vol / ".groket-turn").mkdir()
+    (vol / ".anqa-turn").mkdir()
     sess = vol / "%2Fworkspace" / "019f-sess"
     sess.mkdir(parents=True)
     screen = BrowserScreen.__new__(BrowserScreen)
@@ -47,7 +47,7 @@ def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -
     screen._live_refresh_pending = True
     screen._last_light_submit_at = 0.0
     screen._live_refresh_deferred = None
-    from groket.session_inflight import request_rerun
+    from anqa.session_inflight import request_rerun
 
     request_rerun(KIND_REFRESH, sd)
     calls: list[object] = []
@@ -91,8 +91,8 @@ def test_live_watch_root_uuid_session_layout(tmp_path: Path) -> None:
 
 
 def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
-    from groket.constants import LIVE_BROWSER_SNAPSHOT_INTERVAL, LIVE_POLL_HEARTBEAT_INTERVAL
-    from groket.session.context_samples import ContextSampleStore
+    from anqa.constants import LIVE_BROWSER_SNAPSHOT_INTERVAL, LIVE_POLL_HEARTBEAT_INTERVAL
+    from anqa.session.context_samples import ContextSampleStore
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -133,7 +133,7 @@ def test_schedule_live_refresh_arms_heartbeat(tmp_path: Path) -> None:
 
 def test_schedule_live_refresh_idle_keeps_slow_recheck(tmp_path: Path) -> None:
     """Imported/idle sessions must re-arm live without a full F5."""
-    from groket.constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
+    from anqa.constants import LIVE_POLL_WATCH_FALLBACK_INTERVAL
 
     sd = tmp_path / "imported-sess"
     sd.mkdir()
@@ -228,8 +228,8 @@ def test_live_refresh_heartbeat_passes_flag(tmp_path: Path) -> None:
 
 
 def test_record_context_sample_and_turn_index(tmp_path: Path) -> None:
-    from groket.models import SessionMeta, TraceEvent
-    from groket.session.context_samples import ContextSampleStore
+    from anqa.models import SessionMeta, TraceEvent
+    from anqa.session.context_samples import ContextSampleStore
 
     sd = tmp_path / "s"
     sd.mkdir()

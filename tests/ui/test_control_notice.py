@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from groket.integrations.control import ControlError
-from groket.ui.control_notice import control_operator_text
-from groket.ui.i18n import t
+from anqa.integrations.control import ControlError
+from anqa.ui.control_notice import control_operator_text
+from anqa.ui.i18n import t
 
 
 def test_unknown_method_uses_restart_copy() -> None:
@@ -14,7 +14,7 @@ def test_unknown_method_uses_restart_copy() -> None:
     )
     assert text == t("ui-control-owner-stale")
     assert "method not found" not in text
-    assert "groket serve restart" in text
+    assert "anqa serve restart" in text
 
 
 def test_other_errors_keep_fallback() -> None:

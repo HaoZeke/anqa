@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.session.turn_gate import read_turn_gate_status, session_awaits_follow_up
-from groket.ui.app import TraceEvalApp
+from anqa.session.turn_gate import read_turn_gate_status, session_awaits_follow_up
+from anqa.ui.app import AnqaApp
 from textual.widgets import DataTable
 
 from .pilot_helpers import wait_until
@@ -39,7 +39,7 @@ def _minimal_traces(work: Path) -> Path:
     return traces
 
 
-def _binding_keys(app: TraceEvalApp, binding_id: str) -> set[str]:
+def _binding_keys(app: AnqaApp, binding_id: str) -> set[str]:
     return {
         key
         for key, ab in app.active_bindings.items()
@@ -47,7 +47,7 @@ def _binding_keys(app: TraceEvalApp, binding_id: str) -> set[str]:
     }
 
 
-def _footer_key_displays(app: TraceEvalApp) -> list[str]:
+def _footer_key_displays(app: AnqaApp) -> list[str]:
     footer = app.query_one("Footer")
     return [str(w.key_display).lower() for w in footer.query("FooterKey")]
 
@@ -58,10 +58,10 @@ async def test_overlay_remap_updates_footer_binding(
 ) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text('[home]\n"search.focus" = "z"\n', encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -83,17 +83,17 @@ async def test_refused_overlay_keeps_default_follow_and_list_down(
 ) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text('[home]\n"list.down" = "n"\n', encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    gate = traces / ".groket-turn"
+    gate = traces / ".anqa-turn"
     gate.mkdir(parents=True, exist_ok=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": "pilot-keymap-1", "turn": 1})
         + "\n",
         encoding="utf-8",
     )
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -123,7 +123,7 @@ async def test_refused_overlay_keeps_default_follow_and_list_down(
 async def test_default_keymap_footer_unchanged(tmp_path: Path) -> None:
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -142,7 +142,7 @@ async def test_list_down_remap_moves_table_cursor(
 ) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text('[home]\n"list.down" = "h"\n', encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
     extra = traces / "pilot-keymap-2"
@@ -160,7 +160,7 @@ async def test_list_down_remap_moves_table_cursor(
         ),
         encoding="utf-8",
     )
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="two session rows")
@@ -189,7 +189,7 @@ def _colemak_text() -> str:
 
 
 def _write_awaiting(traces: Path, session_id: str) -> None:
-    gate = traces / ".groket-turn"
+    gate = traces / ".anqa-turn"
     gate.mkdir(parents=True, exist_ok=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": session_id, "turn": 1}) + "\n",
@@ -201,7 +201,7 @@ def _write_awaiting(traces: Path, session_id: str) -> None:
 async def test_colemak_n_e_are_list_nav(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text(_colemak_text(), encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
     extra = traces / "pilot-keymap-2"
@@ -219,7 +219,7 @@ async def test_colemak_n_e_are_list_nav(tmp_path: Path, monkeypatch: pytest.Monk
         ),
         encoding="utf-8",
     )
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="two session rows")
@@ -256,11 +256,11 @@ async def test_colemak_leader_follow_and_done(
 ) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text(_colemak_text(), encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
     _write_awaiting(traces, "pilot-keymap-1")
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 1, description="session row")
@@ -322,7 +322,7 @@ async def test_leader_cancelled_by_escape_and_timeout(
 ) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text(_colemak_text(), encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
     extra = traces / "pilot-keymap-2"
@@ -340,7 +340,7 @@ async def test_leader_cancelled_by_escape_and_timeout(
         ),
         encoding="utf-8",
     )
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="two rows")
@@ -369,10 +369,10 @@ async def test_leader_not_armed_in_search_input(
 ) -> None:
     keys = tmp_path / "keys.toml"
     keys.write_text(_colemak_text(), encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(work_dir=work, traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         search = app.query_one("#session-search-input")

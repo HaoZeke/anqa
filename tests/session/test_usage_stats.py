@@ -1,12 +1,12 @@
-"""Tests for groket.usage_stats."""
+"""Tests for anqa.usage_stats."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from groket.models import TraceEvent
-from groket.session.usage_stats import (
+from anqa.models import TraceEvent
+from anqa.session.usage_stats import (
     McpMethodUsage,
     McpServerUsage,
     SessionUsageStats,
@@ -447,7 +447,7 @@ class TestToolCategoryLabel:
         assert tool_category_label("custom") == "custom"
 
 
-from groket.session import usage_stats as us
+from anqa.session import usage_stats as us
 
 
 def test_categorize_and_format():
@@ -517,7 +517,7 @@ def test_format_usage_plain_all_sections():
     assert "(none" in t2
 
 
-from groket.session.usage_stats import (
+from anqa.session.usage_stats import (
     _infer_mcp_from_skill_id,
     _load_json,
     _mcp_target_from_input,
@@ -605,9 +605,9 @@ class TestSkillsFromSkillsDir:
         assert _skills_from_skills_dir(sd) == []
 
     def test_with_skills_dir(self, tmp_path: Path):
-        run = tmp_path / "groket-run-1"
+        run = tmp_path / "anqa-run-1"
         run.mkdir()
-        skills = run / "groket-skills"
+        skills = run / "anqa-skills"
         skills.mkdir()
         (skills / "alpha").mkdir()
         (skills / "beta").mkdir()
@@ -622,9 +622,9 @@ class TestSkillsFromSkillsDir:
 
 class TestParseConfigTomlCaps:
     def test_mcp_and_disabled_skills(self, tmp_path: Path):
-        run = tmp_path / "groket-run-1"
+        run = tmp_path / "anqa-run-1"
         run.mkdir()
-        cfg = run / "groket-config.toml"
+        cfg = run / "anqa-config.toml"
         cfg.write_text(
             '[mcp_servers.slack]\nurl = "http://x"\n\n[skills]\ndisabled = ["old-skill"]\n',
             encoding="utf-8",
@@ -665,7 +665,7 @@ class TestLoadJson:
 
 class TestCollectSessionUsageExtended:
     def test_capabilities_from_announcement_state(self, tmp_path: Path):
-        from groket.models import ToolInputBag
+        from anqa.models import ToolInputBag
 
         sd = tmp_path / "sess"
         sd.mkdir()
@@ -725,7 +725,7 @@ class TestCollectSessionUsageExtended:
 
     def test_orphan_searches_single_configured(self, tmp_path: Path):
         """Orphan searches attach to the only configured server."""
-        from groket.models import ToolInputBag
+        from anqa.models import ToolInputBag
 
         sd = tmp_path / "sess"
         sd.mkdir()
@@ -746,7 +746,7 @@ class TestCollectSessionUsageExtended:
 
     def test_orphan_searches_multiple_configured(self, tmp_path: Path):
         """With multiple configured servers, orphan searches go to pseudo bucket."""
-        from groket.models import ToolInputBag
+        from anqa.models import ToolInputBag
 
         sd = tmp_path / "sess"
         sd.mkdir()
@@ -765,7 +765,7 @@ class TestCollectSessionUsageExtended:
         assert any(s.server_id == "(search)" for s in stats.mcp_servers)
 
     def test_mcp_use_tool_error(self, tmp_path: Path):
-        from groket.models import ToolInputBag
+        from anqa.models import ToolInputBag
 
         sd = tmp_path / "sess"
         sd.mkdir()
@@ -969,12 +969,12 @@ class TestCollectSessionUsageDeep:
     """Cover deeper branches in collect_session_usage."""
 
     def test_skills_from_skills_dir(self, tmp_path: Path):
-        """Skills detected from groket-skills/ directory."""
-        parent = tmp_path / "groket-run-123"
+        """Skills detected from anqa-skills/ directory."""
+        parent = tmp_path / "anqa-run-123"
         sd = parent / "sess"
         sd.mkdir(parents=True)
         (sd / "summary.json").write_text("{}", encoding="utf-8")
-        skills_dir = parent / "groket-skills"
+        skills_dir = parent / "anqa-skills"
         sk1 = skills_dir / "my-skill"
         sk1.mkdir(parents=True)
         (sk1 / "SKILL.md").write_text("# skill", encoding="utf-8")
@@ -982,12 +982,12 @@ class TestCollectSessionUsageDeep:
         assert "my-skill" in stats.skills_configured
 
     def test_config_toml_mcp_caps(self, tmp_path: Path):
-        """MCP servers parsed from groket-config.toml."""
-        parent = tmp_path / "groket-run-456"
+        """MCP servers parsed from anqa-config.toml."""
+        parent = tmp_path / "anqa-run-456"
         sd = parent / "sess"
         sd.mkdir(parents=True)
         (sd / "summary.json").write_text("{}", encoding="utf-8")
-        (parent / "groket-config.toml").write_text(
+        (parent / "anqa-config.toml").write_text(
             '[mcp_servers.my-srv]\ncommand = "test"\n',
             encoding="utf-8",
         )
@@ -1113,7 +1113,7 @@ class TestCollectSessionUsageDeep:
 
     def test_run_manifest_from_parent_dir(self, tmp_path: Path):
         """_load_run_manifest finds run.json in parent run directory."""
-        parent = tmp_path / "groket-run-789"
+        parent = tmp_path / "anqa-run-789"
         sd = parent / "sess"
         sd.mkdir(parents=True)
         (parent / "run.json").write_text(
@@ -1125,7 +1125,7 @@ class TestCollectSessionUsageDeep:
 
     def test_find_run_parent_traces_boundary(self, tmp_path: Path):
         """_find_run_parent stops at traces/ boundary."""
-        from groket.session.usage_stats import _find_run_parent
+        from anqa.session.usage_stats import _find_run_parent
 
         traces = tmp_path / "runs" / "traces"
         sd = traces / "plain-dir" / "sess"
@@ -1135,7 +1135,7 @@ class TestCollectSessionUsageDeep:
 
     def test_load_run_manifest_ancestor_walk(self, tmp_path: Path):
         """_load_run_manifest walks ancestors for run.json."""
-        from groket.session.usage_stats import _load_run_manifest
+        from anqa.session.usage_stats import _load_run_manifest
 
         grand = tmp_path / "top"
         parent = grand / "mid"
@@ -1150,28 +1150,28 @@ class TestCollectSessionUsageDeep:
 
     def test_skills_dir_oserror(self, tmp_path: Path):
         """_skills_from_skills_dir returns empty when dir is not accessible."""
-        from groket.session.usage_stats import _skills_from_skills_dir
+        from anqa.session.usage_stats import _skills_from_skills_dir
 
         result = _skills_from_skills_dir(tmp_path / "nonexistent")
         assert result == []
 
     def test_parse_config_toml_mcp_and_disabled(self, tmp_path: Path):
         """_parse_config_toml_caps finds MCP servers and disabled skills."""
-        parent = tmp_path / "groket-run-1"
+        parent = tmp_path / "anqa-run-1"
         sd = parent / "sess"
         sd.mkdir(parents=True)
-        (parent / "groket-config.toml").write_text(
+        (parent / "anqa-config.toml").write_text(
             '[mcp_servers.slack]\ncommand = "slack"\n[skills_disabled]\nskills = ["old-skill"]\n',
             encoding="utf-8",
         )
-        from groket.session.usage_stats import _parse_config_toml_caps
+        from anqa.session.usage_stats import _parse_config_toml_caps
 
         mcp, disabled = _parse_config_toml_caps(sd)
         assert "slack" in mcp
 
     def test_infer_mcp_from_skill_id_direct_match(self):
         """_infer_mcp_from_skill_id matches skill to MCP server."""
-        from groket.session.usage_stats import _infer_mcp_from_skill_id
+        from anqa.session.usage_stats import _infer_mcp_from_skill_id
 
         # server "slack" is in skill_id "use-slack-mcp"
         result = _infer_mcp_from_skill_id("use-slack-mcp", ["slack"])
@@ -1179,18 +1179,18 @@ class TestCollectSessionUsageDeep:
 
     def test_categorize_tool_builtin(self):
         """_categorize_tool returns builtin for normal tools."""
-        from groket.session.usage_stats import _categorize_tool
+        from anqa.session.usage_stats import _categorize_tool
 
         assert _categorize_tool("read_file") == "builtin"
         assert _categorize_tool("search_tool") == "mcp_bridge"
         assert _categorize_tool("server__method") == "mcp"
 
     def test_collect_skills_from_skills_dir(self, tmp_path: Path):
-        """Skills from groket-skills/ under the run parent are added."""
-        parent = tmp_path / "groket-run"
+        """Skills from anqa-skills/ under the run parent are added."""
+        parent = tmp_path / "anqa-run"
         sd = parent / "sess"
         sd.mkdir(parents=True)
-        sk_dir = parent / "groket-skills"
+        sk_dir = parent / "anqa-skills"
         (sk_dir / "my-skill").mkdir(parents=True)
         (sk_dir / ".hidden").mkdir(parents=True)
         stats = us.collect_session_usage(sd, timeline=[])
@@ -1199,10 +1199,10 @@ class TestCollectSessionUsageDeep:
 
     def test_collect_toml_mcp_source_note(self, tmp_path: Path):
         """MCP from config.toml adds source note."""
-        parent = tmp_path / "groket-run"
+        parent = tmp_path / "anqa-run"
         sd = parent / "sess"
         sd.mkdir(parents=True)
-        (parent / "groket-config.toml").write_text(
+        (parent / "anqa-config.toml").write_text(
             '[mcp_servers.testmcp]\ncommand = "cmd"\n',
             encoding="utf-8",
         )
@@ -1658,10 +1658,10 @@ class TestCollectSessionUsageEdge:
 
     def test_skills_dir_oserror(self, tmp_path: Path):
         """Skills dir OSError handled gracefully."""
-        parent = tmp_path / "groket-run"
+        parent = tmp_path / "anqa-run"
         sd = parent / "sess"
         sd.mkdir(parents=True)
-        sk_dir = parent / "groket-skills"
+        sk_dir = parent / "anqa-skills"
         sk_dir.mkdir()
         sk_dir.chmod(0o000)
         try:
@@ -1672,10 +1672,10 @@ class TestCollectSessionUsageEdge:
 
     def test_toml_mcp_source_note(self, tmp_path: Path):
         """MCP from config.toml adds source note when no run.json mcp."""
-        parent = tmp_path / "groket-run"
+        parent = tmp_path / "anqa-run"
         sd = parent / "sess"
         sd.mkdir(parents=True)
-        (parent / "groket-config.toml").write_text(
+        (parent / "anqa-config.toml").write_text(
             "[mcp_servers.my-server]\ncommand = 'test'\n", encoding="utf-8"
         )
         stats = us.collect_session_usage(sd, timeline=[])
@@ -1683,10 +1683,10 @@ class TestCollectSessionUsageEdge:
 
     def test_toml_read_oserror(self, tmp_path: Path):
         """Handles OSError when reading config.toml."""
-        parent = tmp_path / "groket-run"
+        parent = tmp_path / "anqa-run"
         sd = parent / "sess"
         sd.mkdir(parents=True)
-        tf = parent / "groket-config.toml"
+        tf = parent / "anqa-config.toml"
         tf.write_text("[mcp_servers.x]\n", encoding="utf-8")
         tf.chmod(0o000)
         try:
@@ -1785,11 +1785,11 @@ class TestCollectSessionUsageMcpSource:
     """collect_session_usage MCP source note from toml."""
 
     def test_toml_mcp_source_note(self, tmp_path: Path) -> None:
-        parent = tmp_path / "groket-run-789"
+        parent = tmp_path / "anqa-run-789"
         sd = parent / "sess"
         sd.mkdir(parents=True)
         (sd / "summary.json").write_text("{}", encoding="utf-8")
-        (parent / "groket-config.toml").write_text(
+        (parent / "anqa-config.toml").write_text(
             '[mcp_servers.my-srv]\ncommand = "test"\n',
             encoding="utf-8",
         )
@@ -1873,7 +1873,7 @@ class TestCollectUsageSkillDisabled:
     """collect_session_usage tracks disabled skills."""
 
     def test_skills_disabled_from_run_json(self, tmp_path: Path) -> None:
-        parent = tmp_path / "groket-run-d"
+        parent = tmp_path / "anqa-run-d"
         sd = parent / "sess"
         sd.mkdir(parents=True)
         (sd / "summary.json").write_text("{}", encoding="utf-8")
@@ -1910,7 +1910,7 @@ class TestInferMcpDedup:
     """_infer_mcp_from_skill_id deduplicates results."""
 
     def test_dedup_preserves_order(self) -> None:
-        from groket.session.usage_stats import _infer_mcp_from_skill_id
+        from anqa.session.usage_stats import _infer_mcp_from_skill_id
 
         # Skill id that matches multiple patterns against same server
         servers = ["myserver", "myserver"]
@@ -1919,7 +1919,7 @@ class TestInferMcpDedup:
 
 
 class TestCollectMcpFromToml:
-    """collect_session_usage picks up MCP from groket-config.toml."""
+    """collect_session_usage picks up MCP from anqa-config.toml."""
 
     def test_toml_mcp_source_note(self, tmp_path: Path) -> None:
         """MCP config from TOML sets source_notes."""
@@ -1927,7 +1927,7 @@ class TestCollectMcpFromToml:
         sd.mkdir()
         (sd / "events.jsonl").write_text("", encoding="utf-8")
         (sd / "updates.jsonl").write_text("", encoding="utf-8")
-        toml = sd / "groket-config.toml"
+        toml = sd / "anqa-config.toml"
         toml.write_text(
             '[mcp_servers.mysrv]\ncommand = "cmd"\n[skills_disabled]\nskill1 = true\n',
             encoding="utf-8",

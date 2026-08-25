@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from groket.ui.widgets.activity_bar import (
+from anqa.ui.widgets.activity_bar import (
     activity_counters_from_app,
     activity_is_busy,
     activity_line_signature,
@@ -25,7 +25,7 @@ def test_build_activity_line_idle():
 
 
 def test_build_activity_line_lifecycle_and_spinner():
-    from groket.ui.styles import status_rich_style
+    from anqa.ui.styles import status_rich_style
 
     text = build_activity_line(
         building=1,
@@ -67,7 +67,7 @@ def test_activity_is_busy():
 
 
 def test_build_activity_line_ending():
-    from groket.ui.styles import status_rich_style
+    from anqa.ui.styles import status_rich_style
 
     text = build_activity_line(ending=2, sessions_loaded=4, spinner="⠋")
     plain = text.plain
@@ -88,29 +88,13 @@ def test_activity_counters_meta_ending():
 
 
 def test_activity_counters_from_app_status_counts():
-    st_build = SimpleNamespace(status="building")
-    st_run = SimpleNamespace(status="running")
-    bg = SimpleNamespace(
-        is_running=True,
-        statuses={"a": st_build, "b": st_run},
-        configs=[1, 2],
-    )
-    rm = SimpleNamespace(
-        active_status_counts=lambda: {"building": 1, "running": 1},
-        list_active=lambda: [bg],
-    )
     meta_await = SimpleNamespace(list_status_label=lambda: "awaiting")
     meta_done = SimpleNamespace(list_status_label=lambda: "complete")
-    app = SimpleNamespace(
-        run_manager=rm,
-        _meta_only=[(meta_await, "x"), (meta_done, "y")],
-    )
+    app = SimpleNamespace(_meta_only=[(meta_await, "x"), (meta_done, "y")])
     counts = activity_counters_from_app(app)
-    assert counts["building"] == 1
-    # List is awaiting-only → suppress ghost Running from launch statuses.
+    assert counts["building"] == 0
     assert counts["running"] == 0
     assert counts["awaiting"] == 1
-    assert "analyze" not in counts
     assert counts["sessions"] == 2
     assert counts["refresh"] == 0
 
@@ -126,16 +110,11 @@ def test_activity_counters_meta_running_when_no_docker():
     assert counts["sessions"] == 1
 
 
-def test_activity_counters_fallback_walk_statuses():
-    """When active_status_counts is missing, walk list_active statuses."""
-    bg = SimpleNamespace(
-        statuses={"c": SimpleNamespace(status="extracting")},
-        configs=[],
-    )
-    rm = SimpleNamespace(list_active=lambda: [bg])
-    app = SimpleNamespace(run_manager=rm, _meta_only=[])
+def test_activity_counters_empty_catalog():
+    app = SimpleNamespace(_meta_only=[])
     counts = activity_counters_from_app(app)
-    assert counts["extracting"] == 1
+    assert counts["extracting"] == 0
+    assert counts["sessions"] == 0
 
 
 def test_activity_counters_suppress_ghost_running_when_only_awaiting():
@@ -152,12 +131,13 @@ def test_activity_counters_suppress_ghost_running_when_only_awaiting():
     assert counts["refresh"] == 0
 
 
-def test_activity_counters_unknown_status_is_pending_not_running():
-    rm = SimpleNamespace(active_status_counts=lambda: {"weird_phase": 1})
-    app = SimpleNamespace(run_manager=rm, _meta_only=[])
+def test_activity_counters_complete_is_not_running():
+    meta_done = SimpleNamespace(list_status_label=lambda: "complete")
+    app = SimpleNamespace(_meta_only=[(meta_done, "x")])
     counts = activity_counters_from_app(app)
-    assert counts["pending"] == 1
+    assert counts["pending"] == 0
     assert counts["running"] == 0
+    assert counts["sessions"] == 1
 
 
 def test_stabilize_activity_counts_holds_drop():

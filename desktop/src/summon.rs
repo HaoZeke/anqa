@@ -6,7 +6,7 @@
 //!
 //! Commands are one line: ``show``, ``hide``, ``toggle``, or
 //! ``show``/``toggle`` plus an xdg-activation token (optional trailing
-//! newline). Clients: ``groket-hud --show`` / ``groket hud --toggle``.
+//! newline). Clients: ``anqa-hud --show`` / ``anqa hud --toggle``.
 //! ``--toggle`` forwards ``XDG_ACTIVATION_TOKEN`` (and unsets
 //! ``DESKTOP_STARTUP_ID``) so the long-lived HUD can activate its surface.
 
@@ -21,7 +21,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 /// Env override for the summon socket path.
-pub const SOCKET_ENV: &str = "GROKET_HUD_SUMMON_SOCKET";
+pub const SOCKET_ENV: &str = "ANQA_HUD_SUMMON_SOCKET";
 
 /// Operator action for the iced loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,8 +133,8 @@ pub fn command_word(action: SummonAction) -> &'static str {
     }
 }
 
-/// Default path: ``$XDG_RUNTIME_DIR/groket/hud-summon.sock``, or
-/// ``~/.groket/run/hud-summon.sock`` when runtime dir is unset.
+/// Default path: ``$XDG_RUNTIME_DIR/anqa/hud-summon.sock``, or
+/// ``~/.anqa/run/hud-summon.sock`` when runtime dir is unset.
 pub fn default_socket_path() -> Option<PathBuf> {
     if let Ok(raw) = std::env::var(SOCKET_ENV) {
         let t = raw.trim();
@@ -145,13 +145,13 @@ pub fn default_socket_path() -> Option<PathBuf> {
     if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
         let t = runtime.trim();
         if !t.is_empty() {
-            return Some(Path::new(t).join("groket").join("hud-summon.sock"));
+            return Some(Path::new(t).join("anqa").join("hud-summon.sock"));
         }
     }
     let home = std::env::var_os("HOME")?;
     Some(
         PathBuf::from(home)
-            .join(".groket")
+            .join(".anqa")
             .join("run")
             .join("hud-summon.sock"),
     )
@@ -351,7 +351,7 @@ fn install_unix() -> Result<SummonServer, SummonError> {
     let _ = action_sender();
     let path_log = path.clone();
     let join = thread::Builder::new()
-        .name("groket-hud-summon".into())
+        .name("anqa-hud-summon".into())
         .spawn(move || accept_loop(listener))
         .map_err(|err| SummonError::Other(format!("spawn summon thread: {err}")))?;
     crate::log::info(&format!("summon socket {}", path_log.display()));
@@ -442,7 +442,7 @@ mod tests {
         use std::os::unix::net::UnixListener;
         use std::sync::mpsc;
 
-        let dir = std::env::temp_dir().join(format!("groket-hud-summon-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("anqa-hud-summon-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("hud-summon.sock");
         let _ = std::fs::remove_file(&path);
@@ -539,8 +539,7 @@ mod tests {
         use std::os::unix::net::UnixListener;
         use std::sync::mpsc;
 
-        let dir =
-            std::env::temp_dir().join(format!("groket-hud-summon-tok-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("anqa-hud-summon-tok-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("hud-summon.sock");
         let _ = std::fs::remove_file(&path);
@@ -578,8 +577,7 @@ mod tests {
     fn prepare_bind_path_keeps_live_socket() {
         use std::os::unix::net::UnixListener;
 
-        let dir =
-            std::env::temp_dir().join(format!("groket-hud-summon-live-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("anqa-hud-summon-live-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("hud-summon.sock");
         let _ = std::fs::remove_file(&path);
@@ -597,7 +595,7 @@ mod tests {
     #[test]
     fn prepare_bind_path_removes_stale_inode() {
         let dir =
-            std::env::temp_dir().join(format!("groket-hud-summon-stale-{}", std::process::id()));
+            std::env::temp_dir().join(format!("anqa-hud-summon-stale-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("hud-summon.sock");
         std::fs::write(&path, b"").expect("stale file");

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.utils import (
+from anqa.utils import (
     collapse_blank_lines,
     fmt_context_usage,
     fmt_duration,
@@ -59,13 +59,13 @@ class TestCollapseBlankLines:
         assert result == "a\n\nb"
 
 
-from groket.utils import strip_control_chars
+from anqa.utils import strip_control_chars
 
 
 class TestWidgetId:
     def test_model_effort_colon_removed(self) -> None:
-        assert ":" not in widget_id("groket-2bffe270c1a3-zingster:hig")
-        assert widget_id("groket-2bffe270c1a3-zingster:hig").startswith("groket-")
+        assert ":" not in widget_id("anqa-2bffe270c1a3-zingster:hig")
+        assert widget_id("anqa-2bffe270c1a3-zingster:hig").startswith("anqa-")
 
     def test_leading_digit_prefixed(self) -> None:
         assert not widget_id("9abc").startswith("9")
@@ -99,7 +99,7 @@ class TestStripControlChars:
 
 class TestNormalizeMaxTurns:
     def test_default(self) -> None:
-        from groket.constants import DEFAULT_MAX_TURNS, normalize_max_turns
+        from anqa.constants import DEFAULT_MAX_TURNS, normalize_max_turns
 
         assert DEFAULT_MAX_TURNS == 50
         assert normalize_max_turns(None) == 50
@@ -111,7 +111,7 @@ class TestNormalizeMaxTurns:
         assert normalize_max_turns([]) == 50  # unsupported type
 
     def test_valid(self) -> None:
-        from groket.constants import normalize_max_turns
+        from anqa.constants import normalize_max_turns
 
         assert normalize_max_turns(1) == 1
         assert normalize_max_turns("75") == 75

@@ -68,7 +68,7 @@ fn catalog_query_ink(kind: QuerySpanKind) -> icedtea::widget::FieldInk {
 }
 
 fn empty_sessions(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    kit::status_empty("No sessions", "Is groket serve running?", tea)
+    kit::status_empty("No sessions", "Is anqa serve running?", tea)
 }
 
 fn no_session_matches(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -3303,7 +3303,7 @@ mod tests {
         let _ = empty_sessions(tea());
         let _ = busy_pane();
         let _ = select_session(tea());
-        let _ = status_copy("control socket down · run: groket serve -d", true, tea());
+        let _ = status_copy("control socket down · run: anqa serve -d", true, tea());
         let _ = status_copy("12 sessions · ready", false, tea());
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
@@ -3370,9 +3370,9 @@ mod tests {
 
     #[test]
     fn tool_image_uses_slot_for_missing_and_present_files() {
-        let missing = tool_image("/no/such/groket-hud-image.png", tea());
+        let missing = tool_image("/no/such/anqa-hud-image.png", tea());
         let _ = missing;
-        let path = std::env::temp_dir().join("groket-hud-tool-image.txt");
+        let path = std::env::temp_dir().join("anqa-hud-tool-image.txt");
         std::fs::write(&path, b"px").expect("temp image stand-in");
         let _ = tool_image(path.to_str().expect("utf8 path"), tea());
         let _ = std::fs::remove_file(&path);

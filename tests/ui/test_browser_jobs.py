@@ -7,11 +7,11 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.session.control_views import build_session_overview, build_session_timeline
-from groket.ui.data_table import cursor_row_key
-from groket.ui.screens.browser import BrowserScreen
-from groket.ui.widgets.detail_view import DetailView
-from groket.ui.widgets.timeline import TimelineTable
+from anqa.session.control_views import build_session_overview, build_session_timeline
+from anqa.ui.data_table import cursor_row_key
+from anqa.ui.screens.browser import BrowserScreen
+from anqa.ui.widgets.detail_view import DetailView
+from anqa.ui.widgets.timeline import TimelineTable
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable
 from textual.widgets.data_table import RowKey
@@ -105,7 +105,7 @@ async def test_summary_background_table_and_filter(tmp_path: Path) -> None:
         assert "watch board" in joined or "monitor" in joined
         assert "hourly ping" in joined or "schedule" in joined
         assert "subagent" not in joined
-        from groket import event_types as et
+        from anqa import event_types as et
 
         screen._apply_filter(event_types=set(et.TASK_TYPES))
         tl = screen.query_one("#timeline-list")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from groket.ui.env_modals import (
+from anqa.ui.env_modals import (
     EnvEditorModal,
     InlineSkillModal,
     build_skill_md,
@@ -11,8 +11,8 @@ from groket.ui.env_modals import (
     sanitize_skill_id,
     validate_skill_id,
 )
-from groket.ui.i18n import setup_i18n
-from groket.ui.widgets.key_value_editor import KeyValueEditor
+from anqa.ui.i18n import setup_i18n
+from anqa.ui.widgets.key_value_editor import KeyValueEditor
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Input, TextArea
 

@@ -54,8 +54,8 @@ use crate::wire::{
 
 const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
-const APP_ID: &str = "dev.indynull.groket-hud";
-const OVERLAY_APP_ID: &str = "dev.indynull.groket-hud.overlay";
+const APP_ID: &str = "dev.indynull.anqa-hud";
+const OVERLAY_APP_ID: &str = "dev.indynull.anqa-hud.overlay";
 
 /// Which edge event to open after a turn-scoped pager crosses a turn boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -534,7 +534,7 @@ impl Default for Hud {
             status_err: false,
             hotkey_hint: shortcut::default_shortcut_label().into(),
             window_mode: crate::prefs::window_mode()
-                || std::env::var_os("GROKET_HUD_WINDOW").is_some(),
+                || std::env::var_os("ANQA_HUD_WINDOW").is_some(),
             visible: true,
             focused: true,
             catch_up: false,
@@ -620,7 +620,7 @@ impl Default for Hud {
             pointer: Point::ORIGIN,
             context: None,
             window_size: if crate::prefs::window_mode()
-                || std::env::var_os("GROKET_HUD_WINDOW").is_some()
+                || std::env::var_os("ANQA_HUD_WINDOW").is_some()
             {
                 Size::new(980.0, 700.0)
             } else {
@@ -680,7 +680,7 @@ fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
 }
 
 fn overlay_prepared() -> icedtea::app::Prepared {
-    let boot = icedtea::app::Boot::new("groket", OVERLAY_APP_ID)
+    let boot = icedtea::app::Boot::new("anqa", OVERLAY_APP_ID)
         .overlay()
         .size(HUD_W, HUD_H)
         .min_size(HUD_W, HUD_H)
@@ -747,7 +747,7 @@ pub fn run() -> iced::Result {
         return match crate::summon::send_command(crate::summon::SummonAction::Show) {
             Ok(()) => Ok(()),
             Err(err) => {
-                eprintln!("groket: {err}");
+                eprintln!("anqa: {err}");
                 Ok(())
             }
         };
@@ -756,7 +756,7 @@ pub fn run() -> iced::Result {
     // via Prepared + iced::daemon. Call the same face remap the macro would.
     icedtea::typo::install_platform_faces();
     iced::daemon(Hud::new, Hud::update, Hud::view)
-        .title(concat!("groket ", env!("CARGO_PKG_VERSION")))
+        .title(concat!("anqa ", env!("CARGO_PKG_VERSION")))
         .subscription(Hud::subscription)
         .theme(|hud: &Hud, window| Some(hud.theme(window)))
         .style(|hud: &Hud, theme| hud.window_style(theme))
@@ -785,7 +785,7 @@ impl Hud {
                 if !crate::x11focus::global_hotkey_supported() {
                     let msg = crate::x11focus::wayland_summon_hint(&label);
                     crate::log::info(&msg);
-                    eprintln!("groket-hud: {msg}");
+                    eprintln!("anqa-hud: {msg}");
                 } else {
                     hud._hotkeys = register_global_hotkey(hk, &label);
                 }
@@ -798,9 +798,9 @@ impl Hud {
         match crate::summon::install() {
             Ok(server) => {
                 if let Some(path) = crate::summon::default_socket_path() {
-                    eprintln!("groket-hud: summon socket {}", path.display());
+                    eprintln!("anqa-hud: summon socket {}", path.display());
                 } else {
-                    eprintln!("groket-hud: summon socket ready");
+                    eprintln!("anqa-hud: summon socket ready");
                 }
                 hud._summon = Some(server);
             }
@@ -808,7 +808,7 @@ impl Hud {
                 match crate::summon::send_command(crate::summon::SummonAction::Show) {
                     Ok(()) => {}
                     Err(err) => {
-                        eprintln!("groket: already running ({path}): {err}");
+                        eprintln!("anqa: already running ({path}): {err}");
                     }
                 }
                 std::process::exit(0);
@@ -818,19 +818,19 @@ impl Hud {
                 if !matches!(err, crate::summon::SummonError::Unsupported) {
                     let msg = format!("summon socket: {err}");
                     crate::log::error(&msg);
-                    eprintln!("groket-hud: {msg}");
+                    eprintln!("anqa-hud: {msg}");
                 }
             }
         }
         match crate::tray::install() {
             Ok(tray) => {
-                eprintln!("groket-hud: tray ready");
+                eprintln!("anqa-hud: tray ready");
                 hud._tray = Some(tray);
             }
             Err(err) => {
                 let msg = format!("tray: {err}");
                 crate::log::error(&msg);
-                eprintln!("groket-hud: {msg}");
+                eprintln!("anqa-hud: {msg}");
             }
         }
         let q = hud.notify_q.clone();
@@ -3938,7 +3938,7 @@ impl Hud {
                 self.status = if self.catalog_query.trim().is_empty() {
                     self.status_err = true;
                     crate::log::error("no sessions from control");
-                    "No sessions from control · is groket serve running?".into()
+                    "No sessions from control · is anqa serve running?".into()
                 } else {
                     format!("No matches for “{}”", self.catalog_query.trim())
                 };
@@ -5109,7 +5109,7 @@ impl Hud {
         let overlay = !self.window_mode;
         window::run(id, move |handle| {
             if !crate::macoswin::apply(handle, overlay) {
-                eprintln!("groket-hud: native chrome apply missed the window");
+                eprintln!("anqa-hud: native chrome apply missed the window");
             }
         })
         .discard()
@@ -6760,16 +6760,16 @@ fn register_global_hotkey(
             if let Err(err) = mgr.register(hk) {
                 let msg = format!("failed to register shortcut {label}: {err}");
                 crate::log::error(&msg);
-                eprintln!("groket-hud: {msg}");
+                eprintln!("anqa-hud: {msg}");
             } else {
-                eprintln!("groket-hud: summon shortcut {label}");
+                eprintln!("anqa-hud: summon shortcut {label}");
             }
             Some(mgr)
         }
         Err(err) => {
             let msg = format!("global hotkey unavailable: {err}");
             crate::log::error(&msg);
-            eprintln!("groket-hud: {msg}");
+            eprintln!("anqa-hud: {msg}");
             None
         }
     }

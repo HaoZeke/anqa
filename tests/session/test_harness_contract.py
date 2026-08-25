@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.harness.ref import HARNESS_IDS
-from groket.harness.registry import adapters
+from anqa.harness.ref import HARNESS_IDS
+from anqa.harness.registry import adapters
 
 
 def test_registered_adapters_declare_support() -> None:

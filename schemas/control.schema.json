@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://indynull.github.io/groket/schemas/control.schema.json",
-  "title": "groket-control",
-  "description": "JSON-RPC 2.0 control protocol for groket serve (protocolVersion 1.0.0).",
+  "$id": "https://indynull.github.io/anqa/schemas/control.schema.json",
+  "title": "anqa-control",
+  "description": "JSON-RPC 2.0 control protocol for anqa serve (protocolVersion 1.0.0).",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -1,13 +1,13 @@
-# Groket performance goals
+# Anqa performance goals
 
-Groket is a keyboard-first monitor for harness sessions: a home list of
+Anqa is a keyboard-first monitor for harness sessions: a home list of
 sessions, live status, and inspection of **one** open session (timeline,
 overview, notes, report). It should feel light to open and to leave
-running. Heavy work belongs on `groket serve` and on the one session the
+running. Heavy work belongs on `anqa serve` and on the one session the
 operator clicked.
 
 This file is the current diagnosis and the remaining cuts. Numbers below
-were measured on this laptop against the live `~/.groket` / `~/.grok`
+were measured on this laptop against the live `~/.anqa` / `~/.grok`
 trees (2026-08-09), not a copy of those trees in continuous integration.
 
 ## Target
@@ -43,7 +43,7 @@ On this machine (host sessions loaded):
 
 | Step | Time | Notes |
 |------|------|--------|
-| First `import` of `TraceEvalApp` | ~19 s | Later runs ~2–4 s once Python's cache is warm. Textual + `groket.ui`. |
+| First `import` of `AnqaApp` | ~19 s | Later runs ~2–4 s once Python's cache is warm. Textual + `anqa.ui`. |
 | Top-level `~/.grok/sessions` | 62 dirs | Almost no `events.jsonl` at the top level |
 | Cold `list_session_catalog` (host on) | **163 s, 696 sessions** | |
 | Same scan again | 23 s | |
@@ -60,8 +60,8 @@ qualifies as a session.
 
 Launch then stacks:
 
-1. Import Textual + groket UI (~2–19 s).
-2. Start or attach to `groket serve`.
+1. Import Textual + anqa UI (~2–19 s).
+2. Start or attach to `anqa serve`.
 3. If serve's catalog cache is cold, the first `session/list` **waits on
    that 20–160 s walk**.
 4. TUI drains all matched rows once and paints the table on the UI thread.
@@ -86,7 +86,7 @@ reopen while serve stays up: catalog I/O should not be the delay — import
   is 45 s; timeout is a toast, not a worker crash.
 - Catalog I/O for the home list runs on `@work(thread=True)`, not the
   Textual message pump. First table paint is the first page only.
-- Parse caches are bounded (`groket/bounded_cache.py`). Entries are keyed
+- Parse caches are bounded (`anqa/bounded_cache.py`). Entries are keyed
   per session, so an owner left open over a large bucket used to pin every
   session it ever parsed: measured over a 554-session bucket, 200 sessions
   cost +132 MB and were still climbing linearly. Bounded, the same 200 cost
@@ -95,7 +95,7 @@ reopen while serve stays up: catalog I/O should not be the delay — import
 
 ## Leaving it running
 
-`groket serve` and the TUI are meant to sit open for a working day. What
+`anqa serve` and the TUI are meant to sit open for a working day. What
 bounds memory in that state:
 
 | Cache | Cap | Entry weight |
@@ -107,7 +107,7 @@ bounds memory in that state:
 | `_system_prompt_cache` | 128 | One string |
 | `_list_runtime_cache` | 2048 | Scalars; sized to cover a whole bucket |
 
-Raise the heaviest one with `GROKET_TIMELINE_CACHE_MAX` when an operator
+Raise the heaviest one with `ANQA_TIMELINE_CACHE_MAX` when an operator
 browses far more than 32 sessions at a time and has the memory to spare.
 The floor is 2 so a live session and the fork parent it merges always fit.
 In-flight parses (`_timeline_inflight`, `_overview_inflight`) are still
@@ -134,7 +134,7 @@ never falls.
    filter set, not a second drain on first paint.
 4. **Import / mount.** Remaining cost is Textual itself.
 5. **Keep serve up.** Document and default: TUI/HUD attach to a long-lived
-   `groket serve`; quitting the TUI does not stop the owner (already
+   `anqa serve`; quitting the TUI does not stop the owner (already
    true). Launch advice should not imply restarting serve each time.
 
 ## How to measure
@@ -146,7 +146,7 @@ CI. Synthetic catalogs of hundreds of **tiny** session dirs stay in
 On a real laptop, time:
 
 ```text
-import TraceEvalApp
+import AnqaApp
 list_session_catalog(work, include_host=True)   # cold and second
 SessionCatalogCache.get()                       # force vs warm
 session/list  (warm owner vs just-started owner)

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from anqa.models import TraceEvent
+from anqa.ui.widgets.timeline import TimelineTable
 from conftest import make_trace_event
-from groket.models import TraceEvent
-from groket.ui.widgets.timeline import TimelineTable
 from textual.app import App, ComposeResult
 
 
@@ -209,7 +209,7 @@ async def test_timeline_same_length_live_tick_keeps_turn_map_warm() -> None:
 @pytest.mark.asyncio
 async def test_timeline_pair_rebinds_after_same_length_reparse() -> None:
     """read_file body is on tool_call_update; pairs must track re-parsed objects."""
-    from groket.ui.render_detail import render_tool_detail_from_event
+    from anqa.ui.render_detail import render_tool_detail_from_event
     from rich.syntax import Syntax
 
     app = _TimelineApp()
@@ -302,7 +302,7 @@ async def test_timeline_append_mid_turn_extends_map_without_resegment() -> None:
         assert tl.turn_index_for(2) == 0
         from unittest.mock import patch
 
-        import groket.session.turns as turns
+        import anqa.session.turns as turns
 
         calls = {"n": 0}
         real = turns.segment_timeline_turns
@@ -496,7 +496,7 @@ async def test_timeline_filter_by_types_set() -> None:
 
 @pytest.mark.asyncio
 async def test_timeline_task_bookends_are_not_labeled_subagent() -> None:
-    from groket import event_types as et
+    from anqa import event_types as et
 
     app = _TimelineApp()
     async with app.run_test():
@@ -643,7 +643,7 @@ async def test_timeline_is_assistant_filters_loaded_events() -> None:
         tl = app.query_one("#timeline-list", TimelineTable)
         events = _basic_events()
         tl.load_events(events)
-        from groket.session.query import event_matches_query
+        from anqa.session.query import event_matches_query
 
         hits = {int(ev.index) for ev in events if event_matches_query(ev, "is:assistant")}
         tl.set_search_hits("is:assistant", hits)
@@ -845,7 +845,7 @@ async def test_timeline_tool_error_non_tool_column() -> None:
 @pytest.mark.asyncio
 async def test_timeline_failed_tool_keeps_family_color() -> None:
     """Failed tool call keeps type/name color; error is a mark after the name."""
-    from groket.ui.styles import TOOL_ERROR_MARK
+    from anqa.ui.styles import TOOL_ERROR_MARK
 
     app = _TimelineApp()
     async with app.run_test():

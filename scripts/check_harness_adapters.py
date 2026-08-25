@@ -16,13 +16,13 @@ def _read(rel: str) -> str:
 
 def main() -> int:
     sys.path.insert(0, str(ROOT))
-    from groket.harness.ref import HARNESS_IDS
-    from groket.harness.registry import adapters
+    from anqa.harness.ref import HARNESS_IDS
+    from anqa.harness.registry import adapters
 
     errs: list[str] = []
     hud = _read("desktop/src/live.rs")
     readme = _read("README.md")
-    contract = _read("groket/integrations/control_contract.py")
+    contract = _read("anqa/integrations/control_contract.py")
     docs = (
         _read("docs/harness-adapters.md") if (ROOT / "docs/harness-adapters.md").is_file() else ""
     )
@@ -31,7 +31,7 @@ def main() -> int:
         hid = item.id
         registered.append(hid)
         if hid not in HARNESS_IDS:
-            errs.append(f"{hid}: missing from groket.harness.ref.HARNESS_IDS")
+            errs.append(f"{hid}: missing from anqa.harness.ref.HARNESS_IDS")
         if not (item.product or "").strip():
             errs.append(f"{hid}: empty product")
         if not (item.supported_version or "").strip():

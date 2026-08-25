@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.models import SessionMeta
-from groket.session.context_samples import ContextSampleStore, context_compact_from_meta
+from anqa.models import SessionMeta
+from anqa.session.context_samples import ContextSampleStore, context_compact_from_meta
 
 
 def test_record_dedupes_identical_compact() -> None:

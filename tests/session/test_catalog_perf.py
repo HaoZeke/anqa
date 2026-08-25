@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import groket.parser as parser_mod
+import anqa.parser as parser_mod
 import pytest
-from groket.session import catalog as catalog_mod
-from groket.session.catalog import SessionCatalogCache, list_session_catalog
-from groket.session.wire_timeline import fetch_session_browser_bundle
+from anqa.session import catalog as catalog_mod
+from anqa.session.catalog import SessionCatalogCache, list_session_catalog
+from anqa.session.wire_timeline import fetch_session_browser_bundle
 
 
 def _write_sess(root: Path, name: str, title: str) -> Path:
@@ -35,7 +35,7 @@ def test_host_discovery_skips_encoded_cwd_and_workspace_junk(
     """Host catalog must not walk junk interiors looking for nested summary.json."""
     import os
 
-    from groket.session.sources import collect_session_dirs, session_scan_roots
+    from anqa.session.sources import collect_session_dirs, session_scan_roots
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -210,7 +210,7 @@ def test_fat_overview_parses_only_opened_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Overview + paged timeline for one fat session must not parse siblings."""
-    from groket.session.control_views import build_session_overview, build_session_timeline
+    from anqa.session.control_views import build_session_overview, build_session_timeline
 
     from .highload_tree import write_fat_session
 
@@ -226,7 +226,7 @@ def test_fat_overview_parses_only_opened_session(
         parsed.append(Path(session_dir).name)
         return real(session_dir)
 
-    import groket.session.control_views as views
+    import anqa.session.control_views as views
 
     monkeypatch.setattr(parser_mod, "parse_timeline", tracked)
     monkeypatch.setattr(views, "parse_timeline", tracked)
@@ -270,13 +270,13 @@ async def test_browser_bundle_reads_only_one_session(tmp_path: Path, monkeypatch
 
     class _Access:
         async def session_overview(self, session: str) -> dict:
-            from groket.session.control_views import build_session_overview
+            from anqa.session.control_views import build_session_overview
 
             path = a if session in {a.name, str(a)} else b
             return build_session_overview(path)
 
         async def session_timeline(self, session: str, **kwargs: object) -> dict:
-            from groket.session.control_views import build_session_timeline
+            from anqa.session.control_views import build_session_timeline
 
             path = a if session in {a.name, str(a)} else b
             return build_session_timeline(

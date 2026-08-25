@@ -1,6 +1,6 @@
 //! HUD chrome built on icedtea constructors.
 //!
-//! Prefer icedtea public APIs directly. Helpers here name a groket
+//! Prefer icedtea public APIs directly. Helpers here name a anqa
 //! layout (pane tabs, form gutter), not a missing constructor.
 
 use iced::widget::{column, container, text};
@@ -146,7 +146,7 @@ pub fn help_modal<'a>(
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
 ) -> Element<'a, Message> {
-    let heading = format!("Keyboard shortcuts · groket {}", crate::VERSION);
+    let heading = format!("Keyboard shortcuts · anqa {}", crate::VERSION);
     let list = icedtea::pattern::cheatsheet(table, "", tea);
     let search_note =
         text("Tokens appear under the box as you type. Tab completes the last token.")

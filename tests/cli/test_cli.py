@@ -7,19 +7,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from groket.cli import TOOL_COMMANDS, app, launch_tui, main
+from anqa.cli import TOOL_COMMANDS, app, launch_tui, main
 from typer.testing import CliRunner
 
 runner = CliRunner()
 
 
 def test_version_prints_product_version() -> None:
-    from groket import __version__
+    from anqa import __version__
 
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     out = (result.stdout or result.output or "").strip()
-    assert out == f"groket {__version__}"
+    assert out == f"anqa {__version__}"
     assert runner.invoke(app, ["-V"]).exit_code == 0
 
 
@@ -116,7 +116,7 @@ def test_serve_restart_stop_then_start(tmp_path: Path) -> None:
         return 0
 
     def fake_status(socket_path):  # noqa: ANN001
-        from groket.integrations.daemon import ControlDaemonStatus
+        from anqa.integrations.daemon import ControlDaemonStatus
 
         return ControlDaemonStatus(
             socket_path=str(socket_path),
@@ -139,9 +139,9 @@ def test_serve_restart_stop_then_start(tmp_path: Path) -> None:
         return FakeResult()
 
     with (
-        patch("groket.integrations.daemon.stop_control_daemon", fake_stop),
-        patch("groket.integrations.daemon.control_daemon_status", fake_status),
-        patch("groket.integrations.daemon.start_control_daemon_detached", fake_detached),
+        patch("anqa.integrations.daemon.stop_control_daemon", fake_stop),
+        patch("anqa.integrations.daemon.control_daemon_status", fake_status),
+        patch("anqa.integrations.daemon.start_control_daemon_detached", fake_detached),
     ):
         result = runner.invoke(
             app,
@@ -156,7 +156,7 @@ def test_serve_status_running_line(tmp_path: Path) -> None:
     sock = tmp_path / "s.sock"
 
     def fake_status(socket_path):  # noqa: ANN001
-        from groket.integrations.daemon import ControlDaemonStatus
+        from anqa.integrations.daemon import ControlDaemonStatus
 
         return ControlDaemonStatus(
             socket_path=str(socket_path),
@@ -167,7 +167,7 @@ def test_serve_status_running_line(tmp_path: Path) -> None:
             pid_path=str(socket_path) + ".pid",
         )
 
-    with patch("groket.integrations.daemon.control_daemon_status", fake_status):
+    with patch("anqa.integrations.daemon.control_daemon_status", fake_status):
         result = runner.invoke(app, ["serve", "status", "-s", str(sock)])
     assert result.exit_code == 0
     out = result.stdout or result.output or ""
@@ -179,7 +179,7 @@ def test_editor_emacs_path_prints_packaged_integration() -> None:
     result = runner.invoke(app, ["editor", "emacs-path"])
     assert result.exit_code == 0
     path = Path(result.stdout.strip())
-    assert path.name == "groket.el"
+    assert path.name == "anqa.el"
     assert path.is_file()
 
 
@@ -188,13 +188,13 @@ def test_editor_vim_path_prints_packaged_neovim_runtime() -> None:
     assert result.exit_code == 0
     path = Path(result.stdout.strip())
     assert path.name == "vim"
-    assert (path / "lua" / "groket" / "init.lua").is_file()
-    assert (path / "plugin" / "groket.lua").is_file()
+    assert (path / "lua" / "anqa" / "init.lua").is_file()
+    assert (path / "plugin" / "anqa.lua").is_file()
 
 
 class TestDoctorCommand:
     def test_doctor_json_no_tui(self, tmp_path: Path) -> None:
-        from groket.diagnostics.self_test import CheckResult, SelfTestReport
+        from anqa.diagnostics.self_test import CheckResult, SelfTestReport
 
         report = SelfTestReport(
             checks=[
@@ -208,8 +208,8 @@ class TestDoctorCommand:
             ]
         )
         with (
-            patch("groket.diagnostics.run_self_test", return_value=report) as mock_run,
-            patch("groket.ui.app.TraceEvalApp") as mock_app,
+            patch("anqa.diagnostics.run_self_test", return_value=report) as mock_run,
+            patch("anqa.ui.app.AnqaApp") as mock_app,
         ):
             result = runner.invoke(app, ["doctor", "-P", str(tmp_path), "--json"])
             mock_run.assert_called_once()
@@ -219,7 +219,7 @@ class TestDoctorCommand:
             assert '"ok"' in out
 
     def test_doctor_text(self, tmp_path: Path) -> None:
-        from groket.diagnostics.self_test import CheckResult, SelfTestReport
+        from anqa.diagnostics.self_test import CheckResult, SelfTestReport
 
         report = SelfTestReport(
             checks=[
@@ -232,14 +232,14 @@ class TestDoctorCommand:
                 )
             ]
         )
-        with patch("groket.diagnostics.run_self_test", return_value=report):
+        with patch("anqa.diagnostics.run_self_test", return_value=report):
             result = runner.invoke(app, ["doctor", "-P", str(tmp_path)])
         assert result.exit_code == 0
         out = result.stdout or result.output or ""
         assert "X" in out or "fine" in out
 
     def test_doctor_not_rewritten_as_path(self) -> None:
-        with patch("groket.cli.app") as mock_app:
+        with patch("anqa.cli.app") as mock_app:
             main(argv=["doctor", "--json"])
             args = mock_app.call_args.kwargs.get("args") or mock_app.call_args[1].get("args", [])
             assert args[0] == "doctor"
@@ -256,10 +256,10 @@ class TestLaunchTui:
             def run(self) -> None:
                 pass
 
-        import groket.ui.app as ui_app_mod
+        import anqa.ui.app as ui_app_mod
 
-        orig = ui_app_mod.TraceEvalApp
-        ui_app_mod.TraceEvalApp = FakeApp  # type: ignore[assignment,misc]
+        orig = ui_app_mod.AnqaApp
+        ui_app_mod.AnqaApp = FakeApp  # type: ignore[assignment,misc]
         try:
             launch_tui(path=tmp_path, config=None, ensure_serve=False)
             assert len(captured_calls) == 1
@@ -277,7 +277,7 @@ class TestLaunchTui:
             launch_tui(path=tmp_path, config=cfg, ensure_serve=False)
             assert captured_calls[0]["config_path"] == cfg.expanduser()
         finally:
-            ui_app_mod.TraceEvalApp = orig  # type: ignore[assignment,misc]
+            ui_app_mod.AnqaApp = orig  # type: ignore[assignment,misc]
 
     def test_launch_opens_explicit_session_and_prompt(self, tmp_path: Path) -> None:
         captured_calls: list[dict] = []
@@ -294,7 +294,7 @@ class TestLaunchTui:
         (session / "summary.json").write_text("{}", encoding="utf-8")
         socket_path = tmp_path / "editor.sock"
 
-        with patch("groket.ui.app.TraceEvalApp", FakeApp):
+        with patch("anqa.ui.app.AnqaApp", FakeApp):
             launch_tui(
                 path=session,
                 config=None,
@@ -325,7 +325,7 @@ class TestLaunchTui:
             def run(self) -> None:
                 pass
 
-        with patch("groket.ui.app.TraceEvalApp", FakeApp):
+        with patch("anqa.ui.app.AnqaApp", FakeApp):
             launch_tui(path=tmp_path, config=None, socket=False, ensure_serve=False)
 
         assert captured_calls[0]["control_socket"] is None
@@ -341,7 +341,7 @@ class TestLaunchTui:
             def run(self) -> None:
                 pass
 
-        with patch("groket.ui.app.TraceEvalApp", FakeApp):
+        with patch("anqa.ui.app.AnqaApp", FakeApp):
             launch_tui(path=tmp_path, config=None, ensure_serve=False)
         err = capsys.readouterr().err
         assert "work_dir=" not in err
@@ -351,7 +351,7 @@ class TestLaunchTui:
 
 class TestMainEntryArgv:
     def test_main_path_positional_rewrite(self) -> None:
-        with patch("groket.cli.app") as mock_app:
+        with patch("anqa.cli.app") as mock_app:
             main(argv=["/some/path"])
             mock_app.assert_called_once()
             call_kwargs = mock_app.call_args
@@ -363,8 +363,8 @@ class TestMainEntryArgv:
         import sys
 
         with (
-            patch.object(sys, "argv", ["groket", "--help"]),
-            patch("groket.cli.app") as mock_app,
+            patch.object(sys, "argv", ["anqa", "--help"]),
+            patch("anqa.cli.app") as mock_app,
         ):
             main(argv=None)
             mock_app.assert_called_once()
@@ -402,7 +402,7 @@ class TestConfigCommands:
         assert "error" in err.lower() or "invalid" in err.lower()
 
     def test_config_not_rewritten_as_path(self) -> None:
-        with patch("groket.cli.app") as mock_app:
+        with patch("anqa.cli.app") as mock_app:
             main(argv=["config", "validate"])
             args = mock_app.call_args.kwargs.get("args") or mock_app.call_args[1].get("args", [])
             assert args[0] == "config"

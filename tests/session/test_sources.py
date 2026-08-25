@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.session.sources import (
+from anqa.session.sources import (
     ORIGIN_HOST,
     ORIGIN_WORK,
     classify_session_origin,
@@ -70,7 +70,7 @@ def test_session_scan_roots_with_host(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "host-sessions"
     host.mkdir()
     monkeypatch.setattr(
-        "groket.session.sources.host_grok_sessions_root",
+        "anqa.session.sources.host_grok_sessions_root",
         lambda: host,
     )
     roots = session_scan_roots(tmp_path, include_host=True)
@@ -81,7 +81,7 @@ def test_session_scan_roots_with_host(tmp_path: Path, monkeypatch) -> None:
 def test_collect_session_dirs_union(tmp_path: Path) -> None:
     work = tmp_path / "runs" / "traces"
     host = tmp_path / "host"
-    w_sess = _seed_session(work / "groket-run-1", cwd_token="%2Fworkspace", sid="work-sid")
+    w_sess = _seed_session(work / "anqa-run-1", cwd_token="%2Fworkspace", sid="work-sid")
     h_sess = _seed_session(host, cwd_token="%2Fproj", sid="host-sid")
     roots = session_scan_roots(tmp_path, include_host=True, host_root=host)
     found = {str(p.resolve()): o for p, o in collect_session_dirs(roots)}
@@ -93,7 +93,7 @@ def test_classify_and_under_host(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = _seed_session(host, cwd_token="%2Fa", sid="s1")
     monkeypatch.setattr(
-        "groket.session.sources.host_grok_sessions_root",
+        "anqa.session.sources.host_grok_sessions_root",
         lambda: host,
     )
     assert is_under_host_grok_sessions(sess)
@@ -102,7 +102,7 @@ def test_classify_and_under_host(tmp_path: Path, monkeypatch) -> None:
         == ORIGIN_HOST
     )
     work_sess = _seed_session(
-        tmp_path / "runs" / "traces" / "groket-x", cwd_token="%2Fworkspace", sid="w1"
+        tmp_path / "runs" / "traces" / "anqa-x", cwd_token="%2Fworkspace", sid="w1"
     )
     assert (
         classify_session_origin(work_sess, work_traces=tmp_path / "runs" / "traces", host_root=host)
@@ -114,7 +114,7 @@ def test_is_host_sessions_root(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / ".grok" / "sessions"
     host.mkdir(parents=True)
     monkeypatch.setattr(
-        "groket.session.sources.host_grok_sessions_root",
+        "anqa.session.sources.host_grok_sessions_root",
         lambda: host,
     )
     assert is_host_grok_sessions_root(host)
@@ -123,12 +123,12 @@ def test_is_host_sessions_root(tmp_path: Path, monkeypatch) -> None:
 
 def test_watch_path_maps_encoded_cwd_to_session_not_bucket(tmp_path: Path) -> None:
     host = tmp_path / "sessions"
-    sess = _seed_session(host, cwd_token="%2FUsers%2Fali%2F_dev%2F_git%2Fgroket", sid="019abc")
+    sess = _seed_session(host, cwd_token="%2FUsers%2Fali%2F_dev%2F_git%2Fanqa", sid="019abc")
     ev = sess / "updates.jsonl"
     got = session_dir_for_watch_path(ev, host)
     assert got is not None
     assert got.resolve() == sess.resolve()
-    bucket = host / "%2FUsers%2Fali%2F_dev%2F_git%2Fgroket"
+    bucket = host / "%2FUsers%2Fali%2F_dev%2F_git%2Fanqa"
     assert session_dir_for_watch_path(bucket, host) is None
 
 

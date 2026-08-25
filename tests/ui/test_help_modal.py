@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from groket.ui.widgets.help_modal import HelpModal, help_markup, notify_help
+from anqa.ui.widgets.help_modal import HelpModal, help_markup, notify_help
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Static
 
@@ -11,12 +11,12 @@ from .pilot_helpers import wait_until
 
 
 def test_help_markup_nonempty() -> None:
-    from groket import __version__
+    from anqa import __version__
 
     text = help_markup()
     assert isinstance(text, str)
     assert len(text) > 10
-    assert f"groket {__version__}" in text
+    assert f"anqa {__version__}" in text
     assert "Export a session bundle" in text
     assert "Search" in text
     assert "Tokens appear under the box as you type" in text

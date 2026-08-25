@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from groket.harness import (
+from anqa.harness import (
     GROK_HARNESS_ID,
     GrokAdapter,
     discover,
@@ -15,7 +15,7 @@ from groket.harness import (
     parse_timeline,
     watch_hints,
 )
-from groket.models import SessionMeta, TraceEvent
+from anqa.models import SessionMeta, TraceEvent
 
 _MINIMAL = Path(__file__).resolve().parents[1] / "fixtures" / "snapshots" / "minimal_session"
 
@@ -43,7 +43,7 @@ def test_discover_host_root_uses_shallow_collector(tmp_path: Path, monkeypatch) 
     sess.mkdir(parents=True)
     (sess / "summary.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
-        "groket.session.sources.host_grok_sessions_root",
+        "anqa.session.sources.host_grok_sessions_root",
         lambda: host,
     )
     found = discover([host])
@@ -85,7 +85,7 @@ def test_watch_hints_include_updates_jsonl() -> None:
 def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = _write_summary_session(host / "%2Fproj", "host-sid")
-    monkeypatch.setattr("groket.harness.grok.host_grok_sessions_root", lambda: host)
+    monkeypatch.setattr("anqa.harness.grok.host_grok_sessions_root", lambda: host)
     adapter = GrokAdapter()
     bound = adapter.bind_locator(sess)
     assert bound is not None
@@ -102,19 +102,19 @@ def test_importing_grok_adapter_does_not_import_ui() -> None:
     saved = {
         name: sys.modules[name]
         for name in list(sys.modules)
-        if name == "groket.harness" or name.startswith("groket.harness.")
+        if name == "anqa.harness" or name.startswith("anqa.harness.")
     }
     for name in list(saved):
         del sys.modules[name]
-    ui_before = {n for n in sys.modules if n == "groket.ui" or n.startswith("groket.ui.")}
+    ui_before = {n for n in sys.modules if n == "anqa.ui" or n.startswith("anqa.ui.")}
     try:
-        import groket.harness.grok as grok_mod
+        import anqa.harness.grok as grok_mod
 
-        ui_after = {n for n in sys.modules if n == "groket.ui" or n.startswith("groket.ui.")}
+        ui_after = {n for n in sys.modules if n == "anqa.ui" or n.startswith("anqa.ui.")}
         assert ui_after == ui_before
         assert grok_mod.GROK_HARNESS_ID == "grok"
     finally:
         for name in list(sys.modules):
-            if name == "groket.harness" or name.startswith("groket.harness."):
+            if name == "anqa.harness" or name.startswith("anqa.harness."):
                 del sys.modules[name]
         sys.modules.update(saved)

@@ -2,7 +2,7 @@
 """Lint Fluent catalog + call-site construction (AGENTS.md §3.3 / §3.3a).
 
 Hard failures (exit 1):
-- f-string embedding t(...) under groket/
+- f-string embedding t(...) under anqa/
 - re.compile(t(...))
 - regex/binary message ids in FTL
 - leading/trailing whitespace on single-line FTL values without placeables
@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FTL = ROOT / "groket" / "locale" / "en" / "main.ftl"
-PY_ROOT = ROOT / "groket"
+FTL = ROOT / "anqa" / "locale" / "en" / "main.ftl"
+PY_ROOT = ROOT / "anqa"
 
 _MSG = re.compile(r"^([a-zA-Z0-9_-]+)\s*=\s*(.*)$")
 _REGEX_IDS = frozenset({"ui-x1b", "ui-x1b-x07-x1b", "ui-r-n", "ui-ufffd-2"})

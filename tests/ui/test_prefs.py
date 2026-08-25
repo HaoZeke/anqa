@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from groket.config import invalidate_config_cache
-from groket.ui import prefs
+from anqa.config import invalidate_config_cache
+from anqa.ui import prefs
 
 
 @pytest.fixture(autouse=True)
 def _isolate_prefs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = tmp_path / "config.toml"
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
+    monkeypatch.setattr("anqa.paths.app_config_path", lambda: cfg)
     invalidate_config_cache()
     yield  # type: ignore[misc]  # fixture teardown requires yield
     invalidate_config_cache()
@@ -32,7 +32,7 @@ def test_hud_shortcut_reads_table(tmp_path: Path) -> None:
 
 
 def test_write_failure_keeps_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: Path("/dev/null/nope/config.toml"))
+    monkeypatch.setattr("anqa.paths.app_config_path", lambda: Path("/dev/null/nope/config.toml"))
     invalidate_config_cache()
     prefs.set_auto_serve(False)
     assert prefs.auto_serve_enabled() is True

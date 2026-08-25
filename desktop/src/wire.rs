@@ -1,4 +1,4 @@
-//! Typed control-plane JSON (mirrors ``groket.session.control_views``).
+//! Typed control-plane JSON (mirrors ``anqa.session.control_views``).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1187,7 +1187,7 @@ mod tests {
 
     #[test]
     fn notes_snapshot_without_count_sets_count_from_notes_len() {
-        // Same keys as groket.session.access.notes_snapshot_mapping (no count).
+        // Same keys as anqa.session.access.notes_snapshot_mapping (no count).
         let snap = serde_json::json!({
             "revision": "rev-after-upsert",
             "schema": {

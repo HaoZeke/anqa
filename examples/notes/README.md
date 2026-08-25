@@ -3,13 +3,13 @@
 Turn-linked operator notes use a **configurable** field list. Copy this file:
 
 ```bash
-mkdir -p ~/.groket
-cp examples/notes/notes_schema.example.toml ~/.groket/notes_schema.toml
+mkdir -p ~/.anqa
+cp examples/notes/notes_schema.example.toml ~/.anqa/notes_schema.toml
 ```
 
 Then edit `id` / `label` for your workflow. Field ids must be
 `^[A-Za-z_][A-Za-z0-9_-]*$`. Keep program-specific templates in your local kit,
-not in the groket package.
+not in the anqa package.
 
 ### Field kinds (one path)
 
@@ -24,12 +24,12 @@ Existing schemas without `choices` keep working as free text.
 ## Session file
 
 Notes are stored as `<session_dir>/operator_notes.toml` (fallback:
-`~/.groket/notes/<session_id>/operator_notes.toml`).
+`~/.anqa/notes/<session_id>/operator_notes.toml`).
 
 Host sessions (optional **Host** catalog / `H` on the sessions list) use
 the same notes flow. Directory stores keep notes in the session tree;
 file or database stores write under
-`~/.groket/notes/<harness>/<session_id>/`. Host Grok trees under
+`~/.anqa/notes/<harness>/<session_id>/`. Host Grok trees under
 `~/.grok/sessions` still use the fallback so that live store is not
 modified.
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from groket.session.export_spec import (
+from anqa.session.export_spec import (
     DEFAULT_PROFILE_ID,
     ExportSpec,
     IncludeUnit,
@@ -79,12 +79,12 @@ def test_save_and_reload_profile(tmp_path: Path) -> None:
 
 
 def test_default_profile_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from groket.session.export_spec import configured_export_profile_id
+    from anqa.session.export_spec import configured_export_profile_id
 
     cfg = tmp_path / "config.toml"
     cfg.write_text('[export]\ndefault_profile = "trace-only"\n', encoding="utf-8")
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
-    from groket.config import invalidate_config_cache
+    monkeypatch.setattr("anqa.paths.app_config_path", lambda: cfg)
+    from anqa.config import invalidate_config_cache
 
     invalidate_config_cache()
     assert configured_export_profile_id() == "trace-only"
@@ -94,12 +94,12 @@ def test_default_profile_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_configured_profile_none_without_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from groket.session.export_spec import configured_export_profile_id
+    from anqa.session.export_spec import configured_export_profile_id
 
     cfg = tmp_path / "config.toml"
     cfg.write_text("", encoding="utf-8")
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
-    from groket.config import invalidate_config_cache
+    monkeypatch.setattr("anqa.paths.app_config_path", lambda: cfg)
+    from anqa.config import invalidate_config_cache
 
     invalidate_config_cache()
     assert configured_export_profile_id() is None
@@ -107,8 +107,8 @@ def test_configured_profile_none_without_config(
 
 def test_set_default_export_profile_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = tmp_path / "config.toml"
-    monkeypatch.setattr("groket.paths.app_config_path", lambda: cfg)
-    from groket.config import invalidate_config_cache
+    monkeypatch.setattr("anqa.paths.app_config_path", lambda: cfg)
+    from anqa.config import invalidate_config_cache
 
     invalidate_config_cache()
     set_default_export_profile_id("trace-only")

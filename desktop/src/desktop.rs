@@ -9,8 +9,8 @@ use std::thread;
 use crate::brand::notify_icon_png;
 use crate::format::list_status_label;
 
-pub const APP_NAME: &str = "groket";
-pub const ENV_NAME: &str = "GROKET_HUD_NOTIFY";
+pub const APP_NAME: &str = "anqa";
+pub const ENV_NAME: &str = "ANQA_HUD_NOTIFY";
 
 /// Urgency the host daemon maps to its own levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,7 @@ pub fn notice_row_key(origin: &str, sid: &str) -> String {
     }
 }
 
-/// Host chats already post turn / session bubbles; groket must not repeat them.
+/// Host chats already post turn / session bubbles; anqa must not repeat them.
 fn is_host_notice_key(key: &str) -> bool {
     key.split_once(':')
         .is_some_and(|(origin, _)| origin == "host")
@@ -158,7 +158,7 @@ pub fn post(notice: DesktopNotice) {
         return;
     }
     let _ = thread::Builder::new()
-        .name("groket-notify".into())
+        .name("anqa-notify".into())
         .spawn(move || {
             if let Err(err) = send_blocking(&notice) {
                 crate::log::error(&format!("desktop notify: {err}"));
@@ -179,7 +179,7 @@ fn send_blocking(notice: &DesktopNotice) -> Result<(), String> {
 
 /// macOS: ``notify-rust`` ``icon()`` is a no-op. The left face is
 /// ``_identityImage`` (``app_icon``). ``set_application`` claims our bundle
-/// when ``groket.app`` is registered so Notification Center does not
+/// when ``anqa.app`` is registered so Notification Center does not
 /// fall back to Finder.
 #[cfg(target_os = "macos")]
 fn send_macos(notice: &DesktopNotice) -> Result<(), String> {
@@ -218,7 +218,7 @@ fn send_other(notice: &DesktopNotice) -> Result<(), String> {
 fn icon_file() -> Option<String> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let path = std::path::PathBuf::from(home)
-        .join(".groket")
+        .join(".anqa")
         .join("hud-notify.png");
     match ensure_icon_file(&path) {
         Ok(()) => Some(path.to_string_lossy().into_owned()),
@@ -410,8 +410,7 @@ mod tests {
 
     #[test]
     fn ensure_icon_writes_then_skips() {
-        let dir =
-            std::env::temp_dir().join(format!("groket-hud-notify-icon-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("anqa-hud-notify-icon-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("hud-notify.png");
@@ -425,10 +424,8 @@ mod tests {
 
     #[test]
     fn ensure_icon_rewrites_stale_bytes() {
-        let dir = std::env::temp_dir().join(format!(
-            "groket-hud-notify-icon-stale-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("anqa-hud-notify-icon-stale-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("hud-notify.png");
@@ -449,7 +446,7 @@ mod tests {
     #[test]
     fn ensure_icon_fails_when_parent_is_a_file() {
         let dir =
-            std::env::temp_dir().join(format!("groket-hud-notify-icon-bad-{}", std::process::id()));
+            std::env::temp_dir().join(format!("anqa-hud-notify-icon-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let blocker = dir.join("not-a-dir");

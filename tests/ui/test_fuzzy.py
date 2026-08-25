@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.ui.fuzzy import (
+from anqa.ui.fuzzy import (
     _char_bonus,
     _fzf_score,
     filter_diff_hunks,

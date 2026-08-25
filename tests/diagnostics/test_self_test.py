@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from groket.diagnostics.self_test import CheckResult, SelfTestReport, run_self_test
+from anqa.diagnostics.self_test import CheckResult, SelfTestReport, run_self_test
 
 
 def test_work_dir_writable(tmp_path: Path):
-    wd = tmp_path / "groket-home"
+    wd = tmp_path / "anqa-home"
     with (
-        patch("groket.diagnostics.self_test._check_auth_json") as a,
-        patch("groket.diagnostics.self_test._check_grok_config") as c,
-        patch("groket.diagnostics.self_test._check_grok_cli") as g,
-        patch("groket.diagnostics.self_test._check_models_cache") as m,
-        patch("groket.diagnostics.self_test._check_session_display") as sd,
-        patch("groket.diagnostics.self_test._check_sway_socket") as sw,
-        patch("groket.diagnostics.self_test._check_hud_summon_socket") as hs,
+        patch("anqa.diagnostics.self_test._check_auth_json") as a,
+        patch("anqa.diagnostics.self_test._check_grok_config") as c,
+        patch("anqa.diagnostics.self_test._check_grok_cli") as g,
+        patch("anqa.diagnostics.self_test._check_models_cache") as m,
+        patch("anqa.diagnostics.self_test._check_session_display") as sd,
+        patch("anqa.diagnostics.self_test._check_sway_socket") as sw,
+        patch("anqa.diagnostics.self_test._check_hud_summon_socket") as hs,
     ):
         a.return_value = CheckResult("grok_auth", "Auth", True)
         c.return_value = CheckResult("grok_config", "Cfg", True, required=False)
@@ -37,7 +38,7 @@ def test_work_dir_writable(tmp_path: Path):
 def test_session_display_wayland(monkeypatch):
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
     monkeypatch.setenv("DISPLAY", ":0")
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_session_display()
     assert r.ok is True
@@ -51,7 +52,7 @@ def test_sway_socket_names_place_not_focus(tmp_path: Path, monkeypatch):
     sock = tmp_path / "sway-ipc.sock"
     sock.write_bytes(b"")
     monkeypatch.setenv("SWAYSOCK", str(sock))
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_sway_socket()
     assert r.ok is True
@@ -61,8 +62,8 @@ def test_sway_socket_names_place_not_focus(tmp_path: Path, monkeypatch):
 
 def test_hud_summon_socket_missing(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-    monkeypatch.delenv("GROKET_HUD_SUMMON_SOCKET", raising=False)
-    from groket.diagnostics import self_test as st
+    monkeypatch.delenv("ANQA_HUD_SUMMON_SOCKET", raising=False)
+    from anqa.diagnostics import self_test as st
 
     r = st._check_hud_summon_socket()
     assert r.ok is False
@@ -72,7 +73,7 @@ def test_hud_summon_socket_missing(monkeypatch, tmp_path: Path):
 
 def test_auth_missing(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_auth_json()
     assert r.ok is False
@@ -84,7 +85,7 @@ def test_auth_present(tmp_path: Path, monkeypatch):
     auth = tmp_path / ".grok" / "auth.json"
     auth.parent.mkdir(parents=True)
     auth.write_text(json.dumps({"accessToken": "x"}), encoding="utf-8")
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_auth_json()
     assert r.ok is True
@@ -95,7 +96,7 @@ def test_auth_bad_json(tmp_path: Path, monkeypatch):
     auth = tmp_path / ".grok" / "auth.json"
     auth.parent.mkdir(parents=True)
     auth.write_text("not-json", encoding="utf-8")
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     assert st._check_auth_json().ok is False
 
@@ -119,19 +120,18 @@ def test_report_lines_and_fail():
     assert CheckResult("z", "Z", False, required=True).level == "error"
 
 
-
 def test_grok_config_cli_models(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     assert st._check_grok_config().ok is False
     (tmp_path / ".grok").mkdir()
     (tmp_path / ".grok" / "config.toml").write_text("x=1\n", encoding="utf-8")
     assert st._check_grok_config().ok is True
 
-    with patch("groket.diagnostics.self_test.shutil.which", return_value=None):
+    with patch("anqa.diagnostics.self_test.shutil.which", return_value=None):
         assert st._check_grok_cli().ok is False
-    with patch("groket.diagnostics.self_test.shutil.which", return_value="/bin/grok"):
+    with patch("anqa.diagnostics.self_test.shutil.which", return_value="/bin/grok"):
         assert st._check_grok_cli().ok is True
 
     assert st._check_models_cache().ok is False
@@ -140,7 +140,7 @@ def test_grok_config_cli_models(tmp_path: Path, monkeypatch):
 
 
 def test_work_dir_not_writable(tmp_path: Path, monkeypatch):
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     blocked = tmp_path / "blocked"
     blocked.mkdir()
@@ -162,7 +162,7 @@ def test_auth_empty_object(tmp_path: Path, monkeypatch):
     auth = tmp_path / ".grok" / "auth.json"
     auth.parent.mkdir(parents=True, exist_ok=True)
     auth.write_text("{}", encoding="utf-8")
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_auth_json()
     assert r.ok is False
@@ -174,7 +174,7 @@ def test_auth_with_generic_keys(tmp_path: Path, monkeypatch):
     auth = tmp_path / ".grok" / "auth.json"
     auth.parent.mkdir(parents=True, exist_ok=True)
     auth.write_text(json.dumps({"custom_field": "val"}), encoding="utf-8")
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_auth_json()
     assert r.ok is True
@@ -189,7 +189,7 @@ def test_grok_config_unreadable(tmp_path: Path, monkeypatch):
     cfg = cfg_dir / "config.toml"
     cfg.write_text("ok", encoding="utf-8")  # exists as file so is_file() → True
 
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     # Patch read_text to raise OSError after is_file passes
     with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
@@ -204,17 +204,17 @@ def test_models_cache_bad_json(tmp_path: Path, monkeypatch):
     cache = tmp_path / ".grok" / "models_cache.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text("not-json!", encoding="utf-8")
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_models_cache()
     assert r.ok is False
 
 
-def test_hud_summon_doctor_ok_when_fake_server_accepts(tmp_path: Path, monkeypatch):
+def test_hud_summon_doctor_ok_when_fake_server_accepts(monkeypatch):
     import socket
 
-    path = tmp_path / "hud-summon.sock"
-    monkeypatch.setenv("GROKET_HUD_SUMMON_SOCKET", str(path))
+    path = Path(tempfile.mkdtemp(prefix="anqa-hud-")) / "hud-summon.sock"
+    monkeypatch.setenv("ANQA_HUD_SUMMON_SOCKET", str(path))
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(path))
     server.listen(1)
@@ -225,7 +225,7 @@ def test_hud_summon_doctor_ok_when_fake_server_accepts(tmp_path: Path, monkeypat
 
     th = threading.Thread(target=_accept, daemon=True)
     th.start()
-    from groket.diagnostics import self_test as st
+    from anqa.diagnostics import self_test as st
 
     r = st._check_hud_summon_socket()
     th.join(timeout=1)

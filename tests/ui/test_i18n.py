@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.ui import text as ui_text
-from groket.ui.i18n import (
+from anqa.ui import text as ui_text
+from anqa.ui.i18n import (
     _locales_for,
     _normalize_lang,
     current_language,
@@ -141,7 +141,7 @@ class TestLocalesForDedup:
 class TestBuildL10nNonExistingLocale:
     def test_non_existing_locale_falls_back(self) -> None:
         """_build_l10n with a non-existing locale falls back to en."""
-        from groket.ui.i18n import _build_l10n
+        from anqa.ui.i18n import _build_l10n
 
         # A made-up locale will fall back to "en"
         l10n = _build_l10n("zz_ZZ")
@@ -152,7 +152,7 @@ class TestSetupI18nNgettext:
     def test_ngettext_singular(self) -> None:
         """ngettext returns singular and plural forms."""
         setup_i18n("en")
-        from groket.ui.i18n import ngettext
+        from anqa.ui.i18n import ngettext
 
         s = ngettext("save", "saves", 1)
         assert isinstance(s, str)
@@ -162,7 +162,7 @@ class TestSetupI18nNgettext:
     def test_identity_function(self) -> None:
         """Identity _ function returns input unchanged."""
         setup_i18n("en")
-        from groket.ui.i18n import _
+        from anqa.ui.i18n import _
 
         assert _("hello") == "hello"
 
@@ -170,7 +170,7 @@ class TestSetupI18nNgettext:
 class TestTAutoSetup:
     def test_t_auto_setup_when_none(self) -> None:
         """t() auto-initialises i18n when _l10n is None."""
-        import groket.ui.i18n as i18n_mod
+        import anqa.ui.i18n as i18n_mod
 
         old = i18n_mod._l10n
         try:
@@ -192,7 +192,7 @@ class TestTFluentFormatException:
         def bad_format(msg_id, args=None):
             raise RuntimeError("fluent broke")
 
-        import groket.ui.i18n as i18n_mod
+        import anqa.ui.i18n as i18n_mod
 
         with patch.object(i18n_mod._l10n, "format_value", bad_format):
             result = t("save")

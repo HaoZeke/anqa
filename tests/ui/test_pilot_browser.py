@@ -11,18 +11,18 @@ import threading
 from pathlib import Path
 
 import pytest
-from groket.session.turn_gate import (
+from anqa.session.turn_gate import (
     list_queued_follow_ups,
     read_turn_gate_status,
     session_awaits_follow_up,
 )
-from groket.ui.app import TraceEvalApp
-from groket.ui.bindings import focus_primary_list
-from groket.ui.data_table import cursor_row_key
-from groket.ui.screens.browser import BrowserScreen
-from groket.ui.selectable_static import SelectableStatic
-from groket.ui.widgets.controls import FILTER_LABEL_CLASS
-from groket.ui.widgets.timeline import TimelineTable
+from anqa.ui.app import AnqaApp
+from anqa.ui.bindings import focus_primary_list
+from anqa.ui.data_table import cursor_row_key
+from anqa.ui.screens.browser import BrowserScreen
+from anqa.ui.selectable_static import SelectableStatic
+from anqa.ui.widgets.controls import FILTER_LABEL_CLASS
+from anqa.ui.widgets.timeline import TimelineTable
 from textual.widgets import Input, Static, Switch, TabbedContent
 
 from .pilot_helpers import static_plain, wait_until
@@ -30,7 +30,7 @@ from .pilot_helpers import static_plain, wait_until
 
 def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-pilot-sess") -> Path:
     """Build a multi-turn session on the eval traces bind-mount layout."""
-    container = traces_root / "groket-pilot-run-m1"
+    container = traces_root / "anqa-pilot-run-m1"
     sess = container / "%2Fworkspace" / session_id
     sess.mkdir(parents=True)
 
@@ -120,7 +120,7 @@ def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-p
         encoding="utf-8",
     )
 
-    gate = container / ".groket-turn"
+    gate = container / ".anqa-turn"
     gate.mkdir(parents=True)
     (gate / "status.json").write_text(
         json.dumps({"state": "awaiting_follow_up", "session_id": session_id, "turn": 2}) + "\n",
@@ -129,12 +129,12 @@ def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-p
     return sess
 
 
-def _host_app(work: Path, traces: Path) -> TraceEvalApp:
-    app = TraceEvalApp(work_dir=work, traces_path=traces)
+def _host_app(work: Path, traces: Path) -> AnqaApp:
+    app = AnqaApp(work_dir=work, traces_path=traces)
     return app
 
 
-async def _open_browser(app: TraceEvalApp, pilot, sess: Path) -> BrowserScreen:
+async def _open_browser(app: AnqaApp, pilot, sess: Path) -> BrowserScreen:
     """Push BrowserScreen and wait until timeline is loaded; stop live refresh."""
     app.push_screen(BrowserScreen(sess))
 
@@ -351,10 +351,8 @@ async def test_browser_follow_up_enter_and_queue(tmp_path: Path) -> None:
             st = read_turn_gate_status(sess)
             if st.get("state") in ("running", "done"):
                 return True
-            gate_root = traces / "groket-pilot-run-m1"
-            return any(gate_root.glob(".groket-turn*/command")) or bool(
-                list_queued_follow_ups(sess)
-            )
+            gate_root = traces / "anqa-pilot-run-m1"
+            return any(gate_root.glob(".anqa-turn*/command")) or bool(list_queued_follow_ups(sess))
 
         await wait_until(pilot, gate_advanced, description="follow-up staged or queued")
 
@@ -364,7 +362,7 @@ async def test_browser_follow_up_enter_and_queue(tmp_path: Path) -> None:
         screen._session_follow_send()
         await pilot.pause()
         # Second send may queue; either way gate dir exists
-        assert (traces / "groket-pilot-run-m1").is_dir()
+        assert (traces / "anqa-pilot-run-m1").is_dir()
 
 
 @pytest.mark.asyncio
@@ -468,7 +466,7 @@ async def test_browser_notes_pane_mounts(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_notes_mounts_one_card_per_note(tmp_path: Path) -> None:
     """Notes paints each note as its own extractable card."""
-    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml
+    from anqa.notes import NoteEntry, NotesDoc, dump_notes_toml
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -502,7 +500,7 @@ async def test_notes_mounts_one_card_per_note(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_report_notes_shows_source_badge(tmp_path: Path) -> None:
-    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml
+    from anqa.notes import NoteEntry, NotesDoc, dump_notes_toml
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -549,8 +547,8 @@ async def test_report_notes_shows_source_badge(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_report_notes_keyboard_focus_edit_and_delete(tmp_path: Path) -> None:
-    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml, load_notes
-    from groket.ui.widgets.notes_modal import NotesModal
+    from anqa.notes import NoteEntry, NotesDoc, dump_notes_toml, load_notes
+    from anqa.ui.widgets.notes_modal import NotesModal
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -683,7 +681,7 @@ async def test_report_notes_keyboard_focus_edit_and_delete(tmp_path: Path) -> No
 async def test_notes_click_then_jk_continues_from_clicked_row(
     tmp_path: Path, click_id: str, key: str, want_id: str
 ) -> None:
-    from groket.notes import NoteEntry, NotesDoc, dump_notes_toml
+    from anqa.notes import NoteEntry, NotesDoc, dump_notes_toml
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -805,7 +803,7 @@ async def test_browser_diff_tab(tmp_path: Path) -> None:
         await _activate_tab(pilot, screen, "tab-diff")
         screen._update_diff_tab()
         await pilot.pause()
-        from groket.ui.widgets.diff_view import DiffView
+        from anqa.ui.widgets.diff_view import DiffView
         from textual.widgets import Tree
 
         view = screen.query_one("#diff-view", DiffView)
@@ -836,7 +834,7 @@ async def test_browser_diff_file_list_shows_rewind_files(tmp_path: Path) -> None
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
-        from groket.ui.widgets.diff_view import DiffView
+        from anqa.ui.widgets.diff_view import DiffView
         from textual.widgets import Tree
 
         view = screen.query_one("#diff-view", DiffView)
@@ -876,7 +874,7 @@ async def test_browser_diff_file_list_groups_nested_paths(tmp_path: Path) -> Non
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
-        from groket.ui.widgets.diff_view import DiffView
+        from anqa.ui.widgets.diff_view import DiffView
         from textual.widgets import Tree
 
         view = screen.query_one("#diff-view", DiffView)
@@ -927,7 +925,7 @@ async def test_browser_diff_search_filters_path_and_body(tmp_path: Path) -> None
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
-        from groket.ui.widgets.diff_view import DiffView
+        from anqa.ui.widgets.diff_view import DiffView
         from textual.widgets import Input, Tree
 
         view = screen.query_one("#diff-view", DiffView)
@@ -960,7 +958,7 @@ async def test_browser_diff_search_filters_path_and_body(tmp_path: Path) -> None
         painted = view.painted_hit_line() or ""
         raw = view.selected_plain().splitlines()[view.hit_line() or 0]
         assert painted == f"> {raw}"
-        from groket.ui.selectable_static import SelectableStatic
+        from anqa.ui.selectable_static import SelectableStatic
 
         body = view.query_one("#diff-content", SelectableStatic).get_plain_text()
         assert painted in body
@@ -977,9 +975,9 @@ async def test_browser_diff_context_above_files_hunk_split(tmp_path: Path) -> No
     async with app.run_test(size=(140, 48)) as pilot:
         screen = await _open_browser(app, pilot, sess)
         await _activate_tab(pilot, screen, "tab-diff")
-        from groket.session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
-        from groket.ui.selectable_static import SelectableStatic
-        from groket.ui.widgets.diff_view import DiffView
+        from anqa.session.workspace_diff import DiffHunk, DiffPoint, WorkspaceDiff
+        from anqa.ui.selectable_static import SelectableStatic
+        from anqa.ui.widgets.diff_view import DiffView
 
         view = screen.query_one("#diff-view", DiffView)
         view.set_doc(
@@ -1252,8 +1250,8 @@ async def test_browser_control_paints_first_page_before_remainder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """First control page is on the Timeline before the next page is fetched."""
-    from groket.session import wire_timeline as wt
-    from groket.session.control_views import build_session_overview, build_session_timeline
+    from anqa.session import wire_timeline as wt
+    from anqa.session.control_views import build_session_overview, build_session_timeline
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -1321,7 +1319,7 @@ async def test_browser_control_paints_first_page_before_remainder(
 @pytest.mark.asyncio
 async def test_browser_open_event_asks_owner_ceiling(tmp_path: Path) -> None:
     """Selecting a timeline row refetches that event at the owner body ceiling."""
-    from groket.session.control_views import (
+    from anqa.session.control_views import (
         MAX_CONTENT_CHARS,
         build_session_overview,
         build_session_timeline,

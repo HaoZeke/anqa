@@ -1548,16 +1548,13 @@ mod tests {
 
     #[test]
     fn session_rpc_ref_uses_path_only_when_directory_exists() {
-        let dir = std::env::temp_dir().join("groket-hud-rpc-ref");
+        let dir = std::env::temp_dir().join("anqa-hud-rpc-ref");
         let _ = std::fs::create_dir_all(&dir);
         assert_eq!(
             session_rpc_ref(dir.to_str().unwrap(), "uuid"),
             dir.to_str().unwrap()
         );
-        assert_eq!(
-            session_rpc_ref("/no/such/groket-hud-session", "uuid"),
-            "uuid"
-        );
+        assert_eq!(session_rpc_ref("/no/such/anqa-hud-session", "uuid"), "uuid");
         assert_eq!(session_rpc_ref("", "uuid"), "uuid");
         assert_eq!(session_rpc_ref("grok:ses_abc", "ses_abc"), "grok:ses_abc");
         let _ = std::fs::remove_dir_all(&dir);

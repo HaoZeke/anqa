@@ -5,9 +5,9 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import Path
 
-import groket.notes as notes_mod
+import anqa.notes as notes_mod
 import pytest
-from groket.notes import (
+from anqa.notes import (
     NOTES_FILENAME,
     NoteEntry,
     NotesDoc,
@@ -229,11 +229,11 @@ def test_fallback_on_permission_error(tmp_path: Path, monkeypatch) -> None:
     doc = NotesDoc(session_id=sd.name)
     doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "x"}, note_id="n-1"))
 
-    import groket.notes as notes_mod
-    import groket.paths as paths_mod
+    import anqa.notes as notes_mod
+    import anqa.paths as paths_mod
 
-    monkeypatch.setattr(paths_mod, "APP_HOME", tmp_path / "fakehome" / ".groket")
-    monkeypatch.setattr(notes_mod, "app_home", lambda: tmp_path / "fakehome" / ".groket")
+    monkeypatch.setattr(paths_mod, "APP_HOME", tmp_path / "fakehome" / ".anqa")
+    monkeypatch.setattr(notes_mod, "app_home", lambda: tmp_path / "fakehome" / ".anqa")
 
     def fail_primary(path: Path, text: str) -> None:
         if path.parent == sd:
@@ -251,11 +251,11 @@ def test_fallback_on_permission_error(tmp_path: Path, monkeypatch) -> None:
 
 def test_host_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
     """Host Grok sessions must not get operator_notes in ~/.grok/sessions."""
-    import groket.notes as notes_mod
-    import groket.paths as paths_mod
-    import groket.session.sources as sources_mod
+    import anqa.notes as notes_mod
+    import anqa.paths as paths_mod
+    import anqa.session.sources as sources_mod
 
-    home = tmp_path / "home" / ".groket"
+    home = tmp_path / "home" / ".anqa"
     monkeypatch.setattr(paths_mod, "APP_HOME", home)
     monkeypatch.setattr(notes_mod, "app_home", lambda: home)
 
@@ -276,11 +276,11 @@ def test_host_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_symlinked_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
-    """Symlinked session dirs also write notes only under ~/.groket/notes."""
-    import groket.notes as notes_mod
-    import groket.paths as paths_mod
+    """Symlinked session dirs also write notes only under ~/.anqa/notes."""
+    import anqa.notes as notes_mod
+    import anqa.paths as paths_mod
 
-    home = tmp_path / "home" / ".groket"
+    home = tmp_path / "home" / ".anqa"
     monkeypatch.setattr(paths_mod, "APP_HOME", home)
     monkeypatch.setattr(notes_mod, "app_home", lambda: home)
 
@@ -299,8 +299,8 @@ def test_symlinked_session_skips_primary_write(tmp_path: Path, monkeypatch) -> N
 def test_prefer_newer_fallback(tmp_path: Path, monkeypatch) -> None:
     import time
 
-    import groket.notes as notes_mod
-    import groket.paths as paths_mod
+    import anqa.notes as notes_mod
+    import anqa.paths as paths_mod
 
     home = tmp_path / "home"
     monkeypatch.setattr(paths_mod, "APP_HOME", home)
@@ -467,7 +467,7 @@ def test_upsert_rejects_blank_source_and_leaves_store(tmp_path: Path, source: st
 
 
 def test_snapshot_mapping_includes_source_and_foreign_fields(tmp_path: Path) -> None:
-    from groket.session.access import notes_snapshot_mapping
+    from anqa.session.access import notes_snapshot_mapping
 
     sd = tmp_path / "sess"
     sd.mkdir()

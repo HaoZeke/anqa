@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.job_pools import get_live_refresh_pool
-from groket.models import TraceEvent
-from groket.session_inflight import (
+from anqa.job_pools import get_live_refresh_pool
+from anqa.models import TraceEvent
+from anqa.session_inflight import (
     KIND_REFRESH,
     clear,
     is_inflight,
     try_begin,
 )
-from groket.ui.screens.browser import BrowserScreen
+from anqa.ui.screens.browser import BrowserScreen
 
 
 def setup_function() -> None:
@@ -78,7 +78,7 @@ def test_worker_done_runs_coalesced_follow_up(tmp_path: Path) -> None:
     screen = _screen(sd)
     assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_busy = True
-    from groket.session_inflight import request_rerun
+    from anqa.session_inflight import request_rerun
 
     request_rerun(KIND_REFRESH, sd)
     calls: list[str] = []
@@ -113,9 +113,9 @@ def test_live_refresh_heartbeat_coalesces_flag(tmp_path: Path) -> None:
 
 def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> None:
     """Heartbeat re-reads signals even when timeline stamp is unchanged."""
-    import groket.parser as parser_mod
-    from groket.models import SessionMeta
-    from groket.ui.screens import browser as browser_mod
+    import anqa.parser as parser_mod
+    from anqa.models import SessionMeta
+    from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -178,9 +178,9 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
 
 def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch) -> None:
     """Unchanged stamp + signals must not re-load meta (live FS noise)."""
-    import groket.parser as parser_mod
-    from groket.models import SessionMeta
-    from groket.ui.screens import browser as browser_mod
+    import anqa.parser as parser_mod
+    from anqa.models import SessionMeta
+    from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -225,9 +225,9 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
 
 def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypatch) -> None:
     """Stamp change always re-parses — no second min-gap that hides new rows."""
-    import groket.parser as parser_mod
-    from groket.models import SessionMeta, TraceEvent
-    from groket.ui.screens import browser as browser_mod
+    import anqa.parser as parser_mod
+    from anqa.models import SessionMeta, TraceEvent
+    from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -278,9 +278,9 @@ def test_load_data_light_control_skips_overview_when_stamp_unchanged(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Attached light refresh does not RPC session/overview when the stamp is still."""
-    from groket.models import SessionMeta
-    from groket.session.control_views import overview_input_stamp
-    from groket.ui.screens import browser as browser_mod
+    from anqa.models import SessionMeta
+    from anqa.session.control_views import overview_input_stamp
+    from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -324,9 +324,9 @@ def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
     tmp_path: Path, monkeypatch
 ) -> None:
     """After overview returns, keep the pre-RPC stamp so a mid-RPC append is fetched next."""
-    from groket.models import SessionMeta
-    from groket.session.control_views import overview_input_stamp
-    from groket.ui.screens import browser as browser_mod
+    from anqa.models import SessionMeta
+    from anqa.session.control_views import overview_input_stamp
+    from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -376,7 +376,7 @@ def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
 
 def test_load_data_light_control_timeout_is_soft(tmp_path: Path, monkeypatch) -> None:
     """A hung session/overview must not crash the live-refresh worker."""
-    from groket.ui.screens import browser as browser_mod
+    from anqa.ui.screens import browser as browser_mod
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()

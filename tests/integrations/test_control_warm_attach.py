@@ -9,15 +9,15 @@ import time
 from pathlib import Path
 
 import pytest
+from anqa.integrations import daemon as daemon_mod
+from anqa.integrations.control_client import ControlClient
+from anqa.session.access import filter_session_catalog
+from anqa.session.catalog import SessionCatalogCache
 from async_wait import wait_until
-from groket.integrations import daemon as daemon_mod
-from groket.integrations.control_client import ControlClient
-from groket.session.access import filter_session_catalog
-from groket.session.catalog import SessionCatalogCache
 
 
 def _short_sock(name: str) -> Path:
-    return Path(tempfile.mkdtemp(prefix="groket-warm-")) / name
+    return Path(tempfile.mkdtemp(prefix="anqa-warm-")) / name
 
 
 def _write_sess(root: Path, name: str, title: str) -> Path:
@@ -157,7 +157,7 @@ async def test_attach_client_uses_rpc_only_for_list(tmp_path: Path) -> None:
         getattr(server, "_catalog_cache").get(force=True)  # type: ignore[union-attr]
         client = ControlClient(sock, client_name="attach-tui", timeout=20)
         init = await client.initialize()
-        from groket.integrations.control import PROTOCOL_VERSION
+        from anqa.integrations.control import PROTOCOL_VERSION
 
         assert init["protocolVersion"] == PROTOCOL_VERSION
         assert "session/list" in init["capabilities"]

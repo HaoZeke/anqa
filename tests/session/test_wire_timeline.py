@@ -6,13 +6,13 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.session.control_views import (
+from anqa.session.control_views import (
     MAX_CONTENT_CHARS,
     MAX_TIMELINE_LIMIT,
     build_session_overview,
     build_session_timeline,
 )
-from groket.session.wire_timeline import (
+from anqa.session.wire_timeline import (
     TIMELINE_RPC_CHARS,
     TIMELINE_RPC_LIMIT,
     fetch_timeline_event,

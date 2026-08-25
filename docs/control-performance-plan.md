@@ -1,6 +1,6 @@
 # Control owner performance plan
 
-This document is the diagnosis of what `groket serve` does today, what is
+This document is the diagnosis of what `anqa serve` does today, what is
 native Rust versus Python, how the four clients attach, freshly measured
 trees on this machine (2026-08-17), a live-owner CPU trace (2026-08-16),
 and a sequenced plan whose success is a **stable performance contract** —
@@ -13,11 +13,11 @@ JSON-RPC 2.0 on the per-user Unix socket stays. A full rewrite of
 
 ## 1. Owner work (current call paths)
 
-One process owns `$XDG_RUNTIME_DIR/groket/control.sock` (or
-`~/.groket/run/control.sock`). Built by
-`groket.integrations.daemon.build_control_server` →
-`ControlServer` in `groket/integrations/control.py`. Domain work goes
-through `LocalSessionAccess` in `groket/session/access.py`.
+One process owns `$XDG_RUNTIME_DIR/anqa/control.sock` (or
+`~/.anqa/run/control.sock`). Built by
+`anqa.integrations.daemon.build_control_server` →
+`ControlServer` in `anqa/integrations/control.py`. Domain work goes
+through `LocalSessionAccess` in `anqa/session/access.py`.
 
 Disk-heavy methods (`session/list`, `session/overview`, `session/timeline`,
 `session/render`, and `_access_call` for get/turns/usage/diff)
@@ -34,7 +34,7 @@ ControlServer._rpc_session_list
   → SessionCatalogCache.list_for_rpc
 ```
 
-`list_for_rpc` (`groket/session/catalog.py`) **never waits** for a cold
+`list_for_rpc` (`anqa/session/catalog.py`) **never waits** for a cold
 full-tree scan. It kicks `_kick_rebuild` on a daemon thread and returns
 the current snapshot, possibly empty, with `incomplete` / `building` set.
 Warm polls with matching `sinceRevision` return no rows (`unchanged`).
@@ -47,12 +47,12 @@ list_session_catalog
   → collect_session_dirs
        host: collect_host_session_dirs  (shallow: top-level or one level
              under percent-encoded cwd buckets; no workspace descent)
-       work: parser.find_sessions       (walk via groket.scan / groket._scan)
+       work: parser.find_sessions       (walk via anqa.scan / anqa._scan)
   → session_catalog_row × N (thread pool, max 4)
        today: load_session_meta_list for every origin
 ```
 
-`load_session_meta_list` (`groket/parser.py`) reads `summary.json`,
+`load_session_meta_list` (`anqa/parser.py`) reads `summary.json`,
 `signals.json`, one pass of `events.jsonl` for turn status
 (`_list_runtime_status`), and may **tail 64 KiB of `updates.jsonl`**
 (`_last_session_update_type`) when there is no `turn_ended`. If
@@ -76,9 +76,9 @@ filesystem watch → `refresh_rows`.
 | `session/timeline` | `build_session_timeline` | **Always `parse_timeline`**, then filter/page. Default 300 events / 4000 content characters (caps 2000 / 50_000). |
 | `session/turns` | `build_session_turns` | Another parse (or cache hit) + full turn mapping (long assistant previews). |
 
-`parse_timeline` (`groket/parser.py`):
+`parse_timeline` (`anqa/parser.py`):
 
-1. Stamp-keyed cache (`BoundedCache`, cap 32, env `GROKET_TIMELINE_CACHE_MAX`).
+1. Stamp-keyed cache (`BoundedCache`, cap 32, env `ANQA_TIMELINE_CACHE_MAX`).
 2. Incremental `_scan_updates_jsonl` when the file only grew.
 3. Per line: `keep_updates_line` (native or Python) skips non-terminal
    `tool_call_update` **before** JSON parse.
@@ -94,9 +94,9 @@ sends `session/overview` and shows a loading placeholder until
 `desktop/src/live.rs`).
 
 The terminal browser (`BrowserScreen._load_control_first_page` in
-`groket/ui/screens/browser.py`) calls **overview first**, then one
+`anqa/ui/screens/browser.py`) calls **overview first**, then one
 `session/timeline` page (`TIMELINE_RPC_LIMIT = 200`,
-`TIMELINE_RPC_CHARS = 12_000` in `groket/session/wire_timeline.py`), then
+`TIMELINE_RPC_CHARS = 12_000` in `anqa/session/wire_timeline.py`), then
 paints (`_commit_loaded_session`), then remainder pages. Offline
 (`--no-socket`) calls `parse_timeline` in-process before any paint.
 
@@ -105,7 +105,7 @@ whole `updates.jsonl` to know total and to assign turn indexes.
 
 ### 1.3 Live notify
 
-`TraceTreeWatch` (`groket/fs_watch.py`) on the same roots as the catalog.
+`TraceTreeWatch` (`anqa/fs_watch.py`) on the same roots as the catalog.
 Coalesced path list → `apply_fs_catalog_events` → `refresh_rows` for dirty
 sessions, then:
 
@@ -142,10 +142,10 @@ overview on every coalesced write. See §4.4 and moment I.
 
 ## 2. Native Rust versus Python
 
-### 2.1 Owner-side native (`groket._scan`, crate `scan/`)
+### 2.1 Owner-side native (`anqa._scan`, crate `scan/`)
 
-Shipped as the wheel extension (`pyproject.toml` `target = "groket._scan"`).
-`GROKET_SCAN=0` forces the Python twin in `groket/scan.py`. This process
+Shipped as the wheel extension (`pyproject.toml` `target = "anqa._scan"`).
+`ANQA_SCAN=0` forces the Python twin in `anqa/scan.py`. This process
 loaded the extension (`using_scan True`).
 
 | Symbol | Role | Not |
@@ -157,7 +157,7 @@ loaded the extension (`using_scan True`).
 
 Host **catalog** discovery does **not** use this walk. It uses
 `collect_host_session_dirs` (pure Python, shallow). Work traces use
-`parser.find_sessions` → `groket.scan.find_sessions` → `_scan` plus
+`parser.find_sessions` → `anqa.scan.find_sessions` → `_scan` plus
 Python `_scan_hit_is_listed` (drop resume-seed / subagent).
 
 ### 2.2 Still Python (owner)
@@ -172,7 +172,7 @@ Python `_scan_hit_is_listed` (drop resume-seed / subagent).
 
 ### 2.3 Client-side Rust (not the owner)
 
-`groket-hud` (`desktop/`) is a Rust client: `serde_json` over the same
+`anqa-hud` (`desktop/`) is a Rust client: `serde_json` over the same
 JSON-RPC Unix socket. It does not parse `updates.jsonl`.
 
 ---
@@ -184,13 +184,13 @@ or Language Server Protocol `Content-Length` frames.
 
 | Client | Code | Stream | Open path | List |
 |--------|------|--------|-----------|------|
-| Terminal | `groket/integrations/control_client.py`; attach in `ui/app.py` | Usually one-shot per request | `BrowserScreen._load_control_first_page`: overview **then** timeline page 200×12k | First page `drain=False`; later pages background (`_fill_remaining_catalog_pages`) |
+| Terminal | `anqa/integrations/control_client.py`; attach in `ui/app.py` | Usually one-shot per request | `BrowserScreen._load_control_first_page`: overview **then** timeline page 200×12k | First page `drain=False`; later pages background (`_fill_remaining_catalog_pages`) |
 | Desktop HUD | `desktop/src/control.rs` | Persistent `UnixStream` | `session_overview` then lazy `session_timeline` 80×720 | First `SESSION_LIST_PAGE` (200); `session_list_all` drains in the background |
-| Emacs | `integrations/emacs/groket.el` + stock `jsonrpc.el` | Persistent | `session/render` format `org` (full document; **full parse** on the owner) | Optional picker; not required to drain |
-| Neovim | `integrations/vim/lua/groket/init.lua` + `vim.json` / `vim.uv` | Persistent | `session/render` format `markdown` | Same |
+| Emacs | `integrations/emacs/anqa.el` + stock `jsonrpc.el` | Persistent | `session/render` format `org` (full document; **full parse** on the owner) | Optional picker; not required to drain |
+| Neovim | `integrations/vim/lua/anqa/init.lua` + `vim.json` / `vim.uv` | Persistent | `session/render` format `markdown` | Same |
 
 Editors do not need `session/overview`. They still pay a full timeline
-parse inside `render_editor_document` (`groket/integrations/editor.py`).
+parse inside `render_editor_document` (`anqa/integrations/editor.py`).
 
 Protocol replacement is out of scope: Emacs `jsonrpc.el` only speaks
 JSON. See the earlier protocol note: the shared language of all four is
@@ -211,20 +211,20 @@ Captured in `{scratch}/session-sizes.txt` from `du` / `find` and a
 | Tree size | **2.8 GiB** |
 | Top-level entries | 52 directories |
 | Dirs with `summary.json` or `updates.jsonl` | **575** |
-| `groket._scan.find_sessions` hits | 576 |
+| `anqa._scan.find_sessions` hits | 576 |
 | **Listed** host sessions (`collect_host_session_dirs` / `parser.find_sessions`) | **138** |
 | `updates.jsonl` files | 557, **1292.4 MiB** total |
 | `events.jsonl` files | 574, **108.5 MiB** total |
 
 Largest immediate children are **percent-encoded cwd buckets**, not
-sessions: `icedtea` 877 MiB, `groket` 426 MiB, `coredis` 224 MiB.
+sessions: `icedtea` 877 MiB, `anqa` 426 MiB, `coredis` 224 MiB.
 
 Largest session directories (contain `summary.json`):
 
 | MiB | Path (under `~/.grok/sessions`) |
 |-----|----------------------------------|
 | 358.5 | `…/icedtea/019ffeeb-6c33-78c1-9107-ab0cf050cd29` |
-| 264.0 | `…/groket/019ffeeb-1650-7321-a5b4-720381bd3787` |
+| 264.0 | `…/anqa/019ffeeb-1650-7321-a5b4-720381bd3787` |
 | 131.0 | `…/penguins_place/01a00702-6c28-7943-8f3e-9860b0c46554` |
 | 119.8 | `…/icedtea/01a00738-af72-7e42-94db-fe2177384e84` |
 | 95.4 | `…/grok-inside/019ff299-bbb6-7f11-9de2-1b72fe0e1b0c` |
@@ -234,12 +234,12 @@ Largest `updates.jsonl`:
 | MiB | Session |
 |-----|---------|
 | **155.1** | icedtea `019ffeeb-6c33-78c1-9107-ab0cf050cd29` |
-| 85.9 | groket `019ffeeb-1650-7321-a5b4-720381bd3787` |
+| 85.9 | anqa `019ffeeb-1650-7321-a5b4-720381bd3787` |
 | 71.4 | penguins_place `01a00702-6c28-7943-8f3e-9860b0c46554` |
 | 61.8 | icedtea `01a00738-af72-7e42-94db-fe2177384e84` |
 | 41.8 | az `01a003b3-687c-7622-b925-eeff9e934632` |
 
-Largest `events.jsonl`: 10.9 MiB (same groket session), then 6.3 / 6.2 MiB.
+Largest `events.jsonl`: 10.9 MiB (same anqa session), then 6.3 / 6.2 MiB.
 
 **Which owner path pays for which file**
 
@@ -250,12 +250,12 @@ Largest `events.jsonl`: 10.9 MiB (same groket session), then 6.3 / 6.2 MiB.
 | `updates.jsonl` | 64 KiB tail sometimes; **full parse** only if no event count | no | **full scan** (`keep_updates_line` then JSON of kept lines) |
 | workspace / images under the session | not listed (walk stops) | no | image paths only |
 
-### 4.2 Work `~/.groket/work/runs/traces`
+### 4.2 Work `~/.anqa/work/runs/traces`
 
 | Quantity | Value |
 |----------|--------|
 | Tree size | **214 MiB** |
-| Dirs with artifacts | 13 (many `.groket-resume-seed`) |
+| Dirs with artifacts | 13 (many `.anqa-resume-seed`) |
 | **Listed** work sessions | **5** |
 | Combined catalog (`collect_session_dirs` work+host) | **143** (5 work + 138 host) |
 | Largest listed-ish `updates.jsonl` | 11.7 MiB imported algor; resume-seed copies ~5 MiB (not listed) |
@@ -310,7 +310,7 @@ from `parse_timeline` can take **1.5 s** off the worst click, and
 
 ### 4.4 Live owner (2026-08-16)
 
-Same machine, `groket serve` pid 24108 up ~2 h, HUD attached, four host
+Same machine, `anqa serve` pid 24108 up ~2 h, HUD attached, four host
 sessions appending. Quiet 3 s sample was almost idle. Lifetime average
 was **49 % of one core**.
 
@@ -326,7 +326,7 @@ Hot files at the sample (still growing):
 
 | Session | `updates.jsonl` | `events.jsonl` |
 |---------|-----------------|----------------|
-| groket `019ffeeb-1650-…` | 90 MiB | 11.4 MiB |
+| anqa `019ffeeb-1650-…` | 90 MiB | 11.4 MiB |
 | penguins_place `01a00702-6c28-…` | 75 MiB | 3.8 MiB |
 | icedtea `01a00b24-2afb-…` | 45 MiB | 1.6 MiB |
 | icedtea `01a00d2f-5d0d-…` | 0.8 MiB | 89 KiB |
@@ -364,7 +364,7 @@ is `running`. Moments A–H do not name this. Moment I does.
 | `performance_goals.md` | Feel targets; list must not parse `updates.jsonl` (mostly true; tail + rare full parse remain) |
 | Pull request 6 | First catalog **page** paints without draining `matched` |
 | Pull request 8 | HUD does not clone catalog/timeline on every paint |
-| Pull request 27 + `BoundedCache` | Parse caches evict (timeline 32, overview 64, …). Title said “one session”; **code cap is 32** (`groket/constants.py`) |
+| Pull request 27 + `BoundedCache` | Parse caches evict (timeline 32, overview 64, …). Title said “one session”; **code cap is 32** (`anqa/constants.py`) |
 | `list_for_rpc` | Cold `session/list` returns immediately with `incomplete`/`building` |
 | `collect_host_session_dirs` | Host discovery is shallow (fixes the old 163 s junk walk in the 2026-08-09 table) |
 | Incremental `parse_timeline` | Growth of an already-open session does not rescan from byte 0 |
@@ -372,7 +372,7 @@ is `running`. Moments A–H do not name this. Moment I does.
 
 ### Open pull request 29
 
-https://github.com/indynull/groket/pull/29 — **host catalog list only**.
+https://github.com/indynull/anqa/pull/29 — **host catalog list only**.
 
 Does:
 
@@ -381,7 +381,7 @@ Does:
 - Stamp-gated snapshot (`mtime_export.py`) under the host catalog cache dir.
   Stamp is path + mtimes of `summary.json`, `signals.json`, **and**
   `updates.jsonl` (mtime only).
-- `groket export-host -o FILE` writes that snapshot without starting serve.
+- `anqa export-host -o FILE` writes that snapshot without starting serve.
 - Opening a session still uses the full parser (stated in the pull request).
 
 Does not:
@@ -559,11 +559,11 @@ Laptop only. Do not copy `~/.grok/sessions` into continuous integration.
 
 ```text
 # Tree (same as {scratch}/session-sizes.txt)
-du -sh ~/.grok/sessions ~/.groket/work/runs/traces
+du -sh ~/.grok/sessions ~/.anqa/work/runs/traces
 find ~/.grok/sessions -name updates.jsonl -printf '%s\t%p\n' | sort -nr | head
 
 # Listed count
-uv run python -c "from groket.paths import default_work_dir; from groket.session.sources import collect_session_dirs, session_scan_roots; print(len(list(collect_session_dirs(session_scan_roots(default_work_dir(), include_host=True)))))"
+uv run python -c "from anqa.paths import default_work_dir; from anqa.session.sources import collect_session_dirs, session_scan_roots; print(len(list(collect_session_dirs(session_scan_roots(default_work_dir(), include_host=True)))))"
 
 # Catalog
 # time list_session_catalog(work, include_host=True)  # cold process + second
@@ -573,7 +573,7 @@ uv run python -c "from groket.paths import default_work_dir; from groket.session
 #      build_session_timeline(limit=80, content_chars=720)
 
 # Serve RSS
-# grep VmRSS /proc/$(pgrep -f 'groket serve')/status
+# grep VmRSS /proc/$(pgrep -f 'anqa serve')/status
 
 # Live append (moment I) — 60 s, HUD visible, 3–4 sessions writing
 # awk '/rchar|syscr/' /proc/<serve-pid>/io
@@ -596,7 +596,7 @@ and friends.
 - Making Emacs/Neovim drain the catalog or send `sinceRevision`.
 
 Native work that **is** in scope later, only if first Timeline page
-cannot be answered from a Python tail scan: extend `groket._scan` with a
+cannot be answered from a Python tail scan: extend `anqa._scan` with a
 **line-offset index** builder (same crate, same keep/skip needles). That
 is an increment of the existing leaf, not a second parser.
 

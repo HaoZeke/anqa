@@ -1,7 +1,7 @@
 //! StatusNotifier / menu-bar tray for the long-lived HUD process.
 //!
-//! Left-click toggles the overlay (same as ``groket hud --toggle``).
-//! Menu **Show** always shows. **Quit groket** exits this process only.
+//! Left-click toggles the overlay (same as ``anqa hud --toggle``).
+//! Menu **Show** always shows. **Quit anqa** exits this process only.
 
 use std::sync::mpsc::{self, Receiver, RecvError, SyncSender};
 use std::sync::{Mutex, OnceLock};
@@ -13,13 +13,13 @@ pub fn tray_png() -> &'static [u8] {
     crate::brand::tray_icon_png()
 }
 
-pub const TRAY_ID: &str = "dev.indynull.groket-hud";
-pub const TRAY_TOOLTIP: &str = "groket";
+pub const TRAY_ID: &str = "dev.indynull.anqa-hud";
+pub const TRAY_TOOLTIP: &str = "anqa";
 pub const MENU_SHOW_ID: &str = "show";
 pub const MENU_QUIT_ID: &str = "quit";
 pub const MENU_SHOW_LABEL: &str = "Show";
-pub const MENU_QUIT_LABEL: &str = "Quit groket";
-pub const SHOW_ON_START_ENV: &str = "GROKET_HUD_SHOW_ON_START";
+pub const MENU_QUIT_LABEL: &str = "Quit anqa";
+pub const SHOW_ON_START_ENV: &str = "ANQA_HUD_SHOW_ON_START";
 
 /// Operator action the iced loop should run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +85,7 @@ pub fn env_flag_enabled(value: Option<&str>) -> bool {
     )
 }
 
-/// True when ``GROKET_HUD_SHOW_ON_START`` requests a boot show.
+/// True when ``ANQA_HUD_SHOW_ON_START`` requests a boot show.
 pub fn show_on_start() -> bool {
     env_flag_enabled(std::env::var(SHOW_ON_START_ENV).ok().as_deref())
 }
@@ -137,7 +137,7 @@ pub fn quit_process() -> ! {
 /// Ask iced to quit, then end the process if the loop does not return.
 pub fn schedule_quit_process() {
     let _ = std::thread::Builder::new()
-        .name("groket-hud-quit".into())
+        .name("anqa-hud-quit".into())
         .spawn(|| {
             std::thread::sleep(std::time::Duration::from_millis(150));
             quit_process();
@@ -190,14 +190,14 @@ mod linux {
     use ksni::blocking::TrayMethods;
     use ksni::{Icon, Tray};
 
-    pub type Handle = ksni::blocking::Handle<GroketTray>;
+    pub type Handle = ksni::blocking::Handle<AnqaTray>;
 
-    pub struct GroketTray {
+    pub struct AnqaTray {
         tx: std::sync::mpsc::SyncSender<TrayAction>,
         icon: Icon,
     }
 
-    impl Tray for GroketTray {
+    impl Tray for AnqaTray {
         fn id(&self) -> String {
             TRAY_ID.into()
         }
@@ -244,7 +244,7 @@ mod linux {
 
     pub fn install() -> Result<Handle, TrayError> {
         let (rgba, width, height) = decode_tray_rgba()?;
-        let tray = GroketTray {
+        let tray = AnqaTray {
             tx: action_sender(),
             icon: Icon {
                 width: i32::try_from(width).map_err(|_| TrayError::BadIcon)?,
@@ -288,7 +288,7 @@ mod other {
             .map_err(|err| TrayError::Host(err.to_string()))?;
 
         std::thread::Builder::new()
-            .name("groket-tray-click".into())
+            .name("anqa-tray-click".into())
             .spawn(|| {
                 while let Ok(ev) = TrayIconEvent::receiver().recv() {
                     if let Some(action) = map_click(&ev) {
@@ -298,7 +298,7 @@ mod other {
             })
             .map_err(|err| TrayError::Host(err.to_string()))?;
         std::thread::Builder::new()
-            .name("groket-tray-menu".into())
+            .name("anqa-tray-menu".into())
             .spawn(|| {
                 while let Ok(ev) = MenuEvent::receiver().recv() {
                     if let Some(action) = action_from_menu_id(ev.id.as_ref()) {

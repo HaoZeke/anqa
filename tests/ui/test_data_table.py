@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from groket.ui.data_table import (
+from anqa.ui.data_table import (
     ListDataTable,
     cursor_row_key,
     preserving_cursor,
@@ -83,7 +83,7 @@ def test_style_data_table_disables_zebra() -> None:
 def test_selected_row_css_uses_primary_background() -> None:
     from pathlib import Path
 
-    css = (Path(__file__).resolve().parents[2] / "groket" / "ui" / "app.tcss").read_text(
+    css = (Path(__file__).resolve().parents[2] / "anqa" / "ui" / "app.tcss").read_text(
         encoding="utf-8"
     )
     cursor = css.split("DataTable > .datatable--cursor")[1].split("}", 1)[0]
@@ -98,7 +98,7 @@ def test_selected_row_css_uses_primary_background() -> None:
 async def test_style_data_table_list_nav_follows_overlay(tmp_path, monkeypatch):
     keys = tmp_path / "keys.toml"
     keys.write_text('[home]\n"list.down" = "h"\n', encoding="utf-8")
-    monkeypatch.setenv("GROKET_KEYS", str(keys))
+    monkeypatch.setenv("ANQA_KEYS", str(keys))
     app = _TableApp()
     async with app.run_test() as pilot:
         table = app.query_one("#t", DataTable)
@@ -184,7 +184,7 @@ async def test_list_data_table_click_highlights_then_activates() -> None:
 
 # ── Cell updates and marker columns ──────────────────────────────────────
 
-from groket.ui.data_table import (
+from anqa.ui.data_table import (
     set_marker_column,
     update_row_cell,
 )

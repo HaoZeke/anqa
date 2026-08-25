@@ -2,9 +2,9 @@
 # /// script
 # requires-python = ">=3.12"
 # ///
-"""Timed groket-hud walkthrough (isolated when possible).
+"""Timed anqa-hud walkthrough (isolated when possible).
 
-Default: **Xephyr + metacity + GROKET_HUD_WINDOW=1** (normal desktop
+Default: **Xephyr + metacity + ANQA_HUD_WINDOW=1** (normal desktop
 window, icedtea gallery-gif style). Capture is root-crop of the managed
 window — non-black on nested X. Does not drive the host overlay.
 
@@ -33,7 +33,7 @@ from pathlib import Path
 
 
 def _repo_root() -> Path:
-    # …/groket/.grok/skills/hud-visual-walkthrough/scripts/this.py → parents[4]
+    # …/anqa/.grok/skills/hud-visual-walkthrough/scripts/this.py → parents[4]
     return Path(__file__).resolve().parents[4]
 
 
@@ -109,11 +109,11 @@ class Control:
 
 
 def resolve_socket() -> Path:
-    env = os.environ.get("GROKET_CONTROL_SOCKET", "").strip()
+    env = os.environ.get("ANQA_CONTROL_SOCKET", "").strip()
     if env:
         return Path(env).expanduser()
     xdg = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    return Path(xdg) / "groket" / "control.sock"
+    return Path(xdg) / "anqa" / "control.sock"
 
 
 def ensure_serve(sock: Path) -> None:
@@ -125,8 +125,8 @@ def ensure_serve(sock: Path) -> None:
             pass
         except Exception:
             pass
-    print("starting groket serve -d …", file=sys.stderr)
-    _run(["groket", "serve", "-d"], check=False)
+    print("starting anqa serve -d …", file=sys.stderr)
+    _run(["anqa", "serve", "-d"], check=False)
     for _ in range(40):
         time.sleep(0.25)
         if sock.exists():
@@ -289,7 +289,7 @@ class VirtualDisplay:
                 "+extension",
                 "XFIXES",
                 "-title",
-                "groket-hud-walk",
+                "anqa-hud-walk",
             ]
             env = os.environ.copy()
             env["DISPLAY"] = self.host_display
@@ -411,13 +411,13 @@ class WalkEnv:
         # Normal desktop window (not override-redirect overlay). Required for
         # Xephyr + metacity root-crop capture (same idea as icedtea gallery).
         if window_mode:
-            self.env["GROKET_HUD_WINDOW"] = "1"
+            self.env["ANQA_HUD_WINDOW"] = "1"
         else:
-            self.env.pop("GROKET_HUD_WINDOW", None)
+            self.env.pop("ANQA_HUD_WINDOW", None)
         # Do not steal the host HUD's summon socket (bare start exits 0).
         runtime = Path(self.env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
-        self.env["GROKET_HUD_SUMMON_SOCKET"] = str(runtime / "groket" / "hud-walk-summon.sock")
-        self.env["GROKET_CONTROL_SOCKET"] = str(resolve_socket())
+        self.env["ANQA_HUD_SUMMON_SOCKET"] = str(runtime / "anqa" / "hud-walk-summon.sock")
+        self.env["ANQA_CONTROL_SOCKET"] = str(resolve_socket())
         self.hud_proc: subprocess.Popen[bytes] | None = None
         self._cached_wid: str | None = None
         self._cached_geom: tuple[int, int, int, int] | None = None
@@ -578,7 +578,7 @@ class WalkEnv:
             )
             if r.returncode == 0:
                 ids.extend(r.stdout.split())
-        for pattern in ("groket-hud", "groket_hud", "Groket"):
+        for pattern in ("anqa-hud", "anqa_hud", "Anqa"):
             for flag in ("--name", "--class"):
                 r = self.run(
                     ["xdotool", "search", flag, pattern],
@@ -679,16 +679,16 @@ class WalkEnv:
 
     def start_hud(self, *, rebuild: bool) -> None:
         """Always start a fresh HUD on this DISPLAY — never reuse the host HUD."""
-        # Prefer release for latency walks; fall back to debug, then groket hud.
+        # Prefer release for latency walks; fall back to debug, then anqa hud.
         root = _repo_root() / "target"
-        release = root / "release" / "groket-hud"
-        debug = root / "debug" / "groket-hud"
+        release = root / "release" / "anqa-hud"
+        debug = root / "debug" / "anqa-hud"
         if release.is_file():
             cmd = [str(release)]
         elif debug.is_file():
             cmd = [str(debug)]
         else:
-            cmd = ["groket", "hud"]
+            cmd = ["anqa", "hud"]
             if rebuild:
                 cmd.append("--rebuild")
         mode = "window" if self.window_mode else "overlay"
@@ -705,13 +705,13 @@ class WalkEnv:
         )
         for _ in range(60):
             if self.hud_proc.poll() is not None:
-                raise SystemExit(f"groket-hud exited early (code {self.hud_proc.returncode})")
+                raise SystemExit(f"anqa-hud exited early (code {self.hud_proc.returncode})")
             # Process alive is enough; window appears after summon.
             time.sleep(0.25)
             if self.hud_proc.poll() is None and _ > 4:
                 return
         if self.hud_proc.poll() is not None:
-            raise SystemExit("groket-hud did not stay up")
+            raise SystemExit("anqa-hud did not stay up")
 
     def stop_hud(self) -> None:
         if self.hud_proc is None:
@@ -752,7 +752,7 @@ def main() -> int:
         action="store_true",
         help="do not inject keys; wait for Enter between steps",
     )
-    ap.add_argument("--rebuild", action="store_true", help="pass --rebuild to groket hud")
+    ap.add_argument("--rebuild", action="store_true", help="pass --rebuild to anqa hud")
     ap.add_argument(
         "--settle-ms",
         type=int,
@@ -773,7 +773,7 @@ def main() -> int:
     ap.add_argument(
         "--overlay",
         action="store_true",
-        help="use overlay mode instead of GROKET_HUD_WINDOW=1",
+        help="use overlay mode instead of ANQA_HUD_WINDOW=1",
     )
     ap.add_argument(
         "--display-num",
@@ -944,7 +944,7 @@ def main() -> int:
 
     def summon() -> None:
         if walk.window_mode:
-            # GROKET_HUD_WINDOW opens a normal client; just place + focus.
+            # ANQA_HUD_WINDOW opens a normal client; just place + focus.
             walk.place_managed_window()
             walk.focus_hud()
             return
@@ -1081,7 +1081,7 @@ def main() -> int:
         "list_ms": round(t_list["ms"], 2),
         "branch": _run(["git", "-C", str(root), "branch", "--show-current"]).stdout.strip(),
         "identical_pane_frames": identical_panes,
-        "binary": "release" if (root / "target" / "release" / "groket-hud").is_file() else "debug",
+        "binary": "release" if (root / "target" / "release" / "anqa-hud").is_file() else "debug",
     }
     (out / "timings.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     with (out / "steps.jsonl").open("w", encoding="utf-8") as fh:

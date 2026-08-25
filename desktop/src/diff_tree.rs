@@ -171,17 +171,17 @@ mod tests {
     #[test]
     fn nested_dirs_one_segment_per_row() {
         assert_eq!(
-            tree_rows(["src/groket/ui/app.py", "src/groket/ui/widgets.py"]),
+            tree_rows(["src/anqa/ui/app.py", "src/anqa/ui/widgets.py"]),
             vec![
                 row(DiffTreeKind::Dir, "src/", 0, "src/"),
-                row(DiffTreeKind::Dir, "groket/", 1, "src/groket/"),
-                row(DiffTreeKind::Dir, "ui/", 2, "src/groket/ui/"),
-                row(DiffTreeKind::File, "app.py", 3, "src/groket/ui/app.py"),
+                row(DiffTreeKind::Dir, "anqa/", 1, "src/anqa/"),
+                row(DiffTreeKind::Dir, "ui/", 2, "src/anqa/ui/"),
+                row(DiffTreeKind::File, "app.py", 3, "src/anqa/ui/app.py"),
                 row(
                     DiffTreeKind::File,
                     "widgets.py",
                     3,
-                    "src/groket/ui/widgets.py"
+                    "src/anqa/ui/widgets.py"
                 ),
             ]
         );

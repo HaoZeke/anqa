@@ -1,7 +1,7 @@
-#:schema https://indynull.github.io/groket/schemas/config.schema.json
+#:schema https://indynull.github.io/anqa/schemas/config.schema.json
 
 # Prefs for the terminal app and the desktop HUD.
-# Copy to ~/.groket/config.toml. Missing keys use defaults.
+# Copy to ~/.anqa/config.toml. Missing keys use defaults.
 
 theme = "auto"
 follow_os = false

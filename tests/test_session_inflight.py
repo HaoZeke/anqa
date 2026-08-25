@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from groket.session_inflight import (
+from anqa.session_inflight import (
     KIND_REFRESH,
     clear,
     end,

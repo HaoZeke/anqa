@@ -1,5 +1,5 @@
-# Copy to ~/.groket/themes/paper.toml
-# Then set theme = "paper" in ~/.groket/config.toml
+# Copy to ~/.anqa/themes/paper.toml
+# Then set theme = "paper" in ~/.anqa/config.toml
 #
 # Keys match the shared catalog (foreground/background or text/canvas).
 

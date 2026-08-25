@@ -1,11 +1,11 @@
-"""Session-discovery contract (same results with or without groket._scan)."""
+"""Session-discovery contract (same results with or without anqa._scan)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from groket.scan import (
+from anqa.scan import (
     WALK_SKIP_DIRS,
     find_sessions,
     looks_like_session_dir,
@@ -27,7 +27,7 @@ def _make_tree(tmp_path: Path) -> Path:
     junk.mkdir(parents=True)
     (junk / "summary.json").write_text("{}", encoding="utf-8")
 
-    plugins = root / "groket-plugins" / "x"
+    plugins = root / "anqa-plugins" / "x"
     plugins.mkdir(parents=True)
     (plugins / "summary.json").write_text("{}", encoding="utf-8")
 
@@ -35,7 +35,7 @@ def _make_tree(tmp_path: Path) -> Path:
     stage.mkdir(parents=True)
     (stage / "summary.json").write_text("{}", encoding="utf-8")
 
-    seed = root / ".groket-resume-seed" / "seed"
+    seed = root / ".anqa-resume-seed" / "seed"
     seed.mkdir(parents=True)
     (seed / "summary.json").write_text("{}", encoding="utf-8")
 
@@ -107,11 +107,11 @@ def test_find_sessions_skips_workspace_and_finds_sessions(tmp_path: Path) -> Non
 
 
 def test_scan_env_is_read_each_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GROKET_SCAN", "0")
+    monkeypatch.setenv("ANQA_SCAN", "0")
     assert using_scan() is False
-    monkeypatch.setenv("GROKET_SCAN", "1")
+    monkeypatch.setenv("ANQA_SCAN", "1")
     try:
-        from groket import _scan as ext
+        from anqa import _scan as ext
     except ImportError:
         assert using_scan() is False
     else:
@@ -124,7 +124,7 @@ def test_scan_env_matches_using_scan() -> None:
         assert using_scan() is False
     else:
         try:
-            from groket import _scan as ext
+            from anqa import _scan as ext
         except ImportError:
             assert using_scan() is False
         else:
@@ -134,8 +134,8 @@ def test_scan_env_matches_using_scan() -> None:
 
 def test_scan_on_requires_compiled_module() -> None:
     if scan_forced_off():
-        pytest.skip("GROKET_SCAN disables the compiled module")
-    import groket._scan as ext
+        pytest.skip("ANQA_SCAN disables the compiled module")
+    import anqa._scan as ext
 
     assert using_scan() is True
     assert callable(ext.keep_updates_line)

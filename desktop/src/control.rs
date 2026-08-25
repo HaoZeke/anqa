@@ -1,4 +1,4 @@
-//! Minimal JSON-RPC client for the groket control Unix socket.
+//! Minimal JSON-RPC client for the anqa control Unix socket.
 
 use serde_json::{json, Value};
 use std::env;
@@ -37,7 +37,7 @@ fn ping_notify_wake() {
     }
 }
 
-/// Must match ``groket.integrations.control.PROTOCOL_VERSION``.
+/// Must match ``anqa.integrations.control.PROTOCOL_VERSION``.
 pub const PROTOCOL_VERSION: &str = "1.0.0";
 
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).
@@ -74,7 +74,7 @@ impl serde::Serialize for ControlError {
 }
 
 pub fn default_socket_path() -> PathBuf {
-    if let Ok(p) = env::var("GROKET_CONTROL_SOCKET") {
+    if let Ok(p) = env::var("ANQA_CONTROL_SOCKET") {
         let t = p.trim();
         if !t.is_empty() {
             return PathBuf::from(t);
@@ -83,11 +83,11 @@ pub fn default_socket_path() -> PathBuf {
     if let Ok(runtime) = env::var("XDG_RUNTIME_DIR") {
         let t = runtime.trim();
         if !t.is_empty() {
-            return PathBuf::from(t).join("groket").join("control.sock");
+            return PathBuf::from(t).join("anqa").join("control.sock");
         }
     }
     dirs_home()
-        .map(|h| h.join(".groket").join("run").join("control.sock"))
+        .map(|h| h.join(".anqa").join("run").join("control.sock"))
         .unwrap_or_else(|| PathBuf::from("control.sock"))
 }
 
@@ -102,7 +102,7 @@ fn dirs_home() -> Option<PathBuf> {
 /// macOS surfaces listen-queue pressure and SO_RCVTIMEO expiry as EAGAIN
 /// (os error 35, "Resource temporarily unavailable") — not always as
 /// ``WouldBlock``. Also retry refused/missing path while the control owner
-/// binds after ``groket serve`` / auto-serve spawn.
+/// binds after ``anqa serve`` / auto-serve spawn.
 #[cfg(unix)]
 fn is_transient_io_error(err: &std::io::Error) -> bool {
     use std::io::ErrorKind;
@@ -179,7 +179,7 @@ fn connect_unix(path: &Path) -> Result<std::os::unix::net::UnixStream, ControlEr
             }
             Err(e) => {
                 return Err(ControlError::Message(format!(
-                    "connect {}: {e} (run: groket serve start -d)",
+                    "connect {}: {e} (run: anqa serve start -d)",
                     path.display()
                 )));
             }
@@ -192,7 +192,7 @@ fn connect_unix(path: &Path) -> Result<std::os::unix::net::UnixStream, ControlEr
         )
     });
     Err(ControlError::Message(format!(
-        "connect {}: {e} (run: groket serve start -d)",
+        "connect {}: {e} (run: anqa serve start -d)",
         path.display()
     )))
 }
@@ -295,7 +295,7 @@ fn request(method: &str, params: Value) -> Result<Value, ControlError> {
         }
         Err(last.unwrap_or_else(|| {
             ControlError::Message(format!(
-                "control {method} timed out on {} (run: groket serve start -d)",
+                "control {method} timed out on {} (run: anqa serve start -d)",
                 path.display()
             ))
         }))
@@ -314,7 +314,7 @@ pub fn initialize() -> Result<Value, ControlError> {
         "initialize",
         json!({
             "protocolVersion": PROTOCOL_VERSION,
-            "clientInfo": { "name": "groket-hud" }
+            "clientInfo": { "name": "anqa-hud" }
         }),
     )
 }
@@ -563,7 +563,7 @@ where
                 "method": "initialize",
                 "params": {
                     "protocolVersion": PROTOCOL_VERSION,
-                    "clientInfo": { "name": "groket-hud-notify" }
+                    "clientInfo": { "name": "anqa-hud-notify" }
                 }
             });
             let line = match serde_json::to_string(&init) {

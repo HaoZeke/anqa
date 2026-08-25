@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.diff_tree import DiffTreeRow, tree_rows
+from anqa.diff_tree import DiffTreeRow, tree_rows
 
 
 def test_root_files_stay_flat() -> None:
@@ -13,11 +13,11 @@ def test_root_files_stay_flat() -> None:
 
 
 def test_unary_dirs_collapse_to_one_header() -> None:
-    rows = tree_rows(["src/groket/ui/app.py", "src/groket/ui/widgets.py"])
+    rows = tree_rows(["src/anqa/ui/app.py", "src/anqa/ui/widgets.py"])
     assert rows == [
-        DiffTreeRow("dir", "src/groket/ui/", 0, "src/groket/ui/"),
-        DiffTreeRow("file", "app.py", 1, "src/groket/ui/app.py"),
-        DiffTreeRow("file", "widgets.py", 1, "src/groket/ui/widgets.py"),
+        DiffTreeRow("dir", "src/anqa/ui/", 0, "src/anqa/ui/"),
+        DiffTreeRow("file", "app.py", 1, "src/anqa/ui/app.py"),
+        DiffTreeRow("file", "widgets.py", 1, "src/anqa/ui/widgets.py"),
     ]
 
 

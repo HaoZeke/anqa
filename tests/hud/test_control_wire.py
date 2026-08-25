@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from groket.session.access import filter_session_catalog
-from groket.session.catalog import session_catalog_row
-from groket.session.control_views import (
+from anqa.session.access import filter_session_catalog
+from anqa.session.catalog import session_catalog_row
+from anqa.session.control_views import (
     build_session_overview,
     build_session_timeline,
     build_session_turns,

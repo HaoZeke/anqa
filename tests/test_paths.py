@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.paths import (
+from anqa.paths import (
     app_config_path,
     app_home,
     cache_dir,
@@ -20,8 +20,8 @@ from groket.paths import (
 
 class TestIsRunDirName:
     def test_valid(self):
-        assert is_run_dir_name("groket-abc123-dietcoke") is True
-        assert is_run_dir_name("groket-x") is True
+        assert is_run_dir_name("anqa-abc123-dietcoke") is True
+        assert is_run_dir_name("anqa-x") is True
 
     def test_invalid(self):
         assert is_run_dir_name("") is False
@@ -31,7 +31,7 @@ class TestIsRunDirName:
 
 class TestStripRunPrefix:
     def test_strip(self):
-        assert strip_run_prefix("groket-abc123-dietcoke") == "abc123-dietcoke"
+        assert strip_run_prefix("anqa-abc123-dietcoke") == "abc123-dietcoke"
 
     def test_no_prefix(self):
         assert strip_run_prefix("something-else") == "something-else"
@@ -39,13 +39,13 @@ class TestStripRunPrefix:
 
 class TestRunName:
     def test_basic(self):
-        assert run_name("abc", "dietcoke") == "groket-abc-dietcoke"
+        assert run_name("abc", "dietcoke") == "anqa-abc-dietcoke"
 
     def test_single_part(self):
-        assert run_name("abc") == "groket-abc"
+        assert run_name("abc") == "anqa-abc"
 
     def test_empty_parts_skipped(self):
-        assert run_name("abc", "", "xyz") == "groket-abc-xyz"
+        assert run_name("abc", "", "xyz") == "anqa-abc-xyz"
 
 
 class TestDefaultTracesRoot:
@@ -73,7 +73,7 @@ class TestResolveWorkAndTraces:
         assert tr == p.resolve()
 
     def test_session_under_traces(self, tmp_path):
-        session = tmp_path / "runs" / "traces" / "groket-abc-dietcoke"
+        session = tmp_path / "runs" / "traces" / "anqa-abc-dietcoke"
         session.mkdir(parents=True)
         (session / "summary.json").write_text("{}")
         wd, tr = resolve_work_and_traces(session)
@@ -96,8 +96,8 @@ class TestResolveWorkAndTraces:
         host.mkdir(parents=True)
         work = tmp_path / "default-work"
         work.mkdir()
-        monkeypatch.setattr("groket.paths.DEFAULT_WORK_DIR", work)
-        monkeypatch.setattr("groket.paths.default_work_dir", lambda: work)
+        monkeypatch.setattr("anqa.paths.DEFAULT_WORK_DIR", work)
+        monkeypatch.setattr("anqa.paths.default_work_dir", lambda: work)
         wd, tr = resolve_work_and_traces(host)
         assert tr == host.resolve()
         assert wd == work.resolve()
@@ -106,52 +106,52 @@ class TestResolveWorkAndTraces:
 class TestAppHome:
     def test_app_home_creates_dir(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = app_home()
         assert result == fake
         assert fake.is_dir()
 
     def test_cache_dir(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = cache_dir()
         assert result == fake / "cache"
         assert result.is_dir()
 
     def test_mcp_registry_cache_dir(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = mcp_registry_cache_dir()
         assert result == fake / "cache" / "mcp-registry"
         assert result.is_dir()
 
     def test_personas_home(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = personas_home()
         assert result == fake / "personas"
         assert result.is_dir()
 
     def test_app_config_path(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = app_config_path()
         assert result == fake / "config.toml"
 
     def test_user_keys_path(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         assert user_keys_path() == fake / "keys.toml"
 
     def test_user_themes_dir(self, tmp_path, monkeypatch):
         fake = tmp_path / "app-home"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         assert user_themes_dir() == fake / "themes"
 
 
 from pathlib import Path
 
-from groket import paths
+from anqa import paths
 
 
 def test_app_home_and_dirs():
@@ -182,7 +182,7 @@ import pytest
 
 
 def test_paths_more(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from groket import paths
+    from anqa import paths
 
     monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", tmp_path / "w")
     wd = paths.default_work_dir()
@@ -214,23 +214,7 @@ def test_paths_more(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                     pass
 
 
-def test_extensions_scaffold_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from groket import paths
-    from groket.extensions import scaffold
-
-    home = tmp_path / ".groket"
-    (home / "tasks").mkdir(parents=True)
-    monkeypatch.setattr(paths, "APP_HOME", home)
-    monkeypatch.setattr(paths, "user_tasks_dir", lambda: home / "tasks")
-    monkeypatch.setattr(paths, "app_config_path", lambda: home / "config.toml")
-    monkeypatch.setattr(scaffold, "user_tasks_dir", lambda: home / "tasks")
-
-    scaffold.write_tasks_file(home / "tasks" / "t2.yaml", force=True)
-    with pytest.raises(FileExistsError):
-        scaffold.write_tasks_file(home / "tasks" / "t2.yaml", force=False)
-
-
-from groket.paths import (
+from anqa.paths import (
     default_work_dir,
     ensure_user_extension_dirs,
     traces_root_for_reload,
@@ -241,14 +225,14 @@ from groket.paths import (
 class TestUserExtensionDirs:
     def test_user_tasks_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         fake = tmp_path / "app"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         d = user_tasks_dir()
         assert d == fake / "tasks"
         assert d.is_dir()
 
     def test_ensure_user_extension_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         fake = tmp_path / "app"
-        monkeypatch.setattr("groket.paths.APP_HOME", fake)
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = ensure_user_extension_dirs()
         assert "tasks" in result
         assert "export_profiles" in result
@@ -258,7 +242,7 @@ class TestUserExtensionDirs:
 
 class TestDefaultWorkDir:
     def test_default_is_under_app_home(self, monkeypatch: pytest.MonkeyPatch):
-        from groket import paths
+        from anqa import paths
 
         monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", paths.APP_HOME / "work")
         wd = default_work_dir()
@@ -266,7 +250,7 @@ class TestDefaultWorkDir:
         assert wd.is_absolute()
 
     def test_patched_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        from groket import paths
+        from anqa import paths
 
         monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", tmp_path / "custom")
         assert default_work_dir() == tmp_path / "custom"

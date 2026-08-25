@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from groket.session.export_spec import ExportSpec, Packaging
-from groket.ui.export_profile_modal import ExportProfileModal, _profile_label
+from anqa.session.export_spec import ExportSpec, Packaging
+from anqa.ui.export_profile_modal import ExportProfileModal, _profile_label
 
 
 def test_profile_label_includes_id_and_renderer() -> None:

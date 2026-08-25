@@ -1,6 +1,6 @@
 """Synthetic fat session trees for high-load catalog / inspect checks.
 
-Default product tree lives under ``/tmp/groket-highload`` (objective). In-repo
+Default product tree lives under ``/tmp/anqa-highload`` (objective). In-repo
 tests can call :func:`write_fat_session` on a tiny tmp_path set.
 """
 
@@ -10,7 +10,7 @@ import json
 import random
 from pathlib import Path
 
-HIGHLOAD_ROOT = Path("/tmp/groket-highload")
+HIGHLOAD_ROOT = Path("/tmp/anqa-highload")
 DEFAULT_COUNT = 1000
 TURNS_MIN = 50
 TURNS_MAX = 100

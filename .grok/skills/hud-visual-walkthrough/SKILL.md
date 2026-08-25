@@ -1,7 +1,7 @@
 ---
 name: hud-visual-walkthrough
 description: >
-  Launch groket-hud, open a specific session, click through Overview /
+  Launch anqa-hud, open a specific session, click through Overview /
   Turns / Events / Findings / Notes, capture timed screenshots, measure
   UI and control timings, then visually review each grab for polish,
   layout, and broken state using multimodal image inspection. Use when
@@ -20,9 +20,9 @@ RPC samples. Product eyes on real pixels — not a unit suite.
 
 - Host X11 `DISPLAY` (Xephyr nests on it).
 - **`Xephyr`**, **`metacity`**, **`wmctrl`**, **`import`** (ImageMagick).
-- In-tree `groket-hud` binary: prefers **`target/release/groket-hud`**, then
-  debug, then `groket hud` (document release for snappier walks).
-- Control: `groket serve -d` (or the walkthrough starts it).
+- In-tree `anqa-hud` binary: prefers **`target/release/anqa-hud`**, then
+  debug, then `anqa hud` (document release for snappier walks).
+- Control: `anqa serve -d` (or the walkthrough starts it).
 - Auto keys: **`xdotool`** (or `--manual-keys`).
 
 ## Isolation (default)
@@ -31,7 +31,7 @@ Matches icedtea `gallery-gif.sh` ideas:
 
 1. **Xephyr** nested display  
 2. **metacity** WM inside it  
-3. **`GROKET_HUD_WINDOW=1`** — normal managed window (not overlay)  
+3. **`ANQA_HUD_WINDOW=1`** — normal managed window (not overlay)  
 4. **wmctrl place** + **`import -window root -crop`** of the client  
 
 Does **not** `--restart` the host HUD. Overlay mode stays off unless
@@ -51,20 +51,20 @@ Does **not** `--restart` the host HUD. Overlay mode stays off unless
 | Out dir | Default `tmp/hud-walk/<timestamp>/` under the repo |
 | `--manual-keys` | Do not inject keys; wait for Enter between steps |
 | `--backend` | `xephyr` (default), `host`, or `xvfb` |
-| `--overlay` | Force overlay mode (skip `GROKET_HUD_WINDOW`) |
+| `--overlay` | Force overlay mode (skip `ANQA_HUD_WINDOW`) |
 | `--display-num N` | Nested display number |
 | `--settle-ms N` | Sleep after action before settled screenshot (default 450) |
-| `GROKET_CONTROL_SOCKET` | Override control socket |
+| `ANQA_CONTROL_SOCKET` | Override control socket |
 
 ## Agent procedure
 
 ### 1. Run the harness
 
-From the **groket** repo root:
+From the **anqa** repo root:
 
 ```bash
 # Prefer a release HUD for less UI thrash under nested X:
-#   cargo build --release -p groket-hud
+#   cargo build --release -p anqa-hud
 
 python3 .grok/skills/hud-visual-walkthrough/scripts/hud_walkthrough.py \
   --session '<session-id-or-title-substring>' \

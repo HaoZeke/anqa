@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-import groket
+import anqa
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,4 +28,4 @@ def test_product_versions_match() -> None:
     python = _manifest_version(ROOT / "pyproject.toml", "project", "version")
     hud = _manifest_version(ROOT / "desktop" / "Cargo.toml", "package", "version")
     scan = _manifest_version(ROOT / "scan" / "Cargo.toml", "package", "version")
-    assert python == hud == scan == groket.__version__
+    assert python == hud == scan == anqa.__version__

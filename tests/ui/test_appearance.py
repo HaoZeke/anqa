@@ -6,7 +6,7 @@ import subprocess
 from typing import Any
 
 import pytest
-from groket.ui.appearance import _cmd, _windows_light, _winreg, appearance
+from anqa.ui.appearance import _cmd, _windows_light, _winreg, appearance
 
 
 class _Proc:
@@ -16,10 +16,10 @@ class _Proc:
 
 
 def test_colorfgbg_terminal_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
-    from groket.ui.appearance import tui_appearance
+    from anqa.ui.appearance import tui_appearance
 
-    monkeypatch.setattr("groket.ui.appearance.sys.platform", "linux")
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "(<<uint32 2>>,)")
+    monkeypatch.setattr("anqa.ui.appearance.sys.platform", "linux")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "(<<uint32 2>>,)")
     monkeypatch.setenv("COLORFGBG", "15;0")
     assert tui_appearance() == "dark"
     monkeypatch.setenv("COLORFGBG", "0;15")
@@ -29,31 +29,31 @@ def test_colorfgbg_terminal_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_appearance_by_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.ui.appearance.sys.platform", "darwin")
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "Dark\n")
+    monkeypatch.setattr("anqa.ui.appearance.sys.platform", "darwin")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "Dark\n")
     assert appearance() == "dark"
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "")
     assert appearance() == "light"
-    monkeypatch.setattr("groket.ui.appearance.sys.platform", "win32")
-    monkeypatch.setattr("groket.ui.appearance._windows_light", lambda: True)
+    monkeypatch.setattr("anqa.ui.appearance.sys.platform", "win32")
+    monkeypatch.setattr("anqa.ui.appearance._windows_light", lambda: True)
     assert appearance() == "light"
-    monkeypatch.setattr("groket.ui.appearance._windows_light", lambda: False)
+    monkeypatch.setattr("anqa.ui.appearance._windows_light", lambda: False)
     assert appearance() == "dark"
-    monkeypatch.setattr("groket.ui.appearance.sys.platform", "linux")
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "(<<uint32 2>>,)")
+    monkeypatch.setattr("anqa.ui.appearance.sys.platform", "linux")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "(<<uint32 2>>,)")
     assert appearance() == "light"
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "(<<uint32 1>>,)")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "(<<uint32 1>>,)")
     assert appearance() == "dark"
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "(<<uint32 0>>,)")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "(<<uint32 0>>,)")
     assert appearance() == "light"
-    monkeypatch.setattr("groket.ui.appearance._cmd", lambda args: "")
+    monkeypatch.setattr("anqa.ui.appearance._cmd", lambda args: "")
     assert appearance() == "light"
 
 
 def test_cmd_stdout_and_failures(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.ui.appearance.subprocess.run", lambda *a, **k: _Proc(0, "ok"))
+    monkeypatch.setattr("anqa.ui.appearance.subprocess.run", lambda *a, **k: _Proc(0, "ok"))
     assert _cmd(["true"]) == "ok"
-    monkeypatch.setattr("groket.ui.appearance.subprocess.run", lambda *a, **k: _Proc(1, "no"))
+    monkeypatch.setattr("anqa.ui.appearance.subprocess.run", lambda *a, **k: _Proc(1, "no"))
     assert _cmd(["false"]) == ""
 
     def _os(*a: object, **k: object) -> Any:
@@ -62,14 +62,14 @@ def test_cmd_stdout_and_failures(monkeypatch: pytest.MonkeyPatch) -> None:
     def _to(*a: object, **k: object) -> Any:
         raise subprocess.TimeoutExpired(cmd="x", timeout=1)
 
-    monkeypatch.setattr("groket.ui.appearance.subprocess.run", _os)
+    monkeypatch.setattr("anqa.ui.appearance.subprocess.run", _os)
     assert _cmd(["x"]) == ""
-    monkeypatch.setattr("groket.ui.appearance.subprocess.run", _to)
+    monkeypatch.setattr("anqa.ui.appearance.subprocess.run", _to)
     assert _cmd(["x"]) == ""
 
 
 def test_windows_light(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.ui.appearance._winreg", lambda: None)
+    monkeypatch.setattr("anqa.ui.appearance._winreg", lambda: None)
     assert _windows_light() is False
 
     class _Missing:
@@ -81,7 +81,7 @@ def test_windows_light(monkeypatch: pytest.MonkeyPatch) -> None:
 
         QueryValueEx = OpenKey
 
-    monkeypatch.setattr("groket.ui.appearance._winreg", lambda: _Missing)
+    monkeypatch.setattr("anqa.ui.appearance._winreg", lambda: _Missing)
     assert _windows_light() is False
 
     class _Light:
@@ -95,7 +95,7 @@ def test_windows_light(monkeypatch: pytest.MonkeyPatch) -> None:
         def QueryValueEx(*a: object, **k: object) -> tuple[int, int]:
             return (1, 4)
 
-    monkeypatch.setattr("groket.ui.appearance._winreg", lambda: _Light)
+    monkeypatch.setattr("anqa.ui.appearance._winreg", lambda: _Light)
     assert _windows_light() is True
 
     class _Dark:
@@ -109,12 +109,12 @@ def test_windows_light(monkeypatch: pytest.MonkeyPatch) -> None:
         def QueryValueEx(*a: object, **k: object) -> tuple[int, int]:
             return (0, 4)
 
-    monkeypatch.setattr("groket.ui.appearance._winreg", lambda: _Dark)
+    monkeypatch.setattr("anqa.ui.appearance._winreg", lambda: _Dark)
     assert _windows_light() is False
 
 
 def test_winreg_loads(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("groket.ui.appearance.importlib.import_module", lambda name: object())
+    monkeypatch.setattr("anqa.ui.appearance.importlib.import_module", lambda name: object())
     assert _winreg() is not None
 
 
@@ -122,5 +122,5 @@ def test_winreg_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def _imp(name: str) -> Any:
         raise ImportError("no winreg")
 
-    monkeypatch.setattr("groket.ui.appearance.importlib.import_module", _imp)
+    monkeypatch.setattr("anqa.ui.appearance.importlib.import_module", _imp)
     assert _winreg() is None

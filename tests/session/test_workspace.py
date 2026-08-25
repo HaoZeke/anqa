@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from groket.session.workspace import (
+from anqa.session.workspace import (
     checkout_path,
     cow_copy_tree,
     full_workspace_copy_allowed,
@@ -33,9 +33,9 @@ def test_cow_copy_tree_preserves_content(tmp_path: Path) -> None:
 
 def test_prepare_empty_checkout(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
-    path = prepare_host_checkout(runs, "groket-empty")
+    path = prepare_host_checkout(runs, "anqa-empty")
     assert path.is_dir()
-    assert path == checkout_path(runs, "groket-empty").resolve()
+    assert path == checkout_path(runs, "anqa-empty").resolve()
     assert list(path.iterdir()) == []
 
 
@@ -43,13 +43,13 @@ def test_prepare_checkout_from_parent_with_full_copy_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without reflink, parent dirt is preserved only when full-copy is allowed."""
-    monkeypatch.setenv("GROKET_ALLOW_FULL_WORKSPACE_COPY", "1")
+    monkeypatch.setenv("ANQA_ALLOW_FULL_WORKSPACE_COPY", "1")
     runs = tmp_path / "runs"
-    parent = prepare_host_checkout(runs, "groket-parent")
+    parent = prepare_host_checkout(runs, "anqa-parent")
     (parent / "note.md").write_text("dirt\n", encoding="utf-8")
     child = prepare_host_checkout(
         runs,
-        "groket-child",
+        "anqa-child",
         parent_checkout=parent,
     )
     assert (child / "note.md").read_text(encoding="utf-8") == "dirt\n"
@@ -61,24 +61,24 @@ def test_prepare_checkout_from_parent_with_full_copy_env(
 def test_prepare_checkout_refuses_silent_full_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("GROKET_ALLOW_FULL_WORKSPACE_COPY", raising=False)
+    monkeypatch.delenv("ANQA_ALLOW_FULL_WORKSPACE_COPY", raising=False)
     monkeypatch.setattr(
-        "groket.session.workspace.reflink_supported",
+        "anqa.session.workspace.reflink_supported",
         lambda _p: False,
     )
     runs = tmp_path / "runs"
-    parent = prepare_host_checkout(runs, "groket-parent")
+    parent = prepare_host_checkout(runs, "anqa-parent")
     (parent / "note.md").write_text("dirt\n", encoding="utf-8")
-    child = prepare_host_checkout(runs, "groket-child", parent_checkout=parent)
+    child = prepare_host_checkout(runs, "anqa-child", parent_checkout=parent)
     # Dirt not preserved without reflink or ALLOW env.
     assert not (child / "note.md").exists()
 
 
 def test_parent_checkout_for_session(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
-    parent = prepare_host_checkout(runs, "groket-abc")
+    parent = prepare_host_checkout(runs, "anqa-abc")
     (parent / "x").write_text("1\n", encoding="utf-8")
-    sess = runs / "traces" / "groket-abc" / "%2Fworkspace" / "sess-1"
+    sess = runs / "traces" / "anqa-abc" / "%2Fworkspace" / "sess-1"
     sess.mkdir(parents=True)
     found = parent_checkout_for_session(runs, sess)
     assert found == parent
@@ -106,7 +106,7 @@ def test_prepare_checkout_clones_repo(tmp_path: Path) -> None:
     )
 
     runs = tmp_path / "runs"
-    dest = prepare_host_checkout(runs, "groket-clone", repo_url=str(remote), repo_branch="master")
+    dest = prepare_host_checkout(runs, "anqa-clone", repo_url=str(remote), repo_branch="master")
     assert (dest / "README").read_text(encoding="utf-8") == "hi\n"
     assert (dest / ".git").is_dir()
 
@@ -125,15 +125,15 @@ def shutil_which_git() -> bool:
 def test_prepare_replaces_existing_checkout(tmp_path: Path) -> None:
     """Re-launch replaces prior checkout (including dirt left by prior runs)."""
     runs = tmp_path / "runs"
-    first = prepare_host_checkout(runs, "groket-reuse")
+    first = prepare_host_checkout(runs, "anqa-reuse")
     (first / "stale.txt").write_text("old\n", encoding="utf-8")
-    second = prepare_host_checkout(runs, "groket-reuse", repo_url="")
+    second = prepare_host_checkout(runs, "anqa-reuse", repo_url="")
     assert second == first
     assert not (second / "stale.txt").exists()
 
 
 def test_resolve_repo_path_requires_directory(tmp_path: Path) -> None:
-    from groket.session.workspace import resolve_repo_path
+    from anqa.session.workspace import resolve_repo_path
 
     d = tmp_path / "proj"
     d.mkdir()
@@ -149,15 +149,15 @@ def test_resolve_repo_path_requires_directory(tmp_path: Path) -> None:
 
 
 def test_is_managed_checkout(tmp_path: Path) -> None:
-    from groket.session.workspace import checkout_path, is_managed_checkout, prepare_host_checkout
+    from anqa.session.workspace import checkout_path, is_managed_checkout, prepare_host_checkout
 
     runs = tmp_path / "runs"
-    managed = prepare_host_checkout(runs, "groket-m")
+    managed = prepare_host_checkout(runs, "anqa-m")
     assert is_managed_checkout(runs, managed) is True
     external = tmp_path / "elsewhere"
     external.mkdir()
     assert is_managed_checkout(runs, external) is False
-    assert checkout_path(runs, "groket-m") == managed or True
+    assert checkout_path(runs, "anqa-m") == managed or True
 
 
 def test_prepare_uses_rmtree_robust_on_permission_error(
@@ -165,7 +165,7 @@ def test_prepare_uses_rmtree_robust_on_permission_error(
 ) -> None:
     """Root-owned leftovers must go through rmtree_robust, not bare shutil.rmtree."""
     runs = tmp_path / "runs"
-    dest = checkout_path(runs, "groket-rooty")
+    dest = checkout_path(runs, "anqa-rooty")
     dest.mkdir(parents=True)
     (dest / "x").write_text("y\n", encoding="utf-8")
     calls: list[Path] = []
@@ -176,7 +176,7 @@ def test_prepare_uses_rmtree_robust_on_permission_error(
 
         shutil.rmtree(path)
 
-    monkeypatch.setattr("groket.session.delete.rmtree_robust", fake_robust)
-    out = prepare_host_checkout(runs, "groket-rooty")
+    monkeypatch.setattr("anqa.session.delete.rmtree_robust", fake_robust)
+    out = prepare_host_checkout(runs, "anqa-rooty")
     assert calls and calls[0] == dest
     assert out.is_dir()

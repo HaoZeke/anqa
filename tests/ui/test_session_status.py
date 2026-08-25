@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from groket.ui.session_status import localize_session_pending_label
+from anqa.ui.session_status import localize_session_pending_label
 
 
 def test_localize_ending_keys() -> None:

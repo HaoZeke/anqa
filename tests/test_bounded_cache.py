@@ -5,34 +5,34 @@ from __future__ import annotations
 import threading
 
 import pytest
-from groket import parser as parser_mod
-from groket.bounded_cache import MIN_MAXSIZE, BoundedCache, resolve_maxsize
-from groket.constants import (
+from anqa import parser as parser_mod
+from anqa.bounded_cache import MIN_MAXSIZE, BoundedCache, resolve_maxsize
+from anqa.constants import (
     SYSTEM_PROMPT_CACHE_MAXSIZE,
     TIMELINE_CACHE_MAX_ENV,
     TIMELINE_CACHE_MAXSIZE,
 )
-from groket.session.control_views import SessionOverview
-from groket.session.jobs import SessionJobs
+from anqa.session.control_views import SessionOverview
+from anqa.session.jobs import SessionJobs
 
 
 class TestResolveMaxsize:
     def test_default_when_env_unset(self, monkeypatch):
-        monkeypatch.delenv("GROKET_TEST_CAP", raising=False)
-        assert resolve_maxsize(64, "GROKET_TEST_CAP") == 64
+        monkeypatch.delenv("ANQA_TEST_CAP", raising=False)
+        assert resolve_maxsize(64, "ANQA_TEST_CAP") == 64
 
     def test_env_overrides(self, monkeypatch):
-        monkeypatch.setenv("GROKET_TEST_CAP", "7")
-        assert resolve_maxsize(64, "GROKET_TEST_CAP") == 7
+        monkeypatch.setenv("ANQA_TEST_CAP", "7")
+        assert resolve_maxsize(64, "ANQA_TEST_CAP") == 7
 
     @pytest.mark.parametrize("raw", ["", "   ", "nonsense", "0", "-5"])
     def test_unusable_env_falls_back(self, monkeypatch, raw):
-        monkeypatch.setenv("GROKET_TEST_CAP", raw)
-        assert resolve_maxsize(64, "GROKET_TEST_CAP") == 64
+        monkeypatch.setenv("ANQA_TEST_CAP", raw)
+        assert resolve_maxsize(64, "ANQA_TEST_CAP") == 64
 
     def test_floor_applies_to_default_and_override(self, monkeypatch):
-        monkeypatch.setenv("GROKET_TEST_CAP", "1")
-        assert resolve_maxsize(64, "GROKET_TEST_CAP") == MIN_MAXSIZE
+        monkeypatch.setenv("ANQA_TEST_CAP", "1")
+        assert resolve_maxsize(64, "ANQA_TEST_CAP") == MIN_MAXSIZE
         assert resolve_maxsize(1) == MIN_MAXSIZE
 
 

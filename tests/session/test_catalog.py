@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.session.catalog import (
+from anqa.session.catalog import (
     list_session_catalog,
     resolve_session_reference,
     session_catalog_row,
@@ -91,12 +91,12 @@ def test_list_session_catalog_includes_host_by_default(
     (h_sess / "updates.jsonl").write_text("", encoding="utf-8")
 
     monkeypatch.setattr(
-        "groket.session.sources.host_grok_sessions_root",
+        "anqa.session.sources.host_grok_sessions_root",
         lambda: host,
     )
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
-    monkeypatch.setattr("groket.session.mtime_export.cache_dir", lambda: cache)
+    monkeypatch.setattr("anqa.session.mtime_export.cache_dir", lambda: cache)
 
     # include_host=None includes host
     rows = list_session_catalog(work, include_host=None)
@@ -120,7 +120,7 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     through :func:`resolve_session_reference`. Loading list-meta for every
     sibling on that path made TUI attach open ~10× slower than a local parse.
     """
-    from groket.session import catalog as catalog_mod
+    from anqa.session import catalog as catalog_mod
 
     work = tmp_path / "work"
     (work / "runs" / "traces").mkdir(parents=True)
@@ -138,12 +138,12 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
         (bucket / "events.jsonl").write_text("{}\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "groket.session.sources.host_grok_sessions_root",
+        "anqa.session.sources.host_grok_sessions_root",
         lambda: host,
     )
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
-    monkeypatch.setattr("groket.session.mtime_export.cache_dir", lambda: cache)
+    monkeypatch.setattr("anqa.session.mtime_export.cache_dir", lambda: cache)
 
     calls: list[str] = []
     real_row = catalog_mod.session_catalog_row
@@ -162,7 +162,7 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
 
 def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:
     """Serve must resolve session ids from the warm catalog, not a second walk."""
-    from groket.session.catalog import SessionCatalogCache
+    from anqa.session.catalog import SessionCatalogCache
 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
@@ -179,9 +179,9 @@ def test_catalog_scan_roots_includes_every_grok_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``[catalog.roots] grok`` may list several directory trees."""
-    from groket.config import invalidate_config_cache, parse_app_config
-    from groket.session.catalog import catalog_scan_roots
-    from groket.session.sources import ORIGIN_HOST
+    from anqa.config import invalidate_config_cache, parse_app_config
+    from anqa.session.catalog import catalog_scan_roots
+    from anqa.session.sources import ORIGIN_HOST
 
     work = tmp_path / "work"
     (work / "runs" / "traces").mkdir(parents=True)
@@ -190,7 +190,7 @@ def test_catalog_scan_roots_includes_every_grok_root(
     first.mkdir()
     second.mkdir()
     cfg = parse_app_config({"catalog": {"roots": {"grok": [str(first), str(second)]}}})
-    monkeypatch.setattr("groket.config.load_app_config", lambda: cfg)
+    monkeypatch.setattr("anqa.config.load_app_config", lambda: cfg)
     invalidate_config_cache()
     roots = catalog_scan_roots(work)
     host_paths = [r.path.resolve() for r in roots if r.origin == ORIGIN_HOST]
@@ -200,8 +200,8 @@ def test_catalog_scan_roots_includes_every_grok_root(
 
 def test_adapter_store_watch_paths_skip_grok_walk(tmp_path: Path, monkeypatch) -> None:
     """Sqlite / extra dirs are watch membership targets, not find_sessions trees."""
-    from groket.harness import registry
-    from groket.harness.registry import adapter_store_watch_paths
+    from anqa.harness import registry
+    from anqa.harness.registry import adapter_store_watch_paths
 
     grok_root = tmp_path / "grok-sessions"
     extra_file = tmp_path / "other" / "store.db"

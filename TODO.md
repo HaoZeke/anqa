@@ -27,7 +27,7 @@ Documented limits (ruff pylint family): args 5, returns 5, branches 12,
 statements 50, public methods 20 — see `AGENTS.md` §4.6.
 
 ```bash
-just lint-complexity   # report only the size-limit rules on groket/
+just lint-complexity   # report only the size-limit rules on anqa/
 ```
 
 When you **touch** a function or class that already exceeds a limit: split or

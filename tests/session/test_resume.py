@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from groket.session.resume import (
+from anqa.session.resume import (
     RESUME_SEED_DIRNAME,
     can_resume_session,
     fork_parent_session_dir,
@@ -20,7 +20,7 @@ from groket.session.resume import (
 
 def _fake_session(root: Path, *, sid: str = "sess-abc") -> Path:
     token = "%2Fworkspace"
-    session = root / "traces" / "groket-old" / token / sid
+    session = root / "traces" / "anqa-old" / token / sid
     session.mkdir(parents=True)
     (session / "chat_history.jsonl").write_text(
         '{"role":"user","content":"hi"}\n', encoding="utf-8"
@@ -41,19 +41,19 @@ def test_resume_session_id_and_cwd_token(tmp_path: Path) -> None:
 def test_seed_layout_is_staging_plus_live_symlink(tmp_path: Path) -> None:
     source = _fake_session(tmp_path)
     # Parent container noise must not ride into the fork volume.
-    (source / "groket-share.json").write_text(
+    (source / "anqa-share.json").write_text(
         json.dumps({"share_url": "https://share.example/parent-only", "error": "denied"}),
         encoding="utf-8",
     )
     (source / "session_search.sqlite").write_bytes(b"not-a-db")
-    dest_vol = tmp_path / "traces" / "groket-new"
+    dest_vol = tmp_path / "traces" / "anqa-new"
     dest_vol.mkdir(parents=True)
     sid = seed_resume_into_traces_vol(dest_vol, source)
     assert sid == "sess-abc"
     seed = dest_vol / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
     live = dest_vol / "%2Fworkspace" / "sess-abc"
     assert (seed / "chat_history.jsonl").is_file()
-    assert not (seed / "groket-share.json").exists()
+    assert not (seed / "anqa-share.json").exists()
     assert not (seed / "session_search.sqlite").exists()
     assert live.is_symlink()
     assert live.resolve() == seed.resolve()
@@ -64,10 +64,10 @@ def test_seed_layout_is_staging_plus_live_symlink(tmp_path: Path) -> None:
 
 def test_find_sessions_skips_resume_seed_and_live_link(tmp_path: Path) -> None:
     """Substrate and its live symlink are not operator eval rows."""
-    from groket.parser import find_sessions
+    from anqa.parser import find_sessions
 
     source = _fake_session(tmp_path)
-    dest_vol = tmp_path / "traces" / "groket-new"
+    dest_vol = tmp_path / "traces" / "anqa-new"
     dest_vol.mkdir(parents=True)
     seed_resume_into_traces_vol(dest_vol, source)
     child = dest_vol / "%2Fworkspace" / "forked-child-id"
@@ -94,7 +94,7 @@ def test_seed_resume_missing_source(tmp_path: Path) -> None:
 def test_seed_resume_overwrites_existing_and_strips_locks(tmp_path: Path) -> None:
     source = _fake_session(tmp_path)
     (source / "summary.json.lock").write_text("x", encoding="utf-8")
-    dest_vol = tmp_path / "traces" / "groket-new"
+    dest_vol = tmp_path / "traces" / "anqa-new"
     dest_vol.mkdir(parents=True)
     seed_resume_into_traces_vol(dest_vol, source)
     # Re-seed replaces substrate
@@ -176,11 +176,11 @@ def _write_completed_turn(
 
 
 def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
-    from groket.session.launch_meta import build_launch_meta, write_launch_meta
+    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
 
     source = _fake_session(tmp_path, sid="parent-1")
     (source / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    vol = tmp_path / "traces" / "groket-fork"
+    vol = tmp_path / "traces" / "anqa-fork"
     vol.mkdir(parents=True)
     seed_resume_into_traces_vol(vol, source)
     write_launch_meta(
@@ -205,9 +205,9 @@ def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
 
 def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
     """Fork child with only turn_number=1 still shows parent turn 0 in the timeline."""
-    from groket.parser import parse_timeline
-    from groket.session.launch_meta import build_launch_meta, write_launch_meta
-    from groket.session.turns import segment_timeline_turns
+    from anqa.parser import parse_timeline
+    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
+    from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-turns")
     _write_completed_turn(
@@ -219,7 +219,7 @@ def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
         t0=1_700_000_000,
     )
 
-    vol = tmp_path / "traces" / "groket-fork-turns"
+    vol = tmp_path / "traces" / "anqa-fork-turns"
     vol.mkdir(parents=True)
     seed_resume_into_traces_vol(vol, source)
     write_launch_meta(
@@ -254,9 +254,9 @@ def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
 
 def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> None:
     """Child updates replaying parent tools must not appear again under turn 1."""
-    from groket.parser import parse_timeline
-    from groket.session.launch_meta import build_launch_meta, write_launch_meta
-    from groket.session.turns import segment_timeline_turns
+    from anqa.parser import parse_timeline
+    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
+    from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-replay")
     _write_completed_turn(
@@ -326,7 +326,7 @@ def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> N
         encoding="utf-8",
     )
 
-    vol = tmp_path / "traces" / "groket-fork-replay"
+    vol = tmp_path / "traces" / "anqa-fork-replay"
     vol.mkdir(parents=True)
     seed_resume_into_traces_vol(vol, source)
     write_launch_meta(
@@ -409,9 +409,9 @@ def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> N
 
 def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> None:
     """Child with empty events and re-stamped updates does not collapse parent turns."""
-    from groket.parser import parse_timeline
-    from groket.session.launch_meta import build_launch_meta, write_launch_meta
-    from groket.session.turns import segment_timeline_turns
+    from anqa.parser import parse_timeline
+    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
+    from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-multi")
     _write_completed_turn(
@@ -431,7 +431,7 @@ def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> 
         t0=1_700_000_100,
     )
 
-    vol = tmp_path / "traces" / "groket-fork-empty-ev"
+    vol = tmp_path / "traces" / "anqa-fork-empty-ev"
     vol.mkdir(parents=True)
     seed_resume_into_traces_vol(vol, source)
     write_launch_meta(
@@ -497,7 +497,7 @@ def test_seed_lock_unlink_and_hist_copy_oserror(
 def test_seed_empty_session_id_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = _fake_session(tmp_path)
     monkeypatch.setattr(
-        "groket.session.resume.resume_session_id",
+        "anqa.session.resume.resume_session_id",
         lambda _p: "",
     )
     with pytest.raises(ValueError, match="empty session id"):

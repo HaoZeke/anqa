@@ -9,7 +9,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-from groket.integrations.control import PROTOCOL_VERSION
+from anqa.integrations.control import PROTOCOL_VERSION
 
 
 def _catalog() -> list[dict]:
@@ -40,16 +40,16 @@ def _catalog() -> list[dict]:
 def test_emacs_and_vim_list_helpers_keep_query_limit() -> None:
     """Editors still call session/list with query/limit only (first page)."""
     root = Path(__file__).resolve().parents[2]
-    el = (root / "groket/integrations/emacs/groket.el").read_text(encoding="utf-8")
-    assert "(defun groket--session-list (&optional query limit)" in el
+    el = (root / "anqa/integrations/emacs/anqa.el").read_text(encoding="utf-8")
+    assert "(defun anqa--session-list (&optional query limit)" in el
     assert ":limit limit" in el
-    lua = (root / "groket/integrations/vim/lua/groket/init.lua").read_text(encoding="utf-8")
+    lua = (root / "anqa/integrations/vim/lua/anqa/init.lua").read_text(encoding="utf-8")
     assert "function M.list_sessions(query, limit)" in lua
     assert "params.limit = limit" in lua
 
 
 def test_filter_session_catalog_query_and_limit() -> None:
-    from groket.session.access import filter_session_catalog
+    from anqa.session.access import filter_session_catalog
 
     full = filter_session_catalog(_catalog())
     assert full["total"] == 2
@@ -102,13 +102,13 @@ async def _request(
 
 def _short_sock(name: str) -> Path:
     """Short unique AF_UNIX path (macOS path limit + multi-user / xdist safe)."""
-    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-ctl-"))
     return root / name
 
 
 @pytest.mark.asyncio
 async def test_control_server_session_list() -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     sock = _short_sock("session-list")
     server = control.ControlServer(
         socket_path=sock,
@@ -139,11 +139,11 @@ async def test_control_server_session_list() -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> None:
-    control = import_module("groket.integrations.control")
-    session_dir = tmp_path / "groket-test-render-session"
+    control = import_module("anqa.integrations.control")
+    session_dir = tmp_path / "anqa-test-render-session"
     session_dir.mkdir()
     (session_dir / "summary.json").write_text(
-        '{"info":{"id":"groket-test-render-session"},"generated_title":"Fmt"}',
+        '{"info":{"id":"anqa-test-render-session"},"generated_title":"Fmt"}',
         encoding="utf-8",
     )
     (session_dir / "updates.jsonl").write_text(
@@ -182,7 +182,7 @@ async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> Non
         assert md["result"]["format"] == "markdown"
         assert md["result"]["contentType"] == "text/markdown"
         assert "## Prompt 2" in md["result"]["text"]
-        assert "<!-- groket:prompt-index=2" in md["result"]["text"]
+        assert "<!-- anqa:prompt-index=2" in md["result"]["text"]
 
         bad = await _request(
             reader,
@@ -201,7 +201,7 @@ async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_control_server_session_list_empty_without_lister() -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(socket_path=_short_sock("session-list-empty"))
     await server.start()
     try:
@@ -218,7 +218,7 @@ async def test_control_server_session_list_empty_without_lister() -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_session_list_rejects_bad_limit() -> None:
-    control = import_module("groket.integrations.control")
+    control = import_module("anqa.integrations.control")
     server = control.ControlServer(
         socket_path=_short_sock("session-list-limit"),
         list_sessions=_catalog,

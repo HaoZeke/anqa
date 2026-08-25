@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
-from groket.ui.data_table import cursor_row_key
-from groket.ui.screens.browser import BrowserScreen
-from groket.ui.widgets.detail_view import DetailView
-from groket.ui.widgets.timeline import TimelineTable
+from anqa.ui.data_table import cursor_row_key
+from anqa.ui.screens.browser import BrowserScreen
+from anqa.ui.widgets.detail_view import DetailView
+from anqa.ui.widgets.timeline import TimelineTable
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable
 from textual.widgets.data_table import RowKey

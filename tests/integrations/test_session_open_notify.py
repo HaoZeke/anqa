@@ -9,11 +9,11 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-from groket.integrations.control import PROTOCOL_VERSION
+from anqa.integrations.control import PROTOCOL_VERSION
 
 
 def _short_sock(name: str) -> Path:
-    root = Path(tempfile.mkdtemp(prefix="groket-ctl-"))
+    root = Path(tempfile.mkdtemp(prefix="anqa-ctl-"))
     return root / name
 
 
@@ -28,7 +28,7 @@ def _write_session(session_dir: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_session_open_notifies_without_open_callback(tmp_path: Path) -> None:
-    daemon = import_module("groket.integrations.daemon")
+    daemon = import_module("anqa.integrations.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     session = traces / "sess-open"

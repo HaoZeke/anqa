@@ -11,7 +11,7 @@ from .pilot_helpers import static_plain
 
 @pytest.mark.asyncio
 async def test_help_modal_mount():
-    from groket.ui.widgets.help_modal import HelpModal
+    from anqa.ui.widgets.help_modal import HelpModal
 
     class H(App[None]):
         async def on_mount(self) -> None:
@@ -19,7 +19,7 @@ async def test_help_modal_mount():
 
     async with H().run_test(size=(100, 40)) as pilot:
         await pilot.pause()
-        from groket.ui.widgets.help_modal import HelpModal as HM
+        from anqa.ui.widgets.help_modal import HelpModal as HM
 
         assert isinstance(pilot.app.screen, HM)
         body = "\n".join(static_plain(w) for w in pilot.app.screen.query(Static))
@@ -29,7 +29,7 @@ async def test_help_modal_mount():
 
 @pytest.mark.asyncio
 async def test_detail_view_mount():
-    from groket.ui.widgets.detail_view import DetailView
+    from anqa.ui.widgets.detail_view import DetailView
 
     class H(App[None]):
         def compose(self):

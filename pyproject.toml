@@ -1,7 +1,7 @@
 [project]
-name = "groket"
+name = "anqa"
 version = "0.1.0"
-description = "Groket — inspect coding-agent harness sessions"
+description = "Anqa — inspect coding-agent harness sessions"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
@@ -46,12 +46,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/indynull/groket"
-Source = "https://github.com/indynull/groket"
-Documentation = "https://indynull.github.io/groket/"
+Homepage = "https://github.com/indynull/anqa"
+Source = "https://github.com/indynull/anqa"
+Documentation = "https://indynull.github.io/anqa/"
 
 [project.scripts]
-groket = "groket.cli:main"
+anqa = "anqa.cli:main"
 
 [project.optional-dependencies]
 test = [
@@ -66,12 +66,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["groket*"]
+include = ["anqa*"]
 
 [tool.setuptools.package-data]
 # UI/locale stay in-package; docker/config templates are repo ``assets/`` (and
-# optional ``groket/_embedded_assets`` mirror for installed wheels).
-groket = [
+# optional ``anqa/_embedded_assets`` mirror for installed wheels).
+anqa = [
     "ui/app.tcss",
     "ui/community_themes.json",
     "locale/**/*.ftl",
@@ -83,16 +83,16 @@ groket = [
     "_embedded_assets/**/*",
 ]
 
-# ``uv tool install --editable .`` builds this binary next to the groket script.
+# ``uv tool install --editable .`` builds this binary next to the anqa script.
 [[tool.setuptools-rust.bins]]
-target = "groket-hud"
+target = "anqa-hud"
 path = "desktop/Cargo.toml"
 args = ["--locked"]
 debug = false
 
-# Session walk + updates.jsonl prefilter (``groket.scan`` / ``groket._scan``).
+# Session walk + updates.jsonl prefilter (``anqa.scan`` / ``anqa._scan``).
 [[tool.setuptools-rust.ext-modules]]
-target = "groket._scan"
+target = "anqa._scan"
 path = "scan/Cargo.toml"
 binding = "PyO3"
 args = ["--locked", "--features", "extension-module"]
@@ -111,7 +111,7 @@ skip = [
     "*-manylinux_riscv64",
     "*-musllinux_*",
 ]
-test-command = "groket --help && groket-hud --help && python -c \"from groket import _scan\""
+test-command = "anqa --help && anqa-hud --help && python -c \"from anqa import _scan\""
 
 [tool.cibuildwheel.linux]
 before-all = """
@@ -128,7 +128,7 @@ repair-wheel-command = "bash {package}/scripts/cibw-repair-linux.sh {dest_dir} {
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["groket"]
+src = ["anqa"]
 
 [tool.ruff.lint]
 select = [
@@ -148,15 +148,12 @@ ignore = [
 
 
 [tool.ruff.lint.per-file-ignores]
-"groket/cli.py" = ["T20"]
-"groket/runs/batch.py" = ["T20"]
+"anqa/cli.py" = ["T20"]
 # Container/script assets (not library modules); print + %-format intentional.
 "assets/**" = ["T20", "UP031", "E402"]
-"groket/_embedded_assets/**" = ["T20", "UP031", "E402"]
-"groket/docker/orchestrator.py" = ["E402"]
-"groket/runs/run_configs.py" = ["E402"]
+"anqa/_embedded_assets/**" = ["T20", "UP031", "E402"]
 # Textual widgets often need late imports (E402); single-letter loop vars (E741).
-"groket/ui/**" = ["E402", "E741"]
+"anqa/ui/**" = ["E402", "E741"]
 "tests/**" = ["E402", "T20"]
 "examples/**" = ["T20"]
 "scripts/**" = ["T20"]
@@ -182,13 +179,13 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = "--tb=short -rfE"
 
 [tool.coverage.run]
-source = ["groket"]
+source = ["anqa"]
 branch = false
 # Non-library asset mirrors (text templates for image build).
 # Product gate is 100% of importable library code.
 omit = [
-    "groket/_embedded_assets/*",
-    "groket/_embedded_assets/**",
+    "anqa/_embedded_assets/*",
+    "anqa/_embedded_assets/**",
 ]
 
 [tool.coverage.report]
@@ -219,13 +216,14 @@ dev = [
 ]
 brand = [
     "fonttools>=4.55",
+    "numpy>=2.0",
     "pillow>=11.0",
 ]
 
 
 [tool.mypy]
 python_version = "3.13"
-files = ["groket"]
+files = ["anqa"]
 mypy_path = "."
 warn_unused_ignores = true
 # Returning third-party Any is noisy (Pydantic/Textual). Explicit Any *in our
@@ -237,7 +235,7 @@ no_implicit_optional = true
 show_error_codes = true
 pretty = true
 # Full-tree gate. Recursive JSON unions still need narrowing at call sites;
-# prefer :class:`~groket.models.ParamBag` / :func:`~groket.models.json_as_str`.
+# prefer :class:`~anqa.models.ParamBag` / :func:`~anqa.models.json_as_str`.
 # Suppress only the structural noise from ``JsonValue`` until those are migrated.
 
 [[tool.mypy.overrides]]
@@ -253,7 +251,7 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "groket.ui.*"
+module = "anqa.ui.*"
 # Presentation layer: annotate incrementally.
 disallow_untyped_defs = false
 check_untyped_defs = false

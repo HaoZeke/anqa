@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from groket.diagnostics.self_test import CheckResult, SelfTestReport
-from groket.ui.widgets.self_test_modal import SelfTestModal
+from anqa.diagnostics.self_test import CheckResult, SelfTestReport
+from anqa.ui.widgets.self_test_modal import SelfTestModal
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 

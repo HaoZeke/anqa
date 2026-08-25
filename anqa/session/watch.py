@@ -1,0 +1,211 @@
+"""Non-recursive catalog watch: membership dirs and session dirs.
+
+Plane writes show up as children of the session directory. ``workspace/``
+is never subscribed. ``anqa serve`` and the TUI share this path set.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from ..parser import find_sessions
+from .sources import (
+    host_grok_sessions_root,
+    is_encoded_cwd_name,
+    is_host_skip_dir_name,
+    list_host_session_dirs,
+)
+from .subagents import drop_subagent_sessions
+
+PLANE_FILE_NAMES: tuple[str, ...] = (
+    "summary.json",
+    "signals.json",
+    "updates.jsonl",
+    "operator_notes.toml",
+)
+
+
+def plane_file_paths(session_dir: Path) -> list[Path]:
+    """The four session-plane files under *session_dir*."""
+    root = Path(session_dir)
+    return [root / name for name in PLANE_FILE_NAMES]
+
+
+def membership_watch_dirs(roots: list[Path]) -> list[Path]:
+    """Directories whose direct children appearing or vanishing change membership.
+
+    A file root (sqlite store) contributes only its parent directory.
+    """
+    out: list[Path] = []
+    seen: set[str] = set()
+    for raw in roots:
+        root = Path(raw).expanduser()
+        if root.is_file():
+            parent = root.parent
+            key = str(parent)
+            if parent.is_dir() and key not in seen:
+                seen.add(key)
+                out.append(parent)
+            continue
+        if not root.is_dir():
+            continue
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            out.append(root)
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_dir():
+                continue
+            if is_host_skip_dir_name(child.name):
+                continue
+            if is_encoded_cwd_name(child.name):
+                bucket = str(child)
+                if bucket not in seen:
+                    seen.add(bucket)
+                    out.append(child)
+    return out
+
+
+def _is_named_host_root(root: Path, host_root: Path) -> bool:
+    """True when *root* is the named host sessions tree (not a %2F sniff)."""
+    try:
+        return root.expanduser().resolve() == host_root.expanduser().resolve()
+    except OSError:
+        return False
+
+
+def session_dirs_under(
+    roots: list[Path],
+    *,
+    host_root: Path | None = None,
+    list_sessions: bool = True,
+) -> list[Path]:
+    """Listed session directories under catalog *roots* (no workspace descent).
+
+    The named host root uses the shallow host lister. Other *directory
+    session* roots use :func:`find_sessions`. Extra adapter stores
+    (``list_sessions=False``) contribute no session dirs — membership
+    watch only, never a recursive walk.
+    """
+    if not list_sessions:
+        return []
+    host = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
+    found: list[Path] = []
+    seen: set[str] = set()
+    for raw in roots:
+        root = Path(raw).expanduser()
+        if not root.is_dir():
+            continue
+        listed = (
+            list_host_session_dirs(root) if _is_named_host_root(root, host) else find_sessions(root)
+        )
+        listed = drop_subagent_sessions(listed)
+        for session in listed:
+            key = str(session)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(session)
+    return found
+
+
+def _no_workspace(path: Path) -> bool:
+    return all(part.casefold() != "workspace" for part in path.parts)
+
+
+def watch_target_paths(
+    roots: list[Path],
+    session_dirs: list[Path],
+    *,
+    expand_children: bool = True,
+) -> list[Path]:
+    """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
+
+    *expand_children* is the Grok directory-session path: one extra
+    level so new session dirs are subscribed. Extra adapter stores
+    (sqlite / jsonl) pass ``False`` and watch membership dirs only.
+    """
+    out: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path) -> None:
+        if not _no_workspace(path):
+            return
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(path)
+
+    for path in membership_watch_dirs(roots):
+        _add(path)
+        if not expand_children:
+            continue
+        try:
+            children = list(path.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            if child.is_dir() and not is_host_skip_dir_name(child.name):
+                _add(child)
+    for session in session_dirs:
+        _add(Path(session))
+    return out
+
+
+def catalog_subscribe_paths(roots: list[Path], session_dirs: list[Path]) -> list[Path]:
+    """Membership dirs and session dirs. Never includes ``workspace/``."""
+    return watch_target_paths(roots, session_dirs)
+
+
+# watchfiles.Change.modified — nested writes often report the session dir.
+_WATCH_MODIFIED = 2
+
+
+def plane_event_path(path: Path, *, kind: int | None = None) -> bool:
+    """True when *path* is a plane file or a membership add/delete."""
+    if not _no_workspace(path):
+        return False
+    if path.name.casefold() == "workspace":
+        return False
+    if path.name in PLANE_FILE_NAMES:
+        return True
+    if kind == _WATCH_MODIFIED:
+        # Nested plane writes often report the session directory.
+        return path.is_dir() and any((path / name).is_file() for name in PLANE_FILE_NAMES)
+    return path.is_dir() or not path.suffix
+
+
+class JournalTail:
+    """Byte offset into one ``updates.jsonl``. Second consume does not seek 0."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.inode: int | None = None
+        self.offset: int = 0
+
+    def consume(self) -> bytes:
+        """Return bytes after the last offset. Updates :attr:`offset`."""
+        try:
+            fd = os.open(self.path, os.O_RDONLY)
+        except OSError:
+            return b""
+        try:
+            st = os.fstat(fd)
+            inode = int(st.st_ino)
+            if self.inode is not None and inode != self.inode:
+                self.offset = 0
+            self.inode = inode
+            if self.offset > st.st_size:
+                self.offset = 0
+            os.lseek(fd, self.offset, os.SEEK_SET)
+            data = os.read(fd, max(0, st.st_size - self.offset))
+            self.offset = int(os.lseek(fd, 0, os.SEEK_CUR))
+            return data
+        finally:
+            os.close(fd)

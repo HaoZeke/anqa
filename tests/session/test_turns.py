@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from groket.models import TraceEvent
-from groket.session.turns import (
+from anqa.models import TraceEvent
+from anqa.session.turns import (
     TurnSegment,
     event_display_turn_map,
     format_turns_plain,
@@ -269,7 +269,7 @@ def test_preamble_events_before_first_start():
 
 def test_system_prompt_is_session_level_not_a_turn():
     """Parser-injected system event is outside turn segments (not merged, not counted)."""
-    from groket.session.turns import is_session_level_timeline_event
+    from anqa.session.turns import is_session_level_timeline_event
 
     tl = [
         _ev(0, "system", "You are Grok…"),
@@ -402,7 +402,7 @@ def test_turn_summary_rows_context_by_turn_samples():
 
 
 def test_first_last_index_empty():
-    from groket.session.turns import TurnSegment
+    from anqa.session.turns import TurnSegment
 
     seg = TurnSegment(turn_index=1, turn_number=1, events=[])
     assert seg.first_index is None
@@ -411,7 +411,7 @@ def test_first_last_index_empty():
 
 def test_turn_label_no_outcome_no_open():
     """Closed turn without outcome → plain label."""
-    from groket.session.turns import TurnSegment
+    from anqa.session.turns import TurnSegment
 
     seg = TurnSegment(turn_index=3, turn_number=3, open=False, outcome="")
     assert seg.label == "turn 3"
@@ -432,7 +432,7 @@ def test_harness_zero_based_preserved():
 
 def test_events_between_turns_attach_to_previous_segment() -> None:
     """Late assistant after turn_ended must not become a fake Turn 1 alone."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     tl = [
         TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
@@ -457,7 +457,7 @@ def test_events_between_turns_attach_to_previous_segment() -> None:
 
 def test_follow_up_user_before_next_turn_started_is_own_turn() -> None:
     """Interactive follow-up user msg before turn_started must not merge into turn 0."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     tl = [
         TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
@@ -505,7 +505,7 @@ def test_segments_preserve_non_contiguous_prompt_indexes() -> None:
 
 def test_background_task_completion_turns_keep_trace_numbers() -> None:
     """Each ``turn_started`` is its own picker row, including completion chrome."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     bg_user = (
         '<system-reminder>\nBackground task "call-05172712-9431-4be8-bdf0-6a58f7cdb30a-162" '
@@ -533,7 +533,7 @@ def test_background_task_completion_turns_keep_trace_numbers() -> None:
 
 def test_task_completed_call_user_keeps_its_start_number() -> None:
     """``task-completed-call-…`` chrome still sits on its own ``turn_started``."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     tl = [
         TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
@@ -552,7 +552,7 @@ def test_task_completed_call_user_keeps_its_start_number() -> None:
 
 def test_background_user_between_turns_attaches_to_previous() -> None:
     """Background-task user chrome between turn_ended and turn_started stays on parent."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     bg = 'Background task "x" completed.'
     tl = [
@@ -576,9 +576,9 @@ def test_system_reminder_turns_keep_trace_number() -> None:
     Rules/skills/MCP status injections arrive as user_message_chunk inside their
     own turn_started/ended pair. The Turn card summary stays operator text.
     """
-    from groket.models import TraceEvent
-    from groket.session.control_views import turn_segment_mapping
-    from groket.session.turns import is_harness_user_chrome, segment_timeline_turns
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import turn_segment_mapping
+    from anqa.session.turns import is_harness_user_chrome, segment_timeline_turns
 
     skills = (
         "<system-reminder>\nThe following skills are available for use:\n"
@@ -625,9 +625,9 @@ def test_system_reminder_turns_keep_trace_number() -> None:
 
 def test_system_reminder_before_operator_in_same_turn_skipped_for_summary() -> None:
     """When reminder and operator share a turn, summary prefers the operator."""
-    from groket.models import TraceEvent
-    from groket.session.control_views import turn_segment_mapping
-    from groket.session.turns import segment_timeline_turns
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import turn_segment_mapping
+    from anqa.session.turns import segment_timeline_turns
 
     reminder = "<system-reminder>\nMCP servers connected:\n- tasks\n</system-reminder>"
     tl = [
@@ -648,9 +648,9 @@ def test_system_reminder_before_operator_in_same_turn_skipped_for_summary() -> N
 
 def test_assistant_summary_keeps_long_markdown() -> None:
     """Turn cards must keep enough assistant markdown to render lists/fences."""
-    from groket.models import TraceEvent
-    from groket.session.control_views import turn_segment_mapping
-    from groket.session.turns import segment_timeline_turns
+    from anqa.models import TraceEvent
+    from anqa.session.control_views import turn_segment_mapping
+    from anqa.session.turns import segment_timeline_turns
 
     body = "Intro paragraph\n\n1. first item\n2. second item\n\n```rust\nfn x() {}\n```\n\n" + (
         "word " * 400
@@ -670,7 +670,7 @@ def test_assistant_summary_keeps_long_markdown() -> None:
 
 def test_open_background_tail_is_its_own_open_turn() -> None:
     """An open chrome-only ``turn_started`` stays a separate open row."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     tl = [
         TraceEvent(index=0, event_type="turn_started", content="Turn started turn_number=0"),
@@ -690,7 +690,7 @@ def test_open_background_tail_is_its_own_open_turn() -> None:
 
 def test_blank_user_event_is_not_operator() -> None:
     """Whitespace-only user rows do not count as operator prompts."""
-    from groket.session.turns import TurnSegment, _segment_has_operator_user
+    from anqa.session.turns import TurnSegment, _segment_has_operator_user
 
     seg = TurnSegment(
         turn_index=0,
@@ -702,7 +702,7 @@ def test_blank_user_event_is_not_operator() -> None:
 
 def test_real_follow_up_after_background_turn_stays_separate() -> None:
     """A real operator follow-up after a chrome turn is still its own segment."""
-    from groket.models import TraceEvent
+    from anqa.models import TraceEvent
 
     bg_user = 'Background task "call-abc" completed.'
     tl = [
@@ -903,7 +903,7 @@ def test_restamp_keeps_unique_list_id_and_trace_label() -> None:
 
 def test_display_filter_keeps_each_start_number() -> None:
     """Each picker row filters to its own ``turn_started`` number."""
-    from groket.session.turns import events_on_display_turn
+    from anqa.session.turns import events_on_display_turn
 
     tl = [
         TraceEvent(index=0, event_type="turn_started", content="turn started  turn_number=12"),
@@ -928,7 +928,7 @@ def test_display_filter_keeps_each_start_number() -> None:
 
 def test_host_only_stamps_list_position() -> None:
     """No turn_started: face ids are 0, 1 from list order."""
-    from groket.session.turns import display_turn_number
+    from anqa.session.turns import display_turn_number
 
     tl = [
         _ev(0, "user_message_chunk", "first ask"),
@@ -949,7 +949,7 @@ def test_host_only_stamps_list_position() -> None:
 
 def test_startless_follow_up_joins_next_turn_started() -> None:
     """User row + late turn_completed belong on the next turn_started."""
-    from groket.session.turns import display_turn_number, events_on_display_turn
+    from anqa.session.turns import display_turn_number, events_on_display_turn
 
     tl = [
         _ev(0, "turn_started", "turn started  turn_number=0"),
@@ -1000,7 +1000,7 @@ def test_late_host_completed_does_not_orphan_follow_up() -> None:
 
 def test_fork_parent_replay_keeps_its_own_turns() -> None:
     """Host fork: finished parent turns stay 0, 1; live start stays 13."""
-    from groket.session.turns import display_turn_number
+    from anqa.session.turns import display_turn_number
 
     tl = [
         _ev(0, "user_message_chunk", "parent ask"),
