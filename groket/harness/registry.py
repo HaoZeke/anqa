@@ -37,16 +37,27 @@ def adapter(harness_id: str) -> HarnessAdapter | None:
 
 
 def enabled_host_ids() -> frozenset[str]:
-    """Adapter ids enabled in ``[harness].host`` (defaults if no config)."""
+    """Registered adapter ids minus ``[catalog].ignore``."""
     from ..config import load_app_config
 
-    return frozenset(load_app_config().harness.host)
+    ignored = {item.casefold() for item in load_app_config().catalog.ignore}
+    return frozenset(item.id for item in adapters() if item.id not in ignored)
 
 
 def enabled_host_adapters() -> tuple[HarnessAdapter, ...]:
-    """Registered adapters allowed on the host catalog."""
+    """Registered adapters included on the host catalog."""
     wanted = enabled_host_ids()
     return tuple(item for item in adapters() if item.id in wanted)
+
+
+def adapter_host_roots(item: HarnessAdapter) -> list[Path]:
+    """Discover roots for *item*: ``[catalog.roots]`` override, else defaults."""
+    from ..config import load_app_config
+
+    override = load_app_config().catalog.roots.get(item.id)
+    if override:
+        return [Path(raw).expanduser() for raw in override]
+    return item.default_host_roots()
 
 
 def host_adapters() -> tuple[HarnessAdapter, ...]:
@@ -106,6 +117,7 @@ def ref_from_path(path: Path) -> SessionRef | None:
 
 __all__ = [
     "adapter",
+    "adapter_host_roots",
     "adapters",
     "enabled_host_adapters",
     "enabled_host_ids",

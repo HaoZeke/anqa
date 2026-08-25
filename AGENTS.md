@@ -235,12 +235,13 @@ Static Docker/YAML templates load via :mod:`groket.assets_loader`.
 | **Work dir** | ``~/.groket/work`` (CLI path overrides) | ``runs/traces/``, ``runs/run_configs/``, feedback cache, Docker build contexts, batch ``eval_results.json`` |
 
 - TUI **Eval** catalog = ``work/runs/traces`` (sessions this tool launched via
-  Docker). **Host** catalog = native stores enabled in
-  ``config.toml`` ``[harness].host`` (shipped: Grok ``~/.grok/sessions``).
-  ``H`` / ``is:host``; ``harness:<id>`` filters. Directory locators use
-  the session path; file or database locators use ``harness:<session_id>``.
-  Contract: ``docs/harness-adapters.md``. New or bumped adapters go through
-  ``.grok/skills/harness-adapter-qa`` and ``scripts/check_harness_adapters.py``.
+  Docker). **Host** catalog = every shipped native store (Grok
+  ``~/.grok/sessions``). ``H`` / ``is:host``; ``harness:<id>`` filters.
+  ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
+  Directory locators use the session path; file or database locators use
+  ``harness:<session_id>``. Contract: ``docs/harness-adapters.md``. New or
+  bumped adapters go through ``.grok/skills/harness-adapter-qa`` and
+  ``scripts/check_harness_adapters.py``.
 - CLI path chooses work root / traces root and, for a work root, where new runs
   go (:func:`groket.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
   path keeps the default work root for launches.

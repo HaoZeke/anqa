@@ -11,16 +11,24 @@ rewind, and the context meter are capabilities of that store.
 
 ## Config
 
-`~/.groket/config.toml`:
+The host catalog lists every shipped adapter. Narrow with `is:host` /
+`harness:<id>` (and the rest of the query language). Opt out of a store
+in `~/.groket/config.toml`:
 
 ```toml
-[harness]
-host = ["grok"]
+[catalog]
+ignore = ["aider"]
 ```
 
-`H` includes the host catalog. The `host` list is which adapters that
-catalog scans. Omit an id to skip that store. Eval traces under
-`work/runs/traces` are sessions this tool launched and ignore this list.
+A store that is not in its default place gets a root override:
+
+```toml
+[catalog.roots]
+grok = "~/.grok/sessions"
+```
+
+`H` includes the host catalog. Eval traces under `work/runs/traces` are
+sessions this tool launched and ignore this list.
 
 ## Shipped adapters
 

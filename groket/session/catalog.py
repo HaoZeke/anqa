@@ -111,15 +111,22 @@ def catalog_scan_roots(
     """
     want_host = effective_include_host(include_host)
     include_grok_host = want_host
+    walk_host = host_root
     if want_host:
-        from ..harness.registry import enabled_host_ids
+        from ..harness.registry import adapter, adapter_host_roots, enabled_host_ids
 
         include_grok_host = "grok" in enabled_host_ids()
+        if include_grok_host and walk_host is None:
+            grok = adapter("grok")
+            if grok is not None:
+                roots = adapter_host_roots(grok)
+                if roots:
+                    walk_host = roots[0]
     return session_scan_roots(
         work_dir,
         traces_path=traces_path,
         include_host=include_grok_host,
-        host_root=host_root,
+        host_root=walk_host,
     )
 
 
@@ -1003,21 +1010,24 @@ def _adapter_host_catalog_rows() -> list[JsonObject]:
     The stamp-gated walk covers session-directory trees in
     ``session_scan_roots``. Other stores append ``discover()`` rows.
     """
-    from ..harness.registry import enabled_host_adapters
+    from ..harness.registry import adapter, adapter_host_roots, enabled_host_adapters
     from ..harness.views import catalog_row_from_ref
-    from .sources import host_grok_sessions_root
 
     walked: set[str] = set()
-    host_tree = host_grok_sessions_root()
-    try:
-        walked.add(str(host_tree.expanduser().resolve()))
-    except OSError:
-        walked.add(str(host_tree))
+    grok = adapter("grok")
+    if grok is not None and grok.id in {item.id for item in enabled_host_adapters()}:
+        for raw in adapter_host_roots(grok):
+            root = Path(raw).expanduser()
+            try:
+                walked.add(str(root.resolve()))
+            except OSError:
+                walked.add(str(root))
 
     rows: list[JsonObject] = []
     for item in enabled_host_adapters():
+        roots = adapter_host_roots(item)
         item_roots: set[str] = set()
-        for raw in item.default_host_roots():
+        for raw in roots:
             root = Path(raw).expanduser()
             try:
                 item_roots.add(str(root.resolve()))
@@ -1025,7 +1035,7 @@ def _adapter_host_catalog_rows() -> list[JsonObject]:
                 item_roots.add(str(root))
         if item_roots and item_roots <= walked:
             continue
-        for ref in item.discover():
+        for ref in item.discover(roots):
             row = catalog_row_from_ref(ref)
             if row is not None:
                 rows.append(row)

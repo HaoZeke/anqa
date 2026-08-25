@@ -15,3 +15,9 @@ desktop_notifications = true
 
 [export]
 default_profile = ""
+
+# Host catalog lists every shipped adapter. Query to focus.
+# [catalog]
+# ignore = []
+# [catalog.roots]
+# grok = "~/.grok/sessions"

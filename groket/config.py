@@ -1,6 +1,6 @@
 """App-global ``~/.groket/config.toml``.
 
-One file, one shape. Tables are ``hud`` and ``export``.
+One file, one shape. Tables are ``hud``, ``export``, and ``catalog``.
 Top-level keys are the prefs the terminal app and the desktop HUD share.
 Saves use tomlkit so comments on untouched keys stay put.
 """
@@ -67,32 +67,65 @@ class ExportPrefs(BaseModel):
         return str(value).strip() if isinstance(value, str) else ""
 
 
-class HarnessPrefs(BaseModel):
-    """``[harness]``: which native stores the host catalog includes."""
+def _id_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        hid = str(item).strip().casefold()
+        if not hid or hid in seen:
+            continue
+        seen.add(hid)
+        out.append(hid)
+    return out
+
+
+def _root_map(value: object) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for key, raw in value.items():
+        hid = str(key).strip().casefold()
+        if not hid:
+            continue
+        if isinstance(raw, str):
+            paths = [raw]
+        elif isinstance(raw, list):
+            paths = [str(item) for item in raw]
+        else:
+            continue
+        cleaned = [item.strip() for item in paths if str(item).strip()]
+        if cleaned:
+            out[hid] = cleaned
+    return out
+
+
+class CatalogPrefs(BaseModel):
+    """``[catalog]``: host session list (every shipped adapter, minus ignore)."""
 
     model_config = ConfigDict(extra="ignore")
 
-    host: list[str] = Field(
-        default_factory=lambda: ["grok"],
-        description="Adapter ids scanned when the host catalog is on.",
+    ignore: list[str] = Field(
+        default_factory=list,
+        description="Adapter ids omitted from the host catalog.",
+    )
+    roots: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Store path overrides keyed by adapter id.",
     )
 
-    @field_validator("host", mode="before")
+    @field_validator("ignore", mode="before")
     @classmethod
-    def _host(cls, value: object) -> list[str]:
-        if isinstance(value, str):
-            value = [value]
-        if not isinstance(value, list):
-            return ["grok"]
-        out: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            hid = str(item).strip().casefold()
-            if not hid or hid in seen:
-                continue
-            seen.add(hid)
-            out.append(hid)
-        return out or ["grok"]
+    def _ignore(cls, value: object) -> list[str]:
+        return _id_list(value)
+
+    @field_validator("roots", mode="before")
+    @classmethod
+    def _roots(cls, value: object) -> dict[str, list[str]]:
+        return _root_map(value)
 
 
 class AppConfig(BaseModel):
@@ -117,7 +150,7 @@ class AppConfig(BaseModel):
     )
     hud: HudPrefs = Field(default_factory=HudPrefs)
     export: ExportPrefs = Field(default_factory=ExportPrefs)
-    harness: HarnessPrefs = Field(default_factory=HarnessPrefs)
+    catalog: CatalogPrefs = Field(default_factory=CatalogPrefs)
 
     @field_validator("theme", mode="before")
     @classmethod
@@ -191,14 +224,25 @@ def _apply_cfg(doc: tomlkit.TOMLDocument, cfg: AppConfig) -> None:
         del doc["analysis"]
     if "show_host_sessions" in doc:
         del doc["show_host_sessions"]
+    if "harness" in doc:
+        del doc["harness"]
     hud = _ensure_table(doc, "hud")
     hud["window_mode"] = cfg.hud.window_mode
     hud["global_shortcut"] = cfg.hud.global_shortcut
     hud["desktop_notifications"] = cfg.hud.desktop_notifications
     export = _ensure_table(doc, "export")
     export["default_profile"] = cfg.export.default_profile
-    harness = _ensure_table(doc, "harness")
-    harness["host"] = list(cfg.harness.host)
+    catalog = _ensure_table(doc, "catalog")
+    catalog["ignore"] = list(cfg.catalog.ignore)
+    if cfg.catalog.roots:
+        roots = _ensure_table(catalog, "roots")
+        for hid, paths in cfg.catalog.roots.items():
+            roots[hid] = paths[0] if len(paths) == 1 else list(paths)
+        for key in list(roots):
+            if key not in cfg.catalog.roots:
+                del roots[key]
+    elif "roots" in catalog:
+        del catalog["roots"]
 
 
 def parse_app_config(raw: JsonObject) -> AppConfig:
@@ -216,7 +260,7 @@ def parse_app_config(raw: JsonObject) -> AppConfig:
     payload: JsonObject = {
         "hud": hud_raw,
         "export": raw.get("export") if isinstance(raw.get("export"), dict) else {},
-        "harness": raw.get("harness") if isinstance(raw.get("harness"), dict) else {},
+        "catalog": raw.get("catalog") if isinstance(raw.get("catalog"), dict) else {},
     }
     for key in (
         "theme",
@@ -308,7 +352,8 @@ def save_app_config(cfg: AppConfig, path: Path | None = None) -> None:
 def update_app_config(path: Path | None = None, **changes: object) -> AppConfig:
     """Load, apply top-level field *changes*, save, return the new config.
 
-    Nested sections pass a full replacement object (``hud=…``, ``export=…``).
+    Nested sections pass a full replacement object (``hud=…``, ``export=…``,
+    ``catalog=…``).
 
     :param path: Explicit file; default :func:`paths.app_config_path`.
     :param changes: Field names on :class:`AppConfig`.

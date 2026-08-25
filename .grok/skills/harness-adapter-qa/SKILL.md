@@ -36,13 +36,11 @@ without query/`harness:<id>`.
 4. Add the id to the `harness` query token in
    `groket/integrations/control_contract.py`.
 5. Add the id to HUD `is_harness_ref` in `desktop/src/live.rs`.
-6. Default `[harness].host` in `groket/config.py` if the store should
-   scan on a stock install.
-7. `tests/session/test_harness_<id>.py` with **invented** fixtures
+6. `tests/session/test_harness_<id>.py` with **invented** fixtures
    (never copy real session text). Cover discover, meta, timeline
    tools, and child/subagent behaviour when the store has it.
-8. `docs/harness-adapters.md` table row + README host sentence.
-9. `just schema` if the control or config schema changed.
+7. `docs/harness-adapters.md` table row + README host sentence.
+8. `just schema` if the control or config schema changed.
 
 ### Probe the live store first
 
@@ -85,3 +83,5 @@ Fix gaps before the next adapter.
   product equivalent.
 - Copy operator prompts or home paths into tests.
 - Register an id that `check_harness_adapters.py` cannot prove.
+- Add an allowlist so a new store is hidden until the operator opts in.
+  The catalog lists every shipped adapter; `[catalog] ignore` is opt-out.

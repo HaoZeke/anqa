@@ -37,7 +37,8 @@ def test_defaults_when_missing() -> None:
     assert cfg.hud.global_shortcut == ""
     assert cfg.hud.desktop_notifications is True
     assert cfg.export.default_profile == ""
-    assert cfg.harness.host == ["grok"]
+    assert cfg.catalog.ignore == []
+    assert cfg.catalog.roots == {}
 
 
 def test_save_writes_toml_tables(tmp_path: Path) -> None:
@@ -49,7 +50,8 @@ def test_save_writes_toml_tables(tmp_path: Path) -> None:
     assert data["hud"]["global_shortcut"] == "Ctrl+K"
     assert data["live_refresh_workers"] == 1
     assert "export" in data
-    assert list(data["harness"]["host"]) == ["grok"]
+    assert list(data["catalog"]["ignore"]) == []
+    assert "harness" not in data
 
 
 def test_update_keeps_comment(tmp_path: Path) -> None:
@@ -74,9 +76,59 @@ def test_invalid_toml_returns_defaults(tmp_path: Path) -> None:
     assert cfg.theme == "auto"
 
 
-def test_harness_host_normalizes_ids() -> None:
-    cfg = parse_app_config({"harness": {"host": ["Grok", "grok", "demo"]}})
-    assert cfg.harness.host == ["grok", "demo"]
+def test_catalog_ignore_omits_host_adapter(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text(
+        '[catalog]\nignore = ["grok"]\n',
+        encoding="utf-8",
+    )
+    invalidate_config_cache()
+    from groket.harness.registry import adapter, adapter_host_roots, enabled_host_ids
+
+    assert "grok" not in enabled_host_ids()
+    grok = adapter("grok")
+    assert grok is not None
+    assert adapter_host_roots(grok) == grok.default_host_roots()
+
+
+def test_catalog_roots_override_store_path(tmp_path: Path) -> None:
+    (tmp_path / "config.toml").write_text(
+        '[catalog.roots]\ngrok = "/tmp/alt-sessions"\n',
+        encoding="utf-8",
+    )
+    invalidate_config_cache()
+    from groket.harness.registry import adapter, adapter_host_roots
+
+    grok = adapter("grok")
+    assert grok is not None
+    assert adapter_host_roots(grok) == [Path("/tmp/alt-sessions")]
+
+
+def test_save_drops_harness_allowlist(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('theme = "nord"\n[harness]\nhost = ["grok"]\n', encoding="utf-8")
+    invalidate_config_cache()
+    save_app_config(load_app_config())
+    text = path.read_text(encoding="utf-8")
+    data = tomlkit.parse(text)
+    assert "harness" not in data
+    assert list(data["catalog"]["ignore"]) == []
+    assert load_app_config().theme == "nord"
+
+
+def test_catalog_ignore_and_roots_normalize() -> None:
+    cfg = parse_app_config(
+        {
+            "catalog": {
+                "ignore": ["Grok", "grok", "demo"],
+                "roots": {"Grok": "~/alt-sessions", "other": ["/a", "/b"]},
+            }
+        }
+    )
+    assert cfg.catalog.ignore == ["grok", "demo"]
+    assert cfg.catalog.roots == {
+        "grok": ["~/alt-sessions"],
+        "other": ["/a", "/b"],
+    }
 
 
 def test_dump_roundtrip() -> None:
@@ -130,6 +182,8 @@ def test_schema_has_published_id() -> None:
         "live_refresh_workers",
         "hud",
         "export",
+        "catalog",
+        "ignore",
         "global_shortcut",
         "default_profile",
     ):
@@ -145,6 +199,8 @@ def test_validate_example_file() -> None:
     assert cfg.live_refresh_workers == 1
     assert cfg.hud.desktop_notifications is True
     assert cfg.export.default_profile == ""
+    assert cfg.catalog.ignore == []
+    assert cfg.catalog.roots == {}
 
 
 def test_show_host_sessions_is_dropped(tmp_path: Path) -> None:

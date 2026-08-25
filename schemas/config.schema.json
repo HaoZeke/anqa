@@ -1,5 +1,31 @@
 {
   "$defs": {
+    "CatalogPrefs": {
+      "description": "``[catalog]``: host session list (every shipped adapter, minus ignore).",
+      "properties": {
+        "ignore": {
+          "description": "Adapter ids omitted from the host catalog.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Ignore",
+          "type": "array"
+        },
+        "roots": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Store path overrides keyed by adapter id.",
+          "title": "Roots",
+          "type": "object"
+        }
+      },
+      "title": "CatalogPrefs",
+      "type": "object"
+    },
     "ExportPrefs": {
       "description": "``[export]``: default session-export profile id.",
       "properties": {
@@ -11,21 +37,6 @@
         }
       },
       "title": "ExportPrefs",
-      "type": "object"
-    },
-    "HarnessPrefs": {
-      "description": "``[harness]``: which native stores the host catalog includes.",
-      "properties": {
-        "host": {
-          "description": "Adapter ids scanned when the host catalog is on.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Host",
-          "type": "array"
-        }
-      },
-      "title": "HarnessPrefs",
       "type": "object"
     },
     "HudPrefs": {
@@ -87,8 +98,8 @@
     "export": {
       "$ref": "#/$defs/ExportPrefs"
     },
-    "harness": {
-      "$ref": "#/$defs/HarnessPrefs"
+    "catalog": {
+      "$ref": "#/$defs/CatalogPrefs"
     }
   },
   "title": "groket-config",

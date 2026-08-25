@@ -115,10 +115,11 @@ groket keys --check      # exit 1 on overlay errors
 ## Eval and Host
 
 **Eval** sessions are Docker launches under `work/runs/traces`. **Host**
-sessions are native stores enabled in `~/.groket/config.toml`
-`[harness] host = […]` (`H` includes that catalog). Stock default is `grok`
-at `~/.grok/sessions`. Filter with `is:host` / `harness:grok`. See
-`docs/harness-adapters.md`. `groket -P ~/.grok/sessions` browses Host while
+sessions are native stores (`H` includes that catalog). Every shipped
+adapter is listed; filter with `is:host` / `harness:grok`.
+`[catalog] ignore` drops a store. `[catalog.roots]` overrides a
+non-default path. See `docs/harness-adapters.md`.
+`groket -P ~/.grok/sessions` browses Host while
 keeping the default work root for new runs. Directory stores keep notes
 in the session tree; file or database stores use
 `~/.groket/notes/<harness>/<session_id>/`. Every note has a `source` (who
