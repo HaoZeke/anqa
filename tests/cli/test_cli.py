@@ -116,7 +116,7 @@ def test_serve_restart_stop_then_start(tmp_path: Path) -> None:
         return 0
 
     def fake_status(socket_path):  # noqa: ANN001
-        from anqa.integrations.daemon import ControlDaemonStatus
+        from anqa.control.daemon import ControlDaemonStatus
 
         return ControlDaemonStatus(
             socket_path=str(socket_path),
@@ -139,9 +139,9 @@ def test_serve_restart_stop_then_start(tmp_path: Path) -> None:
         return FakeResult()
 
     with (
-        patch("anqa.integrations.daemon.stop_control_daemon", fake_stop),
-        patch("anqa.integrations.daemon.control_daemon_status", fake_status),
-        patch("anqa.integrations.daemon.start_control_daemon_detached", fake_detached),
+        patch("anqa.control.daemon.stop_control_daemon", fake_stop),
+        patch("anqa.control.daemon.control_daemon_status", fake_status),
+        patch("anqa.control.daemon.start_control_daemon_detached", fake_detached),
     ):
         result = runner.invoke(
             app,
@@ -156,7 +156,7 @@ def test_serve_status_running_line(tmp_path: Path) -> None:
     sock = tmp_path / "s.sock"
 
     def fake_status(socket_path):  # noqa: ANN001
-        from anqa.integrations.daemon import ControlDaemonStatus
+        from anqa.control.daemon import ControlDaemonStatus
 
         return ControlDaemonStatus(
             socket_path=str(socket_path),
@@ -167,7 +167,7 @@ def test_serve_status_running_line(tmp_path: Path) -> None:
             pid_path=str(socket_path) + ".pid",
         )
 
-    with patch("anqa.integrations.daemon.control_daemon_status", fake_status):
+    with patch("anqa.control.daemon.control_daemon_status", fake_status):
         result = runner.invoke(app, ["serve", "status", "-s", str(sock)])
     assert result.exit_code == 0
     out = result.stdout or result.output or ""

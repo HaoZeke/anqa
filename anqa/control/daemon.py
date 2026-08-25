@@ -22,7 +22,9 @@ from ..session.catalog import (
 from ..session.sources import session_dir_for_watch_path
 from ..session.subagents import session_changed_targets
 from ..session.watch import PLANE_FILE_NAMES, JournalTail
-from .control import (
+from .client import ControlClient, is_transient_unix_connect_error
+from .contract import NOTIFY_SESSION_CHANGED
+from .server import (
     ControlError,
     ControlServer,
     ControlSocketInUse,
@@ -31,8 +33,6 @@ from .control import (
     default_socket_path,
     protocol_compatible,
 )
-from .control_client import ControlClient, is_transient_unix_connect_error
-from .control_contract import NOTIFY_SESSION_CHANGED
 
 logger = logging.getLogger(__name__)
 
@@ -1076,7 +1076,7 @@ def _detached_child_argv(
     sock = str(Path(socket_path).expanduser())
     parts = [
         "from pathlib import Path",
-        "from anqa.integrations.daemon import run_control_daemon",
+        "from anqa.control.daemon import run_control_daemon",
         f"sock = Path({sock!r})",
     ]
     if work_dir is not None:

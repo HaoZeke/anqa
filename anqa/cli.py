@@ -103,8 +103,8 @@ def launch_tui(
     free, then attach as a client. When *ensure_serve* is false, attach only if
     an owner is already live. Pass *socket* ``False`` to run without control.
     """
-    from .integrations.control import default_socket_path
-    from .integrations.daemon import ensure_control_daemon
+    from .control.daemon import ensure_control_daemon
+    from .control.server import default_socket_path
     from .paths import resolve_work_and_traces
     from .ui.app import AnqaApp
 
@@ -249,8 +249,8 @@ def cmd_hud(
     ``--restart`` replaces a running HUD. ``--install-desktop`` only installs
     icons/launcher entries for this user.
     """
+    from .control.server import default_socket_path
     from .hud.app import run_hud
-    from .integrations.control import default_socket_path
 
     summon_flags = sum(1 for f in (show, hide, toggle) if f)
     if summon_flags > 1:
@@ -330,7 +330,7 @@ _ServeTimeout = Annotated[
 
 
 def _serve_socket_option(control_socket: Path | None) -> Path:
-    from .integrations.control import default_socket_path
+    from .control.server import default_socket_path
 
     return (
         Path(control_socket).expanduser() if control_socket is not None else default_socket_path()
@@ -344,7 +344,7 @@ def _run_serve_start(
     daemonize: bool,
 ) -> int:
     """Start the control owner (foreground or detached)."""
-    from .integrations.daemon import (
+    from .control.daemon import (
         run_control_daemon,
         start_control_daemon_detached,
     )
@@ -374,7 +374,7 @@ def _run_serve_start(
 
 
 def _run_serve_stop(*, control_socket: Path | None, timeout: float) -> int:
-    from .integrations.daemon import stop_control_daemon
+    from .control.daemon import stop_control_daemon
 
     sock = _serve_socket_option(control_socket)
     return stop_control_daemon(sock, timeout=timeout)
@@ -388,7 +388,7 @@ def _run_serve_restart(
     timeout: float,
 ) -> int:
     """Stop if running, then start (default background for service restart)."""
-    from .integrations.daemon import control_daemon_status
+    from .control.daemon import control_daemon_status
 
     sock = _serve_socket_option(control_socket)
     st = control_daemon_status(sock)
@@ -460,7 +460,7 @@ def serve_status(
     ] = False,
 ) -> None:
     """Print owner status (exit 0 if live and accepting)."""
-    from .integrations.daemon import control_daemon_status
+    from .control.daemon import control_daemon_status
 
     sock = _serve_socket_option(control_socket)
     status = control_daemon_status(sock)

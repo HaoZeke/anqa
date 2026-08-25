@@ -1,7 +1,7 @@
 """Session data façade: one implementation for serve and all clients.
 
 ``LocalSessionAccess`` runs domain loaders in-process (the serve owner).
-``RemoteSessionAccess`` wraps :class:`~anqa.integrations.control_client.ControlClient`
+``RemoteSessionAccess`` wraps :class:`~anqa.control.client.ControlClient`
 with async methods for TUI/tests.
 
 Control JSON-RPC is the multi-process binding of this façade — not a second
@@ -42,7 +42,7 @@ from ..session.control_views import (
 from ..session.turn_gate import write_done_for_session, write_follow_up_for_session
 
 if TYPE_CHECKING:
-    from ..integrations.control_client import ControlClient
+    from ..control.client import ControlClient
 
 type SessionResolver = Callable[[str], Path | None]
 type SessionLister = Callable[[], list[JsonObject]]
@@ -362,7 +362,7 @@ class LocalSessionAccess:
 
 
 class RemoteSessionAccess:
-    """Async façade over :class:`~anqa.integrations.control_client.ControlClient`."""
+    """Async façade over :class:`~anqa.control.client.ControlClient`."""
 
     def __init__(self, client: ControlClient) -> None:
         self._client = client

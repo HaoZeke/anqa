@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from anqa.integrations.control import is_unknown_method
+from anqa.control.server import is_unknown_method
 
 from .i18n import t
 

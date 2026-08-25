@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from anqa.integrations.control_contract import (
+from anqa.control.contract import (
     CATALOG_QUERY_COUNTS,
     catalog_query_count_fields,
     catalog_query_flag_count,
@@ -241,11 +241,11 @@ def test_forgiving_unknown_and_incomplete() -> None:
 
 
 def test_catalog_query_help_lists_schema_tokens() -> None:
-    from anqa.integrations.control_contract import catalog_query_help_plain
+    from anqa.control.contract import catalog_query_help_plain
 
     text = catalog_query_help_plain()
     assert "Bare words match title, id, and label" in text
-    from anqa.integrations.control_contract import list_query_help_plain
+    from anqa.control.contract import list_query_help_plain
 
     timeline = list_query_help_plain("timeline")
     assert "tool:" in timeline
@@ -268,7 +268,7 @@ def test_catalog_query_help_lists_schema_tokens() -> None:
     assert "\n" in text
     for line in text.splitlines():
         assert len(line) <= 72, line
-    from anqa.integrations.control_contract import list_query_help_pairs
+    from anqa.control.contract import list_query_help_pairs
 
     pairs = list_query_help_pairs("timeline")
     assert any(label == "tool:" for label, _body in pairs)
@@ -358,7 +358,7 @@ def test_highlight_has_quantity_spans() -> None:
 
 
 def test_suggest_has_quantity_from_schema() -> None:
-    from anqa.integrations.control_contract import (
+    from anqa.control.contract import (
         CATALOG_QUERY_COMPARE,
         catalog_query_count_fields,
     )

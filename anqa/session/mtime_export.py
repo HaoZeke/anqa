@@ -14,7 +14,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from ..integrations.control_contract import PROTOCOL_VERSION
+from ..control.contract import PROTOCOL_VERSION
 from ..models import JsonObject, as_json_object
 from ..paths import cache_dir
 from .sources import host_grok_sessions_root, list_host_session_dirs

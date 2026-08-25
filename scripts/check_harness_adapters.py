@@ -22,7 +22,7 @@ def main() -> int:
     errs: list[str] = []
     hud = _read("desktop/src/live.rs")
     readme = _read("README.md")
-    contract = _read("anqa/integrations/control_contract.py")
+    contract = _read("anqa/control/contract.py")
     docs = (
         _read("docs/harness-adapters.md") if (ROOT / "docs/harness-adapters.md").is_file() else ""
     )

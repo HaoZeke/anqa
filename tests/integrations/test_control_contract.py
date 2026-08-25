@@ -8,12 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from anqa.integrations.control import (
-    PROTOCOL_VERSION,
-    ControlServer,
-    dispatched_method_names,
-)
-from anqa.integrations.control_contract import (
+from anqa.control.contract import (
     InventorySnapshot,
     capability_names,
     control_json_schema,
@@ -26,6 +21,11 @@ from anqa.integrations.control_contract import (
     notification_names,
     protocol_major,
     render_control_doc,
+)
+from anqa.control.server import (
+    PROTOCOL_VERSION,
+    ControlServer,
+    dispatched_method_names,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -164,7 +164,7 @@ def test_emit_doc_contains_version_methods_framing() -> None:
     assert "anqa serve" in text
     assert "ANQA_CONTROL_SOCKET" in text
     assert "Content-Length" in text
-    assert "control_contract.py" in text
+    assert "anqa/control/contract.py" in text
 
 
 def test_notes_upsert_schema_requires_source() -> None:
@@ -211,7 +211,7 @@ def test_justfile_and_pages_list_control_schema() -> None:
     assert "schemas/control.schema.json" in just
     assert "docs/control.md" in just
     assert "schemas/control.schema.json" in pages
-    assert "control_contract.py" in pages
+    assert "anqa/control/contract.py" in pages
 
 
 @pytest.mark.asyncio

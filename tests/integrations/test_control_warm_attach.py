@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 
 import pytest
-from anqa.integrations import daemon as daemon_mod
-from anqa.integrations.control_client import ControlClient
+from anqa.control import daemon as daemon_mod
+from anqa.control.client import ControlClient
 from anqa.session.access import filter_session_catalog
 from anqa.session.catalog import SessionCatalogCache
 from async_wait import wait_until
@@ -157,7 +157,7 @@ async def test_attach_client_uses_rpc_only_for_list(tmp_path: Path) -> None:
         getattr(server, "_catalog_cache").get(force=True)  # type: ignore[union-attr]
         client = ControlClient(sock, client_name="attach-tui", timeout=20)
         init = await client.initialize()
-        from anqa.integrations.control import PROTOCOL_VERSION
+        from anqa.control.server import PROTOCOL_VERSION
 
         assert init["protocolVersion"] == PROTOCOL_VERSION
         assert "session/list" in init["capabilities"]

@@ -34,7 +34,7 @@ lint-complexity:
 # Regenerate schemas/*.schema.json from Pydantic.
 schema:
     uv run python -c "from pathlib import Path; from anqa.config import emit_config_schema; emit_config_schema(Path('schemas/config.schema.json'))"
-    uv run python -c "from pathlib import Path; from anqa.integrations.control_contract import emit_control_schema, emit_control_doc, emit_catalog_query_asset; emit_control_schema(Path('schemas/control.schema.json')); emit_control_doc(Path('docs/control.md')); emit_catalog_query_asset(Path('desktop/assets/catalog-query.json'))"
+    uv run python -c "from pathlib import Path; from anqa.control.contract import emit_control_schema, emit_control_doc, emit_catalog_query_asset; emit_control_schema(Path('schemas/control.schema.json')); emit_control_doc(Path('docs/control.md')); emit_catalog_query_asset(Path('desktop/assets/catalog-query.json'))"
 
 # Fail if committed schemas are out of date.
 schema-check:
@@ -53,9 +53,9 @@ schema-check:
       rm -f "$tmp"
     }
     check 'from pathlib import Path; from anqa.config import emit_config_schema; import sys; emit_config_schema(Path(sys.argv[1]))' schemas/config.schema.json
-    check 'from pathlib import Path; from anqa.integrations.control_contract import emit_control_schema; import sys; emit_control_schema(Path(sys.argv[1]))' schemas/control.schema.json
-    check 'from pathlib import Path; from anqa.integrations.control_contract import emit_control_doc; import sys; emit_control_doc(Path(sys.argv[1]))' docs/control.md
-    check 'from pathlib import Path; from anqa.integrations.control_contract import emit_catalog_query_asset; import sys; emit_catalog_query_asset(Path(sys.argv[1]))' desktop/assets/catalog-query.json
+    check 'from pathlib import Path; from anqa.control.contract import emit_control_schema; import sys; emit_control_schema(Path(sys.argv[1]))' schemas/control.schema.json
+    check 'from pathlib import Path; from anqa.control.contract import emit_control_doc; import sys; emit_control_doc(Path(sys.argv[1]))' docs/control.md
+    check 'from pathlib import Path; from anqa.control.contract import emit_catalog_query_asset; import sys; emit_catalog_query_asset(Path(sys.argv[1]))' desktop/assets/catalog-query.json
 
 # Validate examples/ packs.
 examples-check:

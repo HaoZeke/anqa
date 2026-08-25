@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from anqa.integrations.control_contract import PROTOCOL_VERSION
+from anqa.control.contract import PROTOCOL_VERSION
 from anqa.parser import load_host_list_meta
 from anqa.session.catalog import list_session_catalog, session_catalog_row
 from anqa.session.mtime_export import write_host_catalog_export

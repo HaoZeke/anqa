@@ -9,7 +9,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
-from anqa.integrations.control import PROTOCOL_VERSION
+from anqa.control.server import PROTOCOL_VERSION
 
 
 def _catalog() -> list[dict]:
@@ -108,7 +108,7 @@ def _short_sock(name: str) -> Path:
 
 @pytest.mark.asyncio
 async def test_control_server_session_list() -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     sock = _short_sock("session-list")
     server = control.ControlServer(
         socket_path=sock,
@@ -139,7 +139,7 @@ async def test_control_server_session_list() -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     session_dir = tmp_path / "anqa-test-render-session"
     session_dir.mkdir()
     (session_dir / "summary.json").write_text(
@@ -201,7 +201,7 @@ async def test_control_server_render_formats_and_markdown(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_control_server_session_list_empty_without_lister() -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     server = control.ControlServer(socket_path=_short_sock("session-list-empty"))
     await server.start()
     try:
@@ -218,7 +218,7 @@ async def test_control_server_session_list_empty_without_lister() -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_session_list_rejects_bad_limit() -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     server = control.ControlServer(
         socket_path=_short_sock("session-list-limit"),
         list_sessions=_catalog,

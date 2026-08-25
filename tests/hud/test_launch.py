@@ -258,8 +258,8 @@ def test_send_summon_command_rejects_unknown() -> None:
 
 
 def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
+    from anqa.control.daemon import EnsureDaemonResult
     from anqa.hud import app as hud_app
-    from anqa.integrations.daemon import EnsureDaemonResult
 
     sock = tmp_path / "control.sock"
     with (

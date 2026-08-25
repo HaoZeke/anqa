@@ -18,7 +18,7 @@ def _short_sock(name: str) -> Path:
 
 
 def test_is_transient_unix_connect_error_eagain() -> None:
-    client_mod = import_module("anqa.integrations.control_client")
+    client_mod = import_module("anqa.control.client")
     eagain = OSError(errno.EAGAIN, "Resource temporarily unavailable")
     assert client_mod.is_transient_unix_connect_error(eagain) is True
     assert client_mod.is_transient_unix_connect_error(ConnectionRefusedError()) is True
@@ -33,8 +33,8 @@ def test_is_transient_unix_connect_error_eagain() -> None:
 @pytest.mark.asyncio
 async def test_open_unix_connection_retries_eagain(tmp_path: Path) -> None:
     """Transient EAGAIN on connect is retried until success."""
-    client_mod = import_module("anqa.integrations.control_client")
-    control = import_module("anqa.integrations.control")
+    client_mod = import_module("anqa.control.client")
+    control = import_module("anqa.control.server")
     sock = _short_sock("retry.sock")
     server = control.ControlServer(socket_path=sock)
     await server.start()
@@ -63,8 +63,8 @@ async def test_open_unix_connection_retries_eagain(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_control_client_initialize_and_list(tmp_path: Path) -> None:
-    control = import_module("anqa.integrations.control")
-    client_mod = import_module("anqa.integrations.control_client")
+    control = import_module("anqa.control.server")
+    client_mod = import_module("anqa.control.client")
     catalog = [
         {
             "sessionId": "s1",
@@ -83,9 +83,7 @@ async def test_control_client_initialize_and_list(tmp_path: Path) -> None:
     try:
         client = client_mod.ControlClient(sock, client_name="unit")
         init = await client.initialize()
-        assert (
-            init["protocolVersion"] == import_module("anqa.integrations.control").PROTOCOL_VERSION
-        )
+        assert init["protocolVersion"] == import_module("anqa.control.server").PROTOCOL_VERSION
         listed = await client.session_list(query="One")
         assert listed["matched"] == 1
         assert listed["sessions"][0]["sessionId"] == "s1"
@@ -104,8 +102,8 @@ async def test_control_client_session_list_beyond_default_stream_limit(
     Historical gap: unit tests used 1–40 tiny rows so the default asyncio
     StreamReader limit never fired. This builds a wire body past 64KiB.
     """
-    control = import_module("anqa.integrations.control")
-    client_mod = import_module("anqa.integrations.control_client")
+    control = import_module("anqa.control.server")
+    client_mod = import_module("anqa.control.client")
 
     def _row(i: int) -> dict:
         pad = "x" * 80
@@ -159,8 +157,8 @@ async def test_control_client_session_list_beyond_default_stream_limit(
 
 @pytest.mark.asyncio
 async def test_control_client_session_list_all_drains_pages(tmp_path: Path) -> None:
-    control = import_module("anqa.integrations.control")
-    client_mod = import_module("anqa.integrations.control_client")
+    control = import_module("anqa.control.server")
+    client_mod = import_module("anqa.control.client")
     catalog = [
         {
             "sessionId": f"s{i}",
@@ -197,8 +195,8 @@ async def test_control_client_session_list_all_drains_pages(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_control_client_raises_on_rpc_error() -> None:
-    control = import_module("anqa.integrations.control")
-    client_mod = import_module("anqa.integrations.control_client")
+    control = import_module("anqa.control.server")
+    client_mod = import_module("anqa.control.client")
     sock = _short_sock("err.sock")
     server = control.ControlServer(socket_path=sock)
     await server.start()
@@ -212,7 +210,7 @@ async def test_control_client_raises_on_rpc_error() -> None:
 
 
 def test_client_module_exports() -> None:
-    client_mod = import_module("anqa.integrations.control_client")
+    client_mod = import_module("anqa.control.client")
     assert hasattr(client_mod, "ControlClient")
     assert hasattr(client_mod, "control_socket_is_live")
     _ = json  # keep import used if ruff cares elsewhere

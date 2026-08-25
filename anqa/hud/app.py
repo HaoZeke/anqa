@@ -8,14 +8,14 @@ import sys
 import time
 from pathlib import Path
 
-from ..integrations.control import default_socket_path
-from ..integrations.control_client import ControlClient
-from ..integrations.daemon import (
+from ..control.client import ControlClient
+from ..control.daemon import (
     EnsureDaemonResult,
     control_socket_accepts,
     ensure_control_daemon,
     wait_until_control_accepts,
 )
+from ..control.server import default_socket_path
 from ..paths import resolve_work_and_traces
 from .launch import launch_hud
 

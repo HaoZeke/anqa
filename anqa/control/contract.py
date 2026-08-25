@@ -813,10 +813,10 @@ app](../README.md#terminal-app), [Desktop HUD](../README.md#desktop-hud),
 [Emacs](../README.md#emacs), and [Neovim](../README.md#neovim-09) — attach
 and talk JSON-RPC 2.0. They never bind the socket.
 
-Implementation: `anqa/integrations/control_contract.py` (contract),
-`anqa/integrations/control.py` (owner),
-`anqa/integrations/daemon.py` (`anqa serve`),
-`anqa/integrations/control_client.py` (Python attach).
+Implementation: `anqa/control/contract.py` (contract),
+`anqa/control/server.py` (owner),
+`anqa/control/daemon.py` (`anqa serve`),
+`anqa/control/client.py` (Python attach).
 
 ## Start and stop
 

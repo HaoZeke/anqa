@@ -38,7 +38,7 @@ from luqum.tree import (
 from luqum.utils import UnknownOperationResolver
 from pytimeparse import parse as parse_span
 
-from ..integrations.control_contract import (
+from ..control.contract import (
     CATALOG_QUERY_COMPARE,
     CATALOG_QUERY_OPERATORS,
     all_query_field_names,

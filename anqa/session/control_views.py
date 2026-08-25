@@ -1,7 +1,7 @@
 """Wire-shaped session views for the control plane (HUD / web / editors).
 
 Pure domain loaders → JSON-RPC payloads. No Textual. Used by
-:class:`~anqa.integrations.control.ControlServer` handlers.
+:class:`~anqa.control.server.ControlServer` handlers.
 """
 
 from __future__ import annotations

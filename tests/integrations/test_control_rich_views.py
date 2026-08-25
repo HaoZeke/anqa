@@ -55,8 +55,8 @@ def _write_session(tmp_path: Path) -> Path:
 
 @pytest.mark.asyncio
 async def test_control_session_get_timeline_turns_usage(tmp_path: Path) -> None:
-    control = import_module("anqa.integrations.control")
-    client_mod = import_module("anqa.integrations.control_client")
+    control = import_module("anqa.control.server")
+    client_mod = import_module("anqa.control.client")
     session_dir = _write_session(tmp_path)
     sock = _short_sock("rich.sock")
     server = control.ControlServer(

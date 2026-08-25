@@ -345,7 +345,7 @@ def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
 
 
 def test_tui_control_client_uses_heavy_rpc_timeout(tmp_path: Path) -> None:
-    from anqa.integrations.control_client import HEAVY_RPC_TIMEOUT
+    from anqa.control.client import HEAVY_RPC_TIMEOUT
     from anqa.ui.app import AnqaApp
 
     work = tmp_path / "work"

@@ -94,7 +94,7 @@ async def _rpc_call(
 
 @pytest.mark.asyncio
 async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> None:
-    daemon = import_module("anqa.integrations.daemon")
+    daemon = import_module("anqa.control.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -152,7 +152,7 @@ async def test_attach_copy_toasts_failure_only() -> None:
 @pytest.mark.asyncio
 async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> None:
     """Attach catalog load must not toast ``Scanning control…`` (disk-scan copy)."""
-    daemon = import_module("anqa.integrations.daemon")
+    daemon = import_module("anqa.control.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -295,7 +295,7 @@ async def test_browser_loads_timeline_via_control_when_attached(
 
     from anqa.ui.screens.browser import BrowserScreen
 
-    daemon = import_module("anqa.integrations.daemon")
+    daemon = import_module("anqa.control.daemon")
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)

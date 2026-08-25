@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from anqa.integrations.control import ControlError, is_unknown_method
+from anqa.control.server import ControlError, is_unknown_method
 
 
 def test_unknown_method_from_code() -> None:

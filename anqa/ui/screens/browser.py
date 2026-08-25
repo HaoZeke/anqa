@@ -42,7 +42,7 @@ from textual.widgets import (
 
 from ... import event_types as et
 from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
-from ...integrations.control import ControlError
+from ...control.server import ControlError
 from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ...notes import (
     NoteEntry,
@@ -3708,7 +3708,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         import asyncio
         import concurrent.futures
 
-        from ...integrations.control import ControlError
+        from ...control.server import ControlError
 
         access = getattr(self.app, "session_access", lambda: None)()
         if access is None:

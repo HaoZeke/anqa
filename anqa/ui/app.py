@@ -38,7 +38,7 @@ from ..constants import META_CACHE_FILENAME
 
 if TYPE_CHECKING:
     from ..keys import Keymap
-from ..integrations.control_client import (
+from ..control.client import (
     HEAVY_RPC_TIMEOUT,
     ControlClient,
     listen_control_notifications,
@@ -928,7 +928,7 @@ class AnqaApp(App):
         if client is None:
             return False
         try:
-            from ..integrations.control import PROTOCOL_VERSION, protocol_compatible
+            from ..control.server import PROTOCOL_VERSION, protocol_compatible
 
             result = await client.initialize()
             ver = result.get("protocolVersion")
@@ -1249,7 +1249,7 @@ class AnqaApp(App):
     ) -> JsonObject:
         """Blocking ``session/list`` (one page, delta poll, or full drain)."""
 
-        from ..integrations.control_client import ControlClient
+        from ..control.client import ControlClient
 
         sock = self._control_socket
         if sock is None:

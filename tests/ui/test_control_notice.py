@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from anqa.integrations.control import ControlError
+from anqa.control.server import ControlError
 from anqa.ui.control_notice import control_operator_text
 from anqa.ui.i18n import t
 

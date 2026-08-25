@@ -155,8 +155,8 @@ anqa/
                          #   jobs (background / monitor / schedule merge),
                          #   query (luqum), event_search (Timeline store)
   notes.py               # configurable operator notes (TOML schema + session store)
-  integrations/          # control Unix JSON-RPC, daemon (``anqa serve``),
-                         #   control_contract, ControlClient, emacs/vim packages
+  control/               # contract, server, client, serve (``anqa serve``)
+  integrations/          # Emacs / Neovim packs + editor document projection
   hud/                   # launches iced palette binary
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
 # Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), scan/ (anqa._scan)
@@ -203,7 +203,7 @@ current unpublished protocol version. ``just bump`` updates the product
 version only. Editor clients send this package's protocol string.
 Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). Do not reimplement
 catalog discovery for control outside ``session/catalog`` +
-``session/access`` + ``integrations.control`` / ``daemon``.
+``session/access`` + ``control.server`` / ``control.daemon``.
 
 ### 3.0 Path layout (product contract)
 

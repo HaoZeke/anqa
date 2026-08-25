@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..integrations.editor import SUPPORTED_FORMATS
 from ..models import JsonObject, JsonValue, as_json_object, json_as_int, json_as_str
 from ..notes import (
     NoteEntry,
@@ -27,7 +28,7 @@ from ..session.access import LocalSessionAccess, notes_snapshot_mapping
 # Re-export catalog filter for existing importers (TUI, tests).
 from ..session.access import filter_session_catalog as filter_session_catalog
 from ..session.control_views import warm_timeline_search
-from .control_contract import (
+from .contract import (
     MIN_PROTOCOL_VERSION,
     NOTIFY_NOTES_CHANGED,
     NOTIFY_SESSION_CHANGED,
@@ -35,12 +36,11 @@ from .control_contract import (
     PROTOCOL_VERSION,
     capability_names,
 )
-from .editor import SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
 # Re-export handshake constants and the advertised method list so existing
-# ``from anqa.integrations.control import PROTOCOL_VERSION`` callers stay.
+# ``from anqa.control.server import PROTOCOL_VERSION`` callers stay.
 CAPABILITIES = capability_names()
 _PROTOCOL_RE = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$")
 type _RpcFn = Callable[..., Awaitable[JsonValue]]

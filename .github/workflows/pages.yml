@@ -10,7 +10,7 @@ on:
     paths:
       - "schemas/**"
       - "anqa/config.py"
-      - "anqa/integrations/control_contract.py"
+      - "anqa/control/contract.py"
       - ".github/workflows/pages.yml"
       - "justfile"
   workflow_dispatch:

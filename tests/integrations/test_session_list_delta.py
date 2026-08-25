@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from anqa.integrations import daemon as daemon_mod
-from anqa.integrations.control_client import ControlClient
+from anqa.control import daemon as daemon_mod
+from anqa.control.client import ControlClient
 from anqa.session.catalog import SessionCatalogCache
 
 

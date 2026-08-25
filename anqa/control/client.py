@@ -15,7 +15,7 @@ from typing import Self
 
 from ..models import JsonObject, JsonValue, as_json_object, json_as_str
 from ..session.access import DEFAULT_SESSION_LIST_LIMIT, catalog_list_next_offset
-from .control import PROTOCOL_VERSION, ControlError, default_socket_path
+from .server import PROTOCOL_VERSION, ControlError, default_socket_path
 
 logger = logging.getLogger(__name__)
 

@@ -140,7 +140,7 @@ def test_watch_resubscribes_plane_files_of_session_created_after_start(
 
 
 def test_owner_serve_source_has_no_watchdog_or_warm_timer() -> None:
-    from anqa.integrations import daemon
+    from anqa.control import daemon
 
     src = Path(daemon.__file__).read_text(encoding="utf-8")
     assert "watchdog" not in src

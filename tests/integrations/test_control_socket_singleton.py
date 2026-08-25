@@ -20,8 +20,8 @@ def _short_sock(name: str) -> Path:
 
 @pytest.mark.asyncio
 async def test_second_control_server_raises_socket_in_use() -> None:
-    control = import_module("anqa.integrations.control")
-    daemon = import_module("anqa.integrations.daemon")
+    control = import_module("anqa.control.server")
+    daemon = import_module("anqa.control.daemon")
     sock = _short_sock("singleton")
     first = control.ControlServer(socket_path=sock)
     second = control.ControlServer(socket_path=sock)
@@ -38,7 +38,7 @@ async def test_second_control_server_raises_socket_in_use() -> None:
 
 @pytest.mark.asyncio
 async def test_control_server_takes_over_stale_socket_file() -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     sock = _short_sock("stale")
     holder = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     holder.bind(str(sock))
@@ -54,7 +54,7 @@ async def test_control_server_takes_over_stale_socket_file() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_starter_does_not_unlink_live_socket() -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     sock = _short_sock("keep")
     first = control.ControlServer(socket_path=sock)
     second = control.ControlServer(socket_path=sock)
@@ -75,7 +75,7 @@ async def test_failed_starter_does_not_unlink_live_socket() -> None:
 
 @pytest.mark.asyncio
 async def test_tui_attaches_when_control_socket_already_owned(tmp_path: Path) -> None:
-    control = import_module("anqa.integrations.control")
+    control = import_module("anqa.control.server")
     sock = _short_sock("tui-singleton")
     owner = control.ControlServer(socket_path=sock)
     await owner.start()
