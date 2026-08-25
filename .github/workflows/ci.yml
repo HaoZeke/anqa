@@ -42,7 +42,7 @@ jobs:
       - run: uv sync --group test --group dev
       - name: Ruff + mypy + policy scripts
         run: just lint
-      - name: Tasks / rules JSON Schema drift
+      - name: Config and control schema drift
         run: just schema-check
       - name: Examples contract
         run: just examples-check

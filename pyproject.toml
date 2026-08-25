@@ -98,11 +98,10 @@ binding = "PyO3"
 args = ["--locked", "--features", "extension-module"]
 debug = false
 
-# Platform wheels: pypa/cibuildwheel on GitHub Actions (every push + PR).
+# Platform wheels: pypa/cibuildwheel on GitHub Actions (main, tags, dispatch).
 [tool.cibuildwheel]
 build = "cp313-*"
 skip = [
-    "pp*",
     "*-win32",
     "*-manylinux_i686",
     "*-manylinux_ppc64le",
@@ -139,7 +138,7 @@ select = [
     "T20",     # flake8-print
 ]
 # Size/complexity (PLR0911–0915, PLR0904): not in default select — historical
-# debt. Report via ``make lint-complexity``; split when editing offenders.
+# debt. Report via ``just lint-complexity``; split when editing offenders.
 # Thresholds under [tool.ruff.lint.pylint] match AGENTS.md §4.6.
 ignore = [
     "E501",  # line length — formatter / line-length setting

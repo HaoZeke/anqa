@@ -351,7 +351,7 @@ HUD Cargo trees: ``just hud-cov`` writes ``desktop/lcov.info`` and deletes
 from scratch. ``just clean`` runs ``cargo clean``.
 
 Published schemas (also under ``schemas/``; GitHub Pages via
-``.github/workflows/pages.yml``):
+``.github/workflows/pages.yml`` when the repository is public):
 
 - https://indynull.github.io/anqa/schemas/config.schema.json  
 - https://indynull.github.io/anqa/schemas/control.schema.json  

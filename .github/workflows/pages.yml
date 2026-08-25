@@ -1,12 +1,12 @@
 # Publish JSON Schema(s) to GitHub Pages (project site).
-# Repo Settings → Pages → Source: GitHub Actions.
+# Public repo: Settings → Pages → Source: GitHub Actions.
 # URLs: …/schemas/config.schema.json , …/schemas/control.schema.json
 
 name: Pages
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     paths:
       - "schemas/**"
       - "anqa/config.py"
@@ -62,7 +62,6 @@ jobs:
             <p>JSON Schema artifacts for editor validation and tooling.</p>
             <ul>
               <li>
-              <li>
                 <a href="schemas/config.schema.json"><code>config.schema.json</code></a>
                 — app prefs TOML (<code>~/.anqa/config.toml</code>)
                 (<code>$id</code>:
@@ -86,6 +85,8 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    # Free-plan private repos cannot host Pages. Build still runs.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
