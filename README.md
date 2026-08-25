@@ -1,6 +1,5 @@
 <p align="center">
-  <img src="brand/png/anqa-mark.png#gh-light-mode-only" alt="anqa" width="400" />
-  <img src="brand/png/anqa-mark-reverse.png#gh-dark-mode-only" alt="anqa" width="400" />
+  <img src="brand/png/anqa-lockup-horizontal.png" alt="anqa" width="480" />
 </p>
 
 # anqa
@@ -14,7 +13,7 @@
 **anqa** is a session review tool: timeline, notes, workspace diffs,
 and a summonable desktop palette.
 [Grok Build](https://docs.x.ai/build/overview) is the first shipped
-store. It does not launch evals.
+store.
 
 Four clients talk to [`anqa serve`](#control).
 
@@ -53,8 +52,8 @@ Wheels for Linux, macOS, and Windows (Intel and ARM) are on
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.anqa` | `config.toml`, personas, optional `keys.toml` |
-| Work root | `~/.anqa/work` | `runs/traces/`, recipes, Docker contexts, batch results |
+| Config home | `~/.anqa` | `config.toml`, optional `keys.toml`, notes fallback, reports |
+| Work root | `~/.anqa/work` | session trees you point at, export cache |
 
 ```bash
 anqa                      # default work root
@@ -114,8 +113,7 @@ anqa keys --check      # exit 1 on overlay errors
 
 ## Catalog
 
-The list is every enabled adapter store plus leftover traces under the
-work root. Filter with `harness:grok`. `[catalog] ignore` drops a store.
+The list is every enabled adapter store. Filter with `harness:grok`. `[catalog] ignore` drops a store.
 `[catalog.roots]` overrides a path. See `docs/harness-adapters.md`.
 `anqa -P ~/.grok/sessions` browses that tree. Directory stores keep notes
 in the session tree; file or database stores use
@@ -132,8 +130,7 @@ filters Background / Workflows / Subagents list the bookends. Open a
 row or a bookend to inspect the merged run (Asked / Happened / Failed).
 Enter on a workflow child or subagent opens that child session. The
 desktop Overview uses the same tabs.
-Failed runs are listed on Summary. Those tables are not Jobs (`J`),
-which is Docker / serve / container logs.
+Failed runs are listed on Summary.
 
 ## Terminal app
 
@@ -154,7 +151,6 @@ The footer lists the keys that apply now; `?` is the full list.
 | ? | everywhere | This panel |
 | Ctrl+P | everywhere | Command palette for this screen |
 | F5 | everywhere | Refresh (also Ctrl+R) |
-| J | everywhere | Jobs and logs |
 | q | everywhere | Quit when no field is focused |
 | / | sessions | Search (Tab completes the last token) |
 | s / Space | sessions | Select (also Space) |
@@ -200,8 +196,8 @@ openable child. Exporting an opened child is that child only.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin |
-| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (jobs or schedules). `task:` is still the batch task id. Git stays yes/no. |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` | Status |
+| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (shells, monitors, or schedules). `task:` is a task-id substring. Git stays yes/no. |
 | `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
 | `in:~/path` | Directory the session was run in |
@@ -228,8 +224,7 @@ Summonable palette: Recent sessions (scroll or `j` for more), catalog
 search (same query language as the terminal list), then Overview /
 Turns / Timeline / Diff / Notes. `u` or the logo
 returns to the session list. Follow-up and Done
-when awaiting. It does not launch evals. Desktop notices are for eval
-sessions; host chats already notify on their own.
+when awaiting.
 Details: [`desktop/README.md`](desktop/README.md).
 
 ```bash
@@ -321,4 +316,4 @@ just ci              # lint + schema-check + hud-check + examples-check + test
 just bump 0.1.1      # version strings + CHANGELOG.md
 ```
 
-Also: `anqa doctor`, `anqa gen …`, `anqa keys`.
+Also: `anqa doctor`, `anqa keys`.

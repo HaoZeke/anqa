@@ -1,16 +1,14 @@
-"""Application paths: config under ``~/.anqa``, runs under a work dir.
+"""Application paths: config under ``~/.anqa``, work root for session trees.
 
-**Config home** (``APP_HOME`` / ``~/.anqa``) holds identity and extensions —
-config.toml, personas, tasks scaffolds, exported reports, flag fallbacks,
-notes schema / notes fallbacks, optional ``models.yaml``, optional ``keys.toml``.
+**Config home** (``APP_HOME`` / ``~/.anqa``) holds ``config.toml``,
+notes schema / notes fallbacks, exported reports, optional ``keys.toml``.
 
-**Work dir** holds only session / run data — traces, run configs, feedback
-cache, Docker build contexts for launches, batch result log. Default work dir
+**Work dir** is the default place to open session trees. Default work dir
 is ``~/.anqa/work``. Pass a CLI path to open another work root, traces tree,
 or session. The default is never the process cwd.
 
-Passing a path to ``anqa`` sets what is loaded and, when that path is a work
-root, where new runs go — see :func:`resolve_work_and_traces`.
+Passing a path to ``anqa`` sets what is loaded — see
+:func:`resolve_work_and_traces`.
 """
 
 from __future__ import annotations

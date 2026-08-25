@@ -1,7 +1,4 @@
-# Curated MCP servers for GTE persona picker (starter set, NOT the full MCP registry).
-# Picker also lists any [mcp_servers.NAME] from your host ~/.grok/config.toml.
-# Prefer remote HTTP/SSE — works on minimal + fully-loaded without npx in-image.
-# Extend: add entries here, or work_dir/capabilities/mcp_catalog.yaml, or host config.
+# Optional MCP server names (reference list). Not auto-loaded.
 
 servers:
   - id: github

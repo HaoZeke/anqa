@@ -5,7 +5,7 @@ inspects coding-agent harness sessions (Python 3.13+). Similar in spirit to
 [posting](https://github.com/darrenburns/posting),
 [harlequin](https://github.com/tconbeer/harlequin), and
 [toolong](https://github.com/Textualize/toolong).
-Grok Build is the shipped adapter. Anqa does not launch evals.
+Grok Build is the shipped adapter.
 
 Operators read traces and paste prompts, replies, and tool output into
 notes. Every body that is useful to quote must be selectable on both
@@ -22,7 +22,7 @@ rejected-design narration.
 ```bash
 uv tool install --editable .    # ``anqa`` + ``anqa-hud`` on PATH (needs Rust)
 just install        # .venv (test+dev) for lint/test
-just test           # pytest (default unit suite; no Docker daemon)
+just test           # pytest (default unit suite)
 just lint           # ruff + mypy + fluent/typing + harness adapter check
 just ci             # lint + schema-check + hud-check + examples-check + test (local; CI splits these)
 ```
@@ -81,8 +81,8 @@ hide debt.
 
 ### No speculative fallbacks
 
-**One clear path** per behaviour (one install method, one Docker client, one
-config source). No secondary branches “just in case.”
+**One clear path** per behaviour (one install method, one config source).
+No secondary branches “just in case.”
 
 Do not ``except Exception`` and then run a second implementation (force
 rebuild after incremental patch, parse again after a failed parse, empty
@@ -92,50 +92,40 @@ If a single path is wrong, fix that path.
 
 ### Feature delivery (mandatory for product changes)
 
-A “feature” is any operator-visible capability or launch behaviour (keys,
-runner options, batch task fields, Docker entrypoint env).
+A “feature” is any operator-visible capability (keys, catalog fields,
+control methods, export).
 **Do not ship half-finished surfaces.** Implement and document the full path
 in the same unit of work (or a tight stack of commits), not “code now, docs
 later.”
 
 | Surface | When it must be updated |
 |---------|-------------------------|
-| **Domain / orchestrator** | Shared path under ``runs/``, ``session/``, ``docker/`` — not a TUI-only fork of the logic |
+| **Domain** | Shared path under ``session/``, ``harness/``, ``parser`` — not a TUI-only fork |
 | **TUI** | Bindings, palette, Fluent, ``help.rich.txt``; keyboard path for every new action |
 | **HUD** | Same key as the TUI when both do the job (§6.10); ``desktop/src/help.rs`` footer + cheatsheet and ``on_key`` in the same change |
-| **Batch / task YAML** | If the feature applies to headless launches: ``task_schema``, ``schemas/tasks.schema.json`` (``just schema``), ``examples/tasks/``, ``batch`` wiring to the **same** domain APIs |
-| **README.md** | Operator-facing: keys, CLI flags, task fields, what TUI vs batch can do |
+| **README.md** | Operator-facing: keys, CLI flags, what each client can do |
 | **AGENTS.md** | Only when the *contract* for agents changes (architecture, gates, layouts) |
-| **Tests** | Domain unit tests + TUI Pilot where UI is involved; batch/schema tests when YAML fields change; no live Docker in default suite |
-| **examples/** | New task/rule/plugin packs when the feature is meant to be copied; keep ``just examples-check`` green |
+| **Tests** | Domain unit tests + TUI Pilot where UI is involved |
+| **examples/** | Config, keys, notes, themes meant to be copied; keep ``just examples-check`` green |
 
 **Parity rules**
 
-1. **One implementation, many front doors.** Runner, run configs, and
-   ``anqa batch`` call the same launch/merge/orchestrator code. Do not
-   reimplement resume, caps, or Docker env in a screen only.
-2. **If a surface intentionally cannot do X**, say so in **README** (and
-   Fluent help if it is a TUI action). Example: TUI **fork** continues an
-   *ended* session; batch multi-turn uses scripted ``turns`` on a *new*
-   session — different product paths, both documented.
-3. **New launch knobs** (env vars, ``ContainerConfig`` fields, entrypoint
-   flags) land with: orchestrator + entrypoint (and embedded assets), tests,
-   and every caller that should set them (runner, batch, configs).
-4. **Operator docs are part of done.** README key tables / CLI sections and
+1. **One implementation, many front doors.** Catalog, notes, and follow-up
+   live in domain modules. TUI, HUD, and ``anqa serve`` call those APIs.
+2. **Operator docs are part of done.** README key tables / CLI sections and
    in-app help must match bindings. Leaving “only Fluent” or “only code”
    incomplete is a process failure.
-5. **Schemas and examples stay honest.** Task/rule schema fields without
+3. **Schemas and examples stay honest.** Control/config fields without
    examples or validation are incomplete; examples without CI linkage are
    incomplete (``just examples-check``).
 
 **Definition of done (agent checklist)**
 
-- [ ] Domain API used by all launch paths that need the behaviour
+- [ ] Domain API used by every client that needs the behaviour
 - [ ] TUI: binding + palette + Fluent + ``help.rich.txt`` (if user-facing)
 - [ ] HUD: same key as the TUI when the palette has that action (§6.10)
-- [ ] Batch/schema/examples updated **or** README states TUI-only / batch-only
 - [ ] README updated for operators
-- [ ] Tests for domain + UI (and batch if applicable)
+- [ ] Tests for domain + UI
 - [ ] ``just lint`` and the owning tests for this change green
 - [ ] Full ``just ci`` (or ``just test`` + HUD check) when pushing or
       opening a pull request
@@ -169,13 +159,10 @@ anqa/
   session/control_views.py  # wire payloads for session/get|timeline|turns|usage
 # Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), scan/ (anqa._scan)
   diagnostics/           # host checks (``anqa doctor`` + in-app self-test)
-  capabilities/          # MCP / skills / Grok Build marketplace plugins
-  docker/                # orchestrator, base_profiles, resources
-  extensions/            # anqa gen scaffolds
   locale/                # Fluent .ftl + help.rich.txt
   ui/                    # Textual UI
     app.py               # AnqaApp — sessions home
-    screens/             # browser, jobs
+    screens/             # browser
     widgets/             # timeline, detail, help_modal, controls, activity_bar, …
     bindings.py, commands.py, i18n.py, text.py, styles.py, prefs.py
     data_table.py, panel_render.py, render_detail.py, forms.py, fuzzy.py
@@ -183,18 +170,15 @@ anqa/
     delete_confirm.py, env_modals.py, confirm_modal.py, quit_actions.py
     app.tcss
 
-assets/                  # non-Python templates (not coverage source)
-  docker/                # entrypoint, Dockerfiles, share helpers
-
 examples/                # supported reference packs (CI: just examples-check) — not auto-loaded
-schemas/                 # committed JSON Schema (tasks, config)
+schemas/                 # committed JSON Schema (config, control)
 Optional wheel mirror: anqa/_embedded_assets/
 ```
 
-**Data flow:** ``parser`` / ``models`` → ``runs`` | ``session`` →
-``ui``. Prefer domain modules for parse and Docker orchestration.
+**Data flow:** ``parser`` / ``models`` → ``session`` / ``harness`` →
+``ui``. Prefer domain modules for parse.
 UI may schedule **read-only** live reloads (meta / signals / light timeline) on
-worker pools; it must not start eval containers from widgets.
+worker pools.
 
 **Local control plane:** headless ``anqa serve`` is the sole owner of the
 per-user Unix socket (JSON-RPC for Emacs/Neovim/HUD/TUI). Lifecycle: bare
@@ -219,27 +203,24 @@ Methods, list paging, and notifications: [`docs/control.md`](docs/control.md). D
 catalog discovery for control outside ``session/catalog`` +
 ``session/access`` + ``integrations.control`` / ``daemon``.
 
-Static Docker/YAML templates load via :mod:`anqa.assets_loader`.
-
 ### 3.0 Path layout (product contract)
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback, optional ``models.yaml`` |
-| **Work dir** | ``~/.anqa/work`` (CLI path overrides) | leftover traces under ``runs/traces/``, notes cache |
+| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback |
+| **Work dir** | ``~/.anqa/work`` (CLI path overrides) | session trees you open, export cache |
 
-- Catalog = leftover work traces plus every enabled adapter store (Grok
-  ``~/.grok/sessions``). ``harness:<id>`` filters.
-  ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
-  Directory locators use the session path; file or database locators use
-  ``harness:<session_id>``. Contract: ``docs/harness-adapters.md``. New or
-  bumped adapters go through ``.grok/skills/harness-adapter-qa`` and
+- Catalog = every enabled adapter store (Grok ``~/.grok/sessions``).
+  ``harness:<id>`` filters. ``[catalog] ignore`` omits a store;
+  ``[catalog.roots]`` overrides a path. Directory locators use the session
+  path; file or database locators use ``harness:<session_id>``. Contract:
+  ``docs/harness-adapters.md``. New or bumped adapters go through
+  ``.grok/skills/harness-adapter-qa`` and
   ``scripts/check_harness_adapters.py``.
-- CLI path chooses work root / traces root and, for a work root, where new runs
-  go (:func:`anqa.paths.resolve_work_and_traces`). ``~/.grok/sessions`` as
-  path keeps the default work root for launches.
+- CLI path chooses the session tree to open
+  (:func:`anqa.paths.resolve_work_and_traces`).
 - Gitignored trees under a checkout (``/runs/``, ``/config.toml``,
-  ``/_meta_cache.json``) are **local leftovers**, not the install layout.
+  ``/_meta_cache.json``) are local scratch, not the install layout.
 
 ### 3.1 Live sessions (product behaviour)
 
@@ -371,7 +352,6 @@ from scratch. ``just clean`` runs ``cargo clean``.
 Published schemas (also under ``schemas/``; GitHub Pages via
 ``.github/workflows/pages.yml``):
 
-- https://indynull.github.io/anqa/schemas/tasks.schema.json  
 - https://indynull.github.io/anqa/schemas/config.schema.json  
 - https://indynull.github.io/anqa/schemas/control.schema.json  
 
@@ -384,11 +364,11 @@ Behaviour that belongs to a dataclass or cache lives on that type.
 | Module | Allowed | Forbidden |
 |--------|---------|-----------|
 | ``models.py``, ``*/models.py`` | Types, enums, aliases, trivial properties | Standalone strip/regex/I/O helpers |
-| ``parser.py`` | Parse/load + private parse helpers for this API | UI, Docker orchestration |
+| ``parser.py`` | Parse/load + private parse helpers for this API | UI |
 | ``paths.py``, ``constants.py`` | Paths / constants | Business logic, widgets |
 | ``utils.py`` | Pure cross-cutting helpers | Domain models, ``ui`` imports |
-| ``runs/*``, ``session/*`` | Domain for that concern | Textual screens |
-| ``ui/*`` | Screens, widgets, presentation | Docker launch; prefer domain for parse |
+| ``harness/*``, ``session/*`` | Domain for that concern | Textual screens |
+| ``ui/*`` | Screens, widgets, presentation | Prefer domain for parse |
 
 ### 4.4 Imports
 
@@ -421,18 +401,16 @@ Before claiming work done:
 4. UI: no new hardcoded user-facing strings; Fluent + ``t`` / ``U`` / ``join_ui``.
 5. Prefer delete/merge duplicates over parallel JSON/UI helpers.
 
-### 4.5b UI and Docker test drivers
+### 4.5b UI test drivers
 
 - Textual: ``App.run_test()`` + Pilot; wait helpers in
   ``tests/ui/pilot_helpers.py`` (condition-based, not fixed sleeps).
-- Docker: fake ``python_on_whales`` at the orchestrator boundary. No live
-  daemon in default ``just test``.
 - Domain uses ``logging``; only ``cli.py`` may print.
 
 ### 4.5c Test quality
 
 Same bar as product code. Domain-shaped names and paths (no ``smoke`` /
-``extra_cov`` / ``full`` in file names). Fake only Docker / network /
+``extra_cov`` / ``full`` in file names). Fake only network /
 interactive git. Assert outcomes and what the user reads in the UI.
 
 ### 4.6 Size limits (ruff)
@@ -453,7 +431,7 @@ exceeds a limit, split or simplify that unit in the same change — no blanket
 
 ### 4.7 Models
 
-- **Pydantic v2** for serialised models (EvalRun, …).
+- **Pydantic v2** for serialised models (config, control payloads).
 - **Dataclasses** for hot-path trace types (TraceEvent, ToolCall, …).
 - Model modules are types only (§4.3).
 
@@ -527,11 +505,11 @@ list.
 |-------|---------|------|
 | Browser panes | Timeline … Notes | ``[`` ``]`` ``1``–``4`` |
 | Timeline filter | All / Tools / … | ``v`` → Select |
-| Multi-select | Sessions, configs, pickers | ``s`` / ``space`` → green ``*`` col 0 |
+| Multi-select | Sessions, pickers | ``s`` / ``space`` → green ``*`` col 0 |
 
 ### 6.3 Multi-select
 
-``LIST_SELECT`` / ``LIST_SELECT_ALL`` / ``CAPABILITY_PICKER``; marker via
+``LIST_SELECT`` / ``LIST_SELECT_ALL``; marker via
 ``data_table.selection_mark`` / ``set_selection_marker``.
 
 ### 6.3a Destructive delete (``x``)
@@ -595,7 +573,7 @@ Helper: :func:`~anqa.ui.selectable_static.is_extractable_static`.
 
 ### 6.6 Context-sensitive shortcuts
 
-Stable globals: ``?``, ``F5``/``Ctrl+R``, ``J``, ``Esc``, ``Ctrl+P``, ``q``
+Stable globals: ``?``, ``F5``/``Ctrl+R``, ``Esc``, ``Ctrl+P``, ``q``
 (any screen; inputs still receive ``q`` while editing). Screen owns the rest.
 
 ### 6.7 Discovery
@@ -624,7 +602,6 @@ keys on that screen; shared TUI/HUD keys stay aligned (§6.10).
 |-----|--------|
 | ``?`` | Help |
 | ``F5`` / ``Ctrl+R`` | Refresh |
-| ``J`` | Jobs / logs |
 | ``j`` / ``k`` | List down / up (vim) |
 | ``Esc`` | Back / dismiss |
 | ``q`` | Quit |
@@ -685,13 +662,11 @@ against the catalog.
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 
 
-**TUI only** — the HUD is a session palette (notes, timeline). It
-does not open Jobs or export.
+**TUI only** — the HUD is a session palette (notes, timeline).
 
 | Key | Action |
 |-----|--------|
 | ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit anqa** exits the process) |
-| ``J`` | Jobs / logs |
 | ``Ctrl+P`` | Command palette |
 | ``F5`` / ``Ctrl+R`` | Refresh |
 | ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–5**) |
@@ -802,29 +777,12 @@ Enter edits; double-press ``x`` deletes.
 
 ---
 
-## 10. Plugins and capabilities
+## 10. Config and examples
 
-Extend without editing package source: ``~/.anqa/`` + ``anqa gen …``.
+Operator prefs live in ``~/.anqa/config.toml``. Copy packs from
+``examples/`` (config, keys, notes schema, themes). Not auto-loaded.
 
-| Path | Purpose |
-|------|---------|
-| ``~/.anqa/tasks/*.yaml`` | Optional task lists (never auto-loaded) |
-| ``~/.anqa/config.toml`` | Prefs |
-
-```bash
-uv run anqa gen tasks
-```
-
-**``examples/`` is a hard contract** (``just examples-check`` / CI):
-task YAML schemas, sample configs, personas, pack READMEs.
-
-### Plugin concept
-
-Grok Build plugins are persona / run ``plugins`` (marketplace names →
-``plugins-manifest.json`` at launch).
-
-**MCP** and **skills** are separate persona fields. MCP may create a hidden
-companion skill (``use-<server>-mcp``, ``x-anqa: anqa-mcp-companion``).
+**``examples/`` is a hard contract** (``just examples-check`` / CI).
 
 ---
 
@@ -840,17 +798,16 @@ tests/
   test_models.py, test_parser.py, test_paths.py, test_utils.py
   test_event_types.py, test_fs_watch.py, test_job_pools.py, test_session_inflight.py
   test_assets_loader.py
-  capabilities/  cli/  diagnostics/  docker/
-  runs/  session/  ui/  fixtures/
+  cli/  diagnostics/  session/  ui/  fixtures/
 ```
 
 Isolate ``APP_HOME`` in tests so developer ``~/.anqa`` never leaks in.
 
 ### 11.2 Mock boundaries only
 
-- Fake Docker / python-on-whales, network, interactive git, wall-clock when needed.
+- Fake network, interactive git, wall-clock when needed.
 - Do **not** mock internal ``anqa`` modules against each other for coverage.
-- Default suite: **no** live Docker daemon or network ``git clone``.
+- Default suite: **no** live network ``git clone``.
 
 ### 11.3 Style
 
@@ -868,7 +825,7 @@ pragma/omit. Default CI/``just test`` do not fail on coverage percentage.
 1. Domain path and behavioural name?  
 2. External I/O faked at the boundary?  
 3. One conceptual failure reason?  
-4. No Docker daemon / no network?  
+4. No network? 
 5. Asserts real outcomes (not pause-and-pass)?
 
 ### 11.6 What to run locally

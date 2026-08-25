@@ -8,7 +8,6 @@
   ?               This panel
   Ctrl+P          Command palette for this screen
   F5              Refresh (also Ctrl+R)
-  J               Jobs and logs
   q               Quit when no field is focused
 
 [bold]Sessions[/bold]

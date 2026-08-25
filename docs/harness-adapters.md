@@ -6,8 +6,8 @@ control clients use the same `SessionRef` (harness + session id + locator).
 The catalog row carries `harness` and, when the store records it,
 `harnessVersion`.
 
-Grok Build is the shipped adapter. Docker evals, follow-up, Done, fork,
-rewind, and the context meter are capabilities of that store.
+Grok Build is the shipped adapter. Follow-up, Done, rewind, and the
+context meter come from that store.
 
 ## Config
 
@@ -26,9 +26,6 @@ A store that is not in its default place gets a root override:
 [catalog.roots]
 grok = "~/.grok/sessions"
 ```
-
-`H` includes the host catalog. Eval traces under `work/runs/traces` are
-sessions this tool launched and ignore this list.
 
 ## Shipped adapters
 

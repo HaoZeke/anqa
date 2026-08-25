@@ -20,16 +20,15 @@ them. Schemas drift; adapters must tolerate extra keys.
 ## 1. What anqa does today
 
 Anqa inspects coding-agent harness sessions. The shipped adapter is
-Grok Build: session directories, `TraceEvent` / `SessionMeta`, live watch,
-and isolated Docker evals. Operator notes, flags, export, HUD, and the
-Unix control socket use `SessionRef`. Other stores implement the same
-inspect outcomes.
+Grok Build: session directories, `TraceEvent` / `SessionMeta`, live
+watch. Operator notes, export, HUD, and the Unix control socket use
+`SessionRef`. Other stores implement the same inspect outcomes.
 
 ---
 
 ## 2. Anqa feature → Grok artifact inventory
 
-Every operator-visible capability that reads or writes session or eval disk
+Every operator-visible capability that reads or writes session disk
 state. Cite is the anqa module that owns the path.
 
 ### 2.1 Catalog discovery

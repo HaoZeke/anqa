@@ -101,11 +101,9 @@ def test_readme_has_no_html_heading_anchors() -> None:
     assert "<a id" not in HUD_README.read_text(encoding="utf-8")
 
 
-def test_readme_mark_switches_with_github_color_scheme() -> None:
+def test_readme_uses_transparent_lockup() -> None:
     text = README.read_text(encoding="utf-8")
-    light = ROOT / "brand" / "png" / "anqa-mark.png"
-    dark = ROOT / "brand" / "png" / "anqa-mark-reverse.png"
-    assert light.is_file()
-    assert dark.is_file()
-    assert "anqa-mark.png#gh-light-mode-only" in text
-    assert "anqa-mark-reverse.png#gh-dark-mode-only" in text
+    lockup = ROOT / "brand" / "png" / "anqa-lockup-horizontal.png"
+    assert lockup.is_file()
+    assert "anqa-lockup-horizontal.png" in text
+    assert "anqa-mark-reverse.png" not in text

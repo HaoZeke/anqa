@@ -5,8 +5,7 @@ Summonable session palette for anqa. The idle list is **Recent**
 eight. Type `/` to search the whole catalog. Open a session for Overview,
 Turns, Timeline, Diff, and Notes. Follow-up and Done when a session
 is awaiting. Notes use the same schema as the [terminal
-app](../README.md#terminal-app). The palette does not launch evals,
-recipes, or Docker.
+app](../README.md#terminal-app).
 
 It attaches to [`anqa serve`](../docs/control.md) — same socket as the
 [terminal app](../README.md#terminal-app), [Emacs](../README.md#emacs),

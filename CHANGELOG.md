@@ -7,7 +7,7 @@ is tagged. This section is the product as it ships.
 
 First release. Anqa is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. Grok Build is the first shipped
-adapter. It does not launch evals. The catalog is one host list.
+adapter. The catalog is one list of adapter stores.
 
 ### Install
 
@@ -26,9 +26,8 @@ adapter. It does not launch evals. The catalog is one host list.
 
 ### Paths and config
 
-- Config home is `~/.anqa` (`config.toml`, personas, optional `keys.toml`).
-- Work root is `~/.anqa/work` (`runs/traces/`, recipes, Docker
-  contexts, batch results).
+- Config home is `~/.anqa` (`config.toml`, optional `keys.toml`).
+- Work root is `~/.anqa/work` (session trees you open, export cache).
 - `~/.anqa/config.toml` is the only prefs file (terminal app and
   desktop HUD). Default look is `theme = "auto"`: the terminal follows
   the terminal then the desktop; the desktop palette follows the
@@ -39,25 +38,21 @@ adapter. It does not launch evals. The catalog is one host list.
 
 ### Sessions
 
-- Eval sessions are Docker launches under `work/runs/traces`.
-- Host sessions are native stores. Every shipped adapter is listed;
-  `is:host` and `harness:<id>` filter the list. `[catalog] ignore`
-  drops a store; `[catalog.roots]` overrides a non-default path.
+- Every shipped adapter store is listed; `harness:<id>` filters.
+  `[catalog] ignore` drops a store; `[catalog.roots]` overrides a path.
 - Subagent runs stay off the top list; open them from the parent
   (Summary or Timeline Subagents). Esc returns there.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
 - Follow-up (`n`) and Done (`e`) apply while a session is awaiting.
-- Fork (`f`) continues an ended session as a new Docker launch.
-- Re-run (`R`) launches again from the same recipe fields.
 - Every note has a `source`. Extra field keys are stored as sent.
   Report and HUD Notes show the writer badge and the stored fields.
 
 ### Terminal app
 
 - `anqa` / `anqa tui` is the session client: session list,
-  browser, runner, recipes, personas, and export.
+  browser, notes, and export.
 - Browser panes are Timeline, Summary, Diff, and Report.
 - Timeline Filter and Turn stack; Tail follows a live session.
   Opening an event asks for the 50,000-character body.
@@ -68,7 +63,6 @@ adapter. It does not launch evals. The catalog is one host list.
   split. `/` finds path or hunk text.
 - `y` copies the selection or the pane body.
 - `E` writes a session bundle under `~/.anqa/reports/`.
-- Runner launches Docker evals from a recipe (Ctrl+Enter).
 
 ### Desktop HUD
 
@@ -96,11 +90,8 @@ adapter. It does not launch evals. The catalog is one host list.
   incompatible handshake change.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.
 
-### Batch and examples
+### Examples
 
-- `anqa batch` runs headless Docker from task YAML
-  (`examples/tasks/`).
-- `anqa gen` scaffolds task lists under `~/.anqa/`.
 - Supported packs live in `examples/` (not auto-loaded).
 
 ### Development
@@ -109,4 +100,4 @@ adapter. It does not launch evals. The catalog is one host list.
   `just ci`).
 - `just bump 0.1.1` sets every product version declaration and
   promotes this file.
-- `anqa doctor` checks the host (Docker, Grok auth, paths).
+- `anqa doctor` checks Grok auth and paths.
