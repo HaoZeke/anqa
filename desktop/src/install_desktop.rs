@@ -693,7 +693,7 @@ mod tests {
         assert!(body.contains(" --show"));
         assert!(body.contains(&exe.to_string_lossy().to_string()) || body.contains("anqa-hud"));
         assert!(data
-            .join("icons/hicolor/128x128/apps")
+            .join("icons/hicolor/64x64/apps")
             .join(format!("{APP_ID}.png"))
             .is_file());
         assert!(data
