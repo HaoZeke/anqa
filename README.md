@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="brand/png/anqa-mark.png#gh-light-mode-only" alt="anqa" width="400" />
-  <img src="brand/png/anqa-mark-on-dark.png#gh-dark-mode-only" alt="anqa" width="400" />
+  <img src="brand/png/anqa-mark.png#gh-light-mode-only" alt="anqa" height="128" />
+  <img src="brand/png/anqa-mark-on-dark.png#gh-dark-mode-only" alt="anqa" height="128" />
 </p>
 
 # anqa
