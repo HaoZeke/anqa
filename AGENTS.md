@@ -5,7 +5,7 @@ inspects coding-agent harness sessions (Python 3.13+). Similar in spirit to
 [posting](https://github.com/darrenburns/posting),
 [harlequin](https://github.com/tconbeer/harlequin), and
 [toolong](https://github.com/Textualize/toolong).
-Grok Build is the shipped adapter.
+Each coding-agent store is a harness adapter (``docs/harness-adapters.md``).
 
 Operators read traces and paste prompts, replies, and tool output into
 notes. Every body that is useful to quote must be selectable on both
@@ -210,12 +210,11 @@ catalog discovery for control outside ``session/catalog`` +
 | **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback |
 | **Work dir** | ``~/.anqa/work`` (CLI path overrides) | session trees you open, export cache |
 
-- Catalog = every enabled adapter store (Grok ``~/.grok/sessions``).
-  ``harness:<id>`` filters. ``[catalog] ignore`` omits a store;
-  ``[catalog.roots]`` overrides a path. Directory locators use the session
-  path; file or database locators use ``harness:<session_id>``. Contract:
-  ``docs/harness-adapters.md``. New or bumped adapters go through
-  ``.grok/skills/harness-adapter-qa`` and
+- Catalog = every enabled adapter store. ``harness:<id>`` filters.
+  ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
+  Directory locators use the session path; file or database locators use
+  ``harness:<session_id>``. Contract: ``docs/harness-adapters.md``. New or
+  bumped adapters go through ``.grok/skills/harness-adapter-qa`` and
   ``scripts/check_harness_adapters.py``.
 - CLI path chooses the session tree to open
   (:func:`anqa.paths.resolve_work_and_traces`).

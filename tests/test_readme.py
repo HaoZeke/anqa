@@ -37,7 +37,7 @@ def test_readme_opens_with_what_anqa_does() -> None:
     text = README.read_text(encoding="utf-8")
     head = "\n".join(text.splitlines()[:20])
     assert "review" in head
-    assert "Grok Build" in head
+    assert "harness" in head.lower()
     assert "it is not the Grok" not in head.lower()
 
 

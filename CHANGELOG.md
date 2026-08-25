@@ -6,8 +6,8 @@ is tagged. This section is the product as it ships.
 ## Unreleased
 
 First release. Anqa is a session review tool: timeline, notes,
-workspace diffs, and a desktop palette. Grok Build is the first shipped
-adapter. The catalog is one list of adapter stores.
+workspace diffs, and a desktop palette. The catalog lists every shipped
+harness store. Grok Build (`grok`) is registered today.
 
 ### Install
 

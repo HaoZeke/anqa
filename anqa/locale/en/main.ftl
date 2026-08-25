@@ -719,7 +719,7 @@ search = Search
 
 search-events-placeholder = Search…  is:tool  tool:read_file  turn:2
 
-search-sessions-placeholder = Search…  is:host  harness:grok  has:goal  has:subagent  errors:>=5
+search-sessions-placeholder = Search…  harness:grok  has:goal  has:subagent  errors:>=5
 
 search-mcp-placeholder = search MCP…
 

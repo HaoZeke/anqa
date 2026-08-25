@@ -12,9 +12,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **anqa** is a session review tool: timeline, notes, workspace diffs,
-and a summonable desktop palette.
-[Grok Build](https://docs.x.ai/build/overview) is the first shipped
-store.
+and a summonable desktop palette. It reads [supported
+harnesses](#supported-harnesses) from their native stores.
 
 Four clients talk to [`anqa serve`](#control).
 
@@ -112,14 +111,34 @@ anqa keys --occupancy  # taken chords per scope
 anqa keys --check      # exit 1 on overlay errors
 ```
 
+## Supported harnesses
+
+A harness is a coding-agent product whose sessions anqa can list and
+open. Each one is an adapter under `anqa/harness/` with a stable id
+(`grok`, …). Shipping an adapter means the catalog, timeline, notes,
+desktop HUD, and control clients all treat that store the same way:
+discover sessions, load list meta and a timeline, watch the store for
+changes, and filter with `harness:<id>`.
+
+What you can *do* in a session (follow-up, Done, rewind, context meter)
+comes from files that store writes. An adapter never invents those.
+
+| Id | Product | Store | Catalog path |
+|----|---------|--------|--------------|
+| `grok` | [Grok Build](https://docs.x.ai/build/overview) | `~/.grok/sessions/<cwd>/<id>/` | directory |
+
+Directory stores keep notes in the session tree. File or database
+stores use `~/.anqa/notes/<harness>/<session_id>/`.
+
+The catalog lists every shipped adapter. `[catalog] ignore` drops a
+store. `[catalog.roots]` overrides a path. Details:
+[`docs/harness-adapters.md`](docs/harness-adapters.md).
+
 ## Catalog
 
-The list is every enabled adapter store. Filter with `harness:grok`. `[catalog] ignore` drops a store.
-`[catalog.roots]` overrides a path. See `docs/harness-adapters.md`.
-`anqa -P ~/.grok/sessions` browses that tree. Directory stores keep notes
-in the session tree; file or database stores use
-`~/.anqa/notes/<harness>/<session_id>/`. Every note has a `source` (who
-wrote it). Control `notes/upsert` accepts any field bag plus that
+The list is every enabled adapter store. Filter with `harness:<id>`.
+`anqa -P ~/.grok/sessions` opens that tree. Every note has a `source`
+(who wrote it). Control `notes/upsert` accepts any field bag plus that
 source. A new note uses `~/.anqa/notes_schema.toml`. Editing a note
 also shows extra stored fields as free-text. Notes, the edit form,
 and HUD Notes show a source badge plus the stored fields. Subagent runs stay off the top
