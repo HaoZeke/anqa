@@ -932,6 +932,13 @@ ContentSwitcher {
     padding: 0;
 }
 
+#detail-image {
+    width: 100%;
+    height: auto;
+    max-height: 24;
+    margin: 1 0 0 0;
+}
+
 /* ── DataTable — frame (theme tokens) ─ */
 
 DataTable {

@@ -7,8 +7,10 @@ from pathlib import Path
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widgets import DataTable, Static
+from textual_image.widget import Image
 
 from ...models import TraceEvent
 from ...session.jobs import ScheduleTask
@@ -78,6 +80,8 @@ class DetailView(VerticalScroll):
                 with Vertical(id=f"detail-sec-{sid}", classes="panel-card"):
                     yield Static("", classes="panel-card-title", id=f"detail-title-{sid}")
                     yield SelectableStatic("", id=body_id, classes="detail-section-body")
+                    if sid == "output":
+                        yield Image(id="detail-image")
         yield ListDataTable(id="workflow-children-table")
 
     def show_event(
@@ -138,6 +142,8 @@ class DetailView(VerticalScroll):
             sec = by_sid.get(sid)
             if sec is None:
                 card.display = False
+                if sid == "output":
+                    self._sync_detail_image(None)
                 continue
             card.display = True
             if sec.title:
@@ -148,6 +154,23 @@ class DetailView(VerticalScroll):
                 title.display = False
             if not self._body_has_selection(body):
                 set_static_renderable(body, sec.body)
+            if sid == "output":
+                self._sync_detail_image(sec)
+
+    def _sync_detail_image(self, sec: DetailSection | None) -> None:
+        """Show the output picture when the tool result file is on disk."""
+        try:
+            widget = self.query_one("#detail-image", Image)
+        except NoMatches:
+            return
+        raw = (sec.image_path if sec is not None else "").strip()
+        path = Path(raw) if raw else None
+        if path is not None and path.is_file():
+            widget.image = path
+            widget.display = True
+            return
+        widget.image = None
+        widget.display = False
 
     def _body_has_selection(self, widget: object) -> bool:
         sels = getattr(self.screen, "selections", None)
@@ -208,6 +231,7 @@ class DetailView(VerticalScroll):
                 self.query_one(f"#detail-sec-{sid}", Vertical).display = False
             except Exception:
                 pass
+        self._sync_detail_image(None)
         table = self.query_one("#workflow-children-table", DataTable)
         style_data_table(table)
         table.add_columns(t("ui-agents"), t("col-status"))

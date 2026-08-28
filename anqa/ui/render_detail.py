@@ -65,6 +65,7 @@ class DetailSection:
     sid: str
     title: str
     body: RenderableType
+    image_path: str = ""
 
 
 def _stack(parts: list) -> RenderableType:
@@ -649,12 +650,14 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
 
 
 def _render_image_result(out: str) -> list:
-    """Path + message only (no pixel render in the TUI)."""
+    """Path + message. Pixels mount on DetailView when the file exists."""
     path = image_result_path(out)
     message = image_result_message(out)
     parts: list = [Rule(t("tool-output-rule", n=len(out or "")), style="bright_black")]
     if path:
         parts.append(Text(t("tool-image-path", path=path), style="cyan"))
+        if not Path(path).is_file():
+            parts.append(Text(t("tool-image-missing"), style="dim"))
     if message:
         parts.append(Text(message))
     if not path and not message:
@@ -1187,7 +1190,10 @@ def _tool_output_card(out: str, tname: str, path_hint: str, *, truncate: bool) -
                 title = str(raw)
             continue
         body.append(part)
-    return DetailSection("output", title, _stack(body))
+    image_path = ""
+    if tname in ("image_gen", "image_edit"):
+        image_path = image_result_path(out)
+    return DetailSection("output", title, _stack(body), image_path=image_path)
 
 
 def _tool_event_sections(

@@ -1379,6 +1379,7 @@ tool-no-input = (no input)
 tool-binary-output = (binary / control-only output)
 tool-empty-output = (empty)
 tool-image-path = Saved image: { $path }
+tool-image-missing = Image file is not on disk.
 notify-scanning = Scanning { $path }…
 notify-no-sessions = No sessions found in { $path }
 notify-control-list-failed = Control catalog failed: { $err }
