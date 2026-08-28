@@ -136,7 +136,7 @@ async def test_detail_view_shows_image_file_for_image_gen(tmp_path: Path) -> Non
     async with app.run_test():
         dv = app.query_one("#detail", DetailView)
         dv.show_event(_image_event(png))
-        img = dv.query_one("#detail-image")
+        img = dv.query_one("#detail-images Image")
         assert img.display is True
         assert str(png) in dv.visible_plain()
         yanked = dv.get_plain_text()
@@ -186,9 +186,24 @@ async def test_detail_view_shows_pasted_user_image() -> None:
     async with app.run_test():
         dv = app.query_one("#detail", DetailView)
         dv.show_event(ev)
-        img = dv.query_one("#detail-image")
+        img = dv.query_one("#detail-images Image")
         assert img.display is True
         plain = dv.visible_plain()
         assert "was this broken?" in plain
         assert "iVBOR" not in plain
         assert "sixel" not in dv.get_plain_text().lower()
+
+
+@pytest.mark.asyncio
+async def test_detail_view_image_resync_keeps_one_widget(tmp_path: Path) -> None:
+    png = tmp_path / "out.png"
+    png.write_bytes(_PNG)
+    other = tmp_path / "two.png"
+    other.write_bytes(_PNG)
+    app = _DetailApp()
+    async with app.run_test():
+        dv = app.query_one("#detail", DetailView)
+        dv.show_event(_image_event(png))
+        dv.show_event(_image_event(other))
+        stills = list(dv.query("#detail-images Image"))
+        assert len(stills) == 1

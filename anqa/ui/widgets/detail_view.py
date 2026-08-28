@@ -165,22 +165,29 @@ class DetailView(VerticalScroll):
             box = self.query_one("#detail-images", Vertical)
         except NoMatches:
             return
-        box.remove_children()
         raw_paths = list(sec.image_paths) if sec is not None else []
         if not raw_paths and sec is not None and sec.image_path.strip():
             raw_paths = [sec.image_path.strip()]
+        sources: list[Path | BytesIO] = []
         if sec is not None and sec.image_bytes and not raw_paths:
-            box.mount(Image(BytesIO(sec.image_bytes), id="detail-image", classes="detail-still"))
-            box.display = True
-            return
-        existing = [Path(item) for item in raw_paths if Path(item).is_file()]
-        if not existing:
+            sources.append(BytesIO(sec.image_bytes))
+        else:
+            sources.extend(Path(item) for item in raw_paths if Path(item).is_file())
+        kids = list(box.query(Image))
+        if not sources:
+            for kid in kids:
+                kid.remove()
             box.display = False
             return
         box.display = True
-        for i, path in enumerate(existing):
-            wid = "detail-image" if i == 0 else f"detail-image-{i}"
-            box.mount(Image(path, id=wid, classes="detail-still"))
+        for i, source in enumerate(sources):
+            if i < len(kids):
+                kids[i].image = source
+                kids[i].display = True
+            else:
+                box.mount(Image(source, classes="detail-still"))
+        for extra in kids[len(sources) :]:
+            extra.remove()
 
     def _body_has_selection(self, widget: object) -> bool:
         sels = getattr(self.screen, "selections", None)
