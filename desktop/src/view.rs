@@ -10,19 +10,19 @@ use icedtea::variant::Variant;
 use crate::app::{ExtractKey, Hud, Message};
 use crate::brand;
 use crate::format::{
-    body_paint_for, capped_display, display_tool_output, event_brand_role, event_is_monitor,
-    fenced_code_block, fmt_duration, format_note_time, format_tool_display, human_event_type_label,
-    image_result_path, is_chat_message, is_tool_identity, job_command, job_description,
-    job_event_id, job_event_label, job_exit_code, job_inspect_blocks, job_inspect_log,
-    job_list_preview, job_output_path, job_status, list_event_detail, list_status_label,
-    looks_like_markdown, note_display_fields, origin_label, overview_fields, overview_row_status,
-    overview_subagent_rows, overview_task_rows, overview_workflow_rows, path_hint_from_raw,
-    remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks, schedule_last_fire,
-    session_duration_chip, status_tone, subagent_inspect_blocks, subagent_list_preview,
-    syntax_for_fence, syntax_for_tool_field, syntax_for_tool_output, timeline_body_text,
-    timeline_count_caption, timeline_query_hit, tool_brand_role, tool_fields_from_raw,
-    workflow_for_event, workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole,
-    ToolField,
+    body_paint_for, capped_display, display_message_text, display_tool_output, event_brand_role,
+    event_is_monitor, fenced_code_block, fmt_duration, format_note_time, format_tool_display,
+    human_event_type_label, image_result_path, is_chat_message, is_tool_identity, job_command,
+    job_description, job_event_id, job_event_label, job_exit_code, job_inspect_blocks,
+    job_inspect_log, job_list_preview, job_output_path, job_status, list_event_detail,
+    list_status_label, looks_like_markdown, note_display_fields, origin_label, overview_fields,
+    overview_row_status, overview_subagent_rows, overview_task_rows, overview_workflow_rows,
+    path_hint_from_raw, remap_turn_outcome_paren, sanitize_console_text, schedule_inspect_blocks,
+    schedule_last_fire, session_duration_chip, status_tone, stills_from_session,
+    subagent_inspect_blocks, subagent_list_preview, syntax_for_fence, syntax_for_tool_field,
+    syntax_for_tool_output, timeline_body_text, timeline_count_caption, timeline_query_hit,
+    tool_brand_role, tool_fields_from_raw, workflow_for_event, workflow_name_from_raw,
+    workflow_status_word, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -223,15 +223,18 @@ fn session_state_from_meta(
     )
 }
 
-fn still_paths(ev: &TimelineEvent) -> Vec<String> {
+fn still_paths(ev: &TimelineEvent, session_dir: &str) -> Vec<String> {
     if !ev.image_paths.is_empty() {
         return ev.image_paths.clone();
     }
-    if ev.image_path.is_empty() {
-        Vec::new()
-    } else {
-        vec![ev.image_path.clone()]
+    if !ev.image_path.is_empty() {
+        return vec![ev.image_path.clone()];
     }
+    let mut found = stills_from_session(session_dir, &ev.content);
+    if found.is_empty() {
+        found = stills_from_session(session_dir, &ev.preview);
+    }
+    found
 }
 
 fn still_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
@@ -2818,7 +2821,9 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     let preview = ev.preview.clone();
     let content = ev.content.clone();
     let raw_body = timeline_body_text(&preview, &content, selected, 240);
-    let body = sanitize_console_text(&display_tool_output(&raw_body, &tool));
+    let body = display_message_text(&sanitize_console_text(&display_tool_output(
+        &raw_body, &tool,
+    )));
     let tok = hud.tokens();
     let field_id = ExtractKey::Event(ev.index).id();
     if !selected {
@@ -2893,7 +2898,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             result.tool_name.as_str()
         };
         let out_body = sanitize_console_text(&display_tool_output(&result.content, out_tool));
-        let mut imgs = still_paths(result);
+        let mut imgs = still_paths(result, &hud.session_path());
         if imgs.is_empty() {
             let from_content = image_result_path(&result.content);
             if !from_content.is_empty() {
@@ -2942,7 +2947,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             &field_id,
             "",
         ));
-        for img in still_paths(ev) {
+        for img in still_paths(ev, &hud.session_path()) {
             col = col.push(still_image(&img, hud.tokens()));
         }
     }
@@ -3400,10 +3405,10 @@ mod tests {
     fn still_paths_prefers_image_paths_then_image_path() {
         let mut ev = TimelineEvent::default();
         ev.image_path = "/tmp/a.png".into();
-        assert_eq!(still_paths(&ev), vec!["/tmp/a.png".to_string()]);
+        assert_eq!(still_paths(&ev, ""), vec!["/tmp/a.png".to_string()]);
         ev.image_paths = vec!["/tmp/b.png".into(), "/tmp/c.png".into()];
         assert_eq!(
-            still_paths(&ev),
+            still_paths(&ev, ""),
             vec!["/tmp/b.png".to_string(), "/tmp/c.png".to_string()]
         );
     }

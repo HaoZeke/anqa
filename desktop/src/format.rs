@@ -2379,6 +2379,82 @@ pub fn image_result_path(content: &str) -> String {
         .to_string()
 }
 
+fn image_mark() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\s*\[Image #\d+\]").expect("image mark"))
+}
+
+fn md_still_link() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r"\[(?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp)\]\((?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp)\)",
+        )
+        .expect("md still")
+    })
+}
+
+fn extra_spaces() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"[ \t]{2,}").expect("spaces"))
+}
+
+fn extra_newlines() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\n{3,}").expect("newlines"))
+}
+
+fn bare_still_line() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?m)^\s*(?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp)\s*$")
+            .expect("bare still")
+    })
+}
+
+fn still_ref() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)(?:^|[^A-Za-z0-9_./])((?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp))")
+            .expect("still ref")
+    })
+}
+
+/// Operator-facing message text without paste tokens or still-file links.
+pub fn display_message_text(text: &str) -> String {
+    let mut cleaned = image_mark().replace_all(text, "").into_owned();
+    cleaned = md_still_link().replace_all(&cleaned, "").into_owned();
+    cleaned = bare_still_line().replace_all(&cleaned, "").into_owned();
+    let cleaned = extra_spaces().replace_all(&cleaned, " ");
+    extra_newlines()
+        .replace_all(&cleaned, "\n\n")
+        .trim()
+        .to_string()
+}
+
+/// Session stills cited in *text* (`images/1.jpg`) that exist on disk.
+pub fn stills_from_session(session_dir: &str, text: &str) -> Vec<String> {
+    if session_dir.trim().is_empty() {
+        return Vec::new();
+    }
+    let root = Path::new(session_dir);
+    let mut out = Vec::new();
+    for cap in still_ref().captures_iter(text) {
+        let Some(rel) = cap.get(1) else {
+            continue;
+        };
+        let path = root.join(rel.as_str());
+        if !path.is_file() {
+            continue;
+        }
+        let key = path.to_string_lossy().into_owned();
+        if !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
+}
+
 fn json_str_field(v: &Value, key: &str) -> String {
     match v.get(key) {
         Some(Value::String(s)) => s.clone(),
@@ -3513,6 +3589,35 @@ mod tests {
         assert_eq!(syntax_for_fence("python"), "py");
         assert_eq!(syntax_for_fence(""), "txt");
         assert_eq!(syntax_for_fence("rs"), "rs");
+    }
+
+    #[test]
+    fn display_message_text_drops_still_links_and_placeholders() {
+        assert_eq!(
+            display_message_text("make a copy of this [Image #1]"),
+            "make a copy of this"
+        );
+        let body = "Two takes:\n\n**HUD**\n\n[images/2.jpg](images/2.jpg)\n\n**CRT**\n\n[images/1.jpg](images/1.jpg)\n\nMore?";
+        let shown = display_message_text(body);
+        assert!(!shown.contains("images/1.jpg"));
+        assert!(!shown.contains("images/2.jpg"));
+        assert!(shown.contains("HUD"));
+        assert!(shown.contains("More?"));
+    }
+
+    #[test]
+    fn stills_from_session_resolves_images_dir() {
+        let root = std::env::temp_dir().join("anqa-hud-stills");
+        let dir = root.join("images");
+        let _ = std::fs::create_dir_all(&dir);
+        let one = dir.join("1.jpg");
+        std::fs::write(&one, b"px").expect("still");
+        let found = stills_from_session(
+            root.to_str().expect("utf8"),
+            "see [images/1.jpg](images/1.jpg) please",
+        );
+        assert_eq!(found, vec![one.to_string_lossy().into_owned()]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
