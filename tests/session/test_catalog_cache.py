@@ -44,7 +44,7 @@ def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypa
         return real(*args, **kwargs)
 
     monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     done: dict[str, object] = {}
 
     def call() -> None:
@@ -75,7 +75,7 @@ def test_catalog_rebuild_invokes_on_rebuilt(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     _write_sess(traces, "one", "One")
     hits: list[int] = []
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache._on_rebuilt = lambda: hits.append(1)
     rows = cache.get(force=True)
     assert len(rows) == 1
@@ -88,7 +88,7 @@ def test_catalog_rebuild_skips_on_rebuilt_when_ids_unchanged(tmp_path: Path) -> 
     traces = work / "runs" / "traces"
     _write_sess(traces, "one", "One")
     hits: list[int] = []
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache._on_rebuilt = lambda: hits.append(1)
     cache.get(force=True)
     cache.get(force=True)
@@ -100,7 +100,7 @@ def test_catalog_cache_second_get_is_cached(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     for i in range(12):
         _write_sess(traces, f"s{i:03d}", f"Title {i}")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=60.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=60.0)
     t0 = time.perf_counter()
     a = cache.get(force=True)
     cold = time.perf_counter() - t0
@@ -117,7 +117,7 @@ def test_catalog_cache_force_rebuilds(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     assert len(cache.get(force=True)) == 1
     _write_sess(traces, "two", "Two")
     # Within TTL without force may still see fingerprint change (entry count).
@@ -130,7 +130,7 @@ def test_catalog_cache_single_flight(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     for i in range(8):
         _write_sess(traces, f"x{i}", f"X{i}")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=60.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=60.0)
     results: list[int] = []
     barrier = threading.Barrier(4)
 
@@ -154,7 +154,7 @@ def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
     _write_sess(traces, "two", "Two")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     (one / "summary.json").write_text(
         json.dumps({"info": {"id": "one"}, "generated_title": "One live"}),
@@ -177,7 +177,7 @@ def test_open_journal_second_apply_reads_from_offset(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     loop = asyncio.new_event_loop()
 
@@ -208,7 +208,7 @@ def test_apply_fs_catalog_events_append_marks_list_unchanged(tmp_path: Path) -> 
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     (one / "updates.jsonl").write_text("{}\n{}\n", encoding="utf-8")
     _sessions, _notes, changed = apply_fs_catalog_events(
@@ -228,7 +228,7 @@ def test_apply_fs_catalog_events_refresh_error_marks_list_changed(
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     (one / "summary.json").write_text(
         json.dumps({"info": {"id": "one"}, "generated_title": "One live"}),
@@ -263,7 +263,7 @@ def test_catalog_cache_refresh_rows_updates_one_status(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
     _write_sess(traces, "two", "Two")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
     assert "one" in by_id
@@ -288,7 +288,7 @@ def test_refresh_rows_does_not_list_subagent_sibling(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     parent = _write_sess(traces, "parent", "Parent")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent"}
     child = _write_sess(traces, "child", "Adversarial verifier Grok Build harness", kind="subagent")
     (parent / "subagents" / "child").mkdir(parents=True)
@@ -301,7 +301,7 @@ def test_refresh_rows_does_not_list_child_id_mirror(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     parent = _write_sess(traces, "parent", "Parent")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     (parent / "subagents" / "child").mkdir(parents=True)
     child = _write_sess(traces, "child", "Adversarial verifier")
@@ -315,7 +315,7 @@ def test_refresh_rows_drops_cached_row_after_subagent_kind(tmp_path: Path) -> No
     traces = work / "runs" / "traces"
     _write_sess(traces, "parent", "Parent")
     child = _write_sess(traces, "child", "Adversarial verifier")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent", "child"}
     (child / "summary.json").write_text(
         json.dumps(
@@ -337,7 +337,7 @@ def test_drop_subagent_rows_clears_cached_children(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     _write_sess(traces, "parent", "Parent")
     child = _write_sess(traces, "child", "Adversarial verifier")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     assert {str(r["sessionId"]) for r in cache.get(force=True)} == {"parent", "child"}
     (child / "summary.json").write_text(
         json.dumps(
@@ -372,9 +372,7 @@ def test_refresh_rows_host_reads_events_when_tail_has_no_close(tmp_path: Path) -
         json.dumps({"ts": 1, "type": "turn_started", "turn_number": 0}) + "\n",
         encoding="utf-8",
     )
-    cache = SessionCatalogCache(
-        work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
-    )
+    cache = SessionCatalogCache(traces_path=traces, include_host=True, host_root=host, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
     assert by_id["live-host"]["status"] == "running"
@@ -422,9 +420,7 @@ def test_refresh_rows_host_running_clears_when_stale(tmp_path: Path) -> None:
     )
     (bucket / "signals.json").write_text("{}", encoding="utf-8")
     (bucket / "updates.jsonl").write_text("{}\n", encoding="utf-8")
-    cache = SessionCatalogCache(
-        work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
-    )
+    cache = SessionCatalogCache(traces_path=traces, include_host=True, host_root=host, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
     assert by_id["was-live"]["status"] == "running"
@@ -459,9 +455,7 @@ def test_refresh_rows_host_keeps_complete_when_tail_loses_outcome(tmp_path: Path
         + "\n",
         encoding="utf-8",
     )
-    cache = SessionCatalogCache(
-        work, traces_path=traces, include_host=True, host_root=host, ttl=3600.0
-    )
+    cache = SessionCatalogCache(traces_path=traces, include_host=True, host_root=host, ttl=3600.0)
     first = cache.get(force=True)
     by_id = {str(r["sessionId"]): r for r in first}
     assert by_id["done-host"]["status"] == "complete"
@@ -494,7 +488,7 @@ def test_apply_fs_catalog_events_noise_does_not_open_events_or_bump(
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     rev = cache.revision
     events = one / "events.jsonl"
@@ -533,7 +527,7 @@ def test_apply_fs_workflow_and_job_files_leave_list_still(tmp_path: Path) -> Non
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     rev = cache.revision
     state = one / "workflows" / "wf_1" / "state.json"
@@ -558,7 +552,7 @@ def test_refresh_rows_append_does_not_bump_revision(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     rev = cache.revision
     (one / "updates.jsonl").write_text("{}\n{}\n", encoding="utf-8")

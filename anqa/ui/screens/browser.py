@@ -492,8 +492,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _session_is_pending(self) -> bool:
         """True only for interactive multi-turn follow-up / Done UI.
 
-        Single-turn evals still create a turn gate with ``state=running`` and never
-        set ``awaiting_follow_up``; do not treat that as a follow-up bar.
+        A leftover work tree may still create a turn gate with ``state=running``
+        and never set ``awaiting_follow_up``; do not treat that as a follow-up bar.
         Stale / finalized gates never show the bar (see settle_stale_session_gates).
 
         Uses a short-lived cache so Textual ``check_action`` (every key / footer

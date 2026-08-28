@@ -116,7 +116,6 @@ class SessionUsageStats:
     skills_referenced: list[str] = field(default_factory=list)  # engaged ids
     plugins_configured: list[str] = field(default_factory=list)
     plugins_used: list[str] = field(default_factory=list)
-    persona_id: str = ""
     source_notes: list[str] = field(default_factory=list)
 
     @property
@@ -162,7 +161,7 @@ def _skills_from_skills_dir(session_dir: Path) -> list[str]:
     if parent is None:
         return []
     names: list[str] = []
-    for dirname in ("anqa-skills", "groket-skills"):
+    for dirname in ("anqa-skills",):
         skills_dir = parent / dirname
         if not skills_dir.is_dir():
             continue
@@ -219,7 +218,6 @@ def _plugins_from_toml(session_dir: Path) -> list[str]:
     if parent:
         candidates.append(parent / CONFIG_FILENAME)
         candidates.append(parent / "anqa-config.toml")
-        candidates.append(parent / "groket-config.toml")
     candidates.append(session_dir / CONFIG_FILENAME)
     for cfg_path in candidates:
         if not cfg_path.is_file():
@@ -250,7 +248,6 @@ def _parse_config_toml_caps(session_dir: Path) -> tuple[list[str], list[str]]:
     if parent:
         candidates.append(parent / CONFIG_FILENAME)
         candidates.append(parent / "anqa-config.toml")
-        candidates.append(parent / "groket-config.toml")
     candidates.append(session_dir / CONFIG_FILENAME)
     for cfg_path in candidates:
         if not cfg_path.is_file():
@@ -416,7 +413,6 @@ def collect_session_usage(
     durs = durations or {}
 
     manifest = _load_run_manifest(sd)
-    stats.persona_id = str(manifest.get("persona_id") or "").strip()
 
     for key in ("run_skills", "skills"):
         for s in json_as_list(manifest.get(key)):
@@ -779,9 +775,6 @@ def format_usage_plain(usage: SessionUsageStats) -> str:
     def _sec(title: str) -> None:
         lines.extend(["", rule, f" {title} ", rule, ""])
 
-    if usage.persona_id:
-        lines += ["", f"PERSONA      {usage.persona_id}"]
-
     _sec("HOST TOOLS")
     if usage.host_tools:
         for row in usage.host_tools:
@@ -844,8 +837,6 @@ def format_usage_plain(usage: SessionUsageStats) -> str:
 def format_usage_markdown(usage: SessionUsageStats) -> str:
     """Markdown sections for the Summary tab."""
     lines: list[str] = []
-    if usage.persona_id:
-        lines += ["", f"- **Persona:** `{usage.persona_id}`"]
     lines += _fmt_host_tools_md(usage)
     lines += _fmt_mcp_md(usage)
     lines += _fmt_skills_md(usage)
@@ -858,9 +849,6 @@ def format_usage_stats_text(usage: SessionUsageStats, *, fmt_dur=None) -> str:
     """Plain-text usage block (capabilities + MCP/skills; host tools stay in the table)."""
     _ = fmt_dur
     out: list[str] = []
-
-    if usage.persona_id:
-        out.append(f"  Persona:   {usage.persona_id}")
 
     # Compact note under the flat tool table
     if usage.mcp_bridge_calls:

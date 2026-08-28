@@ -108,8 +108,7 @@
               "ending",
               "complete",
               "cancelled",
-              "host",
-              "eval"
+              "host"
             ],
             "compare": false
           },
@@ -409,11 +408,9 @@
       "required": [
         "initialize",
         "session/list",
-        "session/get",
         "session/overview",
         "session/timeline",
         "session/turns",
-        "session/usage",
         "session/diff",
         "session/open",
         "session/render",
@@ -526,36 +523,6 @@
                   "type": "integer"
                 }
               }
-            }
-          },
-          "required": [
-            "params"
-          ]
-        },
-        "session/get": {
-          "description": "Session meta (status, context, counts, notes revision)",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "params": {
-              "title": "session/get params",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "session": {
-                  "description": "Session id or path.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "session"
-              ]
-            },
-            "result": {
-              "title": "session/get result",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {}
             }
           },
           "required": [
@@ -700,36 +667,6 @@
             },
             "result": {
               "title": "session/turns result",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {}
-            }
-          },
-          "required": [
-            "params"
-          ]
-        },
-        "session/usage": {
-          "description": "Tool / MCP / skill usage",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "params": {
-              "title": "session/usage params",
-              "type": "object",
-              "additionalProperties": true,
-              "properties": {
-                "session": {
-                  "description": "Session id or path.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "session"
-              ]
-            },
-            "result": {
-              "title": "session/usage result",
               "type": "object",
               "additionalProperties": true,
               "properties": {}

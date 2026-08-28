@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
-from pathlib import Path
 
 from rich.text import Text
 from textual import on, work
@@ -23,13 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 class SelfTestModal(QuitActions, ModalScreen[bool]):
-    """Run Docker / Grok auth / path checks."""
+    """Run Grok store / HUD seat checks."""
 
     BINDINGS = list(FORM_SAVE)
 
-    def __init__(self, work_dir: Path | None = None) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._work_dir = Path(work_dir).expanduser() if work_dir else None
 
     def compose(self) -> ComposeResult:
         with Container(id="self-test-modal"):
@@ -46,10 +44,8 @@ class SelfTestModal(QuitActions, ModalScreen[bool]):
     def _run_checks(self) -> None:
         from ...diagnostics import run_self_test
 
-        wd = self._work_dir
-        if wd is None:
-            wd = getattr(self.app, "work_dir", None)
-        report = run_self_test(work_dir=wd)
+        catalog = getattr(self.app, "traces_path", None)
+        report = run_self_test(catalog_root=catalog)
         from ..threads import call_ui
 
         call_ui(self.app, self._apply_report, report)

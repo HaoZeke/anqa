@@ -60,11 +60,9 @@ The owner accepts either and replies in the same frame the client used.
 |--------|------|
 | `initialize` | Handshake (owner reports `protocolVersion` `1.0.0`) |
 | `session/list` | Catalog page (see below) |
-| `session/get` | Session meta (status, context, counts, notes revision) |
 | `session/overview` | Meta + turns + notes + event/tool counts (`stats`). Turns include `subagentRuns`. Also `backgroundJobs`, `schedules`, and `workflows` (no log or script bodies). |
 | `session/timeline` | Paged events (`offset`, `limit`, `type`, `kind`, `query`, `promptIndex`, `aroundIndex`, `atIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats. |
 | `session/turns` | Turn segments plus `subagentRuns` (turn-scoped child runs; `openable` + `childPath`). |
-| `session/usage` | Tool / MCP / skill usage |
 | `session/diff` | Rewind snapshots or approximate `search_replace` edits (files + hunks + prompt/assistant text) |
 | `session/open` | Resolve a session and notify `session/selected` |
 | `session/render` | Project a document (`format`: below) |
@@ -81,7 +79,7 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 
 | Token | Matches |
 |-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` `is:eval` | Status or origin. |
+| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:host` | Status or origin. |
 | `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:compaction` `has:doom` `has:git` `has:context` | Presence (has:plan). Counts use the written pair (plans:>=2). |
 | `has:workflow` `workflows:>=N` `has:note` `notes:>=N` `has:goal` `goals:>=N` `has:plan` `plans:>=N` `has:subagent` `subagents:>=N` `has:task` `tasks:>=N` `has:job` `jobs:>=N` `has:schedule` `schedules:>=N` `has:error` `errors:>=N` `has:failure` `failures:>=N` `has:diff` `diff:>=N` `has:compaction` `compaction:>=N` `has:doom` `doom:>=N` | Presence and count (written pairs). |
 | `in:` | Directory the session was run in. |

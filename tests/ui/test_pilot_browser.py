@@ -130,7 +130,7 @@ def _write_multi_turn_session(traces_root: Path, *, session_id: str = "browser-p
 
 
 def _host_app(work: Path, traces: Path) -> AnqaApp:
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     return app
 
 

@@ -6,7 +6,6 @@ Default profile ``archive-full`` writes under ``~/.anqa/reports/`` as
 Selected units (only written when the data exists)::
 
     grok-trace.tar.gz   # exact ``grok trace --local`` (CLI only; no fallback)
-    run/                # eval volume (recipe, launch, prompt, turn gate, …)
     notes/              # operator_notes.toml from the notes store
     README.txt
     manifest.json
@@ -32,7 +31,7 @@ from shutil import which
 from ..models import JsonObject, as_json_object
 from ..notes import collect_notes_for_export
 from ..parser import parse_timeline
-from ..paths import is_run_dir_name, reports_dir
+from ..paths import reports_dir
 from .export_render import (
     SessionSummaryData,
     report_file_extension,
@@ -52,15 +51,6 @@ logger = logging.getLogger(__name__)
 
 # Nested member: official grok-trace archive inside the operator export bundle.
 GROK_TRACE_ARCHIVE_NAME = "grok-trace.tar.gz"
-
-# Top-level names under a run volume that are not exported (noise / huge / other sessions).
-_RUN_SKIP_NAMES = frozenset(
-    {
-        "session_search.sqlite",
-        "session_search.sqlite-wal",
-        "session_search.sqlite-shm",
-    }
-)
 
 # Core members always present in official ``grok trace`` archives (even if empty).
 _GROK_TRACE_CORE_FILES = frozenset(
@@ -88,17 +78,6 @@ class ExportBundleResult:
     arcnames: list[str] = field(default_factory=list)
     profile_id: str = DEFAULT_PROFILE_ID
     packaging: str = Packaging.TAR_GZ.value
-
-
-def run_volume_for_session(session_dir: Path) -> Path | None:
-    """Return the ``runs/traces/<container>/`` volume for *session_dir*, if any."""
-    p = Path(session_dir).expanduser().resolve()
-    for anc in p.parents:
-        if is_run_dir_name(anc.name):
-            return anc
-        if anc.name == "traces":
-            break
-    return None
 
 
 def default_bundle_path(
@@ -275,38 +254,6 @@ def _staging_member_paths(staging: Path, *, skip: frozenset[str] | set[str]) -> 
     return names
 
 
-def _collect_run_volume_files(run_vol: Path, staging: Path) -> None:
-    """Copy run-volume artifacts into *staging* (excludes nested session trees)."""
-    dest = staging / "run"
-    copied = False
-    for child in sorted(run_vol.iterdir()):
-        name = child.name
-        if name in _RUN_SKIP_NAMES:
-            continue
-        if name.endswith(".stage"):
-            continue
-        if name.startswith("%2F") or name in ("workspace",):
-            ph = child / "prompt_history.jsonl"
-            if ph.is_file():
-                dest.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(ph, dest / "prompt_history.jsonl")
-                copied = True
-            continue
-        if child.is_file():
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(child, dest / name)
-            copied = True
-        elif child.is_dir() and name.startswith("."):
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(child, dest / name, symlinks=True, dirs_exist_ok=True)
-            copied = True
-    if not copied and dest.is_dir():
-        try:
-            dest.rmdir()
-        except OSError:
-            pass
-
-
 def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
     """Embed turn-linked operator notes under ``notes/``."""
     collect_notes_for_export(session_dir, staging / "notes")
@@ -338,10 +285,8 @@ def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
     if "T" in created and len(created) > 19:
         created = created[:19].replace("T", " ")
     usage_block = ""
-    persona = ""
     try:
         usage = collect_session_usage(session_dir, timeline)
-        persona = (usage.persona_id or "").strip()
         usage_block = format_usage_markdown(usage).strip()
     except Exception:
         logger.debug("usage stats failed for export summary", exc_info=True)
@@ -362,7 +307,6 @@ def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
         git_repo=(meta.git_repo or "").strip(),
         git_branch=(meta.git_branch or "").strip(),
         created_at=created,
-        persona_id=persona,
         usage_block=usage_block,
     )
 
@@ -550,16 +494,6 @@ def export_session_bundle(
             nested_members = assert_grok_trace_archive_shape(nested, sid)
             child_members = _collect_child_traces(session_dir, staging)
 
-        if resolved.includes(IncludeUnit.RUN):
-            run_vol = run_volume_for_session(session_dir)
-            if run_vol is not None:
-                try:
-                    _collect_run_volume_files(run_vol, staging)
-                except OSError:
-                    logger.warning(
-                        "Failed to collect run volume files from %s", run_vol, exc_info=True
-                    )
-
         if resolved.includes(IncludeUnit.SUMMARY):
             try:
                 _collect_summary(session_dir, staging, renderer=resolved.renderer)
@@ -636,5 +570,4 @@ __all__ = [
     "default_bundle_path",
     "export_session_bundle",
     "grok_trace_member_paths",
-    "run_volume_for_session",
 ]

@@ -96,7 +96,7 @@ def test_control_wire_matches_hud_fixtures(tmp_path: Path) -> None:
     turns = build_session_turns(sd)
     timeline = build_session_timeline(sd, offset=0, limit=50)
     overview = build_session_overview(sd)
-    listed = filter_session_catalog([session_catalog_row(sd, origin="work")], query="", limit=50)
+    listed = filter_session_catalog([session_catalog_row(sd, origin="host")], query="", limit=50)
 
     assert listed["sessions"][0]["sessionId"] == "sess-wire"
     assert listed["sessions"][0]["status"] == "running"

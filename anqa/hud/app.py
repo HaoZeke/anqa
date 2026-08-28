@@ -16,7 +16,7 @@ from ..control.daemon import (
     wait_until_control_accepts,
 )
 from ..control.server import default_socket_path
-from ..paths import resolve_work_and_traces
+from ..paths import resolve_catalog_root
 from .launch import launch_hud
 
 
@@ -28,7 +28,7 @@ async def _probe(socket_path: Path) -> None:
 def run_hud(
     *,
     socket_path: Path | None = None,
-    work_dir: Path | None = None,
+    catalog_root: Path | None = None,
     auto_serve: bool = True,
     dev: bool = False,
     debug: bool = False,
@@ -111,11 +111,10 @@ def run_hud(
 
     load_app_config()
     sock = Path(socket_path or default_socket_path()).expanduser()
-    wd, tr = resolve_work_and_traces(work_dir)
+    tr = resolve_catalog_root(catalog_root)
     if auto_serve:
         result = ensure_control_daemon(
             socket_path=sock,
-            work_dir=wd,
             traces_path=tr,
         )
         # Race: spawn lost the bind to a live TUI/serve — still attach if OK.

@@ -154,7 +154,7 @@ def test_list_session_catalog_stamp_hit_skips_session_files(tmp_path: Path, monk
     host = tmp_path / "host"
     _host_session(host, "019dddd-1111-2222-3333-444444444444", title="Snap")
     dest = tmp_path / "snap.json"
-    rows1 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    rows1 = list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     assert rows1[0]["sessionId"] == "019dddd-1111-2222-3333-444444444444"
     mtime1 = dest.stat().st_mtime
 
@@ -166,7 +166,7 @@ def test_list_session_catalog_stamp_hit_skips_session_files(tmp_path: Path, monk
         return real_open(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", track_open)
-    rows2 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    rows2 = list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     assert rows2[0]["title"] == "Snap"
     assert dest.stat().st_mtime == mtime1
     assert not any(name.endswith("summary.json") for name in opened)
@@ -183,7 +183,7 @@ def test_list_session_catalog_events_growth_does_not_open_events(
     host = tmp_path / "host"
     sd = _host_session(host, "grow-ev", title="Grow")
     dest = tmp_path / "snap.json"
-    list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     (sd / "events.jsonl").write_text('{"type":"turn_started"}\n' * 20, encoding="utf-8")
 
     opened: list[str] = []
@@ -194,7 +194,7 @@ def test_list_session_catalog_events_growth_does_not_open_events(
         return real_open(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", track_open)
-    list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     assert not any(name.endswith("events.jsonl") for name in opened)
 
 
@@ -205,7 +205,7 @@ def test_list_session_catalog_rebuilds_only_changed_host_row(tmp_path: Path, mon
     _host_session(host, "still-sess", title="Still")
     live = _host_session(host, "live-sess", title="Live", updates=_chunk_line())
     dest = tmp_path / "snap.json"
-    rows1 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    rows1 = list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     by_id = {str(r["sessionId"]): r for r in rows1}
     assert by_id["still-sess"]["status"] == "running"
     assert by_id["live-sess"]["status"] == "running"
@@ -219,7 +219,7 @@ def test_list_session_catalog_rebuilds_only_changed_host_row(tmp_path: Path, mon
         return real_row(session_dir, origin=origin, label=label)
 
     monkeypatch.setattr("anqa.session.catalog.session_catalog_row", track_row)
-    rows2 = list_session_catalog(work, include_host=True, host_root=host, host_catalog_cache=dest)
+    rows2 = list_session_catalog(include_host=True, host_root=host, host_catalog_cache=dest)
     by_id = {str(r["sessionId"]): r for r in rows2}
     assert by_id["live-sess"]["status"] == "complete"
     assert by_id["still-sess"]["title"] == "Still"

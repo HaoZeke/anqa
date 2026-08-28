@@ -1,4 +1,4 @@
-"""Resume seed: staging tree + live symlink for Grok."""
+"""Resume seed: locate a leftover fork parent."""
 
 from __future__ import annotations
 
@@ -6,15 +6,11 @@ import json
 import shutil
 from pathlib import Path
 
-import pytest
 from anqa.session.resume import (
     RESUME_SEED_DIRNAME,
     can_resume_session,
     fork_parent_session_dir,
     is_resume_seed_path,
-    resume_cwd_token,
-    resume_session_id,
-    seed_resume_into_traces_vol,
 )
 
 
@@ -30,46 +26,50 @@ def _fake_session(root: Path, *, sid: str = "sess-abc") -> Path:
     return session
 
 
-def test_resume_session_id_and_cwd_token(tmp_path: Path) -> None:
+def _seed_parent(vol: Path, source: Path) -> Path:
+    token = source.parent.name
+    dest = vol / RESUME_SEED_DIRNAME / token / source.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(source, dest)
+    live = vol / token / source.name
+    live.parent.mkdir(parents=True, exist_ok=True)
+    if live.exists() or live.is_symlink():
+        live.unlink()
+    live.symlink_to(dest)
+    return dest
+
+
+def _write_launch_meta(vol: Path, *, parent: str, child: str) -> None:
+    (vol / "anqa-launch.json").write_text(
+        json.dumps(
+            {
+                "model": "v9",
+                "resume_parent_session_id": parent,
+                "resume_fork_session_id": child,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_can_resume_session(tmp_path: Path) -> None:
     s = _fake_session(tmp_path)
-    assert resume_session_id(s) == "sess-abc"
-    assert resume_cwd_token(s) == "%2Fworkspace"
     assert can_resume_session(s) is True
     assert can_resume_session(tmp_path / "missing") is False
 
 
-def test_seed_layout_is_staging_plus_live_symlink(tmp_path: Path) -> None:
-    source = _fake_session(tmp_path)
-    # Parent container noise must not ride into the fork volume.
-    (source / "anqa-share.json").write_text(
-        json.dumps({"share_url": "https://share.example/parent-only", "error": "denied"}),
-        encoding="utf-8",
-    )
-    (source / "session_search.sqlite").write_bytes(b"not-a-db")
-    dest_vol = tmp_path / "traces" / "anqa-new"
-    dest_vol.mkdir(parents=True)
-    sid = seed_resume_into_traces_vol(dest_vol, source)
-    assert sid == "sess-abc"
-    seed = dest_vol / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
-    live = dest_vol / "%2Fworkspace" / "sess-abc"
-    assert (seed / "chat_history.jsonl").is_file()
-    assert not (seed / "anqa-share.json").exists()
-    assert not (seed / "session_search.sqlite").exists()
-    assert live.is_symlink()
-    assert live.resolve() == seed.resolve()
-    assert is_resume_seed_path(seed) is True
-    assert is_resume_seed_path(live) is True
-    assert (source / "chat_history.jsonl").is_file()
-
-
 def test_find_sessions_skips_resume_seed_and_live_link(tmp_path: Path) -> None:
-    """Substrate and its live symlink are not operator eval rows."""
+    """Substrate and its live symlink are not operator session rows."""
     from anqa.parser import find_sessions
 
     source = _fake_session(tmp_path)
     dest_vol = tmp_path / "traces" / "anqa-new"
     dest_vol.mkdir(parents=True)
-    seed_resume_into_traces_vol(dest_vol, source)
+    seed = _seed_parent(dest_vol, source)
+    live = dest_vol / "%2Fworkspace" / "sess-abc"
     child = dest_vol / "%2Fworkspace" / "forked-child-id"
     child.mkdir(parents=True)
     (child / "summary.json").write_text("{}", encoding="utf-8")
@@ -77,38 +77,14 @@ def test_find_sessions_skips_resume_seed_and_live_link(tmp_path: Path) -> None:
     found = {p.name for p in find_sessions(dest_vol)}
     assert "sess-abc" not in found
     assert "forked-child-id" in found
+    assert is_resume_seed_path(seed) is True
+    assert is_resume_seed_path(live) is True
 
 
-def test_seed_resume_rejects_empty_session(tmp_path: Path) -> None:
-    empty = tmp_path / "empty-sess"
-    empty.mkdir()
-    with pytest.raises(ValueError, match="no chat"):
-        seed_resume_into_traces_vol(tmp_path / "vol", empty)
-
-
-def test_seed_resume_missing_source(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        seed_resume_into_traces_vol(tmp_path / "vol", tmp_path / "gone")
-
-
-def test_seed_resume_overwrites_existing_and_strips_locks(tmp_path: Path) -> None:
-    source = _fake_session(tmp_path)
-    (source / "summary.json.lock").write_text("x", encoding="utf-8")
-    dest_vol = tmp_path / "traces" / "anqa-new"
-    dest_vol.mkdir(parents=True)
-    seed_resume_into_traces_vol(dest_vol, source)
-    # Re-seed replaces substrate
-    seed_resume_into_traces_vol(dest_vol, source)
-    seed = dest_vol / RESUME_SEED_DIRNAME / "%2Fworkspace" / "sess-abc"
-    assert not (seed / "summary.json.lock").exists()
-    assert (seed / "chat_history.jsonl").is_file()
-
-
-def test_resume_cwd_token_fallback(tmp_path: Path) -> None:
+def test_flat_session_is_resumeable(tmp_path: Path) -> None:
     flat = tmp_path / "sess-flat"
     flat.mkdir()
     (flat / "events.jsonl").write_text("{}\n", encoding="utf-8")
-    assert resume_cwd_token(flat) == "%2Fworkspace"
     assert can_resume_session(flat) is True
 
 
@@ -176,21 +152,12 @@ def _write_completed_turn(
 
 
 def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
-    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
-
     source = _fake_session(tmp_path, sid="parent-1")
     (source / "events.jsonl").write_text("{}\n", encoding="utf-8")
     vol = tmp_path / "traces" / "anqa-fork"
     vol.mkdir(parents=True)
-    seed_resume_into_traces_vol(vol, source)
-    write_launch_meta(
-        vol,
-        build_launch_meta(
-            model="v9",
-            resume_parent_session_id="parent-1",
-            resume_fork_session_id="child-1",
-        ),
-    )
+    _seed_parent(vol, source)
+    _write_launch_meta(vol, parent="parent-1", child="child-1")
     child = vol / "%2Fworkspace" / "child-1"
     child.mkdir(parents=True)
     (child / "summary.json").write_text("{}", encoding="utf-8")
@@ -206,7 +173,6 @@ def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
 def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
     """Fork child with only turn_number=1 still shows parent turn 0 in the timeline."""
     from anqa.parser import parse_timeline
-    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
     from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-turns")
@@ -221,15 +187,8 @@ def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
 
     vol = tmp_path / "traces" / "anqa-fork-turns"
     vol.mkdir(parents=True)
-    seed_resume_into_traces_vol(vol, source)
-    write_launch_meta(
-        vol,
-        build_launch_meta(
-            model="v9",
-            resume_parent_session_id="parent-turns",
-            resume_fork_session_id="child-turns",
-        ),
-    )
+    _seed_parent(vol, source)
+    _write_launch_meta(vol, parent="parent-turns", child="child-turns")
     child = vol / "%2Fworkspace" / "child-turns"
     child.mkdir(parents=True)
     (child / "summary.json").write_text("{}", encoding="utf-8")
@@ -255,7 +214,6 @@ def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
 def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> None:
     """Child updates replaying parent tools must not appear again under turn 1."""
     from anqa.parser import parse_timeline
-    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
     from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-replay")
@@ -328,15 +286,8 @@ def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> N
 
     vol = tmp_path / "traces" / "anqa-fork-replay"
     vol.mkdir(parents=True)
-    seed_resume_into_traces_vol(vol, source)
-    write_launch_meta(
-        vol,
-        build_launch_meta(
-            model="v9",
-            resume_parent_session_id="parent-replay",
-            resume_fork_session_id="child-replay",
-        ),
-    )
+    _seed_parent(vol, source)
+    _write_launch_meta(vol, parent="parent-replay", child="child-replay")
     child = vol / "%2Fworkspace" / "child-replay"
     child.mkdir(parents=True)
     (child / "summary.json").write_text("{}", encoding="utf-8")
@@ -410,7 +361,6 @@ def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> N
 def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> None:
     """Child with empty events and re-stamped updates does not collapse parent turns."""
     from anqa.parser import parse_timeline
-    from anqa.session.launch_meta import build_launch_meta, write_launch_meta
     from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-multi")
@@ -433,15 +383,8 @@ def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> 
 
     vol = tmp_path / "traces" / "anqa-fork-empty-ev"
     vol.mkdir(parents=True)
-    seed_resume_into_traces_vol(vol, source)
-    write_launch_meta(
-        vol,
-        build_launch_meta(
-            model="v9",
-            resume_parent_session_id="parent-multi",
-            resume_fork_session_id="child-empty-ev",
-        ),
-    )
+    _seed_parent(vol, source)
+    _write_launch_meta(vol, parent="parent-multi", child="child-empty-ev")
     child = vol / "%2Fworkspace" / "child-empty-ev"
     child.mkdir(parents=True)
     (child / "summary.json").write_text("{}", encoding="utf-8")
@@ -465,40 +408,3 @@ def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> 
     assert parent_turns == 2
     child_turns = segment_timeline_turns(parse_timeline(child))
     assert len(child_turns) == 2
-
-
-def test_seed_lock_unlink_and_hist_copy_oserror(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    source = _fake_session(tmp_path)
-    (source / "summary.json.lock").write_text("x", encoding="utf-8")
-    dest_vol = tmp_path / "vol"
-    dest_vol.mkdir()
-
-    real_unlink = Path.unlink
-    real_copy2 = shutil.copy2
-
-    def boom_unlink(self, *a, **k):
-        if str(self).endswith(".lock"):
-            raise OSError("busy")
-        return real_unlink(self, *a, **k)
-
-    def boom_copy2(src, dst, *a, **k):
-        if "prompt_history" in str(src):
-            raise OSError("no hist")
-        return real_copy2(src, dst, *a, **k)
-
-    monkeypatch.setattr(Path, "unlink", boom_unlink)
-    monkeypatch.setattr(shutil, "copy2", boom_copy2)
-    sid = seed_resume_into_traces_vol(dest_vol, source)
-    assert sid == "sess-abc"
-
-
-def test_seed_empty_session_id_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = _fake_session(tmp_path)
-    monkeypatch.setattr(
-        "anqa.session.resume.resume_session_id",
-        lambda _p: "",
-    )
-    with pytest.raises(ValueError, match="empty session id"):
-        seed_resume_into_traces_vol(tmp_path / "vol", source)

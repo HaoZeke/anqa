@@ -26,7 +26,7 @@ class SessionRef:
 
     :ivar harness: Adapter id.
     :ivar session_id: Stable product id (directory name or store row id).
-    :ivar origin: ``work`` (anqa-launched) or ``host`` (native store).
+    :ivar origin: Adapter store (``host``).
     :ivar locator: Directory, transcript file, or database the adapter reads.
     :ivar cwd: Workspace path when the store recorded one.
     """

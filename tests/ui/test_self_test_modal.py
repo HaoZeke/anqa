@@ -24,7 +24,7 @@ class _STApp(App):
 async def test_self_test_modal_report_all_ok(tmp_path: Path) -> None:
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -52,7 +52,7 @@ async def test_self_test_modal_report_all_ok(tmp_path: Path) -> None:
 async def test_self_test_modal_report_with_failure(tmp_path: Path) -> None:
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -79,7 +79,7 @@ async def test_self_test_modal_report_with_failure(tmp_path: Path) -> None:
 async def test_self_test_modal_report_with_warning(tmp_path: Path) -> None:
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -107,7 +107,7 @@ async def test_self_test_modal_report_with_warning(tmp_path: Path) -> None:
 async def test_self_test_modal_actions(tmp_path: Path) -> None:
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -122,7 +122,7 @@ async def test_self_test_modal_actions(tmp_path: Path) -> None:
 async def test_self_test_modal_save_action(tmp_path: Path) -> None:
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -137,7 +137,7 @@ async def test_self_test_modal_save_action(tmp_path: Path) -> None:
 async def test_self_test_modal_close_button(tmp_path: Path) -> None:
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -149,19 +149,19 @@ async def test_self_test_modal_close_button(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_self_test_modal_work_dir_from_app(tmp_path: Path) -> None:
-    """SelfTestModal with work_dir=None reads from app.work_dir."""
+async def test_self_test_modal_catalog_from_app(tmp_path: Path) -> None:
+    """SelfTestModal reads the catalog store from the app."""
 
     class _WDApp(App):
         _self_test_summary: str = ""
-        work_dir = tmp_path
+        traces_path = tmp_path
 
         def compose(self) -> ComposeResult:
             yield Static("main")
 
     app = _WDApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=None)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -176,7 +176,7 @@ async def test_self_test_modal_rerun_button(tmp_path: Path) -> None:
     """Rerun button resets the report and re-runs diagnostics."""
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,
@@ -197,7 +197,7 @@ async def test_self_test_modal_report_warn_count_summary(tmp_path: Path) -> None
     """Report with warnings produces an OK-with-warn summary."""
     app = _STApp()
     async with app.run_test(size=(100, 30)) as pilot:
-        modal = SelfTestModal(work_dir=tmp_path)
+        modal = SelfTestModal()
         app.push_screen(modal)
         await wait_until(
             pilot,

@@ -84,7 +84,6 @@ async def test_tui_attaches_when_control_socket_already_owned(tmp_path: Path) ->
         traces = work / "runs" / "traces"
         traces.mkdir(parents=True)
         app = AnqaApp(
-            work_dir=work,
             traces_path=traces,
             control_socket=sock,
         )

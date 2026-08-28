@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from anqa.parser import parse_timeline
-from anqa.session.jobs import job_mapping, load_session_jobs, schedule_mapping
+from anqa.session.jobs import SessionJobs, job_mapping, schedule_mapping
 
 
 def _write_updates(sd: Path, updates: list[dict[str, object]]) -> None:
@@ -27,7 +27,7 @@ def _session(root: Path) -> Path:
     return sd
 
 
-def test_load_session_jobs_merges_shell_monitor_and_schedule(tmp_path: Path) -> None:
+def test_session_jobs_load_merges_shell_monitor_and_schedule(tmp_path: Path) -> None:
     sd = _session(tmp_path)
     term = sd / "terminal"
     term.mkdir()
@@ -125,7 +125,7 @@ def test_load_session_jobs_merges_shell_monitor_and_schedule(tmp_path: Path) -> 
     assert any(e.event_type == "scheduled_task_created" for e in events)
     assert all(e.event_type != "subagent_spawned" for e in events)
 
-    packed = load_session_jobs(sd, events)
+    packed = SessionJobs.load(sd, events)
     kinds = {j.job_id: j for j in packed.jobs}
     assert set(kinds) == {"job-bg-1", "job-mon-1"}
 
@@ -158,7 +158,7 @@ def test_load_session_jobs_merges_shell_monitor_and_schedule(tmp_path: Path) -> 
     assert sch.recurring is True
 
 
-def test_load_session_jobs_running_until_completed_or_monitor_line(tmp_path: Path) -> None:
+def test_session_jobs_load_running_until_completed_or_monitor_line(tmp_path: Path) -> None:
     sd = _session(tmp_path)
     mon_log = sd / "terminal"
     mon_log.mkdir()
@@ -184,7 +184,7 @@ def test_load_session_jobs_running_until_completed_or_monitor_line(tmp_path: Pat
             },
         ],
     )
-    packed = load_session_jobs(sd)
+    packed = SessionJobs.load(sd)
     by_id = {j.job_id: j for j in packed.jobs}
     assert by_id["job-run"].status == "running"
     assert by_id["job-run"].kind == "background"
@@ -192,7 +192,7 @@ def test_load_session_jobs_running_until_completed_or_monitor_line(tmp_path: Pat
     assert by_id["job-live-mon"].kind == "monitor"
 
 
-def test_load_session_jobs_failed_from_monitor_last_line(tmp_path: Path) -> None:
+def test_session_jobs_load_failed_from_monitor_last_line(tmp_path: Path) -> None:
     sd = _session(tmp_path)
     term = sd / "terminal"
     term.mkdir()
@@ -211,7 +211,7 @@ def test_load_session_jobs_failed_from_monitor_last_line(tmp_path: Path) -> None
             }
         ],
     )
-    packed = load_session_jobs(sd)
+    packed = SessionJobs.load(sd)
     assert packed.jobs[0].status == "failed"
     assert packed.jobs[0].kind == "monitor"
 
@@ -238,7 +238,7 @@ def test_job_and_schedule_mappings_use_camel_case(tmp_path: Path) -> None:
             },
         ],
     )
-    packed = load_session_jobs(sd)
+    packed = SessionJobs.load(sd)
     job = job_mapping(packed.jobs[0])
     assert job["id"] == "job-map"
     assert job["outputPath"] == "/tmp/out.log"
@@ -293,7 +293,6 @@ def test_set_bookend_indexes_matches_per_row_first_hits() -> None:
     """One walk agrees with per-row job and workflow bookend indexes."""
     from anqa.session.jobs import (
         BackgroundJob,
-        job_event_index,
         job_mapping,
         set_bookend_indexes,
     )
@@ -353,7 +352,7 @@ def test_set_bookend_indexes_matches_per_row_first_hits() -> None:
     workflows = [workflow_mapping(run)]
     schedules = [{"id": "sched-a"}]
     set_bookend_indexes(events, jobs, workflows, schedules)
-    assert jobs[0]["eventIndex"] == job_event_index(job, events)
+    assert jobs[0]["eventIndex"] == job.event_index(events)
     assert workflows[0]["eventIndex"] == workflow_event_index(run, events)
     assert jobs[0]["eventIndex"] == 5
     assert workflows[0]["eventIndex"] == 8

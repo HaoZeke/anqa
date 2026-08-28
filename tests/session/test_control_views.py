@@ -1,4 +1,4 @@
-"""Domain control views: session/get, timeline, turns, usage."""
+"""Domain control views: session/overview, timeline, turns."""
 
 from __future__ import annotations
 
@@ -8,11 +8,9 @@ from pathlib import Path
 
 from anqa.session.control_views import (
     build_session_diff,
-    build_session_get,
     build_session_overview,
     build_session_timeline,
     build_session_turns,
-    build_session_usage,
     overview_stat_counters,
     overview_stat_counts,
 )
@@ -73,15 +71,14 @@ def _write_session(root: Path, name: str) -> Path:
     return session_dir
 
 
-def test_build_session_get_meta(tmp_path: Path) -> None:
-    sd = _write_session(tmp_path / "runs" / "traces", "sess-get")
-    got = build_session_get(sd)
-    assert got["sessionId"] == "sess-get"
-    assert got["title"] == "View session"
-    assert "status" in got
-    assert got["path"]
-    assert "notesRevision" in got
-    assert "numEvents" in got
+def test_build_session_overview_meta(tmp_path: Path) -> None:
+    sd = _write_session(tmp_path / "sessions", "sess-ov")
+    got = build_session_overview(sd)
+    assert got["sessionId"] == "sess-ov"
+    assert got["meta"]["title"] == "View session"
+    assert got["meta"]["path"]
+    assert "notes" in got
+    assert "turns" in got
 
 
 def test_build_session_timeline_pages(tmp_path: Path) -> None:
@@ -166,14 +163,6 @@ def test_build_session_turns(tmp_path: Path) -> None:
     assert row.get("userEventIndex") is not None
     assert row.get("assistantSummary") == "hello agent"
     assert row.get("assistantEventIndex") is not None
-
-
-def test_build_session_usage(tmp_path: Path) -> None:
-    sd = _write_session(tmp_path, "sess-usage")
-    usage = build_session_usage(sd)
-    assert usage["sessionId"] == "sess-usage"
-    assert "hostTools" in usage
-    assert "mcpServers" in usage
 
 
 def test_build_session_overview_notes_include_source_and_foreign_fields(
@@ -616,12 +605,12 @@ def test_build_session_overview_single_flight_and_cache(tmp_path: Path) -> None:
     gate = threading.Event()
     entered = threading.Event()
 
-    def slow_body(session_dir, *, work_dir=None):  # type: ignore[no-untyped-def]
+    def slow_body(session_dir):  # type: ignore[no-untyped-def]
         nonlocal body_calls
         body_calls += 1
         entered.set()
         assert gate.wait(timeout=5.0)
-        return orig(session_dir, work_dir=work_dir)
+        return orig(session_dir)
 
     try:
         with (
@@ -826,7 +815,7 @@ def test_overview_reuses_jobs_when_only_timeline_grows(tmp_path: Path) -> None:
     """Timeline-only append keeps prior job/workflow rows; bookends stay first hits."""
     import anqa.session.control_views as cv
     from anqa.parser import parse_timeline
-    from anqa.session.jobs import SessionJobs, job_event_index, load_session_jobs
+    from anqa.session.jobs import SessionJobs
     from anqa.session.workflows import workflow_event_index
 
     sd = _write_jobs_workflows_session(tmp_path)
@@ -877,11 +866,11 @@ def test_overview_reuses_jobs_when_only_timeline_grows(tmp_path: Path) -> None:
             w["status"] for w in first["workflows"]
         ]
         events = parse_timeline(sd)
-        packed = load_session_jobs(sd, events)
+        packed = SessionJobs.load(sd, events)
         by_job = {j["id"]: j["eventIndex"] for j in second["backgroundJobs"]}
         by_wf = {w["id"]: w["eventIndex"] for w in second["workflows"]}
         for job in packed.jobs:
-            assert by_job[job.job_id] == job_event_index(job, events)
+            assert by_job[job.job_id] == job.event_index(events)
         for run in packed.workflows:
             assert by_wf[run.run_id] == workflow_event_index(run, events)
     finally:
@@ -1040,15 +1029,16 @@ def test_overview_bookend_indexes_one_event_walk(tmp_path: Path) -> None:
         real_set(events, jobs, workflows, schedules)  # type: ignore[arg-type]
 
     per_row = 0
-    real_job_idx = jobs_mod.job_event_index
     from anqa.session import workflows as wf_mod
+    from anqa.session.jobs import BackgroundJob
 
+    real_job_idx = BackgroundJob.event_index
     real_wf_idx = wf_mod.workflow_event_index
 
-    def counting_job(*args: object, **kwargs: object) -> object:
+    def counting_job(self: object, *args: object, **kwargs: object) -> object:
         nonlocal per_row
         per_row += 1
-        return real_job_idx(*args, **kwargs)
+        return real_job_idx(self, *args, **kwargs)
 
     def counting_wf(*args: object, **kwargs: object) -> object:
         nonlocal per_row
@@ -1056,7 +1046,7 @@ def test_overview_bookend_indexes_one_event_walk(tmp_path: Path) -> None:
         return real_wf_idx(*args, **kwargs)
 
     jobs_mod.set_bookend_indexes = counting_set  # type: ignore[assignment]
-    jobs_mod.job_event_index = counting_job  # type: ignore[assignment]
+    BackgroundJob.event_index = counting_job  # type: ignore[assignment,method-assign]
     wf_mod.workflow_event_index = counting_wf  # type: ignore[assignment]
     if hasattr(cv, "set_bookend_indexes"):
         cv.set_bookend_indexes = counting_set  # type: ignore[assignment]
@@ -1072,7 +1062,7 @@ def test_overview_bookend_indexes_one_event_walk(tmp_path: Path) -> None:
         assert by_wf["wf_b"] == 43
     finally:
         jobs_mod.set_bookend_indexes = real_set  # type: ignore[assignment]
-        jobs_mod.job_event_index = real_job_idx  # type: ignore[assignment]
+        BackgroundJob.event_index = real_job_idx  # type: ignore[assignment,method-assign]
         wf_mod.workflow_event_index = real_wf_idx  # type: ignore[assignment]
         cv.SessionOverview._cache.clear()
         cv.SessionOverview._inflight.clear()

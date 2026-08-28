@@ -27,7 +27,7 @@ harness store. Grok Build (`grok`) is registered today.
 ### Paths and config
 
 - Config home is `~/.anqa` (`config.toml`, optional `keys.toml`).
-- Work root is `~/.anqa/work` (session trees you open, export cache).
+- Session catalog is the adapter store (default `~/.grok/sessions`).
 - `~/.anqa/config.toml` is the only prefs file (terminal app and
   desktop HUD). Default look is `theme = "auto"`: the terminal follows
   the terminal then the desktop; the desktop palette follows the

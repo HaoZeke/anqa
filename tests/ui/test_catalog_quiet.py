@@ -29,7 +29,6 @@ def test_initial_control_load_fetches_first_page_only(tmp_path: Path, monkeypatc
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,
@@ -100,7 +99,6 @@ def test_first_attach_does_not_drain_when_matched_exceeds_page(tmp_path: Path, m
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,
@@ -167,7 +165,6 @@ def test_first_attach_fills_later_pages_without_drain(tmp_path: Path, monkeypatc
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,
@@ -232,7 +229,6 @@ def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monke
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,
@@ -323,7 +319,6 @@ def test_quiet_unchanged_catalog_skips_table_rebuild(tmp_path: Path, monkeypatch
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,
@@ -371,7 +366,6 @@ def test_quiet_poll_drains_when_owner_returns_full_page(tmp_path: Path, monkeypa
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,

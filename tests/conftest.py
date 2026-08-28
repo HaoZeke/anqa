@@ -322,10 +322,9 @@ def traces_root(tmp_path: Path, session_dir: Path) -> Path:
 
 @pytest.fixture()
 def work_dir(tmp_path: Path) -> Path:
-    """A work directory with runs/traces structure."""
-    wd = tmp_path / "work"
-    traces = wd / "runs" / "traces"
-    traces.mkdir(parents=True)
+    """A temporary catalog store (legacy fixture name used by many tests)."""
+    wd = tmp_path / "store"
+    wd.mkdir(parents=True)
     return wd
 
 
@@ -374,30 +373,27 @@ def sample_tool_calls() -> list[ToolCall]:
 def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     """Every test uses a fresh temp tree for app + Grok CLI config (never ~/.anqa / ~/anqa).
 
-    Isolates personas, tasks, prefs, work dir,
-    and ``Path.home()``-based ``~/.grok`` (models cache, installed-plugins, auth)
-    so the suite cannot pollute the developer's real stores.
+    Isolates prefs and ``Path.home()``-based ``~/.grok`` (models cache,
+    installed-plugins, auth) so the suite cannot pollute the developer's
+    real stores.
     """
     from pathlib import Path as _Path
 
     root = tmp_path_factory.mktemp("anqa_test_root")
     user_home = root / "home"
     app_home = user_home / ".anqa"
-    work_root = root / "work"
     grok_home = user_home / ".grok"
     for d in (
         user_home,
         app_home,
-        app_home / "personas",
-        app_home / "tasks",
         app_home / "cache",
-        work_root,
         grok_home,
+        grok_home / "sessions",
         grok_home / "installed-plugins",
     ):
         d.mkdir(parents=True, exist_ok=True)
 
-    # Isolate home / git prompts; work root is patched on paths.DEFAULT_WORK_DIR.
+    # Isolate home / git prompts.
     monkeypatch.setenv("HOME", str(user_home))
     monkeypatch.setenv("USERPROFILE", str(user_home))  # Windows no-op on Linux
     monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
@@ -413,7 +409,6 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
 
     invalidate_config_cache()
     monkeypatch.setattr(paths, "APP_HOME", app_home)
-    monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", work_root)
 
     def _app_home() -> _Path:
         app_home.mkdir(parents=True, exist_ok=True)
@@ -422,31 +417,23 @@ def _isolate_all_config_dirs(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(paths, "app_home", _app_home)
     monkeypatch.setattr(paths, "app_config_path", lambda: app_home / "config.toml")
 
-    def _subdir(name: str):
-        def _fn() -> _Path:
-            d = app_home / name
-            d.mkdir(parents=True, exist_ok=True)
-            return d
-
-        return _fn
-
-    monkeypatch.setattr(paths, "user_tasks_dir", _subdir("tasks"))
-    cache_dir = _subdir("cache")
-    monkeypatch.setattr(paths, "cache_dir", cache_dir)
-    # mtime_export binds cache_dir at import; patch that name too.
-    import anqa.session.mtime_export as mtime_export
-
-    monkeypatch.setattr(mtime_export, "cache_dir", cache_dir)
-
-    def _mcp_registry_cache() -> _Path:
-        d = app_home / "cache" / "mcp-registry"
+    def _cache_dir() -> _Path:
+        d = app_home / "cache"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    monkeypatch.setattr(paths, "mcp_registry_cache_dir", _mcp_registry_cache)
-    monkeypatch.setattr(paths, "personas_home", _subdir("personas"))
-    monkeypatch.setattr(paths, "reports_dir", _subdir("reports"))
-    monkeypatch.setattr(paths, "user_models_path", lambda: app_home / "models.yaml")
+    monkeypatch.setattr(paths, "cache_dir", _cache_dir)
+    # mtime_export binds cache_dir at import; patch that name too.
+    import anqa.session.mtime_export as mtime_export
+
+    monkeypatch.setattr(mtime_export, "cache_dir", _cache_dir)
+
+    def _reports_dir() -> _Path:
+        d = app_home / "reports"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(paths, "reports_dir", _reports_dir)
 
     import anqa.ui.app as ui_app
 

@@ -609,24 +609,6 @@ def job_input_stamp(
     return (tuple(files), tuple(monitors))
 
 
-def load_session_jobs(
-    session_dir: Path,
-    events: list[TraceEvent] | None = None,
-) -> SessionJobs:
-    """Merge timeline bookends, resources_state, manifest, and terminal logs.
-
-    :param session_dir: Session directory.
-    :param events: Optional pre-parsed timeline (avoids a second read).
-    :returns: Stable job and schedule lists (id order).
-    """
-    return SessionJobs.load(session_dir, events)
-
-
-def job_event_index(job: BackgroundJob, events: list[TraceEvent]) -> int | None:
-    """First Timeline bookend for *job*, or None."""
-    return job.event_index(events)
-
-
 def set_bookend_indexes(
     events: list[TraceEvent],
     jobs: list[JsonObject],

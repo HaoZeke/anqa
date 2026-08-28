@@ -34,7 +34,7 @@ without query/`harness:<id>`.
 2. Register in `anqa/harness/registry.py` `adapters()`.
 3. Add the id to `HARNESS_IDS` in `anqa/harness/ref.py` if new.
 4. Add the id to the `harness` query token in
-   `anqa/integrations/control_contract.py`.
+   `anqa/control/contract.py`.
 5. Add the id to HUD `is_harness_ref` in `desktop/src/live.rs`.
 6. `tests/session/test_harness_<id>.py` with **invented** fixtures
    (never copy real session text). Cover discover, meta, timeline

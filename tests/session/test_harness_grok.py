@@ -67,7 +67,7 @@ def test_load_meta_returns_session_meta(tmp_path: Path) -> None:
     meta = load_meta(sd)
     assert isinstance(meta, SessionMeta)
     assert meta.session_id == "meta-sid"
-    assert meta.origin == "work"
+    assert meta.origin == "host"
     assert meta.harness == "grok"
 
 

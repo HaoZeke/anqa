@@ -59,7 +59,7 @@ def build_activity_line(
 
         Building │ Running │ Ending │ Extracting │ Awaiting │ Analysis │ Sessions
 
-    * **Pending / Building / Running / Extracting** — eval containers in that phase.
+    * **Pending / Building / Running / Extracting** — leftover work-tree phases.
     * **Ending** — interactive sessions shutting down after Done / last turn.
     * **Awaiting** — interactive sessions waiting for a follow-up prompt.
     * **Analysis / Refresh** — background pools (only when inflight > 0).
@@ -209,8 +209,8 @@ def activity_counters_from_app(app: App) -> dict[str, int]:
 def activity_is_busy(counts: dict[str, int]) -> bool:
     """True when a *short* spinner phase is active (fast poll).
 
-    Do **not** treat ``running`` alone as busy — live evals stay running for
-    minutes and an 80–500ms activity-bar timer reflow freezes the TUI.
+    Do **not** treat ``running`` alone as busy — live sessions stay running
+    for minutes and an 80–500ms activity-bar timer reflow freezes the TUI.
     """
     return any(int(counts.get(k, 0) or 0) > 0 for k in ("pending", "building", "extracting"))
 

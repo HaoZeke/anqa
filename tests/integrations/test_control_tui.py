@@ -102,13 +102,11 @@ async def test_tui_attaches_to_daemon_and_lists_via_control(tmp_path: Path) -> N
     socket_path = _short_sock("tui-attach.sock")
     owner = daemon.build_domain_control_server(
         socket_path=socket_path,
-        work_dir=work,
         traces_path=traces,
     )
     await owner.start()
     try:
         app = AnqaApp(
-            work_dir=work,
             traces_path=traces,
             control_socket=socket_path,
             control_attach_only=True,
@@ -160,13 +158,11 @@ async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> Non
     socket_path = _short_sock("tui-scan-toast.sock")
     owner = daemon.build_domain_control_server(
         socket_path=socket_path,
-        work_dir=work,
         traces_path=traces,
     )
     await owner.start()
     try:
         app = AnqaApp(
-            work_dir=work,
             traces_path=traces,
             control_socket=socket_path,
             control_attach_only=True,
@@ -205,7 +201,6 @@ def test_sessions_reload_loud_wins_over_quiet(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=None,
         control_attach_only=False,
@@ -242,7 +237,6 @@ async def test_tui_dead_socket_does_not_claim_attach_or_disk_catalog(
     _write_session(traces)
     dead_sock = _short_sock("dead.sock")
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=dead_sock,
         control_attach_only=True,
@@ -268,7 +262,6 @@ async def test_tui_offline_no_socket_still_loads_disk_catalog(tmp_path: Path) ->
     traces.mkdir(parents=True)
     session_dir = _write_session(traces)
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=None,
         control_attach_only=False,
@@ -303,13 +296,11 @@ async def test_browser_loads_timeline_via_control_when_attached(
     socket_path = _short_sock("tui-browser.sock")
     owner = daemon.build_domain_control_server(
         socket_path=socket_path,
-        work_dir=work,
         traces_path=traces,
     )
     await owner.start()
     try:
         app = AnqaApp(
-            work_dir=work,
             traces_path=traces,
             control_socket=socket_path,
             control_attach_only=True,
@@ -348,7 +339,6 @@ async def test_confirm_control_attach_returns_false_on_dead_socket(
 ) -> None:
     """Domain helper: initialize failure is a hard False, not silent success."""
     app = AnqaApp(
-        work_dir=tmp_path / "w",
         traces_path=tmp_path / "w" / "runs" / "traces",
         control_socket=_short_sock("missing.sock"),
         control_attach_only=True,

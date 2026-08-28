@@ -1,4 +1,4 @@
-"""Control RPC: session/get, timeline, turns, usage."""
+"""Control RPC: session/overview, timeline, turns."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def _write_session(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_control_session_get_timeline_turns_usage(tmp_path: Path) -> None:
+async def test_control_session_overview_timeline_turns(tmp_path: Path) -> None:
     control = import_module("anqa.control.server")
     client_mod = import_module("anqa.control.client")
     session_dir = _write_session(tmp_path)
@@ -70,18 +70,10 @@ async def test_control_session_get_timeline_turns_usage(tmp_path: Path) -> None:
         client = client_mod.ControlClient(sock, client_name="rich-test")
         init = await client.initialize()
         caps = init["capabilities"]
-        assert "session/get" in caps
         assert "session/overview" in caps
         assert "session/timeline" in caps
         assert "session/turns" in caps
-        assert "session/usage" in caps
         assert "session/diff" in caps
-
-        got = await client.session_get(session_dir.name)
-        assert got["sessionId"] == session_dir.name
-        assert got["title"] == "Rich"
-        assert "status" in got
-        assert "contextUsage" in got or "contextUsageCompact" in got
 
         ov = await client.session_overview(session_dir.name)
         assert ov["sessionId"] == session_dir.name
@@ -101,9 +93,5 @@ async def test_control_session_get_timeline_turns_usage(tmp_path: Path) -> None:
         assert turns["total"] >= 1
         assert turns["turns"]
         assert "summary" in turns["turns"][0]
-
-        usage = await client.session_usage(session_dir.name)
-        assert usage["sessionId"] == session_dir.name
-        assert "hostTools" in usage
     finally:
         await server.close()

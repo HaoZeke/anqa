@@ -396,11 +396,6 @@ class TestFormatUsageMarkdown:
         assert "## Host tools" in md
         assert "`grep`: 3×" in md
 
-    def test_persona_included(self):
-        stats = SessionUsageStats(persona_id="code-review")
-        md = format_usage_markdown(stats)
-        assert "`code-review`" in md
-
     def test_mcp_section_none(self):
         stats = SessionUsageStats()
         md = format_usage_markdown(stats)
@@ -420,11 +415,6 @@ class TestFormatUsageStatsText:
         stats = SessionUsageStats()
         text = format_usage_stats_text(stats)
         assert "(none)" in text
-
-    def test_persona_shown(self):
-        stats = SessionUsageStats(persona_id="test-persona")
-        text = format_usage_stats_text(stats)
-        assert "test-persona" in text
 
 
 # ── tool_category_label ───────────────────────────────────────────────────
@@ -477,7 +467,6 @@ def test_format_usage_plain_all_sections():
     """format_usage_plain exercises all plain-text section branches."""
 
     stats = SessionUsageStats(
-        persona_id="my-persona",
         host_tools=[ToolUsageRow(name="grep", calls=5, errors=1)],
         mcp_bridge_calls=3,
         mcp_servers=[
@@ -502,7 +491,6 @@ def test_format_usage_plain_all_sections():
         source_notes=["from run.json"],
     )
     text = format_usage_plain(stats)
-    assert "my-persona" in text
     assert "grep" in text
     assert "mcp bridge" in text
     assert "srv1" in text
@@ -1111,18 +1099,6 @@ class TestCollectSessionUsageDeep:
         assert sk is not None
         assert sk.name_in_transcript is True
 
-    def test_run_manifest_from_parent_dir(self, tmp_path: Path):
-        """_load_run_manifest finds run.json in parent run directory."""
-        parent = tmp_path / "anqa-run-789"
-        sd = parent / "sess"
-        sd.mkdir(parents=True)
-        (parent / "run.json").write_text(
-            json.dumps({"persona_id": "test-per"}),
-            encoding="utf-8",
-        )
-        stats = us.collect_session_usage(sd, timeline=[])
-        assert stats.persona_id == "test-per"
-
     def test_find_run_parent_traces_boundary(self, tmp_path: Path):
         """_find_run_parent stops at traces/ boundary."""
         from anqa.session.usage_stats import _find_run_parent
@@ -1367,7 +1343,6 @@ class TestFormatUsageMarkdownPresentation:
     def test_usage_with_persona_and_skills(self):
         """Renders persona, skills, MCP sections."""
         stats = us.SessionUsageStats()
-        stats.persona_id = "my-persona"
         stats.skills = [
             us.SkillUsageRow(
                 skill_id="test-skill",
@@ -1389,7 +1364,6 @@ class TestFormatUsageMarkdownPresentation:
         ]
         stats.skills_disabled = ["old-skill"]
         md = us.format_usage_markdown(stats)
-        assert "my-persona" in md
         assert "test-skill" in md
         assert "slack" in md
         assert "old-skill" in md
@@ -1461,7 +1435,6 @@ class TestFormatUsagePlain:
     def test_usage_with_all_sections(self):
         """Renders all sections for populated usage."""
         stats = us.SessionUsageStats()
-        stats.persona_id = "per"
         stats.host_tools = [
             us.ToolUsageRow(name="read_file", calls=5, category="builtin", errors=1)
         ]
@@ -1486,7 +1459,6 @@ class TestFormatUsagePlain:
         stats.skills_disabled = ["dis"]
         stats.source_notes = ["from test"]
         text = us.format_usage_plain(stats)
-        assert "per" in text
         assert "read_file" in text
         assert "slack" in text
         assert "sk" in text

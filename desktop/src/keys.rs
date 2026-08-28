@@ -323,18 +323,6 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: false,
     },
     CatalogRow {
-        id: "mcp.registry",
-        scope: "modal",
-        default: "r",
-        remappable: true,
-    },
-    CatalogRow {
-        id: "mcp.local",
-        scope: "modal",
-        default: "l",
-        remappable: true,
-    },
-    CatalogRow {
         id: "confirm.discard",
         scope: "modal",
         default: "enter,y",

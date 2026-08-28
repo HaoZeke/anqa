@@ -29,7 +29,6 @@ TRACE_FILE_HINTS: tuple[str, ...] = (
     "signals.json",
     "chat_history.jsonl",
     "anqa-interrupted.json",
-    "groket-interrupted.json",
     "status.json",
     "command",
     "operator_notes.toml",

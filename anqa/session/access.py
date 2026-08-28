@@ -2,7 +2,7 @@
 
 ``LocalSessionAccess`` runs domain loaders in-process (the serve owner).
 ``RemoteSessionAccess`` wraps :class:`~anqa.control.client.ControlClient`
-with async methods for TUI/tests.
+with the async methods the terminal app actually calls.
 
 Control JSON-RPC is the multi-process binding of this façade — not a second
 catalog/timeline stack.
@@ -32,11 +32,9 @@ from ..session.control_views import (
     MAX_CONTENT_CHARS,
     MAX_TIMELINE_LIMIT,
     build_session_diff,
-    build_session_get,
     build_session_overview,
     build_session_timeline,
     build_session_turns,
-    build_session_usage,
 )
 from ..session.turn_gate import write_done_for_session, write_follow_up_for_session
 from .document import SUPPORTED_FORMATS, render_editor_document
@@ -152,11 +150,9 @@ class LocalSessionAccess:
         *,
         resolve_session: SessionResolver,
         list_sessions: SessionLister | None = None,
-        work_dir: Path | None = None,
     ) -> None:
         self._resolve = resolve_session
         self._list = list_sessions
-        self._work_dir = Path(work_dir).expanduser() if work_dir is not None else None
 
     def resolve_session(self, reference: str) -> Path | None:
         """Map a session id or path to a directory, or None."""
@@ -216,13 +212,6 @@ class LocalSessionAccess:
             "delta": False,
         }
 
-    def session_get(self, session: str) -> JsonObject:
-        """Rich session metadata."""
-        ref = self.require_ref(session)
-        if self._directory_session(ref):
-            return build_session_get(ref.locator, work_dir=self._work_dir)
-        return harness_views.session_get(ref)
-
     def session_overview(
         self,
         session: str,
@@ -230,7 +219,7 @@ class LocalSessionAccess:
         """Meta + turns + notes (timeline rows via session/timeline)."""
         ref = self.require_ref(session)
         if self._directory_session(ref):
-            return build_session_overview(ref.locator, work_dir=self._work_dir)
+            return build_session_overview(ref.locator)
         return harness_views.session_overview(ref)
 
     def session_timeline(
@@ -289,13 +278,6 @@ class LocalSessionAccess:
         if self._directory_session(ref):
             return build_session_turns(ref.locator, query=query)
         return harness_views.session_turns(ref, query=query)
-
-    def session_usage(self, session: str) -> JsonObject:
-        """Usage summary."""
-        ref = self.require_ref(session)
-        if self._directory_session(ref):
-            return build_session_usage(ref.locator)
-        return harness_views.session_usage(ref)
 
     def session_diff(self, session: str) -> JsonObject:
         """Rewind snapshots or approximate ``search_replace`` edits."""
@@ -382,9 +364,6 @@ class RemoteSessionAccess:
             since_revision=since_revision,
         )
 
-    async def session_get(self, session: str) -> JsonObject:
-        return await self._client.session_get(session)
-
     async def session_overview(
         self,
         session: str,
@@ -417,29 +396,6 @@ class RemoteSessionAccess:
             at_index=at_index,
             content_chars=content_chars,
         )
-
-    async def session_turns(self, session: str, query: str = "") -> JsonObject:
-        return await self._client.session_turns(session, query=query)
-
-    async def session_usage(self, session: str) -> JsonObject:
-        return await self._client.session_usage(session)
-
-    async def session_diff(self, session: str) -> JsonObject:
-        return await self._client.session_diff(session)
-
-    async def session_follow_up(
-        self, session: str, prompt: str, *, final: bool = False
-    ) -> JsonObject:
-        return await self._client.session_follow_up(session, prompt, final=final)
-
-    async def session_done(self, session: str) -> JsonObject:
-        return await self._client.session_done(session)
-
-    async def session_render(self, session: str, *, format: str = "org") -> JsonObject:
-        return await self._client.session_render(session, format=format)
-
-    async def notes_list(self, session: str) -> JsonObject:
-        return await self._client.notes_list(session)
 
     async def notes_upsert(
         self,

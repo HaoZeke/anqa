@@ -16,7 +16,7 @@ from .bounded_cache import BoundedCache
 from .constants import (
     HOST_INCOMPLETE_STALE_SECONDS,
     INCOMPLETE_STALE_SECONDS,
-    INTERRUPTED_MARKER_FILENAMES,
+    INTERRUPTED_MARKER_FILENAME,
     LIST_RUNTIME_CACHE_MAXSIZE,
     RUNTIME_MARKERS_CACHE_MAXSIZE,
     SYSTEM_PROMPT_CACHE_MAXSIZE,
@@ -35,7 +35,7 @@ from .models import (
     as_json_object,
     json_as_str,
 )
-from .paths import RUN_PREFIXES, is_run_dir_name, strip_run_prefix
+from .paths import RUN_PREFIX, is_run_dir_name, strip_run_prefix
 from .scan import find_sessions as walk_sessions
 from .scan import keep_updates_line, skip_dir_name
 from .session.workflows import WorkflowRun
@@ -2083,11 +2083,11 @@ def _traces_are_fresh(session_dir: Path, *, origin: str = "") -> bool:
 def _infer_incomplete_turn_outcome(session_dir: Path, *, origin: str = "") -> str:
     """Outcome when harness never wrote turn_ended.
 
-    Live eval containers write traces incrementally; those sessions should show
-    ``running``, not ``interrupted``. Only mark interrupted when an explicit
-    marker exists, or trace data is present but has gone stale.
+    Live sessions write traces incrementally; those should show ``running``,
+    not ``interrupted``. Only mark interrupted when an explicit marker exists,
+    or trace data is present but has gone stale.
     """
-    if any((session_dir / name).is_file() for name in INTERRUPTED_MARKER_FILENAMES):
+    if (session_dir / INTERRUPTED_MARKER_FILENAME).is_file():
         return "interrupted"
 
     has_body = any(
@@ -2405,7 +2405,7 @@ def load_session_meta_list(
     pass for turn status. Tails ``updates.jsonl`` when events have no
     ``turn_ended`` so host ``turn_completed`` still closes the list row.
     Does not build marker events. Consults the turn gate only when a gate
-    directory exists (eval sessions). Missing ``events.jsonl`` is fine.
+    directory exists. Missing ``events.jsonl`` is fine.
     """
     origin_key = (origin or "work").strip().lower() or "work"
     meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
@@ -2486,10 +2486,11 @@ def load_session_meta(
             if inferred:
                 meta.turn_outcome = inferred
 
-    # Interactive gate overrides while the eval is open. Awaiting only when the
-    # gate is awaiting_follow_up. Host ``command=done`` / stuck ``final_turn``
-    # mean *finishing* only while traces are still fresh; if the container never
-    # rewrote ``state=done``, settle to the harness outcome rather than ``running``.
+    # Interactive gate overrides while a leftover work tree is still open.
+    # Awaiting only when the gate is awaiting_follow_up. Host ``command=done`` /
+    # stuck ``final_turn`` mean *finishing* only while traces are still fresh;
+    # if the agent never rewrote ``state=done``, settle to the harness outcome
+    # rather than ``running``.
     try:
         override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
         if override is not None:
@@ -2632,12 +2633,11 @@ def _model_from_run_json(session_dir: Path, run_data: dict) -> str:
     # Fall back: suffix after run_id segment in anqa-{run_id}-{suffix}
     run_id = str(run_data.get("run_id") or "")
     if run_id:
-        for pfx in RUN_PREFIXES:
-            head = f"{pfx}{run_id}-"
-            if matched.startswith(head):
-                suffix = re.sub(r"-\d+$", "", matched[len(head) :])
-                if suffix:
-                    return suffix
+        head = f"{RUN_PREFIX}{run_id}-"
+        if matched.startswith(head):
+            suffix = re.sub(r"-\d+$", "", matched[len(head) :])
+            if suffix:
+                return suffix
     return ""
 
 
@@ -2686,7 +2686,7 @@ def _match_model_to_container(container_name: str, models: list[str]) -> str:
 
 
 def _strip_container_name_disambiguator(name: str) -> str:
-    """Remove trailing ``x2`` / ``-2`` collision suffixes from eval container names."""
+    """Remove trailing ``x2`` / ``-2`` collision suffixes from leftover run names."""
     cleaned = re.sub(r"x\d+$", "", name.lower())
     cleaned = re.sub(r"-\d+$", "", cleaned)
     return cleaned.rstrip("-")
@@ -2784,7 +2784,7 @@ def _model_from_run_parent(session_dir: Path) -> str:
 
 
 def _prune_session_walk_dirs(dirnames: list[str]) -> None:
-    """In-place: do not descend into eval staging, subagent trees, or VCS noise.
+    """In-place: do not descend into leftover staging, subagent trees, or VCS noise.
 
     Container dirs are named ``anqa-<id>-<model>`` and **must** be walked;
     only explicit staging folder names are skipped.
@@ -2848,7 +2848,7 @@ def find_sessions(root: Path) -> list[Path]:
     A session directory is identified by updates.jsonl / summary.json (stable)
     or a non-empty events.jsonl (live mid-run).
 
-    Skips eval staging trees (``anqa-plugins``, ``anqa-skills``, ``*.stage``,
+    Skips leftover staging trees (``anqa-plugins``, ``anqa-skills``, ``*.stage``,
     ``.anqa-resume-seed``), Grok subagent sessions, and live paths that are
     only symlinks into resume substrate (see :mod:`anqa.session.resume`).
 

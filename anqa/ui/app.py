@@ -6,7 +6,6 @@ UI entry point only: catalog, notes, and control attach.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from contextlib import suppress
@@ -34,8 +33,6 @@ from textual.widgets import (
     TextArea,
 )
 
-from ..constants import META_CACHE_FILENAME
-
 if TYPE_CHECKING:
     from ..keys import Keymap
 from ..control.client import (
@@ -43,7 +40,7 @@ from ..control.client import (
     ControlClient,
     listen_control_notifications,
 )
-from ..models import JsonObject, JsonValue, SessionMeta, as_json_object, json_as_str
+from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
 from ..parser import find_sessions, load_session_meta
 from ..paths import app_config_path
 from ..session.access import (
@@ -328,7 +325,6 @@ class AnqaApp(App):
     def __init__(
         self,
         traces_path: Path | None = None,
-        work_dir: Path | None = None,
         *,
         config_path: Path | None = None,
         control_socket: Path | None = None,
@@ -339,22 +335,11 @@ class AnqaApp(App):
     ) -> None:
         setup_i18n()
         super().__init__(**kwargs)
-        from ..paths import default_work_dir, resolve_work_and_traces, traces_root_for_reload
+        from ..paths import resolve_catalog_root
 
-        self.traces_path: Path | None
-        if work_dir is not None:
-            self.work_dir = Path(work_dir).expanduser().resolve()
-            self.traces_path = (
-                Path(traces_path).expanduser().resolve()
-                if traces_path is not None
-                else self.work_dir / "runs" / "traces"
-            )
-        elif traces_path is not None:
-            self.work_dir, self.traces_path = resolve_work_and_traces(traces_path)
-        else:
-            self.work_dir = default_work_dir()
-            self.traces_path = None
-        self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.traces_path: Path | None = (
+            resolve_catalog_root(traces_path) if traces_path is not None else None
+        )
         self._run_status_timer: Timer | None = None
         self._live_sessions_timer: Timer | None = None
         self._live_sessions_heartbeat_timer: Timer | None = None
@@ -413,7 +398,6 @@ class AnqaApp(App):
             self.theme = self._resolved_theme(early)
         except Exception:
             logger.debug(t("ui-failed-to-apply-saved-theme-r"), early)
-        self._traces_root_for_reload = traces_root_for_reload
         self._resolved_keymap: Keymap | None = None
         self._leader_armed = False
         self._leader_timer: Timer | None = None
@@ -439,18 +423,17 @@ class AnqaApp(App):
         """Traces directory fixed for this process (CLI / constructor only)."""
         if self.traces_path:
             return Path(self.traces_path).expanduser()
-        return Path(self.work_dir).expanduser() / "runs" / "traces"
+        from ..paths import default_host_sessions_root
+
+        return default_host_sessions_root()
 
     def _update_session_paths_banner(self) -> None:
-        """Work traces and host sessions (``is:host`` filters the list)."""
+        """Catalog store (host sessions)."""
         try:
             banner = self.query_one("#session-paths", Static)
         except Exception:
             return
-        from ..session.sources import host_grok_sessions_root
-
-        work = self._runner_traces_root()
-        banner.update(paths_banner(work, host_grok_sessions_root()))
+        banner.update(paths_banner(self._session_traces_root()))
 
     def _load_config(self) -> JsonObject:
         """Load the canonical app config (defaults when the file is missing)."""
@@ -732,17 +715,8 @@ class AnqaApp(App):
             t("ui-events"),
         )
         self.sub_title = ""
-        try:
-            (self.work_dir / "runs" / "traces").mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
         self._refresh_query_hints()
         self._update_session_paths_banner()
-        work = self._runner_traces_root()
-        try:
-            work.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
         # Attach-only: start control client first so home list loads via RPC.
         self._start_control_service()
         self._load_sessions(include_host=None)
@@ -840,7 +814,8 @@ class AnqaApp(App):
             return
         if method == "session/changed":
             sid = json_as_str(params.get("sessionId")).strip()
-            self.call_later(self._control_session_changed_ui, sid)
+            raw = params.get("listChanged")
+            self.call_later(self._control_session_changed_ui, sid, raw is not False)
             return
         if method == "notes/changed":
             sid = json_as_str(params.get("sessionId")).strip()
@@ -858,10 +833,10 @@ class AnqaApp(App):
                 return candidate
         return None
 
-    def _control_session_changed_ui(self, session_id: str) -> None:
-        """Refresh home list and open browser when the changed session is open."""
-        # Empty sessionId: catalog rebuild finished (cold serve warm).
-        self._schedule_sessions_reload(quiet=True)
+    def _control_session_changed_ui(self, session_id: str, list_changed: bool = True) -> None:
+        """Reload the home list only when list fields changed; refresh an open browser."""
+        if not session_id or list_changed:
+            self._schedule_sessions_reload(quiet=True)
         screen = self.screen
         if isinstance(screen, BrowserScreen) and session_id:
             try:
@@ -970,85 +945,22 @@ class AnqaApp(App):
         """TUI notes notify (serve owns broadcast; no-op as client)."""
         _ = session_dir
 
-    _CACHE_FILE = META_CACHE_FILENAME
-
     def _session_catalog_roots(self):
-        """Work traces always; host Grok tree when the pref (or CLI host path) says so."""
+        """Adapter store roots for the home list."""
         return self._catalog_roots_for_load(include_host=None)
 
-    def _cache_roots_key(self) -> str:
-        parts = [f"{r.origin}:{r.path}" for r in self._session_catalog_roots()]
-        return "|".join(parts)
-
-    def _load_meta_cache(self) -> dict[str, dict]:
-        """Load cached session metadata keyed by resolved session_dir path."""
-        cache_file = self.work_dir / self._CACHE_FILE
-        if not cache_file.exists():
-            return {}
-        try:
-            data = json.loads(cache_file.read_text())
-            if data.get("roots") != self._cache_roots_key():
-                return {}
-            raw = data.get("sessions", {})
-            return raw if isinstance(raw, dict) else {}
-        except (json.JSONDecodeError, KeyError, TypeError):
-            return {}
-
-    def _save_meta_cache(self, entries: list[tuple[SessionMeta, str]]) -> None:
-        """Write session metadata cache to disk."""
-        from ..parser import session_trace_mtime
-
-        sessions_cache: dict[str, JsonValue] = {}
-        cache: JsonObject = {"roots": self._cache_roots_key(), "sessions": sessions_cache}
-        for meta, label in entries:
-            key = str(meta.session_dir.resolve())
-            try:
-                tm = float(session_trace_mtime(Path(meta.session_dir)))
-            except Exception:
-                tm = 0.0
-            sessions_cache[key] = {
-                "session_id": meta.session_id,
-                "model_id": meta.model_id,
-                "reasoning_effort": meta.reasoning_effort,
-                "title": meta.title,
-                "created_at": meta.created_at,
-                "num_events": meta.num_events,
-                "trace_mtime": tm,
-                "duration_seconds": meta.duration_seconds,
-                "context_window_usage_pct": meta.context_window_usage_pct,
-                "context_tokens_used": meta.context_tokens_used,
-                "context_window_tokens": meta.context_window_tokens,
-                "compaction_count": meta.compaction_count,
-                "total_tokens_before_compaction": meta.total_tokens_before_compaction,
-                "task_id": meta.task_id,
-                "run_id": meta.run_id,
-                "origin": meta.origin,
-                "git_repo": meta.git_repo,
-                "git_branch": meta.git_branch,
-                "label": label,
-            }
-        try:
-            (self.work_dir / self._CACHE_FILE).write_text(json.dumps(cache, indent=2))
-        except Exception:
-            pass
-
     def _origin_for_dir(self, session_dir: Path) -> str:
-        """Eval vs Host from the directory, not a stored default."""
-        from ..session.sources import classify_session_origin, work_traces_root
+        """Host adapter store from the directory."""
+        from ..session.sources import classify_session_origin
 
-        return classify_session_origin(
-            session_dir,
-            work_traces=work_traces_root(self.work_dir),
-        )
+        return classify_session_origin(session_dir)
 
     def _label_for_session(self, session_dir: Path, origin: str) -> str:
         """Display path fragment relative to the catalog root for *origin*."""
-        from ..session.sources import ORIGIN_HOST, host_grok_sessions_root, work_traces_root
+        from ..session.sources import host_grok_sessions_root
 
-        root = (
-            host_grok_sessions_root() if origin == ORIGIN_HOST else work_traces_root(self.work_dir)
-        )
-        return self._derive_label(session_dir, root)
+        _ = origin
+        return self._derive_label(session_dir, host_grok_sessions_root())
 
     def _begin_sessions_load(self) -> int:
         """Mark a new catalog load; return generation for stale-worker checks."""
@@ -1106,48 +1018,18 @@ class AnqaApp(App):
     def _build_session_meta_rows(
         self,
         unique: list[tuple[Path, str]],
-        cache: dict[str, dict],
         *,
         gen: int | None = None,
-    ) -> tuple[list[tuple[SessionMeta, str]], list[int]]:
-        """Build list metas for *unique* dirs; host rows skip events parse.
-
-        :returns: ``(rows, need_timeline_indices)`` for eval rows only.
-        """
-        from ..parser import load_session_meta_list, session_trace_mtime
-        from ..session.sources import ORIGIN_HOST
+    ) -> list[tuple[SessionMeta, str]]:
+        """Build list metas for *unique* dirs."""
+        from ..parser import load_session_meta_list
 
         rows: list[tuple[SessionMeta, str]] = []
-        need_idx: list[int] = []
         for sd, origin in unique:
             if gen is not None and not self._sessions_load_current(gen):
-                return rows, need_idx
-            try:
-                key = str(sd.resolve())
-            except OSError:
-                key = str(sd)
-            try:
-                mtime = float(session_trace_mtime(sd))
-            except Exception:
-                mtime = 0.0
-            cached = cache.get(key) if isinstance(cache.get(key), dict) else None
-            cached_n: int | None = None
-            if isinstance(cached, dict):
-                try:
-                    if float(cached.get("trace_mtime") or -1) == mtime:
-                        ne = cached.get("num_events")
-                        cached_n = int(ne) if ne is not None else None
-                        if cached_n is None:
-                            raise ValueError("missing num_events")
-                except (TypeError, ValueError, KeyError):
-                    cached_n = None
+                return rows
             try:
                 meta = load_session_meta_list(sd, origin=origin)
-                if cached_n is not None:
-                    meta.num_events = cached_n
-                    need_count = False
-                else:
-                    need_count = origin != ORIGIN_HOST
             except Exception:
                 logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
                 continue
@@ -1155,30 +1037,7 @@ class AnqaApp(App):
             _attach_catalog_flags(meta)
             label = self._label_for_session(sd, origin)
             rows.append((meta, label))
-            if need_count:
-                need_idx.append(len(rows) - 1)
-        return rows, need_idx
-
-    @staticmethod
-    def _fill_timeline_counts(rows: list[tuple[SessionMeta, str]], need_idx: list[int]) -> bool:
-        """Set ``num_events`` on *rows* at *need_idx* via parse_timeline. Returns if any updated."""
-        from ..parser import parse_timeline
-        from ..session.sources import ORIGIN_HOST
-
-        updated = False
-        for idx in need_idx:
-            if idx < 0 or idx >= len(rows):
-                continue
-            meta, label = rows[idx]
-            if (meta.origin or "").strip().lower() == ORIGIN_HOST:
-                continue
-            try:
-                meta.num_events = len(parse_timeline(Path(meta.session_dir)))
-            except Exception:
-                meta.num_events = 0
-            rows[idx] = (meta, label)
-            updated = True
-        return updated
+        return rows
 
     def _apply_session_meta_rows(self, gen: int, rows: list[tuple[SessionMeta, str]]) -> bool:
         """Install *rows* if *gen* is still current. Returns False when superseded."""
@@ -1190,14 +1049,7 @@ class AnqaApp(App):
     def _load_sessions_sync(self, root: Path | None = None) -> int:
         """Load session metas into ``_meta_only`` (any thread; no UI calls).
 
-        Avoids parsing every ``updates.jsonl`` on launch when a mtime-matching
-        ``num_events`` is already in the meta cache (still coalesced timeline
-        counts — not file-size estimates). Cache misses get a deferred
-        :func:`~anqa.parser.parse_timeline` pass so the UI can paint first.
-
-        *root* is ignored (catalog roots come from work + optional host).
-
-        :returns: Number of sessions loaded (0 if none found after a full scan).
+        :returns: Number of sessions loaded.
         """
         _ = root
         from ..session.sources import collect_session_dirs
@@ -1206,19 +1058,11 @@ class AnqaApp(App):
         try:
             unique = collect_session_dirs(self._session_catalog_roots())
             if not unique:
-                if self._apply_session_meta_rows(gen, []):
-                    self._save_meta_cache([])
+                self._apply_session_meta_rows(gen, [])
                 return 0
-            cache = self._load_meta_cache()
-            rows, need_idx = self._build_session_meta_rows(unique, cache, gen=gen)
-            if not self._sessions_load_current(gen):
-                return 0
-            # List paint first; work event counts optional for sync path.
+            rows = self._build_session_meta_rows(unique, gen=gen)
             if not self._apply_session_meta_rows(gen, rows):
                 return 0
-            self._fill_timeline_counts(rows, need_idx)
-            if self._sessions_load_current(gen):
-                self._save_meta_cache(rows)
             return len(rows)
         finally:
             self._finish_sessions_load(gen)
@@ -1233,7 +1077,6 @@ class AnqaApp(App):
         if traces is not None and is_host_grok_sessions_root(Path(traces)):
             include_host = True
         return session_scan_roots(
-            self.work_dir,
             traces_path=Path(traces) if traces is not None else None,
             include_host=bool(include_host),
         )
@@ -1527,7 +1370,6 @@ class AnqaApp(App):
                 return
             if not unique:
                 if self._apply_session_meta_rows(gen, []):
-                    self._save_meta_cache([])
                     call_ui(self, self._rebuild_session_filters)
                     call_ui(self, self._populate_session_table, force=True)
                     if not quiet:
@@ -1539,8 +1381,7 @@ class AnqaApp(App):
                         )
                 return
 
-            cache = self._load_meta_cache()
-            rows, need_idx = self._build_session_meta_rows(unique, cache, gen=gen)
+            rows = self._build_session_meta_rows(unique, gen=gen)
             if not self._sessions_load_current(gen):
                 return
             if not self._apply_session_meta_rows(gen, rows):
@@ -1555,23 +1396,14 @@ class AnqaApp(App):
                     t("notify-loaded-sessions", n=n),
                     severity="information",
                 )
-
-            if need_idx and self._sessions_load_current(gen):
-                if self._fill_timeline_counts(rows, need_idx) and self._sessions_load_current(gen):
-                    self._save_meta_cache(rows)
-                    call_ui(self, self._populate_session_table, force=True)
-                elif self._sessions_load_current(gen):
-                    self._save_meta_cache(rows)
-            elif self._sessions_load_current(gen):
-                self._save_meta_cache(rows)
         finally:
             call_ui(self, self._finish_sessions_load, gen)
 
     def action_self_test(self) -> None:
-        """Open dependency self-test (Docker, Grok auth, work dir, …) on the UI thread."""
+        """Open the host self-test (Grok store, HUD seat) on the UI thread."""
         from .widgets.self_test_modal import SelfTestModal
 
-        self.push_screen(SelfTestModal(work_dir=self.work_dir))
+        self.push_screen(SelfTestModal())
 
     def _derive_label(self, session_dir: Path, root: Path) -> str:
         """Derive a display label from directory path."""
@@ -2286,21 +2118,13 @@ class AnqaApp(App):
         """Full refresh: rescan traces and rebuild the session list."""
         from ..paths import traces_root_for_reload
 
-        traces = traces_root_for_reload(self.work_dir, self.traces_path)
-        runner_traces = self.work_dir / "runs" / "traces"
-        root = runner_traces if runner_traces.exists() else traces
+        root = traces_root_for_reload(self.traces_path)
         if not root.exists():
             self.notify(t("notify-no-traces-refresh", path=str(root)), severity="error")
             return
         self._meta_only = []
         self._session_mtimes.clear()
         self._selected = set()
-        try:
-            cf = self.work_dir / self._CACHE_FILE
-            if cf.exists():
-                cf.unlink()
-        except OSError:
-            pass
         self.notify(
             t("notify-full-refresh", path=str(root)),
             severity="warning",
@@ -2460,22 +2284,25 @@ class AnqaApp(App):
         self.title = t("help-brand-name")
 
     def _schedule_run_status_update(self) -> None:
-        """Debounce title updates (batch runs finish containers rapidly)."""
+        """Debounce title updates."""
         if self._run_status_timer is not None:
             self._run_status_timer.stop()
         self._run_status_timer = self.set_timer(0.6, self.update_run_status)
 
     def _runner_traces_root(self) -> Path:
-        """Host path where eval containers write sessions (always shareable mid-run)."""
-        return self.work_dir / "runs" / "traces"
+        """Catalog store this process lists (host sessions or ``-P``)."""
+        return self._session_traces_root()
 
     def _schedule_live_sessions_poll(self) -> None:
-        """Watch ``runs/traces`` and arm a read-only 60s meta heartbeat.
+        """Watch the catalog store and arm a read-only 60s meta heartbeat.
 
         FS events discover sessions / turn status. The heartbeat reloads
         ``signals.json`` context fields for in-progress rows without writing
-        the meta cache or traces tree.
+        the meta cache or traces tree. Control-attached home lists follow
+        ``session/changed`` instead.
         """
+        if self._control_socket is not None:
+            return
         root = self._runner_traces_root()
         try:
             root.mkdir(parents=True, exist_ok=True)
@@ -2599,7 +2426,7 @@ class AnqaApp(App):
         """Read-only ``load_session_meta`` for in-progress sessions.
 
         Uses per-session inflight locks so browser light reloads coalesce safely.
-        Never writes ``_meta_cache.json`` or session artifacts.
+        Never writes session artifacts.
         """
         from .. import parser as parser_mod
         from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
@@ -2676,8 +2503,7 @@ class AnqaApp(App):
     def _scan_live_sessions_into_table(self) -> None:
         """Discover new sessions and refresh turn status.
 
-        Attach: quiet ``session/list``. Offline: ``find_sessions`` at most
-        every ``LIVE_POLL_FULL_WALK_INTERVAL``.
+        Offline: ``find_sessions`` at most every ``LIVE_POLL_ACTIVE_INTERVAL``.
         """
         import time
 
@@ -2689,20 +2515,6 @@ class AnqaApp(App):
             return
 
         now = time.time()
-        if self._control_socket is not None:
-            if not self._control_attached:
-                return
-            min_gap = LIVE_POLL_FULL_WALK_INTERVAL
-            if now - self._live_sessions_last_scan < min_gap:
-                return
-            self._live_sessions_last_scan = now
-            gen = self._begin_sessions_load()
-            try:
-                self._load_sessions_via_control(gen, quiet=True)
-            finally:
-                pass
-            return
-
         min_gap = LIVE_POLL_ACTIVE_INTERVAL
         if now - self._live_sessions_last_scan < min_gap:
             return
@@ -2979,7 +2791,7 @@ class AnqaApp(App):
         self._refresh_sessions_list()
 
     def _refresh_sessions_list(self) -> None:
-        """Reload the sessions table from work traces (+ host when enabled).
+        """Reload the sessions table from the catalog store.
 
         Debounced + exclusive catalog worker — do not race populate here.
         """

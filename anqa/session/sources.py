@@ -1,8 +1,6 @@
-"""Session catalog roots: leftover work traces and adapter host stores.
+"""Session catalog roots: adapter host stores.
 
-Work traces (``<work>/runs/traces``) stay listed so old eval trees remain
-visible. Native stores (``~/.grok/sessions`` and ``[catalog.roots]``) are
-always included. Rows on the wire use origin ``host``.
+Native stores (``~/.grok/sessions`` and ``[catalog.roots]``) are the catalog.
 """
 
 from __future__ import annotations
@@ -13,14 +11,13 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from ..parser import find_sessions
+from ..paths import default_host_sessions_root
 from .subagents import drop_subagent_sessions
 
 _HOST_SKIP_DIR_NAMES = frozenset(
     {
         "anqa-plugins",
         "anqa-skills",
-        "groket-plugins",
-        "groket-skills",
         "subagents",
         ".git",
         "node_modules",
@@ -34,8 +31,6 @@ _HOST_SKIP_DIR_NAMES = frozenset(
         ".tox",
         ".anqa-resume-seed",
         ".anqa-workspace-seed",
-        ".groket-resume-seed",
-        ".groket-workspace-seed",
         "workspace",
         "runs",
     }
@@ -48,13 +43,8 @@ type SessionOrigin = str
 
 
 def host_grok_sessions_root() -> Path:
-    """Default Grok Build sessions root: ~/.grok/sessions."""
-    return Path.home() / ".grok" / "sessions"
-
-
-def work_traces_root(work_dir: Path) -> Path:
-    """Docker/eval traces under the work root."""
-    return Path(work_dir).expanduser() / "runs" / "traces"
+    """Default Grok session store: ~/.grok/sessions."""
+    return default_host_sessions_root()
 
 
 def _resolved(path: Path) -> Path:
@@ -88,20 +78,16 @@ def is_under_host_grok_sessions(session_dir: Path) -> bool:
 def classify_session_origin(
     session_dir: Path,
     *,
-    work_traces: Path,
     host_root: Path | None = None,
 ) -> SessionOrigin:
-    """Return work or host for *session_dir*."""
+    """Return host when *session_dir* is under the adapter store."""
     sd = _resolved(session_dir)
     host = _resolved(host_root) if host_root is not None else _resolved(host_grok_sessions_root())
     if sd == host or host in sd.parents:
         return ORIGIN_HOST
-    wt = _resolved(work_traces)
-    if sd == wt or wt in sd.parents:
-        return ORIGIN_WORK
     if is_under_host_grok_sessions(session_dir):
         return ORIGIN_HOST
-    return ORIGIN_WORK
+    return ORIGIN_HOST
 
 
 @dataclass(frozen=True)
@@ -113,19 +99,16 @@ class SessionScanRoot:
 
 
 def session_scan_roots(
-    work_dir: Path,
     *,
     traces_path: Path | None = None,
-    include_host: bool = False,
+    include_host: bool = True,
     host_root: Path | None = None,
 ) -> list[SessionScanRoot]:
     """Roots for the sessions home list.
 
-    Always includes the work traces tree. When *include_host* is true, also
-    includes the host sessions root. An explicit *traces_path* that is
-    not already covered is added with a classified origin.
+    The host adapter store. An explicit *traces_path* that is not already
+    that store is added as another host root.
     """
-    work = work_traces_root(work_dir)
     host = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
     out: list[SessionScanRoot] = []
     seen: set[str] = set()
@@ -137,22 +120,18 @@ def session_scan_roots(
         seen.add(key)
         out.append(SessionScanRoot(origin=origin, path=Path(path).expanduser()))
 
-    add(ORIGIN_WORK, work)
     if include_host:
         add(ORIGIN_HOST, host)
     if traces_path is not None:
-        tp = Path(traces_path).expanduser()
-        origin = classify_session_origin(tp, work_traces=work, host_root=host)
-        add(origin, tp)
+        add(ORIGIN_HOST, Path(traces_path).expanduser())
     return out
 
 
 def session_dir_for_watch_path(path: Path, root: Path) -> Path | None:
     """Nearest session directory on *path* that lives under *root*.
 
-    Host (and some eval) trees nest sessions under a percent-encoded cwd
-    bucket. The first component under the watch root is that bucket, not
-    the session.
+    Host trees nest sessions under a percent-encoded cwd bucket. The first
+    component under the watch root is that bucket, not the session.
     """
     try:
         cur = Path(path).expanduser().resolve()
@@ -192,22 +171,14 @@ def session_run_dir(session_dir: Path) -> str:
 
     Host trees nest under a percent-encoded cwd bucket
     (``~/.grok/sessions/%2Fhome%2F…/<id>``). Container ``/workspace`` is
-    skipped. Eval bind-mounts use ``run.json`` ``repo_path``.
+    skipped.
     """
     parent = Path(session_dir).parent.name
     if is_encoded_cwd_name(parent):
         decoded = unquote(parent)
         if decoded and decoded not in {"/workspace", "workspace"}:
             return decoded
-    from .recipe import load_run_recipe
-
-    raw = str(load_run_recipe(session_dir).get("repo_path") or "").strip()
-    if not raw:
-        return ""
-    try:
-        return str(Path(raw).expanduser())
-    except OSError:
-        return raw
+    return ""
 
 
 def is_host_skip_dir_name(name: str) -> bool:
@@ -339,5 +310,4 @@ __all__ = [
     "is_host_grok_sessions_root",
     "is_under_host_grok_sessions",
     "session_scan_roots",
-    "work_traces_root",
 ]

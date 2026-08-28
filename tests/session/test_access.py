@@ -155,19 +155,18 @@ def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
                 "sessionId": session.name,
                 "path": str(session),
                 "title": "One",
-                "origin": "eval",
+                "origin": "host",
             }
         ],
-        work_dir=tmp_path,
     )
     listed = access.list_sessions(query="one")
     assert listed["matched"] == 1
     assert listed["sessions"][0]["sessionId"] == session.name
 
     with pytest.raises(FileNotFoundError):
-        access.session_get("missing-id")
+        access.session_overview("missing-id")
 
-    got = access.session_get(session.name)
+    got = access.session_overview(session.name)
     assert got.get("sessionId") == session.name or "path" in got
 
 
@@ -188,7 +187,6 @@ def test_local_access_follow_up_and_done(tmp_path: Path) -> None:
     access = LocalSessionAccess(
         resolve_session=lambda ref: sess if ref in {sess.name, str(sess)} else None,
         list_sessions=lambda: [],
-        work_dir=tmp_path,
     )
     sent = access.session_follow_up(str(sess), "continue")
     assert sent["ok"] is True

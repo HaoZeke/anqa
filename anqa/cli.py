@@ -1,7 +1,7 @@
 """CLI entry point for anqa — Typer (Click) app.
 
 Default: interactive TUI. Optional path (``-P`` or leading argument) selects
-work root, traces tree, or session (default ``~/.anqa/work``).
+a session store or session (default ``~/.grok/sessions``).
 
 Commands: ``serve`` (control owner), ``hud``, ``doctor``, ``editor``,
 ``keys``, ``config``, ``export-host``.
@@ -28,8 +28,8 @@ app = typer.Typer(
     help=(
         "Inspect harness sessions.\n\n"
         "With no command: open the TUI "
-        "([cyan]PATH[/cyan] or [cyan]-P PATH[/cyan] = work root, traces, or session; "
-        "default [cyan]~/.anqa/work[/cyan]).\n\n"
+        "([cyan]PATH[/cyan] or [cyan]-P PATH[/cyan] = store or session; "
+        "default [cyan]~/.grok/sessions[/cyan]).\n\n"
         "[cyan]serve[/cyan] owns the control socket · "
         "[cyan]hud[/cyan] palette · "
         "[cyan]doctor[/cyan] host checks · "
@@ -96,7 +96,7 @@ def launch_tui(
     prompt_index: int | None = None,
     ensure_serve: bool = True,
 ) -> None:
-    """Start the TUI for *path* (work root, traces dir, or session) or default work root.
+    """Start the TUI for *path* (store or session) or the default host store.
 
     The TUI never owns the control socket. When *ensure_serve* is true and a
     socket path is configured, detach-start a headless owner if the socket is
@@ -105,11 +105,11 @@ def launch_tui(
     """
     from .control.daemon import ensure_control_daemon
     from .control.server import default_socket_path
-    from .paths import resolve_work_and_traces
+    from .paths import resolve_catalog_root
     from .ui.app import AnqaApp
 
     cfg = config.expanduser() if config is not None else None
-    wd, tr = resolve_work_and_traces(path)
+    tr = resolve_catalog_root(path)
     session: Path | None = None
     if path is not None:
         candidate = Path(path).expanduser()
@@ -126,7 +126,6 @@ def launch_tui(
     if socket_path is not None and ensure_serve:
         result = ensure_control_daemon(
             socket_path=socket_path,
-            work_dir=wd,
             traces_path=tr,
         )
         if not result.ok:
@@ -136,7 +135,6 @@ def launch_tui(
             )
     AnqaApp(
         traces_path=tr,
-        work_dir=wd,
         config_path=cfg,
         control_socket=socket_path,
         control_attach_only=socket_path is not None,
@@ -152,7 +150,7 @@ def cmd_hud(
         typer.Option(
             "-P",
             "--path",
-            help="Work root for catalog discovery when starting serve (default ~/.anqa/work).",
+            help="Catalog store when starting serve (default ~/.grok/sessions).",
             show_default=False,
         ),
     ] = None,
@@ -267,7 +265,7 @@ def cmd_hud(
     sock = Path(socket).expanduser() if socket is not None else default_socket_path()
     code = run_hud(
         socket_path=sock,
-        work_dir=path,
+        catalog_root=path,
         auto_serve=ensure_serve,
         dev=dev,
         debug=debug,
@@ -298,7 +296,7 @@ _ServePath = Annotated[
     typer.Option(
         "-P",
         "--path",
-        help="Work root or traces tree (default ~/.anqa/work).",
+        help="Catalog store (default ~/.grok/sessions).",
         show_default=False,
     ),
 ]
@@ -353,7 +351,6 @@ def _run_serve_start(
     if daemonize:
         result = start_control_daemon_detached(
             socket_path=sock,
-            work_dir=None,
             traces_path=path,
             include_host=None,
         )
@@ -367,7 +364,6 @@ def _run_serve_start(
         return 0
     return run_control_daemon(
         socket_path=sock,
-        work_dir=None,
         traces_path=path,
         include_host=None,
     )
@@ -515,8 +511,8 @@ def main_callback(
             "-P",
             "--path",
             help=(
-                "Work root, runs/traces, or a session directory "
-                "(or pass as the first argument). Default: ~/.anqa/work."
+                "Session store or session directory "
+                "(or pass as the first argument). Default: ~/.grok/sessions."
             ),
             show_default=False,
         ),
@@ -588,7 +584,7 @@ def cmd_tui(
         typer.Option(
             "-P",
             "--path",
-            help="Work root, traces, or session (default ~/.anqa/work).",
+            help="Store or session (default ~/.grok/sessions).",
             show_default=False,
         ),
     ] = None,
@@ -746,7 +742,7 @@ def cmd_doctor(
         typer.Option(
             "-P",
             "--path",
-            help="Work root to probe (default ~/.anqa/work).",
+            help="Catalog store to probe (default ~/.grok/sessions).",
             show_default=False,
         ),
     ] = None,
@@ -755,12 +751,11 @@ def cmd_doctor(
         typer.Option("--json", help="Emit JSON instead of text lines."),
     ] = False,
 ) -> None:
-    """Host checks: Docker, Grok auth, work dir, and related deps (no TUI)."""
+    """Host checks: Grok store and HUD seat (no TUI)."""
     from .diagnostics import run_self_test
-    from .paths import resolve_work_and_traces
+    from .paths import resolve_catalog_root
 
-    wd, _tr = resolve_work_and_traces(path)
-    report = run_self_test(work_dir=wd)
+    report = run_self_test(catalog_root=resolve_catalog_root(path))
     if json_out:
         payload = {
             "ok": report.ok,

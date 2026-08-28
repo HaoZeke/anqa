@@ -40,11 +40,10 @@ def _write_session(root: Path, name: str, *, title: str = "Catalog session") -> 
     return session_dir
 
 
-def test_list_session_catalog_discovers_work_traces(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_session(traces, "session-catalog-a", title="Alpha review")
-    rows = list_session_catalog(work)
+def test_list_session_catalog_discovers_store(tmp_path: Path) -> None:
+    store = tmp_path / "sessions"
+    sess = _write_session(store, "session-catalog-a", title="Alpha review")
+    rows = list_session_catalog(traces_path=store, include_host=False)
     assert len(rows) == 1
     row = rows[0]
     assert row["sessionId"] == "session-catalog-a"
@@ -56,31 +55,29 @@ def test_list_session_catalog_discovers_work_traces(tmp_path: Path) -> None:
 
 
 def test_list_session_catalog_empty_without_sessions(tmp_path: Path) -> None:
-    work = tmp_path / "empty-work"
-    work.mkdir()
-    assert list_session_catalog(work) == []
+    store = tmp_path / "empty-store"
+    store.mkdir()
+    assert list_session_catalog(traces_path=store, include_host=False) == []
 
 
 def test_resolve_session_reference_by_path_and_id(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_session(traces, "session-resolve-me")
-    by_path = resolve_session_reference(str(sess), work)
+    store = tmp_path / "sessions"
+    sess = _write_session(store, "session-resolve-me")
+    by_path = resolve_session_reference(str(sess), traces_path=store, include_host=False)
     assert by_path == sess.resolve()
-    by_name = resolve_session_reference("session-resolve-me", work)
+    by_name = resolve_session_reference("session-resolve-me", traces_path=store, include_host=False)
     assert by_name == sess.resolve()
-    assert resolve_session_reference("missing-session-xyz", work) is None
-    assert resolve_session_reference("", work) is None
+    assert resolve_session_reference("missing-session-xyz", traces_path=store) is None
+    assert resolve_session_reference("", traces_path=store) is None
 
 
 def test_list_session_catalog_includes_host_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Headless catalog includes host sessions; ``include_host=False`` drops them."""
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
+    store = tmp_path / "store"
     host = tmp_path / "host-sessions"
-    _write_session(traces, "work-only-sess", title="Work")
+    _write_session(store, "store-only-sess", title="Store")
     h_sess = host / "%2Fproj" / "host-sess"
     h_sess.mkdir(parents=True)
     (h_sess / "summary.json").write_text(
@@ -99,16 +96,16 @@ def test_list_session_catalog_includes_host_by_default(
     monkeypatch.setattr("anqa.session.mtime_export.cache_dir", lambda: cache)
 
     # include_host=None includes host
-    rows = list_session_catalog(work, include_host=None)
+    rows = list_session_catalog(traces_path=store, include_host=None)
     ids = {r["sessionId"] for r in rows}
-    assert "work-only-sess" in ids
+    assert "store-only-sess" in ids
     assert "host-sess" in ids
     origins = {r["sessionId"]: r["origin"] for r in rows}
     assert origins.get("host-sess") == "host"
 
-    # Force off ignores config
-    rows_work = list_session_catalog(work, include_host=False)
-    assert {r["sessionId"] for r in rows_work} == {"work-only-sess"}
+    # Force off ignores the host store
+    rows_store = list_session_catalog(traces_path=store, include_host=False)
+    assert {r["sessionId"] for r in rows_store} == {"store-only-sess"}
 
 
 def test_resolve_by_id_does_not_load_meta_for_other_sessions(
@@ -122,8 +119,6 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
     """
     from anqa.session import catalog as catalog_mod
 
-    work = tmp_path / "work"
-    (work / "runs" / "traces").mkdir(parents=True)
     host = tmp_path / "host-sessions"
     target_id = "sess-0099"
     for i in range(100):
@@ -154,7 +149,7 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
 
     monkeypatch.setattr(catalog_mod, "session_catalog_row", _count_row)
 
-    found = resolve_session_reference(target_id, work, include_host=True)
+    found = resolve_session_reference(target_id, include_host=True)
     assert found is not None
     assert found.name == target_id
     assert calls == []
@@ -164,10 +159,9 @@ def test_catalog_cache_resolves_id_from_warm_rows(tmp_path: Path) -> None:
     """Serve must resolve session ids from the warm catalog, not a second walk."""
     from anqa.session.catalog import SessionCatalogCache
 
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_session(traces, "cached-resolve")
-    cache = SessionCatalogCache(work, include_host=False)
+    store = tmp_path / "sessions"
+    sess = _write_session(store, "cached-resolve")
+    cache = SessionCatalogCache(traces_path=store, include_host=False)
     rows = cache.get(force=True)
     assert len(rows) == 1
     assert cache.resolve("cached-resolve") == sess.resolve()
@@ -183,8 +177,6 @@ def test_catalog_scan_roots_includes_every_grok_root(
     from anqa.session.catalog import catalog_scan_roots
     from anqa.session.sources import ORIGIN_HOST
 
-    work = tmp_path / "work"
-    (work / "runs" / "traces").mkdir(parents=True)
     first = tmp_path / "grok-a"
     second = tmp_path / "grok-b"
     first.mkdir()
@@ -192,7 +184,7 @@ def test_catalog_scan_roots_includes_every_grok_root(
     cfg = parse_app_config({"catalog": {"roots": {"grok": [str(first), str(second)]}}})
     monkeypatch.setattr("anqa.config.load_app_config", lambda: cfg)
     invalidate_config_cache()
-    roots = catalog_scan_roots(work)
+    roots = catalog_scan_roots()
     host_paths = [r.path.resolve() for r in roots if r.origin == ORIGIN_HOST]
     assert first.resolve() in host_paths
     assert second.resolve() in host_paths

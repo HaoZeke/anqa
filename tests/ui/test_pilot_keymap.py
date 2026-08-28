@@ -61,7 +61,7 @@ async def test_overlay_remap_updates_footer_binding(
     monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -93,7 +93,7 @@ async def test_refused_overlay_keeps_default_follow_and_list_down(
         + "\n",
         encoding="utf-8",
     )
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -123,7 +123,7 @@ async def test_refused_overlay_keeps_default_follow_and_list_down(
 async def test_default_keymap_footer_unchanged(tmp_path: Path) -> None:
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -160,7 +160,7 @@ async def test_list_down_remap_moves_table_cursor(
         ),
         encoding="utf-8",
     )
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="two session rows")
@@ -219,7 +219,7 @@ async def test_colemak_n_e_are_list_nav(tmp_path: Path, monkeypatch: pytest.Monk
         ),
         encoding="utf-8",
     )
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="two session rows")
@@ -260,7 +260,7 @@ async def test_colemak_leader_follow_and_done(
     work = tmp_path / "w"
     traces = _minimal_traces(work)
     _write_awaiting(traces, "pilot-keymap-1")
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 1, description="session row")
@@ -340,7 +340,7 @@ async def test_leader_cancelled_by_escape_and_timeout(
         ),
         encoding="utf-8",
     )
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 2, description="two rows")
@@ -372,7 +372,7 @@ async def test_leader_not_armed_in_search_input(
     monkeypatch.setenv("ANQA_KEYS", str(keys))
     work = tmp_path / "w"
     traces = _minimal_traces(work)
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         search = app.query_one("#session-search-input")

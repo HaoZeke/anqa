@@ -368,14 +368,12 @@ class TestAppendUsageRich:
         append_usage_rich(out, usage)
         assert "code-review" in out.plain
 
-    def test_with_persona_and_sources(self):
+    def test_with_sources(self):
         out = Text()
         usage = SessionUsageStats(
-            persona_id="test-persona",
-            source_notes=["persona", "updates"],
+            source_notes=["updates"],
         )
         append_usage_rich(out, usage)
-        assert "test-persona" in out.plain
         assert "sources" in out.plain
 
     def test_mcp_server_no_hits(self):

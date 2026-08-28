@@ -41,18 +41,10 @@ def small_mark() -> Text:
     return out
 
 
-def paths_banner(work: Path, host: Path | None = None) -> str:
-    """Eval / optional Host folder line.
-
-    :param work: Eval traces root.
-    :param host: Optional host sessions root.
-    :returns: Rich markup for the banner Static.
-    """
-    eval_bit = t("chrome-folder", label=t("ui-origin-work"), path=str(work))
-    if host is None:
-        return f"[dim]{eval_bit}[/dim]"
+def paths_banner(host: Path) -> str:
+    """Host catalog folder line."""
     host_bit = t("chrome-folder", label=t("ui-origin-host"), path=str(host))
-    return f"[dim]{eval_bit}[/dim] │ [dim]{host_bit}[/dim]"
+    return f"[dim]{host_bit}[/dim]"
 
 
 def help_mark() -> Text:

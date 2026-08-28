@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-DEFAULT_DOCKER_IMAGE = "fully-loaded"
 DEFAULT_MODEL_ID = "unknown"
 # Grok CLI ``--max-turns`` for one agent invocation (tool/plan loop per prompt).
 DEFAULT_MAX_TURNS = 50
 CONFIG_FILENAME = "config.toml"
-META_CACHE_FILENAME = "_meta_cache.json"
 
 INTERRUPTED_MARKER_FILENAME = "anqa-interrupted.json"  # on-disk marker
-# Leftover eval volumes still write the former product name.
-INTERRUPTED_MARKER_FILENAMES = (INTERRUPTED_MARKER_FILENAME, "groket-interrupted.json")
 
 LOG_BUFFER_MAXLEN = 8000
 LOG_TAIL_MAXLEN = 4000
@@ -36,7 +32,6 @@ LIST_RUNTIME_CACHE_MAXSIZE = 2048
 # Activity bar (cheap counters — not a traces poller).
 ACTIVITY_BAR_INTERVAL = 5.0
 # Spinner poll while *build/extract* busy — never for mere "running".
-# 80ms caused continuous layout thrash during every live eval.
 ACTIVITY_BAR_BUSY_INTERVAL = 0.5
 # Full traces-tree walk only when idle and FS events were sparse (rare).
 LIVE_POLL_FULL_WALK_INTERVAL = 60.0

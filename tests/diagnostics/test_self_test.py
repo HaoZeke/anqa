@@ -11,8 +11,9 @@ from unittest.mock import patch
 from anqa.diagnostics.self_test import CheckResult, SelfTestReport, run_self_test
 
 
-def test_work_dir_writable(tmp_path: Path):
-    wd = tmp_path / "anqa-home"
+def test_app_home_and_catalog_writable(tmp_path: Path):
+    wd = tmp_path / "store"
+    wd.mkdir()
     with (
         patch("anqa.diagnostics.self_test._check_auth_json") as a,
         patch("anqa.diagnostics.self_test._check_grok_config") as c,
@@ -21,6 +22,7 @@ def test_work_dir_writable(tmp_path: Path):
         patch("anqa.diagnostics.self_test._check_session_display") as sd,
         patch("anqa.diagnostics.self_test._check_sway_socket") as sw,
         patch("anqa.diagnostics.self_test._check_hud_summon_socket") as hs,
+        patch("anqa.diagnostics.self_test._check_leftover_json_config") as lj,
     ):
         a.return_value = CheckResult("grok_auth", "Auth", True)
         c.return_value = CheckResult("grok_config", "Cfg", True, required=False)
@@ -29,10 +31,11 @@ def test_work_dir_writable(tmp_path: Path):
         sd.return_value = CheckResult("session_display", "Display", True, required=False)
         sw.return_value = CheckResult("sway_socket", "Sway", True, required=False)
         hs.return_value = CheckResult("hud_summon", "Summon", True, required=False)
-        report = run_self_test(work_dir=wd)
+        lj.return_value = CheckResult("leftover_json", "Leftover", True, required=False)
+        report = run_self_test(catalog_root=wd)
     assert report.ok is True
-    assert (wd / "runs").is_dir()
-    assert any(c.id == "work_dir" and c.ok for c in report.checks)
+    assert any(c.id == "app_home" and c.ok for c in report.checks)
+    assert any(c.id == "catalog" and c.ok for c in report.checks)
 
 
 def test_session_display_wayland(monkeypatch):
@@ -139,20 +142,21 @@ def test_grok_config_cli_models(tmp_path: Path, monkeypatch):
     assert st._check_models_cache().ok is True
 
 
-def test_work_dir_not_writable(tmp_path: Path, monkeypatch):
+def test_app_home_not_writable(tmp_path: Path, monkeypatch):
     from anqa.diagnostics import self_test as st
 
     blocked = tmp_path / "blocked"
     blocked.mkdir()
-    real_mkdir = Path.mkdir
+    real_write = Path.write_text
 
     def boom(self, *a, **k):
-        if self == blocked or blocked in self.parents or self == blocked / "runs":
+        if self.name == ".anqa-write-probe":
             raise OSError("read-only")
-        return real_mkdir(self, *a, **k)
+        return real_write(self, *a, **k)
 
-    monkeypatch.setattr(Path, "mkdir", boom)
-    r = st._check_work_dir(blocked)
+    monkeypatch.setattr("anqa.paths.APP_HOME", blocked)
+    monkeypatch.setattr(Path, "write_text", boom)
+    r = st._check_app_home()
     assert r.ok is False
 
 

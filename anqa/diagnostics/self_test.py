@@ -1,7 +1,7 @@
-"""Host dependency checks for evals and the TUI.
+"""Host dependency checks for the review product.
 
-Probes work-directory writability, Docker reachability, Grok host auth/config,
-optional CLI and models cache. Used by ``anqa doctor`` and the in-app
+Probes config home, the Grok session store, optional CLI and
+models cache, and the HUD seat. Used by ``anqa doctor`` and the in-app
 self-test modal.
 """
 
@@ -124,7 +124,7 @@ def _check_grok_config() -> CheckResult:
             id="grok_config",
             name="Grok config (~/.grok/config.toml)",
             ok=False,
-            detail="missing — optional for some flows but evals usually mount it",
+            detail="missing — optional; host Grok reads this when present",
             required=False,
         )
     try:
@@ -153,7 +153,7 @@ def _check_grok_cli() -> CheckResult:
             id="grok_cli",
             name="Grok CLI on PATH",
             ok=False,
-            detail="not found — containers use image-bundled grok; host CLI optional",
+            detail="not found — host CLI is optional for review",
             required=False,
         )
     return CheckResult(
@@ -165,33 +165,50 @@ def _check_grok_cli() -> CheckResult:
     )
 
 
-def _check_work_dir(work_dir: Path | None) -> CheckResult:
-    from ..paths import default_work_dir
+def _check_app_home() -> CheckResult:
+    from ..paths import app_home
 
-    root = Path(work_dir).expanduser() if work_dir else default_work_dir()
-
+    root = app_home()
     try:
-        root.mkdir(parents=True, exist_ok=True)
-        runs = root / "runs"
-        runs.mkdir(parents=True, exist_ok=True)
-        probe = runs / ".anqa-write-probe"
+        probe = root / ".anqa-write-probe"
         probe.write_text("ok\n", encoding="utf-8")
         probe.unlink(missing_ok=True)
         return CheckResult(
-            id="work_dir",
-            name="Work directory writable",
+            id="app_home",
+            name="Config home writable",
             ok=True,
             detail=str(root),
             required=True,
         )
     except OSError as exc:
         return CheckResult(
-            id="work_dir",
-            name="Work directory writable",
+            id="app_home",
+            name="Config home writable",
             ok=False,
             detail=f"{root}: {exc}",
             required=True,
         )
+
+
+def _check_catalog_store(catalog_root: Path | None) -> CheckResult:
+    from ..paths import default_host_sessions_root
+
+    root = Path(catalog_root).expanduser() if catalog_root else default_host_sessions_root()
+    if root.is_dir():
+        return CheckResult(
+            id="catalog",
+            name="Session store",
+            ok=True,
+            detail=str(root),
+            required=False,
+        )
+    return CheckResult(
+        id="catalog",
+        name="Session store",
+        ok=False,
+        detail=f"{root} missing",
+        required=False,
+    )
 
 
 def _check_models_cache() -> CheckResult:
@@ -340,10 +357,11 @@ def _check_leftover_json_config() -> CheckResult:
     )
 
 
-def run_self_test(*, work_dir: Path | None = None) -> SelfTestReport:
+def run_self_test(*, catalog_root: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
-        _check_work_dir(work_dir),
+        _check_app_home(),
+        _check_catalog_store(catalog_root),
         _check_auth_json(),
         _check_grok_config(),
         _check_grok_cli(),

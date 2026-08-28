@@ -27,15 +27,11 @@ def _styles(mark) -> str:
     return "".join(str(span.style) for span in mark.spans)
 
 
-def test_paths_banner_is_eval_line() -> None:
-    line = paths_banner(Path("/tmp/work/runs/traces"))
-    assert "Eval" in line
+def test_paths_banner_is_host_line() -> None:
+    line = paths_banner(Path("/tmp/sessions"))
+    assert "Host" in line
     assert "█" not in line
-    both = paths_banner(Path("/e"), Path("/h"))
-    assert "Eval" in both
-    assert "Host" in both
-    assert " │ " in both
-    assert "·" not in both
+    assert "Eval" not in line
 
 
 def test_help_mark_is_three_slats() -> None:
@@ -51,7 +47,7 @@ def _make_app(tmp_path: Path) -> AnqaApp:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    return AnqaApp(work_dir=work, traces_path=traces)
+    return AnqaApp(traces_path=traces)
 
 
 @pytest.mark.asyncio
@@ -66,7 +62,7 @@ async def test_home_chrome_is_one_row(tmp_path: Path) -> None:
         footer = app.query_one(AppFooter)
         assert footer.has_class("-compact")
         banner = chrome.query_one("#session-paths", Static)
-        assert "Eval" in static_plain(banner)
+        assert "Host" in static_plain(banner)
         kids = [w.id for w in chrome.children]
         assert kids[0] == "session-paths"
         assert "app-chrome-title" in kids

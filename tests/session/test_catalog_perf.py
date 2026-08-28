@@ -70,7 +70,7 @@ def test_host_discovery_skips_encoded_cwd_and_workspace_junk(
     monkeypatch.setattr(os, "scandir", track_scandir)
     monkeypatch.setattr(os, "walk", track_walk)
 
-    roots = session_scan_roots(work, include_host=True, host_root=host)
+    roots = session_scan_roots(traces_path=traces, include_host=True, host_root=host)
     found = collect_session_dirs(roots)
     names = {p.name for p, _orig in found}
     assert shallow.name in names
@@ -97,7 +97,7 @@ def test_list_session_catalog_does_not_parse_timeline(tmp_path: Path, monkeypatc
         raise AssertionError("parse_timeline must not run for catalog rows")
 
     monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
-    rows = list_session_catalog(tmp_path / "work", traces_path=traces, include_host=False)
+    rows = list_session_catalog(traces_path=traces, include_host=False)
     assert len(rows) == 240
     assert parsed == []
     assert rows[0]["sessionId"]
@@ -118,7 +118,7 @@ def test_catalog_cache_second_get_skips_rebuild(tmp_path: Path, monkeypatch) -> 
         return real(*args, **kwargs)
 
     monkeypatch.setattr(catalog_mod, "list_session_catalog", wrapped)
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     first = cache.get(force=True)
     second = cache.get()
     third = cache.get()
@@ -139,7 +139,7 @@ def test_catalog_list_for_rpc_delta_after_refresh(tmp_path: Path) -> None:
     traces = work / "runs" / "traces"
     one = _write_sess(traces, "one", "One")
     _write_sess(traces, "two", "Two")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     cache.get(force=True)
     rev = cache.revision
     (one / "summary.json").write_text(
@@ -161,12 +161,12 @@ def test_list_for_rpc_after_owner_restart_returns_full_snapshot(tmp_path: Path) 
     traces = work / "runs" / "traces"
     _write_sess(traces, "alpha", "Alpha")
     _write_sess(traces, "beta", "Beta")
-    owner1 = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    owner1 = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     owner1.get(force=True)
     old_since = owner1.revision
     assert old_since > 0
     _write_sess(traces, "gamma", "Gamma")
-    owner2 = SessionCatalogCache(work, traces_path=traces, include_host=False, ttl=3600.0)
+    owner2 = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
     owner2.get(force=True)
     listed = owner2.list_for_rpc(since_revision=old_since)
     ids = {str(r["sessionId"]) for r in listed["sessions"]}
@@ -200,7 +200,7 @@ def test_fat_catalog_list_does_not_parse_timeline(
         raise AssertionError("parse_timeline must not run for catalog rows")
 
     monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
-    rows = list_session_catalog(work, traces_path=traces, include_host=False)
+    rows = list_session_catalog(traces_path=traces, include_host=False)
     assert len(rows) == 6
     assert parsed == []
     assert all(int(r.get("numEvents") or 0) >= 0 for r in rows)
@@ -230,7 +230,7 @@ def test_fat_overview_parses_only_opened_session(
 
     monkeypatch.setattr(parser_mod, "parse_timeline", tracked)
     monkeypatch.setattr(views, "parse_timeline", tracked)
-    ov = build_session_overview(keep, work_dir=work)
+    ov = build_session_overview(keep)
     assert ov["turns"]["total"] >= 50
     tl = build_session_timeline(keep, offset=0, limit=40)
     assert tl["events"]

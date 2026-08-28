@@ -22,7 +22,7 @@
     "modelId": "unknown",
     "numEvents": 3,
     "numMessages": 0,
-    "origin": "work",
+    "origin": "host",
     "outcome": "running",
     "path": "/workspace/sess-wire",
     "reasoningEffort": "",

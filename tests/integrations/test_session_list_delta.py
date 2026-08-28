@@ -37,7 +37,6 @@ async def test_session_list_since_revision_unchanged_and_delta(tmp_path: Path) -
     sock = _short_sock("delta.sock")
     server = daemon_mod.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -85,7 +84,6 @@ async def test_session_list_since_after_owner_restart_is_full_snapshot(
     sock1 = _short_sock("old.sock")
     server1 = daemon_mod.build_domain_control_server(
         socket_path=sock1,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -103,7 +101,6 @@ async def test_session_list_since_after_owner_restart_is_full_snapshot(
     sock2 = _short_sock("new.sock")
     server2 = daemon_mod.build_domain_control_server(
         socket_path=sock2,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )

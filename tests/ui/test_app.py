@@ -65,8 +65,7 @@ def test_trace_eval_app_constructs(tmp_path: Path):
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    app = AnqaApp(work_dir=work, traces_path=traces)
-    assert app.work_dir == work.resolve()
+    app = AnqaApp(traces_path=traces)
     assert app.traces_path == traces.resolve()
 
 
@@ -83,7 +82,7 @@ def test_populate_session_table_adds_row(tmp_path: Path):
     meta = load_session_meta(sd)
     assert meta is not None
 
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     app._meta_only = [(meta, "lab")]
     app._selected = set()
     app._populate_busy = False
@@ -115,7 +114,7 @@ def test_populate_session_table_adds_row(tmp_path: Path):
                 return _FakeStatic()
             raise KeyError(selector)
 
-    host = _FakeApp(work_dir=work, traces_path=traces)
+    host = _FakeApp(traces_path=traces)
     host._meta_only = [(meta, "lab")]
     host._selected = set()
     host._populate_busy = False
@@ -143,7 +142,7 @@ async def test_home_table_omits_task_id_and_path_label(tmp_path: Path):
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     _write_minimal_session(traces, "sess-cols")
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(140, 30)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
@@ -166,7 +165,7 @@ async def test_home_table_populate_keeps_horizontal_scroll(tmp_path: Path):
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     _write_minimal_session(traces, "sess-scroll")
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(50, 24)) as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 1, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
@@ -193,7 +192,7 @@ async def test_app_launch_lists_sessions(tmp_path: Path):
     _write_minimal_session(traces, "sess-b")
     assert len(find_sessions(traces)) >= 2
 
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test() as pilot:
         await wait_until(pilot, lambda: len(app._meta_only) >= 2, description="sessions loaded")
         table = app.query_one("#session-table", DataTable)
@@ -220,7 +219,7 @@ async def test_session_list_click_cursor_then_jk_steps(
     _write_minimal_session(traces, "sess-a")
     _write_minimal_session(traces, "sess-b")
     _write_minimal_session(traces, "sess-c")
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 30)) as pilot:
         table = app.query_one("#session-table", DataTable)
         await wait_until(pilot, lambda: table.row_count >= 3, description="three session rows")
@@ -247,7 +246,7 @@ async def test_app_launch_empty_traces_notifies(tmp_path: Path):
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
 
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test() as pilot:
         # Worker thread runs and finds zero sessions; wait for it to finish.
         await wait_until(
@@ -259,42 +258,13 @@ async def test_app_launch_empty_traces_notifies(tmp_path: Path):
         assert table.row_count == 0
 
 
-def test_fill_timeline_counts_ignores_stale_indices(tmp_path: Path) -> None:
-    """Timeline fill must not IndexError when need_idx is out of range."""
-    from anqa.models import SessionMeta
-    from anqa.ui.app import AnqaApp
-
-    meta = SessionMeta(session_id="s", session_dir=tmp_path / "s", origin="work")
-    rows = [(meta, "lab")]
-    # Out-of-range and valid indices — only valid apply.
-    assert AnqaApp._fill_timeline_counts(rows, [0, 99, -1]) is True
-    assert len(rows) == 1
-
-
-def test_fill_timeline_counts_skips_host_origin(tmp_path: Path) -> None:
-    """Host rows never trigger multi-MB parse_timeline on catalog load."""
-    from anqa.models import SessionMeta
-    from anqa.ui.app import AnqaApp
-
-    meta = SessionMeta(
-        session_id="h",
-        session_dir=tmp_path / "h",
-        origin="host",
-        num_events=0,
-        num_messages=12,
-    )
-    rows = [(meta, "lab")]
-    assert AnqaApp._fill_timeline_counts(rows, [0]) is False
-    assert rows[0][0].num_events == 0
-
-
 def test_sessions_load_gen_supersedes(tmp_path: Path) -> None:
     """A newer catalog load must supersede an older apply."""
     from anqa.ui.app import AnqaApp
 
     work = tmp_path / "work"
     work.mkdir()
-    app = AnqaApp(work_dir=work, traces_path=work / "runs" / "traces")
+    app = AnqaApp(traces_path=work / "runs" / "traces")
     g1 = app._begin_sessions_load()
     g2 = app._begin_sessions_load()
     assert g2 > g1
@@ -316,7 +286,7 @@ def test_drop_host_session_rows(tmp_path: Path) -> None:
 
     work = tmp_path / "work"
     work.mkdir()
-    app = AnqaApp(work_dir=work, traces_path=work / "runs" / "traces")
+    app = AnqaApp(traces_path=work / "runs" / "traces")
     app._meta_only = [
         (SessionMeta(session_id="w", session_dir=tmp_path / "w", origin="work"), "w"),
         (SessionMeta(session_id="h", session_dir=tmp_path / "h", origin="host"), "h"),
@@ -335,7 +305,7 @@ def test_load_sessions_sync_clears_when_empty(tmp_path: Path) -> None:
     work.mkdir()
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     app._meta_only = [
         (SessionMeta(session_id="stale", session_dir=tmp_path / "stale", origin="host"), "x"),
     ]
@@ -353,7 +323,6 @@ def test_tui_control_client_uses_heavy_rpc_timeout(tmp_path: Path) -> None:
     traces.mkdir(parents=True)
     sock = tmp_path / "control.sock"
     app = AnqaApp(
-        work_dir=work,
         traces_path=traces,
         control_socket=sock,
         control_attach_only=True,

@@ -90,7 +90,7 @@ def adapter_store_watch_paths() -> list[Path]:
 
 
 def host_adapters() -> tuple[HarnessAdapter, ...]:
-    """Adapters that contribute native (non-eval) catalog rows."""
+    """Adapters that contribute native host-store catalog rows."""
     return enabled_host_adapters()
 
 

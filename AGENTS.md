@@ -145,7 +145,6 @@ anqa/
   fs_watch.py            # TraceTreeWatch (live session / trace FS events)
   job_pools.py           # live-refresh worker pool
   session_inflight.py    # per-session inflight locks (refresh)
-  assets_loader.py       # repo assets/ or wheel-embedded templates
   scan.py                # session walk + updates.jsonl keep/skip (Python + anqa._scan)
   keys/                  # action catalog + keys.toml overlay
   harness/               # disk adapters (see docs/harness-adapters.md)
@@ -158,7 +157,7 @@ anqa/
   control/               # contract, server, client, serve (``anqa serve``)
   integrations/          # Emacs / Neovim packs (not the control owner)
   hud/                   # launches iced palette binary
-  session/control_views.py  # wire payloads for session/get|timeline|turns|usage
+  session/control_views.py  # payloads for session/overview|timeline|turns|diff
 # Sibling crates (Cargo workspace): desktop/ (binary anqa-hud), scan/ (anqa._scan)
   diagnostics/           # host checks (``anqa doctor`` + in-app self-test)
   locale/                # Fluent .ftl + help.rich.txt
@@ -169,12 +168,11 @@ anqa/
     bindings.py, commands.py, i18n.py, text.py, styles.py, prefs.py
     data_table.py, panel_render.py, render_detail.py, forms.py, fuzzy.py
     session_summary.py, session_status.py, tab_panes.py, threads.py
-    delete_confirm.py, env_modals.py, confirm_modal.py, quit_actions.py
+    delete_confirm.py, confirm_modal.py, quit_actions.py
     app.tcss
 
 examples/                # supported reference packs (CI: just examples-check) — not auto-loaded
 schemas/                 # committed JSON Schema (config, control)
-Optional wheel mirror: anqa/_embedded_assets/
 ```
 
 **Data flow:** ``parser`` / ``models`` → ``session`` / ``harness`` →
@@ -209,8 +207,8 @@ catalog discovery for control outside ``session/catalog`` +
 
 | Root | Default | Holds |
 |------|---------|--------|
-| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes_schema.toml, notes fallback |
-| **Work dir** | ``~/.anqa/work`` (CLI path overrides) | session trees you open, export cache |
+| **Config home** (`APP_HOME`) | ``~/.anqa`` | ``config.toml``, ``hud.log``, reports, notes, keys |
+| **Session store** | ``~/.grok/sessions`` | Adapter catalog (``[catalog.roots]`` can override) |
 
 - Catalog = every enabled adapter store. ``harness:<id>`` filters.
   ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
@@ -218,18 +216,15 @@ catalog discovery for control outside ``session/catalog`` +
   ``harness:<session_id>``. Contract: ``docs/harness-adapters.md``. New or
   bumped adapters go through ``.grok/skills/harness-adapter-qa`` and
   ``scripts/check_harness_adapters.py``.
-- CLI path chooses the session tree to open
-  (:func:`anqa.paths.resolve_work_and_traces`).
-- Gitignored trees under a checkout (``/runs/``, ``/config.toml``,
-  ``/_meta_cache.json``) are local scratch, not the install layout.
+- CLI path chooses a store or session
+  (:func:`anqa.paths.resolve_catalog_root`).
 
 ### 3.1 Live sessions (product behaviour)
 
 - **FS watch** (``fs_watch.TraceTreeWatch`` / ``session.watch``) is
   non-recursive ``watchfiles`` on membership dirs and session
-  directories (plane writes land there). ``workspace/`` is never
-  subscribed. The owner has no 15 s catalog warm loop; clients follow
-  socket notifications, not a 3 s list poll.
+  directories (plane writes land there). ``workspace/`` and ``terminal/``
+  are not list events. Clients follow socket notifications.
 - **60s read-only heartbeat** re-reads ``signals.json`` (context meter) without
   writing the traces tree or meta cache.
 - **Single-flight refresh** per session via ``session_inflight.KIND_REFRESH`` +
@@ -796,7 +791,6 @@ tests/
   conftest.py
   test_models.py, test_parser.py, test_paths.py, test_utils.py
   test_event_types.py, test_fs_watch.py, test_job_pools.py, test_session_inflight.py
-  test_assets_loader.py
   cli/  diagnostics/  session/  ui/  fixtures/
 ```
 

@@ -1,4 +1,4 @@
-"""Host environment checks (Docker, Grok auth, paths) for self-test UI/CLI."""
+"""Host environment checks (Grok store, HUD seat) for self-test UI/CLI."""
 
 from __future__ import annotations
 

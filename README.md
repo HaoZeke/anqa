@@ -52,12 +52,12 @@ Wheels for Linux, macOS, and Windows (Intel and ARM) are on
 
 | Root | Default | Holds |
 |------|---------|--------|
-| Config home | `~/.anqa` | `config.toml`, optional `keys.toml`, notes fallback, reports |
-| Work root | `~/.anqa/work` | session trees you point at, export cache |
+| Config home | `~/.anqa` | `config.toml`, optional `keys.toml`, notes, reports |
+| Session store | `~/.grok/sessions` | Adapter catalog (`[catalog.roots]` can override) |
 
 ```bash
-anqa                      # default work root
-anqa /path/to/work        # work root, traces tree, or one session dir
+anqa                      # default host store
+anqa /path/to/sessions    # store tree or one session dir
 ```
 
 `~/.anqa/config.toml` is the only prefs file (terminal app and desktop HUD).

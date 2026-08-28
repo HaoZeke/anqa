@@ -263,7 +263,7 @@ class TestLaunchTui:
         try:
             launch_tui(path=tmp_path, config=None, ensure_serve=False)
             assert len(captured_calls) == 1
-            assert captured_calls[0]["work_dir"] == tmp_path.resolve()
+            assert captured_calls[0]["traces_path"] == tmp_path.resolve()
             assert captured_calls[0]["control_socket"].name == "control.sock"
             assert captured_calls[0]["control_attach_only"] is True
 
@@ -306,7 +306,6 @@ class TestLaunchTui:
         assert captured_calls == [
             {
                 "traces_path": session.parent,
-                "work_dir": tmp_path,
                 "config_path": None,
                 "control_socket": socket_path,
                 "control_attach_only": True,

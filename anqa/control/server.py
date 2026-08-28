@@ -306,18 +306,15 @@ class ControlServer:
         list_sessions: SessionLister | None = None,
         open_session: OpenSession | None = None,
         notes_changed: NotesChanged | None = None,
-        work_dir: Path | None = None,
     ) -> None:
         self.socket_path = Path(socket_path or default_socket_path()).expanduser()
         self._resolve_session = resolve_session or _default_resolve_session
         self._list_sessions = list_sessions
         self._open_session = open_session
         self._notes_changed = notes_changed
-        self._work_dir = Path(work_dir).expanduser() if work_dir is not None else None
         self._access = LocalSessionAccess(
             resolve_session=self._resolve_session,
             list_sessions=list_sessions,
-            work_dir=self._work_dir,
         )
         self._server: asyncio.AbstractServer | None = None
         self._lock_fd: int | None = None
@@ -774,14 +771,6 @@ class ControlServer:
                 ),
             )
 
-    @_rpc("session/get")
-    async def _rpc_session_get(
-        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
-    ) -> JsonValue:
-        ref = self._session_ref(params)
-        self._mark_session_interest(self._resolve_session(ref) or Path(ref))
-        return await self._access_call(ref, self._access.session_get, ref)
-
     @_rpc("session/overview")
     async def _rpc_session_overview(
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
@@ -822,13 +811,6 @@ class ControlServer:
             ref,
             query=json_as_str(params.get("query")),
         )
-
-    @_rpc("session/usage")
-    async def _rpc_session_usage(
-        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
-    ) -> JsonValue:
-        ref = self._session_ref(params)
-        return await self._access_call(ref, self._access.session_usage, ref)
 
     @_rpc("session/diff")
     async def _rpc_session_diff(

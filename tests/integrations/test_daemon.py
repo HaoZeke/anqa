@@ -60,7 +60,6 @@ async def test_domain_control_server_list_render_notes(tmp_path: Path) -> None:
     sock = _short_sock("domain.sock")
     server = daemon.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
     )
     await server.start()
@@ -111,8 +110,8 @@ async def test_second_domain_server_raises_in_use() -> None:
     control = import_module("anqa.control.server")
     sock = _short_sock("singleton-domain.sock")
     work = Path(tempfile.mkdtemp(prefix="anqa-wd-"))
-    first = daemon.build_domain_control_server(socket_path=sock, work_dir=work)
-    second = daemon.build_domain_control_server(socket_path=sock, work_dir=work)
+    first = daemon.build_domain_control_server(socket_path=sock, traces_path=work)
+    second = daemon.build_domain_control_server(socket_path=sock, traces_path=work)
     await first.start()
     try:
         with pytest.raises(control.ControlSocketInUse):
@@ -127,7 +126,7 @@ async def test_serve_control_forever_writes_and_clears_pid(tmp_path: Path) -> No
     sock = _short_sock("pid.sock")
     work = tmp_path / "work"
     work.mkdir()
-    server = daemon.build_domain_control_server(socket_path=sock, work_dir=work)
+    server = daemon.build_domain_control_server(socket_path=sock, traces_path=work)
     task = asyncio.create_task(daemon.serve_control_forever(server, write_pid=True))
     try:
         await wait_until(
@@ -305,9 +304,8 @@ def _scratch() -> Path:
 
 def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
     """Real shipped CLI: first serve owns socket; second exits non-zero."""
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    session_dir = _write_session(traces, "session-cli-serve")
+    store = tmp_path / "sessions"
+    session_dir = _write_session(store, "session-cli-serve")
     sock = _short_sock("cli-serve.sock")
     scratch = _scratch()
     log1 = scratch / "serve-lifecycle.log"
@@ -320,7 +318,7 @@ def test_cli_serve_owns_socket_and_second_fails(tmp_path: Path) -> None:
         "from anqa.cli import main; main()",
         "serve",
         "-P",
-        str(work),
+        str(store),
         "-s",
         str(sock),
     ]
@@ -439,13 +437,11 @@ async def test_tui_attaches_as_client_to_daemon_owner(tmp_path: Path) -> None:
     sock = _short_sock("attach.sock")
     owner = daemon.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
     )
     await owner.start()
     try:
         app = AnqaApp(
-            work_dir=work,
             traces_path=traces,
             control_socket=sock,
             control_attach_only=True,
@@ -488,7 +484,6 @@ def test_stop_terminates_foreground_pid_file_owner(tmp_path: Path) -> None:
     # Child without start_new_session — same process model as foreground serve.
     argv = daemon._detached_child_argv(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -549,7 +544,6 @@ def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
 
     result = daemon.start_control_daemon_detached(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         timeout=12.0,
     )
@@ -568,7 +562,6 @@ def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
         # Second detached start: already running (exit success path).
         again = daemon.ensure_control_daemon(
             socket_path=sock,
-            work_dir=work,
             traces_path=traces,
         )
         lines.append(f"ensure_again={again}")
@@ -581,7 +574,6 @@ def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
         with patch.object(daemon, "owner_protocol_probe", return_value=False):
             replaced = daemon.ensure_control_daemon(
                 socket_path=sock,
-                work_dir=work,
                 traces_path=traces,
             )
         lines.append(f"ensure_replaced={replaced}")
@@ -707,7 +699,6 @@ async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
 
     result = daemon.ensure_control_daemon(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         timeout=12.0,
     )
@@ -715,7 +706,6 @@ async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
     assert result.ok, result.error
     try:
         app = AnqaApp(
-            work_dir=work,
             traces_path=traces,
             control_socket=sock,
             control_attach_only=True,
@@ -866,7 +856,6 @@ async def test_serve_watch_apply_runs_off_observer_timer(
     monkeypatch.setattr(daemon, "apply_fs_catalog_events", _recording_apply)
     server = daemon.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -913,10 +902,17 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     store_dir.mkdir()
     extra = store_dir / "adapter.db"
     extra.write_bytes(b"")
-    cache = SessionCatalogCache(work, traces_path=traces, include_host=False)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+
+    class _Extra:
+        id = "demo"
+
+        def default_host_roots(self) -> list[Path]:
+            return [extra]
+
     monkeypatch.setattr(
-        "anqa.harness.registry.adapter_store_watch_paths",
-        lambda: [extra],
+        "anqa.harness.registry.enabled_host_adapters",
+        lambda: (_Extra(),),
     )
     specs = control_watch_specs(cache)
     by_path = {path.resolve(): only for path, only in specs}

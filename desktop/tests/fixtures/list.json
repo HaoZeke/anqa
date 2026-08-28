@@ -11,7 +11,7 @@
       "errorCount": 0,
       "label": "View session",
       "model": "unknown",
-      "numEvents": 3,
+      "numEvents": 0,
       "origin": "host",
       "outcome": "running",
       "path": "/workspace/sess-wire",

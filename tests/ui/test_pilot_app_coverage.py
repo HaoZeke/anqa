@@ -97,7 +97,7 @@ def _make_app(
         mid = models[i % len(models)]
         tid = tasks[i % len(tasks)]
         _write_session(traces, f"sess-{i:03d}", model_id=mid, task_id=tid)
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     return app, work, traces
 
 
@@ -646,15 +646,6 @@ def test_config_save_and_load(tmp_path: Path) -> None:
     assert "hud" in loaded
 
 
-def test_meta_cache_round_trip(tmp_path: Path) -> None:
-    """Meta cache saves and loads correctly."""
-    app, _, traces = _make_app(tmp_path, n_sessions=2)
-    _prime_catalog(app, traces)
-    app._save_meta_cache(list(app._meta_only))
-    cache = app._load_meta_cache()
-    assert len(cache) >= 2
-
-
 def test_derive_label(tmp_path: Path) -> None:
     """_derive_label extracts meaningful path components."""
     app, _, traces = _make_app(tmp_path, n_sessions=1)
@@ -702,12 +693,6 @@ async def test_refresh_everything_no_dir(tmp_path: Path) -> None:
         await pilot.pause()
         # Point traces at a non-existent path
         app.traces_path = tmp_path / "does-not-exist"
-        # Remove the runner traces dir too
-        import shutil
-
-        runner_traces = app.work_dir / "runs" / "traces"
-        if runner_traces.exists():
-            shutil.rmtree(runner_traces)
         app.action_refresh_everything()
         await pilot.pause()
 
@@ -893,20 +878,19 @@ async def test_session_paths_banner_is_label_only(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_auto_load_default_traces_under_work_dir(tmp_path: Path) -> None:
-    """With only work_dir set, sessions load from work_dir/runs/traces."""
-    work = tmp_path / "workdir"
-    traces = work / "runs" / "traces"
+async def test_auto_load_sessions_from_traces_path(tmp_path: Path) -> None:
+    """Sessions load from the given catalog store."""
+    traces = tmp_path / "sessions"
     traces.mkdir(parents=True)
     _write_session(traces, "sess-auto")
     from anqa.ui.app import AnqaApp as _TEA
 
-    app = _TEA(work_dir=work)
+    app = _TEA(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
             lambda: len(app._meta_only) >= 1,
-            description="auto-loaded from work_dir traces",
+            description="auto-loaded from catalog store",
             attempts=120,
         )
 
@@ -1189,13 +1173,11 @@ async def test_populate_busy_guard(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_load_sessions_from_subdirs(tmp_path: Path) -> None:
     """_load_sessions discovers sessions in subdirectories."""
-    work = tmp_path / "w"
-    traces = work / "runs" / "traces"
-    sub = traces / "subgroup"
-    sub.mkdir(parents=True)
-    _write_session(sub, "sess-sub-1")
+    traces = tmp_path / "sessions"
+    traces.mkdir(parents=True)
+    _write_session(traces, "sess-sub-1")
 
-    app = AnqaApp(work_dir=work, traces_path=traces)
+    app = AnqaApp(traces_path=traces)
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(
             pilot,
@@ -1212,13 +1194,12 @@ def test_update_session_paths_banner_no_widget(tmp_path: Path) -> None:
     app._update_session_paths_banner()
 
 
-def test_constructor_explicit_work_dir(tmp_path: Path) -> None:
-    """Constructor with explicit work_dir sets paths correctly."""
-    work = tmp_path / "explicit"
-    work.mkdir()
-    app = AnqaApp(work_dir=work)
-    assert app.work_dir == work.resolve()
-    assert app.traces_path == (work / "runs" / "traces").resolve()
+def test_constructor_explicit_store(tmp_path: Path) -> None:
+    """Constructor with an explicit store path keeps that catalog root."""
+    store = tmp_path / "explicit"
+    store.mkdir()
+    app = AnqaApp(traces_path=store)
+    assert app.traces_path == store.resolve()
 
 
 def test_constructor_traces_path_only(tmp_path: Path) -> None:
@@ -1282,16 +1263,6 @@ async def test_schedule_run_status_update(tmp_path: Path) -> None:
         # Call again to exercise the stop+reset path
         app._schedule_run_status_update()
         await pilot.pause()
-
-
-@pytest.mark.asyncio
-async def test_meta_cache_corrupt_file(tmp_path: Path) -> None:
-    """_load_meta_cache handles corrupt cache gracefully."""
-    app, work, traces = _make_app(tmp_path, n_sessions=0)
-    cache_file = work / app._CACHE_FILE
-    cache_file.write_text("not json", encoding="utf-8")
-    result = app._load_meta_cache()
-    assert result == {}
 
 
 @pytest.mark.asyncio

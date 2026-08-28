@@ -52,7 +52,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
         ("action_refresh_context", U.cmd_refresh()),
         (
             "action_self_test",
-            (t("ui-self-test"), "Check work dir, serve, and host paths"),
+            (t("ui-self-test"), t("ui-self-test-help")),
         ),
         ("action_show_help", U.cmd_help()),
         ("action_quit", U.cmd_quit()),

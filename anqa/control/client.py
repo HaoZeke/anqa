@@ -348,11 +348,6 @@ class ControlClient:
         )
         return as_json_object(result) if isinstance(result, dict) else {}
 
-    async def session_get(self, session: str) -> JsonObject:
-        """Call ``session/get`` for rich session metadata."""
-        result = await self.request("session/get", {"session": session})
-        return as_json_object(result) if isinstance(result, dict) else {}
-
     async def session_overview(
         self,
         session: str,
@@ -410,11 +405,6 @@ class ControlClient:
     async def session_diff(self, session: str) -> JsonObject:
         """Call ``session/diff`` for rewind snapshots or approximate edits."""
         result = await self.request("session/diff", {"session": session})
-        return as_json_object(result) if isinstance(result, dict) else {}
-
-    async def session_usage(self, session: str) -> JsonObject:
-        """Call ``session/usage`` for tool/MCP/skill summary."""
-        result = await self.request("session/usage", {"session": session})
         return as_json_object(result) if isinstance(result, dict) else {}
 
     async def notes_list(self, session: str) -> JsonObject:

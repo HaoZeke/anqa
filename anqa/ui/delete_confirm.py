@@ -1,4 +1,4 @@
-"""Double-press delete confirmation (sessions, configs, personas).
+"""Double-press delete confirmation (sessions, notes).
 
 First ``x`` arms a pending key set; second ``x`` with the same targets commits.
 Changing the selection / cursor clears the pending set on the next arm.

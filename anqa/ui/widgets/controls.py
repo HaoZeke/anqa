@@ -8,7 +8,7 @@ Standard pattern (sessions list, Timeline **Filter**):
 - Timeline search is a second full-width row under the picks (same as the HUD)
 - Live Tail is a compact label + switch on the trailing end of the picks row
 
-Form field booleans still use full-width ``Checkbox`` (persona editor).
+Form field booleans still use full-width ``Checkbox``.
 Do **not** use Button chips or ad-hoc multi-checkbox rows for
 section filters.
 """

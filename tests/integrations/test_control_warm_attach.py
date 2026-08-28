@@ -56,7 +56,6 @@ async def test_daemon_warm_makes_second_list_cheap(tmp_path: Path) -> None:
     sock = _short_sock("warm.sock")
     server = daemon_mod.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -113,7 +112,6 @@ async def test_session_list_query_is_server_substring(tmp_path: Path) -> None:
     sock = _short_sock("q.sock")
     server = daemon_mod.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -148,7 +146,6 @@ async def test_attach_client_uses_rpc_only_for_list(tmp_path: Path) -> None:
     sock = _short_sock("attach.sock")
     server = daemon_mod.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )
@@ -186,7 +183,6 @@ async def test_warm_loop_refreshes_after_start(tmp_path: Path) -> None:
     sock = _short_sock("loop.sock")
     server = daemon_mod.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
         include_host=False,
     )

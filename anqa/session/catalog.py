@@ -14,19 +14,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..models import JsonObject, JsonValue, SessionMeta
-from ..parser import find_sessions, load_host_list_meta, load_session_meta_list, session_trace_mtime
+from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
 from .mtime_export import default_catalog_snapshot, load_or_rebuild_catalog
 from .query import apply_catalog_presence_row, catalog_presence
 from .sources import (
     ORIGIN_HOST,
-    ORIGIN_WORK,
     SessionScanRoot,
     classify_session_origin,
     collect_session_dirs,
     is_under_host_grok_sessions,
     session_run_dir,
     session_scan_roots,
-    work_traces_root,
 )
 from .subagents import (
     drop_subagent_sessions,
@@ -94,7 +92,6 @@ def effective_include_host(include_host: bool | None) -> bool:
 
 
 def catalog_scan_roots(
-    work_dir: Path,
     *,
     traces_path: Path | None = None,
     include_host: bool | None = None,
@@ -102,12 +99,10 @@ def catalog_scan_roots(
 ) -> list[SessionScanRoot]:
     """Scan roots for the control/domain session catalog.
 
-    :param work_dir: Work root (``runs/traces`` lives under this).
-    :param traces_path: Optional extra traces path (CLI ``-P`` override).
-    :param include_host: When false, skip adapter host stores (tests).
-        Product paths always include them.
-    :param host_root: Override for the host sessions root (tests).
-    :returns: Ordered scan roots (work first).
+    :param traces_path: Optional extra store path (CLI ``-P`` override).
+    :param include_host: When false, skip adapter host stores.
+    :param host_root: Override for the host sessions root.
+    :returns: Ordered scan roots.
     """
     want_host = effective_include_host(include_host)
     include_grok_host = want_host
@@ -123,7 +118,6 @@ def catalog_scan_roots(
                 host_root = Path(override[0]).expanduser()
                 extra_grok = [Path(p).expanduser() for p in override[1:]]
     roots = session_scan_roots(
-        work_dir,
         traces_path=traces_path,
         include_host=include_grok_host,
         host_root=host_root,
@@ -223,50 +217,27 @@ def session_catalog_row(
 
 
 def list_session_catalog(
-    work_dir: Path,
     *,
     traces_path: Path | None = None,
     include_host: bool | None = None,
     host_root: Path | None = None,
     host_catalog_cache: Path | None = None,
 ) -> list[JsonObject]:
-    """Scan catalog roots and return wire-shaped rows for ``session/list``.
+    """Scan catalog roots and return rows for ``session/list``.
 
-    Each scan root uses a stamp-gated snapshot so a second list rebuilds
-    only sessions whose ``summary.json`` / ``signals.json`` /
-    ``updates.jsonl`` mtimes changed.
-
-    :param work_dir: Work root owning eval traces.
-    :param traces_path: Optional traces path override.
+    :param traces_path: Optional store path override.
     :param include_host: Host inclusion (True/False force; None includes host).
-    :param host_root: Optional host root override (tests).
-    :param host_catalog_cache: Optional host snapshot path (tests).
+    :param host_root: Optional host root override.
+    :param host_catalog_cache: Optional host snapshot path.
     :returns: Catalog rows sorted newest activity first (``sortEpoch`` desc).
     """
     roots = catalog_scan_roots(
-        work_dir,
         traces_path=traces_path,
         include_host=include_host,
         host_root=host_root,
     )
-    work_roots = [root for root in roots if root.origin != ORIGIN_HOST]
-    host_paths = [root.path for root in roots if root.origin == ORIGIN_HOST]
+    host_paths = [root.path for root in roots]
     rows: list[JsonObject] = []
-    seen_work: set[str] = set()
-    for wroot in work_roots:
-        key = str(wroot.path)
-        if key in seen_work:
-            continue
-        seen_work.add(key)
-        rows.extend(
-            load_or_rebuild_catalog(
-                wroot.path,
-                dest=default_catalog_snapshot(wroot.path),
-                list_dirs=find_sessions,
-                build_row=lambda sd: session_catalog_row(sd, origin=ORIGIN_WORK),
-                # ORIGIN_WORK here only selects find_sessions + full list-meta.
-            )
-        )
     seen_host: set[str] = set()
     for hroot in host_paths:
         key = str(hroot)
@@ -415,7 +386,6 @@ def _watch_session_hidden(session_dir: Path, child_ids: set[str]) -> bool:
 
 
 def catalog_roots_fingerprint(
-    work_dir: Path,
     *,
     traces_path: Path | None = None,
     include_host: bool | None = None,
@@ -428,7 +398,6 @@ def catalog_roots_fingerprint(
     :meth:`SessionCatalogCache.refresh_rows` instead of a full rescan.
     """
     roots = catalog_scan_roots(
-        work_dir,
         traces_path=traces_path,
         include_host=include_host,
         host_root=host_root,
@@ -467,7 +436,6 @@ class SessionCatalogCache:
 
     def __init__(
         self,
-        work_dir: Path,
         *,
         traces_path: Path | None = None,
         include_host: bool | None = None,
@@ -478,7 +446,6 @@ class SessionCatalogCache:
         import threading
         import time
 
-        self._work_dir = Path(work_dir).expanduser()
         self._traces_path = Path(traces_path).expanduser() if traces_path is not None else None
         self._include_host = include_host
         self._host_root = host_root
@@ -515,7 +482,6 @@ class SessionCatalogCache:
 
     def _fp_now(self) -> tuple[tuple[str, int], ...]:
         return catalog_roots_fingerprint(
-            self._work_dir,
             traces_path=self._traces_path,
             include_host=self._include_host,
             host_root=self._host_root,
@@ -627,7 +593,6 @@ class SessionCatalogCache:
     ) -> None:
         try:
             rows = list_session_catalog(
-                self._work_dir,
                 traces_path=self._traces_path,
                 include_host=self._include_host,
                 host_root=self._host_root,
@@ -728,11 +693,6 @@ class SessionCatalogCache:
                 snap_rev = self._revision
         if current is None:
             return self.get(force=True), {}
-        work = (
-            Path(self._traces_path).expanduser()
-            if self._traces_path is not None
-            else work_traces_root(self._work_dir)
-        )
         known_paths = {str(row.get("path") or "").strip() for row in current}
         catalog_paths = [Path(p) for p in known_paths if p]
         child_ids = nested_child_ids([*catalog_paths, *dirs])
@@ -747,11 +707,7 @@ class SessionCatalogCache:
             if _watch_session_hidden(session_dir, child_ids):
                 drop.add(resolved)
                 continue
-            origin = classify_session_origin(
-                session_dir,
-                work_traces=work,
-                host_root=self._host_root,
-            )
+            origin = classify_session_origin(session_dir, host_root=self._host_root)
             row = session_catalog_row(session_dir, origin=origin)
             if row is None:
                 drop.add(resolved)
@@ -911,7 +867,7 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     elif raw_origin == ORIGIN_HOST:
         origin = ORIGIN_HOST
     else:
-        origin = raw_origin or ORIGIN_WORK
+        origin = raw_origin or ORIGIN_HOST
     harness = str(row.get("harness") or "grok").strip() or "grok"
     meta = SessionMeta(
         session_id=sid or session_dir.name,
@@ -1063,7 +1019,6 @@ def _adapter_host_catalog_rows() -> list[JsonObject]:
 
 def resolve_session_reference(
     reference: str,
-    work_dir: Path,
     *,
     traces_path: Path | None = None,
     include_host: bool | None = None,
@@ -1071,14 +1026,10 @@ def resolve_session_reference(
 ) -> Path | None:
     """Resolve a path or catalog session id to an existing session directory.
 
-    Matches an existing directory path, ``root / id``, or a collected
-    session directory **name**. Does not load list-meta for siblings.
-
     :param reference: Absolute/relative path, or a session directory name / id.
-    :param work_dir: Work root for catalog roots.
-    :param traces_path: Optional traces path override.
+    :param traces_path: Optional store path override.
     :param include_host: Host inclusion (True/False force; None includes host).
-    :param host_root: Optional host root override (tests).
+    :param host_root: Optional host root override.
     :returns: Resolved directory path, or None when not found.
     """
     ref = (reference or "").strip()
@@ -1091,7 +1042,6 @@ def resolve_session_reference(
         except OSError:
             return candidate
     roots = catalog_scan_roots(
-        work_dir,
         traces_path=traces_path,
         include_host=include_host,
         host_root=host_root,

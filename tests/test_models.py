@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from anqa.models import (
-    EvalRun,
     SessionMeta,
     ToolCall,
     TraceEvent,
@@ -194,27 +193,6 @@ class TestSessionMeta:
         assert meta.turn_in_progress is True
         assert meta.turn_failed is False
         assert meta.list_status_label() == "ending"
-
-
-# ── EvalRun (Pydantic) ───────────────────────────────────────────────────
-
-
-class TestEvalRun:
-    def test_defaults(self):
-        run = EvalRun(run_id="r1", prompt="do stuff")
-        assert run.docker_image == "fully-loaded"
-        assert run.models == []
-        assert run.status == "pending"
-
-    def test_with_models(self):
-        run = EvalRun(
-            run_id="r2",
-            prompt="test",
-            models=["v9-dietcoke", "v9-bottlerocket"],
-            parallelism=2,
-        )
-        assert len(run.models) == 2
-        assert run.parallelism == 2
 
 
 # --- merged ---

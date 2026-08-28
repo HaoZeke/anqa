@@ -147,7 +147,7 @@ def _origin_chip(origin: str) -> str:
     key = (origin or "").strip().lower()
     if key == "host":
         return t("ui-origin-host")
-    if key in ("work", "eval"):
+    if key == "work":
         return t("ui-origin-work")
     return ""
 
@@ -234,8 +234,6 @@ def append_usage_rich(out: Text, usage: SessionUsageStats) -> None:
     :param out: Rich :class:`~rich.text.Text` instance to append into.
     :param usage: Collected session usage statistics.
     """
-    if usage.persona_id:
-        out.append_text(kv_line(t("ui-persona-2"), usage.persona_id))
     out.append_text(section_header(t("ui-host-tools")))
     if usage.host_tools:
         for row in usage.host_tools:

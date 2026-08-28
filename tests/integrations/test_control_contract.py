@@ -61,11 +61,9 @@ async def _initialize(server: ControlServer) -> dict[str, object]:
 REQUIRED_METHODS = (
     "initialize",
     "session/list",
-    "session/get",
     "session/overview",
     "session/timeline",
     "session/turns",
-    "session/usage",
     "session/diff",
     "session/open",
     "session/render",
@@ -89,11 +87,9 @@ FROZEN_MAJOR = 1
 FROZEN_METHODS = (
     "initialize",
     "session/list",
-    "session/get",
     "session/overview",
     "session/timeline",
     "session/turns",
-    "session/usage",
     "session/diff",
     "session/open",
     "session/render",

@@ -15,7 +15,6 @@ from anqa.session.export_bundle import (
     build_grok_trace_archive,
     export_session_bundle,
     grok_trace_member_paths,
-    run_volume_for_session,
 )
 
 # Official core members from a real ``grok trace`` export.
@@ -88,13 +87,6 @@ def _patch_cli(monkeypatch: pytest.MonkeyPatch, payload: bytes | None = None) ->
         "anqa.session.export_bundle.build_grok_trace_archive",
         _fake_cli,
     )
-
-
-def test_run_volume_for_session(tmp_path: Path) -> None:
-    sess = _seed_session(tmp_path)
-    vol = run_volume_for_session(sess)
-    assert vol is not None
-    assert vol.name == "anqa-abc-model"
 
 
 def test_build_grok_trace_uses_cli_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,10 +221,7 @@ def test_export_session_bundle_embeds_nested_grok_trace(
     for core in _ACTUAL_CORE:
         assert f"{SID}/{core}" in nested_names
 
-    assert "run/run.json" in names
-    assert "run/anqa-prompt.txt" in names
-    assert "run/prompt_history.jsonl" in names
-    assert "run/.anqa-turn/scripted-turns.json" in names
+    assert not any(n == "run" or n.startswith("run/") for n in names)
     assert "human/summary.md" in names
     assert "notes/operator_notes.toml" in names
     assert "notes/schema.toml" not in names
@@ -306,7 +295,6 @@ def test_export_dir_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         include=frozenset(
             {
                 IncludeUnit.GROK_TRACE,
-                IncludeUnit.RUN,
                 IncludeUnit.MANIFEST,
                 IncludeUnit.README,
             }
@@ -316,7 +304,6 @@ def test_export_dir_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert result.path.is_dir()
     assert (result.path / GROK_TRACE_ARCHIVE_NAME).is_file()
     assert (result.path / "manifest.json").is_file()
-    assert (result.path / "run" / "run.json").is_file()
     assert result.packaging == "dir"
 
 

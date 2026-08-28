@@ -36,7 +36,6 @@ async def test_session_open_notifies_without_open_callback(tmp_path: Path) -> No
     sock = _short_sock("open-notify.sock")
     server = daemon.build_domain_control_server(
         socket_path=sock,
-        work_dir=work,
         traces_path=traces,
     )
     await server.start()

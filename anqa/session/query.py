@@ -545,9 +545,7 @@ def _eval_field(field: str, expr: Item, row: CatalogQueryRow) -> bool:
 
 def _match_is(value: str, row: CatalogQueryRow) -> bool:
     if value == "host":
-        return True
-    if value == "eval":
-        return False
+        return (row.origin or "host").strip().casefold() == "host"
     status = row.status.strip().casefold()
     if value in {"cancelled", "canceled"}:
         return status in {"cancelled", "canceled"}

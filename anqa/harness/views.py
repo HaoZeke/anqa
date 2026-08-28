@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent, as_json_object
+from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent
 from ..notes import notes_snapshot
 from ..session.catalog import catalog_row_sort_epoch
 from ..session.control_views import (
@@ -128,25 +128,6 @@ def _load(ref: SessionRef) -> tuple[SessionMeta, list[TraceEvent]]:
     if impl is None:
         raise FileNotFoundError(f"unknown harness: {ref.harness}")
     return impl.load_meta(ref), impl.parse_timeline(ref)
-
-
-def session_get(ref: SessionRef) -> JsonObject:
-    """``session/get`` for an adapted ref."""
-    meta, events = _load(ref)
-    meta.num_events = len(events)
-    out = session_meta_mapping(meta, path=None, origin=meta.origin)
-    out["path"] = ref.ref_string()
-    out["harness"] = ref.harness
-    out["sessionId"] = ref.session_id
-    out["catalog"] = catalog_row_from_ref(ref)
-    try:
-        snap = notes_snapshot(_notes_dir(ref))
-        out["notesRevision"] = snap.revision
-        out["notesCount"] = len(snap.doc.notes)
-    except OSError:
-        out["notesRevision"] = ""
-        out["notesCount"] = 0
-    return out
 
 
 def _subagent_rows(ref: SessionRef, events: list[TraceEvent]) -> list[JsonValue]:
@@ -336,40 +317,6 @@ def session_turns(ref: SessionRef, *, query: str = "") -> JsonObject:
     }
 
 
-def session_usage(ref: SessionRef) -> JsonObject:
-    """Tool counts from the adapted timeline (no Grok signals file)."""
-    _meta, events = _load(ref)
-    from collections import Counter
-
-    counts: Counter[str] = Counter()
-    errors: Counter[str] = Counter()
-    for ev in events:
-        if ev.event_type != "tool_call" or not ev.tool_name:
-            continue
-        counts[ev.tool_name] += 1
-        if ev.is_error:
-            errors[ev.tool_name] += 1
-    host: list[JsonValue] = [
-        as_json_object(
-            {
-                "name": name,
-                "calls": int(n),
-                "errors": int(errors[name]),
-                "category": "builtin",
-            }
-        )
-        for name, n in counts.most_common(40)
-    ]
-    return {
-        "sessionId": ref.session_id,
-        "hostTools": host,
-        "mcpServers": [],
-        "skills": [],
-        "mcpBridgeCalls": 0,
-        "mcpToolsInvoked": [],
-    }
-
-
 def session_diff(ref: SessionRef) -> JsonObject:
     """No rewind store — empty diff."""
     return {"sessionId": ref.session_id, "source": "", "points": []}
@@ -378,9 +325,7 @@ def session_diff(ref: SessionRef) -> JsonObject:
 __all__ = [
     "catalog_row_from_ref",
     "session_diff",
-    "session_get",
     "session_overview",
     "session_timeline",
     "session_turns",
-    "session_usage",
 ]

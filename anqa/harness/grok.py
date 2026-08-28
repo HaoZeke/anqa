@@ -17,11 +17,9 @@ from ..parser import _looks_like_session_dir, find_sessions, load_session_meta_l
 from ..parser import parse_timeline as parse_grok_timeline
 from ..session.sources import (
     ORIGIN_HOST,
-    ORIGIN_WORK,
     collect_host_session_dirs,
     host_grok_sessions_root,
     is_host_grok_sessions_root,
-    is_under_host_grok_sessions,
 )
 from .ref import SessionRef
 
@@ -29,7 +27,7 @@ GROK_HARNESS_ID = "grok"
 
 
 def _ref_for_dir(path: Path) -> SessionRef:
-    origin = ORIGIN_HOST if is_under_host_grok_sessions(path) else ORIGIN_WORK
+    origin = ORIGIN_HOST
     loc = Path(path)
     try:
         loc = loc.resolve()
@@ -99,15 +97,13 @@ def looks_like(ref: Path | str) -> bool:
 def load_meta(ref: Path | str) -> SessionMeta:
     """Load list-grade metadata for a Grok session directory.
 
-    Wraps :func:`anqa.parser.load_session_meta_list`. Sets ``origin`` to
-    ``host`` when *ref* lives under the host Grok sessions tree, else
-    ``work``.
+    Wraps :func:`anqa.parser.load_session_meta_list`. Origin is the host store.
 
     :param ref: Session directory path.
     :returns: Populated :class:`~anqa.models.SessionMeta`.
     """
     path = Path(ref).expanduser()
-    origin = ORIGIN_HOST if is_under_host_grok_sessions(path) else ORIGIN_WORK
+    origin = ORIGIN_HOST
     meta = load_session_meta_list(path, origin=origin)
     meta.harness = GROK_HARNESS_ID
     return meta

@@ -1,14 +1,9 @@
-"""Application paths: config under ``~/.anqa``, work root for session trees.
+"""Application paths: config under ``~/.anqa``.
 
 **Config home** (``APP_HOME`` / ``~/.anqa``) holds ``config.toml``,
-notes schema / notes fallbacks, exported reports, optional ``keys.toml``.
-
-**Work dir** is the default place to open session trees. Default work dir
-is ``~/.anqa/work``. Pass a CLI path to open another work root, traces tree,
-or session. The default is never the process cwd.
-
-Passing a path to ``anqa`` sets what is loaded — see
-:func:`resolve_work_and_traces`.
+notes, reports, optional ``keys.toml``. The session catalog is the
+adapter store (default ``~/.grok/sessions``). A CLI path selects a
+store or a session.
 """
 
 from __future__ import annotations
@@ -17,9 +12,6 @@ from pathlib import Path
 
 # App-global state and user extensions (not per-workspace run data).
 APP_HOME = Path.home() / ".anqa"
-
-# Default work root for traces / recipes / docker builds (under APP_HOME).
-DEFAULT_WORK_DIR = APP_HOME / "work"
 
 
 def app_home() -> Path:
@@ -35,28 +27,9 @@ def cache_dir() -> Path:
     return d
 
 
-def mcp_registry_cache_dir() -> Path:
-    """``~/.anqa/cache/mcp-registry`` — official MCP registry search responses."""
-    d = APP_HOME / "cache" / "mcp-registry"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def personas_home() -> Path:
-    """``~/.anqa/personas`` — app-global persona store."""
-    d = APP_HOME / "personas"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
 def app_config_path() -> Path:
     """``~/.anqa/config.toml`` — app-global prefs file."""
     return APP_HOME / "config.toml"
-
-
-def user_models_path() -> Path:
-    """``~/.anqa/models.yaml`` — optional preferred model ordering for batch."""
-    return APP_HOME / "models.yaml"
 
 
 def user_keys_path() -> Path:
@@ -83,13 +56,6 @@ def notes_fallback_dir(session_id: str) -> Path:
     return d
 
 
-def user_tasks_dir() -> Path:
-    """``~/.anqa/tasks`` — optional task YAML (pass explicitly to ``batch --tasks``)."""
-    d = APP_HOME / "tasks"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
 def user_export_profiles_dir() -> Path:
     """``~/.anqa/export_profiles`` — user session-export profile YAML."""
     d = APP_HOME / "export_profiles"
@@ -97,71 +63,36 @@ def user_export_profiles_dir() -> Path:
     return d
 
 
-def ensure_user_extension_dirs() -> dict[str, Path]:
-    """Create standard user extension directories; return a name → path map."""
-    return {
-        "tasks": user_tasks_dir(),
-        "export_profiles": user_export_profiles_dir(),
-    }
-
-
-# On-disk prefix for run/trace/container names.
+# On-disk prefix for leftover work-tree / container names.
 RUN_PREFIX = "anqa-"
-# Leftover eval volumes still use the former product prefix.
-RUN_PREFIXES = (RUN_PREFIX, "groket-")
-# Session-side eval config filename (also embedded in images as anqa-config.toml).
+# Session-side config filename beside a leftover work tree.
 CONFIG_FILENAME = "anqa-config.toml"
 
 
 def is_run_dir_name(name: str) -> bool:
-    """True for leftover eval trace or container names (``anqa-*`` / former prefix)."""
-    return bool(name) and any(name.startswith(pfx) for pfx in RUN_PREFIXES)
+    """True when *name* uses the leftover work-tree prefix (``anqa-*``)."""
+    return bool(name) and name.startswith(RUN_PREFIX)
 
 
 def strip_run_prefix(name: str) -> str:
-    for pfx in RUN_PREFIXES:
-        if name.startswith(pfx):
-            return name[len(pfx) :]
+    if name.startswith(RUN_PREFIX):
+        return name[len(RUN_PREFIX) :]
     return name
 
 
-def run_name(*parts: str) -> str:
-    """Build a canonical run/container name with the on-disk prefix."""
-    body = "-".join(str(p) for p in parts if p is not None and str(p) != "")
-    return f"{RUN_PREFIX}{body}"
+def default_host_sessions_root() -> Path:
+    """Default Grok session store: ``~/.grok/sessions``."""
+    return Path.home() / ".grok" / "sessions"
 
 
-def default_work_dir() -> Path:
-    """Default work root: ``~/.anqa/work`` (never cwd; CLI path overrides)."""
-    return DEFAULT_WORK_DIR
+def resolve_catalog_root(path: Path | str | None = None) -> Path:
+    """Adapter store for the terminal app and serve.
 
-
-def default_traces_root(work_dir: Path | None = None) -> Path:
-    wd = work_dir or default_work_dir()
-    return Path(wd).expanduser() / "runs" / "traces"
-
-
-def eval_results_path(work_dir: Path | None = None) -> Path:
-    """Batch summary log under the work dir (``runs/eval_results.json``)."""
-    wd = work_dir or default_work_dir()
-    return Path(wd).expanduser() / "runs" / "eval_results.json"
-
-
-def resolve_work_and_traces(path: Path | str | None = None) -> tuple[Path, Path]:
-    """Return ``(work_dir, traces_root)`` for TUI / runner / batch / feedback.
-
-    *path* may be a work root, ``…/runs/traces``, a session directory, or
-    omitted (defaults to :func:`default_work_dir`). ``work_dir`` owns session/run
-    data: ``runs/traces``, ``runs/run_configs``, ``runs/feedback_cache``,
-    ``docker-build``. App config lives under :data:`APP_HOME`, not here.
+    Default ``~/.grok/sessions``. A ``-P`` store tree, or the parent of a
+    ``-P`` session directory.
     """
     if path is None:
-        wd = default_work_dir()
-        try:
-            wd = wd.resolve()
-        except OSError:
-            pass
-        return wd, default_traces_root(wd)
+        return default_host_sessions_root()
 
     p = Path(path).expanduser()
     try:
@@ -169,67 +100,23 @@ def resolve_work_and_traces(path: Path | str | None = None) -> tuple[Path, Path]
     except OSError:
         p = Path(path).expanduser()
 
-    parts = p.parts
+    if p.name == "sessions" and p.parent.name == ".grok":
+        return p
 
-    # …/runs/traces  or  …/runs/traces/<session>
-    if len(parts) >= 2 and parts[-1] == "traces" and parts[-2] == "runs":
-        wd = p.parent.parent
-        return wd, p
-    if len(parts) >= 3 and parts[-2] == "traces" and parts[-3] == "runs":
-        wd = p.parent.parent.parent
-        return wd, p.parent
-
-    # …/runs/feedback_cache  or under it
-    if len(parts) >= 2 and parts[-1] == "feedback_cache" and parts[-2] == "runs":
-        wd = p.parent.parent
-        return wd, default_traces_root(wd)
-    if len(parts) >= 3 and parts[-2] == "feedback_cache" and parts[-3] == "runs":
-        wd = p.parent.parent.parent
-        return wd, default_traces_root(wd)
-
-    # …/runs  (batch/orchestrator style work root)
-    if parts and parts[-1] == "runs":
-        wd = p.parent
-        return wd, p / "traces"
-
-    # …/traces (standalone traces folder, not under runs/)
-    if parts and parts[-1] == "traces":
-        wd = p.parent
-        return wd, p
+    session_markers = ("updates.jsonl", "events.jsonl", "chat_history.jsonl", "summary.json")
+    if p.is_dir() and any((p / marker).is_file() for marker in session_markers):
+        parent = p.parent
+        if parent.name == "sessions" and parent.parent.name == ".grok":
+            return parent
+        return parent
 
     if p.is_dir():
-        if (p / "runs" / "traces").is_dir() or (p / "runs").is_dir():
-            return p, p / "runs" / "traces"
-        if (p / "traces").is_dir():
-            return p, p / "traces"
-        session_markers = ("updates.jsonl", "events.jsonl", "chat_history.jsonl", "summary.json")
-        if any((p / m).exists() for m in session_markers):
-            parent = p.parent
-            if parent.name == "traces":
-                return parent.parent, parent
-            return parent, parent
-
-        # Host sessions tree: browse in place; runner still uses default work root.
-        if p.name == "sessions" and p.parent.name == ".grok":
-            wd = default_work_dir()
-            try:
-                wd = wd.resolve()
-            except OSError:
-                pass
-            return wd, p
-
-        # Explicit directory path used as work root (opt-in via CLI), never implicit cwd
-        return p, p / "runs" / "traces"
-
-    if not p.suffix:
-        return p, p / "runs" / "traces"
-
-    wd = default_work_dir()
-    return wd, default_traces_root(wd)
+        return p
+    return default_host_sessions_root()
 
 
-def traces_root_for_reload(work_dir: Path, traces_path: Path | None) -> Path:
-    """Path to rescan after a Docker run finishes."""
+def traces_root_for_reload(traces_path: Path | None) -> Path:
+    """Path to rescan when the catalog store changes."""
     if traces_path is not None:
         tp = Path(traces_path)
         if tp.is_dir():
@@ -237,4 +124,4 @@ def traces_root_for_reload(work_dir: Path, traces_path: Path | None) -> Path:
             if any((tp / m).exists() for m in markers):
                 return tp.parent
             return tp
-    return default_traces_root(work_dir)
+    return default_host_sessions_root()

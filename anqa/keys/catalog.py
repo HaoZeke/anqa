@@ -38,7 +38,6 @@ class ActionScope(str, Enum):
     GLOBAL = "global"
     HOME = "home"
     BROWSER = "browser"
-    JOBS = "jobs"
     MODAL = "modal"
 
 
@@ -211,8 +210,6 @@ ACTIONS: tuple[KeyAction, ...] = (
     # Generic modal / picker.
     _row("modal.submit", ActionScope.MODAL, "ctrl+r", ActionSurface.TUI),
     _row("modal.submit_enter", ActionScope.MODAL, "enter", ActionSurface.TUI),
-    _row("mcp.registry", ActionScope.MODAL, "r", ActionSurface.TUI),
-    _row("mcp.local", ActionScope.MODAL, "l", ActionSurface.TUI),
     _row("confirm.discard", ActionScope.MODAL, "enter,y", ActionSurface.TUI),
     _row("confirm.keep", ActionScope.MODAL, "escape,n", ActionSurface.TUI),
     _row("help.dismiss", ActionScope.MODAL, "enter", ActionSurface.TUI),

@@ -35,7 +35,6 @@ class IncludeUnit(StrEnum):
     """Content units the exporter may collect into the staging tree."""
 
     GROK_TRACE = "grok_trace"
-    RUN = "run"
     SUMMARY = "summary"
     NOTES = "notes"
     README = "readme"
@@ -48,7 +47,6 @@ ALL_INCLUDE_UNITS: frozenset[IncludeUnit] = frozenset(IncludeUnit)
 # Default archive profile ≈ cleaned export behaviour after the hygiene pass.
 ARCHIVE_FULL_INCLUDE: tuple[IncludeUnit, ...] = (
     IncludeUnit.GROK_TRACE,
-    IncludeUnit.RUN,
     IncludeUnit.SUMMARY,
     IncludeUnit.NOTES,
     IncludeUnit.README,

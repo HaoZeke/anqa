@@ -2,330 +2,146 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from anqa.paths import (
     app_config_path,
     app_home,
     cache_dir,
-    default_traces_root,
+    default_host_sessions_root,
     is_run_dir_name,
-    mcp_registry_cache_dir,
-    personas_home,
-    resolve_work_and_traces,
-    run_name,
+    notes_fallback_dir,
+    reports_dir,
+    resolve_catalog_root,
     strip_run_prefix,
+    traces_root_for_reload,
+    user_export_profiles_dir,
     user_keys_path,
     user_themes_dir,
 )
 
 
 class TestIsRunDirName:
-    def test_valid(self):
+    def test_valid(self) -> None:
         assert is_run_dir_name("anqa-abc123-dietcoke") is True
         assert is_run_dir_name("anqa-x") is True
 
-    def test_invalid(self):
+    def test_invalid(self) -> None:
         assert is_run_dir_name("") is False
         assert is_run_dir_name("other-prefix") is False
         assert is_run_dir_name("traces") is False
+        assert is_run_dir_name("groket-old") is False
 
 
 class TestStripRunPrefix:
-    def test_strip(self):
+    def test_strip(self) -> None:
         assert strip_run_prefix("anqa-abc123-dietcoke") == "abc123-dietcoke"
 
-    def test_no_prefix(self):
+    def test_no_prefix(self) -> None:
         assert strip_run_prefix("something-else") == "something-else"
 
 
-class TestRunName:
-    def test_basic(self):
-        assert run_name("abc", "dietcoke") == "anqa-abc-dietcoke"
+class TestResolveCatalogRoot:
+    def test_none_uses_host_sessions(self) -> None:
+        root = resolve_catalog_root(None)
+        assert root == default_host_sessions_root()
 
-    def test_single_part(self):
-        assert run_name("abc") == "anqa-abc"
-
-    def test_empty_parts_skipped(self):
-        assert run_name("abc", "", "xyz") == "anqa-abc-xyz"
-
-
-class TestDefaultTracesRoot:
-    def test_with_work_dir(self, tmp_path):
-        result = default_traces_root(tmp_path)
-        assert result == tmp_path / "runs" / "traces"
-
-    def test_none_uses_default(self):
-        result = default_traces_root(None)
-        assert "runs" in str(result)
-        assert "traces" in str(result)
-
-
-class TestResolveWorkAndTraces:
-    def test_none_uses_defaults(self):
-        wd, tr = resolve_work_and_traces(None)
-        assert wd.is_absolute()
-        assert tr == wd / "runs" / "traces"
-
-    def test_runs_traces_path(self, tmp_path):
-        p = tmp_path / "runs" / "traces"
-        p.mkdir(parents=True)
-        wd, tr = resolve_work_and_traces(p)
-        assert wd == tmp_path.resolve()
-        assert tr == p.resolve()
-
-    def test_session_under_traces(self, tmp_path):
-        session = tmp_path / "runs" / "traces" / "anqa-abc-dietcoke"
-        session.mkdir(parents=True)
-        (session / "summary.json").write_text("{}")
-        wd, tr = resolve_work_and_traces(session)
-        assert wd == tmp_path.resolve()
-        assert tr == (tmp_path / "runs" / "traces").resolve()
-
-    def test_bare_dir_with_runs(self, tmp_path):
-        (tmp_path / "runs" / "traces").mkdir(parents=True)
-        wd, tr = resolve_work_and_traces(tmp_path)
-        assert wd == tmp_path.resolve()
-        assert tr == (tmp_path / "runs" / "traces").resolve()
-
-    def test_dir_with_traces_subdir(self, tmp_path):
-        (tmp_path / "traces").mkdir()
-        wd, tr = resolve_work_and_traces(tmp_path)
-        assert tr == (tmp_path / "traces").resolve()
-
-    def test_host_grok_sessions_keeps_default_work(self, tmp_path, monkeypatch):
+    def test_host_sessions_tree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         host = tmp_path / ".grok" / "sessions"
         host.mkdir(parents=True)
-        work = tmp_path / "default-work"
-        work.mkdir()
-        monkeypatch.setattr("anqa.paths.DEFAULT_WORK_DIR", work)
-        monkeypatch.setattr("anqa.paths.default_work_dir", lambda: work)
-        wd, tr = resolve_work_and_traces(host)
-        assert tr == host.resolve()
-        assert wd == work.resolve()
+        monkeypatch.setattr("anqa.paths.default_host_sessions_root", lambda: host)
+        assert resolve_catalog_root(host) == host.resolve()
+
+    def test_session_dir_returns_parent(self, tmp_path: Path) -> None:
+        store = tmp_path / "sessions"
+        session = store / "sid-1"
+        session.mkdir(parents=True)
+        (session / "summary.json").write_text("{}", encoding="utf-8")
+        assert resolve_catalog_root(session) == store.resolve()
+
+    def test_session_under_host_sessions(self, tmp_path: Path) -> None:
+        host = tmp_path / ".grok" / "sessions"
+        session = host / "%2Fproj" / "sid-1"
+        session.mkdir(parents=True)
+        (session / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+        assert resolve_catalog_root(session) == session.parent.resolve()
+
+    def test_plain_directory(self, tmp_path: Path) -> None:
+        store = tmp_path / "store"
+        store.mkdir()
+        assert resolve_catalog_root(store) == store.resolve()
+
+    def test_missing_file_falls_back(self, tmp_path: Path) -> None:
+        p = tmp_path / "missing.log"
+        assert resolve_catalog_root(p) == default_host_sessions_root()
+
+
+class TestTracesRootForReload:
+    def test_session_dir_returns_parent(self, tmp_path: Path) -> None:
+        sd = tmp_path / "sessions" / "sid-1"
+        sd.mkdir(parents=True)
+        (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+        assert traces_root_for_reload(sd) == sd.parent
+
+    def test_store_directory(self, tmp_path: Path) -> None:
+        store = tmp_path / "sessions"
+        store.mkdir()
+        assert traces_root_for_reload(store) == store
+
+    def test_none_uses_host_sessions(self) -> None:
+        assert traces_root_for_reload(None) == default_host_sessions_root()
 
 
 class TestAppHome:
-    def test_app_home_creates_dir(self, tmp_path, monkeypatch):
+    def test_app_home_creates_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = app_home()
         assert result == fake
         assert fake.is_dir()
 
-    def test_cache_dir(self, tmp_path, monkeypatch):
+    def test_cache_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         result = cache_dir()
         assert result == fake / "cache"
         assert result.is_dir()
 
-    def test_mcp_registry_cache_dir(self, tmp_path, monkeypatch):
+    def test_app_config_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
-        result = mcp_registry_cache_dir()
-        assert result == fake / "cache" / "mcp-registry"
-        assert result.is_dir()
+        assert app_config_path() == fake / "config.toml"
 
-    def test_personas_home(self, tmp_path, monkeypatch):
-        fake = tmp_path / "app-home"
-        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
-        result = personas_home()
-        assert result == fake / "personas"
-        assert result.is_dir()
-
-    def test_app_config_path(self, tmp_path, monkeypatch):
-        fake = tmp_path / "app-home"
-        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
-        result = app_config_path()
-        assert result == fake / "config.toml"
-
-    def test_user_keys_path(self, tmp_path, monkeypatch):
+    def test_user_keys_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         assert user_keys_path() == fake / "keys.toml"
 
-    def test_user_themes_dir(self, tmp_path, monkeypatch):
+    def test_user_themes_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
         assert user_themes_dir() == fake / "themes"
 
-
-from pathlib import Path
-
-from anqa import paths
-
-
-def test_app_home_and_dirs():
-    assert paths.APP_HOME
-    assert paths.default_work_dir()
-    assert paths.cache_dir()
-
-
-def test_resolve_work_and_traces(tmp_path: Path):
-    traces = tmp_path / "runs" / "traces"
-    traces.mkdir(parents=True)
-    w, t = paths.resolve_work_and_traces(traces)
-    assert Path(t).is_absolute()
-    assert Path(w).is_absolute()
-
-
-def test_traces_root_for_reload(tmp_path: Path):
-    traces = tmp_path / "runs" / "traces"
-    traces.mkdir(parents=True)
-    root = paths.traces_root_for_reload(tmp_path, traces)
-    assert Path(root).is_absolute()
-
-
-# --- merged ---
-
-
-import pytest
-
-
-def test_paths_more(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from anqa import paths
-
-    monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", tmp_path / "w")
-    wd = paths.default_work_dir()
-    assert wd == tmp_path / "w"
-    tr = paths.default_traces_root(tmp_path / "w")
-    assert "traces" in str(tr)
-    w2, t2 = paths.resolve_work_and_traces(tmp_path / "w")
-    assert w2
-    assert t2
-    paths.traces_root_for_reload(tmp_path / "w", None)
-    paths.traces_root_for_reload(tmp_path / "w", tmp_path / "custom-traces")
-    paths.ensure_user_extension_dirs()
-    assert paths.personas_home().exists() or True
-    # optional helpers if present
-    for name in (
-        "feedback_cache_dir",
-        "run_configs_home",
-        "user_models_path",
-        "package_config_dir",
-    ):
-        fn = getattr(paths, name, None)
-        if callable(fn):
-            try:
-                fn(tmp_path) if name.endswith("_dir") and name != "package_config_dir" else fn()
-            except TypeError:
-                try:
-                    fn()
-                except Exception:
-                    pass
-
-
-from anqa.paths import (
-    default_work_dir,
-    ensure_user_extension_dirs,
-    traces_root_for_reload,
-    user_tasks_dir,
-)
-
-
-class TestUserExtensionDirs:
-    def test_user_tasks_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        fake = tmp_path / "app"
+    def test_reports_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
-        d = user_tasks_dir()
-        assert d == fake / "tasks"
-        assert d.is_dir()
+        result = reports_dir()
+        assert result == fake / "reports"
+        assert result.is_dir()
 
-    def test_ensure_user_extension_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        fake = tmp_path / "app"
+    def test_notes_fallback_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = tmp_path / "app-home"
         monkeypatch.setattr("anqa.paths.APP_HOME", fake)
-        result = ensure_user_extension_dirs()
-        assert "tasks" in result
-        assert "export_profiles" in result
-        for d in result.values():
-            assert d.is_dir()
+        result = notes_fallback_dir("sid")
+        assert result == fake / "notes" / "sid"
+        assert result.is_dir()
 
-
-class TestDefaultWorkDir:
-    def test_default_is_under_app_home(self, monkeypatch: pytest.MonkeyPatch):
-        from anqa import paths
-
-        monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", paths.APP_HOME / "work")
-        wd = default_work_dir()
-        assert wd == paths.APP_HOME / "work"
-        assert wd.is_absolute()
-
-    def test_patched_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        from anqa import paths
-
-        monkeypatch.setattr(paths, "DEFAULT_WORK_DIR", tmp_path / "custom")
-        assert default_work_dir() == tmp_path / "custom"
-
-
-class TestResolveWorkAndTracesExtended:
-    def test_feedback_cache_path(self, tmp_path: Path):
-        p = tmp_path / "runs" / "feedback_cache"
-        p.mkdir(parents=True)
-        wd, tr = resolve_work_and_traces(p)
-        assert wd == tmp_path.resolve()
-        assert "traces" in str(tr)
-
-    def test_feedback_cache_child(self, tmp_path: Path):
-        p = tmp_path / "runs" / "feedback_cache" / "session-id"
-        p.mkdir(parents=True)
-        wd, tr = resolve_work_and_traces(p)
-        assert wd == tmp_path.resolve()
-
-    def test_runs_path(self, tmp_path: Path):
-        p = tmp_path / "runs"
-        p.mkdir()
-        wd, tr = resolve_work_and_traces(p)
-        assert wd == tmp_path.resolve()
-        assert tr == p.resolve() / "traces"
-
-    def test_standalone_traces_folder(self, tmp_path: Path):
-        p = tmp_path / "traces"
-        p.mkdir()
-        wd, tr = resolve_work_and_traces(p)
-        assert tr == p.resolve()
-
-    def test_session_dir_under_traces(self, tmp_path: Path):
-        """Session dir whose parent is 'traces' (not under runs/)."""
-        traces = tmp_path / "traces"
-        sd = traces / "session-abc"
-        sd.mkdir(parents=True)
-        (sd / "updates.jsonl").write_text("{}\n")
-        wd, tr = resolve_work_and_traces(sd)
-        assert tr == traces.resolve()
-
-    def test_dir_with_only_traces_subdir(self, tmp_path: Path):
-        (tmp_path / "traces").mkdir()
-        wd, tr = resolve_work_and_traces(tmp_path)
-        assert tr == (tmp_path / "traces").resolve()
-
-    def test_empty_dir_as_work_root(self, tmp_path: Path):
-        empty = tmp_path / "new-work"
-        empty.mkdir()
-        wd, tr = resolve_work_and_traces(empty)
-        assert wd == empty.resolve()
-        assert "runs" in str(tr)
-
-    def test_nonexistent_no_suffix(self, tmp_path: Path):
-        p = tmp_path / "future-dir"
-        wd, tr = resolve_work_and_traces(p)
-        assert wd == p.resolve()
-        assert "traces" in str(tr)
-
-    def test_file_with_suffix(self, tmp_path: Path):
-        p = tmp_path / "some.log"
-        p.write_text("x")
-        wd, tr = resolve_work_and_traces(p)
-        # Falls through to default
-        assert wd.is_absolute()
-
-
-class TestTracesRootForReloadExtended:
-    def test_session_dir_returns_parent(self, tmp_path: Path):
-        sd = tmp_path / "runs" / "traces" / "session-abc"
-        sd.mkdir(parents=True)
-        (sd / "updates.jsonl").write_text("{}\n")
-        result = traces_root_for_reload(tmp_path, sd)
-        assert result == sd.parent
-
-    def test_none_traces_path(self, tmp_path: Path):
-        result = traces_root_for_reload(tmp_path, None)
-        assert "traces" in str(result)
+    def test_user_export_profiles_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = tmp_path / "app-home"
+        monkeypatch.setattr("anqa.paths.APP_HOME", fake)
+        result = user_export_profiles_dir()
+        assert result == fake / "export_profiles"
+        assert result.is_dir()

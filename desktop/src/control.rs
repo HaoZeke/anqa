@@ -37,7 +37,7 @@ fn ping_notify_wake() {
     }
 }
 
-/// Must match ``anqa.integrations.control.PROTOCOL_VERSION``.
+/// Must match ``anqa.control.server.PROTOCOL_VERSION``.
 pub const PROTOCOL_VERSION: &str = "1.0.0";
 
 /// Wall-clock budget for connect + one-shot RPC retries (macOS EAGAIN races).

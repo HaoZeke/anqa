@@ -64,7 +64,7 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "is",
         "Status or origin.",
-        ("running", "awaiting", "ending", "complete", "cancelled", "host", "eval"),
+        ("running", "awaiting", "ending", "complete", "cancelled", "host"),
     ),
     CatalogQueryToken(
         "has",
@@ -469,11 +469,6 @@ METHODS: tuple[MethodSpec, ...] = (
         extra_md=_session_list_query_md(),
     ),
     MethodSpec(
-        name="session/get",
-        role="Session meta (status, context, counts, notes revision)",
-        params=(_SESSION,),
-    ),
-    MethodSpec(
         name="session/overview",
         role="Meta + turns + notes + event/tool counts (`stats`). Turns include `subagentRuns`. "
         "Also `backgroundJobs`, `schedules`, and `workflows` (no log or script bodies).",
@@ -541,11 +536,6 @@ METHODS: tuple[MethodSpec, ...] = (
             _SESSION,
             FieldSpec("query", "Turns query language (same tokens as the Turns search box)."),
         ),
-    ),
-    MethodSpec(
-        name="session/usage",
-        role="Tool / MCP / skill usage",
-        params=(_SESSION,),
     ),
     MethodSpec(
         name="session/diff",

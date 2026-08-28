@@ -37,9 +37,9 @@ pub fn capped_json(value: &Value, max_chars: usize) -> String {
 pub fn origin_label(origin: &str) -> &'static str {
     match origin.trim().to_ascii_lowercase().as_str() {
         "host" => "Host",
-        "work" | "eval" => "Eval",
+        "work" => "Work",
         "" => "—",
-        _ => "Eval",
+        _ => "—",
     }
 }
 
@@ -3494,8 +3494,7 @@ mod tests {
     #[test]
     fn origin_label_matches_tui() {
         assert_eq!(origin_label("host"), "Host");
-        assert_eq!(origin_label("work"), "Eval");
-        assert_eq!(origin_label("eval"), "Eval");
+        assert_eq!(origin_label("work"), "Work");
         assert_eq!(origin_label(""), "—");
     }
 

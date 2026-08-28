@@ -15,7 +15,7 @@ def rmtree_robust(path: Path) -> None:
     """Remove *path* with ``shutil.rmtree``.
 
     :raises PermissionError: when the tree is not writable (e.g. leftover
-        root-owned eval traces).
+        root-owned session trees).
     """
     path = Path(path).expanduser()
     if not path.exists():
@@ -91,8 +91,6 @@ def prune_empty_parents_after_session_delete(
 def delete_session_dirs(
     session_dirs: list[Path],
     *,
-    also_feedback_cache: bool = True,
-    feedback_cache_dir: Path | None = None,
     traces_root: Path | None = None,
     prune_empty_parents: bool = True,
 ) -> JsonObject:
@@ -102,7 +100,6 @@ def delete_session_dirs(
     """
     deleted = 0
     errors: list[str] = []
-    fb_deleted = 0
     parents_pruned: list[str] = []
 
     stop_at: Path | None = None
@@ -121,36 +118,20 @@ def delete_session_dirs(
             if not p.is_dir():
                 errors.append(f"not a dir: {p}")
                 continue
-            sid = p.name
             parent_before = p.parent
-            local_stop = stop_at
-            if local_stop is None:
-                for anc in p.parents:
-                    if anc.name == "traces" and anc.parent.name == "runs":
-                        local_stop = anc
-                        break
             rmtree_robust(p)
             deleted += 1
             if prune_empty_parents:
                 for gone in prune_empty_parents_after_session_delete(
-                    parent_before, stop_at=local_stop
+                    parent_before, stop_at=stop_at
                 ):
                     parents_pruned.append(str(gone))
-            if also_feedback_cache and feedback_cache_dir is not None:
-                fbd = Path(feedback_cache_dir) / sid
-                if fbd.is_dir():
-                    try:
-                        rmtree_robust(fbd)
-                        fb_deleted += 1
-                    except OSError as exc:
-                        errors.append(f"feedback_cache {sid}: {exc}")
         except OSError as exc:
             errors.append(f"{p}: {exc}")
 
     return as_json_object(
         {
             "deleted": deleted,
-            "feedback_cache_deleted": fb_deleted,
             "parents_pruned": parents_pruned,
             "parents_pruned_count": len(parents_pruned),
             "errors": errors,

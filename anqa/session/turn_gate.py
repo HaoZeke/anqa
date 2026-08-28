@@ -9,14 +9,12 @@ from pathlib import Path
 
 from ..constants import INCOMPLETE_STALE_SECONDS
 from ..models import JsonObject, json_as_int, json_as_object, json_as_str
-from ..paths import RUN_PREFIXES
+from ..paths import RUN_PREFIX
 
 logger = logging.getLogger(__name__)
 
-# Single gate directory name under each container traces volume (entrypoint TURN_DIR).
+# Single gate directory name under each leftover traces volume.
 TURN_GATE_NAME = ".anqa-turn"
-# Leftover eval volumes still use the former product name.
-TURN_GATE_NAMES = (TURN_GATE_NAME, ".groket-turn")
 # Authoritative multi-turn resume id written by entrypoint (and host follow-up).
 PRIMARY_SESSION_ID_FILE = "primary-session-id"
 
@@ -40,16 +38,15 @@ _TRACE_ARTIFACT_NAMES = (
 
 
 def traces_volume_for_session(session_dir: Path) -> Path | None:
-    """Container traces volume for *session_dir* (bind mount root on the host).
+    """Traces volume for *session_dir* (directory that holds the turn gate).
 
-    Typical layout: ``…/traces/<container_name>/<cwd-token>/<session_id>``.
+    Typical layout: ``…/traces/<run-name>/<cwd-token>/<session_id>``.
     """
     p = Path(session_dir).expanduser().resolve()
     for base in (p.parent.parent, p.parent, p.parent.parent.parent):
         try:
             if base.is_dir() and (
-                any((base / name).is_dir() for name in TURN_GATE_NAMES)
-                or any(base.name.startswith(pfx) for pfx in RUN_PREFIXES)
+                (base / TURN_GATE_NAME).is_dir() or base.name.startswith(RUN_PREFIX)
             ):
                 return base
         except OSError:
@@ -66,11 +63,10 @@ def turn_gate_dir_for_session(session_dir: Path) -> Path | None:
     base = traces_volume_for_session(session_dir)
     if base is None:
         return None
-    for name in TURN_GATE_NAMES:
-        gate = base / name
-        if gate.is_dir():
-            return gate
-    return base / TURN_GATE_NAME
+    gate = base / TURN_GATE_NAME
+    if gate.is_dir():
+        return gate
+    return gate
 
 
 def turn_gate_dirs_for_session(session_dir: Path) -> list[Path]:
@@ -247,8 +243,7 @@ def _clear_gate_control_files(gate: Path) -> None:
 def finalize_gate_dir(gate: Path, *, session_id: str = "") -> None:
     """Write ``status.json`` ``state=done`` and clear control files for one gate.
 
-    Host ownership when the eval container is no longer running (stop/remove
-    or worker finished). Idempotent.
+    Idempotent.
     """
     gate = Path(gate)
     if not gate.is_dir():

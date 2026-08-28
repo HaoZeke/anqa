@@ -17,8 +17,6 @@ WALK_SKIP_DIRS: frozenset[str] = frozenset(
     {
         "anqa-plugins",
         "anqa-skills",
-        "groket-plugins",
-        "groket-skills",
         "subagents",
         ".git",
         "node_modules",
@@ -32,8 +30,6 @@ WALK_SKIP_DIRS: frozenset[str] = frozenset(
         ".tox",
         ".anqa-resume-seed",
         ".anqa-workspace-seed",
-        ".groket-resume-seed",
-        ".groket-workspace-seed",
         "workspace",
     }
 )

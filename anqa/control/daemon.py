@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..models import JsonObject
-from ..paths import default_work_dir, resolve_work_and_traces
+from ..paths import resolve_catalog_root
 from ..session.catalog import (
     SessionCatalogCache,
     catalog_scan_roots,
@@ -236,7 +236,6 @@ def pid_is_alive(pid: int) -> bool:
 def build_domain_control_server(
     *,
     socket_path: Path,
-    work_dir: Path,
     traces_path: Path | None = None,
     include_host: bool | None = None,
     host_root: Path | None = None,
@@ -246,19 +245,15 @@ def build_domain_control_server(
     """Build a :class:`ControlServer` with domain catalog handlers (no TUI).
 
     :param socket_path: Unix socket path to own.
-    :param work_dir: Work root for session discovery.
-    :param traces_path: Optional traces path override.
-    :param include_host: Host inclusion for ``session/list`` (True/None include
-        host; False is work-only). ``is:host`` filters the loaded list.
-    :param host_root: Host root override for tests.
+    :param traces_path: Optional catalog store override.
+    :param include_host: Host store inclusion for ``session/list``.
+    :param host_root: Host root override.
     :param open_session: Optional async open callback (TUI only).
     :param notes_changed: Optional notes-changed callback.
     :returns: Configured but not-yet-started server.
     """
-    wd = Path(work_dir).expanduser()
     tr = Path(traces_path).expanduser() if traces_path is not None else None
     catalog_cache = SessionCatalogCache(
-        wd,
         traces_path=tr,
         include_host=include_host,
         host_root=host_root,
@@ -270,7 +265,6 @@ def build_domain_control_server(
             return found
         return resolve_session_reference(
             reference,
-            wd,
             traces_path=tr,
             include_host=include_host,
             host_root=host_root,
@@ -282,7 +276,6 @@ def build_domain_control_server(
         list_sessions=catalog_cache,
         open_session=open_session,
         notes_changed=notes_changed,
-        work_dir=wd,
     )
     server._catalog_cache = catalog_cache  # type: ignore[attr-defined]
     return server
@@ -300,11 +293,9 @@ async def _catalog_warm_once(cache: SessionCatalogCache) -> None:
 def control_watch_roots(cache: SessionCatalogCache) -> list[Path]:
     """Directories the owner watches for catalog / ``session/changed`` events.
 
-    Follows the same scan roots as ``session/list`` (work traces plus host
-    when that catalog is included).
+    Follows the same scan roots as ``session/list`` (adapter host stores).
     """
     roots = catalog_scan_roots(
-        cache._work_dir,
         traces_path=cache._traces_path,
         include_host=cache._include_host,
         host_root=cache._host_root,
@@ -365,6 +356,7 @@ _CATALOG_NOISE_DIR_NAMES = frozenset(
         "images",
         "compaction",
         "attachments",
+        "terminal",
     }
 )
 
@@ -438,8 +430,6 @@ class CatalogWatchApply:
         """True when a watch path can change a painted session/list field."""
         if cls.ignore_path(path) or path.name == "events.jsonl":
             return False
-        if path.is_dir() or not path.name:
-            return True
         return path.name in _CATALOG_LIST_FILE_NAMES
 
     @classmethod
@@ -689,7 +679,6 @@ async def serve_control_forever(
 def run_control_daemon(
     *,
     socket_path: Path | None = None,
-    work_dir: Path | None = None,
     traces_path: Path | None = None,
     include_host: bool | None = None,
     host_root: Path | None = None,
@@ -697,28 +686,18 @@ def run_control_daemon(
     """Blocking entry: own the control socket with domain handlers until signal.
 
     :param socket_path: Socket path (default: :func:`default_socket_path`).
-    :param work_dir: Work root; resolved with *traces_path* when omitted.
-    :param traces_path: Optional traces path (also used to derive work root).
+    :param traces_path: Optional catalog store (default ``~/.grok/sessions``).
     :param include_host: Host inclusion (True/False force; None = config pref).
-    :param host_root: Host root override for tests.
+    :param host_root: Host root override.
     :returns: Process exit code (0 clean stop, 1 ownership conflict / error).
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
-    if work_dir is not None:
-        wd = Path(work_dir).expanduser().resolve()
-        tr = (
-            Path(traces_path).expanduser().resolve()
-            if traces_path is not None
-            else wd / "runs" / "traces"
-        )
-    else:
-        wd, tr = resolve_work_and_traces(traces_path)
+    tr = resolve_catalog_root(traces_path)
 
     configure_serve_logging()
 
     server = build_domain_control_server(
         socket_path=sock,
-        work_dir=wd,
         traces_path=tr,
         include_host=include_host,
         host_root=host_root,
@@ -761,17 +740,15 @@ def run_control_daemon(
 
     try:
         logger.info(
-            "anqa serve: control socket %s work_dir=%s traces=%s pid=%s log_level=%s",
+            "anqa serve: control socket %s catalog=%s pid=%s log_level=%s",
             sock,
-            wd,
             tr,
             os.getpid(),
             logging.getLevelName(logging.getLogger("anqa").level),
         )
         # Operator-facing banner on stderr (CLI entry only uses this process path).
         sys.stderr.write(f"anqa serve: control socket {sock}\n")
-        sys.stderr.write(f"  work_dir={wd}\n")
-        sys.stderr.write(f"  traces={tr}\n")
+        sys.stderr.write(f"  catalog={tr}\n")
         sys.stderr.write(f"  pid={os.getpid()}\n")
         sys.stderr.write(
             f"  log_level={logging.getLevelName(logging.getLogger('anqa').level)} "
@@ -1008,18 +985,9 @@ def stop_control_daemon(
     return 0
 
 
-def resolve_daemon_work(
-    path: Path | None,
-) -> tuple[Path, Path]:
-    """Resolve work/traces for serve CLI (same rules as TUI)."""
-    if path is None:
-        wd = default_work_dir()
-        try:
-            wd = wd.resolve()
-        except OSError:
-            pass
-        return wd, wd / "runs" / "traces"
-    return resolve_work_and_traces(path)
+def resolve_daemon_catalog(path: Path | None) -> Path:
+    """Resolve the catalog store for serve (same rules as the terminal app)."""
+    return resolve_catalog_root(path)
 
 
 def control_log_path(socket_path: Path) -> Path:
@@ -1064,13 +1032,12 @@ class EnsureDaemonResult:
 def _detached_child_argv(
     *,
     socket_path: Path,
-    work_dir: Path | None,
     traces_path: Path | None,
     include_host: bool | None,
 ) -> list[str]:
     """Build argv for a foreground child that owns the control socket.
 
-    Uses the same interpreter and an inline entry so tests and editable
+    Uses the same interpreter and an inline entry so editable
     installs do not require ``anqa`` on ``PATH``.
     """
     sock = str(Path(socket_path).expanduser())
@@ -1079,19 +1046,14 @@ def _detached_child_argv(
         "from anqa.control.daemon import run_control_daemon",
         f"sock = Path({sock!r})",
     ]
-    if work_dir is not None:
-        parts.append(f"wd = Path({str(Path(work_dir).expanduser())!r})")
-    else:
-        parts.append("wd = None")
     if traces_path is not None:
         parts.append(f"tr = Path({str(Path(traces_path).expanduser())!r})")
     else:
         parts.append("tr = None")
-    # None → include host sessions.
     host_lit = "None" if include_host is None else repr(bool(include_host))
     parts.append(
         f"raise SystemExit(run_control_daemon("
-        f"socket_path=sock, work_dir=wd, traces_path=tr, "
+        f"socket_path=sock, traces_path=tr, "
         f"include_host={host_lit}))"
     )
     return [sys.executable, "-c", "; ".join(parts)]
@@ -1100,20 +1062,14 @@ def _detached_child_argv(
 def start_control_daemon_detached(
     *,
     socket_path: Path | None = None,
-    work_dir: Path | None = None,
     traces_path: Path | None = None,
     include_host: bool | None = None,
     timeout: float = 10.0,
 ) -> EnsureDaemonResult:
     """Start a background control owner and wait until the socket accepts.
 
-    Like ``gpg-agent --daemon`` / ``redis-server --daemonize``: the caller
-    returns after the service is ready (or fails). The child is session-led
-    (``start_new_session``) so it outlives the parent shell/TUI.
-
     :param socket_path: Control socket path.
-    :param work_dir: Work root for catalog discovery.
-    :param traces_path: Traces path (also used to resolve work when *work_dir* omitted).
+    :param traces_path: Catalog store (default ``~/.grok/sessions``).
     :param include_host: Host inclusion (True/False force; None = config pref).
     :param timeout: Seconds to wait for the socket to accept.
     :returns: Structured result; ``ok`` when the socket accepts after return.
@@ -1143,19 +1099,12 @@ def start_control_daemon_detached(
                 socket_path=sock,
             )
 
-    if work_dir is None and traces_path is None:
-        wd, tr = resolve_daemon_work(None)
-    elif work_dir is not None:
-        wd = Path(work_dir).expanduser()
-        tr = Path(traces_path).expanduser() if traces_path is not None else wd / "runs" / "traces"
-    else:
-        wd, tr = resolve_work_and_traces(traces_path)
+    tr = resolve_catalog_root(traces_path)
 
     sock.parent.mkdir(parents=True, exist_ok=True)
     log_path = control_log_path(sock)
     argv = _detached_child_argv(
         socket_path=sock,
-        work_dir=wd,
         traces_path=tr,
         include_host=include_host,
     )
@@ -1298,7 +1247,6 @@ def owner_protocol_current(socket_path: Path, *, timeout: float = 2.0) -> bool:
 def ensure_control_daemon(
     *,
     socket_path: Path | None = None,
-    work_dir: Path | None = None,
     traces_path: Path | None = None,
     include_host: bool | None = None,
     timeout: float = 10.0,
@@ -1333,7 +1281,6 @@ def ensure_control_daemon(
             )
     return start_control_daemon_detached(
         socket_path=sock,
-        work_dir=work_dir,
         traces_path=traces_path,
         include_host=include_host,
         timeout=timeout,
@@ -1358,7 +1305,7 @@ __all__ = [
     "read_control_lock_pid",
     "read_control_pid",
     "remove_control_pid",
-    "resolve_daemon_work",
+    "resolve_daemon_catalog",
     "run_control_daemon",
     "serve_control_forever",
     "start_control_daemon_detached",

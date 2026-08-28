@@ -8,7 +8,6 @@ from pathlib import Path
 from ..models import JsonObject, json_as_int
 
 SHARE_FILENAME = "anqa-share.json"
-SHARE_FILENAMES = (SHARE_FILENAME, "groket-share.json")
 
 
 def share_path_for(session_dir: Path | str) -> Path:
@@ -17,18 +16,14 @@ def share_path_for(session_dir: Path | str) -> Path:
 
 
 def _read_share_file(session_dir: Path | str) -> JsonObject | None:
-    root = Path(session_dir)
-    for name in SHARE_FILENAMES:
-        path = root / name
-        if not path.is_file():
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(data, dict):
-            return data
-    return None
+    path = Path(session_dir) / SHARE_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def get_share_url(session_dir: Path | str) -> str:

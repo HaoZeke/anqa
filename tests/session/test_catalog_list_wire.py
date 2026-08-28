@@ -56,8 +56,7 @@ def test_list_session_catalog_newest_first(tmp_path: Path) -> None:
 
     from anqa.session.catalog import list_session_catalog
 
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
+    traces = tmp_path / "sessions"
     old = _write_list_fixture(
         traces, "old-sess", num_messages=1, ctx_pct=10, tokens_used=1, window=100
     )
@@ -69,7 +68,7 @@ def test_list_session_catalog_newest_first(tmp_path: Path) -> None:
     now = time.time()
     os.utime(new / "updates.jsonl", (now + 10, now + 10))
     os.utime(old / "updates.jsonl", (now - 100, now - 100))
-    rows = list_session_catalog(work, include_host=False)
+    rows = list_session_catalog(traces_path=traces, include_host=False)
     ids = [r["sessionId"] for r in rows]
     assert ids[0] == "new-sess"
     assert "old-sess" in ids

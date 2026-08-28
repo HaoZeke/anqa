@@ -1,4 +1,4 @@
-"""Wire-shaped session views for the control plane (HUD / web / editors).
+"""JSON payloads for the control plane (desktop palette / editors).
 
 Pure domain loaders → JSON-RPC payloads. No Textual. Used by
 :class:`~anqa.control.server.ControlServer` handlers.
@@ -26,8 +26,6 @@ from ..parser import (
 )
 from ..session.sources import (
     classify_session_origin,
-    is_under_host_grok_sessions,
-    work_traces_root,
 )
 from ..session.tagged_blocks import unwrap_for_display
 from ..session.turns import (
@@ -37,7 +35,6 @@ from ..session.turns import (
     harness_user_chrome_heading,
     segment_timeline_turns,
 )
-from ..session.usage_stats import SessionUsageStats, collect_session_usage
 from ..tool_display import (
     display_tool_output,
     image_result_path,
@@ -47,7 +44,6 @@ from ..tool_display import (
     tool_family,
     tool_input_fields,
 )
-from .catalog import session_catalog_row
 from .event_search import ensure_indexed, matching_indexes
 from .jobs import SessionJobs, job_input_stamp
 from .query import turn_matches_query
@@ -140,7 +136,7 @@ def session_meta_mapping(
     path: Path | None = None,
     origin: str | None = None,
 ) -> JsonObject:
-    """Serialize :class:`SessionMeta` for ``session/get`` / enriched list rows."""
+    """Serialize :class:`SessionMeta` for catalog rows and ``session/overview``."""
     try:
         path_str = str((path or meta.session_dir).resolve())
     except OSError:
@@ -356,80 +352,6 @@ def turn_segment_mapping(
     return row
 
 
-def usage_stats_mapping(usage: SessionUsageStats) -> JsonObject:
-    """Compact usage summary for ``session/usage``."""
-    host: list[JsonValue] = [
-        {
-            "name": t.name,
-            "calls": int(t.calls),
-            "errors": int(t.errors),
-            "category": t.category,
-        }
-        for t in (usage.host_tools or usage.tools or [])[:40]
-    ]
-    mcp: list[JsonValue] = [
-        {
-            "serverId": s.server_id,
-            "useToolCalls": int(s.use_tool_calls),
-            "errors": int(s.errors),
-            "configured": bool(s.configured),
-        }
-        for s in (usage.mcp_servers or [])[:40]
-    ]
-    skills: list[JsonValue] = [
-        {
-            "skillId": s.skill_id,
-            "skillMdReads": int(s.skill_md_reads),
-            "nameInTranscript": bool(s.name_in_transcript),
-            "engaged": bool(s.engaged),
-            "configured": bool(s.configured),
-        }
-        for s in (usage.skills or [])[:40]
-    ]
-    tools_invoked: list[JsonValue] = [
-        str(x) for x in (getattr(usage, "mcp_tools_invoked", None) or [])[:40]
-    ]
-    return {
-        "hostTools": host,
-        "mcpServers": mcp,
-        "skills": skills,
-        "mcpBridgeCalls": int(getattr(usage, "mcp_bridge_calls", 0) or 0),
-        "mcpToolsInvoked": tools_invoked,
-    }
-
-
-def build_session_get(
-    session_dir: Path,
-    *,
-    work_dir: Path | None = None,
-    include_notes_revision: bool = True,
-    include_timeline_count: bool = False,
-) -> JsonObject:
-    """Full ``session/get`` payload for *session_dir*.
-
-    *include_timeline_count* defaults False so HUD-style clients stay fast
-    (avoid a full ``parse_timeline`` just for the events column).
-    """
-    sd = Path(session_dir)
-    origin = SessionOverview.origin(sd, work_dir)
-    meta = load_session_meta(sd, include_timeline_count=include_timeline_count)
-    meta.origin = origin
-    out = session_meta_mapping(meta, path=sd, origin=origin)
-    cat = session_catalog_row(sd, origin=origin)
-    if cat is not None:
-        out["catalog"] = cat
-    if include_notes_revision:
-        try:
-            snap = notes_snapshot(sd)
-            out["notesRevision"] = snap.revision
-            out["notesCount"] = len(snap.doc.notes)
-        except Exception:
-            logger.debug("notes snapshot for session/get %s", sd, exc_info=True)
-            out["notesRevision"] = ""
-            out["notesCount"] = 0
-    return out
-
-
 class SessionOverview:
     """Cached ``session/overview`` payload and stamp-keyed turn view."""
 
@@ -451,14 +373,9 @@ class SessionOverview:
             return str(sd.expanduser())
 
     @staticmethod
-    def origin(session_dir: Path, work_dir: Path | None) -> str:
-        """``host`` or ``work`` for this session directory."""
-        sd = Path(session_dir)
-        if work_dir is not None:
-            return classify_session_origin(sd, work_traces=work_traces_root(work_dir))
-        if is_under_host_grok_sessions(sd):
-            return "host"
-        return "work"
+    def origin(session_dir: Path) -> str:
+        """Adapter-store origin for this session directory."""
+        return classify_session_origin(Path(session_dir))
 
     @staticmethod
     def notes_schema() -> JsonObject:
@@ -519,10 +436,10 @@ class SessionOverview:
         return segs, turn_by_index
 
     @classmethod
-    def uncached(cls, session_dir: Path, *, work_dir: Path | None = None) -> JsonObject:
+    def uncached(cls, session_dir: Path) -> JsonObject:
         """Build overview without single-flight / result cache."""
         sd = Path(session_dir)
-        origin = cls.origin(sd, work_dir)
+        origin = cls.origin(sd)
         meta = load_session_meta(sd, include_timeline_count=False)
         meta.origin = origin
         events = parse_timeline(sd)
@@ -596,7 +513,7 @@ class SessionOverview:
         }
 
     @classmethod
-    def build(cls, session_dir: Path, *, work_dir: Path | None = None) -> JsonObject:
+    def build(cls, session_dir: Path) -> JsonObject:
         """Meta + turns + notes (timeline lazy); one in-flight per path."""
         sd = Path(session_dir)
         cache_key = cls.cache_key(sd)
@@ -620,7 +537,7 @@ class SessionOverview:
                 continue
 
             try:
-                out = cls.uncached(sd, work_dir=work_dir)
+                out = cls.uncached(sd)
                 # Stamp after build so a growth mid-flight forces a recheck.
                 done_stamp = cls.input_stamp(sd)
                 cls._cache[cache_key] = (done_stamp, out)
@@ -644,8 +561,6 @@ def overview_input_stamp(session_dir: Path) -> _OverviewStamp:
 
 def build_session_overview(
     session_dir: Path,
-    *,
-    work_dir: Path | None = None,
 ) -> JsonObject:
     """Meta + turns + notes for palette clients (timeline lazy).
 
@@ -657,7 +572,7 @@ def build_session_overview(
     reuse a stamp-keyed result so dual open+live-poll does not thrash multi‑MB
     host sessions.
     """
-    return SessionOverview.build(session_dir, work_dir=work_dir)
+    return SessionOverview.build(session_dir)
 
 
 def timeline_query_hit(event: TraceEvent, query: str) -> tuple[str, str] | None:
@@ -897,31 +812,19 @@ def warm_timeline_search(session_dir: Path) -> None:
     )
 
 
-def build_session_usage(session_dir: Path) -> JsonObject:
-    """Usage summary for ``session/usage``."""
-    events = parse_timeline(Path(session_dir))
-    usage = collect_session_usage(Path(session_dir), events)
-    out = usage_stats_mapping(usage)
-    out["sessionId"] = Path(session_dir).name
-    return out
-
-
 __all__ = [
     "DEFAULT_CONTENT_CHARS",
     "DEFAULT_TIMELINE_LIMIT",
     "MAX_CONTENT_CHARS",
     "MAX_TIMELINE_LIMIT",
     "build_session_diff",
-    "build_session_get",
     "build_session_overview",
     "build_session_timeline",
     "build_session_turns",
-    "build_session_usage",
     "warm_timeline_search",
     "SessionOverview",
     "timeline_query_hit",
     "session_meta_mapping",
     "timeline_event_mapping",
     "turn_segment_mapping",
-    "usage_stats_mapping",
 ]

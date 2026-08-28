@@ -69,8 +69,7 @@ where = ["."]
 include = ["anqa*"]
 
 [tool.setuptools.package-data]
-# UI/locale stay in-package; docker/config templates are repo ``assets/`` (and
-# optional ``anqa/_embedded_assets`` mirror for installed wheels).
+# UI, locale, and editor packs stay in-package.
 anqa = [
     "ui/app.tcss",
     "ui/community_themes.json",
@@ -80,7 +79,6 @@ anqa = [
     "integrations/emacs/*.el",
     "integrations/vim/lua/**/*.lua",
     "integrations/vim/plugin/**/*.lua",
-    "_embedded_assets/**/*",
 ]
 
 # ``uv tool install --editable .`` builds this binary next to the anqa script.
@@ -148,9 +146,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "anqa/cli.py" = ["T20"]
-# Container/script assets (not library modules); print + %-format intentional.
-"assets/**" = ["T20", "UP031", "E402"]
-"anqa/_embedded_assets/**" = ["T20", "UP031", "E402"]
 # Textual widgets often need late imports (E402); single-letter loop vars (E741).
 "anqa/ui/**" = ["E402", "E741"]
 "tests/**" = ["E402", "T20"]

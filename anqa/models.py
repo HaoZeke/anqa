@@ -1,8 +1,7 @@
 """Core data models and extension contracts.
 
-Serialised models use Pydantic v2 (:class:`EvalRun`). Hot-path
-trace types use dataclasses (:class:`ToolCall`, :class:`TraceEvent`). Shared
-aliases (:data:`JsonValue`, :data:`JsonObject`, :class:`ChatMessage`,
+Hot-path trace types use dataclasses (:class:`ToolCall`, :class:`TraceEvent`).
+Shared aliases (:data:`JsonValue`, :data:`JsonObject`, :class:`ChatMessage`,
 :data:`ToolInput`) define JSON/YAML boundaries.
 """
 
@@ -14,8 +13,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict
-
-from pydantic import BaseModel, Field
 
 from .utils import fmt_context_usage, fmt_duration, strip_control_chars
 
@@ -459,7 +456,7 @@ class SessionMeta:
     git_commit: str = ""
     task_id: str = ""
     run_id: str = ""
-    # Catalog origin: ``work`` (Docker/eval under work traces) or ``host`` (native store).
+    # Catalog origin: ``work`` (leftover trees under the work dir) or ``host``.
     origin: str = "work"
     # Disk adapter id (``grok``, ``opencode``, …). Default keeps existing rows Grok.
     harness: str = "grok"
@@ -589,20 +586,3 @@ class SessionMeta:
         if not oc:
             return "—"
         return "complete"
-
-
-class EvalRun(BaseModel):
-    """A single evaluation run: prompt + config + resulting sessions."""
-
-    run_id: str
-    prompt: str
-    setup_instructions: str = ""
-    docker_image: str = "fully-loaded"
-    models: list[str] = Field(default_factory=list)
-    parallelism: int = 1
-    repo_url: str = ""
-    repo_branch: str = ""
-    # Host directory bind-mounted as /workspace (no clone); empty when unused.
-    repo_path: str = ""
-    status: str = "pending"  # pending, running, completed, failed
-    created_at: str = ""

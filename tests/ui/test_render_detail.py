@@ -639,7 +639,7 @@ class TestRenderEventDetail:
 
     def test_schedule_inspect_uses_merged_last_fire(self, tmp_path):
         from anqa.parser import parse_timeline
-        from anqa.session.jobs import load_session_jobs, schedule_for_event
+        from anqa.session.jobs import SessionJobs, schedule_for_event
         from anqa.ui.render_detail import render_event_detail
 
         sd = tmp_path / "sess-sched-inspect"
@@ -692,7 +692,7 @@ class TestRenderEventDetail:
         ev = next(e for e in events if e.event_type == "scheduled_task_created")
         assert ev.raw_input.as_str("last_fired_at") == ""
         assert ev.raw_input.as_str("last_subagent_id") == ""
-        packed = load_session_jobs(sd, events)
+        packed = SessionJobs.load(sd, events)
         sch = schedule_for_event(ev, packed.schedules)
         assert sch is not None
         assert sch.last_fired_at.startswith("2026-08-18T22:05:45")

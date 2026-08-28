@@ -31,8 +31,6 @@ bind-delete = Delete
 
 bind-disable-all = Disable all
 
-bind-docker = Docker
-
 bind-done = Done
 
 bind-edit = Edit
@@ -48,17 +46,9 @@ bind-help = Help
 
 ui-leader = Leader
 
-bind-jobs = Jobs
-
-bind-launch = Launch
-
-bind-launch-selected = Launch selected
-
 bind-model = Model
 
 bind-new = New
-
-bind-new-persona = New persona
 
 bind-note = New note
 
@@ -78,8 +68,6 @@ bind-open = Open
 
 bind-event-reader = Open
 
-bind-personas = Personas
-
 bind-prev-pane = Prev pane
 bind-pane-digit = Pane
 
@@ -87,11 +75,7 @@ bind-quit = Quit
 
 bind-refresh = Refresh
 
-bind-rerun = Re-run
-
 bind-resume = Fork
-
-bind-runner = Runner
 
 bind-save = Save
 
@@ -137,10 +121,6 @@ cmd-delete-config = Delete config
 
 cmd-delete-config-help = Remove recipe (not sessions)
 
-cmd-delete-persona = Delete persona
-
-cmd-delete-persona-help = Remove selected
-
 cmd-delete-sessions = Delete sessions
 
 cmd-delete-sessions-help = Delete selected traces (confirm twice)
@@ -165,7 +145,7 @@ follow-up-queued = Follow-up queued (agent busy — will send when it awaits the
 
 follow-up-queued-final = Last-turn follow-up queued (no further awaits after it runs)
 
-follow-up-sent = Follow-up sent to eval container
+follow-up-sent = Follow-up sent
 
 follow-up-sent-final = Last-turn follow-up sent (session ends after this turn)
 
@@ -190,10 +170,6 @@ self-test-rerun = Re-run
 self-test-close = Close
 
 filter-label = Filter
-
-cmd-edit-persona = Edit persona
-
-cmd-edit-persona-help = Edit selected
 
 cmd-export-bundle = Export session
 
@@ -230,60 +206,12 @@ cmd-help = Help
 
 cmd-help-help = Show key / workflow help
 
-cmd-jobs-logs = Jobs / logs
-
-cmd-jobs-logs-help = Docker runs, TUI pool activity, serve log tail, and container logs (J)
-
 jobs-activity-tab = Activity
 jobs-activity-help = TUI refresh pool, plus a tail of the detached serve log when attached.
 jobs-activity-status = {$spin} refresh {$refresh}/{$refresh_workers}
 jobs-activity-control-path = Serve log: {$path}
 jobs-activity-no-control = No control owner log (offline TUI, or serve not detached).
 jobs-activity-control-header = — serve log —
-
-cmd-launch-config = Launch config
-
-cmd-launch-config-help = Launch with model override modal
-
-cmd-launch-evaluation = Launch evaluation
-
-cmd-launch-evaluation-help = Ctrl+Enter or Ctrl+J — start Docker run
-
-cmd-launch-selected = Launch selected
-
-cmd-launch-selected-help = Launch marked configs (or highlighted row) with parallelism
-
-cmd-new-blank-runner = New blank runner
-
-cmd-new-blank-runner-help = Open empty runner
-
-cmd-new-persona = New persona
-
-cmd-new-persona-help = Create persona
-
-cmd-new-persona-runner = New persona
-
-cmd-new-persona-runner-help = Create persona from runner (modal)
-
-cmd-open-config-runner = Open config in runner
-
-cmd-open-config-runner-help = Edit / launch from runner
-
-cmd-open-configs = Open configs
-
-cmd-open-configs-help = Browse saved run configs (recipes)
-
-cmd-open-personas = Open personas
-
-cmd-open-personas-help = Persona builder (env / gh-write / git identity)
-
-cmd-open-runner = Open runner
-
-cmd-open-runner-help = Launch eval runner
-
-cmd-persona-manager = Persona manager
-
-cmd-persona-manager-help = Full persona list/editor
 
 cmd-quit = Quit
 
@@ -292,10 +220,6 @@ cmd-quit-help = Quit the application
 cmd-refresh = Refresh
 
 cmd-refresh-help = Refresh the current screen / context (F5)
-
-cmd-rerun-session = Re-run session
-
-cmd-rerun-session-help = Open runner prefilled from session
 
 cmd-resume-session = Fork session
 
@@ -306,10 +230,6 @@ resume-session-no-artifacts = Session has no chat/events to resume
 resume-session-still-live = Session is still live — use follow-up (n) instead of resume
 
 runner-resume-session-hint = [bold]Resume (fork)[/] from [cyan]{$sid}[/] — write the next user message as the prompt. History is seeded; Grok gets a [bold]new session id[/] via --fork-session. Multi-turn stays on. Workspace starts fresh (clone/setup).
-
-cmd-save-config-only = Save config only
-
-cmd-save-config-only-help = Save recipe without launching
 
 cmd-save-session-config = Save session as config
 
@@ -334,10 +254,6 @@ cmd-toggle-rule-help = Enable/disable highlighted rule
 cmd-toggle-select = Toggle select
 
 cmd-toggle-select-help = Select/deselect current session row
-
-cmd-toggle-select-config = Toggle select
-
-cmd-toggle-select-config-help = Mark/unmark row for multi-config launch (s/space)
 
 col-activity = Activity
 
@@ -383,21 +299,15 @@ config-name-placeholder = e.g. redis-memory-leak / scratch-python-cli
 
 configs = Configs
 
-container-image-label = Container image
-
 max-turns-label = Max turns (per prompt)
 
 max-turns-placeholder = 50
 
 could-not-open-share = Could not open share: { $exc }
 
-default-docker-image-label = Default Docker image
-
 delete = Delete
 
 delete-failed = Delete failed
-
-deleted-persona = Deleted persona { $pid }
 
 description-field-label = Description
 
@@ -411,13 +321,9 @@ disabled-skills = Disabled skills
 
 display-name-label = Display name
 
-docker = Docker
-
 done = Done
 
 edit = Edit
-
-edit-persona-title = Edit persona · { $pid }
 
 em-dash-dim = [dim]—[/dim]
 
@@ -426,8 +332,6 @@ enable-all = Enable all
 enable-all-btn = Enable all
 
 enabled-skill-names = Enabled skill names
-
-env-vars-on-persona = Env vars to set on persona  [dim]key/value rows; empty value = you fill later in persona env[/dim]
 
 errors-only = Errors only
 
@@ -452,8 +356,6 @@ kv-editor-value-placeholder = value
 inline-skill-btn = Inline skill
 
 inline-skill-title = Inline skill (this run)
-
-inline-skill-hint = Run-only Grok skill pack (same shape as ~/.grok/skills/<id>/SKILL.md). Not saved on the persona.
 
 inline-skill-name-label = Skill id
 
@@ -547,12 +449,6 @@ help-brand-tagline = Inspect harness sessions
 
 chrome-folder = { $label }  { $path }
 
-launch = Launch
-
-launch-btn = launch
-
-launch-selected = Launch selected
-
 load = load
 
 load-sessions-first = Load sessions first
@@ -574,10 +470,6 @@ model-filter-notify = Model filter: { $label }
 models-heading = Models
 
 new-label = New
-
-new-persona = New persona
-
-new-persona-title = New persona
 
 no-session-to-save = No session to save
 
@@ -616,26 +508,6 @@ pe-tab-plugins-title = 6 Plugins
 pe-tab-skills = 5 Skills
 
 pe-tab-skills-title = 5 Skills
-
-persona-exists = Persona '{ $pid }' already exists — pick another ID
-
-persona-id-invalid = Persona ID is invalid
-
-persona-id-label = Persona ID
-
-persona-id-placeholder = e.g. marvin-reviewer
-
-persona-id-required = Persona ID is required
-
-persona-id-reserved = That ID is reserved
-
-persona-label = Persona
-
-persona-saved = Persona saved
-
-personas = Personas
-
-personas-refreshed = Personas refreshed
 
 pick-mcp = Pick MCP…
 
@@ -730,11 +602,7 @@ select-at-least-one-model = Select at least one model
 select-container-row = Select a container row first
 
 
-select-persona-first = Select a persona first
-
 select-session-first = Select a session first
-
-server-id-hint = Server id  [dim][mcp_servers.THIS] key on persona[/dim]
 
 server-id-required = Server id required
 
@@ -782,11 +650,7 @@ ui-loops = Loops
 
 theme = Theme
 
-this-launch-only-dim = [dim]this launch only[/dim]
-
 time-breakdown = Time breakdown
-
-tip-no-personas = No personas — press `n` to create one.
 
 toggle = Toggle
 
@@ -880,15 +744,11 @@ ui-container = Container
 
 ui-containers = Containers
 
-ui-could-not-reach-docker-is-the-daemon-installed-a = Could not reach Docker. Is the daemon installed and running?
-
 ui-could-not-render-details = [red]Could not render details:
 
 ui-create-companion-skill = Create companion skill
 
 ui-created = Created
-
-ui-debian-bookworm-fully-loaded = debian:bookworm @ fully-loaded
 
 ui-delete-config = delete config
 
@@ -924,14 +784,6 @@ diff-context-assistant = Assistant
 
 diff-empty-context = (empty)
  
-
-ui-docker-1 = Docker
-
-ui-docker-is-available-and-running = Docker is available and running
-
-ui-docker-is-not-available-install-docker-or-start = Docker is not available. Install Docker or start the daemon.
-
-ui-docker-is-not-running-start-the-docker-daemon-an = Docker is not running. Start the Docker daemon and try again.
 
 ui-docs-source-copy-url-open-on-host-browser =
     [bold]Docs / source[/bold]  [dim]copy URL · open on host browser[/dim]
@@ -976,25 +828,11 @@ ui-failed-to-add-row-for-s = Failed to add row for %s
 
 ui-failed-to-apply-saved-theme-r = Failed to apply saved theme %r
 
-ui-failed-to-ensure-persona-defaults = Failed to ensure persona defaults
-
-ui-failed-to-load-persona-capabilities-for-s = Failed to load persona capabilities for %s
-
-ui-failed-to-load-persona-s = Failed to load persona %s
-
 ui-failed-to-load-session-meta-for-s = Failed to load session meta for %s
 
 ui-failed-to-mount-report-section-s = failed to mount report section %s
 
-ui-failed-to-resolve-docker-base-for-s = Failed to resolve docker base for %s
-
-ui-failed-to-set-docker-image-prefill = Failed to set docker image prefill
-
-ui-failed-to-set-persona-prefill = Failed to set persona prefill
-
 ui-failed-to-update-widget-with-renderable = Failed to update widget with renderable
-
-ui-failed-to-validate-resolve-models-for-launch = Failed to validate/resolve models for launch
 
 ui-failed-to-write-prefs-to-s = failed to write prefs to %s
 
@@ -1019,19 +857,7 @@ ui-follow-up-failed-for-s = follow-up failed for %s
 
 ui-from-your-grok-config-toml-no-extra-def-unless-y = from your ~/.grok/config.toml (no extra def unless you configure)).[/dim]
 
-ui-fully-loaded-full-tools-share-loop = fully-loaded (full tools + share loop)
-
 ui-gh-write = GH Write
-
-runner-persona-status-gh-on = {$pid} · [yellow]gh on[/] · {$token} · {$caps}
-
-runner-persona-status-gh-off = {$pid} · gh off · {$caps}
-
-runner-persona-caps-counts = mcp={$mcp} · skills={$skills} · plugins={$plugins}
-
-runner-github-write-hint-on = [yellow]GitHub write ON[/] (persona) · token={$token}
-
-runner-caps-effective-heading = [bold]Effective launch config[/] [dim](persona + this run)[/]
 
 runner-caps-section-mcp = [bold]MCP[/] ({$n})
 
@@ -1047,13 +873,7 @@ runner-caps-item = [green]•[/] {$name}
 
 runner-caps-none = [dim]—[/]
 
-runner-caps-persona-heading = [bold]Persona base[/]
-
 runner-caps-run-heading = [bold]This run only[/]
-
-runner-caps-persona-hint = persona={$pid} · mcp={$mcp} · skills={$skills} · plugins={$plugins}
-
-runner-runtime-panel-heading = [bold]This launch[/] [dim](persona + extras, effective)[/]
 
 run-config-plugins = Plugins: {$list}
 
@@ -1072,8 +892,6 @@ runner-token-none = none
 ui-github-mcp-skills-footer-for-keys =
      · GitHub / MCP / skills · Footer + ? for keys[/dim]
     
-
-ui-github-pat-stored-on-this-persona = github_pat_… stored on this persona
 
 ui-github-write-is-on-but-repo-url-is-empty-set-htt = GitHub write is ON but repo URL is empty — set HTTPS repo_url matching your token scope
 
@@ -1105,8 +923,6 @@ ui-input = Input
 
 ui-output = Output
 
-ui-interactive-follow-ups-open-the-session-in-the-b = [dim]Interactive follow-ups: open the session in the browser (pending bar while the eval is not finished).[/dim]
-
 ui-interactive-multi-turn-follow-ups-until-done = Interactive multi-turn (follow-ups until Done)
 
 ui-yolo-auto-approve-tools = YOLO mode (grok --yolo; more aggressive auto-approve)
@@ -1122,22 +938,6 @@ ui-last = last:
 ui-last-outcome = Last outcome
 
 ui-last-turn = Last turn
-
-ui-launch = Launch:
-
-ui-launch-error-s-open-j-for-jobs-logs =  launch error(s). Open [bold]J[/bold] for jobs/logs.
-
-ui-launch-pick-models = launch (pick models)
-
-ui-launch-selected = Launch selected
-
-ui-launch-selected-2 = launch selected
-
-ui-launched = Launched
-
-ui-launches = Launches
-
-ui-launches-1 = launches:
 
 ui-leave-blank-to-keep-existing-token = (leave blank to keep existing token)
 
@@ -1183,13 +983,7 @@ ui-needs-env = [dim]needs env:[/dim]
 
 ui-new = New
 
-ui-new-in-runner = new in runner
-
 ui-no-active-models-check-config-models-vs-grok-mod = No active models (check config models vs `grok models`)
-
-ui-no-active-models-to-launch-edit-the-models-field = No active models to launch — edit the models field to match `grok models`
-
-ui-no-active-runs-fill-the-form-and-press-launch = No active runs — fill the form and press Launch
 
 ui-no-companion-skill = ` (no companion skill).
 
@@ -1237,8 +1031,6 @@ ui-noop = Noop
 
 ui-note-1 = Note
 
-ui-nothing-to-launch-no-models = Nothing to launch (no models)
-
 ui-copied-selection = Copied selection to clipboard
 
 ui-copied-detail = Copied detail to clipboard
@@ -1275,42 +1067,12 @@ ui-parallelism = parallelism:
 
 ui-path = Path
 
-ui-persona-1 =  · persona=
-
-ui-persona-2 = Persona
-
-ui-persona-token-stored = stored ({$n} chars)
-
-ui-persona-token-host-env = host env {$name}
-
-ui-persona-github-line = github_write={$write} token={$token} docker={$docker}
-
-ui-persona-git-line = git: {$name} <{$email}>
-
-ui-persona-env-line = env keys: {$keys}
-
-ui-persona-mcp-line = MCP servers ({$n}): {$ids} replace_host={$replace}
-
-ui-persona-skills-line = Skills ({$n}): {$ids}
-
-ui-persona-notes-line = notes: {$notes}
-
-
-ui-persona-builder = [bold]Persona builder[/bold]  [dim]
-
-ui-persona-has-github-write-on-but-no-token-set-pat = Persona has GitHub write ON but no token — set PAT (or token env) on the persona (new / manage…), or export GH_TOKEN/GITHUB_TOKEN on the host
-
-ui-persona-ready = Persona ready:
-
-ui-personastore-initialization-failed = PersonaStore initialization failed
 
 ui-plan = Plan
 
 ui-planning = Planning
 
 ui-plugin-s-1 =  plugin(s)
-
-ui-plugins-persona-unchanged =  plugins (persona unchanged)
 
 ui-press-again-to-delete = Press [x] again to DELETE
 
@@ -1328,8 +1090,6 @@ ui-registry-3 = [dim]registry:[/dim]
 ui-registry-type-a-query-enter = registry · type a query · enter
 
 ui-reload-meta-failed-for-s = reload meta failed for %s
-
-ui-replace-host-mcp-persona-only = Replace host MCP (persona only)
 
 ui-repo = Repo
 
@@ -1361,8 +1121,6 @@ ui-run-extras = Run extras:
 
 ui-run-s-active-1 = [/bold] run(s) active —
 
-ui-run-s-keep-going-in-docker-j-jobs-logs-quit-anyt =  run(s) keep going in docker — [bold]J[/bold] jobs/logs; quit anytime (relaunch prunes finished eval containers)
-
 ui-run-s-started = run(s) started,
 
 ui-running-checks = Running checks…
@@ -1371,15 +1129,7 @@ ui-save = Save
 
 ui-save-failed = Save failed:
 
-ui-save-persona-to-keep = save persona to keep
-
-ui-save-run-config-launch-to-keep-persona-unchanged = save run config / launch to keep (persona unchanged)
-
 ui-saved-config = Saved config
-
-ui-saved-run-configs-recipes-in-runs-run-configs-no =
-    [bold]Saved run configs[/bold]  [dim]recipes in runs/run_configs/ (not sessions). [bold]s[/bold]/space toggle select · [bold]S[/bold] select all · [bold]w[/bold] launch selected (multi) · [bold]l[/bold] launch one · [bold]x[/bold] twice to delete · [bold]Enter[/bold] edit in runner.[/dim]
-    
 
 ui-sel = Sel
 
@@ -1399,12 +1149,13 @@ ui-selection-none-s-toggle-row-s-all-none-w-launche = [dim]Selection: none — [
 
 ui-self-test = Self-test
 
-ui-self-test-external-dependencies = Self-test — external dependencies
+ui-self-test-external-dependencies = Self-test — Grok store, work dir, HUD seat
+
+ui-self-test-help = Check Grok store, work dir, and HUD seat
 
 ui-self-test-fail = self-test FAIL×
 
 ui-self-test-ok-warns = self-test OK ({ $n } warn)
-ui-blm-title = Launch selected ({ $n } config(s)): { $names }
 ui-selection-bar = Selection: { $n }  { $labels }{ $extra } — press w to launch selected
 ui-config-detail-title = { $name }  id={ $id }{ $sel }
 
@@ -1457,8 +1208,6 @@ ui-status = Status
 ui-stdio-needs-tools-in-image = [dim]stdio needs tools in image[/dim]
 
 ui-stop-live-refresh-on-quit-failed = stop live refresh on quit failed
-
-ui-stored-on-persona = stored on persona
 
 ui-background-filter = Background
 
@@ -1572,7 +1321,6 @@ ui-truncated-see-rewind-points-jsonl-updates =
     … (truncated; see rewind_points.jsonl / updates)
     
     
-
 ui-turn-ended = turn ended
 
 ui-turn-in-progress = turn in progress
@@ -1603,10 +1351,6 @@ ui-skill-loaded = loaded {$n}×
 
 ui-sources-line = sources: {$notes}
 
-ui-ubuntu-24-04-fully-loaded = ubuntu:24.04 @ fully-loaded
-
-ui-ubuntu-24-04-raw-os-still-share-loop-via-entrypo = ubuntu:24.04 (raw OS; still share loop via entrypoint)
-
 
 ui-updated-config = Updated config
 
@@ -1620,14 +1364,11 @@ ui-warnings =
 
 ui-what-the-model-should-have-done = *What the model should have done:*
 
-ui-will-be-git-fetched-into-the-container-volume-at = ` will be git-fetched into the container volume at launch
-
 ui-with = with
 
 ui-workers-cancel-on-quit-failed = workers cancel on quit failed
 
 ui-writing = Writing
-
 
 
 # interpolating fragments / templates
@@ -1669,7 +1410,6 @@ turn-filter-all = All turns
 turn-filter-n = Turn { $n }
 turn-filter-unnumbered = Unnumbered
 
-ui-press-again-to-delete-persona = Press [x] again to DELETE persona
 # --- Composed UI (prefer these over fragment glue; no edge whitespace) ---
 tool-detail-heading = #{ $index } tool { $name }
 tool-output-rule = Output ({ $n } chars)
@@ -1698,7 +1438,7 @@ truncate-for-display = …truncated for display…
 sessions-home-summary = { $total } sessions
 sessions-selected-count = { $n } selected
 
-# --- Session / jobs / personas notifies (composed) ---
+# --- Session / jobs notifies (composed) ---
 notify-saved-run-config = Saved run config { $id } ({ $name }) — open with C (configs); sessions unchanged
 notify-save-config-failed = Save config failed: { $exc }
 notify-failed-for = Failed for { $errors }/{ $total }
@@ -1721,16 +1461,9 @@ notify-queued-follow-up-sent = Queued follow-up sent: { $preview }
 notify-open-session-failed = Open session failed: { $exc }
 notify-no-session-yet = No session yet for { $container } — wait for traces to appear
 notify-share-open-failed = Could not open share for { $name }: { $exc }
-jobs-banner-runs = Docker eval runs: { $n } active{ $latest }
 jobs-control-attached = Control: attached · { $path }
 jobs-control-offline = Control: offline (this TUI only)
 jobs-work-dir = work dir: { $path }
-persona-registry-searching = Registry searching { $query }…
-persona-registry-error = Registry error: { $error }
-persona-registry-hits = Registry: { $n } for { $query }{ $extra }
-persona-local-count = Local { $n } · r=registry
-persona-saved = Saved persona { $pid }
-persona-configure-title = Configure { $name }
 browser-high-chip = { $n } high
 browser-medium-chip = { $n } medium
 
@@ -1752,7 +1485,7 @@ title-browser-extra-turn = · turn={ $outcome }
 title-browser-extra-live-turn = · LIVE turn={ $outcome }
 title-browser-extra-ending = · ending session
 title-browser-extra-awaiting = · awaiting follow-up
-notify-delete-session-arm = Press [x] again to DELETE 1 session(s) from disk (traces + feedback_cache; run configs are kept)
+notify-delete-session-arm = Press [x] again to DELETE 1 session(s) from disk
 notify-deleted-sessions = Deleted { $deleted }/{ $requested } session(s){ $err_suffix }
 notify-deleted-sessions-errors = , errors={ $n }
 count-events = { $n } events
@@ -1774,10 +1507,9 @@ export-task-saved = Task YAML saved: { $path }
 export-task-failed = Export task failed: { $exc }
 export-task-no-prompt = Prompt is required to export a task
 export-task-no-config = No recipe selected to export
-path-input-empty = Enter a file path
 
 ui-origin = Origin
-ui-origin-work = Eval
+ui-origin-work = Work
 ui-origin-host = Host
 
 ui-control-socket-attach-failed = Control owner not reachable

@@ -6,8 +6,6 @@ use std::path::{Path, PathBuf};
 const SKIP_DIRS: &[&str] = &[
     "anqa-plugins",
     "anqa-skills",
-    "groket-plugins",
-    "groket-skills",
     "subagents",
     ".git",
     "node_modules",
@@ -21,8 +19,6 @@ const SKIP_DIRS: &[&str] = &[
     ".tox",
     ".anqa-resume-seed",
     ".anqa-workspace-seed",
-    ".groket-resume-seed",
-    ".groket-workspace-seed",
     "workspace",
 ];
 

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from anqa.models import ToolInputBag
-from anqa.session.jobs import load_session_jobs
+from anqa.session.jobs import SessionJobs
 from anqa.session.workflows import (
     WorkflowRun,
     load_session_workflows,
@@ -126,7 +126,7 @@ def test_load_session_workflows_reads_complete_and_failed(tmp_path: Path) -> Non
     assert failed.children[0].agent_id == "01aaa-kick"
     assert failed.children[0].success is True
 
-    packed = load_session_jobs(sd, [])
+    packed = SessionJobs.load(sd, [])
     assert {w.name for w in packed.workflows} == {"sprint-9", "sprint-8"}
 
 

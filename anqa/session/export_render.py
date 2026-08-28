@@ -35,7 +35,6 @@ class SessionSummaryData:
     git_repo: str = ""
     git_branch: str = ""
     created_at: str = ""
-    persona_id: str = ""
     # Extra capability / MCP / skills block (already formatted, light markup OK).
     usage_block: str = ""
     fields: tuple[tuple[str, str], ...] = field(default_factory=tuple)
@@ -101,8 +100,6 @@ def _summary_kv_rows(data: SessionSummaryData) -> list[tuple[str, str]]:
         rows.append(("Task", data.task_id))
     if data.run_id:
         rows.append(("Run", data.run_id))
-    if data.persona_id:
-        rows.append(("Persona", data.persona_id))
     if data.git_repo:
         rows.append(("Repo", data.git_repo))
     if data.git_branch:
