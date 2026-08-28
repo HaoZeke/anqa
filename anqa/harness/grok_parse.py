@@ -6,6 +6,8 @@ not this module.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 import re
@@ -647,23 +649,49 @@ _MESSAGE_TYPE_MAP = {
 }
 
 
-def _extract_message_text(content) -> str:
-    """Normalize a message chunk content payload to plain text."""
-    if isinstance(content, dict) and content.get("type") == "text":
-        return content.get("text", "")
+def _decode_image_data(raw: object) -> bytes | None:
+    """Decode a pasted image ``data`` field (raw or data-URL base64)."""
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    if s[:5].lower() == "data:" and "," in s:
+        s = s.split(",", 1)[1]
+    try:
+        return base64.b64decode(s, validate=False)
+    except (ValueError, binascii.Error):
+        return None
+
+
+def _extract_message_parts(content: object) -> tuple[str, list[bytes]]:
+    """Split a message chunk into display text and pasted image bytes."""
+    images: list[bytes] = []
+    if isinstance(content, dict):
+        kind = str(content.get("type") or "")
+        if kind == "text":
+            return str(content.get("text") or ""), images
+        if kind == "image":
+            blob = _decode_image_data(content.get("data"))
+            if blob:
+                images.append(blob)
+            return "", images
+        return json.dumps(content), images
     if isinstance(content, list):
-        parts: list[str] = []
+        texts: list[str] = []
         for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-            elif isinstance(item, str):
-                parts.append(item)
-            else:
-                parts.append(json.dumps(item))
-        return "".join(parts)
+            text, extra = _extract_message_parts(item)
+            texts.append(text)
+            images.extend(extra)
+        return "".join(texts), images
     if isinstance(content, str):
-        return content
-    return json.dumps(content)
+        return content, images
+    return json.dumps(content), images
+
+
+def _extract_message_text(content: object) -> str:
+    """Normalize a message chunk content payload to plain text."""
+    return _extract_message_parts(content)[0]
 
 
 def _message_prompt_index(update: JsonObject) -> int | None:
@@ -1070,7 +1098,7 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
     result_by_call = state.result_by_call
 
     if etype in _MESSAGE_TYPE_MAP:
-        content = _extract_message_text(update.get("content", ""))
+        content, images = _extract_message_parts(update.get("content", ""))
         mapped = _MESSAGE_TYPE_MAP[etype]
         prompt_index = _message_prompt_index(update)
         # Agent thought/message streams are append-only deltas → one row.
@@ -1078,17 +1106,25 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
         # (partial then complete). Merge only when one is a prefix of the other
         # so the detail pane shows the finished prompt. Keep distinct when the
         # texts diverge (background-task chrome immediately before a real prompt).
+        # Image-only user chunks stay on the previous user row.
         if events and events[-1].event_type == mapped:
             prev = events[-1]
             if mapped != "user_message_chunk":
                 prev.content += content
+                prev.images.extend(images)
                 if ts is not None:
                     prev.timestamp = ts
                 prev.update_index = line_no
             else:
                 old = prev.content or ""
+                if images:
+                    prev.images.extend(images)
                 if not content:
-                    pass
+                    if ts is not None:
+                        prev.timestamp = ts
+                    prev.update_index = line_no
+                    if prompt_index is not None:
+                        prev.prompt_index = prompt_index
                 elif not old or content.startswith(old) or old.startswith(content):
                     if len(content) >= len(old):
                         prev.content = content
@@ -1106,6 +1142,7 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
                             content=content,
                             update_index=line_no,
                             prompt_index=prompt_index,
+                            images=images,
                         )
                     )
                     state.idx = idx + 1
@@ -1118,6 +1155,7 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
                     content=content,
                     update_index=line_no,
                     prompt_index=prompt_index,
+                    images=images,
                 )
             )
             state.idx = idx + 1

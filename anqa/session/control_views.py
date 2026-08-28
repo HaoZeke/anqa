@@ -6,6 +6,7 @@ Pure domain loaders → JSON-RPC payloads. No Textual. Used by
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections import Counter
@@ -187,6 +188,18 @@ def session_meta_mapping(
     }
 
 
+def _cached_pasted_image(blob: bytes) -> Path:
+    """Write pasted image bytes into the app cache; return the file path."""
+    from ..paths import cache_dir
+
+    digest = hashlib.sha256(blob).hexdigest()[:24]
+    dest = cache_dir() / "images" / f"{digest}.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.is_file():
+        dest.write_bytes(blob)
+    return dest
+
+
 def timeline_event_mapping(
     event: TraceEvent,
     *,
@@ -266,6 +279,8 @@ def timeline_event_mapping(
     img_path = image_result_path(content_raw, None) if tname in ("image_gen", "image_edit") else ""
     if not img_path and tname in ("image_gen", "image_edit"):
         img_path = image_result_path(body)
+    if not img_path and event.images:
+        img_path = str(_cached_pasted_image(event.images[0]))
     row: JsonObject = {
         "index": int(event.index),
         "type": event.event_type or "",

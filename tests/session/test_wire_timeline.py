@@ -71,6 +71,26 @@ def test_trace_event_from_wire_roundtrip_fields(tmp_path: Path) -> None:
     assert "hello" in (ev.content or "")
 
 
+def test_trace_event_from_wire_loads_user_image(tmp_path: Path) -> None:
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00"
+        b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    dest = tmp_path / "paste.png"
+    dest.write_bytes(png)
+    ev = trace_event_from_wire(
+        {
+            "type": "user_message_chunk",
+            "content": "was this broken? [Image #1]",
+            "imagePath": str(dest),
+            "index": 1,
+        }
+    )
+    assert ev.content == "was this broken? [Image #1]"
+    assert ev.images == [png]
+
+
 def test_session_meta_from_overview(tmp_path: Path) -> None:
     sd = _write_session(tmp_path, "w2")
     ov = build_session_overview(sd)

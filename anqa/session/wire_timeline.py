@@ -60,9 +60,16 @@ def trace_event_from_wire(row: JsonObject) -> TraceEvent:
     upd = row.get("updateIndex")
     update_index = int(upd) if isinstance(upd, (int, float)) and not isinstance(upd, bool) else 0
 
+    event_type = str(row.get("type") or "").strip()
+    images: list[bytes] = []
+    image_path = str(row.get("imagePath") or "").strip()
+    if event_type == "user_message_chunk" and image_path:
+        dest = Path(image_path)
+        if dest.is_file():
+            images = [dest.read_bytes()]
     return TraceEvent(
         index=index,
-        event_type=str(row.get("type") or "").strip(),
+        event_type=event_type,
         timestamp=timestamp,
         content=str(row.get("content") or ""),
         tool_name=str(row.get("toolName") or "").strip(),
@@ -71,6 +78,7 @@ def trace_event_from_wire(row: JsonObject) -> TraceEvent:
         is_error=bool(row.get("isError")),
         update_index=update_index,
         prompt_index=prompt_index,
+        images=images,
     )
 
 

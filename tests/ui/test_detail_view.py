@@ -172,3 +172,23 @@ async def test_detail_view_hides_image_for_non_image_tool() -> None:
         )
         img = dv.query_one("#detail-image")
         assert img.display is False
+
+
+@pytest.mark.asyncio
+async def test_detail_view_shows_pasted_user_image() -> None:
+    ev = make_trace_event(
+        index=0,
+        event_type="user_message_chunk",
+        content="was this broken? [Image #1]",
+    )
+    ev.images = [_PNG]
+    app = _DetailApp()
+    async with app.run_test():
+        dv = app.query_one("#detail", DetailView)
+        dv.show_event(ev)
+        img = dv.query_one("#detail-image")
+        assert img.display is True
+        plain = dv.visible_plain()
+        assert "was this broken?" in plain
+        assert "iVBOR" not in plain
+        assert "sixel" not in dv.get_plain_text().lower()

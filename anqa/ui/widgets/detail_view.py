@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 from rich.text import Text
@@ -39,6 +40,7 @@ _SECTION_SIDS = (
     "thought",
     "plan",
     "message",
+    "image",
     "subagent",
     "session",
     "body",
@@ -80,7 +82,7 @@ class DetailView(VerticalScroll):
                 with Vertical(id=f"detail-sec-{sid}", classes="panel-card"):
                     yield Static("", classes="panel-card-title", id=f"detail-title-{sid}")
                     yield SelectableStatic("", id=body_id, classes="detail-section-body")
-                    if sid == "output":
+                    if sid == "image":
                         yield Image(id="detail-image")
         yield ListDataTable(id="workflow-children-table")
 
@@ -142,7 +144,7 @@ class DetailView(VerticalScroll):
             sec = by_sid.get(sid)
             if sec is None:
                 card.display = False
-                if sid == "output":
+                if sid == "image":
                     self._sync_detail_image(None)
                 continue
             card.display = True
@@ -154,7 +156,7 @@ class DetailView(VerticalScroll):
                 title.display = False
             if not self._body_has_selection(body):
                 set_static_renderable(body, sec.body)
-            if sid == "output":
+            if sid == "image":
                 self._sync_detail_image(sec)
 
     def _sync_detail_image(self, sec: DetailSection | None) -> None:
@@ -162,6 +164,10 @@ class DetailView(VerticalScroll):
         try:
             widget = self.query_one("#detail-image", Image)
         except NoMatches:
+            return
+        if sec is not None and sec.image_bytes:
+            widget.image = BytesIO(sec.image_bytes)
+            widget.display = True
             return
         raw = (sec.image_path if sec is not None else "").strip()
         path = Path(raw) if raw else None

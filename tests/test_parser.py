@@ -2626,6 +2626,25 @@ def test_extract_message_text_list():
         ]
     )
     assert "hello world" in result
+    assert "x.png" not in result
+
+
+def test_extract_message_text_image_dict_is_not_json_dump() -> None:
+    """Pasted image payloads are not dumped as JSON into the message body."""
+    import base64
+
+    from anqa.harness.grok_parse import _extract_message_parts, _extract_message_text
+
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00"
+        b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    payload = {"type": "image", "data": base64.b64encode(png).decode("ascii")}
+    assert _extract_message_text(payload) == ""
+    text, images = _extract_message_parts(payload)
+    assert text == ""
+    assert images == [png]
 
 
 def test_extract_message_text_dict():
@@ -3315,6 +3334,62 @@ def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
     assert msgs2[0].content == "hello world"
     # Incremental path mutates the scan-state event in place.
     assert id(msgs2[0]) == first_id
+
+
+def test_parse_timeline_user_image_chunk_joins_previous_prompt(tmp_path: Path) -> None:
+    """A pasted image chunk stays on the user prompt; no base64 body."""
+    import base64
+    import json
+
+    from anqa.harness.grok_parse import parse_timeline
+
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00"
+        b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    sd = tmp_path / "s"
+    sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
+    lines = [
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {
+                            "type": "text",
+                            "text": "was this broken? [Image #1]",
+                        },
+                        "_meta": {"promptIndex": 2},
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "timestamp": 2,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {
+                            "type": "image",
+                            "data": base64.b64encode(png).decode("ascii"),
+                        },
+                        "_meta": {"promptIndex": 2},
+                    }
+                },
+            }
+        ),
+    ]
+    (sd / "updates.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    users = [e for e in parse_timeline(sd) if e.event_type == "user_message_chunk"]
+    assert len(users) == 1
+    assert users[0].content == "was this broken? [Image #1]"
+    assert users[0].images == [png]
+    assert "iVBOR" not in users[0].content
+    assert "iVBOR" not in users[0].summary_line
 
 
 def test_parse_timeline_stamp_hit_does_not_reread(

@@ -325,6 +325,7 @@ class TraceEvent:
     is_error: bool = False
     update_index: int = 0
     prompt_index: int | None = None
+    images: list[bytes] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not isinstance(self.raw_input, ToolInputBag):
@@ -417,7 +418,12 @@ class TraceEvent:
         else:
             text = self.content if isinstance(self.content, str) else json.dumps(self.content)
             text = strip_control_chars(text[:200])
-            return text[:80].replace("\n", " ")
+            one = text[:80].replace("\n", " ")
+            if one:
+                return one
+            if self.images:
+                return "image"
+            return ""
 
 
 @dataclass

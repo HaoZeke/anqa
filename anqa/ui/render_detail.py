@@ -66,6 +66,7 @@ class DetailSection:
     title: str
     body: RenderableType
     image_path: str = ""
+    image_bytes: bytes = b""
 
 
 def _stack(parts: list) -> RenderableType:
@@ -1246,6 +1247,9 @@ def _tool_event_sections(
     sections.append(DetailSection("input", t("ui-input"), _stack(inp)))
     if (out or "").strip() or tname in ("image_gen", "image_edit"):
         sections.append(_tool_output_card(out, tname, _path_hint(ri), truncate=truncate))
+        img_path = image_result_path(out) if tname in ("image_gen", "image_edit") else ""
+        if img_path:
+            sections.append(DetailSection("image", t("ui-image"), Text(""), image_path=img_path))
     return sections
 
 
@@ -1412,10 +1416,16 @@ def event_detail_sections(
     if ev.event_type in et.THOUGHT_TYPES and body.strip():
         sections.append(DetailSection("thought", t("ui-thought"), _message_body(body, ev)))
         return sections
-    if ev.event_type in et.MESSAGE_TYPES and body.strip():
+    if ev.event_type in et.MESSAGE_TYPES:
         title = ev.type_label or ev.event_type.replace("_", " ")
-        sections.append(DetailSection("message", title, _message_body(body, ev)))
-        return sections
+        if body.strip():
+            sections.append(DetailSection("message", title, _message_body(body, ev)))
+        if ev.images:
+            sections.append(
+                DetailSection("image", t("ui-image"), Text(""), image_bytes=ev.images[0])
+            )
+        if body.strip() or ev.images:
+            return sections
     if ev.event_type == "plan":
         sections.append(DetailSection("plan", t("ui-plan"), _message_body(body, ev)))
         return sections
