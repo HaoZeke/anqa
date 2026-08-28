@@ -34,6 +34,7 @@ def _screen(sd: Path) -> BrowserScreen:
 def test_live_refresh_skips_second_enqueue(tmp_path: Path) -> None:
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen._session_is_pending = lambda: False  # type: ignore[method-assign]
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
@@ -56,6 +57,7 @@ def test_live_refresh_skips_second_enqueue(tmp_path: Path) -> None:
 def test_live_refresh_enqueues_when_lock_free(tmp_path: Path) -> None:
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen._session_is_pending = lambda: False  # type: ignore[method-assign]
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
@@ -75,6 +77,7 @@ def test_live_refresh_enqueues_when_lock_free(tmp_path: Path) -> None:
 def test_worker_done_runs_coalesced_follow_up(tmp_path: Path) -> None:
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     assert try_begin(KIND_REFRESH, sd) is True
     screen._live_refresh_busy = True
@@ -94,6 +97,7 @@ def test_worker_done_runs_coalesced_follow_up(tmp_path: Path) -> None:
 def test_live_refresh_heartbeat_coalesces_flag(tmp_path: Path) -> None:
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen._session_is_pending = lambda: False  # type: ignore[method-assign]
     screen._session_needs_live_timeline = lambda: True  # type: ignore[method-assign]
@@ -119,6 +123,7 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen.timeline = [_held_event()]  # non-empty so unchanged path skips parse
     screen._last_trace_mtime = (1.0, 0, 0, 0)
@@ -148,8 +153,7 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
         ),
     )
     monkeypatch.setattr(
-        browser_mod,
-        "parse_timeline",
+        "anqa.harness.grok.parse_timeline",
         lambda _p: calls.append("parse") or [],
     )
 
@@ -184,6 +188,7 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen.timeline = [_held_event()]
     screen._last_trace_mtime = (1.0, 0, 0, 0)
@@ -203,7 +208,10 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
         "load_session_meta",
         lambda *_a, **_k: calls.append("meta") or screen.meta,
     )
-    monkeypatch.setattr(browser_mod, "parse_timeline", lambda _p: calls.append("parse") or [])
+    monkeypatch.setattr(
+        "anqa.harness.grok.GrokAdapter.parse_timeline",
+        lambda self, _p: calls.append("parse") or [],
+    )
     monkeypatch.setattr(
         browser_mod,
         "call_ui",
@@ -231,6 +239,7 @@ def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypat
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen.timeline = [
         TraceEvent(index=0, timestamp=1.0, event_type="user_message_chunk", content="hi")
@@ -244,8 +253,7 @@ def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypat
     calls: list[str] = []
     monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (2.0, 99, 0, 0))
     monkeypatch.setattr(
-        browser_mod,
-        "parse_timeline",
+        "anqa.harness.grok.parse_timeline",
         lambda _p: calls.append("parse") or [*screen.timeline, new_ev],
     )
     monkeypatch.setattr(
@@ -284,6 +292,7 @@ def test_load_data_light_control_skips_overview_when_stamp_unchanged(
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     (sd / "updates.jsonl").write_text("", encoding="utf-8")
     screen = _screen(sd)
     screen._uses_control_data = lambda: True  # type: ignore[method-assign]
@@ -330,6 +339,7 @@ def test_load_data_light_control_keeps_decision_stamp_when_disk_grows(
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     (sd / "updates.jsonl").write_text("", encoding="utf-8")
     screen = _screen(sd)
     screen._uses_control_data = lambda: True  # type: ignore[method-assign]
@@ -380,6 +390,7 @@ def test_load_data_light_control_timeout_is_soft(tmp_path: Path, monkeypatch) ->
 
     sd = tmp_path / "019f-sess"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     screen = _screen(sd)
     screen._uses_control_data = lambda: True  # type: ignore[method-assign]
     screen._session_control_ref = lambda: "s"  # type: ignore[method-assign]

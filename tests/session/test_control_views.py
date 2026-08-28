@@ -672,14 +672,16 @@ def test_overview_stamp_monitor_done_not_signals_or_shell_log(tmp_path: Path) ->
     cv.SessionOverview._cache.clear()
     cv.SessionOverview._inflight.clear()
     parses = 0
-    real = cv.parse_timeline
+    import anqa.harness.grok as grok_mod
+
+    real = grok_mod.parse_timeline
 
     def counting_parse(session_dir, **kwargs):  # type: ignore[no-untyped-def]
         nonlocal parses
         parses += 1
         return real(session_dir, **kwargs)
 
-    with patch.object(cv, "parse_timeline", side_effect=counting_parse):
+    with patch.object(grok_mod, "parse_timeline", side_effect=counting_parse):
         first = build_session_overview(sd)
         assert first["backgroundJobs"][0]["status"] == "running"
         assert parses == 1

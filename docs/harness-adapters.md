@@ -3,7 +3,8 @@
 Anqa inspects coding-agent sessions from native product stores. Each
 store is one adapter under `anqa/harness/`. The catalog, timeline,
 notes, desktop HUD, and control clients use the same `SessionRef`
-(harness + session id + locator). The catalog row carries `harness`
+(harness + session id + locator). `adapter_for(path)` returns the
+adapter that owns a session. The catalog row carries `harness`
 and, when the store records it, `harnessVersion`.
 
 ## What “supported” means

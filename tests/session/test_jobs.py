@@ -392,9 +392,11 @@ def test_jobs_from_overview_does_not_parse_timeline(tmp_path: Path) -> None:
         ],
     )
     ov = build_session_overview(sd)
-    with patch("anqa.harness.grok_parse.parse_timeline", side_effect=AssertionError("disk parse")):
-        with patch("anqa.session.jobs.parse_timeline", side_effect=AssertionError("disk parse")):
-            packed = session_jobs_for_view(ov, sd, None)
+    with patch(
+        "anqa.harness.grok.GrokAdapter.parse_timeline",
+        side_effect=AssertionError("disk parse"),
+    ):
+        packed = session_jobs_for_view(ov, sd, None)
     assert [j.kind for j in packed.jobs] == ["monitor"]
     assert packed.jobs[0].status == "done"
     assert packed.schedules[0].task_id == "sched-ov"

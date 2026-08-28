@@ -316,13 +316,17 @@ def _turn_context(
 ) -> dict[int, tuple[str, str]]:
     """prompt_index → (operator prompt, last assistant body) from the timeline."""
     from .. import event_types as et
-    from ..harness.grok_parse import parse_timeline
+    from ..harness.registry import require_adapter
     from .tagged_blocks import operator_prompt_text, unwrap_for_display
     from .turns import is_operator_user_event, segment_timeline_turns
 
     out: dict[int, tuple[str, str]] = {}
     try:
-        events = timeline if timeline is not None else parse_timeline(session_dir)
+        events = (
+            timeline
+            if timeline is not None
+            else require_adapter(session_dir).parse_timeline(session_dir)
+        )
         segs = segment_timeline_turns(events)
     except (OSError, ValueError, TypeError):
         return out

@@ -226,10 +226,7 @@ def test_fat_overview_parses_only_opened_session(
         parsed.append(Path(session_dir).name)
         return real(session_dir)
 
-    import anqa.session.control_views as views
-
-    monkeypatch.setattr(parser_mod, "parse_timeline", tracked)
-    monkeypatch.setattr(views, "parse_timeline", tracked)
+    monkeypatch.setattr("anqa.harness.grok.parse_timeline", tracked)
     ov = build_session_overview(keep)
     assert ov["turns"]["total"] >= 50
     tl = build_session_timeline(keep, offset=0, limit=40)
@@ -266,7 +263,7 @@ async def test_browser_bundle_reads_only_one_session(tmp_path: Path, monkeypatch
         read_dirs.append(Path(session_dir).name)
         return real_parse(session_dir)
 
-    monkeypatch.setattr(parser_mod, "parse_timeline", tracked)
+    monkeypatch.setattr("anqa.harness.grok.parse_timeline", tracked)
 
     class _Access:
         async def session_overview(self, session: str) -> dict:

@@ -24,7 +24,7 @@ from ..session.turns import (
     segment_timeline_turns,
 )
 from .ref import SessionRef
-from .registry import adapter
+from .registry import adapter, adapter_for
 
 
 def _notes_dir(ref: SessionRef):
@@ -124,7 +124,7 @@ def catalog_row_from_ref(ref: SessionRef) -> JsonObject | None:
 
 
 def _load(ref: SessionRef) -> tuple[SessionMeta, list[TraceEvent]]:
-    impl = adapter(ref.harness)
+    impl = adapter_for(ref)
     if impl is None:
         raise FileNotFoundError(f"unknown harness: {ref.harness}")
     return impl.load_meta(ref), impl.parse_timeline(ref)

@@ -308,7 +308,7 @@ async def test_browser_loads_timeline_via_control_when_attached(
         async with app.run_test(size=(120, 40)) as pilot:
             await _wait_until(pilot, app.is_control_client, description="attach")
             with patch(
-                "anqa.ui.screens.browser.parse_timeline",
+                "anqa.harness.grok.parse_timeline",
                 side_effect=AssertionError("disk parse forbidden when attached"),
             ):
                 app.open_session_path(session_dir)

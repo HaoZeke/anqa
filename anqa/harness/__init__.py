@@ -15,7 +15,7 @@ from .grok import (
     watch_hints,
 )
 from .ref import HARNESS_IDS, SessionRef, parse_session_ref_string
-from .registry import adapter, adapters, resolve_session_ref
+from .registry import adapter, adapter_for, adapters, require_adapter, resolve_session_ref
 
 __all__ = [
     "GROK_HARNESS_ID",
@@ -23,12 +23,14 @@ __all__ = [
     "GrokAdapter",
     "SessionRef",
     "adapter",
+    "adapter_for",
     "adapters",
     "discover",
     "load_meta",
     "looks_like",
     "parse_session_ref_string",
     "parse_timeline",
+    "require_adapter",
     "resolve_session_ref",
     "watch_hints",
 ]

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..harness.grok_parse import parse_timeline
+from ..harness.registry import require_adapter
 from ..models import JsonObject, as_json_object
 from ..notes import collect_notes_for_export
 from ..paths import reports_dir
@@ -90,16 +90,11 @@ def build_session_archive(session_dir: Path, out_tar: Path) -> list[str]:
 
     :raises RuntimeError: No adapter, empty archive, or write failed.
     """
-    from ..harness.registry import adapter, ref_from_path
+    from ..harness.registry import require_adapter
 
     session_dir = Path(session_dir).expanduser()
-    ref = ref_from_path(session_dir)
-    if ref is None:
-        raise RuntimeError(f"no adapter for session: {session_dir}")
-    item = adapter(ref.harness)
-    if item is None:
-        raise RuntimeError(f"unknown harness: {ref.harness}")
-    members = item.write_archive(ref, out_tar)
+    item = require_adapter(session_dir)
+    members = item.write_archive(session_dir, out_tar)
     if not Path(out_tar).is_file() or Path(out_tar).stat().st_size <= 0:
         raise RuntimeError(f"adapter wrote empty archive: {out_tar}")
     return members
@@ -188,13 +183,13 @@ def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
 
 def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
     """Load meta / timeline / usage into :class:`SessionSummaryData`."""
-    from ..harness.grok_parse import load_session_meta, parse_timeline
+    from ..harness.grok_parse import load_session_meta
     from ..utils import fmt_duration
     from .turns import segment_timeline_turns
     from .usage_stats import collect_session_usage, format_usage_markdown
 
     meta = load_session_meta(session_dir)
-    timeline = parse_timeline(session_dir)
+    timeline = require_adapter(session_dir).parse_timeline(session_dir)
     tool_calls = [e for e in timeline if e.event_type == "tool_call"]
     tool_errs = sum(1 for e in tool_calls if e.is_error)
     turn_count = 0
@@ -282,7 +277,7 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
 
 def _collect_child_traces(session_dir: Path, staging: Path) -> list[JsonObject]:
     """Write ``children/<id>/session.tar.gz`` for each openable child."""
-    timeline = parse_timeline(session_dir)
+    timeline = require_adapter(session_dir).parse_timeline(session_dir)
     segs = segment_timeline_turns(timeline)
     runs = subagent_runs_for_session(session_dir, timeline, segs, event_display_turn_map(segs))
     written: list[JsonObject] = []

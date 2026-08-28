@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE
-from ..harness.grok_parse import parse_timeline
+from ..harness.registry import require_adapter
 from ..models import (
     JsonObject,
     JsonValue,
@@ -343,7 +343,7 @@ class SessionJobs:
     def load(cls, session_dir: Path, events: list[TraceEvent] | None = None) -> SessionJobs:
         """Merge timeline bookends, resources_state, manifest, and terminal logs."""
         sd = Path(session_dir)
-        evs = events if events is not None else parse_timeline(sd)
+        evs = events if events is not None else require_adapter(sd).parse_timeline(sd)
         raw = cls.read_json(sd / "resources_state.json")
         mapping = as_json_object(raw) if isinstance(raw, dict) else {}
         inner = mapping.get("state")

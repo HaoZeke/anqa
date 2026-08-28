@@ -137,8 +137,40 @@ def ref_from_path(path: Path) -> SessionRef | None:
     return None
 
 
+def adapter_for(ref: SessionRef | Path | str) -> HarnessAdapter | None:
+    """Return the adapter that owns *ref*, or None.
+
+    *ref* is a :class:`SessionRef`, a session directory, or ``harness:id``.
+    """
+    if isinstance(ref, SessionRef):
+        return adapter(ref.harness)
+    if isinstance(ref, str):
+        parsed = parse_session_ref_string(ref)
+        if parsed is not None:
+            return adapter(parsed[0])
+        path = Path(ref)
+    else:
+        path = ref
+    bound = ref_from_path(path)
+    if bound is None:
+        return None
+    return adapter(bound.harness)
+
+
+def require_adapter(ref: SessionRef | Path | str) -> HarnessAdapter:
+    """Return the adapter that owns *ref*.
+
+    :raises FileNotFoundError: No registered adapter claims *ref*.
+    """
+    item = adapter_for(ref)
+    if item is None:
+        raise FileNotFoundError(f"no adapter for session: {ref}")
+    return item
+
+
 __all__ = [
     "adapter",
+    "adapter_for",
     "adapter_host_roots",
     "adapter_store_watch_paths",
     "adapters",
@@ -146,5 +178,6 @@ __all__ = [
     "enabled_host_ids",
     "host_adapters",
     "ref_from_path",
+    "require_adapter",
     "resolve_session_ref",
 ]

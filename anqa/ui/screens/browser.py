@@ -43,7 +43,8 @@ from textual.widgets import (
 from ... import event_types as et
 from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
 from ...control.server import ControlError
-from ...harness.grok_parse import load_session_meta, parse_timeline
+from ...harness.grok_parse import load_session_meta
+from ...harness.registry import require_adapter
 from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ...notes import (
     NoteEntry,
@@ -1229,7 +1230,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         self._overview_payload = None
         self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
-        self.timeline = parse_timeline(self.session_dir)
+        self.timeline = require_adapter(self.session_dir).parse_timeline(self.session_dir)
         if self.meta is not None:
             self.meta.num_events = len(self.timeline or [])
         try:
@@ -1367,7 +1368,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             )
             timeline_updated = False
             if not timeline_unchanged:
-                self.timeline = parse_timeline(self.session_dir)
+                self.timeline = require_adapter(self.session_dir).parse_timeline(self.session_dir)
                 self._last_trace_mtime = stamp
                 self._last_timeline_parse_at = time.monotonic()
                 self._rebuild_indices()

@@ -19,9 +19,9 @@ from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
 from ..harness.grok_parse import (
     TimelineStamp,
     load_session_meta,
-    parse_timeline,
     session_timeline_stamp,
 )
+from ..harness.registry import require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..notes import load_schema, notes_snapshot
 from ..session.sources import (
@@ -442,7 +442,7 @@ class SessionOverview:
         origin = cls.origin(sd)
         meta = load_session_meta(sd, include_timeline_count=False)
         meta.origin = origin
-        events = parse_timeline(sd)
+        events = require_adapter(sd).parse_timeline(sd)
         meta.num_events = len(events)
         segs, turn_map = cls.turn_view(sd, events)
         runs = subagent_runs_for_session(sd, events, segs, turn_map)
@@ -622,7 +622,7 @@ def build_session_timeline(
 ) -> JsonObject:
     """Paged timeline for ``session/timeline``."""
     sd = Path(session_dir)
-    events = parse_timeline(sd)
+    events = require_adapter(sd).parse_timeline(sd)
     # Enclosing turn_started.turn_number on each event (HUD/TUI column).
     _segs, turn_by_index = SessionOverview.turn_view(sd, events)
     prompt_indexes: set[int] | None = None
@@ -726,7 +726,7 @@ def build_session_timeline(
 def build_session_turns(session_dir: Path, *, query: str = "") -> JsonObject:
     """Turn segments for ``session/turns``."""
     sd = Path(session_dir)
-    events = parse_timeline(sd)
+    events = require_adapter(sd).parse_timeline(sd)
     segs, turn_map = SessionOverview.turn_view(sd, events)
     runs = subagent_runs_for_session(sd, events, segs, turn_map)
     needle = (query or "").strip()
@@ -802,7 +802,7 @@ def build_session_diff(session_dir: Path) -> JsonObject:
 def warm_timeline_search(session_dir: Path) -> None:
     """Index *session_dir* so later ``session/timeline`` queries only read."""
     sd = Path(session_dir)
-    events = parse_timeline(sd)
+    events = require_adapter(sd).parse_timeline(sd)
     _segs, turns = SessionOverview.turn_view(sd, events)
     ensure_indexed(
         events,

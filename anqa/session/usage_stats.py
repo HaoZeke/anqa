@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import event_types as et
-from ..harness.grok_parse import parse_timeline
+from ..harness.registry import require_adapter
 from ..models import (
     JsonObject,
     ToolInput,
@@ -474,7 +474,7 @@ def collect_session_usage(
     events = timeline
     if events is None:
         try:
-            events = parse_timeline(sd)
+            events = require_adapter(sd).parse_timeline(sd)
         except Exception:
             events = []
 
