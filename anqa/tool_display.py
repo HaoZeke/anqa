@@ -17,6 +17,14 @@ from .models import JsonObject, JsonValue, as_json_object, json_as_str
 _STILL_SUFFIX = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 _STILL_TOOLS = frozenset({"image_gen", "image_edit"})
 _IMAGE_MARK = re.compile(r"\s*\[Image #\d+\]")
+_MD_STILL_LINK = re.compile(
+    r"\[(?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp)\]\((?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp)\)",
+    re.IGNORECASE,
+)
+_BARE_STILL_LINE = re.compile(
+    r"(?m)^\s*(?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp)\s*$",
+    re.IGNORECASE,
+)
 _STILL_REF = re.compile(
     r"(?<![\w./])((?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp))",
     re.IGNORECASE,
@@ -371,9 +379,13 @@ def image_result_path(content: str, raw_output: object | None = None) -> str:
 
 
 def display_message_text(text: str) -> str:
-    """Operator-facing message text without Grok ``[Image #N]`` tokens."""
+    """Operator-facing message text without paste tokens or still-file links."""
     cleaned = _IMAGE_MARK.sub("", text or "")
-    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    cleaned = _MD_STILL_LINK.sub("", cleaned)
+    cleaned = _BARE_STILL_LINE.sub("", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def cache_still_bytes(blob: bytes) -> Path:

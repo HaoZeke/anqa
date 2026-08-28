@@ -313,6 +313,24 @@ def test_display_message_text_drops_image_placeholder() -> None:
     assert display_message_text("plain") == "plain"
 
 
+def test_display_message_text_drops_session_still_links() -> None:
+    from anqa.tool_display import display_message_text
+
+    body = (
+        "Two takes from the splash:\n\n"
+        "**Holographic HUD** — smoked glass.\n\n"
+        "[images/2.jpg](images/2.jpg)\n\n"
+        "**Phosphor CRT** — analog glow.\n\n"
+        "[images/1.jpg](images/1.jpg)\n\n"
+        "Want another direction?"
+    )
+    shown = display_message_text(body)
+    assert "images/1.jpg" not in shown
+    assert "images/2.jpg" not in shown
+    assert "Holographic HUD" in shown
+    assert "Want another direction?" in shown
+
+
 def test_event_still_paths_collects_paste_session_and_tool(tmp_path: Path) -> None:
     from anqa.tool_display import event_still_paths
 
