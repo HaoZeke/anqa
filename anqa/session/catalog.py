@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..harness.grok_parse import load_host_list_meta, load_session_meta_list, session_trace_mtime
+from ..harness.registry import require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
 from .mtime_export import default_catalog_snapshot, load_or_rebuild_catalog
 from .query import apply_catalog_presence_row, catalog_presence
@@ -69,10 +69,10 @@ def catalog_row_sort_epoch(row: JsonObject, *, session_dir: Path | None = None) 
             path = Path(path_raw)
     if path is not None:
         try:
-            mt = session_trace_mtime(path)
+            mt = require_adapter(path).trace_mtime(path)
             if mt > 0:
                 return float(mt)
-        except OSError:
+        except (OSError, FileNotFoundError):
             pass
         try:
             return float(path.stat().st_mtime)
@@ -126,11 +126,8 @@ def session_catalog_row(
     :returns: Wire row mapping, or None when meta cannot be loaded.
     """
     try:
-        if origin == ORIGIN_HOST:
-            meta = load_host_list_meta(session_dir)
-        else:
-            meta = load_session_meta_list(session_dir, origin=ORIGIN_HOST)
-    except OSError:
+        meta = require_adapter(session_dir).load_meta(session_dir)
+    except (OSError, FileNotFoundError):
         logger.debug("catalog meta failed for %s", session_dir, exc_info=True)
         return None
     meta.origin = ORIGIN_HOST
@@ -145,7 +142,7 @@ def session_catalog_row(
     sort_epoch = _parse_iso_epoch(updated) or _parse_iso_epoch(created)
     if sort_epoch <= 0:
         try:
-            sort_epoch = float(session_trace_mtime(session_dir))
+            sort_epoch = float(require_adapter(session_dir).trace_mtime(session_dir))
         except OSError:
             sort_epoch = 0.0
     if sort_epoch <= 0:

@@ -57,7 +57,7 @@ class DiffPoint:
 
 @dataclass(frozen=True)
 class WorkspaceDiff:
-    """Rewind snapshots when Grok wrote them; otherwise ``search_replace`` edits."""
+    """Rewind snapshots when the store wrote them; otherwise ``search_replace`` edits."""
 
     points: tuple[DiffPoint, ...]
 
@@ -381,7 +381,7 @@ def load_workspace_diff_doc(
 
     :param session_dir: Session directory with ``rewind_points.jsonl`` / ``updates.jsonl``.
     :param timeline: Already-parsed events. When omitted, the session is parsed again.
-    :returns: Structured diff. Empty ``points`` when Grok wrote neither source.
+    :returns: Structured diff. Empty ``points`` when the store wrote neither source.
     """
     rewind = _rewind_points(session_dir)
     if rewind:

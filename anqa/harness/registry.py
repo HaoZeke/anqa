@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from ..models import JsonObject
 from .ref import SessionRef, parse_session_ref_string
 from .types import HarnessAdapter
 
@@ -137,6 +138,24 @@ def ref_from_path(path: Path) -> SessionRef | None:
     return None
 
 
+def discover_dirs(root: Path | str) -> list[Path]:
+    """Session directories each adapter finds under *root*."""
+    found: list[Path] = []
+    seen: set[str] = set()
+    for item in adapters():
+        for ref in item.discover([root]):
+            loc = Path(ref.locator)
+            try:
+                key = str(loc.resolve())
+            except OSError:
+                key = str(loc)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(loc)
+    return found
+
+
 def adapter_for(ref: SessionRef | Path | str) -> HarnessAdapter | None:
     """Return the adapter that owns *ref*, or None.
 
@@ -157,6 +176,23 @@ def adapter_for(ref: SessionRef | Path | str) -> HarnessAdapter | None:
     return adapter(bound.harness)
 
 
+def scheduler_state(state: JsonObject) -> JsonObject | None:
+    """First adapter scheduler block found in *state*."""
+    for item in adapters():
+        block = item.scheduler_state(state)
+        if block is not None:
+            return block
+    return None
+
+
+def reported_completion_ids(state: JsonObject) -> set[str]:
+    """Union of reported completion ids from every adapter."""
+    found: set[str] = set()
+    for item in adapters():
+        found |= item.reported_completion_ids(state)
+    return found
+
+
 def require_adapter(ref: SessionRef | Path | str) -> HarnessAdapter:
     """Return the adapter that owns *ref*.
 
@@ -172,12 +208,15 @@ __all__ = [
     "adapter",
     "adapter_for",
     "adapter_host_roots",
+    "discover_dirs",
     "adapter_store_watch_paths",
     "adapters",
     "enabled_host_adapters",
     "enabled_host_ids",
     "host_adapters",
     "ref_from_path",
+    "reported_completion_ids",
     "require_adapter",
     "resolve_session_ref",
+    "scheduler_state",
 ]

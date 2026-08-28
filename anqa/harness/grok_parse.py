@@ -2330,7 +2330,9 @@ def _is_host_session_dir(session_dir: Path, *, origin: str = "") -> bool:
     if (origin or "").strip().lower() == "host":
         return True
     try:
-        host = (Path.home() / ".grok" / "sessions").resolve()
+        from .grok_paths import default_sessions_root
+
+        host = default_sessions_root().resolve()
         resolved = session_dir.resolve()
     except OSError:
         return False

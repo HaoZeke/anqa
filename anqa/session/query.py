@@ -52,6 +52,7 @@ from ..control.contract import (
     list_query_field_names,
     list_query_values,
 )
+from ..harness.registry import scheduler_state
 from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_as_str
 
 # Language comes from the published control contract. Row attributes for
@@ -946,7 +947,7 @@ def catalog_schedule_count(session_dir: Path) -> int:
         return 0
     inner = raw.get("state")
     state = inner if isinstance(inner, dict) else {}
-    scheduler = state.get("grok_build.Scheduler")
+    scheduler = scheduler_state(state)
     if not isinstance(scheduler, dict):
         return 0
     tasks = scheduler.get("tasks")

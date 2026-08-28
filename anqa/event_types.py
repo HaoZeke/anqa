@@ -1,11 +1,11 @@
-"""Grok-aligned timeline event types (1:1 with harness signals).
+"""Timeline event types (1:1 with harness signals).
 
-``TraceEvent.event_type`` uses Grok names from:
+``TraceEvent.event_type`` uses stored names from:
 
 * ``updates.jsonl`` → ``params.update.sessionUpdate``
 * ``events.jsonl`` → top-level ``type`` (turn markers / errors)
 
-The only non-Grok value is ``system`` (injected ``system_prompt.txt`` chrome).
+``system`` is injected ``system_prompt.txt`` chrome.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ ERROR = "error"
 TURN_ERROR = "turn_error"
 FATAL_ERROR = "fatal_error"
 
-# ── Anqa-only (not emitted by Grok) ─────────────────────────────────────
+# ── Anqa-only ───────────────────────────────────────────────────────────
 SYSTEM = "system"
 
 # Sets for filters / stats / segmentation
@@ -119,7 +119,7 @@ SESSION_UPDATE_TIMELINE_TYPES = frozenset(
 
 
 def type_label(event_type: str) -> str:
-    """Display label: Grok identifier with underscores → spaces."""
+    """Display label: stored identifier with underscores → spaces."""
     et = (event_type or "").strip()
     if not et:
         return "?"

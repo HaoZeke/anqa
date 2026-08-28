@@ -146,7 +146,7 @@ def _subagent_rows(ref: SessionRef, events: list[TraceEvent]) -> list[JsonValue]
 
 
 def session_overview(ref: SessionRef) -> JsonObject:
-    """``session/overview`` without Grok jobs / rewind / subagent dirs."""
+    """``session/overview`` without host jobs / rewind / subagent dirs."""
     meta, events = _load(ref)
     meta.num_events = len(events)
     segs = segment_timeline_turns(events)

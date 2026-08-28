@@ -12,7 +12,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .. import event_types as et
-from ..harness.grok_parse import TimelineStamp
 from ..models import TraceEvent
 from .query import (
     ListQueryBag,
@@ -22,6 +21,8 @@ from .query import (
 )
 from .subagents import event_child_session_id, subagent_duration_seconds
 from .turns import event_matches_timeline_kind
+
+type TimelineStamp = tuple[float, int, int, int]
 
 _KIND_MODES: tuple[tuple[str, str], ...] = (
     ("tool", "tools"),

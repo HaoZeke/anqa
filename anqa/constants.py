@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DEFAULT_MODEL_ID = "unknown"
-# Grok CLI ``--max-turns`` for one agent invocation (tool/plan loop per prompt).
+# One agent invocation (tool/plan loop per prompt).
 DEFAULT_MAX_TURNS = 50
 CONFIG_FILENAME = "config.toml"
 
@@ -74,7 +74,7 @@ def live_browser_timeline_min_interval(updates_bytes: int | float = 0) -> float:
 
 
 def normalize_max_turns(value: object, *, default: int = DEFAULT_MAX_TURNS) -> int:
-    """Clamp Grok ``--max-turns`` to a positive int (default :data:`DEFAULT_MAX_TURNS`)."""
+    """Clamp max turns to a positive int (default :data:`DEFAULT_MAX_TURNS`)."""
     if value is None or isinstance(value, bool):
         return int(default)
     if isinstance(value, int):
@@ -97,6 +97,6 @@ DIFF_TRUNCATE_THRESHOLD = 120_000
 DIFF_TRUNCATE_HEAD = 60_000
 DIFF_TRUNCATE_TAIL = 40_000
 INCOMPLETE_STALE_SECONDS = 20 * 60
-# Host Grok at a prompt writes nothing; 20 minutes left dead sessions on running
+# Host at a prompt writes nothing; 20 minutes left dead sessions on running
 # after a dangling turn_started. Eight minutes still covers a long think.
 HOST_INCOMPLETE_STALE_SECONDS = 8 * 60

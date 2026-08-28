@@ -469,7 +469,7 @@ class SubagentRun:
 
 
 def spawn_fields(update: Mapping[str, JsonValue]) -> dict[str, str]:
-    """Pick spawn identity fields from a Grok ``subagent_spawned`` update."""
+    """Pick spawn identity fields from a ``subagent_spawned`` update."""
     return {
         "child_session_id": SubagentRun.first_str(update, _SPAWN_CHILD_KEYS),
         "subagent_id": SubagentRun.first_str(update, _SPAWN_ID_KEYS),
@@ -480,7 +480,7 @@ def spawn_fields(update: Mapping[str, JsonValue]) -> dict[str, str]:
 
 
 def finish_fields(update: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    """Pick finish stats from a Grok ``subagent_finished`` update."""
+    """Pick finish stats from a ``subagent_finished`` update."""
     return {
         "child_session_id": SubagentRun.first_str(update, _SPAWN_CHILD_KEYS),
         "subagent_id": SubagentRun.first_str(update, _SPAWN_ID_KEYS),

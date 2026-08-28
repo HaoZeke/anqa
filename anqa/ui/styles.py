@@ -43,7 +43,7 @@ SEVERITY_LABEL: dict[str, str] = {
 }
 
 
-# Grok sessionUpdate / events.jsonl type → Rich style (identity keys).
+# sessionUpdate / events.jsonl type → Rich style (identity keys).
 EVENT_TYPE_STYLE: dict[str, str] = {
     "user_message_chunk": f"bold {EMPHASIS}",
     "agent_message_chunk": EMPHASIS,
@@ -84,7 +84,7 @@ EVENT_TYPE_STYLE: dict[str, str] = {
     "session": CAUTION,
 }
 
-# Type column uses Grok identifiers (spaces from underscores in type_label).
+# Type column uses stored identifiers (spaces from underscores in type_label).
 EVENT_TYPE_LABEL: dict[str, str] = {
     k: f"[{v}]{k.replace('_', ' ')}[/]" for k, v in EVENT_TYPE_STYLE.items()
 }

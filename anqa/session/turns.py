@@ -595,7 +595,7 @@ def turn_summary_rows(
 ) -> list[dict[str, JsonValue]]:
     """Tabular rows for the Summary turns table (chronological, turn 0 first).
 
-    Grok writes context fill only as a session snapshot in ``signals.json``.
+    Context fill is a session snapshot in ``signals.json``.
     *context_by_turn* holds read-only samples observed during live refresh.
     When absent, *session_context_compact* is shown on the latest segment only.
     """

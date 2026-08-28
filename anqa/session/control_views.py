@@ -16,11 +16,6 @@ from typing import ClassVar
 from .. import event_types as et
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
-from ..harness.grok_parse import (
-    TimelineStamp,
-    load_session_meta,
-    session_timeline_stamp,
-)
 from ..harness.registry import require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ..notes import load_schema, notes_snapshot
@@ -57,6 +52,8 @@ from .subagents import (
     subagent_runs_for_session,
 )
 from .workflows import workflow_list_preview
+
+type TimelineStamp = tuple[float, int, int, int]
 
 # Concurrent HUD open + live poll + notifies were double-building the same
 # multi‑MB session overview (~12–30s each). Join one flight per path and cache
@@ -405,7 +402,7 @@ class SessionOverview:
             logger.debug("notes stamp for overview %s", sd, exc_info=True)
         job_files, monitor_status = job_input_stamp(sd)
         return (
-            session_timeline_stamp(sd),
+            require_adapter(sd).timeline_stamp(sd),
             notes_rev,
             job_files,
             monitor_status,
@@ -424,7 +421,7 @@ class SessionOverview:
         """
         sd = Path(session_dir)
         key = cls.cache_key(sd)
-        stamp = session_timeline_stamp(sd)
+        stamp = require_adapter(sd).timeline_stamp(sd)
         with cls._turn_lock:
             cached = cls._turn_cache.get(key)
             if cached is not None and cached[0] == stamp:
@@ -440,7 +437,7 @@ class SessionOverview:
         """Build overview without single-flight / result cache."""
         sd = Path(session_dir)
         origin = cls.origin(sd)
-        meta = load_session_meta(sd, include_timeline_count=False)
+        meta = require_adapter(sd).load_meta(sd)
         meta.origin = origin
         events = require_adapter(sd).parse_timeline(sd)
         meta.num_events = len(events)
@@ -636,7 +633,7 @@ def build_session_timeline(
                 events,
                 query,
                 key=str(sd.resolve()),
-                stamp=session_timeline_stamp(sd),
+                stamp=require_adapter(sd).timeline_stamp(sd),
                 turns=turn_by_index,
             )
         )
@@ -807,7 +804,7 @@ def warm_timeline_search(session_dir: Path) -> None:
     ensure_indexed(
         events,
         key=str(sd.resolve()),
-        stamp=session_timeline_stamp(sd),
+        stamp=require_adapter(sd).timeline_stamp(sd),
         turns=turns,
     )
 

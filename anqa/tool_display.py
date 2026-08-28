@@ -225,7 +225,7 @@ def clip_preview(text: str, max_chars: int) -> str:
     return one[: max(1, max_chars - 1)] + "…"
 
 
-# Grok read_file dumps ``1→`` / ``12->`` before each source line.
+# Host read_file dumps ``1→`` / ``12->`` before each source line.
 _LINE_PREFIX = re.compile(r"^(\s*)(\d+)(?:→|->)[ \t]?", re.MULTILINE)
 
 _PRIMARY_INPUT_KEYS = (
@@ -252,7 +252,7 @@ _PRIMARY_INPUT_KEYS = (
 
 
 def strip_inline_line_prefixes(text: str) -> str:
-    """Remove Grok ``N→`` / ``N->`` prefixes from a ``read_file`` body.
+    """Remove ``N→`` / ``N->`` prefixes from a ``read_file`` body.
 
     :param text: Raw tool result, possibly with numbered prefixes.
     :returns: Source text with prefixes stripped; unchanged when none match.
@@ -263,7 +263,7 @@ def strip_inline_line_prefixes(text: str) -> str:
 
 
 def looks_like_numbered_file(text: str) -> bool:
-    """True when *text* looks like a Grok numbered ``read_file`` dump."""
+    """True when *text* looks like a numbered ``read_file`` dump."""
     if not text:
         return False
     hits = 0

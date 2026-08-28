@@ -318,7 +318,7 @@ def control_watch_specs(cache: SessionCatalogCache) -> list[tuple[Path, bool]]:
 
     Catalog directory trees list session dirs. Extra adapter stores
     (sqlite files, jsonl trees) are membership-only — never
-    :func:`~anqa.harness.grok_parse.find_sessions`.
+    adapter ``discover``.
     """
     from ..harness.registry import adapter_store_watch_paths
 
@@ -686,7 +686,7 @@ def run_control_daemon(
     """Blocking entry: own the control socket with domain handlers until signal.
 
     :param socket_path: Socket path (default: :func:`default_socket_path`).
-    :param traces_path: Optional catalog store (default ``~/.grok/sessions``).
+    :param traces_path: Optional catalog store (default catalog store).
     :param include_host: Host inclusion (True/False force; None = config pref).
     :param host_root: Host root override.
     :returns: Process exit code (0 clean stop, 1 ownership conflict / error).
@@ -1069,7 +1069,7 @@ def start_control_daemon_detached(
     """Start a background control owner and wait until the socket accepts.
 
     :param socket_path: Control socket path.
-    :param traces_path: Catalog store (default ``~/.grok/sessions``).
+    :param traces_path: Catalog store (default catalog store).
     :param include_host: Host inclusion (True/False force; None = config pref).
     :param timeout: Seconds to wait for the socket to accept.
     :returns: Structured result; ``ok`` when the socket accepts after return.

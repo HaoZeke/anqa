@@ -1019,8 +1019,10 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
     clear(KIND_REFRESH)
     sd = tmp_path / "019f-live"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
     locked = tmp_path / "019f-locked"
     locked.mkdir()
+    (locked / "summary.json").write_text("{}", encoding="utf-8")
     meta = SessionMeta(
         session_id="live",
         session_dir=sd,
@@ -1056,8 +1058,10 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
             context_window_tokens=500000,
         )
 
-    monkeypatch.setattr(app_mod, "load_session_meta", _load)
-    monkeypatch.setattr("anqa.harness.grok_parse.load_session_meta", _load)
+    monkeypatch.setattr(
+        "anqa.harness.grok.GrokAdapter.load_meta",
+        lambda self, _p: _load(_p),
+    )
     monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
     assert try_begin(KIND_REFRESH, locked) is True
     # Run the underlying function body synchronously (skip @work decorator scheduling).

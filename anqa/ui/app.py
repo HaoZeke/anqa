@@ -40,7 +40,7 @@ from ..control.client import (
     ControlClient,
     listen_control_notifications,
 )
-from ..harness.grok_parse import find_sessions, load_session_meta
+from ..harness.registry import require_adapter
 from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
 from ..paths import app_config_path
 from ..session.access import (
@@ -1022,14 +1022,12 @@ class AnqaApp(App):
         gen: int | None = None,
     ) -> list[tuple[SessionMeta, str]]:
         """Build list metas for *unique* dirs."""
-        from ..harness.grok_parse import load_session_meta_list
-
         rows: list[tuple[SessionMeta, str]] = []
         for sd, origin in unique:
             if gen is not None and not self._sessions_load_current(gen):
                 return rows
             try:
-                meta = load_session_meta_list(sd, origin=origin)
+                meta = require_adapter(sd).load_meta(sd)
             except Exception:
                 logger.debug(t("ui-failed-to-load-session-meta-for-s"), sd, exc_info=True)
                 continue
@@ -1490,9 +1488,7 @@ class AnqaApp(App):
             except Exception:
                 pass
         try:
-            from ..harness.grok_parse import session_trace_mtime
-
-            mt = session_trace_mtime(Path(meta.session_dir))
+            mt = require_adapter(meta.session_dir).trace_mtime(Path(meta.session_dir))
             if mt > 0:
                 return mt
         except Exception:
@@ -1923,7 +1919,7 @@ class AnqaApp(App):
             key = str(meta.session_dir)
             if key in want:
                 try:
-                    reloaded = load_session_meta(meta.session_dir)
+                    reloaded = require_adapter(meta.session_dir).load_detail(meta.session_dir)
                     if reloaded is not None:
                         meta = reloaded
                 except Exception:
@@ -2423,12 +2419,11 @@ class AnqaApp(App):
 
     @work(thread=True)
     def _live_meta_heartbeat_worker(self, live_rows: list[tuple[SessionMeta, str]]) -> None:
-        """Read-only ``load_session_meta`` for in-progress sessions.
+        """Read-only list meta for in-progress sessions.
 
         Uses per-session inflight locks so browser light reloads coalesce safely.
         Never writes session artifacts.
         """
-        from ..harness import grok_parse as parser_mod
         from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
         updates: list[tuple[str, SessionMeta, str]] = []
@@ -2440,7 +2435,7 @@ class AnqaApp(App):
                     request_rerun(KIND_REFRESH, sd)
                     continue
                 try:
-                    fresh = parser_mod.load_session_meta(sd, include_timeline_count=False)
+                    fresh = require_adapter(sd).load_meta(sd)
                     fresh.num_events = meta.num_events
                     try:
                         key = str(sd.resolve())
@@ -2451,7 +2446,7 @@ class AnqaApp(App):
                         or fresh.turn_outcome != meta.turn_outcome
                         or fresh.list_status_label() != meta.list_status_label()
                         or fresh.duration_seconds != meta.duration_seconds
-                        # Grok fills generated_title after start; list must refresh.
+                        # Host fills generated_title after start; list must refresh.
                         or (fresh.title or "") != (meta.title or "")
                         or (fresh.summary_text or "") != (meta.summary_text or "")
                     ):
@@ -2503,13 +2498,12 @@ class AnqaApp(App):
     def _scan_live_sessions_into_table(self) -> None:
         """Discover new sessions and refresh turn status.
 
-        Offline: ``find_sessions`` at most every ``LIVE_POLL_ACTIVE_INTERVAL``.
+        Offline: adapter discover at most every ``LIVE_POLL_ACTIVE_INTERVAL``.
         """
         import time
 
         from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
-        from ..harness import grok_parse as parser_mod
-        from ..harness.grok_parse import session_trace_mtime
+        from ..harness.registry import discover_dirs
 
         if self._sessions_catalog_busy:
             return
@@ -2528,7 +2522,7 @@ class AnqaApp(App):
         if now - self._live_full_walk_last >= LIVE_POLL_FULL_WALK_INTERVAL:
             self._live_full_walk_last = now
             try:
-                found.extend(find_sessions(runner_traces))
+                found.extend(discover_dirs(runner_traces))
             except Exception:
                 pass
 
@@ -2559,13 +2553,13 @@ class AnqaApp(App):
             except Exception:
                 continue
             try:
-                mtime = session_trace_mtime(sd_res)
+                mtime = require_adapter(sd_res).trace_mtime(sd_res)
             except Exception:
                 mtime = 0.0
 
             if key not in existing_keys:
                 try:
-                    meta = load_session_meta(sd_res)
+                    meta = require_adapter(sd_res).load_detail(sd_res)
                 except Exception:
                     continue
                 origin = self._origin_for_dir(sd_res)
@@ -2586,7 +2580,7 @@ class AnqaApp(App):
                     changed_sessions[key] = sd_res
                 self._session_mtimes[key] = mtime
             try:
-                outcome = parser_mod.list_turn_outcome_for_dir(sd_res)
+                outcome = require_adapter(sd_res).list_turn_outcome(sd_res)
             except Exception:
                 continue
             oc = (outcome or "").strip().lower().replace(" ", "_")
@@ -2610,7 +2604,7 @@ class AnqaApp(App):
             if not live_oc and prev_live:
                 try:
                     origin = self._origin_for_dir(sd_res)
-                    fresh = parser_mod.load_session_meta_list(sd_res, origin=origin)
+                    fresh = require_adapter(sd_res).load_meta(sd_res)
                     label = self._label_for_session(sd_res, origin)
                     new_metas.append((key, fresh, label))
                 except Exception:
@@ -2618,7 +2612,7 @@ class AnqaApp(App):
                 continue
             if live_oc:
                 try:
-                    fresh = parser_mod.load_session_meta(sd_res, include_timeline_count=False)
+                    fresh = require_adapter(sd_res).load_meta(sd_res)
                     # List probe is authoritative for live turn status (gate/freshness).
                     if outcome:
                         fresh.turn_outcome = outcome
@@ -2722,7 +2716,7 @@ class AnqaApp(App):
             if key in existing:
                 continue
             try:
-                meta = load_session_meta(sd_res)
+                meta = require_adapter(sd_res).load_detail(sd_res)
             except Exception:
                 continue
             origin = self._origin_for_dir(sd_res)

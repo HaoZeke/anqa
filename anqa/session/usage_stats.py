@@ -30,13 +30,13 @@ from ..paths import CONFIG_FILENAME, is_run_dir_name
 
 _MCP_BRIDGE_TOOLS = frozenset({"search_tool", "use_tool", "search_mcp", "call_mcp"})
 
-# Paths like /root/.grok/skills/<skill-id>/SKILL.md (container or host mirrors)
+# Paths like …/skills/<skill-id>/SKILL.md (container or host mirrors)
 _SKILL_MD_RE = re.compile(
-    r"(?:^|/)(?:\.?grok/)?skills/([^/]+)/SKILL\.md\b",
+    r"(?:^|/)skills/([^/]+)/SKILL\.md\b",
     re.IGNORECASE,
 )
 _SKILL_DIR_RE = re.compile(
-    r"(?:^|/)(?:\.?grok/)?skills/([^/]+)(?:/|$)",
+    r"(?:^|/)skills/([^/]+)(?:/|$)",
     re.IGNORECASE,
 )
 
@@ -670,7 +670,7 @@ def collect_session_usage(
 def _fmt_host_tools_md(usage: SessionUsageStats) -> list[str]:
     lines = ["", "## Host tools", ""]
     lines.append(
-        "_Built-in Grok tools only (`read_file`, `grep`, …). "
+        "_Built-in host tools only (`read_file`, `grep`, …). "
         "MCP goes through `search_tool` / `use_tool` and is summarized under **MCP**._"
     )
     if usage.host_tools:

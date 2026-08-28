@@ -1,12 +1,12 @@
-"""Harness angle-bracket / XML-ish blocks observed in Grok Build traces.
+"""Harness angle-bracket / XML-ish blocks observed in session traces.
 
-This is **not** an official xAI schema. The coding-agent harness (Claude Code
-lineage → Grok Build) documents a few tags in system prompts (notably
-``user_query`` and ``system-reminder``) and injects many more as structured
-wrappers. Tag names drift across versions; the catalogue below is an
-**observed dialect** from real ``~/.grok/sessions`` traces plus public prompt
-dumps. Prefer allowlisting over treating every ``<>`` pair as special (Rust
-generics, C headers, and HTML in code are noise).
+This is **not** an official schema. The coding-agent harness documents a
+few tags in system prompts (notably ``user_query`` and
+``system-reminder``) and injects many more as structured wrappers. Tag
+names drift across versions; the catalogue below is an **observed
+dialect** from real session traces plus public prompt dumps. Prefer
+allowlisting over treating every ``<>`` pair as special (Rust generics,
+C headers, and HTML in code are noise).
 
 Roles for UI / turn segmentation:
 

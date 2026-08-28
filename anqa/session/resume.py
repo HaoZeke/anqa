@@ -12,7 +12,7 @@ RESUME_SEED_DIRNAME = ".anqa-resume-seed"
 
 
 def can_resume_session(session_dir: Path) -> bool:
-    """True when *session_dir* has artifacts Grok can resume from."""
+    """True when *session_dir* has artifacts a fork can resume from."""
     p = Path(session_dir)
     if not p.is_dir():
         return False

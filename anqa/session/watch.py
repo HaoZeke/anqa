@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ..harness.grok_parse import find_sessions
+from ..harness.registry import discover_dirs
 from .sources import (
     default_catalog_root,
     is_encoded_cwd_name,
@@ -88,7 +88,7 @@ def session_dirs_under(
     """Listed session directories under catalog *roots* (no workspace descent).
 
     The named host root uses the shallow host lister. Other *directory
-    session* roots use :func:`find_sessions`. Extra adapter stores
+    session* roots use adapter discover. Extra adapter stores
     (``list_sessions=False``) contribute no session dirs — membership
     watch only, never a recursive walk.
     """
@@ -102,7 +102,7 @@ def session_dirs_under(
         if not root.is_dir():
             continue
         listed = (
-            list_host_session_dirs(root) if _is_named_host_root(root, host) else find_sessions(root)
+            list_host_session_dirs(root) if _is_named_host_root(root, host) else discover_dirs(root)
         )
         listed = drop_subagent_sessions(listed)
         for session in listed:
@@ -126,7 +126,7 @@ def watch_target_paths(
 ) -> list[Path]:
     """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
 
-    *expand_children* is the Grok directory-session path: one extra
+    *expand_children* is the directory-session path: one extra
     level so new session dirs are subscribed. Extra adapter stores
     (sqlite / jsonl) pass ``False`` and watch membership dirs only.
     """

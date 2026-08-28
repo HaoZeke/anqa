@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Literal
 
 from .. import event_types as et
-from ..harness.grok_parse import load_session_meta
 from ..harness.registry import require_adapter
 from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
@@ -258,7 +257,7 @@ def _load_session_bundle(
     int,
 ]:
     session_dir = Path(session_dir)
-    meta = load_session_meta(session_dir)
+    meta = require_adapter(session_dir).load_detail(session_dir)
     timeline = require_adapter(session_dir).parse_timeline(session_dir)
     segments = segment_timeline_turns(timeline)
     snapshot = notes_snapshot(session_dir)

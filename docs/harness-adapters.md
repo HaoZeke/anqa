@@ -22,6 +22,11 @@ A shipped adapter does all of this:
    `~/.anqa/notes/<harness>/<session_id>/` for a file or database.
 7. **Write archive** (`write_archive`) so `E` can nest the native
    session files. Anqa adds notes, summary, and the manifest.
+8. **Detail / live stamps** (`load_detail`, `timeline_stamp`,
+   `trace_mtime`, `updates_size`, `list_turn_outcome`) so the catalog
+   and browser do not import a store parser.
+9. **Scheduler blocks** (`scheduler_state`, `reported_completion_ids`)
+   when the store has durable schedules.
 
 Next prompt, end session, rewind, and the context meter appear when
 that store writes the files those actions read. Missing product data

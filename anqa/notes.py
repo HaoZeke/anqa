@@ -6,7 +6,7 @@ is the in-app form layout only. Every write must include a non-empty
 ``<session_dir>/operator_notes.toml``, fallback under
 ``~/.anqa/notes/<session_id>/``. Adapter host stores
 (and any symlinked session dir) always write the fallback so the live
-Grok store stays clean.
+adapter store stays clean.
 """
 
 from __future__ import annotations

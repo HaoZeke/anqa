@@ -1,6 +1,6 @@
 """In-memory context-usage samples collected during live refresh.
 
-Grok only exposes a session snapshot in ``signals.json``. While a browser is
+The store exposes a session snapshot in ``signals.json``. While a browser is
 open we record that snapshot against the current turn index on each read-only
 refresh so the turns table can show values observed during earlier turns
 without writing into the traces tree.

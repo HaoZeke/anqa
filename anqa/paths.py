@@ -2,7 +2,7 @@
 
 **Config home** (``APP_HOME`` / ``~/.anqa``) holds ``config.toml``,
 notes, reports, optional ``keys.toml``. The session catalog is the
-adapter store (default ``~/.grok/sessions``). A CLI path selects a
+adapter store (first shipped adapter default). A CLI path selects a
 store or a session.
 """
 

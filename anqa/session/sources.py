@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
-from ..harness.grok_parse import find_sessions
+from ..harness.registry import discover_dirs
 from .subagents import drop_subagent_sessions
 
 _HOST_SKIP_DIR_NAMES = frozenset(
@@ -292,7 +292,7 @@ def collect_session_dirs(
         if root.origin == ORIGIN_HOST:
             session_dirs = collect_host_session_dirs(path)
         else:
-            session_dirs = find_sessions(path)
+            session_dirs = discover_dirs(path)
         for sd in session_dirs:
             try:
                 key = str(sd.resolve())

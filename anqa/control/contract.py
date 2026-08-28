@@ -476,7 +476,7 @@ METHODS: tuple[MethodSpec, ...] = (
         result=(
             FieldSpec("backgroundJobs", "Background shell and monitor rows.", json_type="array"),
             FieldSpec("schedules", "Durable scheduler rows.", json_type="array"),
-            FieldSpec("workflows", "Grok workflow run rows.", json_type="array"),
+            FieldSpec("workflows", "Workflow run rows.", json_type="array"),
             FieldSpec(
                 "stats",
                 "Full-session event type and tool counts (`eventTypes`, `tools`).",

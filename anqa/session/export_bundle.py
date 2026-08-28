@@ -90,8 +90,6 @@ def build_session_archive(session_dir: Path, out_tar: Path) -> list[str]:
 
     :raises RuntimeError: No adapter, empty archive, or write failed.
     """
-    from ..harness.registry import require_adapter
-
     session_dir = Path(session_dir).expanduser()
     item = require_adapter(session_dir)
     members = item.write_archive(session_dir, out_tar)
@@ -183,12 +181,11 @@ def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
 
 def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
     """Load meta / timeline / usage into :class:`SessionSummaryData`."""
-    from ..harness.grok_parse import load_session_meta
     from ..utils import fmt_duration
     from .turns import segment_timeline_turns
     from .usage_stats import collect_session_usage, format_usage_markdown
 
-    meta = load_session_meta(session_dir)
+    meta = require_adapter(session_dir).load_detail(session_dir)
     timeline = require_adapter(session_dir).parse_timeline(session_dir)
     tool_calls = [e for e in timeline if e.event_type == "tool_call"]
     tool_errs = sum(1 for e in tool_calls if e.is_error)

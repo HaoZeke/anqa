@@ -117,7 +117,6 @@ def test_live_refresh_heartbeat_coalesces_flag(tmp_path: Path) -> None:
 
 def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> None:
     """Heartbeat re-reads signals even when timeline stamp is unchanged."""
-    import anqa.harness.grok_parse as parser_mod
     from anqa.models import SessionMeta
     from anqa.ui.screens import browser as browser_mod
 
@@ -138,13 +137,13 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
     )
     calls: list[str] = []
 
-    monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (1.0, 0, 0, 0))
-    monkeypatch.setattr(parser_mod, "session_timeline_mtime", lambda _p: 1.0)
-    monkeypatch.setattr(parser_mod, "session_trace_mtime", lambda _p: 1.0)
     monkeypatch.setattr(
-        browser_mod,
-        "load_session_meta",
-        lambda _p, include_timeline_count=False: SessionMeta(
+        "anqa.harness.grok.GrokAdapter.timeline_stamp",
+        lambda self, _p: (1.0, 0, 0, 0),
+    )
+    monkeypatch.setattr(
+        "anqa.harness.grok.GrokAdapter.load_meta",
+        lambda self, _p: SessionMeta(
             session_id="s",
             session_dir=sd,
             context_window_usage_pct=35,
@@ -182,7 +181,6 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
 
 def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch) -> None:
     """Unchanged stamp + signals must not re-load meta (live FS noise)."""
-    import anqa.harness.grok_parse as parser_mod
     from anqa.models import SessionMeta
     from anqa.ui.screens import browser as browser_mod
 
@@ -202,10 +200,12 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
         context_window_tokens=500000,
     )
     calls: list[str] = []
-    monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (1.0, 0, 0, 0))
     monkeypatch.setattr(
-        browser_mod,
-        "load_session_meta",
+        "anqa.harness.grok.GrokAdapter.timeline_stamp",
+        lambda self, _p: (1.0, 0, 0, 0),
+    )
+    monkeypatch.setattr(
+        "anqa.harness.grok.GrokAdapter.load_meta",
         lambda *_a, **_k: calls.append("meta") or screen.meta,
     )
     monkeypatch.setattr(
@@ -233,7 +233,6 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
 
 def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypatch) -> None:
     """Stamp change always re-parses — no second min-gap that hides new rows."""
-    import anqa.harness.grok_parse as parser_mod
     from anqa.models import SessionMeta, TraceEvent
     from anqa.ui.screens import browser as browser_mod
 
@@ -251,14 +250,16 @@ def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypat
     screen.meta = SessionMeta(session_id="s", session_dir=sd)
     new_ev = TraceEvent(index=1, timestamp=2.0, event_type="tool_call", content="bash")
     calls: list[str] = []
-    monkeypatch.setattr(parser_mod, "session_timeline_stamp", lambda _p: (2.0, 99, 0, 0))
+    monkeypatch.setattr(
+        "anqa.harness.grok.GrokAdapter.timeline_stamp",
+        lambda self, _p: (2.0, 99, 0, 0),
+    )
     monkeypatch.setattr(
         "anqa.harness.grok.parse_timeline",
         lambda _p: calls.append("parse") or [*screen.timeline, new_ev],
     )
     monkeypatch.setattr(
-        browser_mod,
-        "load_session_meta",
+        "anqa.harness.grok.GrokAdapter.load_meta",
         lambda *_a, **_k: calls.append("meta") or screen.meta,
     )
     monkeypatch.setattr(

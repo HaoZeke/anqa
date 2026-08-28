@@ -43,7 +43,6 @@ from textual.widgets import (
 from ... import event_types as et
 from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
 from ...control.server import ControlError
-from ...harness.grok_parse import load_session_meta
 from ...harness.registry import require_adapter
 from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ...notes import (
@@ -849,7 +848,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         transitions are polled on the snapshot / pending-bar path instead.
 
         Host session dirs (and any symlink) are resolved so the OS watch
-        sees real file writes under ``~/.grok/sessions``.
+        sees real file writes on the adapter store.
         """
         root = Path(self.session_dir)
         try:
@@ -975,14 +974,13 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         import time
 
         from ...constants import live_browser_timeline_min_interval
-        from ...harness.grok_parse import updates_jsonl_size
         from ...session_inflight import KIND_REFRESH, request_rerun, try_begin
 
         # Coalesce FS storms: one light job per min gap (not a second parse
         # throttle inside the job — that skipped new rows until full reload).
         size_hint = len(getattr(self, "timeline", None) or []) * 4096
         if not self._uses_control_data():
-            size_hint = updates_jsonl_size(self.session_dir)
+            size_hint = require_adapter(self.session_dir).updates_size(self.session_dir)
         min_gap = live_browser_timeline_min_interval(size_hint)
         now = time.monotonic()
         last_submit = float(getattr(self, "_last_light_submit_at", 0.0) or 0.0)
@@ -1034,7 +1032,6 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         import time
 
         from ...constants import live_browser_timeline_min_interval
-        from ...harness.grok_parse import updates_jsonl_size
         from ...session_inflight import KIND_REFRESH, end
 
         again = end(KIND_REFRESH, self.session_dir)
@@ -1047,7 +1044,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
         size_hint = len(getattr(self, "timeline", None) or []) * 4096
         if not self._uses_control_data():
-            size_hint = updates_jsonl_size(self.session_dir)
+            size_hint = require_adapter(self.session_dir).updates_size(self.session_dir)
         min_gap = live_browser_timeline_min_interval(size_hint)
         last_submit = float(getattr(self, "_last_light_submit_at", 0.0) or 0.0)
         elapsed = time.monotonic() - last_submit if last_submit > 0 else min_gap
@@ -1226,15 +1223,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _load_offline_session(self) -> None:
         """Parse the session from disk (``--no-socket``)."""
-        from ...harness.grok_parse import session_timeline_stamp
-
         self._overview_payload = None
-        self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
+        self.meta = require_adapter(self.session_dir).load_meta(self.session_dir)
         self.timeline = require_adapter(self.session_dir).parse_timeline(self.session_dir)
         if self.meta is not None:
             self.meta.num_events = len(self.timeline or [])
         try:
-            self._last_trace_mtime = session_timeline_stamp(self.session_dir)
+            self._last_trace_mtime = require_adapter(self.session_dir).timeline_stamp(
+                self.session_dir
+            )
         except Exception:
             self._last_trace_mtime = None
         self._last_signals_mtime = self._signals_mtime()
@@ -1356,10 +1353,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 call_ui(app, self._populate_ui_light)
                 return
 
-            from ...harness.grok_parse import session_timeline_stamp
-
             # Offline: Timeline stamp (not signals.json): heartbeats must not re-parse.
-            stamp = session_timeline_stamp(self.session_dir)
+            stamp = require_adapter(self.session_dir).timeline_stamp(self.session_dir)
             signals_mtime = self._signals_mtime()
             timeline_unchanged = (
                 self._last_trace_mtime is not None
@@ -1380,7 +1375,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 or self.meta is None
             )
             if need_meta:
-                meta = load_session_meta(self.session_dir, include_timeline_count=False)
+                meta = require_adapter(self.session_dir).load_meta(self.session_dir)
                 self.meta = meta
             if self.meta is not None:
                 self.meta.num_events = len(self.timeline or [])
@@ -2103,7 +2098,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         parent = parent_session_dir(self.session_dir)
         if parent is None:
             return ""
-        pmeta = load_session_meta(parent, include_timeline_count=False)
+        pmeta = require_adapter(parent).load_meta(parent)
         return _clip_chrome_label((pmeta.title or "").strip())
 
     def _sync_chrome_title(self) -> None:
@@ -2660,7 +2655,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         self._load_data()
 
     def action_open_share(self) -> None:
-        """Open Grok share URL for this session (from anqa-share.json) in the browser."""
+        """Open the share URL for this session (from anqa-share.json) in the browser."""
         try:
             from ...session.share import get_share_display, refresh_share_from_disk
 

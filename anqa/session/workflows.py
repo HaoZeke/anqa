@@ -1,4 +1,4 @@
-"""Merge Grok workflow runs from ``workflows/wf_*`` on disk."""
+"""Merge workflow runs from ``workflows/wf_*`` on disk."""
 
 from __future__ import annotations
 

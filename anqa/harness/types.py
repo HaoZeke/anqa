@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
-from ..models import SessionMeta, TraceEvent
+from ..models import JsonObject, SessionMeta, TraceEvent
 from .ref import SessionRef
 
 
@@ -47,3 +47,24 @@ class HarnessAdapter(Protocol):
 
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
         """Write the native session archive to *dest*. Return member names."""
+
+    def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
+        """Full session metadata (browser, export, document)."""
+
+    def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
+        """Cheap live-refresh stamp for the timeline files."""
+
+    def trace_mtime(self, ref: SessionRef | Path | str) -> float:
+        """Newest trace-file mtime for catalog / poll invalidation."""
+
+    def updates_size(self, ref: SessionRef | Path | str) -> int:
+        """Byte size of the live updates log, or 0."""
+
+    def scheduler_state(self, state: JsonObject) -> JsonObject | None:
+        """Scheduler block from ``resources_state.json``, if this store has one."""
+
+    def reported_completion_ids(self, state: JsonObject) -> set[str]:
+        """Task ids this store lists as already reported complete."""
+
+    def list_turn_outcome(self, ref: SessionRef | Path | str) -> str:
+        """Cheap list-row turn outcome from disk, or empty."""

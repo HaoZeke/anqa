@@ -316,7 +316,7 @@ class TraceEvent:
     """A single event in the conversation timeline."""
 
     index: int
-    event_type: str  # Grok sessionUpdate / events.jsonl type (see anqa.event_types)
+    event_type: str  # sessionUpdate / events.jsonl type (see anqa.event_types)
     timestamp: int | None = None
     content: str = ""
     tool_name: str = ""
@@ -343,10 +343,10 @@ class TraceEvent:
 
     @property
     def type_label(self) -> str:
-        """Grok-aligned event kind for tables (sessionUpdate / events type)."""
-        from .event_types import type_label as grok_type_label
+        """Event kind for tables (sessionUpdate / events type)."""
+        from .event_types import type_label
 
-        return grok_type_label(self.event_type)
+        return type_label(self.event_type)
 
     @property
     def summary_line(self) -> str:
@@ -458,7 +458,7 @@ class SessionMeta:
     run_id: str = ""
     # Catalog origin: ``work`` (leftover trees under the work dir) or ``host``.
     origin: str = "work"
-    # Disk adapter id (``grok``, ``opencode``, …). Adapter load_meta sets this.
+    # Disk adapter id. Adapter load_meta sets this.
     harness: str = ""
     # Product version recorded on the session, when the store has one.
     harness_version: str = ""

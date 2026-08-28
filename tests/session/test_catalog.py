@@ -226,10 +226,6 @@ def test_adapter_store_watch_paths_skip_grok_walk(tmp_path: Path, monkeypatch) -
 def test_session_catalog_row_none_on_bad_dir(tmp_path: Path) -> None:
     empty = tmp_path / "not-a-session"
     empty.mkdir()
-    # Empty dir still loads as meta with defaults — not None. Use missing path:
     missing = tmp_path / "nope"
-    # load_session_meta_list tolerates missing files; row still builds.
-    row = session_catalog_row(empty, origin="work")
-    assert row is not None
-    assert row["sessionId"] == "not-a-session"
-    _ = missing
+    assert session_catalog_row(empty, origin="work") is None
+    assert session_catalog_row(missing, origin="work") is None

@@ -344,7 +344,7 @@ def session_needs_live_timeline(session_dir: Path) -> bool:
     # Clean interactive wait / finished session: no agent writing traces.
     if life in ("awaiting_follow_up", "done"):
         return False
-    # Gate status can lag (empty/unknown) while Grok still appends updates.jsonl
+    # Gate status can lag (empty/unknown) while the store still appends updates.jsonl
     # — keep snapshotting while the trace file is fresh so new rows appear.
     try:
         upd = Path(session_dir) / "updates.jsonl"

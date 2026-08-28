@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ..fs_watch import TRACE_FILE_HINTS
-from ..models import SessionMeta, TraceEvent
+from ..models import JsonObject, SessionMeta, TraceEvent, json_as_str
 from ..session.sources import ORIGIN_HOST, collect_host_session_dirs
 from .grok_parse import _looks_like_session_dir, find_sessions, load_session_meta_list
 from .grok_parse import parse_timeline as parse_grok_timeline
@@ -24,6 +24,12 @@ GROK_HARNESS_ID = "grok"
 
 # Host planes on a session directory; not part of the inspectable trace.
 _ARCHIVE_SKIP_DIRS = frozenset({"workspace", "terminal"})
+
+
+def _locator(ref: SessionRef | Path | str) -> Path:
+    if isinstance(ref, SessionRef):
+        return Path(ref.locator)
+    return Path(ref).expanduser()
 
 
 def _resolved(path: Path) -> Path:
@@ -189,8 +195,45 @@ class GrokAdapter:
         return watch_hints()
 
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
-        path = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
-        return write_directory_archive(path, dest)
+        return write_directory_archive(_locator(ref), dest)
+
+    def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
+        from .grok_parse import load_session_meta
+
+        return load_session_meta(_locator(ref))
+
+    def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
+        from .grok_parse import session_timeline_stamp
+
+        return session_timeline_stamp(_locator(ref))
+
+    def trace_mtime(self, ref: SessionRef | Path | str) -> float:
+        from .grok_parse import session_trace_mtime
+
+        return session_trace_mtime(_locator(ref))
+
+    def updates_size(self, ref: SessionRef | Path | str) -> int:
+        from .grok_parse import updates_jsonl_size
+
+        return updates_jsonl_size(_locator(ref))
+
+    def scheduler_state(self, state: JsonObject) -> JsonObject | None:
+        block = state.get("grok_build.Scheduler")
+        return block if isinstance(block, dict) else None
+
+    def list_turn_outcome(self, ref: SessionRef | Path | str) -> str:
+        from .grok_parse import list_turn_outcome_for_dir
+
+        return list_turn_outcome_for_dir(_locator(ref))
+
+    def reported_completion_ids(self, state: JsonObject) -> set[str]:
+        block = state.get("grok_build.ReportedTaskCompletions")
+        if not isinstance(block, dict):
+            return set()
+        rows = block.get("reported")
+        if not isinstance(rows, list):
+            return set()
+        return {json_as_str(item).strip() for item in rows if json_as_str(item).strip()}
 
 
 def _add_archive_tree(tf: tarfile.TarFile, src: Path, arc_prefix: str) -> list[str]:

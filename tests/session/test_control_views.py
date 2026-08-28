@@ -676,12 +676,12 @@ def test_overview_stamp_monitor_done_not_signals_or_shell_log(tmp_path: Path) ->
 
     real = grok_mod.parse_timeline
 
-    def counting_parse(session_dir, **kwargs):  # type: ignore[no-untyped-def]
+    def counting_parse(*args, **kwargs):  # type: ignore[no-untyped-def]
         nonlocal parses
         parses += 1
-        return real(session_dir, **kwargs)
+        return real(args[-1], **kwargs)
 
-    with patch.object(grok_mod, "parse_timeline", side_effect=counting_parse):
+    with patch.object(grok_mod.GrokAdapter, "parse_timeline", side_effect=counting_parse):
         first = build_session_overview(sd)
         assert first["backgroundJobs"][0]["status"] == "running"
         assert parses == 1

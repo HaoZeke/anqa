@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE
-from ..harness.registry import require_adapter
+from ..harness.registry import reported_completion_ids, require_adapter, scheduler_state
 from ..models import (
     JsonObject,
     JsonValue,
@@ -407,13 +407,7 @@ class SessionJobs:
     @staticmethod
     def reported_ids(state: JsonObject) -> set[str]:
         """Task ids listed under ``ReportedTaskCompletions``."""
-        block = state.get("grok_build.ReportedTaskCompletions")
-        if not isinstance(block, dict):
-            return set()
-        rows = block.get("reported")
-        if not isinstance(rows, list):
-            return set()
-        return {json_as_str(item).strip() for item in rows if json_as_str(item).strip()}
+        return reported_completion_ids(state)
 
     @staticmethod
     def human_interval(secs: int | None) -> str:
@@ -430,7 +424,7 @@ class SessionJobs:
 
     @classmethod
     def schedules_from(cls, events: list[TraceEvent], state: JsonObject) -> list[ScheduleTask]:
-        """Merge timeline bookends with ``grok_build.Scheduler`` state."""
+        """Merge timeline bookends with the store scheduler state."""
         by_id: dict[str, ScheduleTask] = {}
         for ev in events:
             if not ev.event_type.startswith("scheduled_task_"):
@@ -464,7 +458,7 @@ class SessionJobs:
                 recurring=False,
                 event_index=bookend,
             )
-        scheduler = state.get("grok_build.Scheduler")
+        scheduler = scheduler_state(state)
         tasks_raw = scheduler.get("tasks") if isinstance(scheduler, dict) else None
         if isinstance(tasks_raw, list):
             for item in tasks_raw:

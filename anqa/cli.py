@@ -1,7 +1,7 @@
 """CLI entry point for anqa — Typer (Click) app.
 
 Default: interactive TUI. Optional path (``-P`` or leading argument) selects
-a session store or session (default ``~/.grok/sessions``).
+a session store or session (default catalog store).
 
 Commands: ``serve`` (control owner), ``hud``, ``doctor``, ``editor``,
 ``keys``, ``config``, ``export-host``.
@@ -29,7 +29,7 @@ app = typer.Typer(
         "Inspect harness sessions.\n\n"
         "With no command: open the TUI "
         "([cyan]PATH[/cyan] or [cyan]-P PATH[/cyan] = store or session; "
-        "default [cyan]~/.grok/sessions[/cyan]).\n\n"
+        "default catalog store).\n\n"
         "[cyan]serve[/cyan] owns the control socket · "
         "[cyan]hud[/cyan] palette · "
         "[cyan]doctor[/cyan] host checks · "
@@ -150,7 +150,7 @@ def cmd_hud(
         typer.Option(
             "-P",
             "--path",
-            help="Catalog store when starting serve (default ~/.grok/sessions).",
+            help="Catalog store when starting serve (default catalog store).",
             show_default=False,
         ),
     ] = None,
@@ -296,7 +296,7 @@ _ServePath = Annotated[
     typer.Option(
         "-P",
         "--path",
-        help="Catalog store (default ~/.grok/sessions).",
+        help="Catalog store (default catalog store).",
         show_default=False,
     ),
 ]
@@ -512,7 +512,7 @@ def main_callback(
             "--path",
             help=(
                 "Session store or session directory "
-                "(or pass as the first argument). Default: ~/.grok/sessions."
+                "(or pass as the first argument). Default: catalog store."
             ),
             show_default=False,
         ),
@@ -584,7 +584,7 @@ def cmd_tui(
         typer.Option(
             "-P",
             "--path",
-            help="Store or session (default ~/.grok/sessions).",
+            help="Store or session (default catalog store).",
             show_default=False,
         ),
     ] = None,
@@ -680,7 +680,7 @@ def cmd_export_host(
         Path | None,
         typer.Option(
             "--host-root",
-            help="Override ~/.grok/sessions.",
+            help="Override the default catalog store.",
             show_default=False,
         ),
     ] = None,
@@ -742,7 +742,7 @@ def cmd_doctor(
         typer.Option(
             "-P",
             "--path",
-            help="Catalog store to probe (default ~/.grok/sessions).",
+            help="Catalog store to probe (default catalog store).",
             show_default=False,
         ),
     ] = None,
