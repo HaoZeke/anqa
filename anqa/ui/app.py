@@ -1400,7 +1400,7 @@ class AnqaApp(App):
             call_ui(self, self._finish_sessions_load, gen)
 
     def action_self_test(self) -> None:
-        """Open the host self-test (Grok store, HUD seat) on the UI thread."""
+        """Open the host self-test (config home, catalog, HUD seat)."""
         from .widgets.self_test_modal import SelfTestModal
 
         self.push_screen(SelfTestModal())

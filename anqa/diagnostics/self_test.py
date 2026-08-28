@@ -1,14 +1,11 @@
 """Host dependency checks for the review product.
 
-Probes config home, the Grok session store, optional CLI and
-models cache, and the HUD seat. Used by ``anqa doctor`` and the in-app
-self-test modal.
+Probes config home, the session catalog, leftover prefs, and the HUD
+seat. Used by ``anqa doctor`` and the in-app self-test modal.
 """
 
 from __future__ import annotations
 
-import json
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,110 +58,6 @@ class SelfTestReport:
         return out
 
 
-def _check_auth_json() -> CheckResult:
-    auth = Path.home() / ".grok" / "auth.json"
-    if not auth.is_file():
-        return CheckResult(
-            id="grok_auth",
-            name="Grok auth (~/.grok/auth.json)",
-            ok=False,
-            detail="missing — run `grok` login / auth on the host",
-            required=True,
-        )
-    try:
-        data = json.loads(auth.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return CheckResult(
-            id="grok_auth",
-            name="Grok auth (~/.grok/auth.json)",
-            ok=False,
-            detail=f"unreadable: {exc}",
-            required=True,
-        )
-    if not isinstance(data, dict) or not data:
-        return CheckResult(
-            id="grok_auth",
-            name="Grok auth (~/.grok/auth.json)",
-            ok=False,
-            detail="empty or not an object",
-            required=True,
-        )
-    # Shape varies; any non-empty object with common token-ish keys is fine.
-    keys = set(data.keys())
-    interesting = keys & {
-        "accessToken",
-        "access_token",
-        "token",
-        "apiKey",
-        "api_key",
-        "turn_started",
-        "user_message_chunk",
-        "accounts",
-        "credentials",
-    }
-    size = auth.stat().st_size
-    hint = f"{size} bytes"
-    if interesting:
-        hint += f", keys include {', '.join(sorted(interesting)[:5])}"
-    else:
-        hint += f", keys={len(keys)}"
-    return CheckResult(
-        id="grok_auth",
-        name="Grok auth (~/.grok/auth.json)",
-        ok=True,
-        detail=hint,
-        required=True,
-    )
-
-
-def _check_grok_config() -> CheckResult:
-    cfg = Path.home() / ".grok" / "config.toml"
-    if not cfg.is_file():
-        return CheckResult(
-            id="grok_config",
-            name="Grok config (~/.grok/config.toml)",
-            ok=False,
-            detail="missing — optional; host Grok reads this when present",
-            required=False,
-        )
-    try:
-        text = cfg.read_text(encoding="utf-8")
-    except OSError as exc:
-        return CheckResult(
-            id="grok_config",
-            name="Grok config (~/.grok/config.toml)",
-            ok=False,
-            detail=str(exc)[:160],
-            required=False,
-        )
-    return CheckResult(
-        id="grok_config",
-        name="Grok config (~/.grok/config.toml)",
-        ok=True,
-        detail=f"{len(text)} bytes",
-        required=False,
-    )
-
-
-def _check_grok_cli() -> CheckResult:
-    path = shutil.which("grok")
-    if not path:
-        return CheckResult(
-            id="grok_cli",
-            name="Grok CLI on PATH",
-            ok=False,
-            detail="not found — host CLI is optional for review",
-            required=False,
-        )
-    return CheckResult(
-        id="grok_cli",
-        name="Grok CLI on PATH",
-        ok=True,
-        detail=path,
-        required=False,
-    )
-
-
 def _check_app_home() -> CheckResult:
     from ..paths import app_home
 
@@ -209,36 +102,6 @@ def _check_catalog_store(catalog_root: Path | None) -> CheckResult:
         detail=f"{root} missing",
         required=False,
     )
-
-
-def _check_models_cache() -> CheckResult:
-    cache = Path.home() / ".grok" / "models_cache.json"
-    if not cache.is_file():
-        return CheckResult(
-            id="models_cache",
-            name="Models cache (~/.grok/models_cache.json)",
-            ok=False,
-            detail="missing — run `grok models` once for offline model lists",
-            required=False,
-        )
-    try:
-        data = json.loads(cache.read_text(encoding="utf-8"))
-        n = len(data) if isinstance(data, (list, dict)) else 0
-        return CheckResult(
-            id="models_cache",
-            name="Models cache (~/.grok/models_cache.json)",
-            ok=True,
-            detail=f"present ({n} entries)" if n else "present",
-            required=False,
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        return CheckResult(
-            id="models_cache",
-            name="Models cache (~/.grok/models_cache.json)",
-            ok=False,
-            detail=str(exc)[:160],
-            required=False,
-        )
 
 
 def _check_session_display() -> CheckResult:
@@ -362,12 +225,9 @@ def run_self_test(*, catalog_root: Path | None = None) -> SelfTestReport:
     checks = [
         _check_app_home(),
         _check_catalog_store(catalog_root),
-        _check_auth_json(),
-        _check_grok_config(),
-        _check_grok_cli(),
-        _check_models_cache(),
         _check_session_display(),
         _check_sway_socket(),
         _check_hud_summon_socket(),
+        _check_leftover_json_config(),
     ]
-    return SelfTestReport(checks=[*checks, _check_leftover_json_config()])
+    return SelfTestReport(checks=checks)

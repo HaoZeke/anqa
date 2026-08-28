@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class SelfTestModal(QuitActions, ModalScreen[bool]):
-    """Run Grok store / HUD seat checks."""
+    """Run config home, catalog, and HUD seat checks."""
 
     BINDINGS = list(FORM_SAVE)
 

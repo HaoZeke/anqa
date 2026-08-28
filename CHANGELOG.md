@@ -101,4 +101,4 @@ harness store. Grok Build (`grok`) is registered today.
   `just ci`).
 - `just bump 0.1.1` sets every product version declaration and
   promotes this file.
-- `anqa doctor` checks Grok auth and paths.
+- `anqa doctor` checks config home, catalog, and HUD seat.

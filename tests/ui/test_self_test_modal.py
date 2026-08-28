@@ -39,8 +39,8 @@ async def test_self_test_modal_report_all_ok(tmp_path: Path) -> None:
         )
         report = SelfTestReport(
             checks=[
-                CheckResult("docker", "Docker", True, "ok"),
-                CheckResult("auth", "Auth", True, "ok"),
+                CheckResult("app_home", "Config home writable", True, "ok"),
+                CheckResult("catalog", "Session store", True, "ok"),
             ]
         )
         app.screen._apply_report(report)
@@ -66,8 +66,8 @@ async def test_self_test_modal_report_with_failure(tmp_path: Path) -> None:
         )
         report = SelfTestReport(
             checks=[
-                CheckResult("docker", "Docker", False, "not reachable", required=True),
-                CheckResult("auth", "Auth", True, "ok"),
+                CheckResult("app_home", "Config home writable", False, "read-only", required=True),
+                CheckResult("catalog", "Session store", True, "ok"),
             ]
         )
         app.screen._apply_report(report)
@@ -93,8 +93,10 @@ async def test_self_test_modal_report_with_warning(tmp_path: Path) -> None:
         )
         report = SelfTestReport(
             checks=[
-                CheckResult("docker", "Docker", True, "ok"),
-                CheckResult("auth", "Auth", False, "token expired", required=False),
+                CheckResult("app_home", "Config home writable", True, "ok"),
+                CheckResult(
+                    "hud_summon", "HUD summon socket", False, "not listening", required=False
+                ),
             ]
         )
         app.screen._apply_report(report)
@@ -152,14 +154,14 @@ async def test_self_test_modal_close_button(tmp_path: Path) -> None:
 async def test_self_test_modal_catalog_from_app(tmp_path: Path) -> None:
     """SelfTestModal reads the catalog store from the app."""
 
-    class _WDApp(App):
+    class _CatalogApp(App):
         _self_test_summary: str = ""
         traces_path = tmp_path
 
         def compose(self) -> ComposeResult:
             yield Static("main")
 
-    app = _WDApp()
+    app = _CatalogApp()
     async with app.run_test(size=(100, 30)) as pilot:
         modal = SelfTestModal()
         app.push_screen(modal)
@@ -222,9 +224,13 @@ async def test_self_test_modal_report_warn_count_summary(tmp_path: Path) -> None
         # Apply our own report with warnings
         report_warn = SelfTestReport(
             checks=[
-                CheckResult(id="docker", name="Docker", ok=True, detail="ok"),
+                CheckResult(id="app_home", name="Config home writable", ok=True, detail="ok"),
                 CheckResult(
-                    id="opt", name="Optional", ok=False, detail="not found", required=False
+                    id="hud_summon",
+                    name="HUD summon socket",
+                    ok=False,
+                    detail="not listening",
+                    required=False,
                 ),
             ]
         )

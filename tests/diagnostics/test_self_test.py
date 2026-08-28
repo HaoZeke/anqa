@@ -2,40 +2,30 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 import threading
 from pathlib import Path
-from unittest.mock import patch
 
 from anqa.diagnostics.self_test import CheckResult, SelfTestReport, run_self_test
 
+_HOST_CHECK_IDS = {
+    "app_home",
+    "catalog",
+    "session_display",
+    "sway_socket",
+    "hud_summon",
+    "config-toml",
+}
 
-def test_app_home_and_catalog_writable(tmp_path: Path):
-    wd = tmp_path / "store"
-    wd.mkdir()
-    with (
-        patch("anqa.diagnostics.self_test._check_auth_json") as a,
-        patch("anqa.diagnostics.self_test._check_grok_config") as c,
-        patch("anqa.diagnostics.self_test._check_grok_cli") as g,
-        patch("anqa.diagnostics.self_test._check_models_cache") as m,
-        patch("anqa.diagnostics.self_test._check_session_display") as sd,
-        patch("anqa.diagnostics.self_test._check_sway_socket") as sw,
-        patch("anqa.diagnostics.self_test._check_hud_summon_socket") as hs,
-        patch("anqa.diagnostics.self_test._check_leftover_json_config") as lj,
-    ):
-        a.return_value = CheckResult("grok_auth", "Auth", True)
-        c.return_value = CheckResult("grok_config", "Cfg", True, required=False)
-        g.return_value = CheckResult("grok_cli", "CLI", True, required=False)
-        m.return_value = CheckResult("models_cache", "Models", True, required=False)
-        sd.return_value = CheckResult("session_display", "Display", True, required=False)
-        sw.return_value = CheckResult("sway_socket", "Sway", True, required=False)
-        hs.return_value = CheckResult("hud_summon", "Summon", True, required=False)
-        lj.return_value = CheckResult("leftover_json", "Leftover", True, required=False)
-        report = run_self_test(catalog_root=wd)
+
+def test_self_test_probes_config_catalog_and_seat(tmp_path: Path):
+    """Doctor is config home, catalog, and HUD seat."""
+    catalog = tmp_path / "sessions"
+    catalog.mkdir()
+    report = run_self_test(catalog_root=catalog)
+    ids = {c.id for c in report.checks}
+    assert ids == _HOST_CHECK_IDS
     assert report.ok is True
-    assert any(c.id == "app_home" and c.ok for c in report.checks)
-    assert any(c.id == "catalog" and c.ok for c in report.checks)
 
 
 def test_session_display_wayland(monkeypatch):
@@ -74,36 +64,6 @@ def test_hud_summon_socket_missing(monkeypatch, tmp_path: Path):
     assert "not listening" in r.detail
 
 
-def test_auth_missing(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    from anqa.diagnostics import self_test as st
-
-    r = st._check_auth_json()
-    assert r.ok is False
-    assert r.required is True
-
-
-def test_auth_present(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    auth = tmp_path / ".grok" / "auth.json"
-    auth.parent.mkdir(parents=True)
-    auth.write_text(json.dumps({"accessToken": "x"}), encoding="utf-8")
-    from anqa.diagnostics import self_test as st
-
-    r = st._check_auth_json()
-    assert r.ok is True
-
-
-def test_auth_bad_json(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    auth = tmp_path / ".grok" / "auth.json"
-    auth.parent.mkdir(parents=True)
-    auth.write_text("not-json", encoding="utf-8")
-    from anqa.diagnostics import self_test as st
-
-    assert st._check_auth_json().ok is False
-
-
 def test_report_lines_and_fail():
     rep = SelfTestReport(
         checks=[
@@ -123,25 +83,6 @@ def test_report_lines_and_fail():
     assert CheckResult("z", "Z", False, required=True).level == "error"
 
 
-def test_grok_config_cli_models(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    from anqa.diagnostics import self_test as st
-
-    assert st._check_grok_config().ok is False
-    (tmp_path / ".grok").mkdir()
-    (tmp_path / ".grok" / "config.toml").write_text("x=1\n", encoding="utf-8")
-    assert st._check_grok_config().ok is True
-
-    with patch("anqa.diagnostics.self_test.shutil.which", return_value=None):
-        assert st._check_grok_cli().ok is False
-    with patch("anqa.diagnostics.self_test.shutil.which", return_value="/bin/grok"):
-        assert st._check_grok_cli().ok is True
-
-    assert st._check_models_cache().ok is False
-    (tmp_path / ".grok" / "models_cache.json").write_text("[]", encoding="utf-8")
-    assert st._check_models_cache().ok is True
-
-
 def test_app_home_not_writable(tmp_path: Path, monkeypatch):
     from anqa.diagnostics import self_test as st
 
@@ -157,60 +98,6 @@ def test_app_home_not_writable(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("anqa.paths.APP_HOME", blocked)
     monkeypatch.setattr(Path, "write_text", boom)
     r = st._check_app_home()
-    assert r.ok is False
-
-
-def test_auth_empty_object(tmp_path: Path, monkeypatch):
-    """Empty auth.json object returns False (line 137)."""
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    auth = tmp_path / ".grok" / "auth.json"
-    auth.parent.mkdir(parents=True, exist_ok=True)
-    auth.write_text("{}", encoding="utf-8")
-    from anqa.diagnostics import self_test as st
-
-    r = st._check_auth_json()
-    assert r.ok is False
-
-
-def test_auth_with_generic_keys(tmp_path: Path, monkeypatch):
-    """Auth with non-standard keys shows key count (line 162)."""
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    auth = tmp_path / ".grok" / "auth.json"
-    auth.parent.mkdir(parents=True, exist_ok=True)
-    auth.write_text(json.dumps({"custom_field": "val"}), encoding="utf-8")
-    from anqa.diagnostics import self_test as st
-
-    r = st._check_auth_json()
-    assert r.ok is True
-    assert "keys=" in r.detail
-
-
-def test_grok_config_unreadable(tmp_path: Path, monkeypatch):
-    """Unreadable config.toml returns warn level (lines 184-185)."""
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    cfg_dir = tmp_path / ".grok"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-    cfg = cfg_dir / "config.toml"
-    cfg.write_text("ok", encoding="utf-8")  # exists as file so is_file() → True
-
-    from anqa.diagnostics import self_test as st
-
-    # Patch read_text to raise OSError after is_file passes
-    with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
-        r = st._check_grok_config()
-    assert r.ok is False
-    assert r.required is False
-
-
-def test_models_cache_bad_json(tmp_path: Path, monkeypatch):
-    """Bad JSON in models_cache returns warn (lines 266-267)."""
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    cache = tmp_path / ".grok" / "models_cache.json"
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text("not-json!", encoding="utf-8")
-    from anqa.diagnostics import self_test as st
-
-    r = st._check_models_cache()
     assert r.ok is False
 
 

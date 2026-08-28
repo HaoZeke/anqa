@@ -333,4 +333,4 @@ just ci              # lint + schema-check + hud-check + examples-check + test
 just bump 0.1.1      # version strings + CHANGELOG.md
 ```
 
-Also: `anqa doctor`, `anqa keys`.
+Also: `anqa doctor` (config home, catalog, HUD seat), `anqa keys`.

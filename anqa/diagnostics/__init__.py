@@ -1,4 +1,4 @@
-"""Host environment checks (Grok store, HUD seat) for self-test UI/CLI."""
+"""Host environment checks (config home, catalog, HUD seat) for self-test."""
 
 from __future__ import annotations
 

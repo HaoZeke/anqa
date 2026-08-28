@@ -1149,9 +1149,9 @@ ui-selection-none-s-toggle-row-s-all-none-w-launche = [dim]Selection: none — [
 
 ui-self-test = Self-test
 
-ui-self-test-external-dependencies = Self-test — Grok store, work dir, HUD seat
+ui-self-test-external-dependencies = Self-test — config home, catalog, HUD seat
 
-ui-self-test-help = Check Grok store, work dir, and HUD seat
+ui-self-test-help = Check config home, catalog, and HUD seat
 
 ui-self-test-fail = self-test FAIL×
 

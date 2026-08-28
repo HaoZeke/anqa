@@ -751,7 +751,7 @@ def cmd_doctor(
         typer.Option("--json", help="Emit JSON instead of text lines."),
     ] = False,
 ) -> None:
-    """Host checks: Grok store and HUD seat (no TUI)."""
+    """Host checks: config home, catalog, and HUD seat (no TUI)."""
     from .diagnostics import run_self_test
     from .paths import resolve_catalog_root
 

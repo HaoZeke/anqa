@@ -83,8 +83,8 @@ async def test_self_test_modal_applies_report(tmp_path: Path) -> None:
     app = AnqaApp(traces_path=work / "runs" / "traces")
     report = SelfTestReport(
         checks=[
-            CheckResult("docker", "Docker daemon", True, "reachable"),
-            CheckResult("grok_auth", "Grok auth", True, "ok"),
+            CheckResult("app_home", "Config home writable", True, "ok"),
+            CheckResult("catalog", "Session store", True, "ok"),
         ]
     )
 
