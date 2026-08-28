@@ -1518,6 +1518,23 @@ mod tests {
     }
 
     #[test]
+    fn list_scroll_to_cover_leaves_a_visible_row() {
+        let heights = vec![100.0; 8];
+        assert_eq!(list_scroll_to_cover(&heights, 2, 0.0, 400.0), 0.0);
+        assert_eq!(list_scroll_to_cover(&heights, 3, 50.0, 400.0), 50.0);
+    }
+
+    #[test]
+    fn list_scroll_to_cover_scrolls_just_enough() {
+        let heights = vec![100.0; 10];
+        let cover = list_scroll_to_cover(&heights, 5, 0.0, 400.0);
+        let pin = list_scroll_to_top(&heights, 5, 400.0);
+        assert!((cover - 200.0).abs() < f32::EPSILON);
+        assert!((pin - 500.0).abs() < f32::EPSILON);
+        assert!(cover < pin);
+    }
+
+    #[test]
     fn list_focus_after_scroll_snaps_to_first_visible_row() {
         let heights = vec![92.0; 20];
         let view_h = 200.0;

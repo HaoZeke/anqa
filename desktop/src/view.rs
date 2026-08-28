@@ -1079,6 +1079,7 @@ fn overview_run_list<'a>(
                 .style(move |_| icedtea::style::card(tea, selected));
             mouse_area(card)
                 .on_press(Message::FocusOverviewRow(i))
+                .on_double_click(Message::OpenOverviewRow(i))
                 .into()
         },
         A11y::new(empty_title, Role::List),
@@ -1244,6 +1245,7 @@ fn card_cmds_row(
 fn closed_list_card(
     title: String,
     badges: Element<'static, Message>,
+    on_press: Message,
     on_open: Message,
     selected: bool,
     tea: icedtea::theme::Tokens,
@@ -1260,7 +1262,8 @@ fn closed_list_card(
             .width(Length::Fill)
             .style(move |_| icedtea::style::card(tea, selected)),
     )
-    .on_press(on_open)
+    .on_press(on_press)
+    .on_double_click(on_open)
     .into()
 }
 
@@ -1653,6 +1656,7 @@ fn turn_list_card(
         title,
         chips.into(),
         Message::FocusTurn(t.turn_index),
+        Message::SelectTurn(t.turn_index),
         selected,
         tea,
     )
@@ -1781,16 +1785,11 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
             };
             let ix = ev.index;
             let selected = hud.timeline_focus() == Some(ix);
-            let on_press = if Hud::event_is_subagent_bookend(ev) && !ev.child_session_id.is_empty()
-            {
-                Message::SelectTimeline(ix)
-            } else {
-                Message::FocusTimeline(ix)
-            };
             let card = closed_list_card(
                 event_list_title(ev),
                 event_list_heading(ev, tea),
-                on_press,
+                Message::FocusTimeline(ix),
+                Message::SelectTimeline(ix),
                 selected,
                 tea,
             );
@@ -1815,7 +1814,7 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     .into()
 }
 
-/// Full-area event body (click a list row; Esc returns to the list at this event).
+/// Full-area event body (double-click / Enter a list row; Esc returns to the list).
 ///
 /// Chrome (title + adjacent cards) stays **above** the scroll pane.
 pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
@@ -2371,6 +2370,7 @@ fn note_list_card<'a>(hud: &'a Hud, n: &'a NoteRow) -> Element<'a, Message> {
             .style(move |_| icedtea::style::card(tea, selected)),
     )
     .on_press(Message::FocusNote(n.id.clone()))
+    .on_double_click(Message::OpenNote(n.id.clone()))
     .into()
 }
 
@@ -3567,6 +3567,11 @@ mod tests {
         assert!(picker.contains("FocusSession"));
         assert!(picker.contains("on_double_click"));
         assert!(picker.contains("SelectSession"));
+        assert!(prod.contains(".on_double_click(on_open)"));
+        assert!(prod.contains("Message::SelectTimeline(ix)"));
+        assert!(prod.contains("Message::SelectTurn(t.turn_index)"));
+        assert!(prod.contains("on_double_click(Message::OpenNote"));
+        assert!(prod.contains("on_double_click(Message::OpenOverviewRow"));
         let detail = prod
             .split("fn detail_pane")
             .nth(1)
@@ -3769,6 +3774,8 @@ mod tests {
             .expect("turns card");
         assert!(turns_card.contains("status_chip("));
         assert!(turns_card.contains("closed_list_card("));
+        assert!(turns_card.contains("FocusTurn"));
+        assert!(turns_card.contains("SelectTurn"));
         assert!(!turns_card.contains("tools ·"));
         let face = prod
             .split("fn event_list_title")

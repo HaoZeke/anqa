@@ -89,7 +89,9 @@ pub enum Message {
     EventsTurnPicked(EventsTurnPick),
     /// Turns card click: focus that turn.
     FocusTurn(i64),
-    /// Timeline card click: focus that event (Enter opens).
+    /// Turns card double-click / Enter: open Timeline for that turn.
+    SelectTurn(i64),
+    /// Timeline card click: focus that event (Enter / double-click opens).
     FocusTimeline(i64),
     SelectTimeline(i64),
     /// Notes card click: focus that note (Enter edits).
@@ -185,6 +187,8 @@ pub enum Message {
     OverviewScroll(icedtea::collection::VisibleWindow),
     /// Highlight a Tasks / Workflows / Subagents row (second press opens).
     FocusOverviewRow(usize),
+    /// Overview card double-click: open the focused row.
+    OpenOverviewRow(usize),
     WorkflowChildScroll(icedtea::collection::VisibleWindow),
     NoteScroll(icedtea::collection::VisibleWindow),
     StatsScroll(icedtea::collection::VisibleWindow),
@@ -1214,6 +1218,12 @@ impl Hud {
                 self.focus_turn(ti);
                 self.scroll_turn_into_view()
             }
+            Message::SelectTurn(ti) => {
+                self.tab = Tab::Turns;
+                self.turns_focus = Some(ti);
+                self.focus_turn(ti);
+                self.select_events_turn(Some(ti))
+            }
             Message::FocusTimeline(ix) => {
                 self.tab = Tab::Timeline;
                 self.timeline_focus = Some(ix);
@@ -1425,6 +1435,11 @@ impl Hud {
                 self.tasks_focus = Some(i);
                 self.overview_row_armed = true;
                 self.scroll_overview_into_view()
+            }
+            Message::OpenOverviewRow(i) => {
+                self.tasks_focus = Some(i);
+                self.overview_row_armed = false;
+                self.open_focused_task()
             }
             Message::StatsScroll(win) => {
                 self.stats_window = if self.stats_table.rows.is_empty() {
@@ -2421,7 +2436,12 @@ impl Hud {
             return Task::none();
         };
         let view_h = self.overview_window.viewport.max(1.0);
-        let y = list_scroll_to_top(&self.overview_heights, pos, view_h);
+        let y = list_scroll_to_cover(
+            &self.overview_heights,
+            pos,
+            self.overview_window.scroll,
+            view_h,
+        );
         apply_clip_scroll(
             self.overview_scroll_id.clone(),
             &mut self.overview_window,
@@ -3742,7 +3762,12 @@ impl Hud {
 
     fn ensure_active_visible(&mut self) -> Task<Message> {
         let view_h = self.list_window.viewport.max(80.0);
-        let y = list_scroll_to_top(&self.session_heights, self.active, view_h);
+        let y = list_scroll_to_cover(
+            &self.session_heights,
+            self.active,
+            self.list_window.scroll,
+            view_h,
+        );
         apply_clip_scroll(self.list_scroll_id.clone(), &mut self.list_window, y)
     }
 
@@ -4290,7 +4315,7 @@ impl Hud {
             return Task::none();
         };
         let view_h = self.tl_window.viewport.max(1.0);
-        let y = list_scroll_to_top(&self.tl_heights, pos, view_h);
+        let y = list_scroll_to_cover(&self.tl_heights, pos, self.tl_window.scroll, view_h);
         apply_clip_scroll(self.tl_scroll_id.clone(), &mut self.tl_window, y)
     }
 
@@ -6252,7 +6277,7 @@ impl Hud {
             return Task::none();
         };
         let view_h = self.turn_window.viewport.max(1.0);
-        let y = list_scroll_to_top(&self.turn_heights, pos, view_h);
+        let y = list_scroll_to_cover(&self.turn_heights, pos, self.turn_window.scroll, view_h);
         apply_clip_scroll(self.turn_scroll_id.clone(), &mut self.turn_window, y)
     }
 
@@ -8388,14 +8413,108 @@ mod tests {
         };
         hud.tl_window.viewport = 400.0;
         hud.tl_window.scroll = 0.0;
-        let want = list_scroll_to_top(&hud.tl_heights, 2, 400.0);
-        assert!(want > 0.0, "focused row top must be past the published 0");
         let _ = hud.scroll_focus_into_view();
         assert!(
-            (hud.tl_window.scroll - want).abs() < f32::EPSILON,
-            "clip offset must be the row top {want}, not published scroll 0, got {}",
+            hud.tl_window.scroll.abs() < f32::EPSILON,
+            "visible row must stay put, got {}",
             hud.tl_window.scroll
         );
+    }
+
+    #[test]
+    fn click_visible_cards_do_not_pin_to_top() {
+        let mut hud = Hud {
+            session_heights: vec![80.0; 8],
+            turn_heights: vec![80.0; 8],
+            overview_heights: vec![80.0; 8],
+            tl_heights: vec![80.0; 8],
+            tl_filter: (0..8).collect(),
+            timeline: (0..8)
+                .map(|i| TimelineEvent {
+                    index: i as i64,
+                    ..TimelineEvent::default()
+                })
+                .collect(),
+            all_sessions: (0..8)
+                .map(|i| SessionRow {
+                    session_id: format!("s{i}"),
+                    title: format!("s{i}"),
+                    ..SessionRow::default()
+                })
+                .collect(),
+            overview: Some(Overview {
+                turns: crate::wire::TurnsBlock {
+                    turns: (0..8)
+                        .map(|i| crate::wire::TurnRow {
+                            turn_index: i,
+                            ..crate::wire::TurnRow::default()
+                        })
+                        .collect(),
+                    ..crate::wire::TurnsBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tasks_focus: Some(3),
+            ..Hud::default()
+        };
+        hud.sessions = hud.all_sessions.clone();
+        hud.rebuild_turns_filter();
+        hud.list_window.viewport = 400.0;
+        hud.list_window.scroll = 40.0;
+        hud.turn_window.viewport = 400.0;
+        hud.turn_window.scroll = 40.0;
+        hud.overview_window.viewport = 400.0;
+        hud.overview_window.scroll = 40.0;
+        hud.tl_window.viewport = 400.0;
+        hud.tl_window.scroll = 40.0;
+
+        let _ = hud.update(Message::FocusSession(2));
+        assert!(
+            (hud.list_window.scroll - 40.0).abs() < f32::EPSILON,
+            "session click moved scroll to {}",
+            hud.list_window.scroll
+        );
+        let _ = hud.update(Message::FocusTurn(2));
+        assert!(
+            (hud.turn_window.scroll - 40.0).abs() < f32::EPSILON,
+            "turn click moved scroll to {}",
+            hud.turn_window.scroll
+        );
+        let _ = hud.update(Message::FocusTimeline(2));
+        assert!(
+            (hud.tl_window.scroll - 40.0).abs() < f32::EPSILON,
+            "timeline click moved scroll to {}",
+            hud.tl_window.scroll
+        );
+        let _ = hud.update(Message::FocusOverviewRow(3));
+        assert!(
+            (hud.overview_window.scroll - 40.0).abs() < f32::EPSILON,
+            "overview click moved scroll to {}",
+            hud.overview_window.scroll
+        );
+    }
+
+    #[test]
+    fn scroll_focus_into_view_covers_offscreen_row() {
+        let mut hud = Hud {
+            tl_heights: vec![100.0; 10],
+            tl_filter: (0..10).collect(),
+            timeline: (0..10)
+                .map(|i| TimelineEvent {
+                    index: i as i64,
+                    ..TimelineEvent::default()
+                })
+                .collect(),
+            timeline_focus: Some(5),
+            ..Hud::default()
+        };
+        hud.tl_window.viewport = 400.0;
+        hud.tl_window.scroll = 0.0;
+        let _ = hud.scroll_focus_into_view();
+        let want = list_scroll_to_cover(&hud.tl_heights, 5, 0.0, 400.0);
+        let pin = list_scroll_to_top(&hud.tl_heights, 5, 400.0);
+        assert!((hud.tl_window.scroll - want).abs() < f32::EPSILON);
+        assert!(hud.tl_window.scroll < pin);
     }
 
     #[test]
@@ -9800,6 +9919,71 @@ mod tests {
         assert_eq!(hud.tab(), Tab::Turns);
         assert_eq!(hud.turns_focus(), Some(0));
         assert!(hud.timeline_open().is_none());
+    }
+
+    #[test]
+    fn turn_card_double_click_opens_timeline() {
+        let mut hud = hud_with_session();
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "turns": {
+                "total": 1,
+                "turns": [{
+                    "turnIndex": 0,
+                    "promptIndex": 1,
+                    "label": "only",
+                    "summary": "hi",
+                    "userEventIndex": 10,
+                    "firstIndex": 10,
+                    "eventIndexes": [10, 11]
+                }]
+            },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        hud.tab = Tab::Turns;
+        let _ = hud.update(Message::FocusTurn(0));
+        assert_eq!(hud.tab(), Tab::Turns);
+        let _ = hud.update(Message::SelectTurn(0));
+        assert_eq!(hud.tab(), Tab::Timeline);
+        assert_eq!(hud.events_turn_index, Some(0));
+        assert!(hud.timeline_open().is_none());
+    }
+
+    #[test]
+    fn overview_row_double_click_opens() {
+        let mut hud = hud_with_session();
+        hud.tab = Tab::Overview;
+        let data = json!({
+            "meta": { "sessionId": "s1", "path": "/tmp/s1", "status": "complete" },
+            "backgroundJobs": [{
+                "id": "job-1",
+                "kind": "monitor",
+                "status": "done",
+                "description": "Watch board",
+                "eventIndex": 4
+            }],
+            "turns": { "total": 0, "turns": [] },
+            "notes": { "count": 0, "notes": [] }
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: hud.overview_gen,
+            sid: "s1".into(),
+            quiet: true,
+            result: Ok(data),
+        });
+        let _ = hud.update(Message::SetOverviewSection(
+            crate::model::OverviewSection::Tasks,
+        ));
+        let _ = hud.update(Message::FocusOverviewRow(0));
+        assert!(hud.timeline_open().is_none());
+        let _ = hud.update(Message::OpenOverviewRow(0));
+        assert_eq!(hud.timeline_open(), Some(4));
     }
 
     #[derive(Debug, Clone, Copy)]
