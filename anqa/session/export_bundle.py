@@ -5,7 +5,7 @@ Default profile ``archive-full`` writes under ``~/.anqa/reports/`` as
 
 Selected units (only written when the data exists)::
 
-    grok-trace.tar.gz   # exact ``grok trace --local`` (CLI only; no fallback)
+    session.tar.gz      # session directory files (``<id>/…``)
     notes/              # operator_notes.toml from the notes store
     README.txt
     manifest.json
@@ -18,15 +18,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
-import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from shutil import which
 
 from ..models import JsonObject, as_json_object
 from ..notes import collect_notes_for_export
@@ -49,24 +46,14 @@ from .turns import event_display_turn_map, segment_timeline_turns
 
 logger = logging.getLogger(__name__)
 
-# Nested member: official grok-trace archive inside the operator export bundle.
-GROK_TRACE_ARCHIVE_NAME = "grok-trace.tar.gz"
+# Nested member: session-directory archive inside the operator export bundle.
+SESSION_ARCHIVE_NAME = "session.tar.gz"
 
-# Core members always present in official ``grok trace`` archives (even if empty).
-_GROK_TRACE_CORE_FILES = frozenset(
-    {
-        "export_metadata.json",
-        "trace_config.json",
-        "summary.json",
-        "events.jsonl",
-        "chat_history.jsonl",
-        "prompt_context.json",
-        "system_prompt.txt",
-    }
-)
+# Host planes on a session directory; not part of the inspectable trace.
+_TRACE_SKIP_DIRS = frozenset({"workspace", "terminal"})
 
 # Manifest schema for this outer bundle layout (bump when fields/layout change).
-_MANIFEST_SCHEMA = 8
+_MANIFEST_SCHEMA = 9
 
 
 @dataclass
@@ -101,112 +88,68 @@ def _session_id(session_dir: Path) -> str:
     return Path(session_dir).name.strip() or "session"
 
 
-def build_grok_trace_archive(session_dir: Path, out_tar: Path) -> None:
-    """Write *out_tar* via ``grok trace --local`` only (exact CLI bytes).
+def build_session_archive(session_dir: Path, out_tar: Path) -> None:
+    """Write *out_tar* from files in *session_dir* (``<session_id>/…``).
 
-    Links *session_dir* into ``~/.grok/sessions`` so the CLI can resolve the
-    session id, then copies the CLI output as-is.
+    Skips ``workspace/`` and ``terminal/`` (host planes, not the trace).
 
-    :raises RuntimeError: ``grok`` missing, link failure, CLI error, or empty output.
+    :raises RuntimeError: Session missing, empty, or archive write failed.
     """
-    grok = which("grok")
-    if not grok:
-        raise RuntimeError(
-            "grok CLI not found on PATH; session export requires "
-            "`grok trace --local` (no fallback packer)"
-        )
     sid = _session_id(session_dir)
     session_dir = Path(session_dir).expanduser().resolve()
     if not session_dir.is_dir():
         raise RuntimeError(f"session directory not found: {session_dir}")
     out_tar = Path(out_tar)
     out_tar.parent.mkdir(parents=True, exist_ok=True)
-
-    sessions_root = Path.home() / ".grok" / "sessions"
-    probe = sessions_root / f"%2Ftmp%2Fanqa-export-{os.getpid()}-{sid[:8]}"
-    link = probe / sid
+    tmp = out_tar.with_name(out_tar.name + ".tmp")
+    packed = False
     try:
-        probe.mkdir(parents=True, exist_ok=True)
-        if link.exists() or link.is_symlink():
-            if link.is_symlink() or link.is_file():
-                link.unlink()
-            else:
-                shutil.rmtree(link)
-        link.symlink_to(session_dir, target_is_directory=True)
-        proc = subprocess.run(
-            [grok, "trace", "--local", sid, "-o", str(out_tar)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=False,
-        )
-        err = (proc.stderr or proc.stdout or "").strip()
-        if proc.returncode != 0 or not out_tar.is_file() or out_tar.stat().st_size <= 0:
-            if out_tar.is_file():
-                try:
-                    out_tar.unlink()
-                except OSError:
-                    pass
-            detail = err[:500] if err else "empty output"
-            raise RuntimeError(f"grok trace --local failed (rc={proc.returncode}): {detail}")
-    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError) as exc:
-        if out_tar.is_file():
-            try:
-                out_tar.unlink()
-            except OSError:
-                pass
-        raise RuntimeError(f"grok trace --local error: {exc}") from exc
+        names: list[str] = []
+        with tarfile.open(tmp, "w:gz") as tf:
+            for path in sorted(session_dir.iterdir()):
+                if path.name in _TRACE_SKIP_DIRS:
+                    continue
+                names.extend(_add_tree(tf, path, f"{sid}/{path.name}"))
+        if not names:
+            raise RuntimeError(f"session directory has no files to export: {session_dir}")
+        tmp.replace(out_tar)
+        packed = True
+    except (OSError, tarfile.TarError) as exc:
+        raise RuntimeError(f"failed to pack session archive: {exc}") from exc
     finally:
-        try:
-            if link.is_symlink() or link.is_file():
-                link.unlink(missing_ok=True)
-            elif link.is_dir():
-                shutil.rmtree(link, ignore_errors=True)
-            if probe.is_dir():
-                try:
-                    probe.rmdir()
-                except OSError:
-                    shutil.rmtree(probe, ignore_errors=True)
-        except OSError:
-            logger.debug("cleanup of grok sessions probe failed", exc_info=True)
+        if not packed:
+            tmp.unlink(missing_ok=True)
 
 
-def grok_trace_member_paths(session_id: str) -> frozenset[str]:
-    """Archive member paths for the official core grok-trace files."""
-    sid = (session_id or "").strip() or "session"
-    return frozenset(f"{sid}/{name}" for name in _GROK_TRACE_CORE_FILES)
-
-
-def assert_grok_trace_archive_shape(trace_tar: Path, session_id: str) -> list[str]:
-    """Validate *trace_tar* is an official-shaped grok-trace archive.
+def assert_session_archive_shape(trace_tar: Path, session_id: str) -> list[str]:
+    """Validate *trace_tar* is a gzip archive rooted at ``<session_id>/``.
 
     :returns: Sorted member names inside the archive.
-    :raises RuntimeError: Layout does not match ``grok trace`` output.
+    :raises RuntimeError: Archive missing, empty, or not rooted at *session_id*.
     """
     sid = (session_id or "").strip() or "session"
     path = Path(trace_tar)
     if not path.is_file() or path.stat().st_size <= 0:
-        raise RuntimeError(f"grok-trace archive missing or empty: {path}")
+        raise RuntimeError(f"session archive missing or empty: {path}")
     try:
         with tarfile.open(path, "r:gz") as tf:
             names = [m.name for m in tf.getmembers() if m.name]
     except tarfile.TarError as exc:
-        raise RuntimeError(f"invalid grok-trace archive: {path}: {exc}") from exc
+        raise RuntimeError(f"invalid session archive: {path}: {exc}") from exc
 
     prefix = f"{sid}/"
     if not any(n == sid or n.startswith(prefix) for n in names):
         raise RuntimeError(
-            f"grok-trace archive must root under {sid}/ (got tops: "
+            f"session archive must root under {sid}/ (got tops: "
             f"{sorted({n.split('/')[0] for n in names})[:8]})"
         )
     foreign = sorted(
         {n.split("/")[0] for n in names if n and n != sid and not n.startswith(prefix)}
     )
     if foreign:
-        raise RuntimeError(f"grok-trace archive has unexpected top-level members: {foreign}")
-    missing = sorted(grok_trace_member_paths(sid) - set(names))
-    if missing:
-        raise RuntimeError(f"grok-trace archive missing official core files: {missing}")
+        raise RuntimeError(f"session archive has unexpected top-level members: {foreign}")
+    if not any(n.startswith(prefix) for n in names):
+        raise RuntimeError(f"session archive is empty under {sid}/")
     return sorted(names)
 
 
@@ -335,28 +278,26 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
         f"renderer: {spec.renderer}\n\n"
         f"Contents (when selected and present)\n"
         f"------------------------------------\n"
-        f"{GROK_TRACE_ARCHIVE_NAME}\n"
-        f"                 Nested archive from: grok trace --local {sid}\n"
-        f"                 (exact CLI bytes). Grok session files only — not\n"
-        f"                 anqa notes/run extras.\n\n"
-        f"run/             Eval launch artifacts under a work volume.\n"
+        f"{SESSION_ARCHIVE_NAME}\n"
+        f"                 Session directory files under {sid}/.\n"
+        f"                 Host workspace/ and terminal/ are omitted.\n\n"
         f"human/summary.*  Session overview (meta, counts, usage) in the\n"
         f"                 profile renderer dialect (.md / .org / .txt).\n"
         f"notes/           operator_notes.toml when notes exist.\n"
         f"                 Same store file: source plus every field.\n"
         f"                 Schema: ~/.anqa/notes_schema.toml (not bundled).\n"
-        f"children/<id>/{GROK_TRACE_ARCHIVE_NAME}\n"
-        f"                 Official grok-trace of each openable child.\n"
+        f"children/<id>/{SESSION_ARCHIVE_NAME}\n"
+        f"                 Session files of each openable child.\n"
         f"manifest.json    Inventory of this outer bundle.\n\n"
-        f"To recover the pure grok-trace archive (when included)::\n"
-        f"  tar -xzf <this-bundle>.tar.gz {GROK_TRACE_ARCHIVE_NAME}\n"
+        f"To recover the nested session archive (when included)::\n"
+        f"  tar -xzf <this-bundle>.tar.gz {SESSION_ARCHIVE_NAME}\n"
         f"  # or copy from a dir export\n"
     )
     (staging / "README.txt").write_text(text, encoding="utf-8")
 
 
 def _collect_child_traces(session_dir: Path, staging: Path) -> list[JsonObject]:
-    """Write ``children/<id>/grok-trace.tar.gz`` for each openable child."""
+    """Write ``children/<id>/session.tar.gz`` for each openable child."""
     timeline = parse_timeline(session_dir)
     segs = segment_timeline_turns(timeline)
     runs = subagent_runs_for_session(session_dir, timeline, segs, event_display_turn_map(segs))
@@ -369,35 +310,35 @@ def _collect_child_traces(session_dir: Path, staging: Path) -> list[JsonObject]:
         if child == parent:
             continue
         cid = run.child_session_id or run.subagent_id or child.name
-        dest = staging / "children" / cid / GROK_TRACE_ARCHIVE_NAME
+        dest = staging / "children" / cid / SESSION_ARCHIVE_NAME
         dest.parent.mkdir(parents=True, exist_ok=True)
-        build_grok_trace_archive(child, dest)
+        build_session_archive(child, dest)
         written.append(
             {
                 "sessionId": cid,
-                "member": f"children/{cid}/{GROK_TRACE_ARCHIVE_NAME}",
+                "member": f"children/{cid}/{SESSION_ARCHIVE_NAME}",
             }
         )
     return written
 
 
-def _assert_outer_layout(arcnames: list[str], *, sid: str, want_grok_trace: bool) -> None:
-    """Fail if the outer package drifts from the nested-grok-trace contract."""
-    if want_grok_trace:
-        if GROK_TRACE_ARCHIVE_NAME not in arcnames:
-            raise RuntimeError(f"export bundle missing {GROK_TRACE_ARCHIVE_NAME}")
+def _assert_outer_layout(arcnames: list[str], *, sid: str, want_session: bool) -> None:
+    """Fail if the outer package drifts from the nested session-archive contract."""
+    if want_session:
+        if SESSION_ARCHIVE_NAME not in arcnames:
+            raise RuntimeError(f"export bundle missing {SESSION_ARCHIVE_NAME}")
         nested_tars = [n for n in arcnames if n.endswith(".tar.gz")]
-        if GROK_TRACE_ARCHIVE_NAME not in nested_tars:
-            raise RuntimeError(f"export must embed {GROK_TRACE_ARCHIVE_NAME}")
-        extra = [n for n in nested_tars if n != GROK_TRACE_ARCHIVE_NAME]
+        if SESSION_ARCHIVE_NAME not in nested_tars:
+            raise RuntimeError(f"export must embed {SESSION_ARCHIVE_NAME}")
+        extra = [n for n in nested_tars if n != SESSION_ARCHIVE_NAME]
         prefix = "children/"
-        suffix = f"/{GROK_TRACE_ARCHIVE_NAME}"
+        suffix = f"/{SESSION_ARCHIVE_NAME}"
         bad = [n for n in extra if not (n.startswith(prefix) and n.endswith(suffix))]
         if bad:
             raise RuntimeError(f"unexpected nested archives: {bad}")
     if any(n == sid or n.startswith(f"{sid}/") for n in arcnames):
         raise RuntimeError(
-            f"session files must live inside {GROK_TRACE_ARCHIVE_NAME}, not outer {sid}/"
+            f"session files must live inside {SESSION_ARCHIVE_NAME}, not outer {sid}/"
         )
 
 
@@ -455,11 +396,10 @@ def export_session_bundle(
     """Build a session export from *session_dir* using an :class:`ExportSpec`.
 
     Default profile is :data:`~anqa.session.export_spec.DEFAULT_PROFILE_ID`
-    (``archive-full``): nested official ``grok-trace.tar.gz`` plus optional
-    anqa extras. Fails hard if the profile requests ``grok_trace`` and the
-    Grok CLI is unavailable.
+    (``archive-full``): nested ``session.tar.gz`` of the session files
+    plus optional anqa extras.
 
-    :param session_dir: Grok session directory (…/%2Fworkspace/<session_id>/).
+    :param session_dir: Session directory to pack.
     :param dest: Output path (``.tar.gz`` file or directory); default under
         :func:`~anqa.paths.reports_dir` according to packaging.
     :param spec: Explicit export recipe (wins over *profile*).
@@ -467,8 +407,8 @@ def export_session_bundle(
     :returns: :class:`ExportBundleResult` with the path written.
     :raises FileNotFoundError: Session directory missing.
     :raises KeyError: Unknown *profile*.
-    :raises RuntimeError: ``grok`` missing when required, CLI export failed,
-        archive invalid, or destination conflicts.
+    :raises RuntimeError: Archive invalid, empty session, or destination
+        conflicts.
     """
     session_dir = Path(session_dir).expanduser().resolve()
     if not session_dir.is_dir():
@@ -481,7 +421,7 @@ def export_session_bundle(
     else:
         out.parent.mkdir(parents=True, exist_ok=True)
 
-    want_trace = resolved.includes(IncludeUnit.GROK_TRACE)
+    want_trace = resolved.includes(IncludeUnit.SESSION)
     nested_members: list[str] = []
 
     with tempfile.TemporaryDirectory(prefix="anqa-bundle-") as tmp:
@@ -489,9 +429,9 @@ def export_session_bundle(
 
         child_members: list[JsonObject] = []
         if want_trace:
-            nested = staging / GROK_TRACE_ARCHIVE_NAME
-            build_grok_trace_archive(session_dir, nested)
-            nested_members = assert_grok_trace_archive_shape(nested, sid)
+            nested = staging / SESSION_ARCHIVE_NAME
+            build_session_archive(session_dir, nested)
+            nested_members = assert_session_archive_shape(nested, sid)
             child_members = _collect_child_traces(session_dir, staging)
 
         if resolved.includes(IncludeUnit.SUMMARY):
@@ -517,8 +457,8 @@ def export_session_bundle(
             (staging / "manifest.json").write_text("{}\n", encoding="utf-8")
 
         members = _staging_member_paths(staging, skip=skip_pack)
-        if want_trace and GROK_TRACE_ARCHIVE_NAME not in members:
-            raise RuntimeError(f"export missing nested {GROK_TRACE_ARCHIVE_NAME}")
+        if want_trace and SESSION_ARCHIVE_NAME not in members:
+            raise RuntimeError(f"export missing nested {SESSION_ARCHIVE_NAME}")
 
         if want_manifest:
             manifest: JsonObject = as_json_object(
@@ -532,8 +472,8 @@ def export_session_bundle(
                     "include": sorted(u.value for u in resolved.include),
                     "renderer": resolved.renderer,
                     "renderer_options": resolved.renderer_options,
-                    "grok_trace": GROK_TRACE_ARCHIVE_NAME if want_trace else None,
-                    "grok_trace_members": nested_members if want_trace else [],
+                    "session": SESSION_ARCHIVE_NAME if want_trace else None,
+                    "session_members": nested_members if want_trace else [],
                     "children": child_members,
                     "members": members,
                 }
@@ -551,7 +491,7 @@ def export_session_bundle(
         except OSError as exc:
             raise RuntimeError(f"failed to write export bundle: {out}: {exc}") from exc
 
-        _assert_outer_layout(arcnames, sid=sid, want_grok_trace=want_trace)
+        _assert_outer_layout(arcnames, sid=sid, want_session=want_trace)
 
     return ExportBundleResult(
         path=out.resolve(),
@@ -563,11 +503,10 @@ def export_session_bundle(
 
 
 __all__ = [
-    "GROK_TRACE_ARCHIVE_NAME",
+    "SESSION_ARCHIVE_NAME",
     "ExportBundleResult",
-    "assert_grok_trace_archive_shape",
-    "build_grok_trace_archive",
+    "assert_session_archive_shape",
+    "build_session_archive",
     "default_bundle_path",
     "export_session_bundle",
-    "grok_trace_member_paths",
 ]

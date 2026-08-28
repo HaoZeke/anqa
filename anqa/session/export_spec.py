@@ -34,7 +34,7 @@ class Packaging(StrEnum):
 class IncludeUnit(StrEnum):
     """Content units the exporter may collect into the staging tree."""
 
-    GROK_TRACE = "grok_trace"
+    SESSION = "session"
     SUMMARY = "summary"
     NOTES = "notes"
     README = "readme"
@@ -46,7 +46,7 @@ ALL_INCLUDE_UNITS: frozenset[IncludeUnit] = frozenset(IncludeUnit)
 
 # Default archive profile ≈ cleaned export behaviour after the hygiene pass.
 ARCHIVE_FULL_INCLUDE: tuple[IncludeUnit, ...] = (
-    IncludeUnit.GROK_TRACE,
+    IncludeUnit.SESSION,
     IncludeUnit.SUMMARY,
     IncludeUnit.NOTES,
     IncludeUnit.README,
@@ -54,7 +54,7 @@ ARCHIVE_FULL_INCLUDE: tuple[IncludeUnit, ...] = (
 )
 
 TRACE_ONLY_INCLUDE: tuple[IncludeUnit, ...] = (
-    IncludeUnit.GROK_TRACE,
+    IncludeUnit.SESSION,
     IncludeUnit.README,
     IncludeUnit.MANIFEST,
 )
@@ -160,7 +160,7 @@ def builtin_profiles() -> dict[str, ExportSpec]:
     archive = ExportSpec(
         profile_id=DEFAULT_PROFILE_ID,
         name="Archive (full)",
-        description="Official grok-trace nest plus anqa run/notes extras.",
+        description="Session-file nest plus anqa notes and summary extras.",
         packaging=Packaging.TAR_GZ,
         include=frozenset(ARCHIVE_FULL_INCLUDE),
         renderer="markdown",
@@ -176,7 +176,7 @@ def builtin_profiles() -> dict[str, ExportSpec]:
     trace = ExportSpec(
         profile_id="trace-only",
         name="Trace only",
-        description="Nested grok-trace.tar.gz only (plus readme/manifest).",
+        description="Nested session-file archive only (plus readme/manifest).",
         packaging=Packaging.TAR_GZ,
         include=frozenset(TRACE_ONLY_INCLUDE),
         renderer="markdown",

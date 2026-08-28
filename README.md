@@ -206,7 +206,7 @@ turn. Enter opens (or edits the focused note).
 
 `E` on the list or browser writes a session bundle under
 `~/.anqa/reports/` (profile in `export.default_profile`, or pick once).
-A parent bundle includes `children/<id>/grok-trace.tar.gz` for each
+A parent bundle includes `children/<id>/session.tar.gz` for each
 openable child. Exporting an opened child is that child only.
 ### Catalog search
 

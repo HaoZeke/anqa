@@ -26,13 +26,13 @@ def test_builtin_archive_full_and_trace_only() -> None:
     full = profiles[DEFAULT_PROFILE_ID]
     assert full.packaging is Packaging.TAR_GZ
     assert full.renderer == "markdown"
-    assert IncludeUnit.GROK_TRACE in full.include
+    assert IncludeUnit.SESSION in full.include
     assert IncludeUnit.SUMMARY in full.include
     org = profiles["archive-org"]
     assert org.renderer == "org"
     assert IncludeUnit.SUMMARY in org.include
     trace = profiles["trace-only"]
-    assert IncludeUnit.GROK_TRACE in trace.include
+    assert IncludeUnit.SESSION in trace.include
 
 
 def test_user_profile_overrides_builtin(tmp_path: Path) -> None:
@@ -44,7 +44,7 @@ def test_user_profile_overrides_builtin(tmp_path: Path) -> None:
                 "id": "archive-full",
                 "name": "Custom full",
                 "packaging": "dir",
-                "include": ["grok_trace", "manifest"],
+                "include": ["session", "manifest"],
                 "renderer": "markdown",
             }
         ),
@@ -54,7 +54,7 @@ def test_user_profile_overrides_builtin(tmp_path: Path) -> None:
     spec = profiles["archive-full"]
     assert spec.name == "Custom full"
     assert spec.packaging is Packaging.DIR
-    assert spec.include == frozenset({IncludeUnit.GROK_TRACE, IncludeUnit.MANIFEST})
+    assert spec.include == frozenset({IncludeUnit.SESSION, IncludeUnit.MANIFEST})
 
 
 def test_get_export_profile_unknown() -> None:
@@ -75,7 +75,7 @@ def test_save_and_reload_profile(tmp_path: Path) -> None:
     loaded = get_export_profile("my-review", profiles_dir=tmp_path)
     assert loaded.packaging is Packaging.DIR
     assert IncludeUnit.NOTES in loaded.include
-    assert IncludeUnit.GROK_TRACE not in loaded.include
+    assert IncludeUnit.SESSION not in loaded.include
 
 
 def test_default_profile_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
