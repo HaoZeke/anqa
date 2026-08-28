@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from anqa.harness import (
+from anqa.harness.grok import (
     GROK_HARNESS_ID,
     GrokAdapter,
     discover,

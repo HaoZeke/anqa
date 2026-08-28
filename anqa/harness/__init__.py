@@ -1,19 +1,11 @@
 """Per-harness disk adapters.
 
-Each store implements the same contract. ``grok`` is the shipped adapter.
+Each store implements the same contract. Import a shipped adapter from
+its module (``anqa.harness.grok``). Catalog code uses the factory here.
 """
 
 from __future__ import annotations
 
-from .grok import (
-    GROK_HARNESS_ID,
-    GrokAdapter,
-    discover,
-    load_meta,
-    looks_like,
-    parse_timeline,
-    watch_hints,
-)
 from .ref import HARNESS_IDS, SessionRef, parse_session_ref_string
 from .registry import (
     adapter,
@@ -25,20 +17,13 @@ from .registry import (
 )
 
 __all__ = [
-    "GROK_HARNESS_ID",
     "HARNESS_IDS",
-    "GrokAdapter",
     "SessionRef",
     "adapter",
     "adapter_for",
     "adapters",
     "discover_dirs",
-    "discover",
-    "load_meta",
-    "looks_like",
     "parse_session_ref_string",
-    "parse_timeline",
     "require_adapter",
     "resolve_session_ref",
-    "watch_hints",
 ]

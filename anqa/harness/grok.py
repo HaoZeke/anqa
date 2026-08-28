@@ -14,11 +14,11 @@ from pathlib import Path
 
 from ..fs_watch import TRACE_FILE_HINTS
 from ..models import JsonObject, SessionMeta, TraceEvent, json_as_str
-from ..session.sources import ORIGIN_HOST, collect_host_session_dirs
+from ..session.sources import collect_host_session_dirs
 from .grok_parse import _looks_like_session_dir, find_sessions, load_session_meta_list
 from .grok_parse import parse_timeline as parse_grok_timeline
 from .grok_paths import default_sessions_root
-from .ref import SessionRef
+from .ref import ORIGIN_HOST, SessionRef
 
 GROK_HARNESS_ID = "grok"
 
