@@ -44,3 +44,6 @@ class HarnessAdapter(Protocol):
 
     def watch_hints(self) -> tuple[str, ...]:
         """Basenames whose mtime should refresh the catalog / browser."""
+
+    def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
+        """Write the native session archive to *dest*. Return member names."""

@@ -63,8 +63,8 @@ harness store. Grok Build (`grok`) is registered today.
 - Diff lists rewind snapshots, Prompt/Assistant tabs, and a files/hunk
   split. `/` finds path or hunk text.
 - `y` copies the selection or the pane body.
-- `E` writes a session bundle under `~/.anqa/reports/` from the
-  session files on disk.
+- `E` writes a session bundle under `~/.anqa/reports/`. The nested
+  archive comes from the session's harness adapter.
 
 ### Desktop HUD
 

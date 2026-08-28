@@ -19,6 +19,8 @@ A shipped adapter does all of this:
 5. **Catalog filter** `harness:<id>` on every client.
 6. **Notes** on the session: in-tree for a directory locator, or
    `~/.anqa/notes/<harness>/<session_id>/` for a file or database.
+7. **Write archive** (`write_archive`) so `E` can nest the native
+   session files. Anqa adds notes, summary, and the manifest.
 
 Next prompt, end session, rewind, and the context meter appear when
 that store writes the files those actions read. Missing product data

@@ -43,7 +43,7 @@ def test_discover_host_root_uses_shallow_collector(tmp_path: Path, monkeypatch) 
     sess.mkdir(parents=True)
     (sess / "summary.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
-        "anqa.session.sources.host_grok_sessions_root",
+        "anqa.harness.grok.default_sessions_root",
         lambda: host,
     )
     found = discover([host])
@@ -78,6 +78,27 @@ def test_parse_timeline_minimal_session() -> None:
     assert all(isinstance(ev, TraceEvent) for ev in events)
 
 
+def test_write_archive_packs_session_files(tmp_path: Path) -> None:
+    """Grok adapter writes the session directory (workspace/terminal omitted)."""
+    import tarfile
+
+    sd = _write_summary_session(tmp_path, "pack-sid")
+    (sd / "events.jsonl").write_text('{"type":"x"}\n', encoding="utf-8")
+    (sd / "workspace" / "src").mkdir(parents=True)
+    (sd / "workspace" / "src" / "a.py").write_text("x\n", encoding="utf-8")
+    (sd / "terminal" / "1").mkdir(parents=True)
+    (sd / "terminal" / "1" / "out").write_text("y\n", encoding="utf-8")
+    dest = tmp_path / "sess.tar.gz"
+    members = GrokAdapter().write_archive(sd, dest)
+    assert f"pack-sid/summary.json" in members
+    assert f"pack-sid/events.jsonl" in members
+    assert not any("workspace" in n for n in members)
+    assert not any("terminal" in n for n in members)
+    with tarfile.open(dest, "r:gz") as tf:
+        names = set(tf.getnames())
+    assert names == set(members)
+
+
 def test_watch_hints_include_updates_jsonl() -> None:
     assert "updates.jsonl" in watch_hints()
 
@@ -85,7 +106,7 @@ def test_watch_hints_include_updates_jsonl() -> None:
 def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = _write_summary_session(host / "%2Fproj", "host-sid")
-    monkeypatch.setattr("anqa.harness.grok.host_grok_sessions_root", lambda: host)
+    monkeypatch.setattr("anqa.harness.grok.default_sessions_root", lambda: host)
     adapter = GrokAdapter()
     bound = adapter.bind_locator(sess)
     assert bound is not None

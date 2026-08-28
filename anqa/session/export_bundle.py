@@ -46,11 +46,8 @@ from .turns import event_display_turn_map, segment_timeline_turns
 
 logger = logging.getLogger(__name__)
 
-# Nested member: session-directory archive inside the operator export bundle.
+# Nested member: adapter session archive inside the operator export bundle.
 SESSION_ARCHIVE_NAME = "session.tar.gz"
-
-# Host planes on a session directory; not part of the inspectable trace.
-_TRACE_SKIP_DIRS = frozenset({"workspace", "terminal"})
 
 # Manifest schema for this outer bundle layout (bump when fields/layout change).
 _MANIFEST_SCHEMA = 9
@@ -88,37 +85,24 @@ def _session_id(session_dir: Path) -> str:
     return Path(session_dir).name.strip() or "session"
 
 
-def build_session_archive(session_dir: Path, out_tar: Path) -> None:
-    """Write *out_tar* from files in *session_dir* (``<session_id>/…``).
+def build_session_archive(session_dir: Path, out_tar: Path) -> list[str]:
+    """Ask the session's harness adapter to write the native archive.
 
-    Skips ``workspace/`` and ``terminal/`` (host planes, not the trace).
-
-    :raises RuntimeError: Session missing, empty, or archive write failed.
+    :raises RuntimeError: No adapter, empty archive, or write failed.
     """
-    sid = _session_id(session_dir)
-    session_dir = Path(session_dir).expanduser().resolve()
-    if not session_dir.is_dir():
-        raise RuntimeError(f"session directory not found: {session_dir}")
-    out_tar = Path(out_tar)
-    out_tar.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out_tar.with_name(out_tar.name + ".tmp")
-    packed = False
-    try:
-        names: list[str] = []
-        with tarfile.open(tmp, "w:gz") as tf:
-            for path in sorted(session_dir.iterdir()):
-                if path.name in _TRACE_SKIP_DIRS:
-                    continue
-                names.extend(_add_tree(tf, path, f"{sid}/{path.name}"))
-        if not names:
-            raise RuntimeError(f"session directory has no files to export: {session_dir}")
-        tmp.replace(out_tar)
-        packed = True
-    except (OSError, tarfile.TarError) as exc:
-        raise RuntimeError(f"failed to pack session archive: {exc}") from exc
-    finally:
-        if not packed:
-            tmp.unlink(missing_ok=True)
+    from ..harness.registry import adapter, ref_from_path
+
+    session_dir = Path(session_dir).expanduser()
+    ref = ref_from_path(session_dir)
+    if ref is None:
+        raise RuntimeError(f"no adapter for session: {session_dir}")
+    item = adapter(ref.harness)
+    if item is None:
+        raise RuntimeError(f"unknown harness: {ref.harness}")
+    members = item.write_archive(ref, out_tar)
+    if not Path(out_tar).is_file() or Path(out_tar).stat().st_size <= 0:
+        raise RuntimeError(f"adapter wrote empty archive: {out_tar}")
+    return members
 
 
 def assert_session_archive_shape(trace_tar: Path, session_id: str) -> list[str]:
@@ -430,8 +414,8 @@ def export_session_bundle(
         child_members: list[JsonObject] = []
         if want_trace:
             nested = staging / SESSION_ARCHIVE_NAME
-            build_session_archive(session_dir, nested)
-            nested_members = assert_session_archive_shape(nested, sid)
+            nested_members = build_session_archive(session_dir, nested)
+            assert_session_archive_shape(nested, sid)
             child_members = _collect_child_traces(session_dir, staging)
 
         if resolved.includes(IncludeUnit.SUMMARY):

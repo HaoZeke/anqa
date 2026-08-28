@@ -8,6 +8,7 @@ those APIs.
 from __future__ import annotations
 
 import os
+import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -15,15 +16,30 @@ from ..fs_watch import TRACE_FILE_HINTS
 from ..models import SessionMeta, TraceEvent
 from ..parser import _looks_like_session_dir, find_sessions, load_session_meta_list
 from ..parser import parse_timeline as parse_grok_timeline
-from ..session.sources import (
-    ORIGIN_HOST,
-    collect_host_session_dirs,
-    host_grok_sessions_root,
-    is_host_grok_sessions_root,
-)
+from ..session.sources import ORIGIN_HOST, collect_host_session_dirs
 from .ref import SessionRef
 
 GROK_HARNESS_ID = "grok"
+
+# Host planes on a session directory; not part of the inspectable trace.
+_ARCHIVE_SKIP_DIRS = frozenset({"workspace", "terminal"})
+
+
+def default_sessions_root() -> Path:
+    """Native Grok Build store: ``~/.grok/sessions``."""
+    return Path.home() / ".grok" / "sessions"
+
+
+def _resolved(path: Path) -> Path:
+    p = Path(path).expanduser()
+    try:
+        return p.resolve()
+    except OSError:
+        return p
+
+
+def _is_native_store(root: Path) -> bool:
+    return _resolved(root) == _resolved(default_sessions_root())
 
 
 def _ref_for_dir(path: Path) -> SessionRef:
@@ -56,7 +72,7 @@ def discover(roots: Sequence[Path | str]) -> list[SessionRef]:
     seen: set[str] = set()
     for raw in roots:
         root = Path(raw).expanduser()
-        if is_host_grok_sessions_root(root):
+        if _is_native_store(root):
             dirs = collect_host_session_dirs(root)
         else:
             dirs = find_sessions(root)
@@ -138,7 +154,7 @@ class GrokAdapter:
     supported_version: str = "1.0.5"
 
     def default_host_roots(self) -> list[Path]:
-        return [host_grok_sessions_root()]
+        return [default_sessions_root()]
 
     def discover(self, roots: Sequence[Path | str] | None = None) -> list[SessionRef]:
         return discover(self.default_host_roots() if roots is None else roots)
@@ -176,13 +192,79 @@ class GrokAdapter:
     def watch_hints(self) -> tuple[str, ...]:
         return watch_hints()
 
+    def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
+        path = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        return write_directory_archive(path, dest)
+
+
+def _add_archive_tree(tf: tarfile.TarFile, src: Path, arc_prefix: str) -> list[str]:
+    names: list[str] = []
+    src = Path(src)
+    if not src.exists():
+        return names
+    if src.is_file():
+        arc = arc_prefix.rstrip("/")
+        tf.add(src, arcname=arc)
+        names.append(arc)
+        return names
+    for path in sorted(src.rglob("*")):
+        if path.is_symlink() or path.is_file():
+            rel = path.relative_to(src).as_posix()
+            arc = f"{arc_prefix.rstrip('/')}/{rel}"
+            tf.add(path, arcname=arc)
+            names.append(arc)
+        elif path.is_dir() and not any(path.iterdir()):
+            rel = path.relative_to(src).as_posix()
+            arc = f"{arc_prefix.rstrip('/')}/{rel}"
+            tf.add(path, arcname=arc)
+            names.append(arc)
+    return names
+
+
+def write_directory_archive(session_dir: Path, dest: Path) -> list[str]:
+    """Pack *session_dir* into *dest* as ``<session_id>/…`` (gzip tar).
+
+    Omits ``workspace/`` and ``terminal/``.
+    """
+    sid = Path(session_dir).name.strip() or "session"
+    session_dir = Path(session_dir).expanduser()
+    try:
+        session_dir = session_dir.resolve()
+    except OSError:
+        pass
+    if not session_dir.is_dir():
+        raise RuntimeError(f"session directory not found: {session_dir}")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".tmp")
+    packed = False
+    try:
+        names: list[str] = []
+        with tarfile.open(tmp, "w:gz") as tf:
+            for path in sorted(session_dir.iterdir()):
+                if path.name in _ARCHIVE_SKIP_DIRS:
+                    continue
+                names.extend(_add_archive_tree(tf, path, f"{sid}/{path.name}"))
+        if not names:
+            raise RuntimeError(f"session directory has no files to export: {session_dir}")
+        tmp.replace(dest)
+        packed = True
+    except (OSError, tarfile.TarError) as exc:
+        raise RuntimeError(f"failed to pack session archive: {exc}") from exc
+    finally:
+        if not packed:
+            tmp.unlink(missing_ok=True)
+    return names
+
 
 __all__ = [
     "GROK_HARNESS_ID",
     "GrokAdapter",
+    "default_sessions_root",
     "discover",
     "load_meta",
     "looks_like",
     "parse_timeline",
     "watch_hints",
+    "write_directory_archive",
 ]
