@@ -84,11 +84,13 @@ def test_trace_event_from_wire_loads_user_image(tmp_path: Path) -> None:
             "type": "user_message_chunk",
             "content": "was this broken? [Image #1]",
             "imagePath": str(dest),
+            "imagePaths": [str(dest)],
             "index": 1,
         }
     )
     assert ev.content == "was this broken? [Image #1]"
     assert ev.images == [png]
+    assert ev.still_paths == [str(dest)]
 
 
 def test_session_meta_from_overview(tmp_path: Path) -> None:

@@ -6,11 +6,21 @@ Shared so parse, control mapping, and the TUI detail pane agree on
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from .models import JsonObject, JsonValue, as_json_object, json_as_str
+
+_STILL_SUFFIX = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+_STILL_TOOLS = frozenset({"image_gen", "image_edit"})
+_IMAGE_MARK = re.compile(r"\s*\[Image #\d+\]")
+_STILL_REF = re.compile(
+    r"(?<![\w./])((?:images/)?[\w.-]+\.(?:png|jpe?g|gif|webp))",
+    re.IGNORECASE,
+)
 
 # Action family for tool-name color (TUI + HUD). Stored ids stay snake_case.
 _TOOL_FAMILY_READ = frozenset(
@@ -113,7 +123,7 @@ def format_tool_display(name: str) -> str:
 
 def list_event_preview(summary: str, tool_name: str = "") -> str:
     """Timeline summary text: same words as ``summary_line``, tool id humanized."""
-    s = (summary or "").strip()
+    s = display_message_text(summary or "")
     n = (tool_name or "").strip()
     if n and s.startswith(n):
         rest = s[len(n) :].lstrip()
@@ -360,6 +370,71 @@ def image_result_path(content: str, raw_output: object | None = None) -> str:
     return path
 
 
+def display_message_text(text: str) -> str:
+    """Operator-facing message text without Grok ``[Image #N]`` tokens."""
+    cleaned = _IMAGE_MARK.sub("", text or "")
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+def cache_still_bytes(blob: bytes) -> Path:
+    """Write pasted still bytes into the app cache; return the file path."""
+    from .paths import cache_dir
+
+    digest = hashlib.sha256(blob).hexdigest()[:24]
+    dest = cache_dir() / "images" / f"{digest}.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.is_file():
+        dest.write_bytes(blob)
+    return dest
+
+
+def _add_still(out: list[Path], seen: set[str], path: Path, *, require_file: bool) -> None:
+    try:
+        key = str(path.expanduser().resolve()) if path.exists() else str(path.expanduser())
+    except OSError:
+        key = str(path)
+    if key in seen:
+        return
+    if require_file and not path.is_file():
+        return
+    if path.suffix.lower() not in _STILL_SUFFIX and require_file:
+        return
+    if path.suffix.lower() not in _STILL_SUFFIX and path.suffix:
+        return
+    seen.add(key)
+    out.append(path)
+
+
+def event_still_paths(
+    content: str,
+    *,
+    tool_name: str = "",
+    images: Sequence[bytes] = (),
+    session_dir: Path | None = None,
+    extra_paths: Sequence[str] = (),
+) -> list[Path]:
+    """Still files for one event: paste cache, tool result, session ``images/``."""
+    found: list[Path] = []
+    seen: set[str] = set()
+    for blob in images:
+        if blob:
+            _add_still(found, seen, cache_still_bytes(blob), require_file=True)
+    tname = (tool_name or "").strip()
+    if tname in _STILL_TOOLS:
+        raw = image_result_path(content)
+        if raw:
+            _add_still(found, seen, Path(raw).expanduser(), require_file=False)
+    if session_dir is not None:
+        root = Path(session_dir)
+        for ref in _STILL_REF.findall(content or ""):
+            _add_still(found, seen, root / ref, require_file=True)
+    for raw in extra_paths:
+        text = (raw or "").strip()
+        if text:
+            _add_still(found, seen, Path(text).expanduser(), require_file=False)
+    return found
+
+
 def image_result_message(content: str) -> str:
     """Human message from image-result JSON, if present."""
     s = (content or "").strip()
@@ -499,7 +574,10 @@ def preserve_primary_raw_input(raw: JsonObject, max_chars: int) -> JsonObject:
 
 
 __all__ = [
+    "cache_still_bytes",
+    "display_message_text",
     "display_tool_output",
+    "event_still_paths",
     "image_result_message",
     "image_result_path",
     "looks_like_numbered_file",

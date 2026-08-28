@@ -223,7 +223,18 @@ fn session_state_from_meta(
     )
 }
 
-fn tool_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+fn still_paths(ev: &TimelineEvent) -> Vec<String> {
+    if !ev.image_paths.is_empty() {
+        return ev.image_paths.clone();
+    }
+    if ev.image_path.is_empty() {
+        Vec::new()
+    } else {
+        vec![ev.image_path.clone()]
+    }
+}
+
+fn still_image(path: &str, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let a11y = A11y::new(path.to_string(), Role::Image);
     if std::path::Path::new(path).is_file() {
         icedtea::widget::image_slot(
@@ -2882,23 +2893,27 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             result.tool_name.as_str()
         };
         let out_body = sanitize_console_text(&display_tool_output(&result.content, out_tool));
-        let img = if !result.image_path.is_empty() {
-            result.image_path.clone()
-        } else {
-            image_result_path(&result.content)
-        };
-        if !img.is_empty() {
+        let mut imgs = still_paths(result);
+        if imgs.is_empty() {
+            let from_content = image_result_path(&result.content);
+            if !from_content.is_empty() {
+                imgs.push(from_content);
+            }
+        }
+        if !imgs.is_empty() {
             col = col.push(icedtea::widget::meta(
                 "Output",
                 tok,
                 A11y::new("Output", Role::Header),
             ));
-            col = col.push(icedtea::widget::meta(
-                img.clone(),
-                hud.tokens(),
-                A11y::new(img.clone(), Role::Status),
-            ));
-            col = col.push(tool_image(&img, hud.tokens()));
+            for img in imgs {
+                col = col.push(icedtea::widget::meta(
+                    img.clone(),
+                    hud.tokens(),
+                    A11y::new(img.clone(), Role::Status),
+                ));
+                col = col.push(still_image(&img, hud.tokens()));
+            }
         } else if !out_body.trim().is_empty() {
             let out_syn = syntax_for_tool_output(out_tool, &path_hint, &out_body);
             col = col.push(icedtea::widget::meta(
@@ -2927,6 +2942,9 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             &field_id,
             "",
         ));
+        for img in still_paths(ev) {
+            col = col.push(still_image(&img, hud.tokens()));
+        }
     }
     col.into()
 }
@@ -3004,7 +3022,7 @@ fn render_payload_text<'a>(
             let syn = if syn.is_empty() { "txt" } else { syn };
             code_inset(hud, field_id, &cut, syn, true, hud.tokens())
         }
-        BodyPaint::Image => tool_image(trimmed, hud.tokens()),
+        BodyPaint::Image => still_image(trimmed, hud.tokens()),
         BodyPaint::Markdown => {
             let md = markdown_bound(hud, field_id.to_string(), &cut, hud.tokens());
             if is_chat_message(kind, event_type) || kind == "subagent" {
@@ -3369,13 +3387,25 @@ mod tests {
     }
 
     #[test]
-    fn tool_image_uses_slot_for_missing_and_present_files() {
-        let missing = tool_image("/no/such/anqa-hud-image.png", tea());
+    fn still_image_uses_slot_for_missing_and_present_files() {
+        let missing = still_image("/no/such/anqa-hud-image.png", tea());
         let _ = missing;
         let path = std::env::temp_dir().join("anqa-hud-tool-image.txt");
         std::fs::write(&path, b"px").expect("temp image stand-in");
-        let _ = tool_image(path.to_str().expect("utf8 path"), tea());
+        let _ = still_image(path.to_str().expect("utf8 path"), tea());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn still_paths_prefers_image_paths_then_image_path() {
+        let mut ev = TimelineEvent::default();
+        ev.image_path = "/tmp/a.png".into();
+        assert_eq!(still_paths(&ev), vec!["/tmp/a.png".to_string()]);
+        ev.image_paths = vec!["/tmp/b.png".into(), "/tmp/c.png".into()];
+        assert_eq!(
+            still_paths(&ev),
+            vec!["/tmp/b.png".to_string(), "/tmp/c.png".to_string()]
+        );
     }
 
     #[test]

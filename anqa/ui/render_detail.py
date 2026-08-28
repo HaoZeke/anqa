@@ -35,7 +35,9 @@ from ..session.subagents import (
 )
 from ..session.workflows import WorkflowRun, workflow_name_from_raw
 from ..tool_display import (
+    display_message_text,
     display_tool_output,
+    event_still_paths,
     format_tool_display,
     image_result_message,
     image_result_path,
@@ -66,6 +68,7 @@ class DetailSection:
     title: str
     body: RenderableType
     image_path: str = ""
+    image_paths: tuple[str, ...] = ()
     image_bytes: bytes = b""
 
 
@@ -1191,10 +1194,7 @@ def _tool_output_card(out: str, tname: str, path_hint: str, *, truncate: bool) -
                 title = str(raw)
             continue
         body.append(part)
-    image_path = ""
-    if tname in ("image_gen", "image_edit"):
-        image_path = image_result_path(out)
-    return DetailSection("output", title, _stack(body), image_path=image_path)
+    return DetailSection("output", title, _stack(body))
 
 
 def _tool_event_sections(
@@ -1247,9 +1247,22 @@ def _tool_event_sections(
     sections.append(DetailSection("input", t("ui-input"), _stack(inp)))
     if (out or "").strip() or tname in ("image_gen", "image_edit"):
         sections.append(_tool_output_card(out, tname, _path_hint(ri), truncate=truncate))
-        img_path = image_result_path(out) if tname in ("image_gen", "image_edit") else ""
-        if img_path:
-            sections.append(DetailSection("image", t("ui-image"), Text(""), image_path=img_path))
+    stills = event_still_paths(
+        out or ev.content,
+        tool_name=tname,
+        images=ev.images,
+        extra_paths=ev.still_paths,
+    )
+    if stills:
+        sections.append(
+            DetailSection(
+                "image",
+                t("ui-image"),
+                Text(""),
+                image_path=str(stills[0]),
+                image_paths=tuple(str(p) for p in stills),
+            )
+        )
     return sections
 
 
@@ -1418,13 +1431,27 @@ def event_detail_sections(
         return sections
     if ev.event_type in et.MESSAGE_TYPES:
         title = ev.type_label or ev.event_type.replace("_", " ")
-        if body.strip():
-            sections.append(DetailSection("message", title, _message_body(body, ev)))
-        if ev.images:
+        shown = display_message_text(body)
+        if shown.strip():
+            sections.append(DetailSection("message", title, _message_body(shown, ev)))
+        stills = event_still_paths(
+            ev.content,
+            tool_name=ev.tool_name,
+            images=ev.images,
+            session_dir=session_dir,
+            extra_paths=ev.still_paths,
+        )
+        if stills:
             sections.append(
-                DetailSection("image", t("ui-image"), Text(""), image_bytes=ev.images[0])
+                DetailSection(
+                    "image",
+                    t("ui-image"),
+                    Text(""),
+                    image_path=str(stills[0]),
+                    image_paths=tuple(str(p) for p in stills),
+                )
             )
-        if body.strip() or ev.images:
+        if shown.strip() or stills:
             return sections
     if ev.event_type == "plan":
         sections.append(DetailSection("plan", t("ui-plan"), _message_body(body, ev)))

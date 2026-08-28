@@ -932,6 +932,11 @@ ContentSwitcher {
     padding: 0;
 }
 
+#detail-images {
+    height: auto;
+}
+
+#detail-images .detail-still,
 #detail-image {
     width: 100%;
     height: auto;

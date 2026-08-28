@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent
 from ..notes import notes_snapshot
 from ..session.catalog import catalog_row_sort_epoch
@@ -282,6 +284,7 @@ def session_timeline(
                 ev,
                 content_chars=cc,
                 turn_index=turn_by_index.get(int(ev.index)),
+                session_dir=Path(ref.locator),
             )
             for ev in page
         ],

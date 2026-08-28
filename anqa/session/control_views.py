@@ -6,7 +6,6 @@ Pure domain loaders → JSON-RPC payloads. No Textual. Used by
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import threading
 from collections import Counter
@@ -32,8 +31,9 @@ from ..session.turns import (
     segment_timeline_turns,
 )
 from ..tool_display import (
+    display_message_text,
     display_tool_output,
-    image_result_path,
+    event_still_paths,
     job_list_preview,
     list_event_preview,
     preserve_primary_raw_input,
@@ -188,23 +188,12 @@ def session_meta_mapping(
     }
 
 
-def _cached_pasted_image(blob: bytes) -> Path:
-    """Write pasted image bytes into the app cache; return the file path."""
-    from ..paths import cache_dir
-
-    digest = hashlib.sha256(blob).hexdigest()[:24]
-    dest = cache_dir() / "images" / f"{digest}.png"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if not dest.is_file():
-        dest.write_bytes(blob)
-    return dest
-
-
 def timeline_event_mapping(
     event: TraceEvent,
     *,
     content_chars: int = DEFAULT_CONTENT_CHARS,
     turn_index: int | None = None,
+    session_dir: Path | None = None,
 ) -> JsonObject:
     """Serialize one timeline event for ``session/timeline`` / overview.
 
@@ -215,7 +204,7 @@ def timeline_event_mapping(
     cap = max(0, min(int(content_chars), MAX_CONTENT_CHARS))
     content_raw = event.content if isinstance(event.content, str) else str(event.content or "")
     # Strip outer harness tags for display (keep raw length for truncation meta).
-    content = unwrap_for_display(content_raw)
+    content = display_message_text(unwrap_for_display(content_raw))
     tname = (event.tool_name or "").strip()
     content = display_tool_output(content, tool_name=tname)
     truncated = len(content) > cap
@@ -276,11 +265,15 @@ def timeline_event_mapping(
         preview = list_event_preview(event.summary_line, tname)[:200]
     fields = tool_input_fields(tname, raw_map, max_chars=cap) if raw_map else []
     tool_fields: list[JsonValue] = list(fields)
-    img_path = image_result_path(content_raw, None) if tname in ("image_gen", "image_edit") else ""
-    if not img_path and tname in ("image_gen", "image_edit"):
-        img_path = image_result_path(body)
-    if not img_path and event.images:
-        img_path = str(_cached_pasted_image(event.images[0]))
+    stills = event_still_paths(
+        content_raw,
+        tool_name=tname,
+        images=event.images,
+        session_dir=session_dir,
+        extra_paths=event.still_paths,
+    )
+    img_paths: list[JsonValue] = [str(path) for path in stills]
+    img_path = str(img_paths[0]) if img_paths else ""
     row: JsonObject = {
         "index": int(event.index),
         "type": event.event_type or "",
@@ -304,6 +297,7 @@ def timeline_event_mapping(
         "rawInput": raw,
         "toolFields": tool_fields,
         "imagePath": img_path,
+        "imagePaths": img_paths,
     }
     extra = event_subagent_fields(event)
     if extra:
@@ -701,6 +695,7 @@ def build_session_timeline(
             ev,
             content_chars=content_chars,
             turn_index=turn_by_index.get(int(ev.index)),
+            session_dir=sd,
         )
         child = event_child_session_id(ev)
         ident = spawn_ident.get(child) if child else None

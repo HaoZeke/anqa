@@ -305,6 +305,42 @@ def test_timeline_mapping_strips_prefixes_and_exposes_fields(tmp_path: Path) -> 
     assert "/tmp/x.py" in str(fields[0]["value"])
 
 
+def test_display_message_text_drops_image_placeholder() -> None:
+    from anqa.tool_display import display_message_text
+
+    assert display_message_text("make a copy of this [Image #1]") == "make a copy of this"
+    assert display_message_text("[Image #2] only") == "only"
+    assert display_message_text("plain") == "plain"
+
+
+def test_event_still_paths_collects_paste_session_and_tool(tmp_path: Path) -> None:
+    from anqa.tool_display import event_still_paths
+
+    png = tmp_path / "paste.png"
+    png.write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00"
+        b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    session = tmp_path / "sess"
+    (session / "images").mkdir(parents=True)
+    shot = session / "images" / "2.jpg"
+    shot.write_bytes(png.read_bytes())
+    tool = tmp_path / "out.png"
+    tool.write_bytes(png.read_bytes())
+    found = event_still_paths(
+        "Two takes\n\n[images/2.jpg](images/2.jpg)",
+        tool_name="image_edit",
+        images=[png.read_bytes()],
+        session_dir=session,
+        extra_paths=[str(tool)],
+    )
+    keys = {p.resolve() for p in found}
+    assert shot.resolve() in keys
+    assert tool.resolve() in keys
+    assert any(p.is_file() and p.stat().st_size > 0 for p in found)
+
+
 def test_timeline_mapping_image_path(tmp_path: Path) -> None:
     from anqa.models import TraceEvent
 
@@ -322,6 +358,29 @@ def test_timeline_mapping_image_path(tmp_path: Path) -> None:
     )
     row = timeline_event_mapping(ev)
     assert row["imagePath"] == "/tmp/img.jpg"
+    assert row["imagePaths"] == ["/tmp/img.jpg"]
+
+
+def test_timeline_mapping_strips_placeholder_and_lists_paste(tmp_path: Path) -> None:
+    from anqa.models import TraceEvent
+
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00"
+        b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    ev = TraceEvent(
+        index=2,
+        event_type="user_message_chunk",
+        content="make a copy of this [Image #1]",
+        images=[png],
+    )
+    row = timeline_event_mapping(ev)
+    assert row["content"] == "make a copy of this"
+    assert "[Image #" not in str(row["preview"])
+    assert row["imagePath"]
+    assert row["imagePaths"] == [row["imagePath"]]
+    assert Path(str(row["imagePath"])).is_file()
 
 
 def test_job_list_preview_is_command_not_event_type() -> None:

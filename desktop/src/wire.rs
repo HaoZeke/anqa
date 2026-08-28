@@ -390,6 +390,8 @@ pub struct TimelineEvent {
     #[serde(default)]
     pub image_path: String,
     #[serde(default)]
+    pub image_paths: Vec<String>,
+    #[serde(default)]
     pub match_field: String,
     #[serde(default)]
     pub match_snippet: String,

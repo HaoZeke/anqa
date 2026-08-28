@@ -83,7 +83,7 @@ class DetailView(VerticalScroll):
                     yield Static("", classes="panel-card-title", id=f"detail-title-{sid}")
                     yield SelectableStatic("", id=body_id, classes="detail-section-body")
                     if sid == "image":
-                        yield Image(id="detail-image")
+                        yield Vertical(id="detail-images")
         yield ListDataTable(id="workflow-children-table")
 
     def show_event(
@@ -160,23 +160,27 @@ class DetailView(VerticalScroll):
                 self._sync_detail_image(sec)
 
     def _sync_detail_image(self, sec: DetailSection | None) -> None:
-        """Show the output picture when the tool result file is on disk."""
+        """Show stills for this event (paste, session images/, tool path)."""
         try:
-            widget = self.query_one("#detail-image", Image)
+            box = self.query_one("#detail-images", Vertical)
         except NoMatches:
             return
-        if sec is not None and sec.image_bytes:
-            widget.image = BytesIO(sec.image_bytes)
-            widget.display = True
+        box.remove_children()
+        raw_paths = list(sec.image_paths) if sec is not None else []
+        if not raw_paths and sec is not None and sec.image_path.strip():
+            raw_paths = [sec.image_path.strip()]
+        if sec is not None and sec.image_bytes and not raw_paths:
+            box.mount(Image(BytesIO(sec.image_bytes), id="detail-image", classes="detail-still"))
+            box.display = True
             return
-        raw = (sec.image_path if sec is not None else "").strip()
-        path = Path(raw) if raw else None
-        if path is not None and path.is_file():
-            widget.image = path
-            widget.display = True
+        existing = [Path(item) for item in raw_paths if Path(item).is_file()]
+        if not existing:
+            box.display = False
             return
-        widget.image = None
-        widget.display = False
+        box.display = True
+        for i, path in enumerate(existing):
+            wid = "detail-image" if i == 0 else f"detail-image-{i}"
+            box.mount(Image(path, id=wid, classes="detail-still"))
 
     def _body_has_selection(self, widget: object) -> bool:
         sels = getattr(self.screen, "selections", None)

@@ -152,8 +152,8 @@ async def test_detail_view_hides_image_when_file_missing(tmp_path: Path) -> None
     async with app.run_test():
         dv = app.query_one("#detail", DetailView)
         dv.show_event(_image_event(missing))
-        img = dv.query_one("#detail-image")
-        assert img.display is False
+        box = dv.query_one("#detail-images")
+        assert box.display is False
         assert str(missing) in dv.visible_plain()
 
 
@@ -170,8 +170,8 @@ async def test_detail_view_hides_image_for_non_image_tool() -> None:
                 raw_input={"target_file": "x.py"},
             )
         )
-        img = dv.query_one("#detail-image")
-        assert img.display is False
+        box = dv.query_one("#detail-images")
+        assert box.display is False
 
 
 @pytest.mark.asyncio
