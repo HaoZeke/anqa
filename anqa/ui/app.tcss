@@ -906,7 +906,12 @@ ContentSwitcher {
 #browser-tabs UnderlineTab.-active,
 #browser-tabs Tab.-active,
 #summary-tabs UnderlineTab.-active,
-#summary-tabs Tab.-active,
+#summary-tabs Tab.-active {
+    text-style: bold;
+    color: $text;
+    background: $primary 20%;
+}
+
 #browser-tabs ContentSwitcher,
 #summary-tabs ContentSwitcher {
     height: 1fr;

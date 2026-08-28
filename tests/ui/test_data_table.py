@@ -92,6 +92,9 @@ def test_selected_row_css_uses_primary_background() -> None:
     notes = css.split(".panel-card.note-focused")[1].split("}", 1)[0]
     assert "$primary-background" in notes
     assert "$primary" in notes
+    active = css.split("#browser-tabs UnderlineTab.-active")[1].split("}", 1)[0]
+    assert "background: $primary 20%" in active
+    assert "height: 1fr" not in active
 
 
 @pytest.mark.asyncio
