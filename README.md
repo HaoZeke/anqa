@@ -127,8 +127,10 @@ comes from files that store writes. An adapter never invents those.
 |----|---------|--------|--------------|
 | `grok` | [Grok Build](https://docs.x.ai/build/overview) | `~/.grok/sessions/<cwd>/<id>/` | directory |
 
-Directory stores keep notes in the session tree. File or database
-stores use `~/.anqa/notes/<harness>/<session_id>/`.
+Notes for a host adapter session live under
+`~/.anqa/notes/<session_id>/`. A session directory you open with
+`-P` that is not an adapter store keeps notes in that tree. File
+or database locators use `~/.anqa/notes/<harness>/<session_id>/`.
 
 The catalog lists every shipped adapter. `[catalog] ignore` drops a
 store. `[catalog.roots]` overrides a path. Details:

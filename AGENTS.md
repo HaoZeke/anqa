@@ -375,8 +375,8 @@ Module-level imports at top (stdlib → third party → local) after
 Do not use function-level imports to hide cycles — break cycles with leaf
 modules and ``TYPE_CHECKING``. Rare exceptions (CLI defers TUI for light
 ``--help``; dynamic plugin ``importlib``) need one factual comment.
-``anqa.session`` package init is import-light so ``parser`` can load
-``session.workflows``. Import from the owning submodule.
+``anqa.session`` package init is import-light so ``harness.grok_parse``
+can load ``session.workflows``. Import from the owning submodule.
 
 ### 4.5 Error handling
 

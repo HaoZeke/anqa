@@ -18,8 +18,10 @@ A shipped adapter does all of this:
 3. **List meta** and a **timeline** using anqa event type names.
 4. **Watch hints** so serve refreshes when the store changes.
 5. **Catalog filter** `harness:<id>` on every client.
-6. **Notes** on the session: in-tree for a directory locator, or
-   `~/.anqa/notes/<harness>/<session_id>/` for a file or database.
+6. **Notes** on the session: host adapter stores write
+   `~/.anqa/notes/<session_id>/`; a directory locator outside those
+   stores writes in-tree; a file or database locator uses
+   `~/.anqa/notes/<harness>/<session_id>/`.
 7. **Write archive** (`write_archive`) so `E` can nest the native
    session files. Anqa adds notes, summary, and the manifest.
 8. **Detail / live stamps** (`load_detail`, `timeline_stamp`,

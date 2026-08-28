@@ -23,15 +23,10 @@ Existing schemas without `choices` keep working as free text.
 
 ## Session file
 
-Notes are stored as `<session_dir>/operator_notes.toml` (fallback:
-`~/.anqa/notes/<session_id>/operator_notes.toml`).
-
-Host sessions (optional **Host** catalog / `H` on the sessions list) use
-the same notes flow. Directory stores keep notes in the session tree;
-file or database stores write under
-`~/.anqa/notes/<harness>/<session_id>/`. Host Grok trees under
-`~/.grok/sessions` still use the fallback so that live store is not
-modified.
+Notes are stored as `operator_notes.toml`. Host adapter sessions write
+under `~/.anqa/notes/<session_id>/`. A session directory outside those
+stores writes `<session_dir>/operator_notes.toml`. File or database
+stores write under `~/.anqa/notes/<harness>/<session_id>/`.
 
 ## TUI
 

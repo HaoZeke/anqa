@@ -48,13 +48,13 @@ harness store. Grok Build (`grok`) is registered today.
 - Next prompt (`n`) and end session (`e`) apply while a session is
   awaiting. Those keys stay off the footer and `?` tables.
 - Every note has a `source`. Extra field keys are stored as sent.
-  Report and HUD Notes show the writer badge and the stored fields.
+  Notes (terminal and HUD) show the writer badge and the stored fields.
 
 ### Terminal app
 
 - `anqa` / `anqa tui` is the session client: session list,
   browser, notes, and export.
-- Browser panes are Timeline, Summary, Diff, and Report.
+- Browser panes are Timeline, Summary, Diff, and Notes.
 - Timeline Filter and Turn stack; Tail follows a live session.
   Opening an event asks for the 50,000-character body.
 - Summary and Overview share Session, Tasks, Workflows, Subagents,

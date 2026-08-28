@@ -1467,6 +1467,4 @@ ui-origin-host = Host
 ui-control-socket-attach-failed = Control owner not reachable
 
 ui-control-owner-stale = control owner is older · run: anqa serve restart
-notify-host-sessions-on = Host sessions shown
-notify-host-sessions-off = Host sessions hidden
 
