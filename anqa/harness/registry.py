@@ -61,30 +61,25 @@ def adapter_host_roots(item: HarnessAdapter) -> list[Path]:
 
 
 def adapter_store_watch_paths() -> list[Path]:
-    """Enabled adapter stores that are not the Grok directory walk.
+    """Enabled adapter stores that need a membership watch.
 
-    Files (sqlite) and extra dirs are membership-only watch targets.
-    They must never be passed to :func:`~anqa.parser.find_sessions`.
+    Directory stores are already walked for catalog discover. File stores
+    (sqlite, a transcript) are listed here so serve can watch them.
     """
-    grok = adapter("grok")
-    walked: set[str] = set()
-    if grok is not None:
-        for raw in adapter_host_roots(grok):
-            path = Path(raw).expanduser()
-            try:
-                walked.add(str(path.resolve()))
-            except OSError:
-                walked.add(str(path))
     extra: list[Path] = []
+    seen: set[str] = set()
     for item in enabled_host_adapters():
         for raw in adapter_host_roots(item):
             path = Path(raw).expanduser()
+            if path.is_dir():
+                continue
             try:
                 key = str(path.resolve())
             except OSError:
                 key = str(path)
-            if key in walked:
+            if key in seen:
                 continue
+            seen.add(key)
             extra.append(path)
     return extra
 
@@ -125,12 +120,7 @@ def resolve_session_ref(
     if path_resolve is not None:
         path = path_resolve(raw)
         if path is not None and path.is_dir():
-            bound = ref_from_path(path)
-            if bound is not None:
-                return bound
-            from .grok import _ref_for_dir
-
-            return _ref_for_dir(path)
+            return ref_from_path(path)
     candidate = Path(raw).expanduser()
     if candidate.is_dir():
         return ref_from_path(candidate)

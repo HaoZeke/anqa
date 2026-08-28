@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from anqa.parser import parse_timeline, parse_tool_calls
+from anqa.harness.grok_parse import parse_timeline, parse_tool_calls
 from anqa.session.control_views import timeline_event_mapping
 from anqa.tool_display import (
     display_tool_output,

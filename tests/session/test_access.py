@@ -140,6 +140,7 @@ def test_filter_session_catalog_query_ignores_path() -> None:
 def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
     session = tmp_path / "sess-one"
     session.mkdir()
+    (session / "summary.json").write_text("{}", encoding="utf-8")
     (session / "signals.json").write_text("{}", encoding="utf-8")
 
     def resolve(ref: str) -> Path | None:

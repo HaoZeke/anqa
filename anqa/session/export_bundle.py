@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..harness.grok_parse import parse_timeline
 from ..models import JsonObject, as_json_object
 from ..notes import collect_notes_for_export
-from ..parser import parse_timeline
 from ..paths import reports_dir
 from .export_render import (
     SessionSummaryData,
@@ -188,7 +188,7 @@ def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
 
 def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
     """Load meta / timeline / usage into :class:`SessionSummaryData`."""
-    from ..parser import load_session_meta, parse_timeline
+    from ..harness.grok_parse import load_session_meta, parse_timeline
     from ..utils import fmt_duration
     from .turns import segment_timeline_turns
     from .usage_stats import collect_session_usage, format_usage_markdown

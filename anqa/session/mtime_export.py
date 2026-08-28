@@ -17,7 +17,7 @@ from pathlib import Path
 from ..control.contract import PROTOCOL_VERSION
 from ..models import JsonObject, as_json_object
 from ..paths import cache_dir
-from .sources import host_grok_sessions_root, list_host_session_dirs
+from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
@@ -211,7 +211,7 @@ def write_host_catalog_export(
     """Write the host catalog snapshot to *dest*. Does not start serve."""
     from .catalog import session_catalog_row
 
-    root = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
+    root = Path(host_root).expanduser() if host_root is not None else default_catalog_root()
     builder = build_row or (lambda sd: session_catalog_row(sd, origin="host"))
     load_or_rebuild_catalog(root, dest=dest, build_row=builder)
     return Path(dest).expanduser()

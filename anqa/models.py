@@ -458,8 +458,8 @@ class SessionMeta:
     run_id: str = ""
     # Catalog origin: ``work`` (leftover trees under the work dir) or ``host``.
     origin: str = "work"
-    # Disk adapter id (``grok``, ``opencode``, …). Default keeps existing rows Grok.
-    harness: str = "grok"
+    # Disk adapter id (``grok``, ``opencode``, …). Adapter load_meta sets this.
+    harness: str = ""
     # Product version recorded on the session, when the store has one.
     harness_version: str = ""
     # From events.jsonl runtime telemetry

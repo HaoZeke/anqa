@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from anqa.harness.grok_parse import TimelineStamp
 from anqa.models import TraceEvent
-from anqa.parser import TimelineStamp
 from anqa.session.control_views import build_session_timeline
 from anqa.session.event_search import (
     ensure_indexed,

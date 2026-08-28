@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from anqa.parser import find_sessions, load_session_meta
+from anqa.harness.grok_parse import find_sessions, load_session_meta
 from anqa.ui.data_table import cursor_row_key
 from textual.widgets import DataTable
 

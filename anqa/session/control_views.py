@@ -16,14 +16,14 @@ from typing import ClassVar
 from .. import event_types as et
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE, TURN_VIEW_CACHE_MAXSIZE
-from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
-from ..notes import load_schema, notes_snapshot
-from ..parser import (
+from ..harness.grok_parse import (
     TimelineStamp,
     load_session_meta,
     parse_timeline,
     session_timeline_stamp,
 )
+from ..models import JsonObject, JsonValue, SessionMeta, ToolInputBag, TraceEvent, as_json_object
+from ..notes import load_schema, notes_snapshot
 from ..session.sources import (
     classify_session_origin,
 )
@@ -157,7 +157,7 @@ def session_meta_mapping(
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
         "origin": origin_key,
-        "harness": (meta.harness or "grok").strip() or "grok",
+        "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         "createdAt": meta.created_at or "",
         "updatedAt": meta.updated_at or "",

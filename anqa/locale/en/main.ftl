@@ -221,16 +221,6 @@ cmd-refresh = Refresh
 
 cmd-refresh-help = Refresh the current screen / context (F5)
 
-cmd-resume-session = Fork session
-
-cmd-resume-session-help = New interactive multi-turn forked from this ended session (f · grok --resume --fork-session)
-
-resume-session-no-artifacts = Session has no chat/events to resume
-
-resume-session-still-live = Session is still live — use follow-up (n) instead of resume
-
-runner-resume-session-hint = [bold]Resume (fork)[/] from [cyan]{$sid}[/] — write the next user message as the prompt. History is seeded; Grok gets a [bold]new session id[/] via --fork-session. Multi-turn stays on. Workspace starts fresh (clone/setup).
-
 cmd-save-session-config = Save session as config
 
 cmd-save-session-config-help = Persist recipe without deleting session
@@ -352,32 +342,6 @@ kv-editor-add = Add variable
 kv-editor-key-placeholder = KEY
 
 kv-editor-value-placeholder = value
-
-inline-skill-btn = Inline skill
-
-inline-skill-title = Inline skill (this run)
-
-inline-skill-name-label = Skill id
-
-inline-skill-name-placeholder = my-run-skill
-
-inline-skill-name-hint = Lowercase letters, digits, hyphens (2–64 chars). Becomes the skill folder and frontmatter name.
-
-inline-skill-description-label = Description (when to use)
-
-inline-skill-description-placeholder = Use when the agent should … (triggers auto-invoke; be specific)
-
-inline-skill-description-hint = One or two sentences plus keywords. Written to YAML frontmatter description.
-
-inline-skill-body-label = Instructions (markdown body)
-
-inline-skill-body-hint = Body only — frontmatter is built from id + description on save.
-
-inline-skill-name-required = Skill id is required
-
-inline-skill-description-required = Description is required (controls when Grok uses the skill)
-
-inline-skill-name-invalid = Skill id must be 2–64 chars: start/end with letter or digit; only a–z, 0–9, hyphens
 
 extra-mcp-toml = Extra MCP TOML
 
@@ -855,8 +819,6 @@ ui-finished-in-1 = [/bold] finished in
 
 ui-follow-up-failed-for-s = follow-up failed for %s
 
-ui-from-your-grok-config-toml-no-extra-def-unless-y = from your ~/.grok/config.toml (no extra def unless you configure)).[/dim]
-
 ui-gh-write = GH Write
 
 runner-caps-section-mcp = [bold]MCP[/] ({$n})
@@ -864,8 +826,6 @@ runner-caps-section-mcp = [bold]MCP[/] ({$n})
 runner-caps-section-skills = [bold]Skills[/] ({$n})
 
 runner-caps-section-plugins = [bold]Plugins[/] ({$n})
-
-runner-caps-section-inline = [bold]Inline skills[/] ({$n})
 
 runner-caps-section-env = [bold]Env[/] ({$n}): {$keys}
 
@@ -877,7 +837,7 @@ runner-caps-run-heading = [bold]This run only[/]
 
 run-config-plugins = Plugins: {$list}
 
-run-config-inline-skills = Inline skills: {$list}
+
 
 run-config-mcp = MCP: {$list}
 
@@ -915,8 +875,6 @@ ui-image = image:
 
 ui-in-flight-running-in-background-j-jobs-logs-no-p =  in flight — running in background ([bold]J[/bold] = jobs/logs; no per-run popups)
 
-ui-inactive-model-s-not-in-grok-models-models-cache = inactive model(s) (not in `grok models` / models_cache.json). Launching:
-
 ui-inherit-from-runner-run-config = (inherit from runner / run config)
 
 ui-input = Input
@@ -924,8 +882,6 @@ ui-input = Input
 ui-output = Output
 
 ui-interactive-multi-turn-follow-ups-until-done = Interactive multi-turn (follow-ups until Done)
-
-ui-yolo-auto-approve-tools = YOLO mode (grok --yolo; more aggressive auto-approve)
 
 ui-jobs-for-logs-esc-closes-jobs-run-keeps-going =  — Jobs for logs (Esc closes Jobs; run keeps going)
 
@@ -982,8 +938,6 @@ ui-name = Name
 ui-needs-env = [dim]needs env:[/dim]
 
 ui-new = New
-
-ui-no-active-models-check-config-models-vs-grok-mod = No active models (check config models vs `grok models`)
 
 ui-no-companion-skill = ` (no companion skill).
 
@@ -1114,8 +1068,6 @@ ui-run-config-s-recipes-only-sessions-traces-kept = run config(s) (recipes only 
 ui-run-crashed = Run crashed:
 
 ui-run-env-saved = Saved {$count} run env var(s)
-
-ui-inline-skill-saved = Inline skill saved: {$name}
 
 ui-run-extras = Run extras:
 

@@ -4,7 +4,7 @@ Schema: ``~/.anqa/notes_schema.toml`` (default fields: summary, detail)
 is the in-app form layout only. Every write must include a non-empty
 ``source``. Extra field keys are stored as sent. Session file:
 ``<session_dir>/operator_notes.toml``, fallback under
-``~/.anqa/notes/<session_id>/``. Host trees under ``~/.grok/sessions``
+``~/.anqa/notes/<session_id>/``. Adapter host stores
 (and any symlinked session dir) always write the fallback so the live
 Grok store stays clean.
 """
@@ -562,12 +562,12 @@ def notes_mtime(session_dir: Path) -> float:
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     """Write *doc* beside the session; fall back under ``~/.anqa/notes``.
 
-    Host trees under ``~/.grok/sessions`` and symlinked session dirs skip
-    the primary path so that live store is not modified.
+    Adapter host stores and symlinked session dirs skip the primary path
+    so that live store is not modified.
 
     :raises OSError: When both primary and fallback writes fail.
     """
-    from .session.sources import is_under_host_grok_sessions
+    from .session.sources import is_under_adapter_store
 
     session_dir = Path(session_dir)
     if not doc.session_id:
@@ -575,7 +575,7 @@ def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     text = dump_notes_toml(doc)
     primary, fallback = _notes_paths(session_dir)
     try:
-        skip_primary = session_dir.is_symlink() or is_under_host_grok_sessions(session_dir)
+        skip_primary = session_dir.is_symlink() or is_under_adapter_store(session_dir)
     except OSError:
         skip_primary = False
     if not skip_primary:

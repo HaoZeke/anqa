@@ -40,8 +40,8 @@ from ..control.client import (
     ControlClient,
     listen_control_notifications,
 )
+from ..harness.grok_parse import find_sessions, load_session_meta
 from ..models import JsonObject, SessionMeta, as_json_object, json_as_str
-from ..parser import find_sessions, load_session_meta
 from ..paths import app_config_path
 from ..session.access import (
     DEFAULT_SESSION_LIST_LIMIT,
@@ -957,10 +957,10 @@ class AnqaApp(App):
 
     def _label_for_session(self, session_dir: Path, origin: str) -> str:
         """Display path fragment relative to the catalog root for *origin*."""
-        from ..session.sources import host_grok_sessions_root
+        from ..session.sources import default_catalog_root
 
         _ = origin
-        return self._derive_label(session_dir, host_grok_sessions_root())
+        return self._derive_label(session_dir, default_catalog_root())
 
     def _begin_sessions_load(self) -> int:
         """Mark a new catalog load; return generation for stale-worker checks."""
@@ -1022,7 +1022,7 @@ class AnqaApp(App):
         gen: int | None = None,
     ) -> list[tuple[SessionMeta, str]]:
         """Build list metas for *unique* dirs."""
-        from ..parser import load_session_meta_list
+        from ..harness.grok_parse import load_session_meta_list
 
         rows: list[tuple[SessionMeta, str]] = []
         for sd, origin in unique:
@@ -1069,12 +1069,12 @@ class AnqaApp(App):
 
     def _catalog_roots_for_load(self, *, include_host: bool | None = None):
         """Build scan roots. Host is included unless *include_host* is false."""
-        from ..session.sources import is_host_grok_sessions_root, session_scan_roots
+        from ..session.sources import is_adapter_store_root, session_scan_roots
 
         if include_host is None:
             include_host = True
         traces = self.traces_path
-        if traces is not None and is_host_grok_sessions_root(Path(traces)):
+        if traces is not None and is_adapter_store_root(Path(traces)):
             include_host = True
         return session_scan_roots(
             traces_path=Path(traces) if traces is not None else None,
@@ -1490,7 +1490,7 @@ class AnqaApp(App):
             except Exception:
                 pass
         try:
-            from ..parser import session_trace_mtime
+            from ..harness.grok_parse import session_trace_mtime
 
             mt = session_trace_mtime(Path(meta.session_dir))
             if mt > 0:
@@ -2428,7 +2428,7 @@ class AnqaApp(App):
         Uses per-session inflight locks so browser light reloads coalesce safely.
         Never writes session artifacts.
         """
-        from .. import parser as parser_mod
+        from ..harness import grok_parse as parser_mod
         from ..session_inflight import KIND_REFRESH, end, request_rerun, try_begin
 
         updates: list[tuple[str, SessionMeta, str]] = []
@@ -2507,9 +2507,9 @@ class AnqaApp(App):
         """
         import time
 
-        from .. import parser as parser_mod
         from ..constants import LIVE_POLL_ACTIVE_INTERVAL, LIVE_POLL_FULL_WALK_INTERVAL
-        from ..parser import session_trace_mtime
+        from ..harness import grok_parse as parser_mod
+        from ..harness.grok_parse import session_trace_mtime
 
         if self._sessions_catalog_busy:
             return

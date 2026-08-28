@@ -88,8 +88,8 @@ def test_list_session_catalog_includes_host_by_default(
     (h_sess / "updates.jsonl").write_text("", encoding="utf-8")
 
     monkeypatch.setattr(
-        "anqa.session.sources.host_grok_sessions_root",
-        lambda: host,
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [host],
     )
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
@@ -133,8 +133,8 @@ def test_resolve_by_id_does_not_load_meta_for_other_sessions(
         (bucket / "events.jsonl").write_text("{}\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "anqa.session.sources.host_grok_sessions_root",
-        lambda: host,
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [host],
     )
     cache = tmp_path / "host-catalog-cache"
     cache.mkdir()
@@ -220,7 +220,7 @@ def test_adapter_store_watch_paths_skip_grok_walk(tmp_path: Path, monkeypatch) -
     extras = adapter_store_watch_paths()
     assert grok_root not in extras
     assert extra_file in extras
-    assert extra_dir in extras
+    assert extra_dir not in extras
 
 
 def test_session_catalog_row_none_on_bad_dir(tmp_path: Path) -> None:

@@ -43,6 +43,7 @@ from textual.widgets import (
 from ... import event_types as et
 from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
 from ...control.server import ControlError
+from ...harness.grok_parse import load_session_meta, parse_timeline
 from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
 from ...notes import (
     NoteEntry,
@@ -54,7 +55,6 @@ from ...notes import (
     notes_snapshot,
     upsert_note,
 )
-from ...parser import load_session_meta, parse_timeline
 from ...session.control_views import overview_stat_counters
 from ...session.event_search import (
     ensure_indexed,
@@ -974,7 +974,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         import time
 
         from ...constants import live_browser_timeline_min_interval
-        from ...parser import updates_jsonl_size
+        from ...harness.grok_parse import updates_jsonl_size
         from ...session_inflight import KIND_REFRESH, request_rerun, try_begin
 
         # Coalesce FS storms: one light job per min gap (not a second parse
@@ -1033,7 +1033,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         import time
 
         from ...constants import live_browser_timeline_min_interval
-        from ...parser import updates_jsonl_size
+        from ...harness.grok_parse import updates_jsonl_size
         from ...session_inflight import KIND_REFRESH, end
 
         again = end(KIND_REFRESH, self.session_dir)
@@ -1143,12 +1143,15 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         raw = str(self.session_dir)
         if parse_session_ref_string(raw) is not None:
             return raw
-        if self.meta is not None and (self.meta.harness or "grok") != "grok":
-            return f"{self.meta.harness}:{self.meta.session_id}"
         try:
-            return str(Path(self.session_dir).expanduser().resolve())
+            loc = Path(self.session_dir).expanduser()
+            if loc.is_dir():
+                return str(loc.resolve())
         except OSError:
-            return str(self.session_dir)
+            pass
+        if self.meta is not None and (self.meta.harness or "").strip():
+            return f"{self.meta.harness}:{self.meta.session_id}"
+        return str(self.session_dir)
 
     def _control_access(self) -> object:
         """Attached session access, or raise if the owner is missing."""
@@ -1222,7 +1225,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _load_offline_session(self) -> None:
         """Parse the session from disk (``--no-socket``)."""
-        from ...parser import session_timeline_stamp
+        from ...harness.grok_parse import session_timeline_stamp
 
         self._overview_payload = None
         self.meta = load_session_meta(self.session_dir, include_timeline_count=False)
@@ -1352,7 +1355,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 call_ui(app, self._populate_ui_light)
                 return
 
-            from ...parser import session_timeline_stamp
+            from ...harness.grok_parse import session_timeline_stamp
 
             # Offline: Timeline stamp (not signals.json): heartbeats must not re-parse.
             stamp = session_timeline_stamp(self.session_dir)

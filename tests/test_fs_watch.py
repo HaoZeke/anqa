@@ -236,7 +236,7 @@ def test_session_dirs_under_membership_only_skips_find_sessions(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Extra adapter stores must not walk the tree looking for session dirs."""
-    from anqa.parser import find_sessions as real_find
+    from anqa.harness.grok_parse import find_sessions as real_find
 
     store = tmp_path / "extra.db"
     store.write_bytes(b"")

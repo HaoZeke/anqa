@@ -9,9 +9,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ..parser import find_sessions
+from ..harness.grok_parse import find_sessions
 from .sources import (
-    host_grok_sessions_root,
+    default_catalog_root,
     is_encoded_cwd_name,
     is_host_skip_dir_name,
     list_host_session_dirs,
@@ -94,7 +94,7 @@ def session_dirs_under(
     """
     if not list_sessions:
         return []
-    host = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
+    host = Path(host_root).expanduser() if host_root is not None else default_catalog_root()
     found: list[Path] = []
     seen: set[str] = set()
     for raw in roots:

@@ -113,7 +113,7 @@ def test_live_refresh_heartbeat_coalesces_flag(tmp_path: Path) -> None:
 
 def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> None:
     """Heartbeat re-reads signals even when timeline stamp is unchanged."""
-    import anqa.parser as parser_mod
+    import anqa.harness.grok_parse as parser_mod
     from anqa.models import SessionMeta
     from anqa.ui.screens import browser as browser_mod
 
@@ -178,7 +178,7 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
 
 def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch) -> None:
     """Unchanged stamp + signals must not re-load meta (live FS noise)."""
-    import anqa.parser as parser_mod
+    import anqa.harness.grok_parse as parser_mod
     from anqa.models import SessionMeta
     from anqa.ui.screens import browser as browser_mod
 
@@ -225,7 +225,7 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
 
 def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypatch) -> None:
     """Stamp change always re-parses — no second min-gap that hides new rows."""
-    import anqa.parser as parser_mod
+    import anqa.harness.grok_parse as parser_mod
     from anqa.models import SessionMeta, TraceEvent
     from anqa.ui.screens import browser as browser_mod
 

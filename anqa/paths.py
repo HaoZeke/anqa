@@ -81,15 +81,17 @@ def strip_run_prefix(name: str) -> str:
 
 
 def default_host_sessions_root() -> Path:
-    """Default Grok session store: ``~/.grok/sessions``."""
-    return Path.home() / ".grok" / "sessions"
+    """Default catalog store (first adapter's native root)."""
+    from .harness.grok_paths import default_sessions_root
+
+    return default_sessions_root()
 
 
 def resolve_catalog_root(path: Path | str | None = None) -> Path:
     """Adapter store for the terminal app and serve.
 
-    Default ``~/.grok/sessions``. A ``-P`` store tree, or the parent of a
-    ``-P`` session directory.
+    Default is the first adapter store. A ``-P`` store tree, or the parent
+    of a ``-P`` session directory.
     """
     if path is None:
         return default_host_sessions_root()
@@ -100,15 +102,9 @@ def resolve_catalog_root(path: Path | str | None = None) -> Path:
     except OSError:
         p = Path(path).expanduser()
 
-    if p.name == "sessions" and p.parent.name == ".grok":
-        return p
-
     session_markers = ("updates.jsonl", "events.jsonl", "chat_history.jsonl", "summary.json")
     if p.is_dir() and any((p / marker).is_file() for marker in session_markers):
-        parent = p.parent
-        if parent.name == "sessions" and parent.parent.name == ".grok":
-            return parent
-        return parent
+        return p.parent
 
     if p.is_dir():
         return p

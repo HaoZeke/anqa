@@ -90,8 +90,8 @@ def test_write_archive_packs_session_files(tmp_path: Path) -> None:
     (sd / "terminal" / "1" / "out").write_text("y\n", encoding="utf-8")
     dest = tmp_path / "sess.tar.gz"
     members = GrokAdapter().write_archive(sd, dest)
-    assert f"pack-sid/summary.json" in members
-    assert f"pack-sid/events.jsonl" in members
+    assert "pack-sid/summary.json" in members
+    assert "pack-sid/events.jsonl" in members
     assert not any("workspace" in n for n in members)
     assert not any("terminal" in n for n in members)
     with tarfile.open(dest, "r:gz") as tf:

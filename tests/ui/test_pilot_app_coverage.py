@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
-from anqa.parser import load_session_meta
+from anqa.harness.grok_parse import load_session_meta
 from anqa.session.query import CatalogQueryRow, row_matches_query
 from anqa.ui.app import (
     AnqaApp,
@@ -103,7 +103,7 @@ def _make_app(
 
 def _prime_catalog(app: AnqaApp, traces: Path) -> None:
     """Load session metas into *app* without mounting Textual."""
-    from anqa.parser import find_sessions
+    from anqa.harness.grok_parse import find_sessions
 
     rows: list[tuple[object, str]] = []
     for session_dir in find_sessions(traces):
@@ -1057,7 +1057,7 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
         )
 
     monkeypatch.setattr(app_mod, "load_session_meta", _load)
-    monkeypatch.setattr("anqa.parser.load_session_meta", _load)
+    monkeypatch.setattr("anqa.harness.grok_parse.load_session_meta", _load)
     monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
     assert try_begin(KIND_REFRESH, locked) is True
     # Run the underlying function body synchronously (skip @work decorator scheduling).
@@ -1118,7 +1118,7 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
         app._session_mtimes[key] = 1.0  # same mtime path still refreshes live outcomes
 
         monkeypatch.setattr(
-            "anqa.parser.list_turn_outcome_for_dir",
+            "anqa.harness.grok_parse.list_turn_outcome_for_dir",
             lambda _sd: "running",
         )
         app._live_sessions_last_scan = 0.0

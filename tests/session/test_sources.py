@@ -9,9 +9,9 @@ from anqa.session.sources import (
     ORIGIN_HOST,
     classify_session_origin,
     collect_session_dirs,
-    host_grok_sessions_root,
-    is_host_grok_sessions_root,
-    is_under_host_grok_sessions,
+    default_catalog_root,
+    is_adapter_store_root,
+    is_under_adapter_store,
     session_dir_for_watch_path,
     session_run_dir,
     session_scan_roots,
@@ -30,8 +30,10 @@ def _seed_session(root: Path, *, cwd_token: str, sid: str, title: str = "t") -> 
     return sess
 
 
-def test_host_grok_sessions_root_default() -> None:
-    assert host_grok_sessions_root() == Path.home() / ".grok" / "sessions"
+def test_default_catalog_root_uses_adapter() -> None:
+    from anqa.harness.grok import default_sessions_root
+
+    assert default_catalog_root() == default_sessions_root()
 
 
 def test_session_run_dir_decodes_host_cwd(tmp_path: Path) -> None:
@@ -79,10 +81,10 @@ def test_classify_and_under_host(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = _seed_session(host, cwd_token="%2Fa", sid="s1")
     monkeypatch.setattr(
-        "anqa.session.sources.host_grok_sessions_root",
-        lambda: host,
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [host],
     )
-    assert is_under_host_grok_sessions(sess)
+    assert is_under_adapter_store(sess)
     assert classify_session_origin(sess, host_root=host) == ORIGIN_HOST
     other = _seed_session(tmp_path / "elsewhere", cwd_token="%2Fb", sid="o1")
     assert classify_session_origin(other, host_root=host) == ORIGIN_HOST
@@ -92,11 +94,11 @@ def test_is_host_sessions_root(tmp_path: Path, monkeypatch) -> None:
     host = tmp_path / ".grok" / "sessions"
     host.mkdir(parents=True)
     monkeypatch.setattr(
-        "anqa.session.sources.host_grok_sessions_root",
-        lambda: host,
+        "anqa.session.sources._adapter_store_roots",
+        lambda: [host],
     )
-    assert is_host_grok_sessions_root(host)
-    assert not is_host_grok_sessions_root(tmp_path)
+    assert is_adapter_store_root(host)
+    assert not is_adapter_store_root(tmp_path)
 
 
 def test_watch_path_maps_encoded_cwd_to_session_not_bucket(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from anqa.control.contract import PROTOCOL_VERSION
-from anqa.parser import load_host_list_meta
+from anqa.harness.grok_parse import load_host_list_meta
 from anqa.session.catalog import list_session_catalog, session_catalog_row
 from anqa.session.mtime_export import write_host_catalog_export
 
@@ -49,7 +49,7 @@ def _chunk_line() -> str:
 
 
 def test_host_catalog_row_skips_full_timeline_parse(tmp_path: Path, monkeypatch) -> None:
-    import anqa.parser as parser_mod
+    import anqa.harness.grok_parse as parser_mod
 
     sd = _host_session(
         tmp_path / "host",

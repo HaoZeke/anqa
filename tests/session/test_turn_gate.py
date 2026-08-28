@@ -148,7 +148,7 @@ def test_queue_follow_ups_while_running_and_drain(tmp_path: Path) -> None:
 
 def test_load_session_meta_shows_awaiting_not_completed(tmp_path: Path) -> None:
     """Main session list must not show completed while gate awaits follow-up."""
-    from anqa.parser import load_session_meta
+    from anqa.harness.grok_parse import load_session_meta
 
     vol, sess = _layout(tmp_path)
     # Harness wrote a successful turn_ended — without gate override this is "success"

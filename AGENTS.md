@@ -140,14 +140,15 @@ Root modules are **foundational**. Domain logic lives in packages.
 
 ```
 anqa/
-  cli.py, models.py, config.py, parser.py, paths.py, constants.py, utils.py
+  cli.py, models.py, config.py, paths.py, constants.py, utils.py
   event_types.py         # event type sets for filters / segmentation
   fs_watch.py            # TraceTreeWatch (live session / trace FS events)
   job_pools.py           # live-refresh worker pool
   session_inflight.py    # per-session inflight locks (refresh)
   scan.py                # session walk + updates.jsonl keep/skip (Python + anqa._scan)
   keys/                  # action catalog + keys.toml overlay
-  harness/               # disk adapters (see docs/harness-adapters.md)
+  harness/               # disk adapters (docs/harness-adapters.md);
+                         #   grok.py + grok_parse.py is the Grok Build store
   session/               # turns, turn_gate, usage_stats, workspace_diff,
                          #   context_samples, models_catalog, export_bundle,
                          #   sources, catalog (domain session list for control),
@@ -175,7 +176,7 @@ examples/                # supported reference packs (CI: just examples-check) �
 schemas/                 # committed JSON Schema (config, control)
 ```
 
-**Data flow:** ``parser`` / ``models`` → ``session`` / ``harness`` →
+**Data flow:** ``harness`` / ``models`` → ``session`` →
 ``ui``. Prefer domain modules for parse.
 UI may schedule **read-only** live reloads (meta / signals / light timeline) on
 worker pools.
@@ -360,7 +361,7 @@ Behaviour that belongs to a dataclass or cache lives on that type.
 | Module | Allowed | Forbidden |
 |--------|---------|-----------|
 | ``models.py``, ``*/models.py`` | Types, enums, aliases, trivial properties | Standalone strip/regex/I/O helpers |
-| ``parser.py`` | Parse/load + private parse helpers for this API | UI |
+| ``harness/grok_parse.py`` | Grok store parse (adapter implementation) | UI |
 | ``paths.py``, ``constants.py`` | Paths / constants | Business logic, widgets |
 | ``utils.py`` | Pure cross-cutting helpers | Domain models, ``ui`` imports |
 | ``harness/*``, ``session/*`` | Domain for that concern | Textual screens |

@@ -63,7 +63,7 @@ def test_can_resume_session(tmp_path: Path) -> None:
 
 def test_find_sessions_skips_resume_seed_and_live_link(tmp_path: Path) -> None:
     """Substrate and its live symlink are not operator session rows."""
-    from anqa.parser import find_sessions
+    from anqa.harness.grok_parse import find_sessions
 
     source = _fake_session(tmp_path)
     dest_vol = tmp_path / "traces" / "anqa-new"
@@ -172,7 +172,7 @@ def test_fork_parent_session_dir_resolves_seed(tmp_path: Path) -> None:
 
 def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
     """Fork child with only turn_number=1 still shows parent turn 0 in the timeline."""
-    from anqa.parser import parse_timeline
+    from anqa.harness.grok_parse import parse_timeline
     from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-turns")
@@ -213,7 +213,7 @@ def test_parse_timeline_inherits_parent_turns_on_fork(tmp_path: Path) -> None:
 
 def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> None:
     """Child updates replaying parent tools must not appear again under turn 1."""
-    from anqa.parser import parse_timeline
+    from anqa.harness.grok_parse import parse_timeline
     from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-replay")
@@ -360,7 +360,7 @@ def test_parse_timeline_fork_strips_restamped_parent_replay(tmp_path: Path) -> N
 
 def test_parse_timeline_fork_empty_events_keeps_parent_turns(tmp_path: Path) -> None:
     """Child with empty events and re-stamped updates does not collapse parent turns."""
-    from anqa.parser import parse_timeline
+    from anqa.harness.grok_parse import parse_timeline
     from anqa.session.turns import segment_timeline_turns
 
     source = _fake_session(tmp_path, sid="parent-multi")

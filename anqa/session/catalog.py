@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..harness.grok_parse import load_host_list_meta, load_session_meta_list, session_trace_mtime
 from ..models import JsonObject, JsonValue, SessionMeta
-from ..parser import load_host_list_meta, load_session_meta_list, session_trace_mtime
 from .mtime_export import default_catalog_snapshot, load_or_rebuild_catalog
 from .query import apply_catalog_presence_row, catalog_presence
 from .sources import (
@@ -22,7 +22,7 @@ from .sources import (
     SessionScanRoot,
     classify_session_origin,
     collect_session_dirs,
-    is_under_host_grok_sessions,
+    is_under_adapter_store,
     session_run_dir,
     session_scan_roots,
 )
@@ -105,41 +105,11 @@ def catalog_scan_roots(
     :returns: Ordered scan roots.
     """
     want_host = effective_include_host(include_host)
-    include_grok_host = want_host
-    extra_grok: list[Path] = []
-    if want_host:
-        from ..config import load_app_config
-        from ..harness.registry import enabled_host_ids
-
-        include_grok_host = "grok" in enabled_host_ids()
-        if include_grok_host and host_root is None:
-            override = load_app_config().catalog.roots.get("grok")
-            if override:
-                host_root = Path(override[0]).expanduser()
-                extra_grok = [Path(p).expanduser() for p in override[1:]]
-    roots = session_scan_roots(
+    return session_scan_roots(
         traces_path=traces_path,
-        include_host=include_grok_host,
+        include_host=want_host,
         host_root=host_root,
     )
-    if not extra_grok:
-        return roots
-    seen: set[str] = set()
-    for root in roots:
-        try:
-            seen.add(str(root.path.expanduser().resolve()))
-        except OSError:
-            seen.add(str(root.path))
-    for extra in extra_grok:
-        try:
-            key = str(extra.resolve())
-        except OSError:
-            key = str(extra)
-        if key in seen:
-            continue
-        seen.add(key)
-        roots.append(SessionScanRoot(origin=ORIGIN_HOST, path=extra))
-    return roots
 
 
 def session_catalog_row(
@@ -192,7 +162,7 @@ def session_catalog_row(
         "status": meta.list_status_label(),
         "outcome": meta.turn_outcome or "",
         "origin": ORIGIN_HOST,
-        "harness": (meta.harness or "grok").strip() or "grok",
+        "harness": (meta.harness or "").strip(),
         "harnessVersion": (meta.harness_version or "").strip(),
         # Home-list columns for attach-mode TUI (and any rich client).
         "taskId": meta.task_id or "",
@@ -862,13 +832,13 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
         return None
     session_dir = Path(path_raw) if path_raw else Path(sid)
     raw_origin = str(row.get("origin") or "").strip().lower()
-    if is_under_host_grok_sessions(session_dir):
+    if is_under_adapter_store(session_dir):
         origin = ORIGIN_HOST
     elif raw_origin == ORIGIN_HOST:
         origin = ORIGIN_HOST
     else:
         origin = raw_origin or ORIGIN_HOST
-    harness = str(row.get("harness") or "grok").strip() or "grok"
+    harness = str(row.get("harness") or "").strip()
     meta = SessionMeta(
         session_id=sid or session_dir.name,
         session_dir=session_dir,
@@ -985,14 +955,15 @@ def _adapter_host_catalog_rows() -> list[JsonObject]:
     The stamp-gated walk covers session-directory trees in
     ``session_scan_roots``. Other stores append ``discover()`` rows.
     """
-    from ..harness.registry import adapter, adapter_host_roots, enabled_host_adapters
+    from ..harness.registry import adapter_host_roots, enabled_host_adapters
     from ..harness.views import catalog_row_from_ref
 
     walked: set[str] = set()
-    grok = adapter("grok")
-    if grok is not None and grok.id in {item.id for item in enabled_host_adapters()}:
-        for raw in adapter_host_roots(grok):
+    for item in enabled_host_adapters():
+        for raw in adapter_host_roots(item):
             root = Path(raw).expanduser()
+            if not root.is_dir():
+                continue
             try:
                 walked.add(str(root.resolve()))
             except OSError:

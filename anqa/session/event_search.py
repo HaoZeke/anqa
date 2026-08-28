@@ -12,8 +12,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .. import event_types as et
+from ..harness.grok_parse import TimelineStamp
 from ..models import TraceEvent
-from ..parser import TimelineStamp
 from .query import (
     ListQueryBag,
     compile_bag_predicate,

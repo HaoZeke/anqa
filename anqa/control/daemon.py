@@ -318,7 +318,7 @@ def control_watch_specs(cache: SessionCatalogCache) -> list[tuple[Path, bool]]:
 
     Catalog directory trees list session dirs. Extra adapter stores
     (sqlite files, jsonl trees) are membership-only — never
-    :func:`~anqa.parser.find_sessions`.
+    :func:`~anqa.harness.grok_parse.find_sessions`.
     """
     from ..harness.registry import adapter_store_watch_paths
 

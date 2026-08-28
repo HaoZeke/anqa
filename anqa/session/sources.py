@@ -1,6 +1,7 @@
 """Session catalog roots: adapter host stores.
 
-Native stores (``~/.grok/sessions`` and ``[catalog.roots]``) are the catalog.
+Native stores (each adapter's ``default_host_roots`` and ``[catalog.roots]``)
+are the catalog.
 """
 
 from __future__ import annotations
@@ -10,8 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
-from ..parser import find_sessions
-from ..paths import default_host_sessions_root
+from ..harness.grok_parse import find_sessions
 from .subagents import drop_subagent_sessions
 
 _HOST_SKIP_DIR_NAMES = frozenset(
@@ -42,11 +42,6 @@ ORIGIN_HOST = "host"
 type SessionOrigin = str
 
 
-def host_grok_sessions_root() -> Path:
-    """Default Grok session store: ~/.grok/sessions."""
-    return default_host_sessions_root()
-
-
 def _resolved(path: Path) -> Path:
     p = Path(path).expanduser()
     try:
@@ -55,24 +50,39 @@ def _resolved(path: Path) -> Path:
         return p
 
 
-def is_host_grok_sessions_root(path: Path) -> bool:
-    """True when *path* is the host Grok sessions tree (~/.grok/sessions)."""
-    try:
-        return _resolved(path) == _resolved(host_grok_sessions_root())
-    except OSError:
-        return False
+def default_catalog_root() -> Path:
+    """First enabled adapter store (the default catalog path)."""
+    roots = _adapter_store_roots()
+    if roots:
+        return Path(roots[0]).expanduser()
+    from ..paths import default_host_sessions_root
+
+    return default_host_sessions_root()
 
 
-def is_under_host_grok_sessions(session_dir: Path) -> bool:
-    """True when *session_dir* lives under the host Grok sessions tree."""
-    try:
-        host = _resolved(host_grok_sessions_root())
-        p = _resolved(session_dir)
-    except OSError:
-        return False
-    if p == host:
-        return True
-    return host in p.parents
+def _adapter_store_roots() -> list[Path]:
+    from ..harness.registry import adapter_host_roots, enabled_host_adapters
+
+    out: list[Path] = []
+    for item in enabled_host_adapters():
+        out.extend(adapter_host_roots(item))
+    return out
+
+
+def is_adapter_store_root(path: Path) -> bool:
+    """True when *path* is an enabled adapter store root."""
+    target = _resolved(path)
+    return any(_resolved(root) == target for root in _adapter_store_roots())
+
+
+def is_under_adapter_store(session_dir: Path) -> bool:
+    """True when *session_dir* lives under an enabled adapter store."""
+    p = _resolved(session_dir)
+    for root in _adapter_store_roots():
+        host = _resolved(root)
+        if p == host or host in p.parents:
+            return True
+    return False
 
 
 def classify_session_origin(
@@ -80,12 +90,13 @@ def classify_session_origin(
     *,
     host_root: Path | None = None,
 ) -> SessionOrigin:
-    """Return host when *session_dir* is under the adapter store."""
-    sd = _resolved(session_dir)
-    host = _resolved(host_root) if host_root is not None else _resolved(host_grok_sessions_root())
-    if sd == host or host in sd.parents:
-        return ORIGIN_HOST
-    if is_under_host_grok_sessions(session_dir):
+    """Return host when *session_dir* is under an adapter store."""
+    if host_root is not None:
+        sd = _resolved(session_dir)
+        host = _resolved(host_root)
+        if sd == host or host in sd.parents:
+            return ORIGIN_HOST
+    if is_under_adapter_store(session_dir):
         return ORIGIN_HOST
     return ORIGIN_HOST
 
@@ -106,10 +117,9 @@ def session_scan_roots(
 ) -> list[SessionScanRoot]:
     """Roots for the sessions home list.
 
-    The host adapter store. An explicit *traces_path* that is not already
-    that store is added as another host root.
+    Enabled adapter stores. An explicit *traces_path* that is not already
+    one of those stores is added as another host root.
     """
-    host = Path(host_root).expanduser() if host_root is not None else host_grok_sessions_root()
     out: list[SessionScanRoot] = []
     seen: set[str] = set()
 
@@ -121,7 +131,11 @@ def session_scan_roots(
         out.append(SessionScanRoot(origin=origin, path=Path(path).expanduser()))
 
     if include_host:
-        add(ORIGIN_HOST, host)
+        if host_root is not None:
+            add(ORIGIN_HOST, Path(host_root).expanduser())
+        else:
+            for root in _adapter_store_roots():
+                add(ORIGIN_HOST, root)
     if traces_path is not None:
         add(ORIGIN_HOST, Path(traces_path).expanduser())
     return out
@@ -161,7 +175,7 @@ def session_dir_for_watch_path(path: Path, root: Path) -> Path | None:
 
 
 def is_encoded_cwd_name(name: str) -> bool:
-    """True for URL-encoded absolute paths used as Grok host session buckets."""
+    """True for URL-encoded absolute paths used as host session buckets."""
     n = (name or "").casefold()
     return n.startswith("%2f") or "%2f" in n
 
@@ -170,8 +184,7 @@ def session_run_dir(session_dir: Path) -> str:
     """Host directory the session was run in.
 
     Host trees nest under a percent-encoded cwd bucket
-    (``~/.grok/sessions/%2Fhome%2F…/<id>``). Container ``/workspace`` is
-    skipped.
+    (``<store>/%2Fhome%2F…/<id>``). Container ``/workspace`` is skipped.
     """
     parent = Path(session_dir).parent.name
     if is_encoded_cwd_name(parent):
@@ -301,13 +314,13 @@ __all__ = [
     "classify_session_origin",
     "collect_host_session_dirs",
     "collect_session_dirs",
+    "default_catalog_root",
     "list_host_session_dirs",
-    "host_grok_sessions_root",
+    "is_adapter_store_root",
     "is_encoded_cwd_name",
     "session_dir_for_watch_path",
     "session_run_dir",
     "is_host_skip_dir_name",
-    "is_host_grok_sessions_root",
-    "is_under_host_grok_sessions",
+    "is_under_adapter_store",
     "session_scan_roots",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import anqa.parser as parser_mod
+import anqa.harness.grok_parse as parser_mod
 import pytest
 from anqa.session import catalog as catalog_mod
 from anqa.session.catalog import SessionCatalogCache, list_session_catalog

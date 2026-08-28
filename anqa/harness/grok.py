@@ -1,7 +1,7 @@
 """Grok Build on-disk session adapter.
 
 Public harness contract for harness id ``grok``. Implementation lives in
-:mod:`anqa.parser` and :mod:`anqa.session.sources`; this module wraps
+:mod:`anqa.harness.grok_parse` and :mod:`anqa.session.sources`; this module wraps
 those APIs.
 """
 
@@ -14,20 +14,16 @@ from pathlib import Path
 
 from ..fs_watch import TRACE_FILE_HINTS
 from ..models import SessionMeta, TraceEvent
-from ..parser import _looks_like_session_dir, find_sessions, load_session_meta_list
-from ..parser import parse_timeline as parse_grok_timeline
 from ..session.sources import ORIGIN_HOST, collect_host_session_dirs
+from .grok_parse import _looks_like_session_dir, find_sessions, load_session_meta_list
+from .grok_parse import parse_timeline as parse_grok_timeline
+from .grok_paths import default_sessions_root
 from .ref import SessionRef
 
 GROK_HARNESS_ID = "grok"
 
 # Host planes on a session directory; not part of the inspectable trace.
 _ARCHIVE_SKIP_DIRS = frozenset({"workspace", "terminal"})
-
-
-def default_sessions_root() -> Path:
-    """Native Grok Build store: ``~/.grok/sessions``."""
-    return Path.home() / ".grok" / "sessions"
 
 
 def _resolved(path: Path) -> Path:
@@ -62,7 +58,7 @@ def discover(roots: Sequence[Path | str]) -> list[SessionRef]:
 
     Host ``~/.grok/sessions`` uses
     :func:`~anqa.session.sources.collect_host_session_dirs`. Every other
-    root uses :func:`anqa.parser.find_sessions`. Duplicate resolved paths
+    root uses :func:`anqa.harness.grok_parse.find_sessions`. Duplicate resolved paths
     are dropped (first-seen wins).
 
     :param roots: Trees to scan.
@@ -91,7 +87,7 @@ def discover(roots: Sequence[Path | str]) -> list[SessionRef]:
 def looks_like(ref: Path | str) -> bool:
     """True when *ref* is a Grok session directory.
 
-    Wraps :func:`anqa.parser._looks_like_session_dir`.
+    Wraps :func:`anqa.harness.grok_parse._looks_like_session_dir`.
 
     :param ref: Session directory path.
     :returns: True when the directory has Grok session artifacts.
@@ -113,7 +109,7 @@ def looks_like(ref: Path | str) -> bool:
 def load_meta(ref: Path | str) -> SessionMeta:
     """Load list-grade metadata for a Grok session directory.
 
-    Wraps :func:`anqa.parser.load_session_meta_list`. Origin is the host store.
+    Wraps :func:`anqa.harness.grok_parse.load_session_meta_list`. Origin is the host store.
 
     :param ref: Session directory path.
     :returns: Populated :class:`~anqa.models.SessionMeta`.
@@ -128,7 +124,7 @@ def load_meta(ref: Path | str) -> SessionMeta:
 def parse_timeline(ref: Path | str) -> list[TraceEvent]:
     """Parse a Grok session directory into a linear timeline.
 
-    Wraps :func:`anqa.parser.parse_timeline`.
+    Wraps :func:`anqa.harness.grok_parse.parse_timeline`.
 
     :param ref: Session directory path.
     :returns: Coalesced :class:`~anqa.models.TraceEvent` rows.

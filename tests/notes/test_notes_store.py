@@ -263,7 +263,7 @@ def test_host_session_skips_primary_write(tmp_path: Path, monkeypatch) -> None:
     host = host_root / "%2Fproj" / "sess-id"
     host.mkdir(parents=True)
     (host / "summary.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(sources_mod, "host_grok_sessions_root", lambda: host_root)
+    monkeypatch.setattr(sources_mod, "_adapter_store_roots", lambda: [host_root])
 
     doc = NotesDoc(session_id=host.name)
     doc.upsert(NoteEntry.new(turn_index=0, fields={"summary": "host"}, note_id="n-host"))

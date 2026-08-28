@@ -192,7 +192,7 @@ def test_workflow_event_index_prefers_run_id_over_earlier_name() -> None:
 
 def test_workflow_inspect_uses_result_run_id_not_later_sprint(tmp_path: Path) -> None:
     """Completed workflow rawOutput.run_id selects that run, not the latest name."""
-    from anqa.parser import parse_timeline
+    from anqa.harness.grok_parse import parse_timeline
     from anqa.ui.render_detail import render_event_detail
     from anqa.ui.selectable_static import plain_from_renderable
 

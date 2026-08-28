@@ -9,6 +9,7 @@ from typing import ClassVar
 
 from ..bounded_cache import BoundedCache
 from ..constants import OVERVIEW_CACHE_MAXSIZE
+from ..harness.grok_parse import parse_timeline
 from ..models import (
     JsonObject,
     JsonValue,
@@ -17,7 +18,6 @@ from ..models import (
     as_json_object,
     json_as_str,
 )
-from ..parser import parse_timeline
 from ..tool_display import task_fields_from_content
 from .workflows import (
     WorkflowRun,

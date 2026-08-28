@@ -316,7 +316,7 @@ def _turn_context(
 ) -> dict[int, tuple[str, str]]:
     """prompt_index → (operator prompt, last assistant body) from the timeline."""
     from .. import event_types as et
-    from ..parser import parse_timeline
+    from ..harness.grok_parse import parse_timeline
     from .tagged_blocks import operator_prompt_text, unwrap_for_display
     from .turns import is_operator_user_event, segment_timeline_turns
 

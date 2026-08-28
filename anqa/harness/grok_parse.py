@@ -1,4 +1,8 @@
-"""Trace parser — reads session directories into structured data."""
+"""Grok Build session directory parser.
+
+Implementation for harness id ``grok``. Other packages call the adapter,
+not this module.
+"""
 
 from __future__ import annotations
 
@@ -12,8 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from .bounded_cache import BoundedCache
-from .constants import (
+from ..bounded_cache import BoundedCache
+from ..constants import (
     HOST_INCOMPLETE_STALE_SECONDS,
     INCOMPLETE_STALE_SECONDS,
     INTERRUPTED_MARKER_FILENAME,
@@ -23,7 +27,7 @@ from .constants import (
     TIMELINE_CACHE_MAX_ENV,
     TIMELINE_CACHE_MAXSIZE,
 )
-from .models import (
+from ..models import (
     ChatMessage,
     JsonObject,
     JsonValue,
@@ -35,11 +39,11 @@ from .models import (
     as_json_object,
     json_as_str,
 )
-from .paths import RUN_PREFIX, is_run_dir_name, strip_run_prefix
-from .scan import find_sessions as walk_sessions
-from .scan import keep_updates_line, skip_dir_name
-from .session.workflows import WorkflowRun
-from .tool_display import job_list_preview, web_search_from_raw_output
+from ..paths import RUN_PREFIX, is_run_dir_name, strip_run_prefix
+from ..scan import find_sessions as walk_sessions
+from ..scan import keep_updates_line, skip_dir_name
+from ..session.workflows import WorkflowRun
+from ..tool_display import job_list_preview, web_search_from_raw_output
 
 logger = logging.getLogger(__name__)
 
@@ -434,7 +438,7 @@ def _list_runtime_status(session_dir: Path) -> tuple[str, int, bool]:
 
 def _session_has_turn_gate(session_dir: Path) -> bool:
     """True when this session's traces volume has a ``.anqa-turn`` directory."""
-    from .session.turn_gate import turn_gate_dirs_for_session
+    from ..session.turn_gate import turn_gate_dirs_for_session
 
     return bool(turn_gate_dirs_for_session(session_dir))
 
@@ -856,7 +860,7 @@ def _merge_fork_parent_timeline(
     local: list[TraceEvent],
 ) -> list[TraceEvent]:
     """Prepend seeded parent timeline for forked child sessions."""
-    from .session.resume import fork_parent_session_dir
+    from ..session.resume import fork_parent_session_dir
 
     parent = fork_parent_session_dir(session_dir)
     if parent is None:
@@ -878,7 +882,7 @@ def _timeline_stamp_for(session_dir: Path) -> tuple[str, TimelineStamp]:
     """Return ``(cache_key, stamp)`` for *session_dir* (includes fork parent)."""
     sd = Path(session_dir)
     cache_key = str(sd.resolve()) if sd.exists() else str(sd)
-    from .session.resume import fork_parent_session_dir
+    from ..session.resume import fork_parent_session_dir
 
     parent = fork_parent_session_dir(sd)
     stamp = session_timeline_stamp(sd)
@@ -1196,7 +1200,7 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
         state.idx = idx + 1
 
     elif etype == "subagent_spawned":
-        from .session.subagents import subagent_list_preview
+        from ..session.subagents import subagent_list_preview
 
         bag = ToolInputBag(as_json_object(update))
         events.append(
@@ -1212,7 +1216,7 @@ def _consume_updates_line(line: bytes, line_no: int, state: _UpdatesScanState) -
         state.idx = idx + 1
 
     elif etype == "subagent_finished":
-        from .session.subagents import subagent_list_preview
+        from ..session.subagents import subagent_list_preview
 
         bag = ToolInputBag(as_json_object(update))
         events.append(
@@ -2007,7 +2011,7 @@ def _events_have_open_turn(session_dir: Path) -> bool:
     Delegates to :func:`~anqa.session.turn_gate.events_have_open_turn` so
     gate lifecycle and parser share one harness-turn definition.
     """
-    from .session.turn_gate import events_have_open_turn
+    from ..session.turn_gate import events_have_open_turn
 
     return events_have_open_turn(session_dir)
 
@@ -2025,7 +2029,7 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
     :func:`~anqa.session.turn_gate.lifecycle_state`). This only translates
     that lifecycle into list/browser outcomes.
     """
-    from .session.turn_gate import lifecycle_state
+    from ..session.turn_gate import lifecycle_state
 
     life = lifecycle_state(session_dir)
     if life == "done":
@@ -2050,7 +2054,7 @@ def _gate_override_turn_outcome(session_dir: Path, marker_outcome: str) -> str |
         # Leftover last-turn flag with idle/closed harness: settle so the list
         # is not stuck on "running". Plain state=running with no markers is
         # still "about to start".
-        from .session.turn_gate import final_turn_requested
+        from ..session.turn_gate import final_turn_requested
 
         if final_turn_requested(session_dir):
             return _settle_idle_gate_outcome(marker_outcome)
@@ -2266,7 +2270,7 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
     start with the operator-selected model and effort). Older traces without
     that file fall back to ``run.json`` mapping and directory-name inference.
     """
-    from .session.launch_meta import apply_launch_meta, read_launch_meta
+    from ..session.launch_meta import apply_launch_meta, read_launch_meta
 
     launch = read_launch_meta(session_dir)
     if launch is not None:
@@ -2296,7 +2300,7 @@ def _load_run_meta(meta: SessionMeta, session_dir: Path) -> None:
             if launch is None:
                 resolved = _model_from_run_json(session_dir, run_data)
                 if resolved:
-                    from .session.models_catalog import split_model_effort
+                    from ..session.models_catalog import split_model_effort
 
                     mid, eff = split_model_effort(resolved)
                     meta.model_id = mid or resolved
@@ -2647,7 +2651,7 @@ def _match_model_to_container(container_name: str, models: list[str]) -> str:
     Runner names containers ``anqa-{run_id}-{modelTail}`` or
     ``anqa-{run_id}-{modelTail}-{effortPrefix}`` when effort is set.
     """
-    from .session.models_catalog import split_model_effort
+    from ..session.models_catalog import split_model_effort
 
     cname = _strip_container_name_disambiguator(container_name)
     best = ""
@@ -2694,7 +2698,7 @@ def _strip_container_name_disambiguator(name: str) -> str:
 
 def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
     """Infer effort from a ``anqa-{run_id}-{slug}`` parent (effort suffix in slug)."""
-    from .session.models_catalog import REASONING_EFFORTS
+    from ..session.models_catalog import REASONING_EFFORTS
 
     # Longest names first so ``xhigh`` wins over ``high``.
     efforts = sorted(REASONING_EFFORTS, key=len, reverse=True)
@@ -2725,7 +2729,7 @@ def _reasoning_effort_from_run_dir(session_dir: Path) -> str:
 
 def _reasoning_effort_from_run_config(session_dir: Path) -> str:
     """Read ``default_reasoning_effort`` from a run ``*config.toml`` if present."""
-    from .session.models_catalog import REASONING_EFFORTS
+    from ..session.models_catalog import REASONING_EFFORTS
 
     names = ("gte-config.toml", "anqa-config.toml", "config.toml")
     candidates: list[Path] = [session_dir / n for n in names]
@@ -2795,7 +2799,7 @@ def _prune_session_walk_dirs(dirnames: list[str]) -> None:
 def _scan_hit_is_listed(root: Path, path: Path) -> bool:
     """Apply the Python walk policy to one compiled ``find_sessions`` hit."""
     # session/__init__ imports sources, which import find_sessions.
-    from .session.resume import is_resume_seed_path
+    from ..session.resume import is_resume_seed_path
 
     try:
         rel = path.resolve().relative_to(root.resolve())
@@ -2825,7 +2829,7 @@ def _drop_subagent_mirror_sessions(sessions: list[Path]) -> list[Path]:
     ``subagents/`` (cross-token included). Operator ``fork`` stays listed.
     """
     # session/__init__ imports sources, which import find_sessions.
-    from .session.subagents import drop_subagent_sessions
+    from ..session.subagents import drop_subagent_sessions
 
     return drop_subagent_sessions(sessions)
 

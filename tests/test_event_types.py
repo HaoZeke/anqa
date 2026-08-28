@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from anqa import event_types as et
-from anqa.parser import parse_timeline
+from anqa.harness.grok_parse import parse_timeline
 
 
 def test_session_update_types_are_identity_mapped(tmp_path: Path) -> None:

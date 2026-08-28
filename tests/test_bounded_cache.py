@@ -5,13 +5,13 @@ from __future__ import annotations
 import threading
 
 import pytest
-from anqa import parser as parser_mod
 from anqa.bounded_cache import MIN_MAXSIZE, BoundedCache, resolve_maxsize
 from anqa.constants import (
     SYSTEM_PROMPT_CACHE_MAXSIZE,
     TIMELINE_CACHE_MAX_ENV,
     TIMELINE_CACHE_MAXSIZE,
 )
+from anqa.harness import grok_parse as parser_mod
 from anqa.session.control_views import SessionOverview
 from anqa.session.jobs import SessionJobs
 

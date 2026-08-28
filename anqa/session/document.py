@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Literal
 
 from .. import event_types as et
+from ..harness.grok_parse import load_session_meta, parse_timeline
 from ..models import JsonObject, JsonValue
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
-from ..parser import load_session_meta, parse_timeline
 from .subagents import (
     SubagentRun,
     subagent_run_mapping,

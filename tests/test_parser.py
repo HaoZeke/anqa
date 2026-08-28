@@ -8,8 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from anqa.models import JsonValue
-from anqa.parser import (
+from anqa.harness.grok_parse import (
     extract_prompt,
     find_sessions,
     load_session_meta,
@@ -19,6 +18,7 @@ from anqa.parser import (
     parse_timeline,
     parse_tool_calls,
 )
+from anqa.models import JsonValue
 
 # ── parse_tool_calls ─────────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ class TestParseRuntimeMarkers:
 
     def test_runtime_markers_cache_by_mtime(self, tmp_path):
         """Live light refresh must not re-read events.jsonl when unchanged."""
-        from anqa import parser as parser_mod
+        from anqa.harness import grok_parse as parser_mod
 
         sd = tmp_path / "cached-events"
         sd.mkdir()
@@ -531,7 +531,7 @@ class TestParseChatHistory:
         assert messages == []
 
 
-from anqa.parser import (
+from anqa.harness.grok_parse import (
     _as_epoch_ts,
     _extract_message_text,
     _extract_tool_update_text,
@@ -800,7 +800,7 @@ def test_runtime_markers_turn_ended_extra_fields(tmp_path: Path):
 
 def test_extract_raw_output_mcp_okay_output() -> None:
     """MCP tools store body under rawOutput.output.OkayOutput (content is null)."""
-    from anqa.parser import _extract_raw_output_text
+    from anqa.harness.grok_parse import _extract_raw_output_text
 
     text = _extract_raw_output_text(
         {
@@ -892,8 +892,8 @@ def test_timeline_does_not_copy_run_id_onto_non_workflow(tmp_path: Path) -> None
 
 def test_coalesce_tool_result_from_mcp_raw_output() -> None:
     """tool_call_update with only MCP rawOutput still yields a tool_result row."""
+    from anqa.harness.grok_parse import _coalesce_tool_result
     from anqa.models import TraceEvent
-    from anqa.parser import _coalesce_tool_result
 
     pending = {
         "call-1": TraceEvent(
@@ -929,8 +929,8 @@ def test_coalesce_tool_result_from_mcp_raw_output() -> None:
 
 def test_apply_tool_result_meta_output_for_prompt_replacement(tmp_path: Path):
     """rawOutput.output_for_prompt with exit: prefix replaces existing content."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall, ToolInputBag
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(
         call_id="c1",
@@ -949,8 +949,8 @@ def test_apply_tool_result_meta_output_for_prompt_replacement(tmp_path: Path):
 
 
 def test_apply_tool_result_meta_signal_sets_error():
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall, ToolInputBag
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(
@@ -965,8 +965,8 @@ def test_apply_tool_result_meta_signal_sets_error():
 
 def test_apply_tool_result_meta_exit_code_1_not_error():
     """exit_code=1 is benign for terminal commands (grep no-match)."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall, ToolInputBag
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(
@@ -1637,8 +1637,8 @@ def test_infer_stale_body_returns_interrupted(tmp_path: Path):
 
 
 def test_load_summary_bad_json(tmp_path: Path):
+    from anqa.harness.grok_parse import _load_summary
     from anqa.models import SessionMeta
-    from anqa.parser import _load_summary
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -1649,8 +1649,8 @@ def test_load_summary_bad_json(tmp_path: Path):
 
 
 def test_load_signals_bad_json(tmp_path: Path):
+    from anqa.harness.grok_parse import _load_signals
     from anqa.models import SessionMeta
-    from anqa.parser import _load_signals
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -1664,7 +1664,7 @@ def test_load_signals_bad_json(tmp_path: Path):
 
 
 def test_find_container_exact_match(tmp_path: Path):
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "sess1"
     sd.mkdir()
@@ -1673,7 +1673,7 @@ def test_find_container_exact_match(tmp_path: Path):
 
 
 def test_find_container_by_name(tmp_path: Path):
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "sess1"
     sd.mkdir()
@@ -1682,7 +1682,7 @@ def test_find_container_by_name(tmp_path: Path):
 
 
 def test_find_container_no_match(tmp_path: Path):
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "sess1"
     sd.mkdir()
@@ -1691,7 +1691,7 @@ def test_find_container_no_match(tmp_path: Path):
 
 
 def test_find_container_run_parent(tmp_path: Path):
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     parent = tmp_path / "anqa-abc-model"
     sd = parent / "sess"
@@ -1793,7 +1793,7 @@ def test_model_display_effort_from_run_dir_slug(tmp_path: Path) -> None:
 
 
 def test_reasoning_effort_from_run_dir_max(tmp_path: Path) -> None:
-    from anqa.parser import _reasoning_effort_from_run_dir
+    from anqa.harness.grok_parse import _reasoning_effort_from_run_dir
 
     p = tmp_path / "anqa-deadbeef-max" / "sess"
     p.mkdir(parents=True)
@@ -1802,7 +1802,7 @@ def test_reasoning_effort_from_run_dir_max(tmp_path: Path) -> None:
 
 def test_reasoning_effort_from_run_dir_strips_x2_disambiguator(tmp_path: Path) -> None:
     """Collision suffix ``x2`` on an effort-only slug still yields xhigh."""
-    from anqa.parser import _reasoning_effort_from_run_dir, load_session_meta
+    from anqa.harness.grok_parse import _reasoning_effort_from_run_dir, load_session_meta
 
     vol = tmp_path / "traces" / "anqa-49fdc12a916c-xhighx2"
     sd = vol / "%2Fworkspace" / "019f-sess"
@@ -1818,7 +1818,7 @@ def test_reasoning_effort_from_run_dir_strips_x2_disambiguator(tmp_path: Path) -
 
 
 def test_reasoning_effort_from_model_tail_slug(tmp_path: Path) -> None:
-    from anqa.parser import _reasoning_effort_from_run_dir
+    from anqa.harness.grok_parse import _reasoning_effort_from_run_dir
 
     p = tmp_path / "anqa-abc123def456-goldbond-xhigh" / "sess"
     p.mkdir(parents=True)
@@ -1975,7 +1975,7 @@ def test_find_sessions_events_empty_file(tmp_path: Path):
 
 
 def test_prune_session_walk_dirs():
-    from anqa.parser import _prune_session_walk_dirs
+    from anqa.harness.grok_parse import _prune_session_walk_dirs
 
     dirs = [
         "anqa-abc-model",
@@ -2005,7 +2005,7 @@ def test_find_sessions_scan_drops_skipped_descendants(
     junk = root / "workspace" / "fake"
     junk.mkdir(parents=True)
     (junk / "summary.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr("anqa.parser.walk_sessions", lambda _r: [keep, junk])
+    monkeypatch.setattr("anqa.harness.grok_parse.walk_sessions", lambda _r: [keep, junk])
     found = find_sessions(root)
     assert found == [keep]
 
@@ -2015,8 +2015,8 @@ def test_find_sessions_scan_drops_skipped_descendants(
 
 def test_apply_tool_result_meta_ofp_different_no_exit():
     """Longer / newer ofp body replaces prior content (MCP + host tools)."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall, ToolInputBag
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(
         call_id="c1", tool_name="grep", raw_input=ToolInputBag({}), result_content="original"
@@ -2032,8 +2032,8 @@ def test_apply_tool_result_meta_ofp_different_no_exit():
 
 def test_apply_tool_result_meta_exit_code_1_not_error_no_signal():
     """exit_code=1 for run_terminal_command with no signal → not error."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall, ToolInputBag
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(tc, {"rawOutput": {"exit_code": 0}})
@@ -2042,8 +2042,8 @@ def test_apply_tool_result_meta_exit_code_1_not_error_no_signal():
 
 def test_apply_tool_result_meta_exit_code_high():
     """exit_code >= 2 for terminal commands → is_error."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall, ToolInputBag
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="c1", tool_name="run_terminal_command", raw_input=ToolInputBag({}))
     _apply_tool_result_meta(tc, {"rawOutput": {"exit_code": 2}})
@@ -2084,8 +2084,8 @@ def test_runtime_markers_oserror(tmp_path: Path):
 
 def test_coalesce_empty_content_no_error_no_terminal():
     """No content + no error + no terminal → skip, return same idx."""
+    from anqa.harness.grok_parse import _coalesce_tool_result
     from anqa.models import TraceEvent as _TE
-    from anqa.parser import _coalesce_tool_result
 
     events: list[_TE] = []
     pending: dict[str, _TE] = {}
@@ -2105,8 +2105,8 @@ def test_coalesce_empty_content_no_error_no_terminal():
 
 def test_coalesce_existing_result_error_flag():
     """Second update marks existing result as error."""
+    from anqa.harness.grok_parse import _coalesce_tool_result
     from anqa.models import TraceEvent as _TE
-    from anqa.parser import _coalesce_tool_result
 
     ev = _TE(index=0, event_type="tool_call_update", content="output", tool_call_id="t1")
     events: list[_TE] = [ev]
@@ -2126,8 +2126,8 @@ def test_coalesce_existing_result_error_flag():
 
 def test_coalesce_failed_no_text_creates_event():
     """Failed update with no text but isError=True creates error event."""
+    from anqa.harness.grok_parse import _coalesce_tool_result
     from anqa.models import TraceEvent as _TE
-    from anqa.parser import _coalesce_tool_result
 
     events: list[_TE] = []
     result_by: dict[str, int] = {}
@@ -2183,7 +2183,7 @@ def test_infer_no_mtime_returns_interrupted(tmp_path: Path):
 
 def test_find_container_is_relative_to(tmp_path: Path):
     """Match via is_relative_to check."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     parent = tmp_path / "traces" / "c1"
     sd = parent / "workspace" / "sess"
@@ -2194,7 +2194,7 @@ def test_find_container_is_relative_to(tmp_path: Path):
 
 def test_find_container_sid_in_spath(tmp_path: Path):
     """Match via session id substring in session path."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "my-session-id"
     sd.mkdir()
@@ -2272,7 +2272,7 @@ def test_load_session_meta_infer_model_from_parent(tmp_path: Path):
 
 def test_as_epoch_ts_non_primitive():
     """_as_epoch_ts returns None for non-primitive types like list or dict."""
-    from anqa.parser import _as_epoch_ts
+    from anqa.harness.grok_parse import _as_epoch_ts
 
     assert _as_epoch_ts([1, 2, 3]) is None
     assert _as_epoch_ts({"key": "value"}) is None
@@ -2280,7 +2280,7 @@ def test_as_epoch_ts_non_primitive():
 
 def test_extract_message_text_list_content_json():
     """_extract_message_text dumps non-string/non-dict items as JSON."""
-    from anqa.parser import _extract_message_text
+    from anqa.harness.grok_parse import _extract_message_text
 
     msg = {"content": [42, True, None]}
     text = _extract_message_text(msg)
@@ -2289,7 +2289,7 @@ def test_extract_message_text_list_content_json():
 
 def test_session_trace_mtime_fallback_to_dir(tmp_path: Path):
     """session_trace_mtime falls back to session_dir.stat() mtime."""
-    from anqa.parser import session_trace_mtime
+    from anqa.harness.grok_parse import session_trace_mtime
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2300,7 +2300,7 @@ def test_session_trace_mtime_fallback_to_dir(tmp_path: Path):
 
 def test_infer_incomplete_no_body_returns_empty(tmp_path: Path):
     """_infer_incomplete returns '' when no substantial trace data exists."""
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "empty-sess"
     sd.mkdir()
@@ -2314,7 +2314,7 @@ def test_infer_incomplete_stale_returns_interrupted(tmp_path: Path):
     import os
     import time
 
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "stale-sess"
     sd.mkdir()
@@ -2384,7 +2384,7 @@ def test_load_session_meta_gate_running_with_summary(tmp_path: Path):
 
 def test_match_model_to_container_v9_alias():
     """_match_model_to_container matches v9-alias-style model ids."""
-    from anqa.parser import _match_model_to_container
+    from anqa.harness.grok_parse import _match_model_to_container
 
     result = _match_model_to_container("anqa-abc-bottlerock", ["v9-bottlerocket"])
     assert result == "v9-bottlerocket" or result == ""
@@ -2392,7 +2392,7 @@ def test_match_model_to_container_v9_alias():
 
 def test_match_model_to_container_empty_model():
     """_match_model_to_container skips empty model strings."""
-    from anqa.parser import _match_model_to_container
+    from anqa.harness.grok_parse import _match_model_to_container
 
     result = _match_model_to_container("anqa-abc-m1", ["", "m1"])
     assert result == "m1"
@@ -2400,7 +2400,7 @@ def test_match_model_to_container_empty_model():
 
 def test_find_container_for_session_path_match(tmp_path: Path):
     """_find_container_for_session matches via path resolution."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "anqa-run" / "sess-1"
     sd.mkdir(parents=True)
@@ -2411,7 +2411,7 @@ def test_find_container_for_session_path_match(tmp_path: Path):
 
 def test_find_container_for_session_sid_in_value(tmp_path: Path):
     """_find_container_for_session matches when session_id appears in value string."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "sess-1"
     sd.mkdir(parents=True)
@@ -2422,7 +2422,7 @@ def test_find_container_for_session_sid_in_value(tmp_path: Path):
 
 def test_find_container_walks_parents(tmp_path: Path):
     """_find_container_for_session falls back to parent anqa-* dir name."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "anqa-run123-m1" / "workspace" / "sess"
     sd.mkdir(parents=True)
@@ -2432,7 +2432,7 @@ def test_find_container_walks_parents(tmp_path: Path):
 
 def test_find_container_returns_empty_no_match(tmp_path: Path):
     """_find_container_for_session returns empty when nothing matches."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "plain" / "sess"
     sd.mkdir(parents=True)
@@ -2442,7 +2442,7 @@ def test_find_container_returns_empty_no_match(tmp_path: Path):
 
 def test_model_from_run_json_suffix_fallback(tmp_path: Path):
     """_model_from_run_json falls back to container suffix after run_id."""
-    from anqa.parser import _model_from_run_json
+    from anqa.harness.grok_parse import _model_from_run_json
 
     sd = tmp_path / "anqa-abc123-mymodel" / "sess"
     sd.mkdir(parents=True)
@@ -2457,7 +2457,7 @@ def test_model_from_run_json_suffix_fallback(tmp_path: Path):
 
 def test_model_from_run_json_no_match_returns_empty(tmp_path: Path):
     """_model_from_run_json returns empty when no container matches."""
-    from anqa.parser import _model_from_run_json
+    from anqa.harness.grok_parse import _model_from_run_json
 
     sd = tmp_path / "sess"
     sd.mkdir(parents=True)
@@ -2468,7 +2468,7 @@ def test_model_from_run_json_no_match_returns_empty(tmp_path: Path):
 
 def test_model_from_run_json_empty_data():
     """_model_from_run_json returns empty for no models and no sessions."""
-    from anqa.parser import _model_from_run_json
+    from anqa.harness.grok_parse import _model_from_run_json
 
     result = _model_from_run_json(Path("/x"), {})
     assert result == ""
@@ -2476,8 +2476,8 @@ def test_model_from_run_json_empty_data():
 
 def test_tool_call_update_replaces_result_with_exit_prefix():
     """_apply_tool_result_meta replaces result_content when rawOutput starts with exit:."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(
         call_id="tc1",
@@ -2494,7 +2494,7 @@ def test_tool_call_update_replaces_result_with_exit_prefix():
 
 def test_infer_incomplete_running_recent(tmp_path: Path):
     """_infer_incomplete returns running for recent trace data."""
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2508,7 +2508,7 @@ def test_infer_incomplete_interrupted_stale(tmp_path: Path):
     import os
     import time
 
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2521,7 +2521,7 @@ def test_infer_incomplete_interrupted_stale(tmp_path: Path):
 
 def test_session_trace_mtime_oserror(tmp_path: Path):
     """session_trace_mtime falls back to dir mtime when files raise OSError."""
-    from anqa.parser import session_trace_mtime
+    from anqa.harness.grok_parse import session_trace_mtime
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2531,7 +2531,7 @@ def test_session_trace_mtime_oserror(tmp_path: Path):
 
 def test_find_sessions_events_only_oserror(tmp_path: Path):
     """find_sessions handles OSError when stating events.jsonl."""
-    from anqa.parser import find_sessions
+    from anqa.harness.grok_parse import find_sessions
 
     sd = tmp_path / "traces" / "anqa-r" / "s1"
     sd.mkdir(parents=True)
@@ -2543,7 +2543,7 @@ def test_find_sessions_events_only_oserror(tmp_path: Path):
 
 def test_load_session_meta_turn_gate_exception(tmp_path: Path):
     """load_session_meta handles turn_gate import exception gracefully."""
-    from anqa.parser import load_session_meta
+    from anqa.harness.grok_parse import load_session_meta
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -2558,7 +2558,7 @@ def test_load_session_meta_turn_gate_exception(tmp_path: Path):
 
 def test_match_model_full_name_in_cname():
     """_match_model_to_container matches full model name in container name."""
-    from anqa.parser import _match_model_to_container
+    from anqa.harness.grok_parse import _match_model_to_container
 
     result = _match_model_to_container("anqa-abc-v9-pizzaparty", ["v9-pizzaparty"])
     assert result == "v9-pizzaparty"
@@ -2566,7 +2566,7 @@ def test_match_model_full_name_in_cname():
 
 def test_match_model_short_in_cname():
     """_match_model_to_container matches short suffix in container name."""
-    from anqa.parser import _match_model_to_container
+    from anqa.harness.grok_parse import _match_model_to_container
 
     result = _match_model_to_container("anqa-abc-dietcoke", ["v9-dietcoke"])
     assert result == "v9-dietcoke"
@@ -2577,8 +2577,8 @@ def test_match_model_short_in_cname():
 
 def test_apply_tool_result_meta_empty_result_sets_content():
     """_apply_tool_result_meta sets result_content when empty."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="tc1", tool_name="read_file", raw_input={})
     tc.result_content = ""
@@ -2591,8 +2591,8 @@ def test_apply_tool_result_meta_empty_result_sets_content():
 
 def test_apply_tool_result_meta_exit_code_and_signal():
     """_apply_tool_result_meta sets exit_code and signal fields."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="tc2", tool_name="run_terminal_command", raw_input={})
     update: dict[str, object] = {
@@ -2605,8 +2605,8 @@ def test_apply_tool_result_meta_exit_code_and_signal():
 
 def test_apply_tool_result_meta_is_error():
     """_apply_tool_result_meta sets is_error from isError flag."""
+    from anqa.harness.grok_parse import _apply_tool_result_meta
     from anqa.models import ToolCall
-    from anqa.parser import _apply_tool_result_meta
 
     tc = ToolCall(call_id="tc3", tool_name="grep", raw_input={})
     update: dict[str, object] = {"isError": True}
@@ -2616,7 +2616,7 @@ def test_apply_tool_result_meta_is_error():
 
 def test_extract_message_text_list():
     """_extract_message_text handles list of mixed content blocks."""
-    from anqa.parser import _extract_message_text
+    from anqa.harness.grok_parse import _extract_message_text
 
     result = _extract_message_text(
         [
@@ -2630,7 +2630,7 @@ def test_extract_message_text_list():
 
 def test_extract_message_text_dict():
     """_extract_message_text handles dict with type=text."""
-    from anqa.parser import _extract_message_text
+    from anqa.harness.grok_parse import _extract_message_text
 
     result = _extract_message_text({"type": "text", "text": "content"})
     assert result == "content"
@@ -2638,7 +2638,7 @@ def test_extract_message_text_dict():
 
 def test_extract_message_text_non_text():
     """_extract_message_text JSON-dumps non-string/dict/list."""
-    from anqa.parser import _extract_message_text
+    from anqa.harness.grok_parse import _extract_message_text
 
     result = _extract_message_text(42)
     assert "42" in result
@@ -2646,7 +2646,7 @@ def test_extract_message_text_non_text():
 
 def test_infer_incomplete_no_body(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns '' for session with no body."""
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2656,7 +2656,7 @@ def test_infer_incomplete_no_body(tmp_path: Path):
 def test_infer_incomplete_with_marker(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns 'interrupted' for marker file."""
     from anqa.constants import INTERRUPTED_MARKER_FILENAME
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2669,7 +2669,7 @@ def test_infer_incomplete_stale_body(tmp_path: Path):
     import os
     import time
 
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2682,7 +2682,7 @@ def test_infer_incomplete_stale_body(tmp_path: Path):
 
 def test_session_trace_mtime_no_files(tmp_path: Path):
     """session_trace_mtime returns 0 for empty session dir."""
-    from anqa.parser import session_trace_mtime
+    from anqa.harness.grok_parse import session_trace_mtime
 
     sd = tmp_path / "empty"
     sd.mkdir()
@@ -2691,7 +2691,7 @@ def test_session_trace_mtime_no_files(tmp_path: Path):
 
 def test_find_container_walks_parents_path_only():
     """_find_container_for_session resolves parent anqa-* dir from path."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = Path("/traces/anqa-abc-model/%2Fworkspace/sess-id")
     result = _find_container_for_session(sd, {})
@@ -2700,7 +2700,7 @@ def test_find_container_walks_parents_path_only():
 
 def test_find_container_sessions_map_match():
     """_find_container_for_session matches via sessions map value."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = Path("/traces/anqa-r1/sess-id")
     sessions = {"anqa-r1-model": str(sd)}
@@ -2713,7 +2713,7 @@ def test_find_container_sessions_map_match():
 
 def test_session_trace_mtime_stat_oserror(tmp_path: Path):
     """session_trace_mtime handles stat OSError on individual files."""
-    from anqa.parser import session_trace_mtime
+    from anqa.harness.grok_parse import session_trace_mtime
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2734,7 +2734,7 @@ def test_session_trace_mtime_stat_oserror(tmp_path: Path):
 
 def test_find_container_relative_to_match(tmp_path: Path):
     """_find_container_for_session matches via is_relative_to."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     parent = tmp_path / "anqa-run" / "data"
     sd = parent / "sess"
@@ -2746,7 +2746,7 @@ def test_find_container_relative_to_match(tmp_path: Path):
 
 def test_find_container_oserror_in_loop(tmp_path: Path):
     """_find_container_for_session handles OSError in sessions_map loop."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2758,7 +2758,7 @@ def test_find_container_oserror_in_loop(tmp_path: Path):
 
 def test_model_from_run_json_resolve_error(tmp_path: Path):
     """_model_from_run_json handles resolve OSError."""
-    from anqa.parser import _model_from_run_json
+    from anqa.harness.grok_parse import _model_from_run_json
 
     sd = tmp_path / "anqa-abc-model" / "sess"
     sd.mkdir(parents=True)
@@ -2793,7 +2793,7 @@ def test_find_sessions_stat_oserror_on_events(tmp_path: Path):
 
 def test_find_container_resolve_oserror(tmp_path: Path):
     """_find_container_for_session handles resolve() OSError on session_dir."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "anqa-abc-model" / "sess"
     sd.mkdir(parents=True)
@@ -2813,7 +2813,7 @@ def test_find_container_resolve_oserror(tmp_path: Path):
 
 def test_find_container_path_resolve_oserror(tmp_path: Path):
     """_find_container_for_session handles resolve() OSError on map path."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "sess"
     sd.mkdir()
@@ -2824,7 +2824,7 @@ def test_find_container_path_resolve_oserror(tmp_path: Path):
 
 def test_find_container_is_relative_to_match(tmp_path: Path):
     """_find_container_for_session matches via is_relative_to."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     parent = tmp_path / "traces" / "anqa-run-model"
     sd = parent / "workspace" / "sess"
@@ -2837,7 +2837,7 @@ def test_find_container_is_relative_to_match(tmp_path: Path):
 
 def test_find_container_sid_in_spath_fallback(tmp_path: Path):
     """_find_container_for_session falls back to sid-in-spath match."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "mysession"
     sd.mkdir()
@@ -2849,7 +2849,7 @@ def test_find_container_sid_in_spath_fallback(tmp_path: Path):
 
 def test_find_container_no_match_returns_empty(tmp_path: Path):
     """_find_container_for_session returns empty string when nothing matches."""
-    from anqa.parser import _find_container_for_session
+    from anqa.harness.grok_parse import _find_container_for_session
 
     sd = tmp_path / "unrelated"
     sd.mkdir()
@@ -2860,7 +2860,7 @@ def test_find_container_no_match_returns_empty(tmp_path: Path):
 
 def test_match_model_empty_string_skipped():
     """_match_model_to_container skips empty model strings."""
-    from anqa.parser import _match_model_to_container
+    from anqa.harness.grok_parse import _match_model_to_container
 
     result = _match_model_to_container("anqa-abc-model", ["", "  ", "v9-model"])
     assert result == "v9-model"
@@ -2868,7 +2868,7 @@ def test_match_model_empty_string_skipped():
 
 def test_model_from_run_json_run_id_suffix(tmp_path: Path):
     """_model_from_run_json extracts model from container suffix after run_id."""
-    from anqa.parser import _model_from_run_json
+    from anqa.harness.grok_parse import _model_from_run_json
 
     sd = tmp_path / "anqa-abc123def456-model" / "sess"
     sd.mkdir(parents=True)
@@ -2909,20 +2909,20 @@ def test_load_session_meta_gate_running_override(tmp_path: Path):
 
 def test_infer_incomplete_mtime_zero(tmp_path: Path):
     """_infer_incomplete_turn_outcome returns interrupted when mtime is zero."""
-    from anqa.parser import _infer_incomplete_turn_outcome
+    from anqa.harness.grok_parse import _infer_incomplete_turn_outcome
 
     sd = tmp_path / "sess"
     sd.mkdir()
     # Need a body file > 200 bytes to pass has_body check
     (sd / "events.jsonl").write_text("x" * 300, encoding="utf-8")
     # Patch session_trace_mtime to return 0
-    with patch("anqa.parser.session_trace_mtime", return_value=0.0):
+    with patch("anqa.harness.grok_parse.session_trace_mtime", return_value=0.0):
         result = _infer_incomplete_turn_outcome(sd)
     assert result == "interrupted"
 
 
 def test_resolve_tool_display_name_use_tool_mcp():
-    from anqa.parser import normalize_tool_id, resolve_tool_display_name
+    from anqa.harness.grok_parse import normalize_tool_id, resolve_tool_display_name
 
     assert (
         resolve_tool_display_name(
@@ -2948,7 +2948,7 @@ def test_host_done_stale_traces_settle_completed(tmp_path: Path) -> None:
     import json
     import time
 
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-done-stale"
@@ -2991,7 +2991,7 @@ def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
     Host docker-stop after End often leaves status=running; lifecycle uses the
     events contract, not mtimes.
     """
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
     from anqa.session.turn_gate import lifecycle_state, session_pending_label
 
     vol = tmp_path / "ctr"
@@ -3028,7 +3028,7 @@ def test_host_done_closed_turn_settles_via_lifecycle(tmp_path: Path) -> None:
 
 def test_host_done_open_turn_is_ending(tmp_path: Path) -> None:
     """command=done while turn_started is still open → ending (agent finishing)."""
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
     from anqa.session.turn_gate import lifecycle_state, session_pending_label
 
     vol = tmp_path / "ctr"
@@ -3058,7 +3058,7 @@ def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
     import os
     import time
 
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-final-stale"
@@ -3102,7 +3102,7 @@ def test_final_turn_stale_gate_settles_completed(tmp_path: Path) -> None:
 
 def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None:
     """Closed last turn + final_turn settles without waiting for stale mtimes."""
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-final-fresh"
@@ -3135,7 +3135,7 @@ def test_final_turn_closed_events_settle_even_when_fresh(tmp_path: Path) -> None
 
 def test_final_turn_open_events_show_ending(tmp_path: Path) -> None:
     """Final turn still writing (open turn_started) shows ending."""
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-final-open"
@@ -3167,7 +3167,7 @@ def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
     """command=done while gate was awaiting (no open turn) settles to complete."""
     import json
 
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
 
     vol = tmp_path / "ctr"
     sess = vol / "%2Fworkspace" / "019f-done-await"
@@ -3201,7 +3201,7 @@ def test_host_done_awaiting_with_closed_turns_settles(tmp_path: Path) -> None:
 
 def test_load_summary_git_remotes_and_head(tmp_path: Path) -> None:
     """summary.json git_remotes / head_* populate SessionMeta for fork prefill."""
-    from anqa.parser import load_session_meta
+    from anqa.harness.grok_parse import load_session_meta
 
     sess = tmp_path / "sid"
     sess.mkdir()
@@ -3226,7 +3226,7 @@ def test_load_summary_git_remotes_and_head(tmp_path: Path) -> None:
 
 def test_list_turn_outcome_completed_not_running_when_fresh(tmp_path: Path) -> None:
     """Completed harness turn must not show running just because mtimes are young."""
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta
 
     sess = tmp_path / "fresh-done"
     sess.mkdir()
@@ -3255,7 +3255,7 @@ def test_session_timeline_mtime_ignores_signals(tmp_path: Path) -> None:
     """signals.json must not change the timeline cache key."""
     import time
 
-    from anqa.parser import session_timeline_mtime, session_trace_mtime
+    from anqa.harness.grok_parse import session_timeline_mtime, session_trace_mtime
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -3274,8 +3274,8 @@ def test_parse_timeline_incremental_file_growth(tmp_path: Path) -> None:
     """Growing updates.jsonl reuses the scan cursor (same event identities)."""
     import json
 
-    import anqa.parser as parser_mod
-    from anqa.parser import parse_timeline
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import parse_timeline
 
     sd = tmp_path / "s"
     sd.mkdir()
@@ -3323,8 +3323,8 @@ def test_parse_timeline_stamp_hit_does_not_reread(
     """Second parse_timeline on an unchanged stamp skips the file body."""
     import json
 
-    import anqa.parser as parser_mod
-    from anqa.parser import parse_timeline
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import parse_timeline
 
     sd = tmp_path / "cached"
     sd.mkdir()
@@ -3369,8 +3369,8 @@ def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    import anqa.parser as parser_mod
-    from anqa.parser import parse_timeline
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import parse_timeline
 
     sd = tmp_path / "flight"
     sd.mkdir()
@@ -3454,8 +3454,8 @@ def test_user_message_superseding_draft_coalesced(tmp_path: Path) -> None:
     """
     import json
 
-    import anqa.parser as parser_mod
-    from anqa.parser import parse_timeline
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import parse_timeline
 
     sd = tmp_path / "sess-draft"
     sd.mkdir()
@@ -3503,8 +3503,8 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
     """
     import json
 
-    import anqa.parser as parser_mod
-    from anqa.parser import parse_timeline
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import parse_timeline
     from anqa.session.turns import segment_timeline_turns
 
     sd = tmp_path / "sess"
@@ -3593,7 +3593,7 @@ def test_user_message_not_coalesced_with_background_task(tmp_path: Path) -> None
 def test_load_host_list_meta_closed_tail_does_not_open_events(tmp_path: Path, monkeypatch) -> None:
     import time
 
-    from anqa.parser import load_host_list_meta
+    from anqa.harness.grok_parse import load_host_list_meta
 
     sd = tmp_path / "host-closed"
     sd.mkdir()
@@ -3624,7 +3624,7 @@ def test_load_host_list_meta_closed_tail_does_not_open_events(tmp_path: Path, mo
 
 def test_load_host_list_meta_skips_events_and_title_infer(tmp_path: Path) -> None:
     """Host catalog rows read summary + signals, not events.jsonl."""
-    from anqa.parser import load_host_list_meta
+    from anqa.harness.grok_parse import load_host_list_meta
 
     sd = tmp_path / "host-sess"
     sd.mkdir()
@@ -3645,7 +3645,7 @@ def test_load_host_list_meta_uses_turn_ended_when_tail_is_recap(tmp_path: Path) 
     """Host list status must match Summary when the updates tail is session_recap."""
     import time
 
-    from anqa.parser import load_host_list_meta, load_session_meta
+    from anqa.harness.grok_parse import load_host_list_meta, load_session_meta
 
     sd = tmp_path / "host-recap"
     sd.mkdir()
@@ -3681,7 +3681,7 @@ def test_load_host_list_meta_complete_when_recap_not_last_line(tmp_path: Path) -
     """A later agent chunk must not hide turn_completed once the traces are stale."""
     import time
 
-    from anqa.parser import load_host_list_meta
+    from anqa.harness.grok_parse import load_host_list_meta
 
     sd = tmp_path / "host-chunk-after"
     sd.mkdir()
@@ -3706,7 +3706,7 @@ def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> 
     """A host session with chat history but no turn close is cancelled, not —."""
     import time
 
-    from anqa.parser import load_host_list_meta, load_session_meta
+    from anqa.harness.grok_parse import load_host_list_meta, load_session_meta
 
     sd = tmp_path / "host-empty-ev"
     sd.mkdir()
@@ -3727,7 +3727,7 @@ def test_load_host_list_meta_stale_empty_events_is_cancelled(tmp_path: Path) -> 
 
 def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
     """Host list meta must not require events.jsonl (catalog speed)."""
-    from anqa.parser import load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = tmp_path / "host-sess"
     sd.mkdir()
@@ -3745,7 +3745,7 @@ def test_load_session_meta_list_host_skips_events(tmp_path: Path) -> None:
 
 def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) -> None:
     """Live host sessions without summary.json still get an Events column."""
-    from anqa.parser import load_session_meta_list, parse_timeline
+    from anqa.harness.grok_parse import load_session_meta_list, parse_timeline
 
     sd = tmp_path / "live-host"
     sd.mkdir()
@@ -3783,7 +3783,7 @@ def test_load_session_meta_list_untitled_host_counts_timeline(tmp_path: Path) ->
 
 def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
     """Host catalog rows must expose the same turn status as a full meta load."""
-    from anqa.parser import load_session_meta, load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta, load_session_meta_list
 
     sd = tmp_path / "host-live"
     sd.mkdir()
@@ -3807,7 +3807,7 @@ def test_load_session_meta_list_host_uses_turn_markers(tmp_path: Path) -> None:
 
 def test_load_session_meta_list_running_when_next_turn_open(tmp_path: Path) -> None:
     """Catalog status is running when a later turn_started has no turn_ended."""
-    from anqa.parser import load_session_meta, load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta, load_session_meta_list
 
     sd = tmp_path / "host-next"
     sd.mkdir()
@@ -3836,7 +3836,7 @@ def test_load_session_meta_list_stale_open_turn_is_not_running(tmp_path: Path) -
     """A dangling turn_started after Grok exits must not stay running."""
     import time
 
-    from anqa.parser import load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = tmp_path / "host-stale-open"
     sd.mkdir()
@@ -3866,7 +3866,7 @@ def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> 
     """Host updates close the turn; missing events.jsonl must not become cancelled."""
     import time
 
-    from anqa.parser import load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = tmp_path / "host-updates-only"
     sd.mkdir()
@@ -3906,7 +3906,7 @@ def test_host_stale_turn_completed_is_complete_not_cancelled(tmp_path: Path) -> 
 
 def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> None:
     """A just-closed host turn is complete, not running, with no events.jsonl."""
-    from anqa.parser import list_turn_outcome_for_dir, load_session_meta_list
+    from anqa.harness.grok_parse import list_turn_outcome_for_dir, load_session_meta_list
 
     sd = tmp_path / "host-just-closed"
     sd.mkdir()
@@ -3943,7 +3943,7 @@ def test_host_fresh_turn_completed_is_complete_not_running(tmp_path: Path) -> No
 
 def test_load_session_meta_list_uses_gate_when_present(tmp_path: Path) -> None:
     """Eval list rows still honour an awaiting turn gate."""
-    from anqa.parser import load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta_list
 
     container = tmp_path / "anqa-eval1"
     sd = container / "cwd" / "sess-gate"
@@ -3973,8 +3973,8 @@ def test_load_session_meta_list_skips_gate_when_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Home-list meta must not walk the turn gate when no gate directory exists."""
-    import anqa.parser as parser_mod
-    from anqa.parser import load_session_meta_list
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = tmp_path / "host-nogate"
     sd.mkdir()
@@ -4008,7 +4008,7 @@ def test_load_session_meta_list_reads_events_jsonl_once(
     """Catalog list may read events.jsonl once; a second full parse is wasted."""
     import io
 
-    from anqa.parser import load_session_meta_list
+    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = tmp_path / "host-once"
     sd.mkdir()
@@ -4046,8 +4046,8 @@ def test_load_session_meta_list_skips_non_turn_event_payloads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Fat tool-call lines in events.jsonl must not be JSON-parsed for the list."""
-    import anqa.parser as parser_mod
-    from anqa.parser import load_session_meta_list
+    import anqa.harness.grok_parse as parser_mod
+    from anqa.harness.grok_parse import load_session_meta_list
 
     sd = tmp_path / "host-fat-line"
     sd.mkdir()

@@ -26,7 +26,7 @@ def is_resume_seed_path(path: Path) -> bool:
     """True when *path* is resume history substrate, not an operator session.
 
     Substrate lives under :data:`RESUME_SEED_DIRNAME`, or is a live path that
-    resolves into that tree (symlink placed for ``grok --resume``).
+    resolves into that tree (symlink placed for a fork resume).
     """
     p = Path(path)
     if RESUME_SEED_DIRNAME in p.parts:

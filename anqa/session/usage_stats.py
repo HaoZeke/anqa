@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import event_types as et
+from ..harness.grok_parse import parse_timeline
 from ..models import (
     JsonObject,
     ToolInput,
@@ -25,7 +26,6 @@ from ..models import (
     json_as_list,
     json_as_str,
 )
-from ..parser import parse_timeline
 from ..paths import CONFIG_FILENAME, is_run_dir_name
 
 _MCP_BRIDGE_TOOLS = frozenset({"search_tool", "use_tool", "search_mcp", "call_mcp"})

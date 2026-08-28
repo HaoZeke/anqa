@@ -603,7 +603,7 @@ def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> 
     host = tmp_path / "sessions"
     sess = host / "%2Fproj" / "019fe503-d45c-7320-904e-cfa8836c361c"
     sess.mkdir(parents=True)
-    monkeypatch.setattr("anqa.session.sources.host_grok_sessions_root", lambda: host)
+    monkeypatch.setattr("anqa.session.sources._adapter_store_roots", lambda: [host])
     meta = session_meta_from_catalog_row(
         {
             "sessionId": "019fe503-d45c-7320-904e-cfa8836c361c",
