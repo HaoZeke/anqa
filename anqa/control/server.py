@@ -440,14 +440,14 @@ class ControlServer:
         """Close listeners and connected streams."""
         server = self._server
         self._server = None
-        if server is not None:
-            server.close()
-            await server.wait_closed()
         writers = list(self._writers)
         self._writers.clear()
         self._writer_framing.clear()
         for writer in writers:
             writer.close()
+        if server is not None:
+            server.close()
+            await server.wait_closed()
         for writer in writers:
             try:
                 await writer.wait_closed()
@@ -643,10 +643,9 @@ class ControlServer:
             await self._send_error(writer, request_id, -32603, f"internal error: {exc}")
             return
         ms = (time.perf_counter() - t0) * 1000
-        # All successful access RPCs at the same level (debug). INFO is for
-        # conflicts / errors and operator-visible state changes elsewhere.
-        # Polls (list, timeline) must not fill the serve log.
-        logger.debug(
+        # session/list duration is operator-visible on large catalogs.
+        log = logger.info if method == "session/list" else logger.debug
+        log(
             "control rpc → id=%s method=%s status=ok %.1fms %s result=%s",
             request_id,
             method,

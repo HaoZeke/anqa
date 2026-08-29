@@ -73,6 +73,27 @@ def is_transient_unix_connect_error(exc: BaseException) -> bool:
     return False
 
 
+def is_read_timeout_error(exc: BaseException) -> bool:
+    """True when *exc* is a read deadline on an established stream.
+
+    macOS surfaces ``SO_RCVTIMEO`` as EAGAIN (os error 35), not always
+    ``TimeoutError``. That is a timeout, not a connect retry.
+    """
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, OSError):
+        if exc.errno in {errno.EAGAIN, errno.EWOULDBLOCK, errno.ETIMEDOUT}:
+            return True
+        msg = str(exc).lower()
+        return (
+            "resource temporarily unavailable" in msg
+            or "timed out" in msg
+            or "timeout" in msg
+            or "os error 35" in msg
+        )
+    return False
+
+
 async def open_unix_connection_retrying(
     path: Path,
     *,
@@ -114,12 +135,12 @@ async def open_unix_connection_retrying(
 class ControlClient:
     """Newline-framed JSON-RPC client for editor / TUI attach traffic.
 
-    Each :meth:`request` opens a short-lived connection so concurrent callers
-    do not share a half-read stream. Use :meth:`connect` / instance methods
-    only when a single exclusive stream is required.
+    :meth:`request` keeps one Unix connection and serializes calls on it.
+    A dead stream is dropped; the next call opens a new one.
 
-    Connect retries cover macOS EAGAIN (os error 35) and brief refused races
-    while the control owner binds after auto-serve.
+    Connect retries cover refused/missing-path races while the owner binds.
+    A read timeout (including macOS error 35 on an established stream) is
+    not retried as a connect.
     """
 
     def __init__(
@@ -183,8 +204,11 @@ class ControlClient:
         :raises TimeoutError: When the peer does not answer in time.
         :raises OSError: On socket failures.
         """
-        if self._writer is not None and self._reader is not None:
-            async with self._lock:
+        async with self._lock:
+            if self._writer is None or self._reader is None:
+                await self.connect()
+            assert self._reader is not None and self._writer is not None
+            try:
                 return await self._exchange(
                     self._reader,
                     self._writer,
@@ -192,24 +216,13 @@ class ControlClient:
                     params,
                     request_id=request_id,
                 )
-        reader, writer = await open_unix_connection_retrying(
-            self.socket_path,
-            timeout=self.timeout,
-        )
-        try:
-            return await self._exchange(
-                reader,
-                writer,
-                method,
-                params,
-                request_id=request_id,
-            )
-        finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+            except Exception as exc:
+                if is_read_timeout_error(exc):
+                    await self.close()
+                    raise TimeoutError(str(exc)) from exc
+                if isinstance(exc, OSError | ConnectionError):
+                    await self.close()
+                raise
 
     async def _exchange(
         self,
@@ -232,7 +245,12 @@ class ControlClient:
         writer.write(json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n")
         await writer.drain()
         while True:
-            line = await asyncio.wait_for(reader.readline(), timeout=self.timeout)
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=self.timeout)
+            except OSError as exc:
+                if is_read_timeout_error(exc):
+                    raise TimeoutError(str(exc)) from exc
+                raise
             if not line:
                 raise ConnectionError(f"control socket closed: {self.socket_path}")
             raw = json.loads(line)
