@@ -2481,6 +2481,13 @@ def load_session_meta_list(
                     meta.turn_outcome = inferred
                 elif fresh:
                     meta.turn_outcome = "running"
+    if _session_has_turn_gate(session_dir):
+        try:
+            override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
+            if override is not None:
+                meta.turn_outcome = override
+        except Exception:
+            logger.debug("turn gate status for list %s", session_dir, exc_info=True)
     if meta.turn_failed and not meta.error_count:
         meta.error_count = max(meta.error_count, 1)
     if not _is_host_session_dir(session_dir, origin=origin_key):

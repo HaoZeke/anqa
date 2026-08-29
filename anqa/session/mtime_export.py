@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ..control.contract import PROTOCOL_VERSION
+from ..harness.ref import SessionRef
 from ..models import JsonObject, as_json_object
 from ..paths import cache_dir
 from .sources import default_catalog_root, list_host_session_dirs
@@ -41,17 +42,14 @@ def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:
     )
 
 
-def ref_source_stamp(ref: object) -> tuple[str, int, int, int]:
+def ref_source_stamp(ref: SessionRef) -> tuple[str, int, int, int]:
     """List-row stamp for a :class:`~anqa.harness.ref.SessionRef`.
 
     Directory locators use summary/signals/updates mtimes. File locators
     use ``timeline_stamp`` or the locator mtime.
     """
-    from ..harness.ref import SessionRef
     from ..harness.registry import adapter
 
-    if not isinstance(ref, SessionRef):
-        return host_source_stamp(Path(str(ref)))
     key = ref.ref_string()
     loc = Path(ref.locator)
     if loc.is_dir():
@@ -237,10 +235,10 @@ def load_or_rebuild_catalog(
 
 
 def load_or_rebuild_refs(
-    refs: list[object],
+    refs: Sequence[SessionRef],
     *,
     dest: Path,
-    build_row: Callable[[object], JsonObject | None],
+    build_row: Callable[[SessionRef], JsonObject | None],
     root: Path | None = None,
 ) -> list[JsonObject]:
     """Return catalog rows for *refs*, rebuilding only when a stamp moved."""

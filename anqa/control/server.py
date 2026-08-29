@@ -445,13 +445,19 @@ class ControlServer:
         self._writer_framing.clear()
         for writer in writers:
             writer.close()
+            transport = writer.transport
+            if transport is not None:
+                transport.abort()
         if server is not None:
             server.close()
-            await server.wait_closed()
+            try:
+                await asyncio.wait_for(server.wait_closed(), timeout=2.0)
+            except TimeoutError:
+                logger.debug("control server wait_closed timed out")
         for writer in writers:
             try:
-                await writer.wait_closed()
-            except OSError:
+                await asyncio.wait_for(writer.wait_closed(), timeout=0.5)
+            except (OSError, TimeoutError):
                 pass
         # Unlink only while holding the ownership lock; another instance may
         # have bound a fresh socket at this path since we lost or never had it.
