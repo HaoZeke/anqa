@@ -40,6 +40,8 @@ def test_live_watch_root_orphan_session(tmp_path: Path) -> None:
 def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -> None:
     sd = tmp_path / "s"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
+    (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sd
     assert try_begin(KIND_REFRESH, sd) is True
@@ -65,6 +67,8 @@ def test_live_refresh_worker_done_clears_busy_and_runs_pending(tmp_path: Path) -
 def test_live_refresh_from_fs_sets_pending_when_busy(tmp_path: Path) -> None:
     sd = tmp_path / "s"
     sd.mkdir()
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
+    (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     screen = BrowserScreen.__new__(BrowserScreen)
     screen.session_dir = sd
     screen.timeline = []

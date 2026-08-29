@@ -3403,10 +3403,16 @@ mod tests {
 
     #[test]
     fn still_paths_prefers_image_paths_then_image_path() {
-        let mut ev = TimelineEvent::default();
-        ev.image_path = "/tmp/a.png".into();
+        let ev = TimelineEvent {
+            image_path: "/tmp/a.png".into(),
+            ..TimelineEvent::default()
+        };
         assert_eq!(still_paths(&ev, ""), vec!["/tmp/a.png".to_string()]);
-        ev.image_paths = vec!["/tmp/b.png".into(), "/tmp/c.png".into()];
+        let ev = TimelineEvent {
+            image_path: ev.image_path,
+            image_paths: vec!["/tmp/b.png".into(), "/tmp/c.png".into()],
+            ..TimelineEvent::default()
+        };
         assert_eq!(
             still_paths(&ev, ""),
             vec!["/tmp/b.png".to_string(), "/tmp/c.png".to_string()]

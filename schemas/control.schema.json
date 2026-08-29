@@ -562,7 +562,7 @@
                   "type": "array"
                 },
                 "workflows": {
-                  "description": "Grok workflow run rows.",
+                  "description": "Workflow run rows.",
                   "type": "array"
                 },
                 "stats": {

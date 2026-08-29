@@ -236,8 +236,6 @@ def test_session_dirs_under_membership_only_skips_find_sessions(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Extra adapter stores must not walk the tree looking for session dirs."""
-    from anqa.harness.grok_parse import find_sessions as real_find
-
     store = tmp_path / "extra.db"
     store.write_bytes(b"")
     junk = tmp_path / "deep" / "nested"
@@ -248,9 +246,9 @@ def test_session_dirs_under_membership_only_skips_find_sessions(
 
     def tracked(root: Path) -> list[Path]:
         walked.append(str(root))
-        return real_find(root)
+        return []
 
-    monkeypatch.setattr("anqa.session.watch.find_sessions", tracked)
+    monkeypatch.setattr("anqa.session.watch.discover_dirs", tracked)
     assert session_dirs_under([tmp_path], list_sessions=False) == []
     assert walked == []
 
@@ -286,7 +284,7 @@ def test_membership_only_dir_does_not_expand_children(tmp_path: Path, monkeypatc
         walked.append(str(root))
         raise AssertionError("find_sessions must not run for membership-only")
 
-    monkeypatch.setattr("anqa.session.watch.find_sessions", boom)
+    monkeypatch.setattr("anqa.session.watch.discover_dirs", boom)
     w = TraceTreeWatch(extra, lambda: None, membership_only=True)
     paths = w._collect_paths()
     assert walked == []

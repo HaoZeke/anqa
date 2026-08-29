@@ -157,9 +157,42 @@ class ControlClient:
         self._writer: asyncio.StreamWriter | None = None
         self._next_id = 1
         self._lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def _bind_running_loop(self) -> None:
+        """Drop a stream owned by another event loop (TUI ``asyncio.run`` workers)."""
+        loop = asyncio.get_running_loop()
+        if self._loop is loop:
+            return
+        writer = self._writer
+        self._writer = None
+        self._reader = None
+        old_loop = self._loop
+        self._loop = loop
+        self._lock = asyncio.Lock()
+        if writer is None:
+            return
+        # StreamWriter is bound to the loop that opened it.
+        if old_loop is not None and old_loop.is_running() and old_loop is not loop:
+
+            def _close() -> None:
+                try:
+                    writer.close()
+                except (OSError, RuntimeError):
+                    pass
+
+            old_loop.call_soon_threadsafe(_close)
+            return
+        if old_loop is not None and old_loop.is_closed():
+            return
+        try:
+            writer.close()
+        except (OSError, RuntimeError):
+            pass
 
     async def connect(self) -> None:
         """Open a long-lived connection (optional; prefer :meth:`request`)."""
+        self._bind_running_loop()
         if self._writer is not None:
             return
         self._reader, self._writer = await open_unix_connection_retrying(
@@ -204,6 +237,7 @@ class ControlClient:
         :raises TimeoutError: When the peer does not answer in time.
         :raises OSError: On socket failures.
         """
+        self._bind_running_loop()
         async with self._lock:
             if self._writer is None or self._reader is None:
                 await self.connect()

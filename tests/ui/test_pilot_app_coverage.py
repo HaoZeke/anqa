@@ -1020,9 +1020,11 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
     sd = tmp_path / "019f-live"
     sd.mkdir()
     (sd / "summary.json").write_text("{}", encoding="utf-8")
+    (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     locked = tmp_path / "019f-locked"
     locked.mkdir()
     (locked / "summary.json").write_text("{}", encoding="utf-8")
+    (locked / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     meta = SessionMeta(
         session_id="live",
         session_dir=sd,
