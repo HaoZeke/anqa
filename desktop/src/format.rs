@@ -2443,7 +2443,11 @@ pub fn stills_from_session(session_dir: &str, text: &str) -> Vec<String> {
         let Some(rel) = cap.get(1) else {
             continue;
         };
-        let path = root.join(rel.as_str());
+        let path = rel
+            .as_str()
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .fold(root.to_path_buf(), |acc, part| acc.join(part));
         if !path.is_file() {
             continue;
         }

@@ -2021,7 +2021,7 @@ mod tests {
         patch_list_row_from_meta(&mut rows, "sess-wire", &ov.meta);
         assert_eq!(rows[0].status, "running");
         assert_eq!(rows[0].title, "View session");
-        assert_eq!(rows[0].origin, "work");
+        assert_eq!(rows[0].origin, "host");
     }
 
     #[test]
