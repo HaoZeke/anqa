@@ -1181,19 +1181,29 @@ local function run(fn)
   end
 end
 
+local function session_harness(entry)
+  local label = entry.harnessLabel or ""
+  if label ~= "" then
+    return label
+  end
+  return entry.harness or ""
+end
+
 local function session_entry_label(entry)
   local title = entry.title or entry.label or ""
   local session_id = entry.sessionId or ""
   local head = (title ~= "" and title) or session_id
   local status = entry.status or "—"
-  local origin = entry.origin or ""
+  local harness = session_harness(entry)
   local model = entry.model or ""
-  -- Compact, scannable: [status] origin · title · model · id
+  -- Compact, scannable: [status] harness · title · model · id
   local bits = {
     string.format("%-8s", status),
-    (origin ~= "" and origin) or "work",
-    head,
   }
+  if harness ~= "" then
+    table.insert(bits, harness)
+  end
+  table.insert(bits, head)
   if model ~= "" then
     table.insert(bits, model)
   end
@@ -1216,7 +1226,8 @@ local function session_entry_search_text(entry)
     entry.model or "",
     entry.status or "",
     entry.outcome or "",
-    entry.origin or "",
+    session_harness(entry),
+    entry.harness or "",
   }, " "):lower()
 end
 
@@ -1245,6 +1256,7 @@ local function sessions_to_items(sessions)
       path = session_entry_path(entry),
       entry = entry,
       search = session_entry_search_text(entry),
+      index = #items + 1,
     })
   end
   return items
@@ -1297,7 +1309,7 @@ local function filter_items(items, query)
   end
   table.sort(scored, function(a, b)
     if a.s == b.s then
-      return a.item.label < b.item.label
+      return (a.item.index or 0) < (b.item.index or 0)
     end
     return a.s > b.s
   end)
@@ -1347,10 +1359,14 @@ local function pick_with_telescope(items, on_choice)
             value = item,
             display = item.label,
             ordinal = item.search .. " " .. item.label,
+            index = item.index or 0,
           }
         end,
       }),
       sorter = conf.generic_sorter({}),
+      tiebreak = function(current, existing, _)
+        return (current.index or 0) < (existing.index or 0)
+      end,
       attach_mappings = function(prompt_bufnr, _)
         actions.select_default:replace(function()
           local selection = action_state.get_selected_entry()
@@ -1375,6 +1391,7 @@ local function pick_with_fzf_lua(items, on_choice)
   end
   fzf.fzf_exec(labels, {
     prompt = "Anqa> ",
+    fzf_opts = { ["--no-sort"] = true },
     actions = {
       ["default"] = function(selected)
         local label = selected and selected[1]
@@ -1474,11 +1491,12 @@ local function pick_sessions(items, on_choice)
   pick_with_ui_select(items, on_choice)
 end
 
----List catalog sessions from the running TUI.
+---List one catalog page from the running control owner.
 ---@param query string|nil
 ---@param limit integer|nil
+---@param offset integer|nil
 ---@return table result
-function M.list_sessions(query, limit)
+function M.list_sessions(query, limit, offset)
   local co = coroutine.running()
   if not co then
     error("anqa.list_sessions must run inside a coroutine")
@@ -1488,7 +1506,50 @@ function M.list_sessions(query, limit)
   if limit ~= nil then
     params.limit = limit
   end
+  if offset ~= nil then
+    params.offset = offset
+  end
   return M.request("session/list", params)
+end
+
+local LIST_PAGE = 200
+
+---Drain ``session/list`` pages until ``matched``.
+---@param query string|nil
+---@return table result
+function M.list_sessions_all(query)
+  local sessions = {}
+  local offset = 0
+  local matched = 0
+  local total = 0
+  local first_id = ""
+  while true do
+    local result = M.list_sessions(query, LIST_PAGE, offset)
+    local batch = result.sessions or {}
+    matched = result.matched or matched
+    total = result.total or total
+    if #batch == 0 then
+      break
+    end
+    local batch_first = (batch[1] and batch[1].sessionId) or ""
+    if offset > 0 and first_id ~= "" and batch_first == first_id then
+      break
+    end
+    if offset == 0 then
+      first_id = batch_first
+    end
+    for _, row in ipairs(batch) do
+      table.insert(sessions, row)
+    end
+    if #batch < LIST_PAGE then
+      break
+    end
+    offset = offset + #batch
+    if matched > 0 and offset >= matched then
+      break
+    end
+  end
+  return { sessions = sessions, matched = matched, total = total }
 end
 
 local function render_params(session)
@@ -1550,7 +1611,7 @@ function M.find_session(query)
   run(function()
     -- Pull full catalog when query empty so the picker can filter locally;
     -- server pre-filter still applies when the user passes a seed query.
-    local result = M.list_sessions(query, query and query ~= "" and 200 or 500)
+    local result = M.list_sessions_all(query)
     local sessions = result.sessions or {}
     if #sessions == 0 then
       local suffix = (query and query ~= "") and (" for " .. vim.inspect(query)) or ""
@@ -1571,7 +1632,7 @@ end
 ---@param query string|nil
 function M.show_sessions(query)
   run(function()
-    local result = M.list_sessions(query, 500)
+    local result = M.list_sessions_all(query)
     local sessions = result.sessions or {}
     local items = sessions_to_items(sessions)
     vim.schedule(function()

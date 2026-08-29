@@ -454,17 +454,63 @@ response, so their stale flags survive the reload."
     (user-error "Refresh cancelled"))
   (anqa--do-refresh))
 
-(defun anqa--session-list (&optional query limit)
-  "Return the `session/list' result for QUERY and optional LIMIT."
+(defun anqa--session-list (&optional query limit offset)
+  "Return one `session/list' page for QUERY, optional LIMIT, and OFFSET."
   (let ((params (list :query (or query ""))))
     (when limit
       (setq params (plist-put params :limit limit)))
+    (when offset
+      (setq params (plist-put params :offset offset)))
     (anqa--request (anqa-connect) "session/list" params)))
+
+(defconst anqa--session-list-page 200
+  "Page size when draining `session/list'.")
+
+(defun anqa--session-list-all (&optional query)
+  "Drain `session/list' pages for QUERY until `matched'.
+Pages keep the catalog's newest-activity-first order."
+  (let ((sessions nil)
+        (offset 0)
+        (matched 0)
+        (total 0)
+        (first-id "")
+        (done nil))
+    (while (not done)
+      (let* ((result (anqa--session-list query anqa--session-list-page offset))
+             (batch (append (plist-get result :sessions) nil))
+             (batch-first (or (plist-get (car batch) :sessionId) "")))
+        (setq matched (or (plist-get result :matched) matched)
+              total (or (plist-get result :total) total))
+        (cond
+         ((null batch)
+          (setq done t))
+         ((and (> offset 0)
+               (not (string-empty-p first-id))
+               (string-equal batch-first first-id))
+          (setq done t))
+         (t
+          (when (zerop offset)
+            (setq first-id batch-first))
+          (setq sessions (nconc sessions (copy-sequence batch))
+                offset (+ offset (length batch)))
+          (when (or (< (length batch) anqa--session-list-page)
+                    (and (> matched 0) (>= offset matched)))
+            (setq done t))))))
+    (list :sessions sessions :matched matched :total total)))
 
 (defun anqa--session-entry-path (entry)
   "Return a stable open reference for session ENTRY."
   (or (plist-get entry :path)
       (plist-get entry :sessionId)))
+
+(defun anqa--session-entry-harness (entry)
+  "Return the product label for ENTRY (`harnessLabel', else `harness')."
+  (let ((label (or (plist-get entry :harnessLabel) ""))
+        (id (or (plist-get entry :harness) "")))
+    (cond
+     ((and label (not (string-empty-p label))) label)
+     ((and id (not (string-empty-p id))) id)
+     (t ""))))
 
 (defun anqa--session-entry-annotation (entry)
   "Return a one-line label for catalog ENTRY."
@@ -472,17 +518,17 @@ response, so their stale flags survive the reload."
          (session-id (or (plist-get entry :sessionId) ""))
          (status (or (plist-get entry :status) ""))
          (model (or (plist-get entry :model) ""))
-         (origin (or (plist-get entry :origin) ""))
+         (harness (anqa--session-entry-harness entry))
          (head (if (and title (not (string-empty-p title)))
                    title
                  session-id)))
     (string-trim
      (mapconcat #'identity
                 (delq nil
-                      (list head
-                            (and status (not (string-empty-p status)) status)
+                      (list (and status (not (string-empty-p status)) status)
+                            (and harness (not (string-empty-p harness)) harness)
+                            head
                             (and model (not (string-empty-p model)) model)
-                            (and origin (not (string-empty-p origin)) origin)
                             ;; Avoid "id · id" when the title fell back to session-id.
                             (and session-id
                                  (not (string-empty-p session-id))
@@ -498,7 +544,7 @@ With a prefix argument, prompt for QUERY. Results open a read-only buffer."
              (read-string "Filter sessions: ")
            "")))
   (anqa-connect)
-  (let* ((result (anqa--session-list query))
+  (let* ((result (anqa--session-list-all query))
          (sessions (append (plist-get result :sessions) nil))
          (total (or (plist-get result :total) 0))
          (matched (or (plist-get result :matched) (length sessions)))
@@ -540,7 +586,7 @@ argument, prompt for QUERY first."
              (read-string "Filter sessions: ")
            "")))
   (anqa-connect)
-  (let* ((result (anqa--session-list query))
+  (let* ((result (anqa--session-list-all query))
          (sessions (append (plist-get result :sessions) nil))
          (table (make-hash-table :test #'equal))
          candidates)

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..harness.ref import SessionRef
+from ..harness.ref import SessionRef, parse_session_ref_string
 from ..harness.registry import adapter, harness_product, ref_from_path, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
 from .mtime_export import (
@@ -263,6 +263,24 @@ def list_session_catalog(
         )
     )
     return rows
+
+
+_DEAD_LIST_KEYS = ("origin", "originTag", "isHost")
+
+
+def public_catalog_row(row: JsonObject) -> JsonObject:
+    """List row as clients should see it: harness label, no origin tags."""
+    out = dict(row)
+    for key in _DEAD_LIST_KEYS:
+        out.pop(key, None)
+    hid = str(out.get("harness") or "").strip()
+    if not hid:
+        parsed = parse_session_ref_string(str(out.get("path") or ""))
+        hid = parsed[0] if parsed is not None else "grok"
+        out["harness"] = hid
+    if not str(out.get("harnessLabel") or "").strip():
+        out["harnessLabel"] = harness_product(hid)
+    return out
 
 
 # List-visible fields. Exclude ``sortEpoch`` / ``path`` so an ``updates.jsonl``
@@ -1191,6 +1209,7 @@ __all__ = [
     "list_session_catalog",
     "resolve_session_reference",
     "catalog_row_for_ref",
+    "public_catalog_row",
     "session_catalog_row",
     "catalog_row_sort_epoch",
     "session_meta_from_catalog_row",

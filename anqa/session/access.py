@@ -90,8 +90,10 @@ def filter_session_catalog(
         older clients; omitting it keeps the first page.
     :returns: Mapping with ``sessions``, ``total``, and ``matched``.
     """
+    from .catalog import public_catalog_row
     from .query import CatalogQueryRow, row_matches_query
 
+    sessions = [public_catalog_row(row) for row in sessions]
     needle = (query or "").strip()
     if needle:
         matched = [

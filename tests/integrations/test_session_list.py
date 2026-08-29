@@ -35,15 +35,39 @@ def _catalog() -> list[dict]:
     ]
 
 
-def test_emacs_and_vim_list_helpers_keep_query_limit() -> None:
-    """Editors still call session/list with query/limit only (first page)."""
+def test_emacs_and_vim_list_helpers_drain_pages() -> None:
+    """Editors drain session/list and paint harness, not origin/host."""
     root = Path(__file__).resolve().parents[2]
     el = (root / "anqa/integrations/emacs/anqa.el").read_text(encoding="utf-8")
-    assert "(defun anqa--session-list (&optional query limit)" in el
-    assert ":limit limit" in el
+    assert "(defun anqa--session-list-all (&optional query)" in el
+    assert ":offset offset" in el
+    assert ":harnessLabel" in el
+    assert ":origin" not in el
     lua = (root / "anqa/integrations/vim/lua/anqa/init.lua").read_text(encoding="utf-8")
-    assert "function M.list_sessions(query, limit)" in lua
-    assert "params.limit = limit" in lua
+    assert "function M.list_sessions_all(query)" in lua
+    assert "params.offset = offset" in lua
+    assert "harnessLabel" in lua
+    assert 'or "work"' not in lua
+    assert "entry.origin" not in lua
+
+
+def test_filter_session_catalog_drops_origin_and_fills_harness_label() -> None:
+    from anqa.session.access import filter_session_catalog
+
+    raw = [
+        {
+            "sessionId": "old-grok",
+            "path": "/tmp/old-grok",
+            "title": "Cached grok",
+            "status": "complete",
+            "origin": "host",
+        }
+    ]
+    out = filter_session_catalog(raw)
+    row = out["sessions"][0]
+    assert "origin" not in row
+    assert row["harness"] == "grok"
+    assert row["harnessLabel"] == "Grok Build"
 
 
 def test_filter_session_catalog_query_and_limit() -> None:

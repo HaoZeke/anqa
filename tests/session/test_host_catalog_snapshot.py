@@ -120,6 +120,26 @@ def test_host_export_rebuilds_when_snapshot_version_changes(tmp_path: Path) -> N
     assert rebuilt["sessions"][0]["status"] != "—"
 
 
+def test_host_export_rebuilds_when_row_format_changes(tmp_path: Path) -> None:
+    """Cached rows without harnessLabel must not be reused."""
+    from anqa.session.mtime_export import SNAPSHOT_ROW_FORMAT
+
+    host = tmp_path / "host"
+    _host_session(host, "019aaaa-1111-2222-3333-444444444444", title="Need label")
+    dest = tmp_path / "out" / "host.json"
+    write_host_catalog_export(dest, host_root=host)
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    payload["rowFormat"] = 1
+    payload["sessions"][0]["origin"] = "host"
+    payload["sessions"][0]["harnessLabel"] = ""
+    dest.write_text(json.dumps(payload), encoding="utf-8")
+    write_host_catalog_export(dest, host_root=host)
+    rebuilt = json.loads(dest.read_text(encoding="utf-8"))
+    assert rebuilt["rowFormat"] == SNAPSHOT_ROW_FORMAT
+    assert rebuilt["sessions"][0].get("harnessLabel")
+    assert "origin" not in rebuilt["sessions"][0]
+
+
 def test_host_export_rebuilds_when_stamps_unreadable(tmp_path: Path) -> None:
     host = tmp_path / "host"
     _host_session(host, "019eeee-1111-2222-3333-444444444444", title="Rebuild")

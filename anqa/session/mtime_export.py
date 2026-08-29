@@ -22,6 +22,8 @@ from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
+# Bump when a cached row is missing fields the list must show (harnessLabel).
+SNAPSHOT_ROW_FORMAT = 2
 
 
 def _mtime_ns(path: Path) -> int:
@@ -102,7 +104,7 @@ def _parse_stamps(raw: object) -> list[tuple[str, int, int, int]] | None:
 def export_is_stale(stamps: list[tuple[str, int, int, int]], dest: Path) -> bool:
     """True when *dest* is missing or its stored stamps do not match *stamps*."""
     cached = _read_payload(dest)
-    if cached is None or cached.get("version") != PROTOCOL_VERSION:
+    if cached is None or not _snapshot_current(cached):
         return True
     got = _parse_stamps(cached.get("stamps"))
     return got is None or got != stamps
@@ -118,8 +120,14 @@ def _read_payload(dest: Path) -> JsonObject | None:
     return data if isinstance(data, dict) else None
 
 
+def _snapshot_current(cached: JsonObject) -> bool:
+    return (
+        cached.get("version") == PROTOCOL_VERSION and cached.get("rowFormat") == SNAPSHOT_ROW_FORMAT
+    )
+
+
 def _cached_stamp_map(cached: JsonObject | None) -> dict[str, tuple[int, int, int]] | None:
-    if cached is None or cached.get("version") != PROTOCOL_VERSION:
+    if cached is None or not _snapshot_current(cached):
         return None
     parsed = _parse_stamps(cached.get("stamps"))
     if parsed is None:
@@ -184,6 +192,7 @@ def _write_snapshot(
         json.dumps(
             {
                 "version": PROTOCOL_VERSION,
+                "rowFormat": SNAPSHOT_ROW_FORMAT,
                 "root": str(root),
                 "stamps": [list(s) for s in stamps],
                 "sessions": rows,

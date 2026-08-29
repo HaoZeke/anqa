@@ -534,10 +534,14 @@ Original detail
                  :title "Socket review"
                  :status "complete"
                  :model "grok-4"
-                 :origin "work")))
+                 :harness "pi"
+                 :harnessLabel "Pi")))
     (should (string-match-p "Socket review" (anqa--session-entry-annotation entry)))
     (should (string-match-p "complete" (anqa--session-entry-annotation entry)))
     (should (string-match-p "grok-4" (anqa--session-entry-annotation entry)))
+    (should (string-match-p "Pi" (anqa--session-entry-annotation entry)))
+    (should-not (string-match-p "host" (anqa--session-entry-annotation entry)))
+    (should-not (string-match-p "work" (anqa--session-entry-annotation entry)))
     (should (equal (anqa--session-entry-path entry) "alpha-1"))))
 
 (ert-deftest anqa-session-entry-path-prefers-path ()
