@@ -984,6 +984,56 @@ def catalog_has_compaction(session_dir: Path) -> bool:
     return _nonempty_dir(Path(session_dir) / "compaction")
 
 
+def catalog_presence_from_meta(meta: SessionMeta) -> dict[str, bool | int]:
+    """``has:`` flags and counts from already-loaded list meta (no extra disk)."""
+    workflows = int(meta.workflow_count or 0)
+    notes = int(meta.note_count or 0)
+    goals = int(meta.goal_count or 0)
+    plans = int(meta.plan_count or 0)
+    subagents = int(meta.subagent_count or 0)
+    jobs = int(meta.job_count or 0)
+    schedules = int(meta.schedule_count or 0)
+    tasks = int(meta.task_count or 0) or (jobs + schedules)
+    errors = int(meta.error_count or 0)
+    failures = int(meta.tool_failure_count or 0)
+    diff_lines = int(meta.lines_added or 0) + int(meta.lines_removed or 0)
+    compaction = int(meta.compaction_count or 0)
+    doom = int(meta.doom_loop_warnings or 0)
+    counts = {
+        "workflows": workflows,
+        "notes": notes,
+        "goals": goals,
+        "plans": plans,
+        "subagents": subagents,
+        "tasks": tasks,
+        "jobs": jobs,
+        "schedules": schedules,
+        "errors": errors,
+        "failures": failures,
+        "diff": diff_lines,
+        "compaction": compaction,
+        "doom": doom,
+    }
+    out: dict[str, bool | int] = {
+        "hasWorkflows": bool(meta.has_workflows) or workflows > 0,
+        "hasNotes": bool(meta.has_notes) or notes > 0,
+        "hasGoals": bool(meta.has_goals) or goals > 0,
+        "hasSubagents": bool(meta.has_subagents) or subagents > 0,
+        "hasJobs": bool(meta.has_jobs) or jobs > 0,
+        "hasSchedules": bool(meta.has_schedules) or schedules > 0,
+        "hasTasks": bool(meta.has_jobs or meta.has_schedules) or tasks > 0,
+        "hasPlan": bool(meta.has_plan) or plans > 0,
+        "hasFailures": bool(meta.has_failures) or failures > 0,
+        "hasDiff": bool(meta.has_diff) or diff_lines > 0,
+        "hasCompaction": bool(meta.has_compaction) or compaction > 0,
+        "hasDoom": bool(meta.has_doom) or doom > 0,
+        "hasContext": bool(meta.has_context_usage),
+    }
+    for name, wire in COUNT_FIELDS.items():
+        out[wire] = int(counts.get(name, 0))
+    return out
+
+
 def catalog_presence(session_dir: Path, meta: SessionMeta) -> dict[str, bool | int]:
     """``has:`` flags and counts for one catalog row (disk + loaded meta)."""
     jobs = catalog_job_count(session_dir)
@@ -1355,6 +1405,7 @@ __all__ = [
     "catalog_subagent_count",
     "catalog_workflow_count",
     "catalog_presence",
+    "catalog_presence_from_meta",
     "finished_prefix",
     "highlight_query_spans",
     "prepare_query",

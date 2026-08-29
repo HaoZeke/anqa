@@ -16,7 +16,7 @@ from pathlib import Path
 from ..harness.registry import require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
 from .mtime_export import default_catalog_snapshot, load_or_rebuild_catalog
-from .query import apply_catalog_presence_row, catalog_presence
+from .query import apply_catalog_presence_row, catalog_presence_from_meta
 from .sources import (
     ORIGIN_HOST,
     SessionScanRoot,
@@ -179,7 +179,7 @@ def session_catalog_row(
         "createdAt": created,
         "updatedAt": updated,
         "sortEpoch": sort_epoch,
-        **catalog_presence(session_dir, meta),
+        **catalog_presence_from_meta(meta),
     }
 
 

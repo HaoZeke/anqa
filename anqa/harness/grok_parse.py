@@ -2427,15 +2427,16 @@ def _updates_tail_types(session_dir: Path) -> list[str]:
     return types
 
 
-def _list_timeline_event_count(session_dir: Path) -> int:
-    """Coalesced event count when summary.json has no message total."""
-    if not (session_dir / "updates.jsonl").is_file():
-        return 0
-    try:
-        return len(parse_timeline(session_dir))
-    except Exception:
-        logger.debug("list timeline count for %s", session_dir, exc_info=True)
-        return 0
+def _apply_list_flags_from_signals(meta: SessionMeta) -> None:
+    """Set list ``has:`` flags from signals already on *meta* (no extra trees)."""
+    failures = int(meta.tool_failure_count or 0)
+    diff_lines = int(meta.lines_added or 0) + int(meta.lines_removed or 0)
+    compaction = int(meta.compaction_count or 0)
+    doom = int(meta.doom_loop_warnings or 0)
+    meta.has_failures = failures > 0
+    meta.has_diff = diff_lines > 0
+    meta.has_compaction = compaction > 0
+    meta.has_doom = doom > 0
 
 
 def load_session_meta_list(
@@ -2443,50 +2444,45 @@ def load_session_meta_list(
     *,
     origin: str = "work",
 ) -> SessionMeta:
-    """Metadata for the sessions home list.
+    """List-grade metadata: summary, signals, and cheap turn outcome.
 
-    Reads ``summary.json`` / ``signals.json`` and one cheap ``events.jsonl``
-    pass for turn status. Tails ``updates.jsonl`` when events have no
-    ``turn_ended`` so host ``turn_completed`` still closes the list row.
-    Does not build marker events. Consults the turn gate only when a gate
-    directory exists. Missing ``events.jsonl`` is fine.
+    Does not parse a timeline or read a multi-megabyte ``updates.jsonl``
+    body. Presence flags come from signals already loaded.
     """
     origin_key = (origin or "work").strip().lower() or "work"
     meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
     _load_summary(meta, session_dir)
     _load_signals(meta, session_dir)
-    outcome, loop_count, open_after = _list_runtime_status(session_dir)
-    if outcome:
-        meta.turn_outcome = outcome
-    if loop_count:
-        meta.loop_count = loop_count
-    if not meta.turn_outcome:
-        if _last_session_update_type(session_dir) == "turn_completed":
-            meta.turn_outcome = "completed"
-        else:
-            inferred = _infer_incomplete_turn_outcome(session_dir, origin=origin_key)
-            if inferred:
-                meta.turn_outcome = inferred
-    traces_live = _traces_are_fresh(session_dir, origin=origin_key)
-    if _session_has_turn_gate(session_dir):
-        try:
-            override = _gate_override_turn_outcome(session_dir, meta.turn_outcome)
-            if override is not None:
-                meta.turn_outcome = override
-            elif open_after and traces_live:
-                meta.turn_outcome = "running"
-        except Exception:
-            logger.debug("turn gate status for list %s", session_dir, exc_info=True)
-            if open_after and traces_live:
-                meta.turn_outcome = "running"
-    elif open_after and traces_live:
-        meta.turn_outcome = "running"
-    if meta.turn_failed and not meta.error_count:
-        meta.error_count = max(meta.error_count, 1)
+    _apply_list_flags_from_signals(meta)
     if not meta.num_events and meta.num_messages:
         meta.num_events = int(meta.num_messages)
-    if not meta.num_events:
-        meta.num_events = _list_timeline_event_count(session_dir)
+    last, terminal = _updates_tail_status(session_dir)
+    fresh = _traces_are_fresh(session_dir, origin=origin_key)
+    closed = last in _HOST_LIST_COMPLETE_UPDATES or (terminal == "completed" and not fresh)
+    if closed and not fresh:
+        meta.turn_outcome = "completed"
+    else:
+        outcome, loop_count, open_after = _list_runtime_status(session_dir)
+        if loop_count:
+            meta.loop_count = loop_count
+        if outcome:
+            meta.turn_outcome = outcome
+            if open_after and fresh:
+                meta.turn_outcome = "running"
+        elif closed:
+            meta.turn_outcome = "completed"
+        else:
+            live = list_turn_outcome_for_dir(session_dir)
+            if live:
+                meta.turn_outcome = live
+            else:
+                inferred = _infer_incomplete_turn_outcome(session_dir, origin=origin_key)
+                if inferred:
+                    meta.turn_outcome = inferred
+                elif fresh:
+                    meta.turn_outcome = "running"
+    if meta.turn_failed and not meta.error_count:
+        meta.error_count = max(meta.error_count, 1)
     if not _is_host_session_dir(session_dir, origin=origin_key):
         _load_run_meta(meta, session_dir)
     meta.origin = origin_key

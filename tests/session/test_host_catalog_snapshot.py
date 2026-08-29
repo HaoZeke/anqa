@@ -62,7 +62,6 @@ def test_host_catalog_row_skips_full_timeline_parse(tmp_path: Path, monkeypatch)
     def _boom(*_a: object, **_k: object) -> None:
         raise AssertionError("host list must not parse the full timeline")
 
-    monkeypatch.setattr(parser_mod, "_list_timeline_event_count", _boom)
     monkeypatch.setattr(parser_mod, "parse_timeline", _boom)
     row = session_catalog_row(sd, origin="host")
     assert row is not None

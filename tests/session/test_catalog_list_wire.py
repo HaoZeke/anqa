@@ -171,24 +171,25 @@ def test_session_catalog_row_has_presence_flags(tmp_path: Path) -> None:
     (sd / "plan.json").write_text("{}", encoding="utf-8")
     row = session_catalog_row(sd, origin="work")
     assert row is not None
-    assert row["hasGoals"] is True
-    assert row["hasSubagents"] is True
-    assert row["hasJobs"] is True
-    assert row["hasTasks"] is True
-    assert row["hasPlan"] is True
+    # Extra session trees are not walked for the list row.
+    assert row["hasGoals"] is False
+    assert row["hasSubagents"] is False
+    assert row["hasJobs"] is False
+    assert row["hasTasks"] is False
+    assert row["hasPlan"] is False
     assert row.get("runDir") == ""
+    # Signals already on list meta still fill these flags.
     assert row["hasFailures"] is True
     assert row["hasDiff"] is True
     assert row["hasCompaction"] is True
     assert row["hasDoom"] is True
     meta = session_meta_from_catalog_row(row)
     assert meta is not None
-    assert meta.has_goals is True
-    assert meta.has_subagents is True
-    assert meta.has_jobs is True
-    assert meta.has_plan is True
+    assert meta.has_failures is True
+    assert meta.has_diff is True
+    assert meta.has_compaction is True
     rebuilt = CatalogQueryRow.from_meta(meta)
-    assert row_matches_query(rebuilt, "has:goal has:subagent has:task has:plan")
+    assert row_matches_query(rebuilt, "has:failure has:compaction has:doom")
 
 
 def test_session_catalog_row_run_dir_from_encoded_cwd(tmp_path: Path) -> None:
