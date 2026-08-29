@@ -218,6 +218,9 @@ class AnqaApp(App):
     TITLE = "anqa"
     SUB_TITLE = ""
     CSS_PATH = "app.tcss"
+    # Filter is first in compose; default ``*`` would type leftover CSI/Kitty
+    # replies into the search box on launch.
+    AUTO_FOCUS = "#session-table"
     BINDINGS = [*APP_SESSIONS]
     COMMAND_PALETTE_DISPLAY = "Ctrl+P"
     # Textual text selection (drag) + OSC 52 copy; default is True but be explicit.
@@ -1731,7 +1734,15 @@ class AnqaApp(App):
     @on(Input.Changed, "#session-search-input")
     def _on_session_search_changed(self, event: Input.Changed) -> None:
         """Hold the draft; apply the matcher after the shared idle gap."""
-        self._session_search = event.value or ""
+        from .terminal_reply import is_terminal_probe_text
+
+        raw = event.value or ""
+        if is_terminal_probe_text(raw):
+            event.input.value = ""
+            self._session_search = ""
+            self._refresh_query_hints()
+            return
+        self._session_search = raw
         self._refresh_query_hints()
         self._arm_session_search_debounce()
 

@@ -69,6 +69,21 @@ def test_trace_eval_app_constructs(tmp_path: Path):
     assert app.traces_path == traces.resolve()
 
 
+def test_home_auto_focus_is_session_table() -> None:
+    """Compose must not land keys in the Filter — leftover Device Attributes
+    and Kitty graphics replies would become the search query."""
+    from anqa.ui.app import AnqaApp
+
+    assert AnqaApp.AUTO_FOCUS == "#session-table"
+
+
+def test_browser_auto_focus_is_timeline() -> None:
+    """Compose must not land keys in the hidden follow-up field."""
+    from anqa.ui.screens.browser import BrowserScreen
+
+    assert BrowserScreen.AUTO_FOCUS == "#timeline-list"
+
+
 def test_populate_session_table_adds_row(tmp_path: Path):
     """A session with meta must still render the home table.
 

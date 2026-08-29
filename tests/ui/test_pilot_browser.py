@@ -182,6 +182,9 @@ async def test_browser_mounts_timeline_and_pending_bar(tmp_path: Path) -> None:
         bar = screen.query_one("#session-pending-bar")
         assert bar.display is True or screen._session_is_pending()
         _ = screen.query_one("#session-pending-status", Static)
+        focused_id = getattr(screen.focused, "id", None)
+        assert focused_id != "session-follow-input"
+        assert screen.query_one("#session-follow-input", Input).value == ""
 
 
 @pytest.mark.asyncio

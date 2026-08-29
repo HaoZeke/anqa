@@ -48,6 +48,37 @@ def _minimal_traces(work: Path) -> Path:
 
 
 @pytest.mark.asyncio
+async def test_launch_focuses_session_table_with_empty_filter(tmp_path: Path) -> None:
+    """Home compose focuses the list. Filter stays empty."""
+    from textual.widgets import DataTable, Input
+
+    traces = _minimal_traces(tmp_path / "w")
+    app = AnqaApp(traces_path=traces)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(
+            pilot,
+            lambda: app.query_one("#session-table", DataTable) is not None,
+            description="session table mounted",
+        )
+        assert app.focused is app.query_one("#session-table", DataTable)
+        assert app.query_one("#session-search-input", Input).value == ""
+
+
+@pytest.mark.asyncio
+async def test_filter_clears_terminal_device_reply(tmp_path: Path) -> None:
+    """A Device Attributes + Kitty ack pasted into Filter does not stay."""
+    from textual.widgets import Input
+
+    traces = _minimal_traces(tmp_path / "w")
+    app = AnqaApp(traces_path=traces)
+    async with app.run_test(size=(120, 40)) as pilot:
+        inp = app.query_one("#session-search-input", Input)
+        inp.value = "?62;52;c^_Gi=1768635629;OK^\\"
+        await wait_until(pilot, lambda: inp.value == "", description="probe reply cleared")
+        assert app._session_search == ""
+
+
+@pytest.mark.asyncio
 async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
     work = tmp_path / "w"
     traces = _minimal_traces(work)

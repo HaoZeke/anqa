@@ -141,6 +141,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     """Interactive trace browser with timeline, detail view, and notes."""
 
     BINDINGS = list(BROWSER)
+    # Pending-bar Input is first in compose; default ``*`` focuses it before
+    # CSS hides the bar, so Enter becomes "Enter a follow-up prompt".
+    AUTO_FOCUS = "#timeline-list"
     TAB_CONTENT_ID = "browser-tabs"
     TAB_PANES = (
         ("tab-timeline", "#timeline-list"),
@@ -286,7 +289,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         with Vertical(id="session-pending-bar"):
             yield Static("", id="session-pending-status")
             yield Static("", id="session-pending-queue")
-            yield Input(placeholder=U.follow_up_placeholder_send(), id="session-follow-input")
+            yield Input(
+                placeholder=U.follow_up_placeholder_send(),
+                id="session-follow-input",
+                disabled=True,
+            )
             yield Checkbox(
                 t("follow-up-last-turn"),
                 id="session-follow-last-turn",

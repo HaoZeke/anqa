@@ -133,6 +133,9 @@ def launch_tui(
                 f"anqa: warning: could not start control owner: {result.error}",
                 err=True,
             )
+    from .ui.terminal_reply import drain_pending_stdin
+
+    drain_pending_stdin()
     AnqaApp(
         traces_path=tr,
         config_path=cfg,
