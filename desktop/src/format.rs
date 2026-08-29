@@ -1526,6 +1526,22 @@ fn finish_from_content(content: &str) -> (String, Option<i64>) {
     (status, ms)
 }
 
+/// List/inspect face for turn bookends: drop the type phrase and ``turn_number=N``.
+pub fn turn_chrome_face(event_type: &str, text: &str) -> String {
+    match event_type {
+        "turn_started" | "turn_ended" | "turn_completed" => {}
+        _ => return text.to_string(),
+    }
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)\bturn[\s_-]*(?:started|ended|completed)\b|\bturn_number\s*=\s*\d+")
+            .expect("turn chrome")
+    });
+    let flat = text.replace('\n', " ");
+    let cleaned = re.replace_all(&flat, " ");
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// TUI-style human type label: Grok wire id with underscores → spaces.
 ///
 /// Prefers honest job labels, then control `type_label`, then `event_type`.
@@ -3576,6 +3592,23 @@ mod tests {
         );
         assert_eq!(timeline_body_text(preview, content, true, 80), content);
         assert_eq!(timeline_body_text("", "abcdef", false, 3), "abc");
+    }
+
+    #[test]
+    fn turn_chrome_face_drops_parse_token() {
+        assert_eq!(turn_chrome_face("turn_started", "turn_number=0"), "");
+        assert_eq!(
+            turn_chrome_face("turn_started", "turn started  turn_number=0  model=v9"),
+            "model=v9"
+        );
+        assert_eq!(
+            turn_chrome_face("turn_ended", "turn ended  outcome=success"),
+            "outcome=success"
+        );
+        assert_eq!(
+            turn_chrome_face("user_message_chunk", "turn_number=0"),
+            "turn_number=0"
+        );
     }
 
     #[test]

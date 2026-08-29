@@ -18,7 +18,7 @@ from rich.text import Text
 from textual.app import App
 
 from .. import event_types as et
-from ..models import JsonObject, JsonValue, ToolInputBag, TraceEvent
+from ..models import JsonObject, JsonValue, ToolInputBag, TraceEvent, turn_chrome_face
 from ..session.jobs import (
     JOB_INSPECT_LOG_CHARS,
     BackgroundJob,
@@ -1411,6 +1411,8 @@ def event_detail_sections(
         sanitize=True,
         tool_name=ev.tool_name or "",
     )
+    if ev.event_type in et.TURN_BOUNDARY_TYPES:
+        body = turn_chrome_face(body)
     if truncate and len(body) > 20000:
         body = body[:10000] + t("truncate-marker") + body[-8000:]
     if ev.event_type in et.TASK_TYPES or ev.event_type.startswith("scheduled_task_"):
@@ -1457,7 +1459,8 @@ def event_detail_sections(
         sections.append(DetailSection("plan", t("ui-plan"), _message_body(body, ev)))
         return sections
     if ev.event_type in et.SESSION_CHROME_TYPES:
-        sections.append(DetailSection("session", ev.type_label or "", _message_body(body, ev)))
+        if body.strip():
+            sections.append(DetailSection("session", ev.type_label or "", _message_body(body, ev)))
         return sections
     if body.strip():
         sections.append(DetailSection("body", ev.type_label or "", _message_body(body, ev)))

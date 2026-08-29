@@ -124,7 +124,23 @@ class TestTraceEvent:
             event_type="turn_started",
             content="turn started  model=v9-dietcoke",
         )
-        assert "turn started" in ev.summary_line
+        assert ev.summary_line == "model=v9-dietcoke"
+
+    def test_summary_line_turn_started_omits_parse_token(self):
+        ev = TraceEvent(index=0, event_type="turn_started", content="turn_number=0")
+        assert ev.summary_line == ""
+        grok = TraceEvent(
+            index=0,
+            event_type="turn_started",
+            content="turn started  turn_number=0  model=v9-dietcoke",
+        )
+        assert grok.summary_line == "model=v9-dietcoke"
+        ended = TraceEvent(
+            index=0,
+            event_type="turn_ended",
+            content="turn ended  outcome=success",
+        )
+        assert ended.summary_line == "outcome=success"
 
     def test_summary_line_assistant(self):
         ev = TraceEvent(

@@ -8,6 +8,7 @@ Shared aliases (:data:`JsonValue`, :data:`JsonObject`, :class:`ChatMessage`,
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -311,6 +312,20 @@ class ToolCall:
         return ToolInputBag()
 
 
+_TURN_CHROME_FACE_RE = re.compile(
+    r"(?i)\bturn[\s_-]*(?:started|ended|completed)\b|\bturn_number\s*=\s*\d+"
+)
+
+
+def turn_chrome_face(text: str) -> str:
+    """List/inspect face for turn bookends: drop the type phrase and parse token.
+
+    ``turn_number=N`` stays on :attr:`TraceEvent.content` for segmentation.
+    """
+    cleaned = _TURN_CHROME_FACE_RE.sub(" ", (text or "").replace("\n", " "))
+    return " ".join(cleaned.split())
+
+
 @dataclass
 class TraceEvent:
     """A single event in the conversation timeline."""
@@ -358,6 +373,9 @@ class TraceEvent:
             return (one[:100] + "…") if len(one) > 100 else (one or "system prompt")
         from . import event_types as et
 
+        if self.event_type in et.TURN_BOUNDARY_TYPES:
+            text = self.content if isinstance(self.content, str) else str(self.content)
+            return turn_chrome_face(text)[:80]
         if self.event_type in et.SESSION_CHROME_TYPES - {et.SYSTEM}:
             text = self.content if isinstance(self.content, str) else str(self.content)
             return text[:80].replace("\n", " ") or self.event_type

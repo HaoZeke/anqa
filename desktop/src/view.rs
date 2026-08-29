@@ -21,8 +21,8 @@ use crate::format::{
     schedule_last_fire, session_duration_chip, status_tone, stills_from_session,
     subagent_inspect_blocks, subagent_list_preview, syntax_for_fence, syntax_for_tool_field,
     syntax_for_tool_output, timeline_body_text, timeline_count_caption, timeline_query_hit,
-    tool_brand_role, tool_fields_from_raw, workflow_for_event, workflow_name_from_raw,
-    workflow_status_word, BodyPaint, BrandRole, ToolField,
+    tool_brand_role, tool_fields_from_raw, turn_chrome_face, workflow_for_event,
+    workflow_name_from_raw, workflow_status_word, BodyPaint, BrandRole, ToolField,
 };
 use crate::kit;
 use crate::live::{
@@ -1259,12 +1259,16 @@ fn closed_list_card(
     selected: bool,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    let title = text(title)
-        .size(tea.body())
-        .font(if selected { typo::UI_BOLD } else { typo::UI })
-        .color(tea.text)
-        .width(Length::Fill);
-    let body = column![title, badges].spacing(4).width(Length::Fill);
+    let body = if title.trim().is_empty() {
+        column![badges].width(Length::Fill)
+    } else {
+        let title = text(title)
+            .size(tea.body())
+            .font(if selected { typo::UI_BOLD } else { typo::UI })
+            .color(tea.text)
+            .width(Length::Fill);
+        column![title, badges].spacing(4).width(Length::Fill)
+    };
     mouse_area(
         container(body)
             .padding(tea.density.inset())
@@ -1389,8 +1393,15 @@ fn event_list_title(ev: &TimelineEvent) -> String {
     } else {
         raw_preview.to_string()
     };
+    let preview = turn_chrome_face(&ev.event_type, &preview);
     let preview = capped_display(&plain_card_text(&preview), 160);
     if preview.is_empty() {
+        if matches!(
+            ev.event_type.as_str(),
+            "turn_started" | "turn_ended" | "turn_completed"
+        ) {
+            return String::new();
+        }
         String::from("—")
     } else {
         preview
@@ -2830,6 +2841,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
     let preview = ev.preview.clone();
     let content = ev.content.clone();
     let raw_body = timeline_body_text(&preview, &content, selected, 240);
+    let raw_body = turn_chrome_face(&event_type, &raw_body);
     let body = display_message_text(&sanitize_console_text(&display_tool_output(
         &raw_body, &tool,
     )));
@@ -3236,6 +3248,23 @@ mod tests {
         );
         let _ = event_list_heading(&failed, tea());
         assert_eq!(event_list_title(&tool), "src/app.rs");
+        let started = TimelineEvent {
+            index: 0,
+            event_type: "turn_started".into(),
+            type_label: "turn started".into(),
+            kind: "session".into(),
+            preview: "turn_number=0".into(),
+            content: "turn_number=0".into(),
+            heading: "turn started".into(),
+            ..TimelineEvent::default()
+        };
+        assert_eq!(event_list_title(&started), "");
+        let with_model = TimelineEvent {
+            preview: "turn started  turn_number=0  model=v9".into(),
+            content: "turn started  turn_number=0  model=v9".into(),
+            ..started.clone()
+        };
+        assert_eq!(event_list_title(&with_model), "model=v9");
         let prod = include_str!("view.rs")
             .split("#[cfg(test)]")
             .next()
