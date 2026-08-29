@@ -322,7 +322,10 @@ fn is_harness_ref(path: &str) -> bool {
     if tail.is_empty() {
         return false;
     }
-    matches!(head, "grok" | "opencode" | "pi" | "claude" | "gemini")
+    matches!(
+        head,
+        "grok" | "opencode" | "pi" | "claude" | "gemini" | "antigravity"
+    )
 }
 
 /// Event pages load whenever the Events pane is active (with a session).

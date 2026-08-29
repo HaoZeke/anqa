@@ -130,6 +130,7 @@ comes from files that store writes. An adapter never invents those.
 | `pi` | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
 | `claude` | Claude Code | `~/.claude/projects/<cwd>/<uuid>.jsonl` | `claude:<id>` |
 | `gemini` | Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` | `gemini:<id>` |
+| `antigravity` | Antigravity | `~/.gemini/antigravity-cli/conversations/<uuid>.db` | `antigravity:<id>` |
 
 Notes for a host adapter session live under
 `~/.anqa/notes/<session_id>/`. A session directory you open with
@@ -137,7 +138,8 @@ Notes for a host adapter session live under
 or database locators use `~/.anqa/notes/<harness>/<session_id>/`.
 
 The home list and the session glance show the product name (OpenCode,
-Pi, Claude Code, Gemini CLI, Grok Build). Filter with `harness:<id>`.
+Pi, Claude Code, Gemini CLI, Antigravity, Grok Build). Filter with
+`harness:<id>`.
 
 The catalog lists every shipped adapter. `[catalog] ignore` drops a
 store. `[catalog.roots]` overrides a path. Details:
