@@ -50,6 +50,8 @@ CHROME_TAGS: frozenset[str] = frozenset(
         "system_reminder",  # occasional underscore form in dumps
         "monitor-event",
         "user-prompt-submit-hook",
+        "session_context",
+        "hook_context",
     }
 )
 
@@ -104,6 +106,8 @@ _HEADINGS: dict[str, str] = {
     "system_reminder": "System reminder",
     "monitor-event": "Monitor",
     "user-prompt-submit-hook": "Hook",
+    "session_context": "Session context",
+    "hook_context": "Hook context",
     "workspace_result": "Workspace result",
     "task-id": "Task id",
     "task-type": "Task type",

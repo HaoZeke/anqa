@@ -14,7 +14,7 @@ from pathlib import Path
 from ..paths import APP_HOME
 
 # Shipped adapter ids. Parse does not import the registry.
-HARNESS_IDS: frozenset[str] = frozenset({"grok", "opencode", "pi", "claude"})
+HARNESS_IDS: frozenset[str] = frozenset({"grok", "opencode", "pi", "claude", "gemini"})
 
 
 @dataclass(frozen=True)

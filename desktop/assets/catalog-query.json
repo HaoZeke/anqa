@@ -144,7 +144,8 @@
         "grok",
         "opencode",
         "pi",
-        "claude"
+        "claude",
+        "gemini"
       ],
       "compare": false
     },

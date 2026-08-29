@@ -8,7 +8,7 @@ is tagged. This section is the product as it ships.
 First release. Anqa is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. The catalog lists every shipped
 harness store. Grok Build (`grok`), OpenCode (`opencode`), Pi
-(`pi`), and Claude Code (`claude`) are registered.
+(`pi`), Claude Code (`claude`), and Gemini CLI (`gemini`) are registered.
 
 ### Install
 

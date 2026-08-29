@@ -1,0 +1,2 @@
+{"sessionId": "eeeeeeee-5555-4555-8555-000000000005", "projectHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "startTime": "2026-08-09T12:04:00.000Z", "lastUpdated": "2026-08-09T12:04:00.000Z", "kind": "main"}
+{"$set": {"lastUpdated": "2026-08-09T12:04:00.100Z", "messages": [{"id": "uc", "timestamp": "2026-08-09T12:04:00.100Z", "type": "user", "content": [{"text": "<session_context>\nThis is the Gemini CLI. We are setting up the context.\n</session_context>"}]}]}}

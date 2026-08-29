@@ -1,0 +1,2 @@
+{"sessionId": "cccccccc-3333-4333-8333-000000000003", "projectHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "startTime": "2026-08-09T12:02:00.000Z", "lastUpdated": "2026-08-09T12:02:00.000Z", "kind": "subagent"}
+{"$set": {"lastUpdated": "2026-08-09T12:02:01.000Z", "messages": [{"id": "cu1", "timestamp": "2026-08-09T12:02:00.100Z", "type": "user", "content": [{"text": "child probe"}]}]}}

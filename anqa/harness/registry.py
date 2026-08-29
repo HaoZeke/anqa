@@ -38,6 +38,12 @@ def _claude_adapter() -> HarnessAdapter:
     return ClaudeAdapter()
 
 
+def _gemini_adapter() -> HarnessAdapter:
+    from .gemini import GeminiAdapter
+
+    return GeminiAdapter()
+
+
 def adapters() -> tuple[HarnessAdapter, ...]:
     """Installed adapters."""
     global _ADAPTERS
@@ -47,6 +53,7 @@ def adapters() -> tuple[HarnessAdapter, ...]:
             _opencode_adapter(),
             _pi_adapter(),
             _claude_adapter(),
+            _gemini_adapter(),
         )
     return _ADAPTERS
 

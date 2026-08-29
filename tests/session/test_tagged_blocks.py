@@ -52,6 +52,13 @@ def test_workspace_result_is_tool_chrome() -> None:
     assert harness_user_chrome_heading(text) == "Workspace result"
 
 
+def test_session_context_is_chrome() -> None:
+    text = "<session_context>\nThis is the Gemini CLI. We are setting up the context.\n</session_context>"
+    assert is_harness_user_chrome(text)
+    assert harness_user_chrome_heading(text) == "Session context"
+    assert operator_prompt_text(text) == ""
+
+
 def test_plain_operator_text() -> None:
     assert not is_harness_user_chrome("please fix the lint")
     assert operator_prompt_text("please fix the lint") == "please fix the lint"
