@@ -41,6 +41,40 @@ def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:
     )
 
 
+def ref_source_stamp(ref: object) -> tuple[str, int, int, int]:
+    """List-row stamp for a :class:`~anqa.harness.ref.SessionRef`.
+
+    Directory locators use summary/signals/updates mtimes. File locators
+    use ``timeline_stamp`` or the locator mtime.
+    """
+    from ..harness.ref import SessionRef
+    from ..harness.registry import adapter
+
+    if not isinstance(ref, SessionRef):
+        return host_source_stamp(Path(str(ref)))
+    key = ref.ref_string()
+    loc = Path(ref.locator)
+    if loc.is_dir():
+        return (
+            key,
+            _mtime_ns(loc / _STAMP_FILES[0]),
+            _mtime_ns(loc / _STAMP_FILES[1]),
+            _mtime_ns(loc / _STAMP_FILES[2]),
+        )
+    impl = adapter(ref.harness)
+    if impl is not None:
+        try:
+            a, b, c, _d = impl.timeline_stamp(ref)
+            return (key, int(a), int(b), int(c))
+        except (OSError, FileNotFoundError, TypeError, ValueError):
+            pass
+    try:
+        mt = int(loc.stat().st_mtime_ns)
+    except OSError:
+        mt = 0
+    return (key, mt, 0, 0)
+
+
 def default_catalog_snapshot(root: Path) -> Path:
     """Per-root snapshot under the local cache directory."""
     key = hashlib.sha256(str(Path(root).expanduser()).encode()).hexdigest()[:16]
@@ -199,6 +233,45 @@ def load_or_rebuild_catalog(
         if row is not None:
             rows.append(row)
     _write_snapshot(dest_path, root=root, stamps=stamps, rows=rows)
+    return rows
+
+
+def load_or_rebuild_refs(
+    refs: list[object],
+    *,
+    dest: Path,
+    build_row: Callable[[object], JsonObject | None],
+    root: Path | None = None,
+) -> list[JsonObject]:
+    """Return catalog rows for *refs*, rebuilding only when a stamp moved."""
+    dest_path = Path(dest).expanduser()
+    stamps = [ref_source_stamp(ref) for ref in refs]
+    cached = _read_payload(dest_path)
+    if cached is not None and not export_is_stale(stamps, dest_path):
+        sessions = cached.get("sessions")
+        if isinstance(sessions, list):
+            return [as_json_object(row) for row in sessions if isinstance(row, dict)]
+    now_by_key = {path: (a, b, c) for path, a, b, c in stamps}
+    prev_stamps = _cached_stamp_map(cached)
+    prev_rows = _cached_rows_by_path(cached)
+    rows: list[JsonObject] = []
+    for ref, stamp in zip(refs, stamps, strict=True):
+        key = stamp[0]
+        now = now_by_key.get(key)
+        if now is None:
+            continue
+        if prev_stamps is not None and prev_stamps.get(key) == now:
+            reused = prev_rows.get(key)
+            if reused is None:
+                sid = getattr(ref, "session_id", "") or ""
+                reused = prev_rows.get(str(sid))
+            if reused is not None:
+                rows.append(reused)
+                continue
+        row = build_row(ref)
+        if row is not None:
+            rows.append(row)
+    _write_snapshot(dest_path, root=root or dest_path.parent, stamps=stamps, rows=rows)
     return rows
 
 

@@ -13,9 +13,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..harness.registry import require_adapter
+from ..harness.ref import SessionRef
+from ..harness.registry import adapter, ref_from_path, require_adapter
 from ..models import JsonObject, JsonValue, SessionMeta
-from .mtime_export import default_catalog_snapshot, load_or_rebuild_catalog
+from .mtime_export import (
+    default_catalog_snapshot,
+    load_or_rebuild_catalog,
+    load_or_rebuild_refs,
+)
 from .query import apply_catalog_presence_row, catalog_presence_from_meta
 from .sources import (
     ORIGIN_HOST,
@@ -112,6 +117,80 @@ def catalog_scan_roots(
     )
 
 
+def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObject | None:
+    """Build one ``session/list`` row from a :class:`SessionRef`.
+
+    Does not create a notes directory. Presence flags come from list meta.
+    """
+    impl = adapter(ref.harness)
+    if impl is None:
+        try:
+            impl = require_adapter(ref.locator if ref.locator.exists() else ref)
+        except FileNotFoundError:
+            return None
+    try:
+        meta = impl.load_meta(ref)
+    except (OSError, FileNotFoundError):
+        logger.debug("catalog meta failed for %s", ref.ref_string(), exc_info=True)
+        return None
+    locator = Path(ref.locator)
+    if locator.is_dir():
+        meta.run_dir = meta.run_dir or session_run_dir(locator)
+        try:
+            path_str = str(locator.resolve())
+        except OSError:
+            path_str = str(locator)
+    else:
+        path_str = ref.ref_string()
+        if not meta.run_dir:
+            meta.run_dir = ref.cwd or ""
+    meta.origin = ORIGIN_HOST
+    if not (meta.harness or "").strip():
+        meta.harness = ref.harness
+    session_id = (meta.session_id or ref.session_id).strip()
+    created = str(meta.created_at or "").strip()
+    updated = str(meta.updated_at or "").strip()
+    sort_epoch = _parse_iso_epoch(updated) or _parse_iso_epoch(created)
+    if sort_epoch <= 0:
+        try:
+            sort_epoch = float(impl.trace_mtime(ref))
+        except OSError:
+            sort_epoch = 0.0
+    if sort_epoch <= 0:
+        try:
+            sort_epoch = float(locator.stat().st_mtime)
+        except OSError:
+            sort_epoch = 0.0
+    return {
+        "sessionId": session_id,
+        "path": path_str,
+        "title": (meta.title or "").strip(),
+        "label": label if label is not None else meta.label,
+        "model": meta.model_display,
+        "status": meta.list_status_label(),
+        "outcome": meta.turn_outcome or "",
+        "origin": meta.origin,
+        "harness": (meta.harness or "").strip(),
+        "harnessVersion": (meta.harness_version or "").strip(),
+        "taskId": meta.task_id or "",
+        "gitRepo": meta.git_repo or "",
+        "runDir": meta.run_dir or "",
+        "durationSeconds": float(meta.duration_seconds or 0),
+        "numEvents": int(meta.num_events or 0),
+        "contextUsageCompact": meta.context_usage_compact or "",
+        "contextWindowUsagePct": meta.context_window_usage_pct,
+        "contextTokensUsed": meta.context_tokens_used,
+        "contextWindowTokens": meta.context_window_tokens,
+        "toolCallCount": int(meta.tool_call_count or 0),
+        "turnCount": int(meta.turn_count or 0),
+        "errorCount": int(meta.error_count or 0),
+        "createdAt": created,
+        "updatedAt": updated,
+        "sortEpoch": sort_epoch,
+        **catalog_presence_from_meta(meta),
+    }
+
+
 def session_catalog_row(
     session_dir: Path,
     *,
@@ -125,62 +204,29 @@ def session_catalog_row(
     :param label: Optional display label; defaults to meta label.
     :returns: Wire row mapping, or None when meta cannot be loaded.
     """
-    try:
-        meta = require_adapter(session_dir).load_meta(session_dir)
-    except (OSError, FileNotFoundError):
-        logger.debug("catalog meta failed for %s", session_dir, exc_info=True)
-        return None
-    meta.origin = ORIGIN_HOST
-    meta.run_dir = session_run_dir(session_dir)
-    session_id = (meta.session_id or session_dir.name).strip()
-    try:
-        path_str = str(session_dir.resolve())
-    except OSError:
-        path_str = str(session_dir)
-    created = str(meta.created_at or "").strip()
-    updated = str(meta.updated_at or "").strip()
-    sort_epoch = _parse_iso_epoch(updated) or _parse_iso_epoch(created)
-    if sort_epoch <= 0:
+    loc = Path(session_dir)
+    bound = ref_from_path(loc)
+    if bound is None:
         try:
-            sort_epoch = float(require_adapter(session_dir).trace_mtime(session_dir))
-        except OSError:
-            sort_epoch = 0.0
-    if sort_epoch <= 0:
-        try:
-            sort_epoch = float(session_dir.stat().st_mtime)
-        except OSError:
-            sort_epoch = 0.0
-    return {
-        "sessionId": session_id,
-        "path": path_str,
-        "title": (meta.title or "").strip(),
-        "label": label if label is not None else meta.label,
-        "model": meta.model_display,
-        "status": meta.list_status_label(),
-        "outcome": meta.turn_outcome or "",
-        "origin": ORIGIN_HOST,
-        "harness": (meta.harness or "").strip(),
-        "harnessVersion": (meta.harness_version or "").strip(),
-        # Home-list columns for attach-mode TUI (and any rich client).
-        "taskId": meta.task_id or "",
-        "gitRepo": meta.git_repo or "",
-        "runDir": meta.run_dir or "",
-        "durationSeconds": float(meta.duration_seconds or 0),
-        "numEvents": int(meta.num_events or 0),
-        "contextUsageCompact": meta.context_usage_compact or "",
-        # Structured context so attach hydrate rebuilds context_usage_compact.
-        "contextWindowUsagePct": meta.context_window_usage_pct,
-        "contextTokensUsed": meta.context_tokens_used,
-        "contextWindowTokens": meta.context_window_tokens,
-        "toolCallCount": int(meta.tool_call_count or 0),
-        "turnCount": int(meta.turn_count or 0),
-        "errorCount": int(meta.error_count or 0),
-        # Newest-first list ordering for all control clients.
-        "createdAt": created,
-        "updatedAt": updated,
-        "sortEpoch": sort_epoch,
-        **catalog_presence_from_meta(meta),
-    }
+            item = require_adapter(loc)
+        except FileNotFoundError:
+            logger.debug("catalog meta failed for %s", loc, exc_info=True)
+            return None
+        bound = SessionRef(
+            harness=item.id,
+            session_id=loc.name,
+            origin=origin or ORIGIN_HOST,
+            locator=loc,
+        )
+    elif origin:
+        bound = SessionRef(
+            harness=bound.harness,
+            session_id=bound.session_id,
+            origin=origin,
+            locator=bound.locator,
+            cwd=bound.cwd,
+        )
+    return catalog_row_for_ref(bound, label=label)
 
 
 def list_session_catalog(
@@ -224,7 +270,7 @@ def list_session_catalog(
             )
         )
     if effective_include_host(include_host):
-        rows.extend(_adapter_host_catalog_rows())
+        rows.extend(_adapter_host_catalog_rows(host_catalog_cache=host_catalog_cache))
     rows.sort(
         key=lambda r: (
             -catalog_row_sort_epoch(r),
@@ -661,7 +707,12 @@ class SessionCatalogCache:
         if current is None:
             return self.get(force=True), {}
         known_paths = {str(row.get("path") or "").strip() for row in current}
-        catalog_paths = [Path(p) for p in known_paths if p]
+        known_ids = {
+            str(row.get("sessionId") or "").strip(): str(row.get("path") or "").strip()
+            for row in current
+            if str(row.get("sessionId") or "").strip()
+        }
+        catalog_paths = [Path(p) for p in known_paths if p and not p.startswith("harness:")]
         child_ids = nested_child_ids([*catalog_paths, *dirs])
         drop: set[str] = set()
         replacements: dict[str, JsonObject] = {}
@@ -673,17 +724,28 @@ class SessionCatalogCache:
                 resolved = str(session_dir)
             if _watch_session_hidden(session_dir, child_ids):
                 drop.add(resolved)
+                sid = session_dir.name
+                if sid in known_ids:
+                    drop.add(known_ids[sid])
                 continue
             origin = classify_session_origin(session_dir, host_root=self._host_root)
             row = session_catalog_row(session_dir, origin=origin)
             if row is None:
                 drop.add(resolved)
+                sid = session_dir.name
+                if sid in known_ids:
+                    drop.add(known_ids[sid])
                 continue
-            if resolved in known_paths:
-                replacements[resolved] = row
+            sid = str(row.get("sessionId") or "").strip()
+            path_key = str(row.get("path") or resolved).strip()
+            prior = path_key if path_key in known_paths else known_ids.get(sid, "")
+            if prior:
+                replacements[prior] = row
             else:
                 appended.append(row)
-                known_paths.add(resolved)
+                known_paths.add(path_key)
+                if sid:
+                    known_ids[sid] = path_key
         upserts, removed_ids, list_changed = list_refresh_delta(
             current, replacements, appended, drop
         )
@@ -946,14 +1008,16 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     return meta
 
 
-def _adapter_host_catalog_rows() -> list[JsonObject]:
+def _adapter_host_catalog_rows(
+    *,
+    host_catalog_cache: Path | None = None,
+) -> list[JsonObject]:
     """Host rows from adapters not already collected by the directory walk.
 
-    The stamp-gated walk covers session-directory trees in
-    ``session_scan_roots``. Other stores append ``discover()`` rows.
+    File or database locators go through the same stamp reuse +
+    :func:`catalog_row_for_ref` path as directory sessions.
     """
     from ..harness.registry import adapter_host_roots, enabled_host_adapters
-    from ..harness.views import catalog_row_from_ref
 
     walked: set[str] = set()
     for item in enabled_host_adapters():
@@ -970,18 +1034,32 @@ def _adapter_host_catalog_rows() -> list[JsonObject]:
     for item in enabled_host_adapters():
         roots = adapter_host_roots(item)
         item_roots: set[str] = set()
+        dest_root: Path | None = None
         for raw in roots:
             root = Path(raw).expanduser()
+            dest_root = dest_root or root
             try:
                 item_roots.add(str(root.resolve()))
             except OSError:
                 item_roots.add(str(root))
         if item_roots and item_roots <= walked:
             continue
-        for ref in item.discover(roots):
-            row = catalog_row_from_ref(ref)
-            if row is not None:
-                rows.append(row)
+        refs = list(item.discover(roots))
+        if not refs:
+            continue
+        dest = (
+            host_catalog_cache
+            if host_catalog_cache is not None
+            else default_catalog_snapshot(dest_root or Path(item.id))
+        )
+        rows.extend(
+            load_or_rebuild_refs(
+                refs,
+                dest=dest,
+                build_row=catalog_row_for_ref,
+                root=dest_root,
+            )
+        )
     return rows
 
 
@@ -1040,6 +1118,7 @@ __all__ = [
     "effective_include_host",
     "list_session_catalog",
     "resolve_session_reference",
+    "catalog_row_for_ref",
     "session_catalog_row",
     "catalog_row_sort_epoch",
     "session_meta_from_catalog_row",

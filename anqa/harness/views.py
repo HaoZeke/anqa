@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..models import JsonObject, JsonValue, SessionMeta, TraceEvent
 from ..notes import notes_snapshot
-from ..session.catalog import catalog_row_sort_epoch
+from ..session.catalog import catalog_row_for_ref
 from ..session.control_views import (
     DEFAULT_CONTENT_CHARS,
     DEFAULT_TIMELINE_LIMIT,
@@ -18,7 +18,7 @@ from ..session.control_views import (
     turn_segment_mapping,
 )
 from ..session.event_search import matching_indexes
-from ..session.query import catalog_presence, turn_matches_query
+from ..session.query import turn_matches_query
 from ..session.subagents import subagent_run_mapping, subagent_runs_for_session
 from ..session.turns import (
     event_display_turn_map,
@@ -26,103 +26,19 @@ from ..session.turns import (
     segment_timeline_turns,
 )
 from .ref import SessionRef
-from .registry import adapter, adapter_for
+from .registry import adapter_for
 
 
-def _notes_dir(ref: SessionRef):
+def _notes_dir(ref: SessionRef, *, create: bool = False) -> Path:
     path = ref.overlay_dir()
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _empty_presence() -> dict[str, bool | int]:
-    return {
-        "hasWorkflows": False,
-        "hasNotes": False,
-        "hasGoals": False,
-        "hasSubagents": False,
-        "hasJobs": False,
-        "hasSchedules": False,
-        "hasTasks": False,
-        "hasPlan": False,
-        "hasFailures": False,
-        "hasDiff": False,
-        "hasCompaction": False,
-        "hasDoom": False,
-        "hasContext": False,
-        "workflowCount": 0,
-        "noteCount": 0,
-        "goalCount": 0,
-        "planCount": 0,
-        "subagentCount": 0,
-        "taskCount": 0,
-        "jobCount": 0,
-        "scheduleCount": 0,
-        "errorCount": 0,
-        "failureCount": 0,
-        "diffLineCount": 0,
-        "compactionCount": 0,
-        "doomCount": 0,
-    }
-
-
 def catalog_row_from_ref(ref: SessionRef) -> JsonObject | None:
-    """Wire catalog row for an adapter session ref."""
-    impl = adapter(ref.harness)
-    if impl is None:
-        return None
-    try:
-        meta = impl.load_meta(ref)
-    except (OSError, FileNotFoundError):
-        return None
-    path_str = ref.ref_string()
-    created = str(meta.created_at or "").strip()
-    updated = str(meta.updated_at or "").strip()
-    sort_epoch = catalog_row_sort_epoch({"updatedAt": updated, "createdAt": created})
-    if sort_epoch <= 0:
-        try:
-            sort_epoch = float(ref.locator.stat().st_mtime)
-        except OSError:
-            sort_epoch = 0.0
-    presence = _empty_presence()
-    try:
-        notes = catalog_presence(_notes_dir(ref), meta)
-        presence["hasNotes"] = bool(notes.get("hasNotes"))
-        presence["noteCount"] = int(notes.get("noteCount") or 0)
-    except OSError:
-        pass
-    presence["errorCount"] = int(meta.error_count or 0)
-    if meta.has_subagents:
-        presence["hasSubagents"] = True
-        presence["subagentCount"] = int(meta.subagent_count or 0)
-    return {
-        "sessionId": ref.session_id,
-        "path": path_str,
-        "harness": ref.harness,
-        "harnessVersion": (meta.harness_version or "").strip(),
-        "title": (meta.title or "").strip(),
-        "label": meta.label,
-        "model": meta.model_display,
-        "status": meta.list_status_label(),
-        "outcome": meta.turn_outcome or "",
-        "origin": meta.origin or ref.origin,
-        "taskId": meta.task_id or "",
-        "gitRepo": meta.git_repo or "",
-        "runDir": meta.run_dir or ref.cwd or "",
-        "durationSeconds": float(meta.duration_seconds or 0),
-        "numEvents": int(meta.num_events or 0),
-        "contextUsageCompact": meta.context_usage_compact or "",
-        "contextWindowUsagePct": meta.context_window_usage_pct,
-        "contextTokensUsed": meta.context_tokens_used,
-        "contextWindowTokens": meta.context_window_tokens,
-        "toolCallCount": int(meta.tool_call_count or 0),
-        "turnCount": int(meta.turn_count or 0),
-        "errorCount": int(meta.error_count or 0),
-        "createdAt": created,
-        "updatedAt": updated,
-        "sortEpoch": sort_epoch,
-        **presence,
-    }
+    """Wire catalog row for an adapter session ref (no notes mkdir)."""
+    return catalog_row_for_ref(ref)
 
 
 def _load(ref: SessionRef) -> tuple[SessionMeta, list[TraceEvent]]:
@@ -157,7 +73,7 @@ def session_overview(ref: SessionRef) -> JsonObject:
     notes_count = 0
     notes_rows: list[JsonValue] = []
     try:
-        snap = notes_snapshot(_notes_dir(ref))
+        snap = notes_snapshot(_notes_dir(ref, create=True))
         notes_rev = snap.revision
         notes_count = len(snap.doc.notes)
         for note in snap.doc.sorted_notes()[:40]:
