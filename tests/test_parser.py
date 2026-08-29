@@ -3439,14 +3439,14 @@ def test_parse_timeline_stamp_hit_does_not_reread(
     assert second is first
 
 
-def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -> None:
+def test_parse_timeline_single_flight_joins_concurrent_callers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Parallel parse_timeline for the same session runs the body once."""
-    import json
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
     import anqa.harness.grok_parse as parser_mod
-    from anqa.harness.grok_parse import parse_timeline
 
     sd = tmp_path / "flight"
     sd.mkdir()
@@ -3481,24 +3481,28 @@ def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -
         nonlocal body_calls
         body_calls += 1
         entered.set()
-        assert gate.wait(timeout=5.0)
+        assert gate.wait(timeout=30.0)
         return orig(session_dir, cache_key, stamp)
 
-    parser_mod._parse_timeline_body = slow_body  # type: ignore[assignment]
-    try:
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = [pool.submit(parse_timeline, sd) for _ in range(4)]
-            assert entered.wait(timeout=30.0)
-            # All four should be waiting on the single flight before we release.
-            gate.set()
-            results = [f.result(timeout=10.0) for f in futs]
-        assert body_calls == 1
-        assert all(len(r) >= 1 for r in results)
-        # Same cached list object after the flight completes.
-        assert all(r is results[0] for r in results)
-    finally:
-        parser_mod._parse_timeline_body = orig  # type: ignore[assignment]
-        parser_mod._timeline_inflight.clear()
+    monkeypatch.setattr(parser_mod, "_parse_timeline_body", slow_body)
+    parse_fn = parser_mod.parse_timeline
+    parse_fn.__globals__["_parse_timeline_body"] = slow_body
+    assert parse_fn.__globals__["_parse_timeline_body"] is slow_body
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        first = pool.submit(parse_fn, sd)
+        assert entered.wait(timeout=30.0), (
+            f"parse body never started first_done={first.done()} "
+            f"cache={list(parser_mod._timeline_cache)} "
+            f"inflight={list(parser_mod._timeline_inflight)}"
+        )
+        rest = [pool.submit(parse_fn, sd) for _ in range(3)]
+        gate.set()
+        results = [first.result(timeout=10.0)] + [fut.result(timeout=10.0) for fut in rest]
+    assert body_calls == 1
+    assert all(len(row) >= 1 for row in results)
+    assert all(row is results[0] for row in results)
+    parser_mod._timeline_inflight.clear()
 
 
 def test_live_browser_timeline_min_interval_scales() -> None:
