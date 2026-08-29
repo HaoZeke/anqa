@@ -20,11 +20,17 @@ def _grok_adapter() -> HarnessAdapter:
     return GrokAdapter()
 
 
+def _opencode_adapter() -> HarnessAdapter:
+    from .opencode import OpenCodeAdapter
+
+    return OpenCodeAdapter()
+
+
 def adapters() -> tuple[HarnessAdapter, ...]:
     """Installed adapters."""
     global _ADAPTERS
     if _ADAPTERS is None:
-        _ADAPTERS = (_grok_adapter(),)
+        _ADAPTERS = (_grok_adapter(), _opencode_adapter())
     return _ADAPTERS
 
 
@@ -59,6 +65,23 @@ def adapter_host_roots(item: HarnessAdapter) -> list[Path]:
     if override:
         return [Path(raw).expanduser() for raw in override]
     return item.default_host_roots()
+
+
+def adapter_watch_basenames() -> frozenset[str]:
+    """Adapter ``watch_hints`` names that should remeta a catalog store."""
+    names: set[str] = set()
+    for item in enabled_host_adapters():
+        names.update(item.watch_hints())
+    return frozenset(names)
+
+
+def adapter_watch_hits(path: Path | str) -> bool:
+    """True when *path* matches an adapter watch hint (name or suffix)."""
+    name = Path(path).name
+    names = adapter_watch_basenames()
+    if name in names:
+        return True
+    return any(hint.startswith(".") and name.endswith(hint) for hint in names)
 
 
 def adapter_store_watch_paths() -> list[Path]:
@@ -160,20 +183,21 @@ def adapter_for(ref: SessionRef | Path | str) -> HarnessAdapter | None:
     """Return the adapter that owns *ref*, or None.
 
     *ref* is a :class:`SessionRef`, a session directory, or ``harness:id``.
+    ``Path("opencode:ses_…")`` is the same catalog ref as the string.
     """
     if isinstance(ref, SessionRef):
         return adapter(ref.harness)
-    if isinstance(ref, str):
-        parsed = parse_session_ref_string(ref)
-        if parsed is not None:
-            return adapter(parsed[0])
-        path = Path(ref)
-    else:
-        path = ref
+    parsed = parse_session_ref_string(str(ref))
+    if parsed is not None:
+        return adapter(parsed[0])
+    path = Path(ref)
     bound = ref_from_path(path)
-    if bound is None:
-        return None
-    return adapter(bound.harness)
+    if bound is not None:
+        return adapter(bound.harness)
+    for item in adapters():
+        if item.looks_like(path):
+            return item
+    return None
 
 
 def scheduler_state(state: JsonObject) -> JsonObject | None:
@@ -210,6 +234,8 @@ __all__ = [
     "adapter_host_roots",
     "discover_dirs",
     "adapter_store_watch_paths",
+    "adapter_watch_basenames",
+    "adapter_watch_hits",
     "adapters",
     "enabled_host_adapters",
     "enabled_host_ids",

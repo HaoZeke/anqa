@@ -48,3 +48,12 @@ def test_file_locator_ref_string_is_harness_id(tmp_path: Path) -> None:
 def test_resolve_unknown_harness_id_is_none() -> None:
     assert resolve_session_ref("unknown:ses_does_not_exist") is None
     assert resolve_session_ref("") is None
+
+
+def test_require_adapter_accepts_harness_ref_as_path() -> None:
+    """Browser/control pass catalog path through ``Path``; that must still bind."""
+    from anqa.harness.registry import require_adapter
+
+    raw = "opencode:ses_fb126f42fffebvoGOuSoFc457J"
+    assert require_adapter(raw).id == "opencode"
+    assert require_adapter(Path(raw)).id == "opencode"

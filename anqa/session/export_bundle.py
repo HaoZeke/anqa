@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ..harness.registry import require_adapter
+from ..harness.ref import SessionRef, parse_session_ref_string
+from ..harness.registry import ref_from_path, require_adapter, resolve_session_ref
 from ..models import JsonObject, as_json_object
 from ..notes import collect_notes_for_export
 from ..paths import reports_dir
@@ -81,18 +82,43 @@ def default_bundle_path(
     return root / f"{base}.tar.gz"
 
 
-def _session_id(session_dir: Path) -> str:
+def _export_ref(session: Path | str | SessionRef) -> SessionRef:
+    """Resolve a catalog path, harness:id, or directory to a session ref."""
+    if isinstance(session, SessionRef):
+        return session
+    raw = str(session).strip()
+    found = resolve_session_ref(raw)
+    if found is not None:
+        return found
+    path = Path(session).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        pass
+    if path.is_dir():
+        bound = ref_from_path(path)
+        if bound is not None:
+            return bound
+    raise FileNotFoundError(f"session not found: {session}")
+
+
+def _session_id(session_dir: Path | str | SessionRef) -> str:
+    if isinstance(session_dir, SessionRef):
+        return session_dir.session_id
+    parsed = parse_session_ref_string(str(session_dir))
+    if parsed is not None:
+        return parsed[1]
     return Path(session_dir).name.strip() or "session"
 
 
-def build_session_archive(session_dir: Path, out_tar: Path) -> list[str]:
+def build_session_archive(session_dir: Path | str | SessionRef, out_tar: Path) -> list[str]:
     """Ask the session's harness adapter to write the native archive.
 
     :raises RuntimeError: No adapter, empty archive, or write failed.
     """
-    session_dir = Path(session_dir).expanduser()
-    item = require_adapter(session_dir)
-    members = item.write_archive(session_dir, out_tar)
+    ref = _export_ref(session_dir)
+    item = require_adapter(ref)
+    members = item.write_archive(ref, out_tar)
     if not Path(out_tar).is_file() or Path(out_tar).stat().st_size <= 0:
         raise RuntimeError(f"adapter wrote empty archive: {out_tar}")
     return members
@@ -174,19 +200,21 @@ def _staging_member_paths(staging: Path, *, skip: frozenset[str] | set[str]) -> 
     return names
 
 
-def _collect_operator_notes(session_dir: Path, staging: Path) -> None:
+def _collect_operator_notes(session_dir: Path | str | SessionRef, staging: Path) -> None:
     """Embed turn-linked operator notes under ``notes/``."""
-    collect_notes_for_export(session_dir, staging / "notes")
+    ref = _export_ref(session_dir)
+    collect_notes_for_export(ref.overlay_dir(), staging / "notes")
 
 
-def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
+def _gather_session_summary_data(session_dir: Path | str | SessionRef) -> SessionSummaryData:
     """Load meta / timeline / usage into :class:`SessionSummaryData`."""
     from ..utils import fmt_duration
     from .turns import segment_timeline_turns
     from .usage_stats import collect_session_usage, format_usage_markdown
 
-    meta = require_adapter(session_dir).load_detail(session_dir)
-    timeline = require_adapter(session_dir).parse_timeline(session_dir)
+    ref = _export_ref(session_dir)
+    meta = require_adapter(ref).load_detail(ref)
+    timeline = require_adapter(ref).parse_timeline(ref)
     tool_calls = [e for e in timeline if e.event_type == "tool_call"]
     tool_errs = sum(1 for e in tool_calls if e.is_error)
     turn_count = 0
@@ -205,12 +233,13 @@ def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
         created = created[:19].replace("T", " ")
     usage_block = ""
     try:
-        usage = collect_session_usage(session_dir, timeline)
+        usage_src = ref.locator if ref.locator.is_dir() else ref.overlay_dir()
+        usage = collect_session_usage(usage_src, timeline)
         usage_block = format_usage_markdown(usage).strip()
     except Exception:
         logger.debug("usage stats failed for export summary", exc_info=True)
     return SessionSummaryData(
-        session_id=(meta.session_id or session_dir.name or "").strip(),
+        session_id=(meta.session_id or ref.session_id).strip(),
         title=(meta.title or "").strip(),
         model=(meta.model_display or meta.model_id or "").strip(),
         outcome=(meta.turn_outcome or "").strip(),
@@ -230,7 +259,7 @@ def _gather_session_summary_data(session_dir: Path) -> SessionSummaryData:
     )
 
 
-def _collect_summary(session_dir: Path, staging: Path, *, renderer: str) -> None:
+def _collect_summary(session_dir: Path | str | SessionRef, staging: Path, *, renderer: str) -> None:
     """Write ``human/summary.<ext>`` via the active builtin renderer."""
     data = _gather_session_summary_data(session_dir)
     if not data.session_id and not data.summary_text and data.event_count == 0:
@@ -272,23 +301,23 @@ def _write_readme(staging: Path, *, sid: str, spec: ExportSpec) -> None:
     (staging / "README.txt").write_text(text, encoding="utf-8")
 
 
-def _collect_child_traces(session_dir: Path, staging: Path) -> list[JsonObject]:
+def _collect_child_traces(session_dir: Path | str | SessionRef, staging: Path) -> list[JsonObject]:
     """Write ``children/<id>/session.tar.gz`` for each openable child."""
-    timeline = require_adapter(session_dir).parse_timeline(session_dir)
+    ref = _export_ref(session_dir)
+    timeline = require_adapter(ref).parse_timeline(ref)
     segs = segment_timeline_turns(timeline)
-    runs = subagent_runs_for_session(session_dir, timeline, segs, event_display_turn_map(segs))
+    runs = subagent_runs_for_session(ref.locator, timeline, segs, event_display_turn_map(segs))
     written: list[JsonObject] = []
-    parent = Path(session_dir).resolve()
     for run in runs:
-        if not run.openable or run.child_path is None:
+        child_raw = str(run.child_path) if run.child_path is not None else ""
+        if not child_raw and run.child_session_id:
+            child_raw = f"{ref.harness}:{run.child_session_id}"
+        if not run.openable or not child_raw:
             continue
-        child = Path(run.child_path).resolve()
-        if child == parent:
-            continue
-        cid = run.child_session_id or run.subagent_id or child.name
+        cid = run.child_session_id or run.subagent_id or _session_id(child_raw)
         dest = staging / "children" / cid / SESSION_ARCHIVE_NAME
         dest.parent.mkdir(parents=True, exist_ok=True)
-        build_session_archive(child, dest)
+        build_session_archive(child_raw, dest)
         written.append(
             {
                 "sessionId": cid,
@@ -375,22 +404,20 @@ def export_session_bundle(
     (``archive-full``): nested ``session.tar.gz`` of the session files
     plus optional anqa extras.
 
-    :param session_dir: Session directory to pack.
+    :param session_dir: Session directory, ``harness:id``, or :class:`SessionRef`.
     :param dest: Output path (``.tar.gz`` file or directory); default under
         :func:`~anqa.paths.reports_dir` according to packaging.
     :param spec: Explicit export recipe (wins over *profile*).
     :param profile: Profile id from built-ins / ``~/.anqa/export_profiles/``.
     :returns: :class:`ExportBundleResult` with the path written.
-    :raises FileNotFoundError: Session directory missing.
+    :raises FileNotFoundError: Session missing.
     :raises KeyError: Unknown *profile*.
     :raises RuntimeError: Archive invalid, empty session, or destination
         conflicts.
     """
-    session_dir = Path(session_dir).expanduser().resolve()
-    if not session_dir.is_dir():
-        raise FileNotFoundError(f"session directory not found: {session_dir}")
+    ref = _export_ref(session_dir)
     resolved = spec if spec is not None else get_export_profile(profile)
-    sid = _session_id(session_dir)
+    sid = ref.session_id
     out = Path(dest) if dest is not None else default_bundle_path(sid, packaging=resolved.packaging)
     if resolved.packaging is Packaging.TAR_GZ:
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -406,13 +433,13 @@ def export_session_bundle(
         child_members: list[JsonObject] = []
         if want_trace:
             nested = staging / SESSION_ARCHIVE_NAME
-            nested_members = build_session_archive(session_dir, nested)
+            nested_members = build_session_archive(ref, nested)
             assert_session_archive_shape(nested, sid)
-            child_members = _collect_child_traces(session_dir, staging)
+            child_members = _collect_child_traces(ref, staging)
 
         if resolved.includes(IncludeUnit.SUMMARY):
             try:
-                _collect_summary(session_dir, staging, renderer=resolved.renderer)
+                _collect_summary(ref, staging, renderer=resolved.renderer)
             except OSError:
                 logger.debug("session summary collect failed", exc_info=True)
             except Exception:
@@ -420,7 +447,7 @@ def export_session_bundle(
 
         if resolved.includes(IncludeUnit.NOTES):
             try:
-                _collect_operator_notes(session_dir, staging)
+                _collect_operator_notes(ref, staging)
             except OSError:
                 logger.debug("operator notes collect failed", exc_info=True)
 

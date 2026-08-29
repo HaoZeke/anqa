@@ -351,16 +351,6 @@ def control_watch_specs(cache: SessionCatalogCache) -> list[tuple[Path, bool]]:
 _LIST_EXCLUDE_HINTS = frozenset({"events.jsonl", "chat_history.jsonl"})
 
 
-def _adapter_list_watch_names() -> frozenset[str]:
-    """Basenames from each adapter ``watch_hints`` that can change a list row."""
-    from ..harness.registry import enabled_host_adapters
-
-    names: set[str] = set()
-    for item in enabled_host_adapters():
-        names.update(item.watch_hints())
-    return frozenset(names - _LIST_EXCLUDE_HINTS)
-
-
 _CATALOG_NOISE_DIR_NAMES = frozenset(
     {
         "workspace",
@@ -446,7 +436,9 @@ class CatalogWatchApply:
         """True when a watch path can change a painted session/list field."""
         if cls.ignore_path(path) or path.name in _LIST_EXCLUDE_HINTS:
             return False
-        return path.name in _adapter_list_watch_names()
+        from ..harness.registry import adapter_watch_hits
+
+        return adapter_watch_hits(path)
 
     @classmethod
     def session_dirs(cls, paths: list[str], *, roots: list[Path]) -> list[Path]:

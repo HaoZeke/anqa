@@ -437,6 +437,40 @@ class _CatalogDelta:
     removed: list[str] = field(default_factory=list)
 
 
+def _hint_match(name: str, hints: tuple[str, ...]) -> bool:
+    if name in hints:
+        return True
+    return any(hint.startswith(".") and name.endswith(hint) for hint in hints)
+
+
+def _file_store_event(store: Path, events: list[Path], hints: tuple[str, ...]) -> bool:
+    """True when a watch path is *store* or a hint sibling (``*.db-wal``)."""
+    store_s = str(store)
+    parent = store.parent
+    for ev in events:
+        if str(ev) == store_s or ev.name == store.name:
+            return True
+        if ev.parent == parent and _hint_match(ev.name, hints):
+            return True
+    return False
+
+
+def _dir_store_event(store: Path, events: list[Path], hints: tuple[str, ...]) -> bool:
+    """True when a watch path is a matching file under a directory store."""
+    try:
+        root = store.expanduser().resolve()
+    except OSError:
+        root = store.expanduser()
+    for ev in events:
+        try:
+            ev.resolve().relative_to(root)
+        except (ValueError, OSError):
+            continue
+        if _hint_match(ev.name, hints):
+            return True
+    return False
+
+
 class SessionCatalogCache:
     """Single-flight TTL + root-fingerprint cache for ``session/list`` rows.
 
@@ -776,8 +810,7 @@ class SessionCatalogCache:
         from ..harness.registry import adapter_host_roots, enabled_host_adapters
         from .mtime_export import ref_source_stamp
 
-        hits = {str(Path(p).expanduser()) for p in store_paths}
-        names = {Path(p).name for p in store_paths}
+        events = [Path(p).expanduser() for p in store_paths]
         list_changed: dict[str, bool] = {}
         with self._lock:
             if self._building or self._rows is None:
@@ -790,11 +823,14 @@ class SessionCatalogCache:
         for item in enabled_host_adapters():
             roots = [Path(raw).expanduser() for raw in adapter_host_roots(item)]
             files = [root for root in roots if root.is_file()]
-            if not files:
+            dirs = [root for root in roots if root.is_dir()]
+            hints = item.watch_hints()
+            hit_files = any(_file_store_event(root, events, hints) for root in files)
+            hit_dirs = any(_dir_store_event(root, events, hints) for root in dirs)
+            if not hit_files and not hit_dirs:
                 continue
-            if not any(str(root) in hits or root.name in names for root in files):
-                continue
-            for ref in item.discover(files):
+            scan = files if hit_files and not hit_dirs else roots
+            for ref in item.discover(scan):
                 stamp = ref_source_stamp(ref)
                 sid = ref.session_id
                 if self._ref_stamps.get(sid) == stamp:
@@ -1090,45 +1126,27 @@ def _adapter_host_catalog_rows(
     *,
     host_catalog_cache: Path | None = None,
 ) -> list[JsonObject]:
-    """Host rows from adapters not already collected by the directory walk.
+    """Host rows whose locators are files or database rows.
 
-    File or database locators go through the same stamp reuse +
-    :func:`catalog_row_for_ref` path as directory sessions.
+    Directory locators come from the session-directory walk. File and
+    database locators go through ``discover`` +
+    :func:`catalog_row_for_ref` here.
     """
     from ..harness.registry import adapter_host_roots, enabled_host_adapters
-
-    walked: set[str] = set()
-    for item in enabled_host_adapters():
-        for raw in adapter_host_roots(item):
-            root = Path(raw).expanduser()
-            if not root.is_dir():
-                continue
-            try:
-                walked.add(str(root.resolve()))
-            except OSError:
-                walked.add(str(root))
 
     rows: list[JsonObject] = []
     for item in enabled_host_adapters():
         roots = adapter_host_roots(item)
-        item_roots: set[str] = set()
-        dest_root: Path | None = None
-        for raw in roots:
-            root = Path(raw).expanduser()
-            dest_root = dest_root or root
-            try:
-                item_roots.add(str(root.resolve()))
-            except OSError:
-                item_roots.add(str(root))
-        if item_roots and item_roots <= walked:
-            continue
-        refs = list(item.discover(roots))
+        refs = [ref for ref in item.discover(roots) if not Path(ref.locator).is_dir()]
         if not refs:
             continue
+        dest_root = Path(roots[0]).expanduser() if roots else Path(item.id)
         dest = (
-            host_catalog_cache
+            host_catalog_cache / item.id
+            if host_catalog_cache is not None and host_catalog_cache.is_dir()
+            else host_catalog_cache
             if host_catalog_cache is not None
-            else default_catalog_snapshot(dest_root or Path(item.id))
+            else default_catalog_snapshot(dest_root)
         )
         rows.extend(
             load_or_rebuild_refs(

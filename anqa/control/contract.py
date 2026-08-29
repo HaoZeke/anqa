@@ -76,7 +76,7 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     CatalogQueryToken(
         "harness",
         "Disk adapter id.",
-        ("grok",),
+        ("grok", "opencode"),
     ),
     CatalogQueryToken("model", "Model id substring."),
     CatalogQueryToken("task", "Task id substring."),

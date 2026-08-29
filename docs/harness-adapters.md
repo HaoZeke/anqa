@@ -12,7 +12,9 @@ and, when the store records it, `harnessVersion`.
 A shipped adapter does all of this:
 
 1. **Discover** operator-facing sessions from the default store (or
-   `[catalog.roots]`).
+   `[catalog.roots]`). The home list must include those rows. File
+   and database locators are collected by `discover`; directory
+   locators by the session-directory walk.
 2. **Bind** a locator (directory, transcript file, or database row) so
    any client can reopen the same session.
 3. **List meta** and a **timeline** using anqa event type names.
@@ -23,10 +25,14 @@ A shipped adapter does all of this:
    stores writes in-tree; a file or database locator uses
    `~/.anqa/notes/<harness>/<session_id>/`.
 7. **Write archive** (`write_archive`) so `E` can nest the native
-   session files. Anqa adds notes, summary, and the manifest.
+   session files through `export_session_bundle` for a directory or
+   a `harness:<id>` catalog path. Anqa adds notes, summary, and the
+   manifest.
 8. **Detail / live stamps** (`load_detail`, `timeline_stamp`,
    `trace_mtime`, `updates_size`, `list_turn_outcome`) so the catalog
-   and browser do not import a store parser.
+   and browser do not import a store parser. List status comes from
+   that store’s own live signals (running vs complete). Never default
+   a new adapter to complete.
 9. **Scheduler blocks** (`scheduler_state`, `reported_completion_ids`)
    when the store has durable schedules.
 
@@ -52,6 +58,7 @@ A store that is not in its default place gets a root override:
 ```toml
 [catalog.roots]
 grok = "~/.grok/sessions"
+opencode = "~/.local/share/opencode/opencode.db"
 ```
 
 ## Shipped
@@ -59,10 +66,11 @@ grok = "~/.grok/sessions"
 | Id | Product | Supported version | Store | Catalog path |
 |----|---------|-------------------|--------|--------------|
 | `grok` | Grok Build | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` | directory |
+| `opencode` | OpenCode | 1.18.25 | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
 
 Supported version is the product we last parsed and tested. A session
 may carry a different `harnessVersion` from its own files.
 
 ## Filter
 
-`harness:grok` (and each shipped id as more adapters land).
+`harness:grok`, `harness:opencode`.

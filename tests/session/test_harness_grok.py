@@ -15,7 +15,9 @@ from anqa.harness.grok import (
     parse_timeline,
     watch_hints,
 )
+from anqa.harness.registry import require_adapter
 from anqa.models import SessionMeta, TraceEvent
+from anqa.session.export_bundle import export_session_bundle
 
 _MINIMAL = Path(__file__).resolve().parents[1] / "fixtures" / "snapshots" / "minimal_session"
 
@@ -97,6 +99,31 @@ def test_write_archive_packs_session_files(tmp_path: Path) -> None:
     with tarfile.open(dest, "r:gz") as tf:
         names = set(tf.getnames())
     assert names == set(members)
+
+
+def test_export_bundle_from_session_dir(tmp_path: Path) -> None:
+    sd = _write_summary_session(tmp_path, "pack-sid")
+    (sd / "events.jsonl").write_text('{"type":"x"}\n', encoding="utf-8")
+    dest = tmp_path / "bundle.tar.gz"
+    result = export_session_bundle(sd, dest=dest)
+    assert dest.is_file()
+    assert result.session_id == "pack-sid"
+
+
+def test_list_status_complete_and_running(tmp_path: Path) -> None:
+    done = _write_summary_session(tmp_path, "done-sess")
+    (done / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "turn_completed"}}}) + "\n",
+        encoding="utf-8",
+    )
+    live = _write_summary_session(tmp_path, "live-sess")
+    (live / "updates.jsonl").write_text(
+        json.dumps({"params": {"update": {"sessionUpdate": "user_message_chunk"}}}) + "\n",
+        encoding="utf-8",
+    )
+    (live / "events.jsonl").write_text('{"type":"turn_started"}\n', encoding="utf-8")
+    assert require_adapter(done).load_meta(done).list_status_label() == "complete"
+    assert require_adapter(live).load_meta(live).list_status_label() == "running"
 
 
 def test_watch_hints_include_updates_jsonl() -> None:

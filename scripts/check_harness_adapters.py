@@ -39,6 +39,12 @@ def main() -> int:
         test = ROOT / "tests" / "session" / f"test_harness_{hid}.py"
         if not test.is_file():
             errs.append(f"{hid}: missing {test.relative_to(ROOT)}")
+        else:
+            body = test.read_text(encoding="utf-8")
+            if "export_session_bundle" not in body:
+                errs.append(f"{hid}: {test.name} must call export_session_bundle")
+            if "list_status_label" not in body:
+                errs.append(f"{hid}: {test.name} must assert list_status_label")
         if not re.search(rf"\b{re.escape(hid)}\b", hud):
             errs.append(f"{hid}: desktop/src/live.rs is_harness_ref omits this id")
         if f'"{hid}"' not in contract and f"({hid}" not in contract:

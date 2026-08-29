@@ -48,6 +48,14 @@ def test_plane_event_keeps_modified_session_dir(tmp_path: Path) -> None:
     assert plane_event_path(tmp_path, kind=2) is False
 
 
+def test_membership_watch_keeps_opencode_store_files(tmp_path: Path) -> None:
+    """Sqlite WAL writes must reach the catalog (not only Grok plane files)."""
+    w = TraceTreeWatch(tmp_path, lambda: None, membership_only=True)
+    assert w._keep_event(2, str(tmp_path / "opencode.db")) is True
+    assert w._keep_event(2, str(tmp_path / "opencode.db-wal")) is True
+    assert w._keep_event(2, str(tmp_path / "noise.bin")) is False
+
+
 def test_path_relevant_ignores_workspace() -> None:
     sess = "/home/ali/.grok/sessions/%2Fproj/sid"
     assert not TraceTreeWatch.path_relevant(f"{sess}/workspace/src/a.py")

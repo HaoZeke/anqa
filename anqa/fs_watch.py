@@ -169,6 +169,10 @@ class TraceTreeWatch:
             return False
         if p.name in PLANE_FILE_NAMES:
             return True
+        from .harness.registry import adapter_watch_hits
+
+        if adapter_watch_hits(p):
+            return True
         if self._session_dir is not None:
             return False
         if not isinstance(kind, int):
