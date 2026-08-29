@@ -21,3 +21,6 @@ default_profile = ""
 # ignore = []
 # [catalog.roots]
 # grok = "~/.grok/sessions"
+# opencode = "~/.local/share/opencode/opencode.db"
+# pi = "~/.pi/agent/sessions"
+# claude = "~/.claude/projects"

@@ -32,11 +32,22 @@ def _pi_adapter() -> HarnessAdapter:
     return PiAdapter()
 
 
+def _claude_adapter() -> HarnessAdapter:
+    from .claude import ClaudeAdapter
+
+    return ClaudeAdapter()
+
+
 def adapters() -> tuple[HarnessAdapter, ...]:
     """Installed adapters."""
     global _ADAPTERS
     if _ADAPTERS is None:
-        _ADAPTERS = (_grok_adapter(), _opencode_adapter(), _pi_adapter())
+        _ADAPTERS = (
+            _grok_adapter(),
+            _opencode_adapter(),
+            _pi_adapter(),
+            _claude_adapter(),
+        )
     return _ADAPTERS
 
 
