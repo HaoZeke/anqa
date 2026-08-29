@@ -53,6 +53,7 @@ def test_membership_watch_keeps_opencode_store_files(tmp_path: Path) -> None:
     w = TraceTreeWatch(tmp_path, lambda: None, membership_only=True)
     assert w._keep_event(2, str(tmp_path / "opencode.db")) is True
     assert w._keep_event(2, str(tmp_path / "opencode.db-wal")) is True
+    assert w._keep_event(2, str(tmp_path / "tmp-probe" / "sess.jsonl")) is True
     assert w._keep_event(2, str(tmp_path / "noise.bin")) is False
 
 

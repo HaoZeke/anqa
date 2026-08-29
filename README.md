@@ -127,6 +127,7 @@ comes from files that store writes. An adapter never invents those.
 |----|---------|--------|--------------|
 | `grok` | [Grok Build](https://docs.x.ai/build/overview) | `~/.grok/sessions/<cwd>/<id>/` | directory |
 | `opencode` | OpenCode | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
+| `pi` | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
 
 Notes for a host adapter session live under
 `~/.anqa/notes/<session_id>/`. A session directory you open with

@@ -59,6 +59,7 @@ A store that is not in its default place gets a root override:
 [catalog.roots]
 grok = "~/.grok/sessions"
 opencode = "~/.local/share/opencode/opencode.db"
+pi = "~/.pi/agent/sessions"
 ```
 
 ## Shipped
@@ -67,10 +68,11 @@ opencode = "~/.local/share/opencode/opencode.db"
 |----|---------|-------------------|--------|--------------|
 | `grok` | Grok Build | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` | directory |
 | `opencode` | OpenCode | 1.18.25 | `~/.local/share/opencode/opencode.db` | `opencode:<id>` |
+| `pi` | Pi | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` | `pi:<id>` |
 
 Supported version is the product we last parsed and tested. A session
 may carry a different `harnessVersion` from its own files.
 
 ## Filter
 
-`harness:grok`, `harness:opencode`.
+`harness:grok`, `harness:opencode`, `harness:pi`.

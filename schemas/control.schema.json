@@ -160,7 +160,8 @@
             "role": "Disk adapter id.",
             "values": [
               "grok",
-              "opencode"
+              "opencode",
+              "pi"
             ],
             "compare": false
           },

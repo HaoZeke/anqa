@@ -7,8 +7,8 @@ is tagged. This section is the product as it ships.
 
 First release. Anqa is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. The catalog lists every shipped
-harness store. Grok Build (`grok`) and OpenCode (`opencode`) are
-registered.
+harness store. Grok Build (`grok`), OpenCode (`opencode`), and Pi
+(`pi`) are registered.
 
 ### Install
 
