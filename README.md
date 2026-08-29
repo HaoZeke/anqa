@@ -120,8 +120,8 @@ desktop HUD, and control clients all treat that store the same way:
 discover sessions, load list meta and a timeline, watch the store for
 changes, and filter with `harness:<id>`.
 
-What you can *do* in a session (next prompt, end session, rewind, context meter)
-comes from files that store writes. An adapter never invents those.
+What you can *do* in a session (rewind, context meter) comes from files
+that store writes. An adapter never invents those.
 
 | Id | Product | Store | Catalog path |
 |----|---------|--------|--------------|

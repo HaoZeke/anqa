@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from anqa.session.turn_gate import read_turn_gate_status, session_awaits_follow_up
+from anqa.session.turn_gate import session_awaits_follow_up
 from anqa.ui.app import AnqaApp
 from textual.widgets import DataTable
 
@@ -251,7 +251,7 @@ async def test_colemak_n_e_are_list_nav(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_colemak_leader_follow_and_done(
+async def test_colemak_leader_does_not_send_follow_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     keys = tmp_path / "keys.toml"
@@ -272,48 +272,11 @@ async def test_colemak_leader_follow_and_done(
         )
         await pilot.press("semicolon")
         await wait_until(pilot, lambda: app._leader_armed, description="leader armed")
-        displays = _footer_key_displays(app)
-        assert any(";" in d or "semicolon" in d for d in displays)
         await pilot.press("n")
-        await wait_until(
-            pilot,
-            lambda: any(type(s).__name__ == "InteractiveSessionsModal" for s in app.screen_stack),
-            description="leader+n opens follow-up",
-        )
-        assert not app._leader_armed
-        await pilot.press("escape")
-        await wait_until(
-            pilot,
-            lambda: (
-                not any(type(s).__name__ == "InteractiveSessionsModal" for s in app.screen_stack)
-            ),
-            description="follow-up dismissed",
-        )
-        table.focus()
-        table.move_cursor(row=0, animate=False)
-        sess = traces / "pilot-keymap-1"
-        await wait_until(
-            pilot,
-            lambda: session_awaits_follow_up(sess) and bool(app._awaiting_session_targets()),
-            description="still awaiting after dismissed follow-up",
-        )
-        await pilot.press("f24")
         await pilot.pause()
-        assert not any(type(s).__name__ == "InteractiveSessionsModal" for s in app.screen_stack)
+        sess = traces / "pilot-keymap-1"
         assert session_awaits_follow_up(sess)
-        await pilot.press("semicolon")
-        await wait_until(pilot, lambda: app._leader_armed, description="leader armed for done")
-        await pilot.press("e")
-        await wait_until(
-            pilot,
-            lambda: (
-                session_awaits_follow_up(sess) is False
-                or read_turn_gate_status(sess).get("state") == "done"
-            ),
-            description="leader+e marks the session done",
-        )
-        assert not app._leader_armed
-        assert session_awaits_follow_up(sess) is False
+        assert not any(type(s).__name__ == "InteractiveSessionsModal" for s in app.screen_stack)
 
 
 @pytest.mark.asyncio

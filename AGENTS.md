@@ -232,7 +232,8 @@ catalog discovery for control outside ``session/catalog`` +
   the live-refresh pool; coalesced reruns when events stack.
 - **Turn status** on the home list: ``running`` | ``awaiting`` | ``ending`` |
   ``complete`` | ``cancelled`` | ``—`` (:meth:`~anqa.models.SessionMeta.list_status_label`).
-  **ending** = Done (``e``) or last-turn follow-up still finishing.
+  **ending** = the last turn is still finishing after the host asked the
+  session to stop.
 - **Context** columns / Summary use session snapshot fields from signals;
   optional in-memory per-turn samples while a browser is open
   (``session.context_samples``). Grok does not export a full per-turn series.
@@ -259,8 +260,8 @@ language) in Python. Add/reuse Fluent ids; call via ``t("…")`` or ``ui.text`` 
 ``U.*``.
 
 **User-facing** includes notifications, button labels, placeholders, table
-headers, select labels, modal titles, activity bar, follow-up / Done prompts,
-Footer and palette descriptions.
+headers, select labels, modal titles, activity bar, Footer and palette
+descriptions.
 
 **Do not** put TCSS/Rich style tokens, widget ids, logger formats, or docstrings
 in FTL. Do not use FTL edge spaces for concatenation (Fluent strips them).
@@ -652,7 +653,6 @@ against the catalog.
 | ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
 | ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
-| ``n`` / ``e`` | Next prompt / end session while awaiting |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 

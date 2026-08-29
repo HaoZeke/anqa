@@ -51,8 +51,8 @@ class TestBindingTuples:
         assert "open_session" in shown
         assert "follow_up_sessions" not in shown
         assert "mark_sessions_done" not in shown
-        assert any(b.action == "follow_up_sessions" for b in APP_SESSIONS)
-        assert any(b.action == "mark_sessions_done" for b in APP_SESSIONS)
+        assert not any(b.action == "follow_up_sessions" for b in APP_SESSIONS)
+        assert not any(b.action == "mark_sessions_done" for b in APP_SESSIONS)
 
     def test_footer_chrome_order_pushed_screens(self) -> None:
         """Pushed screens: Help then Back then Quit. Refresh stays bound, off the rail."""
@@ -73,8 +73,8 @@ class TestBindingTuples:
         assert "export_bundle" in shown
         assert "focus_follow_up" not in shown
         assert "mark_session_done" not in shown
-        assert any(b.action == "focus_follow_up" for b in BROWSER)
-        assert any(b.action == "mark_session_done" for b in BROWSER)
+        assert not any(b.action == "focus_follow_up" for b in BROWSER)
+        assert not any(b.action == "mark_session_done" for b in BROWSER)
 
     def test_browser_binds_four_pane_digits(self) -> None:
         actions = {b.action for b in BROWSER}
@@ -89,8 +89,8 @@ class TestBindingTuples:
         assert "quit" not in SESSION_HOME_ACTIONS  # global, not home-gated
         assert "open_session" in SESSION_HOME_ACTIONS
         assert "show_help" not in SESSION_HOME_ACTIONS
-        assert "follow_up_sessions" in SESSION_HOME_ACTIONS
-        assert "mark_sessions_done" in SESSION_HOME_ACTIONS
+        assert "follow_up_sessions" not in SESSION_HOME_ACTIONS
+        assert "mark_sessions_done" not in SESSION_HOME_ACTIONS
 
 
 class TestFocusPrimaryList:

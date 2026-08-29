@@ -75,7 +75,7 @@ menu bar, Windows notification area). Left-click toggles the overlay
 without taking keyboard focus. **Quit anqa** exits the palette
 only; serve stays up.
 
-Desktop notifications fire for sessions that are awaiting follow-up,
+Desktop notifications fire for sessions that are awaiting the operator,
 cancelled, or failed. List ``complete`` is the last turn sitting idle,
 not a finished session.
 Linux uses the 64px

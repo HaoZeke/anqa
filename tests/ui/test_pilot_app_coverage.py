@@ -1303,29 +1303,3 @@ async def test_on_session_selected_opens_browser(tmp_path: Path) -> None:
         )
         await pilot.press("escape")
         await pilot.pause()
-
-
-@pytest.mark.asyncio
-async def test_interactive_sessions_modal_last_turn(tmp_path: Path) -> None:
-    """Sessions-home next-prompt modal returns (text, final) with last-turn checkbox."""
-    from anqa.ui.app import InteractiveSessionsModal
-    from textual.app import App
-    from textual.widgets import Checkbox, Input
-
-    results: list[tuple[str, bool] | None] = []
-
-    class Harness(App[None]):
-        async def on_mount(self) -> None:
-            self.push_screen(InteractiveSessionsModal(n_awaiting=2), results.append)
-
-    app = Harness()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause()
-        modal = app.screen
-        assert isinstance(modal, InteractiveSessionsModal)
-        modal.query_one("#interactive-follow-input", Input).value = "wrap up"
-        modal.query_one("#interactive-follow-last-turn", Checkbox).value = True
-        modal.action_save()
-        await pilot.pause()
-        await wait_until(pilot, lambda: results and results[0] is not None)
-        assert results[0] == ("wrap up", True)

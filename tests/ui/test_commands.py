@@ -57,8 +57,6 @@ class TestYieldAppCommands:
             action_toggle_select=MagicMock(),
             action_select_all=MagicMock(),
             action_delete_sessions=MagicMock(),
-            action_follow_up_sessions=MagicMock(),
-            action_mark_sessions_done=MagicMock(),
         )
 
     def test_default_screen_yields_app_commands(self) -> None:

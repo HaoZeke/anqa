@@ -534,41 +534,6 @@ SelectOverlay:focus > .option-list--option-highlighted {
     color: $text-muted;
 }
 
-/* Pending interactive / live session controls (browser; hidden when settled) */
-#session-pending-bar {
-    display: none;
-    height: auto;
-    min-height: 3;
-    max-height: 8;
-    padding: 0 1;
-    background: $boost;
-    border-bottom: tall $primary;
-}
-
-#session-pending-queue {
-    color: $text-muted;
-    padding: 0 1;
-    height: auto;
-    max-height: 8;
-}
-
-#session-pending-status {
-    height: auto;
-}
-
-#session-follow-input {
-    width: 100%;
-}
-
-#session-pending-actions {
-    height: 3;
-    align: left middle;
-}
-
-#session-pending-actions Button {
-    margin-right: 1;
-}
-
 #discard-confirm-modal {
     width: 56;
     height: auto;

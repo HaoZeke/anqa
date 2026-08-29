@@ -17,18 +17,15 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.screen import ModalScreen, Screen
+from textual.screen import Screen
 from textual.suggester import Suggester
 from textual.theme import Theme
 from textual.timer import Timer
 from textual.widgets import (
-    Button,
-    Checkbox,
     DataTable,
     Input,
-    Label,
     Static,
     TextArea,
 )
@@ -59,7 +56,6 @@ from . import text as U
 from .appearance import Appearance, appearance, tui_appearance
 from .bindings import (
     APP_SESSIONS,
-    FORM_SAVE,
     SESSION_HOME_ACTIONS,
     focus_primary_list,
 )
@@ -76,7 +72,6 @@ from .data_table import (
 from .i18n import setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
-from .quit_actions import QuitActions
 from .screens.browser import BrowserScreen
 from .theme import (
     AUTO_NAMES,
@@ -107,72 +102,6 @@ def _coerce_select_value(value, *, default=None):
     if not isinstance(value, (str, int, float, bool)):
         return default
     return value
-
-
-class InteractiveSessionsModal(QuitActions, ModalScreen[tuple[str, bool] | None]):
-    """Prompt for a follow-up on awaiting sessions (sessions home).
-
-    Dismisses with ``(prompt, final_turn)`` or ``None`` on cancel. When
-    *final_turn* is true, the gate runs this turn then stops awaiting
-    (same as the browser pending bar). Mark-done (``e``) remains separate.
-    """
-
-    BINDINGS = list(FORM_SAVE)
-
-    def __init__(self, *, n_awaiting: int) -> None:
-        super().__init__()
-        self._n = max(1, int(n_awaiting))
-
-    def compose(self) -> ComposeResult:
-        with Container(id="interactive-sessions-modal"):
-            yield Label(U.interactive_modal_title(self._n), id="interactive-modal-title")
-            yield Input(placeholder=U.follow_up_placeholder(), id="interactive-follow-input")
-            yield Checkbox(
-                t("follow-up-last-turn"),
-                id="interactive-follow-last-turn",
-                value=False,
-            )
-            with Horizontal(id="interactive-modal-actions", classes="modal-footer"):
-                yield Button(U.send(), variant="primary", id="interactive-send")
-                yield Button(U.cancel(), id="interactive-cancel")
-
-    def on_mount(self) -> None:
-        with suppress(Exception):
-            self.query_one("#interactive-follow-input", Input).focus()
-
-    def action_save(self) -> None:
-        self._submit_follow()
-
-    def action_cancel(self) -> None:
-        from .bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
-
-    @on(Button.Pressed, "#interactive-send")
-    def _on_send(self) -> None:
-        self._submit_follow()
-
-    @on(Button.Pressed, "#interactive-cancel")
-    def _on_cancel_btn(self) -> None:
-        self.dismiss(None)
-
-    @on(Input.Submitted, "#interactive-follow-input")
-    def _on_submit_input(self) -> None:
-        self._submit_follow()
-
-    def _submit_follow(self) -> None:
-        try:
-            text = self.query_one("#interactive-follow-input", Input).value.strip()
-        except Exception:
-            text = ""
-        if not text:
-            with suppress(Exception):
-                self.notify(U.follow_up_empty(), severity="warning", timeout=2)
-            return
-        final = False
-        with suppress(Exception):
-            final = bool(self.query_one("#interactive-follow-last-turn", Checkbox).value)
-        self.dismiss((text, final))
 
 
 def _attach_catalog_flags(meta: SessionMeta) -> None:
@@ -1811,166 +1740,6 @@ class AnqaApp(App):
                 return m
         return None
 
-    def action_mark_sessions_done(self) -> None:
-        """``e`` — end awaiting sessions (mark done)."""
-        targets = self._awaiting_targets_or_toast()
-        if not targets:
-            return
-        errors = self._apply_done_to_paths(targets)
-        self._refresh_session_meta_rows(targets)
-        self.refresh_bindings()
-        if errors:
-            self._toast(
-                t("notify-failed-for", errors=errors, total=len(targets)),
-                severity="warning",
-                timeout=3.0,
-            )
-        else:
-            self._toast(
-                t("mark-sessions-done-requested", n=len(targets)),
-                severity="information",
-                timeout=3.0,
-            )
-
-    def action_follow_up_sessions(self) -> None:
-        """``n`` — next prompt for awaiting selection."""
-        targets = self._awaiting_targets_or_toast()
-        if not targets:
-            return
-
-        def _apply(result: tuple[str, bool] | None) -> None:
-            if not result:
-                return
-            prompt, final = result
-            errors = self._apply_follow_up_to_paths(targets, prompt, final=final)
-            self._refresh_session_meta_rows(targets)
-            self.refresh_bindings()
-            if errors:
-                self._toast(
-                    t("notify-failed-for", errors=errors, total=len(targets)),
-                    severity="warning",
-                    timeout=3.0,
-                )
-            elif final:
-                self._toast(
-                    t("follow-up-sent-final-n", n=len(targets)),
-                    severity="information",
-                    timeout=2.5,
-                )
-
-        self.push_screen(InteractiveSessionsModal(n_awaiting=len(targets)), _apply)
-
-    def _toast(
-        self,
-        message: str,
-        *,
-        severity: str = "information",
-        timeout: float = 2.0,
-        replace: bool = True,
-    ) -> None:
-        """Short status toast (optionally clearing prior notifications)."""
-        from typing import Literal, cast
-
-        sev = cast(Literal["information", "warning", "error"], severity)
-
-        def _show() -> None:
-            if replace:
-                with suppress(Exception):
-                    self.clear_notifications()
-            self.notify(message, severity=sev, timeout=timeout)
-
-        call_ui(self, _show)
-
-    def _session_action_targets(self) -> list[Path]:
-        """Selected session dirs, or the cursor row if nothing is selected."""
-        if self._selected:
-            return [Path(p) for p in self._selected]
-        table = self.query_one("#session-table", DataTable)
-        cursor_key = self._session_row_key_at_cursor(table)
-        if cursor_key:
-            return [Path(cursor_key)]
-        return []
-
-    def _refresh_session_meta_rows(self, paths: list[Path]) -> None:
-        """Reload meta for *paths* and repaint the session table."""
-        if not paths:
-            return
-        want = {str(p) for p in paths}
-        updated: list[tuple[SessionMeta, str]] = []
-        for meta, label in self._meta_only:
-            key = str(meta.session_dir)
-            if key in want:
-                try:
-                    reloaded = require_adapter(meta.session_dir).load_detail(meta.session_dir)
-                    if reloaded is not None:
-                        meta = reloaded
-                except Exception:
-                    logger.debug(t("ui-reload-meta-failed-for-s"), key, exc_info=True)
-            updated.append((meta, label))
-        self._meta_only = updated
-        with suppress(Exception):
-            self._populate_session_table()
-
-    def _awaiting_session_targets(self) -> list[Path]:
-        """Subset of action targets that are awaiting a follow-up."""
-        from ..session.turn_gate import session_awaits_follow_up
-
-        targets = self._session_action_targets()
-        if not targets:
-            return []
-        by_path = {str(m.session_dir): m for m, _ in self._meta_only}
-        out: list[Path] = []
-        for path in targets:
-            meta = by_path.get(str(path))
-            if meta is not None and meta.turn_in_progress:
-                out.append(path)
-                continue
-            try:
-                if session_awaits_follow_up(path):
-                    out.append(path)
-            except Exception:
-                logger.debug(t("ui-awaiting-check-failed-for-s"), path, exc_info=True)
-        return out
-
-    def _apply_follow_up_to_paths(
-        self, paths: list[Path], prompt: str, *, final: bool = False
-    ) -> int:
-        from ..session.turn_gate import write_follow_up_for_session
-
-        errors = 0
-        for path in paths:
-            try:
-                write_follow_up_for_session(path, prompt, final=final)
-            except Exception:
-                errors += 1
-                logger.debug(t("ui-follow-up-failed-for-s"), path, exc_info=True)
-                continue
-            # Per-session gate only. Multi-select applies once per path; do not
-            # also submit_follow_up(run_id=…) which fans out to all siblings.
-        return errors
-
-    def _apply_done_to_paths(self, paths: list[Path]) -> int:
-        from ..session.turn_gate import write_done_for_session
-
-        errors = 0
-        for path in paths:
-            try:
-                write_done_for_session(path)
-            except Exception:
-                errors += 1
-                logger.debug(t("ui-mark-done-failed-for-s"), path, exc_info=True)
-        return errors
-
-    def _awaiting_targets_or_toast(self) -> list[Path]:
-        targets = self._awaiting_session_targets()
-        if targets:
-            return targets
-        if not self._session_action_targets():
-            self._toast(U.select_session_first(), severity="warning", timeout=2.0)
-        else:
-            self._toast(U.no_awaiting_sessions(), severity="warning", timeout=2.5)
-        return []
-
     def _sessions_home_active(self) -> bool:
         """True when the sessions list screen is on top (not a pushed screen/modal)."""
         try:
@@ -1983,16 +1752,11 @@ class AnqaApp(App):
         action: str,
         parameters: tuple[object, ...],  # Textual Screen.check_action
     ) -> bool | None:
-        """Gate session-home bindings so they do not leak into pushed-screen footers.
-
-        ``n`` / ``e`` need an awaiting multi-turn target.
-        """
+        """Gate session-home bindings so they do not leak into pushed-screen footers."""
         if action == "leader_idle":
             return bool(self._leader_armed)
         if action in SESSION_HOME_ACTIONS and not self._sessions_home_active():
             return False
-        if action in ("follow_up_sessions", "mark_sessions_done"):
-            return bool(self._awaiting_session_targets())
         return True
 
     def action_delete_sessions(self) -> None:

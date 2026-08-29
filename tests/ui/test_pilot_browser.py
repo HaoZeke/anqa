@@ -11,11 +11,6 @@ import threading
 from pathlib import Path
 
 import pytest
-from anqa.session.turn_gate import (
-    list_queued_follow_ups,
-    read_turn_gate_status,
-    session_awaits_follow_up,
-)
 from anqa.ui.app import AnqaApp
 from anqa.ui.bindings import focus_primary_list
 from anqa.ui.data_table import cursor_row_key
@@ -168,7 +163,7 @@ async def _activate_tab(pilot, screen: BrowserScreen, pane_id: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_mounts_timeline_and_pending_bar(tmp_path: Path) -> None:
+async def test_browser_mounts_timeline_without_follow_up_bar(tmp_path: Path) -> None:
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     sess = _write_multi_turn_session(traces)
@@ -179,12 +174,9 @@ async def test_browser_mounts_timeline_and_pending_bar(tmp_path: Path) -> None:
         assert screen.meta is not None
         tl = screen.query_one("#timeline-list", TimelineTable)
         assert tl.row_count > 0
-        bar = screen.query_one("#session-pending-bar")
-        assert bar.display is True or screen._session_is_pending()
-        _ = screen.query_one("#session-pending-status", Static)
-        focused_id = getattr(screen.focused, "id", None)
-        assert focused_id != "session-follow-input"
-        assert screen.query_one("#session-follow-input", Input).value == ""
+        assert list(screen.query("#session-follow-input")) == []
+        assert list(screen.query("#session-pending-bar")) == []
+        assert getattr(screen.focused, "id", None) == "timeline-list"
 
 
 @pytest.mark.asyncio
@@ -330,64 +322,6 @@ async def test_browser_idle_awaiting_skips_live_timeline(tmp_path: Path) -> None
         assert "Pilot multi-turn" in chrome
         assert "LIVE" not in chrome
         assert "awaiting" not in chrome.lower()
-
-
-@pytest.mark.asyncio
-async def test_browser_follow_up_enter_and_queue(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        screen._refresh_session_pending_bar()
-        await pilot.pause()
-
-        inp = screen.query_one("#session-follow-input", Input)
-        inp.value = "pilot follow-up one"
-        inp.focus()
-        await pilot.pause()
-        await pilot.press("enter")
-
-        def gate_advanced() -> bool:
-            st = read_turn_gate_status(sess)
-            if st.get("state") in ("running", "done"):
-                return True
-            gate_root = traces / "anqa-pilot-run-m1"
-            return any(gate_root.glob(".anqa-turn*/command")) or bool(list_queued_follow_ups(sess))
-
-        await wait_until(pilot, gate_advanced, description="follow-up staged or queued")
-
-        screen._refresh_session_pending_bar()
-        await pilot.pause()
-        inp.value = "pilot follow-up two"
-        screen._session_follow_send()
-        await pilot.pause()
-        # Second send may queue; either way gate dir exists
-        assert (traces / "anqa-pilot-run-m1").is_dir()
-
-
-@pytest.mark.asyncio
-async def test_browser_mark_done_clears_pending(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(120, 40)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        screen._session_follow_done()
-        await wait_until(
-            pilot,
-            lambda: session_awaits_follow_up(sess) is False,
-            description="session no longer awaiting follow-up",
-        )
-        # Session-scoped Done writes command=done then stop_session_container
-        # finalizes the gate (clears control files, state=done) so the list does
-        # not stick on ending after the host kills the entrypoint.
-        st = read_turn_gate_status(sess)
-        assert st.get("state") == "done" or session_awaits_follow_up(sess) is False
 
 
 @pytest.mark.asyncio
@@ -1432,22 +1366,6 @@ async def test_browser_refresh_context(tmp_path: Path) -> None:
         await pilot.pause()
 
 
-# ── Focus follow-up field ────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_browser_focus_follow_up(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        screen.action_focus_follow_up()
-        await pilot.pause()
-
-
 # ── Focus timeline filter ───────────────────────────────────────────────
 
 
@@ -1462,9 +1380,6 @@ async def test_browser_focus_timeline_filter(tmp_path: Path) -> None:
         screen = await _open_browser(app, pilot, sess)
         screen.action_focus_timeline_filter()
         await pilot.pause()
-
-
-# ── check_action for follow-up ──────────────────────────────────────────
 
 
 def _shown_footer_actions(screen: BrowserScreen) -> set[str]:
@@ -1507,20 +1422,6 @@ async def test_browser_footer_hides_timeline_keys_off_timeline(tmp_path: Path) -
         assert "flag_event" not in shown
         assert "go_back" in shown
         assert "operator_note" in shown
-
-
-@pytest.mark.asyncio
-async def test_browser_check_action_follow_up(tmp_path: Path) -> None:
-    work = tmp_path / "work"
-    traces = work / "runs" / "traces"
-    sess = _write_multi_turn_session(traces)
-    app = _host_app(work, traces)
-
-    async with app.run_test(size=(140, 48)) as pilot:
-        screen = await _open_browser(app, pilot, sess)
-        for action in ("send_follow_up", "mark_session_done", "focus_follow_up"):
-            result = screen.check_action(action, ())
-            assert result in (True, False)
 
 
 # ── Open share (no URL) ─────────────────────────────────────────────────
