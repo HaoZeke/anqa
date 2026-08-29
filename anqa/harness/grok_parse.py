@@ -2447,11 +2447,12 @@ def load_session_meta_list(
     """List-grade metadata: summary, signals, and cheap turn outcome.
 
     Does not parse a timeline or read a multi-megabyte ``updates.jsonl``
-    body. Presence flags come from signals already loaded.
+    body. Does not infer a title from the trace. Presence flags come
+    from signals already loaded.
     """
     origin_key = (origin or "work").strip().lower() or "work"
     meta = SessionMeta(session_id=session_dir.name, session_dir=session_dir)
-    _load_summary(meta, session_dir)
+    _load_summary(meta, session_dir, infer_title=False)
     _load_signals(meta, session_dir)
     _apply_list_flags_from_signals(meta)
     if not meta.num_events and meta.num_messages:

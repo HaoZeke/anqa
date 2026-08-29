@@ -381,7 +381,8 @@ class TestLoadSessionMeta:
             assert meta.model_display == "grok-4.6"
             assert meta.tool_call_count == 2752
             assert meta.turn_count == 119
-            assert meta.title == "fix the missing session title"
+        assert listed.title == ""
+        assert full.title == "fix the missing session title"
 
     def test_untitled_compacted_chat_uses_first_updates_ask(self, tmp_path: Path) -> None:
         """After compaction, chat_history keeps a late ask; updates still has the first."""
