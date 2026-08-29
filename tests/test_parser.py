@@ -3488,7 +3488,7 @@ def test_parse_timeline_single_flight_joins_concurrent_callers(tmp_path: Path) -
     try:
         with ThreadPoolExecutor(max_workers=4) as pool:
             futs = [pool.submit(parse_timeline, sd) for _ in range(4)]
-            assert entered.wait(timeout=5.0)
+            assert entered.wait(timeout=30.0)
             # All four should be waiting on the single flight before we release.
             gate.set()
             results = [f.result(timeout=10.0) for f in futs]

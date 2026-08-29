@@ -1060,10 +1060,11 @@ def test_live_meta_heartbeat_worker_updates_and_dispatches(
             context_window_tokens=500000,
         )
 
-    monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.load_meta",
-        lambda self, _p: _load(_p),
-    )
+    class _HeartbeatAdapter:
+        def load_meta(self, path: Path) -> SessionMeta:
+            return _load(path)
+
+    monkeypatch.setattr(app_mod, "require_adapter", lambda _p: _HeartbeatAdapter())
     monkeypatch.setattr(app_mod, "call_ui", lambda _app, cb, *a, **k: cb(*a, **k))
     assert try_begin(KIND_REFRESH, locked) is True
     # Run the underlying function body synchronously (skip @work decorator scheduling).
@@ -1123,10 +1124,21 @@ async def test_live_poll_promotes_completed_multiturn_to_running(
         key = str(meta.session_dir.resolve())
         app._session_mtimes[key] = 1.0  # same mtime path still refreshes live outcomes
 
-        monkeypatch.setattr(
-            "anqa.harness.grok_parse.list_turn_outcome_for_dir",
-            lambda _sd: "running",
-        )
+        from anqa.models import SessionMeta
+        from anqa.ui import app as app_mod
+
+        class _LiveAdapter:
+            def trace_mtime(self, _sd: Path) -> float:
+                return 1.0
+
+            def list_turn_outcome(self, _sd: Path) -> str:
+                return "running"
+
+            def load_meta(self, sd: Path) -> SessionMeta:
+                return SessionMeta(session_id=sd.name, session_dir=sd, turn_outcome="running")
+
+        monkeypatch.setattr(app_mod, "require_adapter", lambda _sd: _LiveAdapter())
+        app._sessions_catalog_busy = False
         app._live_sessions_last_scan = 0.0
         app._live_full_walk_last = 0.0
         # Idle walk must re-find the session so the known-session path runs.

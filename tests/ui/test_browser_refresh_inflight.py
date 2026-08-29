@@ -31,6 +31,34 @@ def _screen(sd: Path) -> BrowserScreen:
     return BrowserScreen(sd)
 
 
+class _RefreshAdapter:
+    """Adapter the browser actually calls via ``require_adapter``."""
+
+    def __init__(
+        self,
+        *,
+        stamp: tuple[float, int, int, int],
+        load_meta: object | None = None,
+        parse_timeline: object | None = None,
+    ) -> None:
+        self._stamp = stamp
+        self._load_meta = load_meta
+        self._parse_timeline = parse_timeline
+
+    def timeline_stamp(self, _ref: object) -> tuple[float, int, int, int]:
+        return self._stamp
+
+    def load_meta(self, _ref: object) -> object:
+        assert self._load_meta is not None
+        return self._load_meta(_ref) if callable(self._load_meta) else self._load_meta
+
+    def parse_timeline(self, _ref: object) -> object:
+        assert self._parse_timeline is not None
+        if callable(self._parse_timeline):
+            return self._parse_timeline(_ref)
+        return self._parse_timeline
+
+
 def test_live_refresh_skips_second_enqueue(tmp_path: Path) -> None:
     sd = tmp_path / "019f-sess"
     sd.mkdir()
@@ -143,22 +171,19 @@ def test_load_data_light_heartbeat_reloads_meta(tmp_path: Path, monkeypatch) -> 
     calls: list[str] = []
 
     monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.timeline_stamp",
-        lambda self, _p: (1.0, 0, 0, 0),
-    )
-    monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.load_meta",
-        lambda self, _p: SessionMeta(
-            session_id="s",
-            session_dir=sd,
-            context_window_usage_pct=35,
-            context_tokens_used=178996,
-            context_window_tokens=500000,
+        browser_mod,
+        "require_adapter",
+        lambda _ref: _RefreshAdapter(
+            stamp=(1.0, 0, 0, 0),
+            load_meta=lambda _p: SessionMeta(
+                session_id="s",
+                session_dir=sd,
+                context_window_usage_pct=35,
+                context_tokens_used=178996,
+                context_window_tokens=500000,
+            ),
+            parse_timeline=lambda _p: calls.append("parse") or [],
         ),
-    )
-    monkeypatch.setattr(
-        "anqa.harness.grok.parse_timeline",
-        lambda _p: calls.append("parse") or [],
     )
 
     def _call_ui(_app, cb, *a, **k):
@@ -207,16 +232,13 @@ def test_load_data_light_skips_meta_on_noise_fs_tick(tmp_path: Path, monkeypatch
     )
     calls: list[str] = []
     monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.timeline_stamp",
-        lambda self, _p: (1.0, 0, 0, 0),
-    )
-    monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.load_meta",
-        lambda *_a, **_k: calls.append("meta") or screen.meta,
-    )
-    monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.parse_timeline",
-        lambda self, _p: calls.append("parse") or [],
+        browser_mod,
+        "require_adapter",
+        lambda _ref: _RefreshAdapter(
+            stamp=(1.0, 0, 0, 0),
+            load_meta=lambda *_a, **_k: calls.append("meta") or screen.meta,
+            parse_timeline=lambda _p: calls.append("parse") or [],
+        ),
     )
     monkeypatch.setattr(
         browser_mod,
@@ -258,16 +280,13 @@ def test_load_data_light_always_parses_on_stamp_change(tmp_path: Path, monkeypat
     new_ev = TraceEvent(index=1, timestamp=2.0, event_type="tool_call", content="bash")
     calls: list[str] = []
     monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.timeline_stamp",
-        lambda self, _p: (2.0, 99, 0, 0),
-    )
-    monkeypatch.setattr(
-        "anqa.harness.grok.parse_timeline",
-        lambda _p: calls.append("parse") or [*screen.timeline, new_ev],
-    )
-    monkeypatch.setattr(
-        "anqa.harness.grok.GrokAdapter.load_meta",
-        lambda *_a, **_k: calls.append("meta") or screen.meta,
+        browser_mod,
+        "require_adapter",
+        lambda _ref: _RefreshAdapter(
+            stamp=(2.0, 99, 0, 0),
+            load_meta=lambda *_a, **_k: calls.append("meta") or screen.meta,
+            parse_timeline=lambda _p: calls.append("parse") or [*screen.timeline, new_ev],
+        ),
     )
     monkeypatch.setattr(
         browser_mod,
