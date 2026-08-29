@@ -79,11 +79,6 @@ pub fn session_notice(title: &str, sid: &str, from: &str, to: &str) -> Option<De
             body: format!("{label} is waiting for follow-up or Done"),
             urgency: UrgencyKind::Normal,
         },
-        "complete" => DesktopNotice {
-            summary: "Session complete".into(),
-            body: label,
-            urgency: UrgencyKind::Low,
-        },
         "cancelled" => DesktopNotice {
             summary: "Session cancelled".into(),
             body: label,
@@ -105,8 +100,8 @@ pub fn notice_row_key(sid: &str) -> String {
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
 ///
 /// Hydrate flicker (complete → running → complete) is stopped in
-/// ``merge_catalog_rows``. ``ending`` → ``complete`` stays silent (Done
-/// already acknowledged). ``running`` → ``complete`` still posts.
+/// ``merge_catalog_rows``. List ``complete`` is turn-idle (the last turn
+/// finished; another prompt can follow). Do not notify for that.
 pub fn notices_from_rows(
     seen: &mut HashMap<String, String>,
     rows: &[(String, String, String)],
@@ -272,7 +267,6 @@ fn normalize(status: &str) -> String {
 fn notice_kind(status: &str) -> Option<&'static str> {
     match normalize(status).as_str() {
         "awaiting" => Some("awaiting"),
-        "complete" => Some("complete"),
         "cancelled" => Some("cancelled"),
         "error" => Some("error"),
         _ => None,
@@ -326,12 +320,11 @@ mod tests {
     }
 
     #[test]
-    fn running_to_complete_notifies() {
+    fn running_to_complete_is_silent() {
         let mut seen = HashMap::from([("abc".into(), "running".into())]);
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        let notes = notices_from_rows(&mut seen, &rows, false);
-        assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].summary, "Session complete");
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
+        assert_eq!(seen.get("abc").map(String::as_str), Some("complete"));
     }
 
     #[test]
@@ -342,17 +335,16 @@ mod tests {
     }
 
     #[test]
-    fn awaiting_to_complete_notifies() {
+    fn awaiting_to_complete_is_silent() {
         let mut seen = HashMap::from([("abc".into(), "awaiting".into())]);
         let rows = vec![("abc".into(), "Demo".into(), "complete".into())];
-        let notes = notices_from_rows(&mut seen, &rows, false);
-        assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].summary, "Session complete");
+        assert!(notices_from_rows(&mut seen, &rows, false).is_empty());
     }
 
     #[test]
     fn running_is_silent() {
         assert!(session_notice("t", "s", "pending", "running").is_none());
+        assert!(session_notice("t", "s", "running", "complete").is_none());
     }
 
     #[test]
